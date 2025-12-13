@@ -9,41 +9,31 @@ export { UserTokenEntity, UserTokenType, UserTokenStatus } from './user-token.en
 // Project Request Entities
 export { ProjectRequestEntity, RequestStatus } from './project-request.entity';
 export { WizardQuestionEntity } from './wizard-question.entity';
-export {
-  WizardOptionEntity,
-  ProjectRequestAnswerEntity,
-  ProjectRequestProposalEntity,
-  ProjectEntity,
-  ProjectStatus,
-  PricingModel,
-  ProjectCategoryEntity,
-  MilestoneEntity,
-  MilestoneStatus,
-  TaskEntity,
-  TaskStatus,
-  ContractEntity,
-  DigitalSignatureEntity,
-  DocumentEntity,
-  DocType,
-} from './project-entities';
+export { WizardOptionEntity } from './wizard-option.entity';
+export { ProjectRequestAnswerEntity } from './project-request-answer.entity';
+export { ProjectRequestProposalEntity } from './project-request-proposal.entity';
+
+// Project Management Entities
+export { ProjectEntity, ProjectStatus, PricingModel } from './project.entity';
+export { ProjectCategoryEntity } from './project-category.entity';
+export { MilestoneEntity, MilestoneStatus } from './milestone.entity';
+export { TaskEntity, TaskStatus } from './task.entity';
+export { ContractEntity } from './contract.entity';
+export { DigitalSignatureEntity } from './digital-signature.entity';
+export { DocumentEntity, DocType } from './document.entity';
 
 // Payment & Wallet Entities
-export {
-  WalletEntity,
-  TransactionEntity,
-  TransactionType,
-  TransactionStatus,
-  MilestonePaymentEntity,
-  PayoutRequestEntity,
-  PayoutStatus,
-  PlatformSettingsEntity,
-  DisputeEntity,
-  DisputeStatus,
-  TrustScoreHistoryEntity,
-  UserFlagEntity,
-  ReviewEntity,
-  VerificationDocumentEntity,
-  VerificationStatus,
-  NotificationEntity,
-  AuditLogEntity,
-} from './payment-trust-entities';
+export { WalletEntity } from './wallet.entity';
+export { TransactionEntity, TransactionType, TransactionStatus } from './transaction.entity';
+export { MilestonePaymentEntity } from './milestone-payment.entity';
+export { PayoutRequestEntity, PayoutStatus } from './payout-request.entity';
+export { PlatformSettingsEntity } from './platform-settings.entity';
+
+// Trust & Dispute Entities
+export { DisputeEntity, DisputeStatus } from './dispute.entity';
+export { TrustScoreHistoryEntity } from './trust-score-history.entity';
+export { UserFlagEntity } from './user-flag.entity';
+export { ReviewEntity } from './review.entity';
+export { VerificationDocumentEntity, VerificationStatus } from './verification-document.entity';
+export { NotificationEntity } from './notification.entity';
+export { AuditLogEntity } from './audit-log.entity';

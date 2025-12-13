@@ -1,0 +1,597 @@
+// Paste toàn bộ nội dung này vào dbdiagram.io
+
+Project Software_Brokerage_Platform {
+  database_type: 'PostgreSQL'
+  Note: 'Đồ án tốt nghiệp: Nền tảng môi giới phần mềm cho SME'
+}
+
+// --- ENUMS (Định nghĩa các trạng thái & loại) ---
+
+Enum user_role {
+  ADMIN
+  STAFF
+  BROKER
+  CLIENT
+  FREELANCER
+}
+
+Enum request_status {
+  PENDING     // Vừa tạo, chưa ai xử lý
+  PROCESSING  // Broker đang phân tích
+  APPROVED    // Đã chuyển thành Project
+  REJECTED    // Từ chối (spam, không khả thi)
+  CANCELED    // Client hủy
+}
+
+Enum project_status {
+  PLANNING    // Đang tìm freelancer, thương lượng
+  IN_PROGRESS // Đang code
+  TESTING     // UAT
+  COMPLETED   // Đã bàn giao xong
+  DISPUTED    // Đang tranh chấp
+  CANCELED
+}
+
+Enum milestone_status {
+  PENDING
+  IN_PROGRESS
+  LOCKED      // Tiền đã nạp vào escrow
+  COMPLETED   // Freelancer đã làm xong
+  PAID        // Client đã giải ngân
+}
+
+Enum doc_type {
+  SRS         // Software Requirements Specification
+  SDS         // Software Design Specification
+  MOCKUP      // UI/UX Design
+  REPORT      // Báo cáo tiến độ
+  OTHER
+}
+
+Enum task_status {
+  TODO 
+  IN_PROGRESS 
+  IN_REVIEW
+  REVISIONS_REQUIRED
+  BLOCKED
+  DONE
+}
+
+Enum transaction_type {
+  DEPOSIT     // Client nạp tiền vào ví
+  HOLD        // Giữ tiền escrow cho milestone
+  RELEASE     // Giải ngân cho freelancer
+  REFUND      // Hoàn tiền về cho client
+  WITHDRAWAL  // Freelancer rút tiền ra tài khoản
+}
+
+Enum transaction_status {
+  PENDING
+  SUCCESS
+  FAILED
+  CANCELED
+}
+
+Enum user_token_type {
+  EMAIL_VERIFICATION  // Xác thực email
+  PASSWORD_RESET      // Quên mật khẩu
+}
+
+Enum user_token_status {
+  PENDING   // Tạo ra, chưa dùng
+  USED      // Đã dùng xong
+  REVOKED   // Bị hủy/bỏ
+}
+
+Enum dispute_status {
+  OPEN
+  IN_REVIEW
+  RESOLVED
+  REJECTED
+}
+
+Enum payout_status {
+  PENDING
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+Enum verification_status {
+  PENDING
+  VERIFIED
+  REJECTED
+}
+
+// --- USER & AUTHENTICATION ---
+
+Table users {
+  id serial [pk, increment]
+  email varchar [unique, not null]
+  password_hash varchar [note: 'Null nếu chỉ login bằng Google']
+  full_name varchar [not null]
+  role user_role [not null, default: 'CLIENT', note: 'Default: CLIENT']
+  phone_number varchar
+  is_verified boolean [default: false, note: 'Đã xác thực email/sđt hay chưa']
+  current_trust_score decimal(3,2) [default: 5.00, note: 'Điểm tín nhiệm 0-5']
+  created_at timestamp [default: 'now()']
+  updated_at timestamp
+
+  Note: 'Tài khoản người dùng chung cho Client/Broker/Freelancer/Admin'
+}
+
+Table social_accounts {
+  id serial [pk, increment]
+  user_id int [not null, ref: > users.id]
+  provider varchar [not null, note: 'VD: google']
+  provider_id varchar [not null, note: 'Sub ID từ Google']
+  email varchar [note: 'Email từ Google, có thể khác email chính']
+  avatar_url varchar
+  payload jsonb [note: 'Lưu toàn bộ response từ Google nếu cần']
+  created_at timestamp [default: 'now()']
+
+  Note: 'Liên kết đăng nhập social (Google, GitHub, ...)'
+}
+
+Table profiles {
+  id serial [pk, increment]
+  user_id int [not null, ref: - users.id, note: 'Quan hệ 1-1']
+  bio text
+  company_name varchar [note: 'Dành cho Client']
+  skills text[] [note: 'Dành cho Freelancer/Broker. VD: [React, NestJS]']
+  portfolio_links jsonb [note: 'Dành cho Freelancer. VD: [{title: "Web A", url: "..."}]']
+  bank_info jsonb [note: 'Thông tin nhận tiền (mã hóa), phục vụ payout']
+
+  Note: 'Thông tin mở rộng cho hồ sơ user (CV, công ty, kỹ năng)'
+}
+
+Table saved_freelancers {
+  id serial [pk, increment]
+  client_id int [not null, ref: > users.id]
+  freelancer_id int [not null, ref: > users.id]
+  created_at timestamp [default: 'now()']
+
+  Note: 'Client lưu danh sách Freelancer ưa thích'
+  
+  Indexes {
+    (client_id, freelancer_id) [unique]
+  }
+}
+
+// --- AUTH SESSIONS & EMAIL TOKENS ---
+
+Table auth_sessions {
+  id serial [pk, increment]
+  user_id int [not null, ref: > users.id]
+
+  // --- Refresh token info ---
+  refresh_token_hash varchar [not null, note: 'Hash SHA256 của refresh token, không lưu raw token']
+  user_agent varchar [note: 'Chuỗi User-Agent của browser/app']
+  ip_address varchar [note: 'IP gần nhất khi login/refresh']
+
+  // --- Trạng thái phiên ---
+  is_revoked boolean [default: false, note: 'Phiên đã bị revoke (phát hiện reuse, user logout, admin khóa tài khoản,...)']
+  revoked_at timestamp [note: 'Thời điểm phiên bị revoke. Dùng để kill access token đã phát hành trước đó']
+
+  expires_at timestamp [not null, note: 'Refresh token hết hạn (không refresh được nữa)']
+  created_at timestamp [default: 'now()']
+  last_used_at timestamp [note: 'Lần cuối refresh/access']
+
+  // --- Rotation chain ---
+  replaced_by_session_id int [ref: > auth_sessions.id, note: 'Phiên mới được tạo từ phiên này trong cơ chế refresh token rotation']
+
+  // --- Kiểm soát access token ---
+  valid_access_from timestamp [note: 'Chỉ accept access token có iat >= thời điểm này. Có thể set = now() khi nghi ngờ token bị lộ']
+
+  Note: 'Lưu phiên đăng nhập dài hạn dùng refresh token, hỗ trợ rotation, detect reuse và revoke access token theo chain'
+}
+
+Table user_tokens {
+  id serial [pk, increment]
+  user_id int [not null, ref: > users.id]
+  type user_token_type [not null]
+
+  token_hash varchar [not null, note: 'Hash của token gửi qua email (verify/reset), không lưu raw token']
+  status user_token_status [not null, default: 'PENDING', note: 'Chống replay']
+  max_uses int [default: 1, note: 'Số lần tối đa cho phép dùng token (email verify/reset thường = 1)']
+  use_count int [default: 0, note: 'Số lần đã sử dụng token']
+
+  expires_at timestamp [not null]
+  used_at timestamp
+
+  created_ip varchar [note: 'IP khi tạo token (optional, để audit)']
+  last_used_ip varchar [note: 'IP khi dùng token lần cuối']
+  last_used_user_agent varchar [note: 'UA khi dùng token lần cuối']
+
+  created_at timestamp [default: 'now()']
+
+  Note: 'Token gửi qua email: xác thực tài khoản, quên mật khẩu,... Có trạng thái và counter để chống replay'
+}
+
+// --- PRE-PROJECT (Yêu cầu đầu vào) ---
+
+Table project_requests {
+  id serial [pk, increment]
+  client_id int [not null, ref: > users.id]
+  title varchar [not null]
+  description text [note: 'Mô tả sơ bộ của Client']
+  budget_range varchar [note: 'VD: 10-20 triệu']
+  intended_timeline varchar
+  tech_preferences varchar
+
+  status request_status [default: 'PENDING', note: 'Trạng thái xử lý yêu cầu']
+  broker_id int [ref: > users.id, note: 'Broker nào đang xử lý request này']
+  created_at timestamp [default: 'now()']
+
+  Note: 'Nơi Client nhập yêu cầu ban đầu (Wizard Input)'
+}
+
+Table wizard_questions {
+  id serial [pk, increment]
+  code varchar [unique, not null, note: 'VD: BUSINESS_TYPE, BUDGET_LEVEL']
+  label text [not null]
+  help_text text
+  input_type varchar [note: 'single_choice, multi_choice, text, number, range']
+  is_active boolean [default: true]
+  sort_order int
+  created_at timestamp [default: 'now()']
+
+  Note: 'Câu hỏi trong wizard mô tả dự án'
+}
+
+Table wizard_options {
+  id serial [pk, increment]
+  question_id int [not null, ref: > wizard_questions.id]
+  value varchar [not null, note: 'Giá trị machine-readable, VD: WEB_APP, MOBILE_APP']
+  label text [not null, note: 'Label hiển thị cho user']
+  sort_order int
+
+  Note: 'Các lựa chọn cho câu hỏi dạng select/radio/checkbox'
+}
+
+Table project_request_answers {
+  id serial [pk, increment]
+  request_id int [not null, ref: > project_requests.id]
+  question_id int [not null, ref: > wizard_questions.id]
+  option_id int [ref: > wizard_options.id, note: 'NULL nếu câu hỏi là free-text']
+  value_text text [note: 'Giá trị nhập tự do nếu không dùng option']
+
+  Note: 'Câu trả lời chi tiết cho từng câu hỏi trong wizard'
+}
+
+// Freelancer gửi đề xuất (proposal) cho một request
+Table project_request_proposals {
+  id serial [pk, increment]
+  request_id int [not null, ref: > project_requests.id]
+  freelancer_id int [not null, ref: > users.id]
+  broker_id int [ref: > users.id, note: 'Broker tư vấn/đề xuất shortlist']
+
+  proposed_budget decimal(15,2)
+  estimated_duration varchar [note: 'VD: 4-6 tuần']
+  cover_letter text [note: 'Freelancer giới thiệu về giải pháp, kinh nghiệm']
+
+  status varchar [note: 'PENDING, ACCEPTED, REJECTED, WITHDRAWN']
+  created_at timestamp [default: 'now()']
+
+  Note: 'Đề xuất của Freelancer cho một project_request (đấu thầu)'
+  
+  Indexes {
+    (request_id, freelancer_id) [unique, note: 'Một freelancer chỉ gửi 1 proposal cho mỗi request']
+  }
+}
+
+// --- PROJECT MANAGEMENT (Core) ---
+
+Table projects {
+  id serial [pk, increment]
+  request_id int [ref: - project_requests.id, note: 'Từ request nào mà ra']
+  client_id int [not null, ref: > users.id]
+  broker_id int [not null, ref: > users.id]
+  freelancer_id int [ref: > users.id, note: 'Null lúc đầu, update khi chọn được Dev']
+
+  title varchar [not null]
+  description text [note: 'Mô tả chi tiết sau khi Broker đã chốt']
+
+  total_budget decimal(15,2)
+  currency varchar [default: 'VND', note: 'Đơn vị tiền tệ cho budget']
+  pricing_model varchar [note: 'VD: FIXED_PRICE hoặc TIME_MATERIALS']
+
+  start_date timestamp
+  end_date timestamp
+
+  status project_status [default: 'PLANNING', note: 'Trạng thái tổng thể của project']
+  created_at timestamp [default: 'now()']
+  updated_at timestamp
+
+  Note: 'Project chính thức sau khi request được duyệt và chọn Freelancer'
+}
+
+Table project_categories {
+  id serial [pk, increment]
+  name varchar [not null]
+  slug varchar [unique]
+  created_at timestamp [default: 'now()']
+}
+
+Table project_category_map {
+  project_id int [not null, ref: > projects.id]
+  category_id int [not null, ref: > project_categories.id]
+
+  Note: 'Project thuộc nhiều category (F&B, SaaS, Mobile, ...)'
+
+  Indexes {
+    (project_id, category_id) [unique]
+  }
+}
+
+Table milestones {
+  id serial [pk, increment]
+  project_id int [not null, ref: > projects.id]
+  title varchar [not null]
+  description text
+
+  amount decimal(15,2) [note: 'Số tiền cho giai đoạn này']
+  start_date timestamp
+  due_date timestamp
+
+  status milestone_status [default: 'PENDING']
+
+  proof_of_work varchar [note: 'Link tới file/commit chứng minh hoàn thành']
+  feedback text
+
+  sort_order int [note: 'Thứ tự hiển thị các milestone']
+  created_at timestamp [default: 'now()']
+
+  Note: 'Chia nhỏ project thành các giai đoạn để thanh toán theo milestone'
+}
+
+// --- WORKSPACE (Tasks) ---
+
+Table tasks {
+  id serial [pk, increment]
+  milestone_id int [not null, ref: > milestones.id]
+  project_id int [not null, ref: > projects.id]
+
+  title varchar [not null]
+  description text
+
+  status task_status [not null, default: 'TODO', note: 'Trạng thái task (Kanban)']
+  assigned_to int [ref: > users.id]
+  due_date timestamp
+  sort_order int [note: 'Thứ tự hiển thị trong milestone']
+
+  Note: 'Task chi tiết trong mỗi milestone (Kanban cho dev team)'
+}
+
+// --- CONTRACTS & DOCUMENTS ---
+
+Table contracts {
+  id serial [pk, increment]
+  project_id int [not null, ref: > projects.id]
+  title varchar
+  contract_url varchar [not null, note: 'Link file PDF trên Cloud storage']
+  terms_content text [note: 'Nội dung điều khoản text (để hiển thị nhanh)']
+
+  status varchar [note: 'DRAFT, SIGNED, TERMINATED']
+  created_by int [not null, ref: > users.id, note: 'Thường là Broker tạo']
+  created_at timestamp [default: 'now()']
+
+  Note: 'Hợp đồng giữa Client - Freelancer (qua nền tảng)'
+}
+
+Table digital_signatures {
+  id serial [pk, increment]
+  contract_id int [not null, ref: > contracts.id]
+  user_id int [not null, ref: > users.id]
+
+  signature_hash varchar [not null, note: 'Hash xác thực (SHA256) tại thời điểm ký']
+  ip_address varchar
+  signed_at timestamp [default: 'now()']
+
+  Note: 'Bảng này chứng minh Client/Freelancer đã đồng ý điều khoản'
+}
+
+Table documents {
+  id serial [pk, increment]
+  project_id int [not null, ref: > projects.id]
+  uploader_id int [not null, ref: > users.id]
+
+  name varchar [not null]
+  file_url varchar [not null]
+  type doc_type [not null]
+  version int [default: 1]
+
+  description text
+  created_at timestamp [default: 'now()']
+
+  Note: 'Lưu SRS, SDS, Wireframe, Meeting Notes,...'
+}
+
+Table verification_documents {
+  id serial [pk, increment]
+  user_id int [not null, ref: > users.id]
+
+  doc_type varchar [note: 'ID_CARD, PASSPORT, BUSINESS_LICENSE,...']
+  document_url varchar [not null, note: 'Link ảnh/scan giấy tờ']
+  status verification_status [default: 'PENDING']
+
+  submitted_at timestamp [default: 'now()']
+  verified_at timestamp
+  verified_by int [ref: > users.id, note: 'Admin/Staff duyệt']
+  reject_reason text
+
+  Note: 'Quy trình KYC để tăng trust cho user (Client/Freelancer/Broker)'
+}
+
+// --- PAYMENT / ESCROW SYSTEM ---
+
+Table wallets {
+  id serial [pk, increment]
+  user_id int [not null, ref: > users.id]
+  balance decimal(15,2) [default: 0]
+  currency varchar [default: 'VND']
+
+  created_at timestamp [default: 'now()']
+
+  Note: 'Ví nội bộ của user để nạp/rút/giữ tiền escrow'
+  
+  Indexes {
+    user_id [unique, note: 'Mỗi user 1 ví chính']
+  }
+}
+
+Table transactions {
+  id serial [pk, increment]
+  wallet_id int [not null, ref: > wallets.id]
+  amount decimal(15,2) [not null]
+  type transaction_type [not null]
+  status transaction_status [default: 'PENDING']
+
+  reference_type varchar [note: 'VD: MILESTONE, PROJECT, WITHDRAWAL_REQ']
+  reference_id int
+
+  created_at timestamp [default: 'now()']
+
+  Note: 'Lịch sử giao dịch trên ví (nạp, hold, release, refund, rút tiền)'
+}
+
+Table milestone_payments {
+  id serial [pk, increment]
+  milestone_id int [not null, ref: > milestones.id]
+
+  hold_transaction_id int [ref: > transactions.id, note: 'Giao dịch HOLD (Client nạp & khóa tiền)']
+  release_transaction_id int [ref: > transactions.id, note: 'Giao dịch RELEASE (giải ngân cho Freelancer)']
+
+  Note: 'Mapping giữa milestone và các giao dịch escrow liên quan'
+}
+
+Table payout_requests {
+  id serial [pk, increment]
+  wallet_id int [not null, ref: > wallets.id]
+  amount decimal(15,2) [not null]
+
+  status payout_status [default: 'PENDING']
+  requested_at timestamp [default: 'now()']
+  processed_at timestamp
+  processed_by int [ref: > users.id, note: 'Admin/Staff xử lý yêu cầu']
+  note text [note: 'Lý do từ chối hoặc ghi chú nội bộ']
+
+  Note: 'Freelancer yêu cầu rút tiền từ ví nội bộ ra tài khoản ngân hàng'
+}
+
+Table platform_settings {
+  key varchar [pk]
+  value jsonb
+  updated_at timestamp [default: 'now()']
+  updated_by int [ref: > users.id]
+
+  Note: 'Cấu hình hệ thống: phí nền tảng, min rút tiền, ...'
+}
+
+// --- DISPUTES & TRUST / ANTI-COLLUSION ---
+
+Table disputes {
+  id serial [pk, increment]
+  project_id int [not null, ref: > projects.id]
+  raised_by int [not null, ref: > users.id, note: 'Ai tạo tranh chấp']
+  against int [not null, ref: > users.id, note: 'Đối tượng bị khiếu nại (Client/Freelancer/Broker)']
+
+  reason text
+  resolution text
+  status dispute_status [default: 'OPEN']
+  resolved_at timestamp
+  created_at timestamp [default: 'now()']
+
+  Note: 'Quản lý tranh chấp giữa các bên trên nền tảng'
+}
+
+Table trust_score_history {
+  id serial [pk, increment]
+  user_id int [not null, ref: > users.id]
+
+  rating_score decimal(3,2)
+  behavior_score decimal(3,2)
+  dispute_score decimal(3,2)
+  verification_score decimal(3,2)
+  total_score decimal(3,2) [note: 'Tổng hợp ra điểm 0-5']
+
+  calculated_at timestamp [default: 'now()']
+
+  Note: 'Snapshot lịch sử tính toán Trust Score sau mỗi project/mốc quan trọng'
+}
+
+Table user_flags {
+  id serial [pk, increment]
+  user_id int [not null, ref: > users.id]
+
+  type varchar [note: 'VD: SUSPICIOUS_REVIEW, COLLUSION_RISK, HIGH_DISPUTE_RATE']
+  severity int [note: '1 = nhẹ, 5 = rất nghiêm trọng']
+  description text
+
+  created_at timestamp [default: 'now()']
+
+  Note: 'Cờ cảnh báo hành vi bất thường để đội vận hành kiểm tra'
+}
+
+// --- RATING SYSTEM ---
+
+Table reviews {
+  id serial [pk, increment]
+  project_id int [not null, ref: > projects.id]
+  reviewer_id int [not null, ref: > users.id]
+  target_user_id int [not null, ref: > users.id]
+
+  rating int [note: '1 đến 5 sao']
+  comment text
+
+  weight decimal(3,2) [default: 1.00, note: 'Trọng số review dựa trên độ uy tín của reviewer']
+  created_at timestamp [default: 'now()']
+
+  Note: 'Sau khi project xong, các bên review nhau để update Trust Score'
+
+  Indexes {
+    (project_id, reviewer_id, target_user_id) [unique, note: 'Một người chỉ review 1 lần cho 1 đối tượng trong 1 project']
+  }
+}
+
+// --- MESSAGING / COLLABORATION ---
+
+
+
+// --- NOTIFICATIONS ---
+
+Table notifications {
+  id serial [pk, increment]
+  user_id int [not null, ref: > users.id]
+
+  title varchar [not null]
+  body text
+
+  is_read boolean [default: false]
+  read_at timestamp
+
+  related_type varchar [note: 'PROJECT, MILESTONE, REVIEW, CONTRACT,...']
+  related_id int
+
+  created_at timestamp [default: 'now()']
+
+  Note: 'Thông báo đẩy trong hệ thống (chuông notification)'
+}
+
+// --- AUDIT LOGS ---
+
+Table audit_logs {
+  id serial [pk, increment]
+  actor_id int [not null, ref: > users.id, note: 'Ai thực hiện hành động']
+  action varchar [not null, note: 'VD: UPDATE_MILESTONE_STATUS, APPROVE_PROJECT']
+
+  entity_type varchar [not null, note: 'MILESTONE, PROJECT, CONTRACT, USER,...']
+  entity_id int [not null]
+
+  before_data jsonb [note: 'Dữ liệu trước khi thay đổi (optional)']
+  after_data jsonb [note: 'Dữ liệu sau khi thay đổi (optional)']
+
+  created_at timestamp [default: 'now()']
+
+  Note: 'Lưu vết audit để tăng tính minh bạch & truy vết tranh chấp'
+}

@@ -66,7 +66,7 @@ export class User {
 
 ```bash
 cd server
-yarn typeorm migration:generate -n AddPhoneToUsers
+yarn migration:generate src/database/migrations/UpdateDatabase  
 ```
 
 **Nó sẽ tạo file:** `src/database/migrations/1733686800001-AddPhoneToUsers.ts`
