@@ -3,30 +3,51 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 
 @Module({
   imports: [
+    // 1. Cấu hình ConfigModule đọc file .env tại thư mục gốc
     ConfigModule.forRoot({
-      envFilePath: '../.env',
+      envFilePath: '.env', // Sửa từ '../.env' thành '.env'
       isGlobal: true,
     }),
+
+    // 2. Cấu hình TypeORM lấy đúng key từ .env
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
+      inject: [ConfigService],
       useFactory: (configService: ConfigService) => ({
         type: 'postgres',
-        host: 'localhost',
+
+        // Sửa: Lấy host từ env, không hardcode localhost
+        host: configService.get<string>('DB_HOST'),
+
         port: parseInt(configService.get<string>('DB_PORT') || '5432'),
-        username: configService.get<string>('DB_USER'),
+
+        // Sửa: Key đúng là DB_USERNAME (khớp với .env)
+        username: configService.get<string>('DB_USERNAME'),
+
+        // Password
         password: configService.get<string>('DB_PASSWORD'),
-        database: configService.get<string>('DB_NAME'),
+
+        // Sửa: Key đúng là DB_DATABASE (khớp với .env)
+        database: configService.get<string>('DB_DATABASE'),
+
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
-        synchronize: false, // Set to false in production
-        migrationsRun: false,
+
+        // Development settings
+        synchronize: false, // Tắt sync vì bạn đang dùng migration
         logging: true,
-        
+
+        // Sửa: Supabase BẮT BUỘC phải có SSL
+        ssl: {
+          rejectUnauthorized: false,
+        },
       }),
-      inject: [ConfigService],
     }),
+
+    AuditLogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
