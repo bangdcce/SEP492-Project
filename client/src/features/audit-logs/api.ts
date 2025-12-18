@@ -1,25 +1,62 @@
 import { apiClient } from "@/shared/api/client";
-import type { AuditLog, AuditLogFilters, AuditLogListResponse } from "./types";
+import type { AuditLogEntry, AuditLogFilters } from "./types";
+
+/**
+ * API Query Parameters - khớp với GetAuditLogsDto trên server
+ */
+export interface GetAuditLogsParams {
+  page?: number;
+  limit?: number;
+  userId?: number;
+  entityType?: string;
+  action?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  riskLevel?: string;
+}
+
+/**
+ * API Response structure từ server
+ */
+export interface AuditLogsResponse {
+  data: AuditLogEntry[];
+  meta: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
+}
 
 /**
  * Audit Logs API Endpoints
  */
 const ENDPOINTS = {
-  BASE: "/audit-logs",
-  BY_ID: (id: number) => `/audit-logs/${id}`,
+  AUDIT_LOGS: "/audit-logs",
 };
 
 /**
  * Audit Logs API Service
- * All methods support AbortSignal for cancellation
  */
 export const auditLogsApi = {
-  getAll: (filters?: AuditLogFilters, signal?: AbortSignal) =>
-    apiClient.get<AuditLogListResponse>(ENDPOINTS.BASE, {
-      params: filters,
-      signal,
-    }),
+  /**
+   * Lấy danh sách audit logs với phân trang và filters
+   */
+  getAll: (params?: GetAuditLogsParams) =>
+    apiClient.get<AuditLogsResponse>(ENDPOINTS.AUDIT_LOGS, { params }),
 
-  getById: (id: number, signal?: AbortSignal) =>
-    apiClient.get<AuditLog>(ENDPOINTS.BY_ID(id), { signal }),
+  /**
+   * Lấy một audit log theo ID
+   */
+  getById: (id: string) =>
+    apiClient.get<AuditLogEntry>(`${ENDPOINTS.AUDIT_LOGS}/${id}`),
+
+  /**
+   * Export audit logs (nếu server có endpoint này)
+   */
+  export: (params?: GetAuditLogsParams) =>
+    apiClient.get<Blob>(`${ENDPOINTS.AUDIT_LOGS}/export`, {
+      params,
+      responseType: "blob" as any,
+    }),
 };

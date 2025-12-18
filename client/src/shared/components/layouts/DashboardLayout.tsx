@@ -1,42 +1,48 @@
-import type { ReactNode } from "react";
-
-interface PageHeaderProps {
-  title: string;
-  description?: string;
-  actions?: ReactNode;
-}
-
-export function PageHeader({ title, description, actions }: PageHeaderProps) {
-  return (
-    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">{title}</h1>
-        {description && (
-          <p className="mt-1 text-muted-foreground">{description}</p>
-        )}
-      </div>
-      {actions && <div className="flex items-center gap-3">{actions}</div>}
-    </div>
-  );
-}
+import React, { useState } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { Sidebar } from "./Sidebar";
+import { Header } from "./Header";
 
 interface DashboardLayoutProps {
-  children: ReactNode;
-  title: string;
-  description?: string;
-  actions?: ReactNode;
+  children: React.ReactNode;
+  breadcrumbs?: string[];
 }
 
-export function DashboardLayout({
+export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
   children,
-  title,
-  description,
-  actions,
-}: DashboardLayoutProps) {
+  breadcrumbs = [],
+}) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  const handleNavigate = (path: string) => {
+    navigate(path);
+  };
+
+  const handleToggleSidebar = () => {
+    setIsSidebarCollapsed(!isSidebarCollapsed);
+  };
+
   return (
-    <div>
-      <PageHeader title={title} description={description} actions={actions} />
-      {children}
+    <div className="min-h-screen bg-gray-50">
+      <Sidebar
+        activePath={location.pathname}
+        onNavigate={handleNavigate}
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
+      />
+
+      <div
+        className={`
+          transition-all duration-300 ease-in-out
+          ${isSidebarCollapsed ? "ml-20" : "ml-64"}
+        `}
+      >
+        <Header breadcrumbs={breadcrumbs} />
+
+        <main className="p-8">{children}</main>
+      </div>
     </div>
   );
-}
+};

@@ -1,4 +1,4 @@
-import { IsOptional, IsInt, IsString, Min } from 'class-validator';
+import { IsOptional, IsInt, IsString, Min, IsDateString, IsIn } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class GetAuditLogsDto {
@@ -26,4 +26,19 @@ export class GetAuditLogsDto {
   @IsOptional()
   @IsString()
   action?: string; // Lọc theo hành động (LOGIN, CREATE...)
+
+  // ===== NEW FILTERS =====
+
+  @IsOptional()
+  @IsDateString()
+  dateFrom?: string; // Lọc từ ngày (ISO format: 2024-12-01)
+
+  @IsOptional()
+  @IsDateString()
+  dateTo?: string; // Lọc đến ngày (ISO format: 2024-12-31)
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['LOW', 'NORMAL', 'HIGH'])
+  riskLevel?: string; // Lọc theo mức độ rủi ro
 }
