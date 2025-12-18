@@ -390,6 +390,175 @@ throw new ConflictException('Already exists');
 
 ---
 
+## 📝 Sử dụng Audit Log
+
+Audit Log giúp ghi lại tất cả hoạt động trong hệ thống để theo dõi và bảo mật.
+
+### Bước 1: Import và Inject Service
+
+```typescript
+// Trong module của bạn, import AuditLogsModule
+import { AuditLogsModule } from '../audit-logs/audit-logs.module';
+
+@Module({
+  imports: [
+    // ... other imports
+    AuditLogsModule, // <-- Thêm vào đây
+  ],
+})
+export class YourModule {}
+```
+
+```typescript
+// Trong service của bạn
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
+
+@Injectable()
+export class YourService {
+  constructor(private readonly auditLogsService: AuditLogsService) {}
+}
+```
+
+### Bước 2: Sử dụng Helper Methods
+
+#### Log CREATE action
+
+```typescript
+async createProject(dto: CreateProjectDto, req: any) {
+  const project = await this.projectRepo.save(dto);
+
+  // Ghi audit log
+  await this.auditLogsService.logCreate(
+    'Project',           // entityType
+    project.id,          // entityId
+    project,             // newData
+    req,                 // request object (để lấy IP, user)
+  );
+
+  return project;
+}
+```
+
+#### Log UPDATE action
+
+```typescript
+async updateProject(id: string, dto: UpdateProjectDto, req: any) {
+  const oldProject = await this.projectRepo.findOne({ where: { id } });
+  const newProject = await this.projectRepo.save({ ...oldProject, ...dto });
+
+  // Ghi audit log với data cũ và mới
+  await this.auditLogsService.logUpdate(
+    'Project',           // entityType
+    id,                  // entityId
+    oldProject,          // oldData
+    newProject,          // newData
+    req,                 // request
+  );
+
+  return newProject;
+}
+```
+
+#### Log DELETE action
+
+```typescript
+async deleteProject(id: string, req: any) {
+  const project = await this.projectRepo.findOne({ where: { id } });
+  await this.projectRepo.remove(project);
+
+  // Ghi audit log
+  await this.auditLogsService.logDelete(
+    'Project',           // entityType
+    id,                  // entityId
+    project,             // deletedData
+    req,                 // request
+  );
+
+  return { success: true };
+}
+```
+
+#### Log VIEW action (cho sensitive data)
+
+```typescript
+async getProjectDetails(id: string, req: any) {
+  const project = await this.projectRepo.findOne({ where: { id } });
+
+  // Ghi log khi xem dữ liệu nhạy cảm
+  await this.auditLogsService.logView('Project', id, req);
+
+  return project;
+}
+```
+
+#### Log LOGIN/LOGOUT
+
+```typescript
+// Trong AuthService
+async login(credentials: LoginDto, req: any) {
+  const user = await this.validateUser(credentials);
+  const tokens = await this.generateTokens(user);
+
+  await this.auditLogsService.logLogin(
+    user.id,
+    { success: true, method: 'email' },
+    req,
+  );
+
+  return tokens;
+}
+
+async logout(userId: string, req: any) {
+  await this.auditLogsService.logLogout(userId, req);
+  return { success: true };
+}
+```
+
+#### Log Custom Action
+
+```typescript
+// Cho các action tùy chỉnh
+await this.auditLogsService.logCustom(
+  'APPROVE', // action name
+  'Project', // entityType
+  projectId, // entityId
+  { status: 'approved', approvedBy: userId }, // data
+  req, // request
+);
+```
+
+### Bước 3: Sử dụng Core Method (Full Control)
+
+```typescript
+// Khi cần control hoàn toàn
+await this.auditLogsService.log({
+  actorId: userId,
+  action: 'CUSTOM_ACTION',
+  entityType: 'Project',
+  entityId: projectId,
+  oldData: previousState,
+  newData: currentState,
+  req: request,
+});
+```
+
+### Risk Level Tự Động
+
+| Action Type                              | Risk Level |
+| ---------------------------------------- | ---------- |
+| VIEW, EXPORT, LIST, GET, SEARCH          | LOW        |
+| CREATE, UPDATE, EDIT, UPLOAD, APPROVE    | NORMAL     |
+| DELETE, LOGIN, CHANGE_PASSWORD, WITHDRAW | HIGH       |
+
+> ⚠️ Nếu phát hiện suspicious activity (IP mới, bot UA), risk sẽ tự động nâng lên HIGH.
+
+### Security Flags Tự Động
+
+- `SUSPICIOUS_USER_AGENT`: UA chứa postman, curl, bot, etc.
+- `UNUSUAL_LOCATION`: IP mới trên sensitive actions
+
+---
+
 ## Checklist khi tạo module mới
 
 - [ ] Entity tạo đúng format
@@ -398,6 +567,7 @@ throw new ConflictException('Already exists');
 - [ ] Service với CRUD methods
 - [ ] Controller với proper decorators
 - [ ] Module registered trong AppModule
+- [ ] **Thêm Audit Log cho các actions quan trọng**
 - [ ] Test API với Postman
 
 ---

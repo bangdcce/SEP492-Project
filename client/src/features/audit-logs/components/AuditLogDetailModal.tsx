@@ -19,11 +19,11 @@ export const AuditLogDetailModal: React.FC<AuditLogDetailModalProps> = ({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
+        className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
           <div>
             <h2 className="text-slate-900">Audit Log Details</h2>
             <p className="text-sm text-gray-500 mt-1">
@@ -37,8 +37,9 @@ export const AuditLogDetailModal: React.FC<AuditLogDetailModalProps> = ({
             <X className="h-5 w-5 text-gray-500" />
           </button>
         </div>
-        {/* Content */}
-        <div className="p-6 overflow-y-auto max-h-[calc(90vh-120px)]">
+
+        {/* Content - Scrollable */}
+        <div className="p-6 overflow-y-auto flex-1">
           {/* Basic Info */}
           <div className="mb-6">
             <h3 className="text-slate-900 mb-3">Basic Information</h3>
@@ -66,6 +67,7 @@ export const AuditLogDetailModal: React.FC<AuditLogDetailModalProps> = ({
               </div>
             </div>
           </div>
+
           {/* Data Changes */}
           {(log.beforeData || log.afterData) && (
             <div className="space-y-4">
@@ -78,7 +80,7 @@ export const AuditLogDetailModal: React.FC<AuditLogDetailModalProps> = ({
                     <p className="text-xs text-gray-500 uppercase mb-2">
                       Before
                     </p>
-                    <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs overflow-x-auto">
+                    <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs overflow-x-auto max-h-48 overflow-y-auto">
                       {JSON.stringify(log.beforeData, null, 2)}
                     </pre>
                   </div>
@@ -90,7 +92,7 @@ export const AuditLogDetailModal: React.FC<AuditLogDetailModalProps> = ({
                     <p className="text-xs text-gray-500 uppercase mb-2">
                       After
                     </p>
-                    <pre className="bg-teal-50 border border-teal-200 rounded-lg p-4 text-xs overflow-x-auto">
+                    <pre className="bg-teal-50 border border-teal-200 rounded-lg p-4 text-xs overflow-x-auto max-h-48 overflow-y-auto">
                       {JSON.stringify(log.afterData, null, 2)}
                     </pre>
                   </div>
@@ -103,18 +105,18 @@ export const AuditLogDetailModal: React.FC<AuditLogDetailModalProps> = ({
           {log.metadata && (
             <div className="mt-6">
               <h3 className="text-slate-900 mb-3">Additional Metadata</h3>
-              <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs overflow-x-auto">
+              <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs overflow-x-auto max-h-32 overflow-y-auto">
                 {JSON.stringify(log.metadata, null, 2)}
               </pre>
             </div>
           )}
         </div>
 
-        {/* Footer */}
-        <div className="px-6 py-4 border-t border-gray-200 flex justify-end">
+        {/* Footer - Always visible */}
+        <div className="px-6 py-4 border-t border-gray-200 flex justify-end flex-shrink-0 bg-white">
           <button
             onClick={onClose}
-            className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors"
+            className="px-6 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium"
           >
             Close
           </button>
