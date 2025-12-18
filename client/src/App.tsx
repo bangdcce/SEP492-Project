@@ -1,13 +1,11 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { ROUTES } from "@/constants";
-import { useAuth } from "@/features/auth";
-import { MainLayout, AuthLayout } from "@/shared/components/layouts";
+import { MainLayout } from "@/shared/components/layouts";
 import { Spinner } from "@/shared/components/ui";
 
 // Lazy load pages for better performance
 import { lazy, Suspense } from "react";
 
-const LoginPage = lazy(() => import("@/pages/LoginPage"));
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
 
@@ -20,76 +18,39 @@ function PageLoader() {
   );
 }
 
-// Protected route wrapper
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) {
-    return <PageLoader />;
-  }
-
-  if (!isAuthenticated) {
-    return <Navigate to={ROUTES.LOGIN} replace />;
-  }
-
-  return <>{children}</>;
-}
-
-// Public route wrapper (redirects if already logged in)
-function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated, isLoading } = useAuth();
-
-  if (isLoading) {
-    return <PageLoader />;
-  }
-
-  if (isAuthenticated) {
-    return <Navigate to={ROUTES.DASHBOARD} replace />;
-  }
-
-  return <>{children}</>;
-}
-
 function App() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
-        {/* Public Routes */}
-        <Route
-          path={ROUTES.LOGIN}
-          element={
-            <PublicRoute>
-              <LoginPage />
-            </PublicRoute>
-          }
-        />
-
-        {/* Protected Routes */}
+        {/* Dashboard */}
         <Route
           path={ROUTES.DASHBOARD}
           element={
-            <ProtectedRoute>
-              <MainLayout>
-                <DashboardPage />
-              </MainLayout>
-            </ProtectedRoute>
+            <MainLayout>
+              <DashboardPage />
+            </MainLayout>
           }
         />
 
+        {/* Audit Logs */}
         <Route
           path={ROUTES.AUDIT_LOGS}
           element={
-            <ProtectedRoute>
-              <MainLayout>
-                <AuditLogsPage />
-              </MainLayout>
-            </ProtectedRoute>
+            <MainLayout>
+              <AuditLogsPage />
+            </MainLayout>
           }
         />
 
         {/* Redirect root to dashboard */}
         <Route
           path={ROUTES.HOME}
+          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+        />
+
+        {/* Redirect login to dashboard (bypass) */}
+        <Route
+          path={ROUTES.LOGIN}
           element={<Navigate to={ROUTES.DASHBOARD} replace />}
         />
 

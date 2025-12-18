@@ -1,40 +1,34 @@
-/**
- * Audit Logs Feature Types
- */
+export type RiskLevel = "LOW" | "NORMAL" | "HIGH";
 
-export interface AuditLog {
-  id: number;
-  actorId: number;
-  action: string;
-  entityType: string;
-  entityId: number;
-  ipAddress?: string;
-  userAgent?: string;
-  beforeData?: Record<string, unknown>;
-  afterData?: Record<string, unknown>;
-  createdAt: string;
-  actor?: {
-    id: number;
+export type ActionType =
+  | "CREATE"
+  | "UPDATE"
+  | "DELETE"
+  | "LOGIN"
+  | "LOGOUT"
+  | "ACCESS"
+  | "EXPORT";
+
+export interface AuditLogEntry {
+  id: string;
+  actor: {
+    name: string;
     email: string;
-    fullName: string;
-    role: string;
+    avatar?: string;
   };
+  action: ActionType;
+  entity: string;
+  ipAddress: string;
+  timestamp: string;
+  riskLevel: RiskLevel;
+  beforeData?: Record<string, any>;
+  afterData?: Record<string, any>;
+  metadata?: Record<string, any>;
 }
 
 export interface AuditLogFilters {
-  page?: number;
-  limit?: number;
-  userId?: number;
-  entityType?: string;
-  action?: string;
-}
-
-export interface AuditLogListResponse {
-  data: AuditLog[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
+  searchAction?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  riskLevel?: RiskLevel | "ALL";
 }
