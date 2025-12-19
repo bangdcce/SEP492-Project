@@ -1,0 +1,399 @@
+-- WARNING: This schema is for context only and is not meant to be run.
+-- Table order and constraints may not be valid for execution.
+
+CREATE TABLE public.audit_logs (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  actor_id uuid NOT NULL,
+  action character varying NOT NULL,
+  entity_type character varying NOT NULL,
+  entity_id character varying NOT NULL,
+  ip_address character varying,
+  user_agent text,
+  before_data jsonb,
+  after_data jsonb,
+  created_at timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT audit_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_177183f29f438c488b5e8510cdb FOREIGN KEY (actor_id) REFERENCES public.users(id)
+);
+CREATE TABLE public.auth_sessions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  refreshTokenHash character varying NOT NULL,
+  userAgent character varying,
+  ipAddress character varying,
+  isRevoked boolean NOT NULL DEFAULT false,
+  revokedAt timestamp without time zone,
+  expiresAt timestamp without time zone NOT NULL,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  lastUsedAt timestamp without time zone,
+  replacedBySessionId uuid,
+  validAccessFrom timestamp without time zone,
+  CONSTRAINT auth_sessions_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_925b24d7fc2f9324ce972aee025 FOREIGN KEY (userId) REFERENCES public.users(id),
+  CONSTRAINT FK_6e11140db54eefb6f4991a40df0 FOREIGN KEY (replacedBySessionId) REFERENCES public.auth_sessions(id)
+);
+CREATE TABLE public.contracts (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  projectId uuid NOT NULL,
+  title character varying,
+  contractUrl character varying NOT NULL,
+  termsContent text,
+  status character varying NOT NULL DEFAULT 'DRAFT'::character varying,
+  createdBy uuid NOT NULL,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT contracts_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_2421e3588c8e452a325ca49b70f FOREIGN KEY (projectId) REFERENCES public.projects(id),
+  CONSTRAINT FK_754103da22018eef9a0ee6f21e5 FOREIGN KEY (createdBy) REFERENCES public.users(id)
+);
+CREATE TABLE public.digital_signatures (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  contractId uuid NOT NULL,
+  userId uuid NOT NULL,
+  signatureHash character varying NOT NULL,
+  ipAddress character varying,
+  signedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT digital_signatures_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_272d16a5c66344d957a1efecb25 FOREIGN KEY (contractId) REFERENCES public.contracts(id),
+  CONSTRAINT FK_fda9661a44dca0e61b72fb4680a FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.disputes (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  projectId uuid NOT NULL,
+  raisedBy uuid NOT NULL,
+  against uuid NOT NULL,
+  reason text NOT NULL,
+  resolution text,
+  status USER-DEFINED NOT NULL DEFAULT 'OPEN'::disputes_status_enum,
+  resolvedAt timestamp without time zone,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT disputes_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_9a4ad337edc45133e24c8bcaf4d FOREIGN KEY (projectId) REFERENCES public.projects(id),
+  CONSTRAINT FK_5a6f52453994f5b71258623f811 FOREIGN KEY (raisedBy) REFERENCES public.users(id),
+  CONSTRAINT FK_59a083d59f0249a8af3346c07fa FOREIGN KEY (against) REFERENCES public.users(id)
+);
+CREATE TABLE public.documents (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  projectId uuid NOT NULL,
+  uploaderId uuid NOT NULL,
+  name character varying NOT NULL,
+  fileUrl character varying NOT NULL,
+  type USER-DEFINED NOT NULL,
+  version integer NOT NULL DEFAULT 1,
+  description text,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT documents_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_fe6ebd6e679c0feee3a7ecc0354 FOREIGN KEY (projectId) REFERENCES public.projects(id),
+  CONSTRAINT FK_befd700a02312da4cc725ccaace FOREIGN KEY (uploaderId) REFERENCES public.users(id)
+);
+CREATE TABLE public.migrations (
+  id integer NOT NULL DEFAULT nextval('migrations_id_seq'::regclass),
+  timestamp bigint NOT NULL,
+  name character varying NOT NULL,
+  CONSTRAINT migrations_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.milestone_payments (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  milestoneId uuid NOT NULL,
+  holdTransactionId uuid,
+  releaseTransactionId uuid,
+  CONSTRAINT milestone_payments_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_820aa06a348b448f9b6a8c52ad5 FOREIGN KEY (milestoneId) REFERENCES public.milestones(id),
+  CONSTRAINT FK_78f7c3195dff24da67bb49b29d5 FOREIGN KEY (holdTransactionId) REFERENCES public.transactions(id),
+  CONSTRAINT FK_372e96a14c5f890c42b0d6e58e0 FOREIGN KEY (releaseTransactionId) REFERENCES public.transactions(id)
+);
+CREATE TABLE public.milestones (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  projectId uuid NOT NULL,
+  title character varying NOT NULL,
+  description text,
+  amount numeric NOT NULL,
+  startDate timestamp without time zone,
+  dueDate timestamp without time zone,
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::milestones_status_enum,
+  proofOfWork character varying,
+  feedback text,
+  sortOrder integer,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT milestones_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_662a1f9d865fe49768fa369fd0f FOREIGN KEY (projectId) REFERENCES public.projects(id)
+);
+CREATE TABLE public.notifications (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  title character varying NOT NULL,
+  body text NOT NULL,
+  isRead boolean NOT NULL DEFAULT false,
+  readAt timestamp without time zone,
+  relatedType character varying,
+  relatedId character varying,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT notifications_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_692a909ee0fa9383e7859f9b406 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.payout_requests (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  walletId uuid NOT NULL,
+  amount numeric NOT NULL,
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::payout_requests_status_enum,
+  requestedAt timestamp without time zone NOT NULL DEFAULT now(),
+  processedAt timestamp without time zone,
+  processedBy uuid,
+  note text,
+  CONSTRAINT payout_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_7ecca99cfa68cbb2bfade96cd05 FOREIGN KEY (walletId) REFERENCES public.wallets(id),
+  CONSTRAINT FK_2efebf9c50eb838dd24d5816cc5 FOREIGN KEY (processedBy) REFERENCES public.users(id)
+);
+CREATE TABLE public.platform_settings (
+  key character varying NOT NULL,
+  value jsonb NOT NULL,
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedBy uuid,
+  CONSTRAINT platform_settings_pkey PRIMARY KEY (key),
+  CONSTRAINT FK_bf32a1bcd51436a0b202a00a834 FOREIGN KEY (updatedBy) REFERENCES public.users(id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL UNIQUE,
+  bio text,
+  companyName character varying,
+  skills ARRAY,
+  portfolioLinks jsonb,
+  bankInfo jsonb,
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_315ecd98bd1a42dcf2ec4e2e985 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.project_categories (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  slug character varying UNIQUE,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT project_categories_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.project_category_map (
+  project_id uuid NOT NULL,
+  category_id uuid NOT NULL,
+  CONSTRAINT project_category_map_pkey PRIMARY KEY (project_id, category_id),
+  CONSTRAINT FK_63d1dc4e442a80233613bc0d154 FOREIGN KEY (project_id) REFERENCES public.projects(id),
+  CONSTRAINT FK_02daa0e833626078f4b5c608ef7 FOREIGN KEY (category_id) REFERENCES public.project_categories(id)
+);
+CREATE TABLE public.project_request_answers (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  requestId uuid NOT NULL,
+  questionId uuid NOT NULL,
+  optionId uuid,
+  valueText text,
+  CONSTRAINT project_request_answers_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_f80351df95d44f963e86f1c8d92 FOREIGN KEY (requestId) REFERENCES public.project_requests(id),
+  CONSTRAINT FK_bd1b708124a60b84cddb67a9fef FOREIGN KEY (questionId) REFERENCES public.wizard_questions(id),
+  CONSTRAINT FK_9e7d84f4f6c8c98fa0b733c5d5e FOREIGN KEY (optionId) REFERENCES public.wizard_options(id)
+);
+CREATE TABLE public.project_request_proposals (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  requestId uuid NOT NULL,
+  freelancerId uuid NOT NULL,
+  brokerId uuid,
+  proposedBudget numeric,
+  estimatedDuration character varying,
+  coverLetter text,
+  status character varying NOT NULL DEFAULT 'PENDING'::character varying,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT project_request_proposals_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_a3e8fc57db73e22a5128c22e6c7 FOREIGN KEY (requestId) REFERENCES public.project_requests(id),
+  CONSTRAINT FK_3a404d4e7ec6b5db69aa875cbf8 FOREIGN KEY (freelancerId) REFERENCES public.users(id),
+  CONSTRAINT FK_36541dd025948b388251c3c01f4 FOREIGN KEY (brokerId) REFERENCES public.users(id)
+);
+CREATE TABLE public.project_requests (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  clientId uuid NOT NULL,
+  title character varying NOT NULL,
+  description text NOT NULL,
+  budgetRange character varying,
+  intendedTimeline character varying,
+  techPreferences character varying,
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::project_requests_status_enum,
+  brokerId uuid,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT project_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_e207c2a029bb73b35ad1453426a FOREIGN KEY (clientId) REFERENCES public.users(id),
+  CONSTRAINT FK_ba91413ed0daddd79814a09ef4d FOREIGN KEY (brokerId) REFERENCES public.users(id)
+);
+CREATE TABLE public.projects (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  requestId uuid,
+  clientId uuid NOT NULL,
+  brokerId uuid NOT NULL,
+  freelancerId uuid,
+  title character varying NOT NULL,
+  description text NOT NULL,
+  totalBudget numeric NOT NULL,
+  currency character varying NOT NULL DEFAULT 'VND'::character varying,
+  pricingModel USER-DEFINED,
+  startDate timestamp without time zone,
+  endDate timestamp without time zone,
+  status USER-DEFINED NOT NULL DEFAULT 'PLANNING'::projects_status_enum,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT projects_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_026902dba3d3ceefa3817500674 FOREIGN KEY (requestId) REFERENCES public.project_requests(id),
+  CONSTRAINT FK_091f9433895a53408cb8ae3864f FOREIGN KEY (clientId) REFERENCES public.users(id),
+  CONSTRAINT FK_8c56501d961c9f7b440abdce5d5 FOREIGN KEY (brokerId) REFERENCES public.users(id),
+  CONSTRAINT FK_22f434063fa3502539bab88858d FOREIGN KEY (freelancerId) REFERENCES public.users(id)
+);
+CREATE TABLE public.reviews (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  projectId uuid NOT NULL,
+  reviewerId uuid NOT NULL,
+  targetUserId uuid NOT NULL,
+  rating integer NOT NULL,
+  comment text,
+  weight numeric NOT NULL DEFAULT '1'::numeric,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT reviews_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_ee90086bb783380da5453d240b9 FOREIGN KEY (projectId) REFERENCES public.projects(id),
+  CONSTRAINT FK_f9238c3e3739dc40322f577fc46 FOREIGN KEY (reviewerId) REFERENCES public.users(id),
+  CONSTRAINT FK_299e0ce9838de08dea4eac93e28 FOREIGN KEY (targetUserId) REFERENCES public.users(id)
+);
+CREATE TABLE public.saved_freelancers (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  clientId uuid NOT NULL,
+  freelancerId uuid NOT NULL,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT saved_freelancers_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_66a3a09dc240f9edd007d8294b1 FOREIGN KEY (clientId) REFERENCES public.users(id),
+  CONSTRAINT FK_32d1522472855a34af369949ad9 FOREIGN KEY (freelancerId) REFERENCES public.users(id)
+);
+CREATE TABLE public.social_accounts (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  provider character varying NOT NULL,
+  providerId character varying NOT NULL,
+  email character varying,
+  avatarUrl text,
+  payload jsonb,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT social_accounts_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_7de933c3670ec71c68aca0afd56 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.tasks (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  milestoneId uuid NOT NULL,
+  projectId uuid NOT NULL,
+  title character varying NOT NULL,
+  description text,
+  status USER-DEFINED NOT NULL DEFAULT 'TODO'::tasks_status_enum,
+  assignedTo uuid,
+  dueDate timestamp without time zone,
+  sortOrder integer,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT tasks_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_6dc5020fc4c6814347816455e7a FOREIGN KEY (milestoneId) REFERENCES public.milestones(id),
+  CONSTRAINT FK_e08fca67ca8966e6b9914bf2956 FOREIGN KEY (projectId) REFERENCES public.projects(id),
+  CONSTRAINT FK_3b34ce2db713f0be359768db816 FOREIGN KEY (assignedTo) REFERENCES public.users(id)
+);
+CREATE TABLE public.transactions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  walletId uuid NOT NULL,
+  amount numeric NOT NULL,
+  type USER-DEFINED NOT NULL,
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::transactions_status_enum,
+  referenceType character varying,
+  referenceId character varying,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT transactions_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_a88f466d39796d3081cf96e1b66 FOREIGN KEY (walletId) REFERENCES public.wallets(id)
+);
+CREATE TABLE public.trust_score_history (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  ratingScore numeric,
+  behaviorScore numeric,
+  disputeScore numeric,
+  verificationScore numeric,
+  totalScore numeric,
+  calculatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT trust_score_history_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_6d46e08df04dfeb9f4311df2378 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_flags (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  type character varying NOT NULL,
+  severity integer NOT NULL DEFAULT 1,
+  description text NOT NULL,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT user_flags_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_87be2c376b9c867c1e12916c2af FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_tokens (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  type USER-DEFINED NOT NULL,
+  tokenHash character varying NOT NULL,
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::user_tokens_status_enum,
+  maxUses integer NOT NULL DEFAULT 1,
+  useCount integer NOT NULL DEFAULT 0,
+  expiresAt timestamp without time zone NOT NULL,
+  usedAt timestamp without time zone,
+  createdIp character varying,
+  lastUsedIp character varying,
+  lastUsedUserAgent character varying,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT user_tokens_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_92ce9a299624e4c4ffd99b645b6 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.users (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  email character varying NOT NULL UNIQUE,
+  passwordHash character varying,
+  fullName character varying NOT NULL,
+  role USER-DEFINED NOT NULL DEFAULT 'CLIENT'::users_role_enum,
+  phoneNumber character varying,
+  isVerified boolean NOT NULL DEFAULT false,
+  currentTrustScore numeric NOT NULL DEFAULT '5'::numeric,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT users_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.verification_documents (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  docType character varying,
+  documentUrl character varying NOT NULL,
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::verification_documents_status_enum,
+  submittedAt timestamp without time zone NOT NULL DEFAULT now(),
+  verifiedAt timestamp without time zone,
+  verifiedBy uuid,
+  rejectReason text,
+  CONSTRAINT verification_documents_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_e3acb36093f2773ea7893b4c972 FOREIGN KEY (userId) REFERENCES public.users(id),
+  CONSTRAINT FK_fc6a9c92a9cc696671c2561b73e FOREIGN KEY (verifiedBy) REFERENCES public.users(id)
+);
+CREATE TABLE public.wallets (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  balance numeric NOT NULL DEFAULT '0'::numeric,
+  currency character varying NOT NULL DEFAULT 'VND'::character varying,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT wallets_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_2ecdb33f23e9a6fc392025c0b97 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.wizard_options (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  questionId uuid NOT NULL,
+  value character varying NOT NULL,
+  label text NOT NULL,
+  sortOrder integer,
+  CONSTRAINT wizard_options_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_aea0cfcb26193490328e6f14102 FOREIGN KEY (questionId) REFERENCES public.wizard_questions(id)
+);
+CREATE TABLE public.wizard_questions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  code character varying NOT NULL UNIQUE,
+  label text NOT NULL,
+  helpText text,
+  inputType character varying,
+  isActive boolean NOT NULL DEFAULT true,
+  sortOrder integer,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT wizard_questions_pkey PRIMARY KEY (id)
+);

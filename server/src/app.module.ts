@@ -9,6 +9,7 @@ import jwtConfig from './config/jwt.config';
 import { ReviewModule } from './modules/review/review.module';
 import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
+import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
 
 @Module({
   imports: [
@@ -43,13 +44,11 @@ import { ReportModule } from './modules/report/report.module';
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
 
         // Development settings
-        synchronize: false, // Tắt sync vì bạn đang dùng migration
+        synchronize: configService.get<string>('DB_SYNCHRONIZE') === 'true',
         logging: true,
 
         // Sửa: Supabase BẮT BUỘC phải có SSL
-        ssl: {
-          rejectUnauthorized: false,
-        },
+        ssl: false,
       }),
     }),
 
@@ -58,6 +57,7 @@ import { ReportModule } from './modules/report/report.module';
     ReviewModule,
     TrustScoreModule,
     ReportModule,
+    ProjectRequestsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
