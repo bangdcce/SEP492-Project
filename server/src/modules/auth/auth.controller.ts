@@ -26,7 +26,6 @@ import {
   RegisterDto, 
   AuthResponseDto, 
   LoginResponseDto, 
-  LogoutResponseDto,
   RefreshTokenResponseDto
 } from './dto';
 import { UserEntity } from '../../database/entities/user.entity';

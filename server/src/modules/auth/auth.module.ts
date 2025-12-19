@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import { JwtModule } from '@nestjs/jwt';
+import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 
 import { AuthController } from './auth.controller';
@@ -17,12 +17,23 @@ import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('jwt.secret') || 'fallback-secret',
-        signOptions: {
-          expiresIn: '24h',
-        },
-      }),
+      useFactory: (configService: ConfigService): JwtModuleOptions => {
+        const secret = configService.get<string>('jwt.secret');
+        const expiresIn = configService.get<string>('jwt.expiresIn');
+        
+        if (!secret) {
+          throw new Error(
+            'JWT_SECRET is not configured. Please set JWT_SECRET environment variable or configure jwt.secret in your config.'
+          );
+        }
+
+        return {
+          secret,
+          signOptions: {
+            expiresIn: (expiresIn || '15m') as any,
+          },
+        };
+      },
       inject: [ConfigService],
     }),
   ],

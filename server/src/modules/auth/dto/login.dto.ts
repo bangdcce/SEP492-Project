@@ -13,12 +13,12 @@ export class LoginDto {
 
   @ApiProperty({
     description: 'Mật khẩu của người dùng',
-    example: 'password123',
-    minLength: 6,
+    example: 'SecurePass123!',
+    minLength: 8,
     type: 'string',
   })
   @IsString({ message: 'Mật khẩu phải là chuỗi ký tự' })
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
-  @MinLength(6, { message: 'Mật khẩu phải có ít nhất 6 ký tự' })
+  @MinLength(8, { message: 'Mật khẩu phải có ít nhất 8 ký tự' })
   password: string;
 }

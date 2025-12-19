@@ -2,7 +2,7 @@ import {
   Injectable, 
   UnauthorizedException, 
   ConflictException, 
-  BadRequestException 
+  
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -10,7 +10,7 @@ import { Repository, LessThan, MoreThan } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
-import { UserEntity, UserRole } from '../../database/entities/user.entity';
+import { UserEntity, } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { 
   LoginDto, 
@@ -54,7 +54,7 @@ export class AuthService {
       passwordHash,
       fullName,
       phoneNumber,
-      role: role as unknown as UserRole,
+      role: role, // No more type casting needed - RegisterableRole is subset of UserRole
       isVerified: false,
       currentTrustScore: 5.0,
     });
