@@ -12,11 +12,11 @@ import { UserEntity } from './user.entity';
 @Entity('audit_logs')
 @Index(['actorId', 'entityId', 'createdAt'])
 export class AuditLogEntity {
-  @PrimaryGeneratedColumn('increment')
-  id: number;
+  @PrimaryGeneratedColumn('uuid')
+  id: string;
 
-  @Column({ name: 'actor_id' })
-  actorId: number;
+  @Column({ name: 'actor_id', type: 'uuid' })
+  actorId: string;
 
   @Column({ length: 100 })
   action: string;
@@ -25,7 +25,7 @@ export class AuditLogEntity {
   entityType: string;
 
   @Column({ name: 'entity_id' })
-  entityId: number;
+  entityId: string;
 
   // --- CỘT MỚI THÊM ---
   @Column({ name: 'ip_address', nullable: true, length: 45 })

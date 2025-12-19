@@ -1,7 +1,6 @@
-/**
- * Layout Components - Export all layout components
- */
+export { DashboardLayout } from "./DashboardLayout";
+export { Header } from "./Header";
+export { Sidebar } from "./Sidebar";
 
-export { MainLayout } from "./MainLayout";
-export { AuthLayout } from "./AuthLayout";
-export { DashboardLayout, PageHeader } from "./DashboardLayout";
+// Alias for App.tsx compatibility
+export { DashboardLayout as MainLayout } from "./DashboardLayout";
