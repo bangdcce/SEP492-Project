@@ -6,9 +6,9 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Repository } from 'typeorm';
+import { Repository, LessThan, MoreThan } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { createHash, randomBytes } from 'crypto';
+import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
@@ -65,7 +65,7 @@ export class AuthService {
     return this.mapToAuthResponse(savedUser);
   }
 
-  async login(loginDto: LoginDto): Promise<LoginResponseDto> {
+  async login(loginDto: LoginDto, userAgent?: string, ipAddress?: string): Promise<LoginResponseDto> {
     const { email, password } = loginDto;
 
     // Tìm user theo email
@@ -93,8 +93,8 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
     const refreshToken = randomBytes(64).toString('hex');
 
-    // Lưu auth session
-    await this.createAuthSession(user.id, refreshToken);
+    // Lưu auth session với thông tin thiết bị
+    await this.createAuthSession(user.id, refreshToken, userAgent, ipAddress);
 
     return {
       user: this.mapToAuthResponse(user),
@@ -105,12 +105,23 @@ export class AuthService {
 
   async logout(userId: string, refreshToken?: string): Promise<LogoutResponseDto> {
     if (refreshToken) {
-      // Hash refresh token để tìm session
-      const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
-      await this.authSessionRepository.update(
-        { userId, refreshTokenHash },
-        { isRevoked: true, revokedAt: new Date() }
-      );
+      // Tìm tất cả sessions của user và kiểm tra refreshToken bằng bcrypt.compare
+      const userSessions = await this.authSessionRepository.find({
+        where: { userId, isRevoked: false }
+      });
+
+      // So sánh refreshToken với từng session hash
+      for (const session of userSessions) {
+        const isMatch = await bcrypt.compare(refreshToken, session.refreshTokenHash);
+        if (isMatch) {
+          // Revoke session tìm thấy
+          await this.authSessionRepository.update(
+            { id: session.id },
+            { isRevoked: true, revokedAt: new Date() }
+          );
+          break;
+        }
+      }
     } else {
       // Revoke tất cả sessions của user
       await this.authSessionRepository.update(
@@ -130,25 +141,133 @@ export class AuthService {
     });
   }
 
-  private async createAuthSession(userId: string, refreshToken: string): Promise<void> {
-    // Revoke session cũ nếu có
+  async refreshToken(oldRefreshToken: string): Promise<{
+    accessToken: string;
+    refreshToken: string;
+  }> {
+    // 1. Tìm session với refresh token này
+    const sessions = await this.authSessionRepository.find({
+      where: { isRevoked: false }
+    });
+
+    let validSession: AuthSessionEntity | null = null;
+    for (const session of sessions) {
+      // Kiểm tra token chưa hết hạn và so sánh với hash
+      if (session.expiresAt > new Date()) {
+        const isMatch = await bcrypt.compare(oldRefreshToken, session.refreshTokenHash);
+        if (isMatch) {
+          validSession = session;
+          break;
+        }
+      }
+    }
+
+    if (!validSession) {
+      throw new UnauthorizedException('Refresh token không hợp lệ hoặc đã hết hạn');
+    }
+
+    // Lấy thông tin user từ session
+    const user = await this.userRepository.findOne({
+      where: { id: validSession.userId }
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User không tồn tại');
+    }
+
+    // 2. Tạo tokens mới
+    const payload: JwtPayload = {
+      sub: validSession.userId,
+      email: user.email,
+      role: user.role,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+    const newRefreshToken = randomBytes(64).toString('hex');
+
+    // 3. Rotate refresh token (security best practice)
+    const newRefreshTokenHash = await bcrypt.hash(newRefreshToken, 10);
+
     await this.authSessionRepository.update(
-      { userId, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date() }
+      { id: validSession.id },
+      {
+        refreshTokenHash: newRefreshTokenHash,
+        lastUsedAt: new Date()
+      }
     );
 
-    // Hash refresh token
-    const refreshTokenHash = await bcrypt.hash(refreshToken, 12);
+    return { accessToken, refreshToken: newRefreshToken };
+  }
 
-    // Tạo session mới
+  private async createAuthSession(
+    userId: string, 
+    refreshToken: string, 
+    userAgent?: string, 
+    ipAddress?: string
+  ): Promise<void> {
+    // Chỉ revoke session cùng userAgent (cùng thiết bị), không revoke tất cả
+    if (userAgent) {
+      await this.authSessionRepository.update(
+        { 
+          userId, 
+          userAgent, 
+          isRevoked: false 
+        },
+        { isRevoked: true, revokedAt: new Date() }
+      );
+    }
+
+    // Dọn dẹp sessions hết hạn của user này
+    await this.cleanupExpiredSessions(userId);
+
+    // Hash refresh token với salt rounds thấp hơn cho session
+    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+
+    // Tạo session mới với thông tin thiết bị
     const authSession = this.authSessionRepository.create({
       userId,
       refreshTokenHash,
+      userAgent: userAgent || 'Unknown Device',
+      ipAddress: ipAddress || 'Unknown IP',
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 ngày
       isRevoked: false,
+      lastUsedAt: new Date(),
     });
 
     await this.authSessionRepository.save(authSession);
+  }
+
+  /**
+   * Dọn dẹp các sessions hết hạn hoặc quá nhiều sessions của user
+   */
+  private async cleanupExpiredSessions(userId: string): Promise<void> {
+    // Xóa sessions hết hạn
+    await this.authSessionRepository.delete({
+      userId,
+      expiresAt: LessThan(new Date())
+    });
+
+    // Giới hạn tối đa 5 sessions active per user (để tránh tấn công)
+    const activeSessions = await this.authSessionRepository.find({
+      where: { 
+        userId, 
+        isRevoked: false,
+        expiresAt: MoreThan(new Date())
+      },
+      order: { createdAt: 'DESC' }
+    });
+
+    // Nếu có nhiều hơn 5 sessions, revoke những sessions cũ nhất
+    if (activeSessions.length >= 5) {
+      const sessionsToRevoke = activeSessions.slice(4); // Giữ 4 sessions mới nhất
+      
+      for (const session of sessionsToRevoke) {
+        await this.authSessionRepository.update(
+          session.id,
+          { isRevoked: true, revokedAt: new Date() }
+        );
+      }
+    }
   }
 
   private mapToAuthResponse(user: UserEntity): AuthResponseDto {

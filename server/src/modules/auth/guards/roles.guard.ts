@@ -19,6 +19,12 @@ export class RolesGuard implements CanActivate {
     }
 
     const { user } = context.switchToHttp().getRequest();
-    return requiredRoles.some((role) => user?.role === role);
+    
+    // Kiểm tra user có tồn tại không (trường hợp bypass JwtAuthGuard hoặc user không được set)
+    if (!user) {
+      return false;
+    }
+    
+    return requiredRoles.some((role) => user.role === role);
   }
 }

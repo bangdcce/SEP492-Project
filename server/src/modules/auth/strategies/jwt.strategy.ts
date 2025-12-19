@@ -21,10 +21,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     @InjectRepository(UserEntity)
     private userRepository: Repository<UserEntity>,
   ) {
+    const jwtSecret = configService.get<string>('jwt.secret');
+    
+    if (!jwtSecret) {
+      throw new Error(
+        'JWT_SECRET is not configured. Please set JWT_SECRET environment variable or configure jwt.secret in your config.'
+      );
+    }
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get<string>('jwt.secret') || 'fallback-secret',
+      secretOrKey: jwtSecret,
     });
   }
 
