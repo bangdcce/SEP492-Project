@@ -4,6 +4,8 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
+import { AuthModule } from './modules/auth/auth.module';
+import jwtConfig from './config/jwt.config';
 
 @Module({
   imports: [
@@ -11,6 +13,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     ConfigModule.forRoot({
       envFilePath: '.env', // Sửa từ '../.env' thành '.env'
       isGlobal: true,
+      load: [jwtConfig], // Load JWT config
     }),
 
     // 2. Cấu hình TypeORM lấy đúng key từ .env
@@ -48,6 +51,7 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
     }),
 
     AuditLogsModule,
+    AuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],
