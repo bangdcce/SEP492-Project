@@ -4,8 +4,12 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
+<<<<<<< Updated upstream
 import { AuthModule } from './modules/auth/auth.module';
 import jwtConfig from './config/jwt.config';
+=======
+import { ReviewModule } from './review/review.module';
+>>>>>>> Stashed changes
 
 @Module({
   imports: [
@@ -51,7 +55,12 @@ import jwtConfig from './config/jwt.config';
     }),
 
     AuditLogsModule,
+<<<<<<< Updated upstream
     AuthModule,
+=======
+
+    ReviewModule,
+>>>>>>> Stashed changes
   ],
   controllers: [AppController],
   providers: [AppService],

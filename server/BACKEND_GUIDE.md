@@ -529,6 +529,8 @@ await this.auditLogsService.logCustom(
 
 ### Bước 3: Sử dụng Core Method (Full Control)
 
+Đặt trong service là best practice
+
 ```typescript
 // Khi cần control hoàn toàn
 await this.auditLogsService.log({
