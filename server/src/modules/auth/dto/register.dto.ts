@@ -21,7 +21,7 @@ export const REGISTERABLE_ROLES = {
 
 export class RegisterDto {
   @ApiProperty({
-    description: 'Email của người dùng',
+    description: "User's email address",
     example: 'user@example.com',
     format: 'email',
   })
@@ -30,7 +30,7 @@ export class RegisterDto {
   email: string;
 
   @ApiProperty({
-    description: 'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt)',
+    description: "User's password (at least 8 characters, with uppercase, lowercase, numbers and special characters)",
     example: 'SecurePass123!',
     minLength: 8,
   })
@@ -46,7 +46,7 @@ export class RegisterDto {
   password: string;
 
   @ApiProperty({
-    description: 'Họ và tên đầy đủ của người dùng (2-50 ký tự, chỉ chứa chữ cái và khoảng trắng)',
+    description: "User's full name (2-50 characters, letters and spaces only)",
     example: 'Nguyễn Văn A',
     minLength: 2,
     maxLength: 50,
@@ -64,7 +64,7 @@ export class RegisterDto {
   fullName: string;
 
   @ApiProperty({
-    description: 'Số điện thoại của người dùng (định dạng Việt Nam: 0[3|5|7|8|9]xxxxxxxx)',
+    description: "User's phone number (Vietnam format: 0[3|5|7|8|9]xxxxxxxx)",
     example: '0987654321',
     pattern: '^0[3|5|7|8|9][0-9]{8}$',
   })
@@ -79,7 +79,7 @@ export class RegisterDto {
   phoneNumber: string;
 
   @ApiProperty({
-    description: 'Vai trò của người dùng trong hệ thống (chỉ cho phép CLIENT, BROKER, FREELANCER)',
+    description: "User's role in the system (only CLIENT, BROKER, FREELANCER allowed)",
     enum: REGISTERABLE_ROLES,
     example: UserRole.CLIENT,
   })
