@@ -8,6 +8,9 @@ import { lazy, Suspense } from "react";
 
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
+const AdminReviewModerationPage = lazy(
+  () => import("@/pages/AdminReviewModerationPage")
+);
 
 // Loading fallback
 function PageLoader() {
@@ -42,9 +45,25 @@ function App() {
           }
         />
 
-        {/* Redirect root to dashboard */}
+        {/* Review Moderation (Admin) */}
+        <Route
+          path={ROUTES.REVIEW_MODERATION}
+          element={
+            <MainLayout>
+              <AdminReviewModerationPage />
+            </MainLayout>
+          }
+        />
+
+        {/* Redirect root to admin dashboard */}
         <Route
           path={ROUTES.HOME}
+          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+        />
+
+        {/* Redirect /admin to admin dashboard */}
+        <Route
+          path="/admin"
           element={<Navigate to={ROUTES.DASHBOARD} replace />}
         />
 

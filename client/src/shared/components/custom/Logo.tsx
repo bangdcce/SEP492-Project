@@ -1,7 +1,7 @@
 import React from "react";
 
 // Logo in public folder - use absolute path
-const logoImage = "/assets/logo/logo.png";
+const logoImage = "/assets/logo/Logo.png";
 
 interface LogoProps {
   className?: string;

@@ -1,32 +1,34 @@
-import { 
-  Controller, 
-  Post, 
-  Body, 
-  HttpCode, 
-  HttpStatus, 
-  UseGuards, 
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
   Req,
-  ValidationPipe
+  ValidationPipe,
+  UseInterceptors,
+  ClassSerializerInterceptor,
 } from '@nestjs/common';
-import { 
-  ApiTags, 
-  ApiOperation, 
-  ApiResponse, 
-  ApiBody, 
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
   ApiBearerAuth,
   ApiUnauthorizedResponse,
   ApiBadRequestResponse,
-  ApiConflictResponse
+  ApiConflictResponse,
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards';
-import { 
-  LoginDto, 
-  RegisterDto, 
-  AuthResponseDto, 
-  LoginResponseDto, 
-  RefreshTokenResponseDto
+import {
+  LoginDto,
+  RegisterDto,
+  AuthResponseDto,
+  LoginResponseDto,
+  RefreshTokenResponseDto,
 } from './dto';
 import { UserEntity } from '../../database/entities/user.entity';
 
@@ -42,32 +44,31 @@ export class AuthController {
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Đăng ký tài khoản mới',
-    description: 'Tạo tài khoản mới với thông tin cơ bản. Chỉ cho phép 3 loại role: CLIENT, BROKER, FREELANCER' 
+    description:
+      'Tạo tài khoản mới với thông tin cơ bản. Chỉ cho phép 3 loại role: CLIENT, BROKER, FREELANCER',
   })
   @ApiBody({ type: RegisterDto })
-  @ApiResponse({ 
-    status: HttpStatus.CREATED, 
+  @ApiResponse({
+    status: HttpStatus.CREATED,
     description: 'Đăng ký thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Đăng ký thành công' },
-        data: { $ref: '#/components/schemas/AuthResponseDto' }
-      }
-    }
+        data: { $ref: '#/components/schemas/AuthResponseDto' },
+      },
+    },
   })
   @ApiBadRequestResponse({ description: 'Dữ liệu đầu vào không hợp lệ' })
   @ApiConflictResponse({ description: 'Email đã được sử dụng' })
-  async register(
-    @Body(ValidationPipe) registerDto: RegisterDto,
-  ): Promise<{
+  async register(@Body(ValidationPipe) registerDto: RegisterDto): Promise<{
     message: string;
     data: AuthResponseDto;
   }> {
     const user = await this.authService.register(registerDto);
-    
+
     return {
       message: 'Đăng ký thành công',
       data: user,
@@ -76,21 +77,21 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Đăng nhập vào hệ thống',
-    description: 'Xác thực người dùng bằng email và mật khẩu, trả về access token và refresh token' 
+    description: 'Xác thực người dùng bằng email và mật khẩu, trả về access token và refresh token',
   })
   @ApiBody({ type: LoginDto })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Đăng nhập thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Đăng nhập thành công' },
-        data: { $ref: '#/components/schemas/LoginResponseDto' }
-      }
-    }
+        data: { $ref: '#/components/schemas/LoginResponseDto' },
+      },
+    },
   })
   @ApiUnauthorizedResponse({ description: 'Email hoặc mật khẩu không đúng' })
   @ApiBadRequestResponse({ description: 'Dữ liệu đầu vào không hợp lệ' })
@@ -104,13 +105,9 @@ export class AuthController {
     // Lấy thông tin thiết bị từ request headers
     const userAgent = req.headers['user-agent'] || 'Unknown Device';
     const ipAddress = req.ip || req.connection?.remoteAddress || 'Unknown IP';
-    
-    const data = await this.authService.login(
-      loginDto, 
-      userAgent, 
-      ipAddress
-    );
-    
+
+    const data = await this.authService.login(loginDto, userAgent, ipAddress);
+
     return {
       message: 'Đăng nhập thành công',
       data,
@@ -121,33 +118,34 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Đăng xuất khỏi hệ thống',
-    description: 'Hủy bỏ session hiện tại. Có thể truyền refreshToken để hủy session cụ thể, hoặc để trống để hủy tất cả session' 
+    description:
+      'Hủy bỏ session hiện tại. Có thể truyền refreshToken để hủy session cụ thể, hoặc để trống để hủy tất cả session',
   })
-  @ApiBody({ 
+  @ApiBody({
     required: false,
     schema: {
       type: 'object',
       properties: {
-        refreshToken: { 
-          type: 'string', 
+        refreshToken: {
+          type: 'string',
           description: 'Refresh token cần hủy (tùy chọn)',
-          example: 'abc123def456...'
-        }
-      }
-    }
+          example: 'abc123def456...',
+        },
+      },
+    },
   })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Đăng xuất thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Đăng xuất thành công' },
-        data: { type: 'null', example: null }
-      }
-    }
+        data: { type: 'null', example: null },
+      },
+    },
   })
   @ApiUnauthorizedResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
   async logout(
@@ -157,11 +155,8 @@ export class AuthController {
     message: string;
     data: null;
   }> {
-    const result = await this.authService.logout(
-      req.user.id, 
-      refreshToken
-    );
-    
+    const result = await this.authService.logout(req.user.id, refreshToken);
+
     return {
       message: result.message,
       data: null,
@@ -170,21 +165,22 @@ export class AuthController {
 
   @Post('profile')
   @UseGuards(JwtAuthGuard)
+  @UseInterceptors(ClassSerializerInterceptor) // <--- BẮT BUỘC PHẢI CÓ DÒNG NÀY
   @ApiBearerAuth('access-token')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Lấy thông tin tài khoản hiện tại',
-    description: 'Trả về thông tin chi tiết của người dùng đang đăng nhập' 
+    description: 'Trả về thông tin chi tiết của người dùng đang đăng nhập',
   })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Lấy thông tin thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Lấy thông tin tài khoản thành công' },
-        data: { $ref: '#/components/schemas/AuthResponseDto' }
-      }
-    }
+        data: { $ref: '#/components/schemas/AuthResponseDto' },
+      },
+    },
   })
   @ApiUnauthorizedResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
   async getProfile(@Req() req: AuthRequest): Promise<{
@@ -200,6 +196,8 @@ export class AuthController {
       role: req.user.role,
       isVerified: req.user.isVerified,
       currentTrustScore: req.user.currentTrustScore,
+      badge: req.user.badge, // Từ virtual property của Entity
+      stats: req.user.stats, // Từ virtual property của Entity
       createdAt: req.user.createdAt,
       updatedAt: req.user.updatedAt,
     };
@@ -212,44 +210,42 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Làm mới access token',
-    description: 'Sử dụng refresh token để lấy access token mới và refresh token mới' 
+    description: 'Sử dụng refresh token để lấy access token mới và refresh token mới',
   })
   @ApiBody({
     schema: {
       type: 'object',
       required: ['refreshToken'],
       properties: {
-        refreshToken: { 
-          type: 'string', 
+        refreshToken: {
+          type: 'string',
           description: 'Refresh token từ login',
-          example: 'abc123def456...'
-        }
-      }
-    }
+          example: 'abc123def456...',
+        },
+      },
+    },
   })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Làm mới token thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Làm mới token thành công' },
-        data: { $ref: '#/components/schemas/RefreshTokenResponseDto' }
-      }
-    }
+        data: { $ref: '#/components/schemas/RefreshTokenResponseDto' },
+      },
+    },
   })
   @ApiUnauthorizedResponse({ description: 'Refresh token không hợp lệ hoặc đã hết hạn' })
   @ApiBadRequestResponse({ description: 'Dữ liệu đầu vào không hợp lệ' })
-  async refreshToken(
-    @Body('refreshToken') refreshToken: string,
-  ): Promise<{
+  async refreshToken(@Body('refreshToken') refreshToken: string): Promise<{
     message: string;
     data: RefreshTokenResponseDto;
   }> {
     const tokens = await this.authService.refreshToken(refreshToken);
-    
+
     return {
       message: 'Làm mới token thành công',
       data: tokens,
