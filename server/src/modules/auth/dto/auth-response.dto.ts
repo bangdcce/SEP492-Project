@@ -1,5 +1,26 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+// Enum để Swagger hiểu được các giá trị badge hợp lệ
+export enum BadgeType {
+  NEW = 'NEW',
+  VERIFIED = 'VERIFIED',
+  TRUSTED = 'TRUSTED',
+  WARNING = 'WARNING',
+  NORMAL = 'NORMAL',
+}
+
+// DTO cho stats object
+export class UserStatsDto {
+  @ApiProperty({ description: 'Số dự án đã hoàn thành', example: 5 })
+  finished: number;
+
+  @ApiProperty({ description: 'Số lần thua tranh chấp', example: 0 })
+  disputes: number;
+
+  @ApiProperty({ description: 'Điểm uy tín (0-5)', example: 4.5 })
+  score: number;
+}
+
 export class AuthResponseDto {
   @ApiProperty({ description: 'ID người dùng', example: '550e8400-e29b-41d4-a716-446655440000' })
   id: string;
@@ -22,6 +43,19 @@ export class AuthResponseDto {
   @ApiProperty({ description: 'Điểm tin cậy hiện tại', example: 5.0 })
   currentTrustScore: number;
 
+  @ApiProperty({
+    description: 'Huy hiệu người dùng (tự động tính toán)',
+    enum: BadgeType,
+    example: 'VERIFIED',
+  })
+  badge: BadgeType;
+
+  @ApiProperty({
+    description: 'Thống kê tổng hợp của người dùng',
+    type: UserStatsDto,
+  })
+  stats: UserStatsDto;
+
   @ApiProperty({ description: 'Thời gian tạo tài khoản', example: '2025-12-18T10:00:00Z' })
   createdAt: Date;
 
@@ -33,15 +67,15 @@ export class LoginResponseDto {
   @ApiProperty({ description: 'Thông tin người dùng', type: AuthResponseDto })
   user: AuthResponseDto;
 
-  @ApiProperty({ 
-    description: 'Access token để xác thực API calls', 
-    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' 
+  @ApiProperty({
+    description: 'Access token để xác thực API calls',
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
   accessToken: string;
 
-  @ApiProperty({ 
-    description: 'Refresh token để làm mới access token', 
-    example: 'abc123def456...' 
+  @ApiProperty({
+    description: 'Refresh token để làm mới access token',
+    example: 'abc123def456...',
   })
   refreshToken: string;
 }

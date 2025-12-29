@@ -6,7 +6,9 @@ import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AuthModule } from './modules/auth/auth.module';
 import jwtConfig from './config/jwt.config';
-import { ReviewModule } from './review/review.module';
+import { ReviewModule } from './modules/review/review.module';
+import { TrustScoreModule } from './modules/trust-score/trust-score.module';
+import { ReportModule } from './modules/report/report.module';
 
 @Module({
   imports: [
@@ -54,6 +56,8 @@ import { ReviewModule } from './review/review.module';
     AuditLogsModule,
     AuthModule,
     ReviewModule,
+    TrustScoreModule,
+    ReportModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -2,22 +2,22 @@ import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn } from 't
 
 @Entity('wizard_options')
 export class WizardOptionEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-  @Column()
-  questionId: string;
+  @Column({ name: 'question_id' })
+  questionId: number;
 
-  @Column({ type: 'varchar', length: 100 })
+  @Column({ type: 'varchar' })
   value: string;
 
   @Column({ type: 'text' })
   label: string;
 
-  @Column({ type: 'int', nullable: true })
+  @Column({ name: 'sort_order', type: 'int', nullable: true })
   sortOrder: number;
 
   @ManyToOne('WizardQuestionEntity', 'options', { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'questionId' })
+  @JoinColumn({ name: 'question_id' })
   question: any;
 }

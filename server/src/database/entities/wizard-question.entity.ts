@@ -2,28 +2,28 @@ import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
 
 @Entity('wizard_questions')
 export class WizardQuestionEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-  @Column({ type: 'varchar', length: 100, unique: true })
+  @Column({ type: 'varchar', unique: true })
   code: string;
 
   @Column({ type: 'text' })
   label: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'help_text', type: 'text', nullable: true })
   helpText: string;
 
-  @Column({ type: 'varchar', length: 50, nullable: true })
+  @Column({ name: 'input_type', type: 'varchar', nullable: true })
   inputType: string;
 
-  @Column({ type: 'boolean', default: true })
+  @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
-  @Column({ type: 'int', nullable: true })
+  @Column({ name: 'sort_order', type: 'int', nullable: true })
   sortOrder: number;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ name: 'created_at', type: 'timestamp', default: () => 'NOW()' })
   createdAt: Date;
 
   // Relations

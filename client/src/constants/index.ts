@@ -13,9 +13,15 @@ export const ROUTES = {
   HOME: "/",
   LOGIN: "/login",
   REGISTER: "/register",
-  DASHBOARD: "/dashboard",
-  PROFILE: "/profile",
-  AUDIT_LOGS: "/audit-logs",
+  DASHBOARD: "/admin/dashboard",
+  PROFILE: "/admin/profile",
+  AUDIT_LOGS: "/admin/audit-logs",
+  REVIEW_MODERATION: "/admin/reviews",
+  TRUST_PROFILES: "/admin/trust-profiles",
+  FREELANCERS: "/admin/freelancers",
+  PROJECTS: "/admin/projects",
+  ANALYTICS: "/admin/analytics",
+  SETTINGS: "/admin/settings",
   NOT_FOUND: "/404",
 } as const;
 
