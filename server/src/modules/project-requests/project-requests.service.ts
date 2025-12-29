@@ -43,4 +43,14 @@ export class ProjectRequestsService {
 
     return await this.projectRequestRepository.save(request);
   }
+
+  async findAll(status?: RequestStatus): Promise<ProjectRequestEntity[]> {
+    const query = this.projectRequestRepository.createQueryBuilder('request');
+
+    if (status) {
+      query.where('request.status = :status', { status });
+    }
+
+    return await query.orderBy('request.createdAt', 'DESC').getMany();
+  }
 }
