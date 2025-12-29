@@ -8,6 +8,12 @@ import {
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiQuery,
+  ApiResponse,
+} from '@nestjs/swagger';
 import { ProjectRequestsService } from './project-requests.service';
 import { AssignBrokerDto } from './dto/assign-broker.dto';
 import { RequestStatus } from '../../database/entities/project-request.entity';
@@ -18,13 +24,16 @@ import { RequestStatus } from '../../database/entities/project-request.entity';
 // import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 // import { RolesGuard } from '../../common/guards/roles.guard';
 
+@ApiTags('Project Requests')
 @Controller('project-requests')
 export class ProjectRequestsController {
   constructor(private readonly projectRequestsService: ProjectRequestsService) {}
 
   @Get()
-  async getProjectRequests(@Query('status') status?: RequestStatus) {
-    return this.projectRequestsService.findAll(status);
+  @ApiOperation({ summary: 'Get all project requests with optional status filter' })
+  @ApiQuery({ name: 'status', enum: RequestStatus, required: false })
+  async getProjectRequests(@Query('status') status?: string) {
+    return this.projectRequestsService.findAll(status as RequestStatus);
   }
 
   @Patch(':id/assign')
