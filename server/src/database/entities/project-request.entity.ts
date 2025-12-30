@@ -13,7 +13,7 @@ export class ProjectRequestEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ name: 'client_id' })
   clientId: string;
 
   @Column({ type: 'varchar', length: 255 })
@@ -22,13 +22,13 @@ export class ProjectRequestEntity {
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ name: 'budget_range', type: 'varchar', nullable: true })
   budgetRange: string;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ name: 'intended_timeline', type: 'varchar', nullable: true })
   intendedTimeline: string;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ name: 'tech_preferences', type: 'varchar', nullable: true })
   techPreferences: string;
 
   @Column({
@@ -38,19 +38,19 @@ export class ProjectRequestEntity {
   })
   status: RequestStatus;
 
-  @Column({ nullable: true })
+  @Column({ name: 'broker_id', nullable: true })
   brokerId: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 
   // Relations
   @ManyToOne('UserEntity', 'clientRequests', { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'clientId' })
+  @JoinColumn({ name: 'client_id' })
   client: any;
 
   @ManyToOne('UserEntity', 'brokerRequests', { onDelete: 'SET NULL' })
-  @JoinColumn({ name: 'brokerId' })
+  @JoinColumn({ name: 'broker_id' })
   broker: any;
 
   @OneToMany('ProjectRequestAnswerEntity', 'request')

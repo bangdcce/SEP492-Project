@@ -8,6 +8,7 @@ import { lazy, Suspense } from "react";
 
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
+const WizardPage = lazy(() => import("@/features/wizard/WizardPage"));
 
 // Loading fallback
 function PageLoader() {
@@ -22,6 +23,16 @@ function App() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
+        {/* Wizard */}
+        <Route
+            path={ROUTES.WIZARD}
+            element={
+                <MainLayout>
+                    <WizardPage />
+                </MainLayout>
+            }
+        />
+        
         {/* Dashboard */}
         <Route
           path={ROUTES.DASHBOARD}

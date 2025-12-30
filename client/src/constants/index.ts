@@ -16,6 +16,7 @@ export const ROUTES = {
   DASHBOARD: "/dashboard",
   PROFILE: "/profile",
   AUDIT_LOGS: "/audit-logs",
+  WIZARD: "/wizard",
   NOT_FOUND: "/404",
 } as const;
 

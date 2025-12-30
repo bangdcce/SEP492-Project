@@ -1,4 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { WizardOptionEntity } from './wizard-option.entity';
+import { ProjectRequestAnswerEntity } from './project-request-answer.entity';
 
 @Entity('wizard_questions')
 export class WizardQuestionEntity {
@@ -11,25 +13,25 @@ export class WizardQuestionEntity {
   @Column({ type: 'text' })
   label: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'help_text', type: 'text', nullable: true })
   helpText: string;
 
-  @Column({ type: 'varchar', length: 50, nullable: true })
+  @Column({ name: 'input_type', type: 'varchar', length: 50, nullable: true })
   inputType: string;
 
-  @Column({ type: 'boolean', default: true })
+  @Column({ name: 'is_active', type: 'boolean', default: true })
   isActive: boolean;
 
-  @Column({ type: 'int', nullable: true })
+  @Column({ name: 'sort_order', type: 'int', nullable: true })
   sortOrder: number;
 
-  @Column({ type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ name: 'created_at', type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
   createdAt: Date;
 
   // Relations
-  @OneToMany('WizardOptionEntity', 'question')
-  options: any[];
+  @OneToMany(() => WizardOptionEntity, (option) => option.question)
+  options: WizardOptionEntity[];
 
-  @OneToMany('ProjectRequestAnswerEntity', 'question')
-  answers: any[];
+  @OneToMany(() => ProjectRequestAnswerEntity, (answer) => answer.question)
+  answers: ProjectRequestAnswerEntity[];
 }
