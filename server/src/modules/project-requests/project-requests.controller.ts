@@ -18,11 +18,8 @@ import { ProjectRequestsService } from './project-requests.service';
 import { AssignBrokerDto } from './dto/assign-broker.dto';
 import { RequestStatus } from '../../database/entities/project-request.entity';
 
-// TODO: Import RoleGuard and Roles decorator when available
-// import { Roles } from '../../common/decorators/roles.decorator';
-// import { UserRole } from '../../database/entities/user.entity';
-// import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
-// import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles, JwtAuthGuard, RolesGuard } from '../auth';
+import { UserRole } from '../../database/entities/user.entity';
 
 @ApiTags('Project Requests')
 @Controller('project-requests')
@@ -36,9 +33,17 @@ export class ProjectRequestsController {
     return this.projectRequestsService.findAll(status as RequestStatus);
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Get a single project request by ID' })
+  @ApiResponse({ status: 200, description: 'Return the project request details' })
+  @ApiResponse({ status: 404, description: 'Project request not found' })
+  async getOne(@Param('id') id: string) {
+    return this.projectRequestsService.findOne(id);
+  }
+
   @Patch(':id/assign')
-  // @UseGuards(JwtAuthGuard, RolesGuard)
-  // @Roles(UserRole.BROKER)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.BROKER)
   async assignBroker(
     @Param('id') id: string,
     @Body(new ValidationPipe()) assignBrokerDto: AssignBrokerDto,

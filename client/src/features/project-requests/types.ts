@@ -18,6 +18,17 @@ export interface ProjectRequest {
   intendedTimeline: string | null;
   techPreferences: string | null;
   createdAt: string;
+  client?: {
+    id: string;
+    fullName: string;
+    email: string;
+    avatar?: string;
+  };
+  answers?: {
+    id: string;
+    question: { id: string; content: string };
+    option: { id: string; content: string };
+  }[];
 }
 
 export interface GetRequestsParams {

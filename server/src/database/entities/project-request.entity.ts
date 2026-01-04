@@ -1,4 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { UserEntity } from './user.entity';
 
 export enum RequestStatus {
   PENDING = 'PENDING',
@@ -45,13 +46,13 @@ export class ProjectRequestEntity {
   createdAt: Date;
 
   // Relations
-  @ManyToOne('UserEntity', 'clientRequests', { onDelete: 'CASCADE' })
+  @ManyToOne(() => UserEntity, (user) => user.clientRequests, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'clientId' })
-  client: any;
+  client: UserEntity;
 
-  @ManyToOne('UserEntity', 'brokerRequests', { onDelete: 'SET NULL' })
+  @ManyToOne(() => UserEntity, (user) => user.brokerRequests, { onDelete: 'SET NULL' })
   @JoinColumn({ name: 'brokerId' })
-  broker: any;
+  broker: UserEntity;
 
   @OneToMany('ProjectRequestAnswerEntity', 'request')
   answers: any[];

@@ -12,6 +12,7 @@ const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage")
 );
 const ProjectRequestsPage = lazy(() => import("@/features/project-requests/ProjectRequestsPage").then(module => ({ default: module.ProjectRequestsPage })));
+const ProjectRequestDetailsPage = lazy(() => import("@/features/project-requests/ProjectRequestDetailsPage"));
 
 // Loading fallback
 function PageLoader() {
@@ -61,6 +62,15 @@ function App() {
           element={
             <MainLayout>
               <ProjectRequestsPage />
+            </MainLayout>
+          }
+        />
+
+        <Route
+          path="/project-requests/:id"
+          element={
+            <MainLayout>
+              <ProjectRequestDetailsPage />
             </MainLayout>
           }
         />
