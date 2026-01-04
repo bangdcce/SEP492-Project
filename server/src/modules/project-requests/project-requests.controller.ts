@@ -5,6 +5,7 @@ import {
   Param,
   Patch,
   Query,
+  Req,
   UseGuards,
   ValidationPipe,
 } from '@nestjs/common';
@@ -15,10 +16,10 @@ import {
   ApiResponse,
 } from '@nestjs/swagger';
 import { ProjectRequestsService } from './project-requests.service';
-import { AssignBrokerDto } from './dto/assign-broker.dto';
 import { RequestStatus } from '../../database/entities/project-request.entity';
 
 import { Roles, JwtAuthGuard, RolesGuard } from '../auth';
+import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserRole } from '../../database/entities/user.entity';
 
 @ApiTags('Project Requests')
@@ -46,11 +47,9 @@ export class ProjectRequestsController {
   @Roles(UserRole.BROKER)
   async assignBroker(
     @Param('id') id: string,
-    @Body(new ValidationPipe()) assignBrokerDto: AssignBrokerDto,
+    @GetUser('id') brokerId: string,
+    @Req() req: any,
   ) {
-    return this.projectRequestsService.assignBroker(
-      id,
-      assignBrokerDto.brokerId,
-    );
+    return this.projectRequestsService.assignBroker(id, brokerId, req);
   }
 }

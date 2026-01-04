@@ -22,7 +22,7 @@ export class ProjectRequestsService {
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
-  async assignBroker(requestId: string, brokerId: string): Promise<ProjectRequestEntity> {
+  async assignBroker(requestId: string, brokerId: string, req: any): Promise<ProjectRequestEntity> {
     const queryRunner = this.dataSource.createQueryRunner();
 
     await queryRunner.connect();
@@ -65,7 +65,7 @@ export class ProjectRequestsService {
         'ProjectRequest',
         requestId,
         { brokerId, status: RequestStatus.PROCESSING },
-        null,
+        req, // Pass the request object here
         brokerId, // Actor ID
       );
 
