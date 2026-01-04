@@ -10,7 +10,7 @@ export const ProjectRequestsPage: React.FC = () => {
   const [assigningId, setAssigningId] = useState<string | null>(null);
 
   // TODO: Get this from real Auth Context
-  const MOCK_BROKER_ID = 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22';
+  // const MOCK_BROKER_ID = 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22';
 
   const fetchRequests = async () => {
     try {
@@ -33,9 +33,7 @@ export const ProjectRequestsPage: React.FC = () => {
     
     try {
       setAssigningId(requestId);
-      await projectRequestsApi.assignBroker(requestId, {
-        brokerId: MOCK_BROKER_ID,
-      });
+      await projectRequestsApi.assignBroker(requestId);
       // Refresh list after successful assignment
       await fetchRequests();
       alert('Request assigned successfully!');

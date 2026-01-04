@@ -83,6 +83,25 @@ export default function ProjectRequestDetailsPage() {
     }
   };
 
+  const handleAssign = async () => {
+    if (!request || !request.id) return;
+    if (!confirm('Are you sure you want to assign this request to yourself?')) return;
+
+    try {
+      // Optimistically update UI or show loading
+      await projectRequestsApi.assignBroker(request.id);
+      
+      // Update local state to reflect change
+      setRequest(prev => prev ? ({ ...prev, status: 'PROCESSING', brokerId: 'me' }) : null);
+      alert('Request assigned successfully!');
+      
+      // Navigate back or refresh? For now just stay.
+    } catch (err: any) {
+      console.error('Failed to assign request:', err);
+      alert('Failed to assign request');
+    }
+  };
+
   return (
     <div className="container mx-auto py-8 space-y-6">
       <div className="flex items-center gap-4">
@@ -197,7 +216,7 @@ export default function ProjectRequestDetailsPage() {
               {request.status === 'PENDING' ? (
                 <div className="space-y-2">
                   <p className="text-sm text-muted-foreground">This request is pending assignment.</p>
-                  <Button className="w-full">Assign to Me</Button>
+                  <Button className="w-full" onClick={handleAssign}>Assign to Me</Button>
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground">

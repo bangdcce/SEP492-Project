@@ -2,7 +2,7 @@ import { apiClient } from '../../shared/api/client';
 import type {
   ProjectRequest,
   GetRequestsParams,
-  AssignBrokerPayload,
+  GetRequestsParams,
 } from './types';
 
 export const projectRequestsApi = {
@@ -14,10 +14,9 @@ export const projectRequestsApi = {
     return apiClient.get<ProjectRequest>(`/project-requests/${id}`);
   },
 
-  assignBroker: (id: string, payload: AssignBrokerPayload) => {
+  assignBroker: (id: string) => {
     return apiClient.patch<ProjectRequest>(
-      `/project-requests/${id}/assign`,
-      payload
+      `/project-requests/${id}/assign`
     );
   },
 };
