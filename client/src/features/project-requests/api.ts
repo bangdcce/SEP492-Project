@@ -2,7 +2,6 @@ import { apiClient } from '../../shared/api/client';
 import type {
   ProjectRequest,
   GetRequestsParams,
-  GetRequestsParams,
 } from './types';
 
 export const projectRequestsApi = {

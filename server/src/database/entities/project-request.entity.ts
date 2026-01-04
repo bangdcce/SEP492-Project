@@ -6,7 +6,7 @@ export enum RequestStatus {
   PROCESSING = 'PROCESSING',
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
-  CANCELED = 'CANCELED',
+  CANCELLED = 'CANCELLED',
 }
 
 @Entity('project_requests')

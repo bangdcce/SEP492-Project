@@ -169,8 +169,9 @@ export default function ProjectRequestDetailsPage() {
                 <div className="space-y-4">
                   {request.answers.map((answer: any) => (
                     <div key={answer.id} className="p-4 bg-muted/50 rounded-lg space-y-2">
-                      <p className="text-sm font-medium">{answer.question.content}</p>
-                      <p className="text-sm text-muted-foreground">{answer.option.content}</p>
+                       {/* Use safer access and fallback */}
+                      <p className="text-sm font-medium">{answer.question?.label || 'Unknown Question'}</p>
+                      <p className="text-sm text-muted-foreground">{answer.option?.label || answer.valueText || 'No Answer'}</p>
                     </div>
                   ))}
                 </div>

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -12,6 +13,7 @@ import {
 import { DataSource } from 'typeorm';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ConflictException } from '@nestjs/common';
+import { UserEntity, UserRole } from '../../database/entities/user.entity';
 
 @Injectable()
 export class ProjectRequestsService {
@@ -89,7 +91,7 @@ export class ProjectRequestsService {
     return await query.orderBy('request.createdAt', 'DESC').getMany();
   }
 
-  async findOne(id: string): Promise<ProjectRequestEntity> {
+  async findOne(id: string, user: UserEntity): Promise<ProjectRequestEntity> {
     const request = await this.projectRequestRepository.findOne({
       where: { id },
       relations: [
@@ -102,6 +104,39 @@ export class ProjectRequestsService {
 
     if (!request) {
       throw new NotFoundException(`Project request with ID ${id} not found`);
+    }
+
+    // Access Control Logic
+    const isAdmin = user.role === UserRole.ADMIN;
+    const isOwner = request.clientId === user.id;
+    const isAssignedBroker = request.brokerId === user.id;
+    const isPending = request.status === RequestStatus.PENDING;
+    const isBroker = user.role === UserRole.BROKER;
+
+    // 1. Admin: Allow all
+    if (isAdmin) {
+      return request;
+    }
+
+    // 2. Client: Must be owner
+    if (user.role === UserRole.CLIENT && !isOwner) {
+      throw new ForbiddenException('You do not have permission to view this request.');
+    }
+
+    // 3. Broker: Must be assigned OR request must be PENDING
+    if (isBroker) {
+      if (!isAssignedBroker && !isPending) {
+        throw new ForbiddenException('You do not have permission to view this request.');
+      }
+
+      // Data Masking for Unassigned Brokers (PENDING requests)
+      if (isPending && !isAssignedBroker) {
+        if (request.client) {
+          // Mask sensitive fields
+          request.client.email = '********' as any;
+          request.client.phoneNumber = '********' as any;
+        }
+      }
     }
 
     return request;

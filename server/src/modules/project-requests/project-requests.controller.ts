@@ -20,7 +20,7 @@ import { RequestStatus } from '../../database/entities/project-request.entity';
 
 import { Roles, JwtAuthGuard, RolesGuard } from '../auth';
 import { GetUser } from '../auth/decorators/get-user.decorator';
-import { UserRole } from '../../database/entities/user.entity';
+import { UserRole, UserEntity } from '../../database/entities/user.entity';
 
 @ApiTags('Project Requests')
 @Controller('project-requests')
@@ -35,11 +35,14 @@ export class ProjectRequestsController {
   }
 
   @Get(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.BROKER, UserRole.CLIENT)
   @ApiOperation({ summary: 'Get a single project request by ID' })
   @ApiResponse({ status: 200, description: 'Return the project request details' })
   @ApiResponse({ status: 404, description: 'Project request not found' })
-  async getOne(@Param('id') id: string) {
-    return this.projectRequestsService.findOne(id);
+  @ApiResponse({ status: 403, description: 'Forbidden resource' })
+  async getOne(@Param('id') id: string, @GetUser() user: UserEntity) {
+    return this.projectRequestsService.findOne(id, user);
   }
 
   @Patch(':id/assign')
