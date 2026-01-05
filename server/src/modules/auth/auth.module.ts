@@ -14,20 +14,22 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CaptchaGuard } from '../../common/guards/captcha.guard';
 import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
+import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([UserEntity, AuthSessionEntity]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
+    AuditLogsModule, // Import để dùng AuditLogsService
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService): JwtModuleOptions => {
         const secret = configService.get<string>('jwt.secret');
         const expiresIn = configService.get<string>('jwt.expiresIn');
-        
+
         if (!secret) {
           throw new Error(
-            'JWT_SECRET is not configured. Please set JWT_SECRET environment variable or configure jwt.secret in your config.'
+            'JWT_SECRET is not configured. Please set JWT_SECRET environment variable or configure jwt.secret in your config.',
           );
         }
 

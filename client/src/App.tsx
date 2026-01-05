@@ -13,6 +13,9 @@ const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
 // const GoogleCompletePage = lazy(() => import("@/pages/GoogleCompletePage"));
 // const GoogleSuccessPage = lazy(() => import("@/pages/GoogleSuccessPage"));
+const AdminReviewModerationPage = lazy(
+  () => import("@/pages/AdminReviewModerationPage")
+);
 
 // Loading fallback
 function PageLoader() {
@@ -56,10 +59,32 @@ function App() {
           }
         />
 
-        {/* Redirect root to login */}
+        {/* Review Moderation (Admin) */}
+        <Route
+          path={ROUTES.REVIEW_MODERATION}
+          element={
+            <MainLayout>
+              <AdminReviewModerationPage />
+            </MainLayout>
+          }
+        />
+
+        {/* Redirect root to admin dashboard */}
         <Route
           path={ROUTES.HOME}
-          element={<Navigate to={ROUTES.LOGIN} replace />}
+          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+        />
+
+        {/* Redirect /admin to admin dashboard */}
+        <Route
+          path="/admin"
+          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+        />
+
+        {/* Redirect login to dashboard (bypass) */}
+        <Route
+          path={ROUTES.LOGIN}
+          element={<Navigate to={ROUTES.DASHBOARD} replace />}
         />
 
         {/* 404 - Not Found */}

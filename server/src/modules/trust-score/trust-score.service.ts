@@ -1,0 +1,134 @@
+import { Injectable, Logger } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { ReviewEntity, TrustScoreHistoryEntity, UserEntity } from 'src/database/entities';
+import { Repository } from 'typeorm';
+
+@Injectable()
+export class TrustScoreService {
+  private readonly logger = new Logger(TrustScoreService.name);
+
+  constructor(
+    @InjectRepository(UserEntity)
+    private userRepo: Repository<UserEntity>,
+    @InjectRepository(ReviewEntity)
+    private reviewRepo: Repository<ReviewEntity>,
+    @InjectRepository(TrustScoreHistoryEntity)
+    private trustScoreHistoryRepo: Repository<TrustScoreHistoryEntity>,
+  ) {}
+
+  /**
+   * Thuật toán "3 Trụ Cột Tin Cậy" (3 Pillars of Trust)
+   * 1. Chất lượng (Reviews): 40%
+   * 2. Hiệu suất (Performance): 30%
+   * 3. Liêm chính (Integrity): 30%
+   */
+
+  async calculateTrustScore(userId: string) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) return;
+
+    this.logger.log(`Start calculating Trust Score for User: ${userId}`);
+
+    // --- TRỤ CỘT 1: CHẤT LƯỢNG (Dựa trên Review có trọng số) ---
+    const reviews = await this.reviewRepo.find({ where: { targetUserId: userId } });
+
+    let qualityScore = 50; // Mặc định 50/100 cho người mới (Neutral)
+    if (reviews.length > 0) {
+      // Công thức: Weighted Average
+      const totalWeightRating = reviews.reduce((sum, r) => sum + r.rating * Number(r.weight), 0);
+
+      const totalWeight = reviews.reduce((sum, r) => sum + Number(r.weight), 0);
+
+      const avgStars = totalWeightRating / totalWeight; // Ra số sao (VD: 4.5)
+
+      // Quy đổi sao (1-5) thành thang điểm 100
+      // 1 sao = 20đ, 5 sao = 100đ
+
+      qualityScore = avgStars * 20;
+    }
+    // Defensive: Đảm bảo qualityScore luôn trong khoảng 0-100
+    qualityScore = Math.max(0, Math.min(100, qualityScore));
+
+    // -- TRỤ CỘT 2: HIỆU SUẤT (Dựa trên lịch sử dự án ) ---
+
+    const totalProjects = user.totalProjectsFinished + user.totalProjectsCancelled;
+
+    let performanceScore = 100; //Khởi điểm là 100
+
+    if (totalProjects > 0) {
+      //Tỷ lệ hủy (Penalty cực nặng : x1.5)
+      const cancelRate = user.totalProjectsCancelled / totalProjects;
+      performanceScore -= cancelRate * 100 * 1.5;
+
+      //Tỷ lệ trễ hạn (Penalty nhẹ : x0.5)
+      // (Giả sử totalLateProjects là subset của finished)
+      if (user.totalProjectsFinished > 0) {
+        const lateRate = user.totalLateProjects / user.totalProjectsFinished;
+        performanceScore -= lateRate * 100 * 0.5;
+      }
+    }
+    performanceScore = Math.max(0, Math.min(100, performanceScore));
+
+    // --- TRỤ CỘT 3: LIÊM CHÍNH (KYC & Dispute) ---
+    let integrityScore = 0;
+    if (user.isVerified) integrityScore = 60; //KYC xong là có nền tảng uy tín
+
+    // Thưởng thâm niên (Activity Bonus)
+    // Mỗi dự án xong +2 điểm uy tín, tối đa + 40
+    integrityScore += Math.min(40, user.totalProjectsFinished * 2);
+
+    //Phạt thua kiện (Dispute Lost) - Cực nặng
+    //Mỗi lần thua trừ 25 điểm liêm chính
+    integrityScore -= user.totalDisputesLost * 25;
+    // Defensive: Đảm bảo integrityScore luôn trong khoảng 0-100
+    integrityScore = Math.max(0, Math.min(100, integrityScore));
+
+    //Tổng hợp
+    //Quality (40%) + Performance (30%) + Integrity (30%)
+    const finalScore100 = qualityScore * 0.4 + performanceScore * 0.3 + integrityScore * 0.3;
+
+    // Defensive: Đảm bảo điểm cuối cùng luôn trong khoảng 0-5 sao
+    const finalScore5 = Math.min(5, Math.max(0, (finalScore100 / 100) * 5));
+
+    const oldScore = user.currentTrustScore;
+    user.currentTrustScore = Math.round(finalScore5 * 100) / 100;
+    await this.userRepo.save(user);
+
+    // Ghi lại lịch sử Trust Score
+    const historyEntry = this.trustScoreHistoryRepo.create({
+      userId,
+      ratingScore: Math.round((qualityScore / 100) * 5 * 100) / 100, // Convert to 5-star scale
+      behaviorScore: Math.round((performanceScore / 100) * 5 * 100) / 100,
+      disputeScore: Math.round((integrityScore / 100) * 5 * 100) / 100,
+      verificationScore: user.isVerified ? 5 : 0,
+      totalScore: user.currentTrustScore,
+    });
+    await this.trustScoreHistoryRepo.save(historyEntry);
+
+    this.logger.log(
+      `Updated Trust Score for User ${userId}: ${oldScore} -> ${user.currentTrustScore}`,
+    );
+
+    return {
+      userId,
+      oldScore,
+      newScore: user.currentTrustScore,
+      breakdown: {
+        qualityScore: Math.round(qualityScore) / 100,
+        performanceScore: Math.round(performanceScore) / 100,
+        integrityScore: Math.round(integrityScore) / 100,
+      },
+    };
+  }
+
+  /**
+   * Get trust score history for a user
+   */
+  async getScoreHistory(userId: string, limit: number = 30) {
+    return this.trustScoreHistoryRepo.find({
+      where: { userId },
+      order: { calculatedAt: 'DESC' },
+      take: limit,
+    });
+  }
+}

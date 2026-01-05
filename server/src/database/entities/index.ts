@@ -34,6 +34,7 @@ export { DisputeEntity, DisputeStatus } from './dispute.entity';
 export { TrustScoreHistoryEntity } from './trust-score-history.entity';
 export { UserFlagEntity } from './user-flag.entity';
 export { ReviewEntity } from './review.entity';
+export { ReportEntity, ReportStatus, ReportReason } from './report.entity';
 export { VerificationDocumentEntity, VerificationStatus } from './verification-document.entity';
 export { NotificationEntity } from './notification.entity';
 export { AuditLogEntity } from './audit-log.entity';

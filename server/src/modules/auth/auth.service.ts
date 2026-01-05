@@ -1,16 +1,11 @@
-import { 
-  Injectable, 
-  UnauthorizedException, 
-  ConflictException, 
-  
-} from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { Repository, LessThan, MoreThan } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
-import { UserEntity, } from '../../database/entities/user.entity';
+import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { EmailService } from './email.service';
 import { 
@@ -27,6 +22,7 @@ import {
   VerifyOtpResponseDto
 } from './dto';
 import { JwtPayload } from './strategies/jwt.strategy';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 
 @Injectable()
 export class AuthService {
@@ -38,6 +34,7 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
+    private auditLogsService: AuditLogsService, // Inject AuditLogsService
   ) {}
 
   async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
@@ -64,7 +61,7 @@ export class AuthService {
       phoneNumber,
       role: role, // No more type casting needed - RegisterableRole is subset of UserRole
       isVerified: false,
-      currentTrustScore: 5.0,
+      currentTrustScore: 2.5, // Neutral score cho user mới (chưa có track record)
     });
 
     const savedUser = await this.userRepository.save(newUser);
@@ -73,7 +70,11 @@ export class AuthService {
     return this.mapToAuthResponse(savedUser);
   }
 
-  async login(loginDto: LoginDto, userAgent?: string, ipAddress?: string): Promise<LoginResponseDto> {
+  async login(
+    loginDto: LoginDto,
+    userAgent?: string,
+    ipAddress?: string,
+  ): Promise<LoginResponseDto> {
     const { email, password } = loginDto;
 
     // Tìm user theo email
@@ -104,6 +105,15 @@ export class AuthService {
     // Lưu auth session với thông tin thiết bị
     await this.createAuthSession(user.id, refreshToken, userAgent, ipAddress);
 
+    // Ghi Audit Log cho LOGIN
+    this.auditLogsService
+      .logLogin(
+        user.id,
+        { success: true, userAgent, ipAddress },
+        { ip: ipAddress, headers: { 'user-agent': userAgent } },
+      )
+      .catch((err) => console.error('Lỗi ghi audit log:', err));
+
     return {
       user: this.mapToAuthResponse(user),
       accessToken,
@@ -115,7 +125,7 @@ export class AuthService {
     if (refreshToken) {
       // Tìm tất cả sessions của user và kiểm tra refreshToken bằng bcrypt.compare
       const userSessions = await this.authSessionRepository.find({
-        where: { userId, isRevoked: false }
+        where: { userId, isRevoked: false },
       });
 
       // So sánh refreshToken với từng session hash
@@ -125,7 +135,7 @@ export class AuthService {
           // Revoke session tìm thấy
           await this.authSessionRepository.update(
             { id: session.id },
-            { isRevoked: true, revokedAt: new Date() }
+            { isRevoked: true, revokedAt: new Date() },
           );
           break;
         }
@@ -134,7 +144,7 @@ export class AuthService {
       // Revoke tất cả sessions của user
       await this.authSessionRepository.update(
         { userId, isRevoked: false },
-        { isRevoked: true, revokedAt: new Date() }
+        { isRevoked: true, revokedAt: new Date() },
       );
     }
 
@@ -155,7 +165,7 @@ export class AuthService {
   }> {
     // 1. Tìm session với refresh token này
     const sessions = await this.authSessionRepository.find({
-      where: { isRevoked: false }
+      where: { isRevoked: false },
     });
 
     let validSession: AuthSessionEntity | null = null;
@@ -176,7 +186,7 @@ export class AuthService {
 
     // Lấy thông tin user từ session
     const user = await this.userRepository.findOne({
-      where: { id: validSession.userId }
+      where: { id: validSession.userId },
     });
 
     if (!user) {
@@ -200,28 +210,28 @@ export class AuthService {
       { id: validSession.id },
       {
         refreshTokenHash: newRefreshTokenHash,
-        lastUsedAt: new Date()
-      }
+        lastUsedAt: new Date(),
+      },
     );
 
     return { accessToken, refreshToken: newRefreshToken };
   }
 
   private async createAuthSession(
-    userId: string, 
-    refreshToken: string, 
-    userAgent?: string, 
-    ipAddress?: string
+    userId: string,
+    refreshToken: string,
+    userAgent?: string,
+    ipAddress?: string,
   ): Promise<void> {
     // Chỉ revoke session cùng userAgent (cùng thiết bị), không revoke tất cả
     if (userAgent) {
       await this.authSessionRepository.update(
-        { 
-          userId, 
-          userAgent, 
-          isRevoked: false 
+        {
+          userId,
+          userAgent,
+          isRevoked: false,
         },
-        { isRevoked: true, revokedAt: new Date() }
+        { isRevoked: true, revokedAt: new Date() },
       );
     }
 
@@ -252,28 +262,28 @@ export class AuthService {
     // Xóa sessions hết hạn
     await this.authSessionRepository.delete({
       userId,
-      expiresAt: LessThan(new Date())
+      expiresAt: LessThan(new Date()),
     });
 
     // Giới hạn tối đa 5 sessions active per user (để tránh tấn công)
     const activeSessions = await this.authSessionRepository.find({
-      where: { 
-        userId, 
+      where: {
+        userId,
         isRevoked: false,
-        expiresAt: MoreThan(new Date())
+        expiresAt: MoreThan(new Date()),
       },
-      order: { createdAt: 'DESC' }
+      order: { createdAt: 'DESC' },
     });
 
     // Nếu có nhiều hơn 5 sessions, revoke những sessions cũ nhất
     if (activeSessions.length >= 5) {
       const sessionsToRevoke = activeSessions.slice(4); // Giữ 4 sessions mới nhất
-      
+
       for (const session of sessionsToRevoke) {
-        await this.authSessionRepository.update(
-          session.id,
-          { isRevoked: true, revokedAt: new Date() }
-        );
+        await this.authSessionRepository.update(session.id, {
+          isRevoked: true,
+          revokedAt: new Date(),
+        });
       }
     }
   }
@@ -538,6 +548,8 @@ export class AuthService {
       role: user.role,
       isVerified: user.isVerified,
       currentTrustScore: user.currentTrustScore,
+      badge: user.badge, // Từ virtual property của Entity
+      stats: user.stats, // Từ virtual property của Entity
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
