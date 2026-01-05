@@ -239,6 +239,12 @@ export class AuthController {
       role: req.user.role,
       isVerified: req.user.isVerified,
       currentTrustScore: req.user.currentTrustScore,
+      badge: req.user.badge || 'NORMAL',
+      stats: {
+        finished: 0, // TODO: Calculate from completed projects
+        disputes: 0, // TODO: Calculate from lost disputes
+        score: req.user.currentTrustScore,
+      },
       createdAt: req.user.createdAt,
       updatedAt: req.user.updatedAt,
     };

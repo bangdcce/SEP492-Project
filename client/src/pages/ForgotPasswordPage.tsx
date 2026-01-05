@@ -306,14 +306,14 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
           id="newPassword"
           label="New password"
           type={showNewPassword ? 'text' : 'password'}
-          placeholder="At least 8 characters with lowercase, number & special char"
+          placeholder="At least 8 characters with lowercase, number & special character"
           value={newPassword}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             setNewPassword(e.target.value);
             if (errors.newPassword) setErrors({ ...errors, newPassword: '' });
           }}
           error={errors.newPassword}
-          helperText="Must include: lowercase, number & special character (@$!%*?&)"
+          helperText="Must include: lowercase (a-z), number (0-9) & special character (@$!%*?&)"
         />
         <button
           type="button"
