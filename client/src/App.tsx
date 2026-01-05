@@ -8,6 +8,11 @@ import { lazy, Suspense } from "react";
 
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
+const SignInPage = lazy(() => import("@/pages/SignInPage"));
+const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
+const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+// const GoogleCompletePage = lazy(() => import("@/pages/GoogleCompletePage"));
+// const GoogleSuccessPage = lazy(() => import("@/pages/GoogleSuccessPage"));
 
 // Loading fallback
 function PageLoader() {
@@ -22,6 +27,15 @@ function App() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
+        {/* Auth Routes - No Layout */}
+        <Route path={ROUTES.LOGIN} element={<SignInPage />} />
+        <Route path={ROUTES.REGISTER} element={<SignUpPage />} />
+        <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPasswordPage />} />
+        {/* Google OAuth Routes - TEMPORARILY DISABLED
+        <Route path="/auth/google-complete" element={<GoogleCompletePage />} />
+        <Route path="/auth/google-success" element={<GoogleSuccessPage />} />
+        */}
+
         {/* Dashboard */}
         <Route
           path={ROUTES.DASHBOARD}
@@ -42,16 +56,10 @@ function App() {
           }
         />
 
-        {/* Redirect root to dashboard */}
+        {/* Redirect root to login */}
         <Route
           path={ROUTES.HOME}
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
-        />
-
-        {/* Redirect login to dashboard (bypass) */}
-        <Route
-          path={ROUTES.LOGIN}
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+          element={<Navigate to={ROUTES.LOGIN} replace />}
         />
 
         {/* 404 - Not Found */}

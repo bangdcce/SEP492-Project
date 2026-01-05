@@ -559,6 +559,279 @@ await this.auditLogsService.log({
 
 ---
 
+## 🔐 Authentication & Authorization
+
+Hệ thống auth đã được setup với JWT tokens, role-based access control, và multi-device session management.
+
+### User Roles
+
+```typescript
+enum UserRole {
+  ADMIN = 'ADMIN',        // System administrators
+  STAFF = 'STAFF',        // Platform staff members  
+  BROKER = 'BROKER',      // Service brokers/intermediaries
+  CLIENT = 'CLIENT',      // Service consumers
+  FREELANCER = 'FREELANCER' // Service providers
+}
+```
+
+#### Self-Registration Restrictions
+- ✅ **CLIENT, BROKER, FREELANCER** - Có thể tự đăng ký
+- ❌ **ADMIN, STAFF** - Chỉ admin có thể assign
+
+### Authentication Endpoints
+
+```bash
+POST /auth/register      # Đăng ký tài khoản mới
+POST /auth/login         # Đăng nhập 
+POST /auth/logout        # Đăng xuất (cần JWT)
+POST /auth/refresh       # Refresh access token
+POST /auth/profile       # Lấy thông tin user (cần JWT)
+```
+
+### Bảo vệ Routes với Guards
+
+#### 1. JWT Authentication (Yêu cầu login)
+
+```typescript
+import { UseGuards } from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards';
+
+@Controller('protected')
+export class ProtectedController {
+  // Route cần đăng nhập
+  @UseGuards(JwtAuthGuard)
+  @Get('user-info')
+  getUserInfo(@Req() req: AuthRequest) {
+    return { message: `Hello ${req.user.email}` };
+  }
+}
+```
+
+#### 2. Role-based Authorization
+
+```typescript
+import { UseGuards } from '@nestjs/common';
+import { JwtAuthGuard, RolesGuard } from '../auth/guards';
+import { Roles } from '../auth/decorators/roles.decorator';
+import { UserRole } from '../../database/entities/user.entity';
+
+@Controller('admin')
+export class AdminController {
+  // Chỉ ADMIN mới access được
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('dashboard')
+  getAdminDashboard() {
+    return { data: 'Admin only data' };
+  }
+
+  // Nhiều roles được phép
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Post('moderate')
+  moderateContent() {
+    return { message: 'Content moderated' };
+  }
+
+  // Broker và Admin
+  @UseGuards(JwtAuthGuard, RolesGuard)  
+  @Roles(UserRole.BROKER, UserRole.ADMIN)
+  @Get('broker-tools')
+  getBrokerTools() {
+    return { tools: [] };
+  }
+}
+```
+
+### Tạo Roles Decorator
+
+```typescript
+// src/modules/auth/decorators/roles.decorator.ts
+import { SetMetadata } from '@nestjs/common';
+import { UserRole } from '../../../database/entities/user.entity';
+
+export const ROLES_KEY = 'roles';
+export const Roles = (...roles: UserRole[]) => SetMetadata(ROLES_KEY, roles);
+```
+
+### Lấy thông tin User trong Controller
+
+```typescript
+import { Req } from '@nestjs/common';
+import { Request } from 'express';
+import { UserEntity } from '../../database/entities/user.entity';
+
+// Extend Request interface
+interface AuthRequest extends Request {
+  user: UserEntity;
+}
+
+@Controller('projects')
+export class ProjectsController {
+  @UseGuards(JwtAuthGuard)
+  @Post()
+  createProject(@Body() dto: CreateProjectDto, @Req() req: AuthRequest) {
+    const userId = req.user.id;           // User ID
+    const userRole = req.user.role;       // User role
+    const userEmail = req.user.email;     // User email
+    
+    return this.projectsService.create(dto, userId);
+  }
+
+  // Hoặc tạo custom decorator để lấy user
+  @UseGuards(JwtAuthGuard)
+  @Get('my-projects')
+  getMyProjects(@GetUser() user: UserEntity) {
+    return this.projectsService.findByUser(user.id);
+  }
+}
+```
+
+### Tạo GetUser Decorator
+
+```typescript
+// src/modules/auth/decorators/get-user.decorator.ts
+import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { UserEntity } from '../../../database/entities/user.entity';
+
+export const GetUser = createParamDecorator(
+  (data: unknown, ctx: ExecutionContext): UserEntity => {
+    const request = ctx.switchToHttp().getRequest();
+    return request.user;
+  },
+);
+
+// Sử dụng
+@UseGuards(JwtAuthGuard)
+@Get('profile')
+getProfile(@GetUser() user: UserEntity) {
+  return { id: user.id, email: user.email, role: user.role };
+}
+```
+
+### Multi-Device Session Management
+
+Hệ thống hỗ trợ login đồng thời trên nhiều thiết bị:
+
+```typescript
+// Login sẽ track device thông qua User-Agent và IP
+// Chỉ logout session cùng thiết bị, không ảnh hưởng device khác
+// Tự động giới hạn 5 sessions active per user
+```
+
+### Security Best Practices
+
+#### 1. Guard Order quan trọng
+
+```typescript
+// ✅ Đúng: JwtAuthGuard trước, RolesGuard sau
+@UseGuards(JwtAuthGuard, RolesGuard)
+
+// ❌ Sai: Thiếu JwtAuthGuard sẽ có lỗi
+@UseGuards(RolesGuard) // user sẽ undefined
+```
+
+#### 2. Error Handling
+
+```typescript
+// Tự động throw các exceptions phù hợp
+// 401 Unauthorized: Chưa login hoặc token hết hạn  
+// 403 Forbidden: Không có quyền truy cập role
+```
+
+#### 3. JWT Token Configuration
+
+```bash
+# .env configuration
+JWT_SECRET=your-super-secure-secret-minimum-32-characters
+JWT_EXPIRATION=15m                    # Short-lived access token
+JWT_REFRESH_SECRET=another-secret
+JWT_REFRESH_EXPIRATION=7d            # Long-lived refresh token
+```
+
+### Testing Auth APIs
+
+```bash
+# 1. Register
+curl -X POST http://localhost:3001/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "SecurePass123!",
+    "fullName": "Nguyễn Văn A", 
+    "phoneNumber": "0987654321",
+    "role": "CLIENT"
+  }'
+
+# 2. Login
+curl -X POST http://localhost:3001/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "user@example.com",
+    "password": "SecurePass123!"
+  }'
+
+# 3. Access protected route
+curl -X GET http://localhost:3001/auth/profile \
+  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"
+
+# 4. Refresh token
+curl -X POST http://localhost:3001/auth/refresh \
+  -H "Content-Type: application/json" \
+  -d '{"refreshToken": "YOUR_REFRESH_TOKEN"}'
+```
+
+### Common Patterns
+
+#### Service with User Context
+
+```typescript
+@Injectable()
+export class ProjectsService {
+  // Method có user context
+  async findMyProjects(userId: string) {
+    return this.projectRepo.find({ 
+      where: { userId },
+      order: { createdAt: 'DESC' }
+    });
+  }
+
+  // Method có role-based logic
+  async findProjects(user: UserEntity, query: any) {
+    const qb = this.projectRepo.createQueryBuilder('p');
+    
+    // Regular users chỉ thấy projects của mình
+    if (user.role === UserRole.CLIENT || user.role === UserRole.FREELANCER) {
+      qb.andWhere('p.userId = :userId', { userId: user.id });
+    }
+    
+    // Admin/Staff thấy tất cả
+    if (user.role === UserRole.ADMIN || user.role === UserRole.STAFF) {
+      // No additional filter
+    }
+    
+    return qb.getMany();
+  }
+}
+```
+
+#### Conditional Guards
+
+```typescript
+// Optional authentication (user có thể null)
+@UseGuards(OptionalJwtAuthGuard)
+@Get('public-with-user-context') 
+getPublicContent(@GetUser() user?: UserEntity) {
+  if (user) {
+    return { message: `Hello ${user.email}`, personalized: true };
+  }
+  return { message: 'Hello guest', personalized: false };
+}
+```
+
+---
+
 ## Checklist khi tạo module mới
 
 - [ ] Entity tạo đúng format
@@ -566,9 +839,13 @@ await this.auditLogsService.log({
 - [ ] DTOs với validation decorators
 - [ ] Service với CRUD methods
 - [ ] Controller với proper decorators
+- [ ] **Thêm Guards cho protected routes (@UseGuards(JwtAuthGuard))**
+- [ ] **Implement role-based authorization nếu cần**
+- [ ] **Tạo decorators và interfaces cho user context**
 - [ ] Module registered trong AppModule
 - [ ] **Thêm Audit Log cho các actions quan trọng**
-- [ ] Test API với Postman
+- [ ] Test API với Postman (bao gồm cả auth flow)
+- [ ] **Test với các roles khác nhau**
 
 ---
 
