@@ -1,5 +1,5 @@
-import { IsEmail, IsNotEmpty, IsString, MinLength, IsEnum, Matches, MaxLength } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsEmail, IsNotEmpty, IsString, MinLength, IsEnum, Matches, MaxLength, IsOptional } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../../../database/entities/user.entity';
 
 /**
@@ -38,9 +38,9 @@ export class RegisterDto {
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
   @MinLength(8, { message: 'Mật khẩu phải có ít nhất 8 ký tự' })
   @Matches(
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/,
+    /^(?=.*[a-z])(?=.*\d)(?=.*[@$!%*?&])/,
     {
-      message: 'Mật khẩu phải chứa ít nhất một chữ thường, một chữ hoa, một số và một ký tự đặc biệt (@$!%*?&)'
+      message: 'Mật khẩu phải chứa ít nhất một chữ thường, một số và một ký tự đặc biệt (@$!%*?&)'
     }
   )
   password: string;
@@ -86,4 +86,17 @@ export class RegisterDto {
   @IsEnum(REGISTERABLE_ROLES, { message: 'Role phải là CLIENT, BROKER hoặc FREELANCER' })
   @IsNotEmpty({ message: 'Role không được để trống' })
   role: RegisterableRole;
+
+  @ApiPropertyOptional({
+    description: 'Google reCAPTCHA token từ frontend',
+    example: 'recaptcha_response_token',
+  })
+  @IsOptional()
+  @ApiPropertyOptional({
+    description: 'Google reCAPTCHA token từ frontend',
+    example: 'recaptcha_response_token',
+  })
+  @IsOptional()
+  @IsString({ message: 'reCAPTCHA token phải là chuỗi ký tự' })
+  recaptchaToken?: string;
 }

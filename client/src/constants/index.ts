@@ -13,6 +13,7 @@ export const ROUTES = {
   HOME: "/",
   LOGIN: "/login",
   REGISTER: "/register",
+  FORGOT_PASSWORD: "/forgot-password",
   DASHBOARD: "/admin/dashboard",
   PROFILE: "/admin/profile",
   AUDIT_LOGS: "/admin/audit-logs",

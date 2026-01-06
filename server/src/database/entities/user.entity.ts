@@ -72,6 +72,12 @@ export class UserEntity {
   @Column({ type: 'decimal', precision: 3, scale: 2, default: 0 })
   currentTrustScore: number; // Kết quả của thuật toán
 
+  @Column({ type: 'varchar', length: 6, nullable: true, name: 'resetpasswordotp' })
+  resetPasswordOtp: string;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'resetpasswordotpexpires' })
+  resetPasswordOtpExpires: Date;
+
   @CreateDateColumn()
   createdAt: Date;
 
