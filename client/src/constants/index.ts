@@ -13,24 +13,26 @@ export const ROUTES = {
   HOME: "/",
   LOGIN: "/login",
   REGISTER: "/register",
-<<<<<<< HEAD
   DASHBOARD: "/dashboard",
   PROFILE: "/profile",
   AUDIT_LOGS: "/audit-logs",
   WIZARD: "/wizard",
   MY_REQUESTS: "/requests",
-=======
+  
+  // Client Routes
+  CLIENT_DASHBOARD: "/client-dashboard",
+  
+  // Admin Routes
   FORGOT_PASSWORD: "/forgot-password",
-  DASHBOARD: "/admin/dashboard",
-  PROFILE: "/admin/profile",
-  AUDIT_LOGS: "/admin/audit-logs",
+  ADMIN_DASHBOARD: "/dashboard", // Admin gets the main /dashboard URL per user request "dashboard are for admin"
+  ADMIN_PROFILE: "/admin/profile",
+  ADMIN_AUDIT_LOGS: "/admin/audit-logs",
   REVIEW_MODERATION: "/admin/reviews",
   TRUST_PROFILES: "/admin/trust-profiles",
   FREELANCERS: "/admin/freelancers",
   PROJECTS: "/admin/projects",
   ANALYTICS: "/admin/analytics",
   SETTINGS: "/admin/settings",
->>>>>>> 39ad7d20f115c4bc167dcf614e6cec260a7595d2
   NOT_FOUND: "/404",
 } as const;
 

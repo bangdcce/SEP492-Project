@@ -76,7 +76,13 @@ export function SignInPage({
       if (onSignInSuccess) {
         onSignInSuccess();
       } else {
-        navigate(ROUTES.DASHBOARD);
+        const userRole = response.user.role;
+        // Check for admin role (case-insensitive just in case, though backend sends uppercase)
+        if (userRole === 'ADMIN' || userRole === 'admin') {
+          navigate(ROUTES.ADMIN_DASHBOARD);
+        } else {
+          navigate(ROUTES.CLIENT_DASHBOARD);
+        }
       }
     } catch (error: any) {
       console.error('Sign in error:', error);

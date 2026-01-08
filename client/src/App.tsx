@@ -19,6 +19,7 @@ const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage")
 );
+const AdminDashboard = lazy(() => import("@/features/dashboard/AdminDashboard").then(module => ({ default: module.AdminDashboard })));
 
 // Loading fallback
 function PageLoader() {
@@ -51,12 +52,22 @@ function App() {
         <Route path="/auth/google-complete" element={<GoogleCompletePage />} />
         <Route path="/auth/google-success" element={<GoogleSuccessPage />} />
         */}
-        {/* Dashboard */}
+        {/* Client Dashboard */}
         <Route
-          path={ROUTES.DASHBOARD}
+          path={ROUTES.CLIENT_DASHBOARD}
           element={
             <MainLayout>
               <ClientDashboard />
+            </MainLayout>
+          }
+        />
+
+        {/* Admin Dashboard (Main /dashboard) */}
+        <Route
+          path={ROUTES.ADMIN_DASHBOARD}
+          element={
+            <MainLayout>
+              <AdminDashboard />
             </MainLayout>
           }
         />
@@ -107,16 +118,15 @@ function App() {
           element={<Navigate to={ROUTES.DASHBOARD} replace />}
         />
 
-        {/* Redirect /admin to admin dashboard */}
         <Route
           path="/admin"
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+          element={<Navigate to={ROUTES.ADMIN_DASHBOARD} replace />}
         />
 
         {/* Redirect login to dashboard (bypass) */}
         <Route
           path={ROUTES.LOGIN}
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+          element={<Navigate to={ROUTES.ADMIN_DASHBOARD} replace />}
         />
 
         {/* 404 - Not Found */}
