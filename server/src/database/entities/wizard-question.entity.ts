@@ -4,10 +4,10 @@ import { ProjectRequestAnswerEntity } from './project-request-answer.entity';
 
 @Entity('wizard_questions')
 export class WizardQuestionEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn()
+  id: number;
 
-  @Column({ type: 'varchar', length: 100, unique: true })
+  @Column({ type: 'varchar', unique: true })
   code: string;
 
   @Column({ type: 'text' })
@@ -16,7 +16,7 @@ export class WizardQuestionEntity {
   @Column({ name: 'help_text', type: 'text', nullable: true })
   helpText: string;
 
-  @Column({ name: 'input_type', type: 'varchar', length: 50, nullable: true })
+  @Column({ name: 'input_type', type: 'varchar', nullable: true })
   inputType: string;
 
   @Column({ name: 'is_active', type: 'boolean', default: true })
@@ -25,7 +25,7 @@ export class WizardQuestionEntity {
   @Column({ name: 'sort_order', type: 'int', nullable: true })
   sortOrder: number;
 
-  @Column({ name: 'created_at', type: 'timestamp', default: () => 'CURRENT_TIMESTAMP' })
+  @Column({ name: 'created_at', type: 'timestamp', default: () => 'NOW()' })
   createdAt: Date;
 
   // Relations

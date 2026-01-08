@@ -3,13 +3,13 @@ import { WizardQuestionEntity } from './wizard-question.entity';
 
 @Entity('wizard_options')
 export class WizardOptionEntity {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn()
+  id: number;
 
   @Column({ name: 'question_id' })
-  questionId: string;
+  questionId: number;
 
-  @Column({ type: 'varchar', length: 100 })
+  @Column({ type: 'varchar' })
   value: string;
 
   @Column({ type: 'text' })
@@ -18,7 +18,7 @@ export class WizardOptionEntity {
   @Column({ name: 'sort_order', type: 'int', nullable: true })
   sortOrder: number;
 
-  @ManyToOne(() => WizardQuestionEntity, (question) => question.options, { onDelete: 'CASCADE' })
+  @ManyToOne('WizardQuestionEntity', 'options', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'question_id' })
-  question: WizardQuestionEntity;
+  question: any;
 }

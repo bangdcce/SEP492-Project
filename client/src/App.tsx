@@ -11,6 +11,14 @@ const RequestDetailPage = lazy(() => import("@/features/requests/RequestDetailPa
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
 const WizardPage = lazy(() => import("@/features/wizard/WizardPage"));
 const MyRequestsPage = lazy(() => import("@/features/requests/MyRequestsPage").then(module => ({ default: module.MyRequestsPage })));
+const SignInPage = lazy(() => import("@/pages/SignInPage"));
+const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
+const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+// const GoogleCompletePage = lazy(() => import("@/pages/GoogleCompletePage"));
+// const GoogleSuccessPage = lazy(() => import("@/pages/GoogleSuccessPage"));
+const AdminReviewModerationPage = lazy(
+  () => import("@/pages/AdminReviewModerationPage")
+);
 
 // Loading fallback
 function PageLoader() {
@@ -35,7 +43,14 @@ function App() {
             }
         />
         
-        {/* Dashboard */}
+        {/* Auth Routes - No Layout */}
+        <Route path={ROUTES.LOGIN} element={<SignInPage />} />
+        <Route path={ROUTES.REGISTER} element={<SignUpPage />} />
+        <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPasswordPage />} />
+        {/* Google OAuth Routes - TEMPORARILY DISABLED
+        <Route path="/auth/google-complete" element={<GoogleCompletePage />} />
+        <Route path="/auth/google-success" element={<GoogleSuccessPage />} />
+        */}
         {/* Dashboard */}
         <Route
           path={ROUTES.DASHBOARD}
@@ -76,9 +91,25 @@ function App() {
           }
         />
 
+        {/* Review Moderation (Admin) */}
+        <Route
+          path={ROUTES.REVIEW_MODERATION}
+          element={
+            <MainLayout>
+              <AdminReviewModerationPage />
+            </MainLayout>
+          }
+        />
+
         {/* Redirect root to dashboard */}
         <Route
           path={ROUTES.HOME}
+          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+        />
+
+        {/* Redirect /admin to admin dashboard */}
+        <Route
+          path="/admin"
           element={<Navigate to={ROUTES.DASHBOARD} replace />}
         />
 
