@@ -8,7 +8,7 @@ export class ProfileEntity {
   @Column()
   userId: string;
 
-  @Column({ type: 'varchar', length: 500, nullable: true })
+  @Column({ type: 'text', nullable: true })
   avatarUrl: string;
 
   @Column({ type: 'text', nullable: true })

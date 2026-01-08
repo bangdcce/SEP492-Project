@@ -83,8 +83,18 @@ export function SignInPage({
       if (onSignInSuccess) {
         onSignInSuccess();
       } else {
-        // Default redirect to dashboard
-        navigate(ROUTES.DASHBOARD);
+        // Role-based redirect
+        const userRole = loginData.user?.role?.toUpperCase();
+        
+        if (userRole === 'ADMIN') {
+          navigate(ROUTES.DASHBOARD);
+        } else if (userRole === 'CLIENT' || userRole === 'SME') {
+          navigate(ROUTES.CLIENT_DASHBOARD);
+        }
+         else {
+          // Default fallback to client dashboard
+          navigate(ROUTES.CLIENT_DASHBOARD);
+        }
       }
     } catch (error: any) {
       console.error('Sign in error:', error);

@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Camera, User, Mail, Phone, Briefcase, Shield } from 'lucide-react';
+import { Mail, Phone, MapPin, Edit2, Briefcase, X, ArrowLeft, Shield, Award, TrendingUp, CheckCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/custom/input';
 import { getProfile, updateProfile } from '@/features/auth/api';
+import { ROUTES, STORAGE_KEYS } from '@/constants';
 
 interface UserProfile {
   id: string;
@@ -54,13 +55,7 @@ export default function ProfilePage() {
       setAvatarPreview(userData.avatarUrl || '');
     } catch (error: any) {
       console.error('Failed to load profile:', error);
-      toast.error('Không thể tải thông tin profile');
-      if (error.response?.status === 401) {
-        toast.error('Bạn cần đăng nhập để xem trang này');
-        setTimeout(() => {
-          navigate(ROUTES.LOGIN);
-        }, 1500);
-      }
+      toast.error('Failed to load profile information');
     } finally {
       setLoading(false);
     }
@@ -70,15 +65,13 @@ export default function ProfilePage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file type
     if (!file.type.startsWith('image/')) {
-      toast.error('Vui lòng chọn file ảnh');
+      toast.error('Please select an image file');
       return;
     }
 
-    // Validate file size (max 5MB)
     if (file.size > 5 * 1024 * 1024) {
-      toast.error('Kích thước ảnh không được vượt quá 5MB');
+      toast.error('Image size must not exceed 5MB');
       return;
     }
 
@@ -96,9 +89,12 @@ export default function ProfilePage() {
     try {
       setSaving(true);
 
-      // TODO: Upload avatar to cloud storage (Cloudinary/S3) and get URL
-      // For now, we'll just use the preview as placeholder
       const avatarUrl = avatarFile ? avatarPreview : profile?.avatarUrl;
+      
+      // Warning about base64 - should use cloud storage in production
+      if (avatarFile && avatarPreview.length > 100000) {
+        toast.warning('Large avatar size detected. Consider using cloud storage for production.');
+      }
 
       await updateProfile({
         fullName: formData.fullName,
@@ -107,12 +103,24 @@ export default function ProfilePage() {
         avatarUrl,
       });
 
-      toast.success('Cập nhật thông tin thành công');
+      toast.success('Profile updated successfully');
       setIsEditing(false);
       await loadProfile();
+      
+      // Update user data in localStorage to sync with Header
+      const userStr = localStorage.getItem(STORAGE_KEYS.USER);
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        user.fullName = formData.fullName;
+        user.avatarUrl = avatarUrl;
+        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+        
+        // Dispatch custom event to notify Header of the change
+        window.dispatchEvent(new Event('userDataUpdated'));
+      }
     } catch (error: any) {
       console.error('Failed to update profile:', error);
-      const errorMessage = error.response?.data?.message || 'Không thể cập nhật thông tin';
+      const errorMessage = error.response?.data?.message || 'Failed to update profile';
       toast.error(errorMessage);
     } finally {
       setSaving(false);
@@ -130,10 +138,41 @@ export default function ProfilePage() {
     setAvatarFile(null);
   };
 
+  const getInitials = (name: string) => {
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
+
+  const getRoleBadgeStyle = (role: string) => {
+    const styles: Record<string, string> = {
+      'ADMIN': 'bg-purple-100 text-purple-700',
+      'CLIENT': 'bg-blue-100 text-blue-700',
+      'SME': 'bg-blue-100 text-blue-700',
+      'FREELANCER': 'bg-green-100 text-green-700',
+      'BROKER': 'bg-orange-100 text-orange-700',
+    };
+    return styles[role?.toUpperCase()] || 'bg-gray-100 text-gray-700';
+  };
+
+  const getRoleDisplayName = (role: string) => {
+    const names: Record<string, string> = {
+      'ADMIN': 'Administrator',
+      'CLIENT': 'SME Client',
+      'SME': 'SME Client',
+      'FREELANCER': 'Freelancer',
+      'BROKER': 'Broker',
+    };
+    return names[role?.toUpperCase()] || role;
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg">Đang tải...</div>
+        <div className="text-lg">Loading...</div>
       </div>
     );
   }
@@ -141,167 +180,269 @@ export default function ProfilePage() {
   if (!profile) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="text-lg text-red-500">Không tìm thấy thông tin profile</div>
+        <div className="text-lg text-red-500">Profile not found</div>
       </div>
     );
   }
 
   return (
-    <div className="container max-w-4xl mx-auto px-4 py-8">
-      <div className="bg-white rounded-lg shadow-sm border p-6">
-        <div className="flex justify-between items-center mb-6">
-          <h1 className="text-2xl font-bold">Thông tin cá nhân</h1>
-          {!isEditing && (
-            <Button onClick={() => setIsEditing(true)} variant="default">
-              Chỉnh sửa
-            </Button>
-          )}
-        </div>
+    <div className="min-h-screen bg-gray-50 py-8 px-4">
+      {/* Back button */}
+      <div className="max-w-7xl mx-auto mb-6">
+        <button
+          onClick={() => navigate(-1)}
+          className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
+        >
+          <ArrowLeft className="w-5 h-5" />
+          Back
+        </button>
+      </div>
 
-        <form onSubmit={handleSubmit}>
-          {/* Avatar Section */}
-          <div className="flex flex-col items-center mb-8">
-            <div className="relative">
-              <div className="w-32 h-32 rounded-full overflow-hidden bg-gray-200 flex items-center justify-center">
-                {avatarPreview ? (
-                  <img src={avatarPreview} alt="Avatar" className="w-full h-full object-cover" />
-                ) : (
-                  <User className="w-16 h-16 text-gray-400" />
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column - Profile Card */}
+        <div className="lg:col-span-1">
+          <div className="bg-white rounded-lg shadow-sm p-6 sticky top-8">
+            {/* Avatar */}
+            <div className="flex flex-col items-center">
+              <div className="relative">
+                <div className="w-40 h-40 rounded-full bg-blue-500 flex items-center justify-center text-white text-5xl font-bold border-4 border-white shadow-lg">
+                  {avatarPreview ? (
+                    <img src={avatarPreview} alt="Avatar" className="w-full h-full rounded-full object-cover" />
+                  ) : (
+                    getInitials(profile.fullName)
+                  )}
+                </div>
+                
+                {/* Camera icon for upload when editing */}
+                {isEditing && (
+                  <label
+                    htmlFor="avatar-upload"
+                    className="absolute bottom-2 right-2 bg-blue-600 text-white p-3 rounded-full cursor-pointer hover:bg-blue-700 shadow-lg transition-colors"
+                  >
+                    <Edit2 className="w-5 h-5" />
+                    <input
+                      id="avatar-upload"
+                      type="file"
+                      accept="image/*"
+                      onChange={handleAvatarChange}
+                      className="hidden"
+                    />
+                  </label>
                 )}
               </div>
-              {isEditing && (
-                <label
-                  htmlFor="avatar-upload"
-                  className="absolute bottom-0 right-0 bg-blue-600 text-white p-2 rounded-full cursor-pointer hover:bg-blue-700"
-                >
-                  <Camera className="w-5 h-5" />
-                  <input
-                    id="avatar-upload"
-                    type="file"
-                    accept="image/*"
-                    onChange={handleAvatarChange}
-                    className="hidden"
-                  />
-                </label>
+
+              {/* Name */}
+              <h2 className="mt-4 text-2xl font-bold text-gray-900">{profile.fullName}</h2>
+
+              {/* Role Badge */}
+              <div className={`mt-2 px-4 py-1.5 rounded-full flex items-center gap-2 ${getRoleBadgeStyle(profile.role)}`}>
+                <Briefcase className="w-4 h-4" />
+                <span className="font-medium">{getRoleDisplayName(profile.role)}</span>
+              </div>
+            </div>
+
+            {/* Contact Info */}
+            <div className="mt-6 space-y-4">
+              <div className="flex items-center gap-3 text-gray-600">
+                <Mail className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm break-all">{profile.email}</span>
+              </div>
+              
+              <div className="flex items-center gap-3 text-gray-600">
+                <Phone className="w-5 h-5 flex-shrink-0" />
+                <span className="text-sm">{profile.phoneNumber || 'Not updated'}</span>
+              </div>
+              
+              {profile.bio && (
+                <div className="flex items-start gap-3 text-gray-600">
+                  <MapPin className="w-5 h-5 flex-shrink-0 mt-0.5" />
+                  <span className="text-sm">{profile.bio}</span>
+                </div>
               )}
             </div>
-            <div className="mt-4 text-center">
-              <h2 className="text-xl font-semibold">{profile.fullName}</h2>
-              <div className="flex items-center justify-center gap-2 mt-2">
-                <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                  {profile.badge}
-                </span>
-                {profile.isVerified && (
-                  <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium flex items-center gap-1">
-                    <Shield className="w-4 h-4" />
-                    Verified
-                  </span>
-                )}
+
+            {/* Trust Score */}
+            <div className="mt-6 p-4 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg">
+              <div className="flex items-center gap-2 mb-2">
+                <Award className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-gray-900">Trust Score</h3>
               </div>
-            </div>
-          </div>
-
-          {/* Form Fields */}
-          <div className="space-y-4">
-            <div>
-              <Input
-                label="Email"
-                type="email"
-                value={profile.email}
-                disabled
-                className="bg-gray-50"
-              />
-            </div>
-
-            <div>
-              <Input
-                label="Họ và tên"
-                type="text"
-                value={formData.fullName}
-                onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
-                disabled={!isEditing}
-                className={!isEditing ? 'bg-gray-50' : ''}
-              />
-            </div>
-
-            <div>
-              <Input
-                label="Số điện thoại"
-                type="tel"
-                value={formData.phoneNumber}
-                onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
-                disabled={!isEditing}
-                className={!isEditing ? 'bg-gray-50' : ''}
-              />
-            </div>
-
-            <div>
-              <Input
-                label="Vai trò"
-                type="text"
-                value={profile.role}
-                disabled
-                className="bg-gray-50"
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Giới thiệu bản thân
-              </label>
-              <textarea
-                value={formData.bio}
-                onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
-                disabled={!isEditing}
-                rows={4}
-                maxLength={500}
-                className={`w-full px-3 py-2 border rounded-md ${
-                  !isEditing ? 'bg-gray-50' : ''
-                }`}
-                placeholder="Viết vài dòng về bản thân..."
-              />
-              <p className="text-sm text-gray-500 mt-1">
-                {formData.bio.length}/500 ký tự
-              </p>
-            </div>
-
-            <div className="bg-gray-50 p-4 rounded-md">
-              <h3 className="font-medium mb-2">Điểm uy tín</h3>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 bg-gray-200 rounded-full h-2">
+              <div className="flex items-center gap-3">
+                <div className="flex-1 bg-gray-200 rounded-full h-2.5">
                   <div
-                    className="bg-blue-600 h-2 rounded-full"
+                    className="bg-gradient-to-r from-blue-500 to-indigo-600 h-2.5 rounded-full transition-all"
                     style={{ width: `${(Number(profile.currentTrustScore || 0) / 5) * 100}%` }}
                   />
                 </div>
-                <span className="font-semibold">{Number(profile.currentTrustScore || 0).toFixed(1)}/5.0</span>
+                <span className="text-lg font-bold text-blue-600">
+                  {Number(profile.currentTrustScore || 0).toFixed(1)}/5.0
+                </span>
               </div>
             </div>
-          </div>
 
-          {/* Action Buttons */}
-          {isEditing && (
-            <div className="flex gap-3 mt-6">
-              <Button
-                type="submit"
-                variant="default"
-                disabled={saving}
-                className="flex-1"
-              >
-                {saving ? 'Đang lưu...' : 'Lưu thay đổi'}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleCancel}
-                disabled={saving}
-                className="flex-1"
-              >
-                Hủy
-              </Button>
+            {/* Status Badge */}
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-gray-600" />
+                  <span className="text-sm font-medium text-gray-700">Status</span>
+                </div>
+                <span className={`px-3 py-1 rounded-full text-xs font-semibold ${
+                  profile.badge === 'GOLD' ? 'bg-yellow-100 text-yellow-700' :
+                  profile.badge === 'SILVER' ? 'bg-gray-200 text-gray-700' :
+                  profile.badge === 'BRONZE' ? 'bg-orange-100 text-orange-700' :
+                  'bg-blue-100 text-blue-700'
+                }`}>
+                  {profile.badge}
+                </span>
+              </div>
+              {profile.isVerified && (
+                <div className="flex items-center gap-2 mt-3 text-green-600">
+                  <CheckCircle className="w-4 h-4" />
+                  <span className="text-sm font-medium">Verified</span>
+                </div>
+              )}
             </div>
-          )}
-        </form>
+
+            {/* Edit Button */}
+            {!isEditing && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                <Edit2 className="w-5 h-5" />
+                Edit Profile
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Right Column - Profile Details Form */}
+        <div className="lg:col-span-2">
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h3 className="text-xl font-bold text-gray-900">Profile Details</h3>
+              {isEditing && (
+                <button
+                  onClick={handleCancel}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <X className="w-6 h-6" />
+                </button>
+              )}
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Full Name */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Full Name <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={formData.fullName}
+                  onChange={(e) => setFormData({ ...formData, fullName: e.target.value })}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                  required
+                />
+              </div>
+
+              {/* Email Address */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Email Address <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={profile.email}
+                  disabled
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg bg-gray-50 text-gray-500"
+                />
+              </div>
+
+              {/* Phone Number */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Phone Number <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="tel"
+                  value={formData.phoneNumber}
+                  onChange={(e) => setFormData({ ...formData, phoneNumber: e.target.value })}
+                  disabled={!isEditing}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                />
+              </div>
+
+              {/* Business Information */}
+              <div>
+                <h4 className="text-lg font-bold text-gray-900 mb-4">Business Information</h4>
+                
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Address / Bio
+                </label>
+                <textarea
+                  value={formData.bio}
+                  onChange={(e) => setFormData({ ...formData, bio: e.target.value })}
+                  disabled={!isEditing}
+                  rows={4}
+                  maxLength={500}
+                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:bg-gray-50 disabled:text-gray-500"
+                  placeholder="Enter address or business information..."
+                />
+                <p className="text-sm text-gray-500 mt-1">
+                  {formData.bio.length}/500 ký tự
+                </p>
+              </div>
+
+              {/* Account Stats - Thông tin thêm để fill chỗ trống */}
+              <div className="border-t pt-6">
+                <h4 className="text-lg font-bold text-gray-900 mb-4">Account Information</h4>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="p-4 bg-blue-50 rounded-lg">
+                    <div className="flex items-center gap-2 mb-1">
+                      <TrendingUp className="w-4 h-4 text-blue-600" />
+                      <span className="text-sm text-gray-600">Account Type</span>
+                    </div>
+                    <p className="text-lg font-bold text-gray-900">{getRoleDisplayName(profile.role)}</p>
+                  </div>
+                  
+                  <div className="p-4 bg-green-50 rounded-lg">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Shield className="w-4 h-4 text-green-600" />
+                      <span className="text-sm text-gray-600">Verification</span>
+                    </div>
+                    <p className="text-lg font-bold text-gray-900">
+                      {profile.isVerified ? 'Verified' : 'Not Verified'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              {isEditing && (
+                <div className="flex gap-3 pt-4">
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {saving ? 'Saving...' : 'Save Changes'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancel}
+                    disabled={saving}
+                    className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-3 rounded-lg transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </form>
+          </div>
+        </div>
       </div>
     </div>
   );

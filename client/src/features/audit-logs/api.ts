@@ -1,5 +1,5 @@
 import { apiClient } from "@/shared/api/client";
-import type { AuditLogEntry, AuditLogFilters } from "./types";
+import type { AuditLogEntry } from "./types";
 
 /**
  * API Query Parameters - khớp với GetAuditLogsDto trên server

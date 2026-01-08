@@ -6,15 +6,15 @@ import { Spinner } from "@/shared/components/ui";
 // Lazy load pages for better performance
 import { lazy, Suspense } from "react";
 
-// Admin Pages
-const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
+const ClientDashboard = lazy(() => import("@/features/dashboard/ClientDashboard").then(module => ({ default: module.ClientDashboard })));
+const RequestDetailPage = lazy(() => import("@/features/requests/RequestDetailPage"));
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
-const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
-
-// Auth Pages
+const WizardPage = lazy(() => import("@/features/wizard/WizardPage"));
+const MyRequestsPage = lazy(() => import("@/features/requests/MyRequestsPage").then(module => ({ default: module.MyRequestsPage })));
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
 const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 // const GoogleCompletePage = lazy(() => import("@/pages/GoogleCompletePage"));
 // const GoogleSuccessPage = lazy(() => import("@/pages/GoogleSuccessPage"));
 
@@ -36,6 +36,16 @@ function App() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
+        {/* Wizard */}
+        <Route
+            path={ROUTES.WIZARD}
+            element={
+                <MainLayout>
+                    <WizardPage />
+                </MainLayout>
+            }
+        />
+        
         {/* Auth Routes - No Layout */}
         <Route path={ROUTES.LOGIN} element={<SignInPage />} />
         <Route path={ROUTES.REGISTER} element={<SignUpPage />} />
@@ -44,13 +54,33 @@ function App() {
         <Route path="/auth/google-complete" element={<GoogleCompletePage />} />
         <Route path="/auth/google-success" element={<GoogleSuccessPage />} />
         */}
-
-        {/* Dashboard */}
+        
+        {/* Client Dashboard */}
+        <Route
+          path={ROUTES.CLIENT_DASHBOARD}
+          element={
+            <MainLayout>
+              <ClientDashboard />
+            </MainLayout>
+          }
+        />
+        
+        {/* Admin Dashboard */}
         <Route
           path={ROUTES.DASHBOARD}
           element={
             <MainLayout>
-              <DashboardPage />
+              <ClientDashboard />
+            </MainLayout>
+          }
+        />
+
+        {/* Request Detail */}
+        <Route
+          path="/requests/:id"
+          element={
+            <MainLayout>
+              <RequestDetailPage />
             </MainLayout>
           }
         />
@@ -65,14 +95,26 @@ function App() {
           }
         />
 
-        {/* Profile */}
+        {/* My Requests */}
         <Route
-          path={ROUTES.PROFILE}
+          path={ROUTES.MY_REQUESTS}
           element={
             <MainLayout>
-              <ProfilePage />
+              <MyRequestsPage />
             </MainLayout>
           }
+        />
+
+        {/* Client Profile - No sidebar layout */}
+        <Route
+          path={ROUTES.CLIENT_PROFILE}
+          element={<ProfilePage />}
+        />
+
+        {/* Admin Profile - No sidebar layout */}
+        <Route
+          path={ROUTES.PROFILE}
+          element={<ProfilePage />}
         />
 
         {/* Review Moderation (Admin) */}
@@ -85,21 +127,15 @@ function App() {
           }
         />
 
-        {/* Redirect root to admin dashboard */
+        {/* Redirect root to login */}
         <Route
           path={ROUTES.HOME}
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+          element={<Navigate to={ROUTES.LOGIN} replace />}
         />
 
         {/* Redirect /admin to admin dashboard */}
         <Route
           path="/admin"
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
-        />
-
-        {/* Redirect login to dashboard (bypass) */}
-        <Route
-          path={ROUTES.LOGIN}
           element={<Navigate to={ROUTES.DASHBOARD} replace />}
         />
 
