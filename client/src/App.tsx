@@ -6,8 +6,11 @@ import { Spinner } from "@/shared/components/ui";
 // Lazy load pages for better performance
 import { lazy, Suspense } from "react";
 
-const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
+const ClientDashboard = lazy(() => import("@/features/dashboard/ClientDashboard").then(module => ({ default: module.ClientDashboard })));
+const RequestDetailPage = lazy(() => import("@/features/requests/RequestDetailPage"));
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
+const WizardPage = lazy(() => import("@/features/wizard/WizardPage"));
+const MyRequestsPage = lazy(() => import("@/features/requests/MyRequestsPage").then(module => ({ default: module.MyRequestsPage })));
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
 const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
@@ -30,6 +33,16 @@ function App() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
+        {/* Wizard */}
+        <Route
+            path={ROUTES.WIZARD}
+            element={
+                <MainLayout>
+                    <WizardPage />
+                </MainLayout>
+            }
+        />
+        
         {/* Auth Routes - No Layout */}
         <Route path={ROUTES.LOGIN} element={<SignInPage />} />
         <Route path={ROUTES.REGISTER} element={<SignUpPage />} />
@@ -38,13 +51,22 @@ function App() {
         <Route path="/auth/google-complete" element={<GoogleCompletePage />} />
         <Route path="/auth/google-success" element={<GoogleSuccessPage />} />
         */}
-
         {/* Dashboard */}
         <Route
           path={ROUTES.DASHBOARD}
           element={
             <MainLayout>
-              <DashboardPage />
+              <ClientDashboard />
+            </MainLayout>
+          }
+        />
+
+        {/* Request Detail */}
+        <Route
+          path="/requests/:id"
+          element={
+            <MainLayout>
+              <RequestDetailPage />
             </MainLayout>
           }
         />
@@ -59,6 +81,16 @@ function App() {
           }
         />
 
+        {/* My Requests */}
+        <Route
+          path={ROUTES.MY_REQUESTS}
+          element={
+            <MainLayout>
+              <MyRequestsPage />
+            </MainLayout>
+          }
+        />
+
         {/* Review Moderation (Admin) */}
         <Route
           path={ROUTES.REVIEW_MODERATION}
@@ -69,7 +101,7 @@ function App() {
           }
         />
 
-        {/* Redirect root to admin dashboard */}
+        {/* Redirect root to dashboard */}
         <Route
           path={ROUTES.HOME}
           element={<Navigate to={ROUTES.DASHBOARD} replace />}

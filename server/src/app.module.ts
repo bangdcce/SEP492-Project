@@ -7,6 +7,8 @@ import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AuthModule } from './modules/auth/auth.module';
 import jwtConfig from './config/jwt.config';
+import { WizardModule } from './modules/wizard/wizard.module';
+import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
 import { ReviewModule } from './modules/review/review.module';
 import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
@@ -75,6 +77,8 @@ import { ReportModule } from './modules/report/report.module';
 
     AuditLogsModule,
     AuthModule,
+    WizardModule,
+    ProjectRequestsModule,
     ReviewModule,
     TrustScoreModule,
     ReportModule,
