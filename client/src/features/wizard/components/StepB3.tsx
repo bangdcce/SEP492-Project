@@ -14,34 +14,35 @@ export function StepB3({ budget, setBudget, timeline, setTimeline }: StepB3Props
   return (
     <div className="space-y-6 max-w-md mx-auto">
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-primary">Ngân sách & Thời gian</h2>
-        <p className="text-muted-foreground mt-2">Giúp chúng tôi tìm giải pháp phù hợp nhất với bạn</p>
+        <h2 className="text-2xl font-bold text-primary">Budget & Timeline</h2>
+        <p className="text-muted-foreground mt-2">Helping us find the best solution for you</p>
       </div>
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="budget">Ngân sách dự kiến (VNĐ)</Label>
+          <Label htmlFor="budget">Estimated Budget (VND)</Label>
           <Select value={budget} onValueChange={setBudget}>
-            <SelectTrigger id="budget">
-              <SelectValue placeholder="Chọn mức ngân sách" />
+            <SelectTrigger id="budget" className="w-full">
+              <SelectValue placeholder="Select Budget Range" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="UNDER_10M">Dưới 10 triệu</SelectItem>
-              <SelectItem value="10M_30M">10 - 30 triệu</SelectItem>
-              <SelectItem value="30M_50M">30 - 50 triệu</SelectItem>
-              <SelectItem value="50M_100M">50 - 100 triệu</SelectItem>
-              <SelectItem value="ABOVE_100M">Trên 100 triệu</SelectItem>
+              <SelectItem value="UNDER_10M">Under 10 Million</SelectItem>
+              <SelectItem value="10M_30M">10 - 30 Million</SelectItem>
+              <SelectItem value="30M_50M">30 - 50 Million</SelectItem>
+              <SelectItem value="50M_100M">50 - 100 Million</SelectItem>
+              <SelectItem value="ABOVE_100M">Above 100 Million</SelectItem>
             </SelectContent>
           </Select>
         </div>
 
         <div className="space-y-2">
-           <Label htmlFor="timeline">Thời gian mong muốn</Label>
+           <Label htmlFor="timeline">Expected Completion Date</Label>
            <Input 
              id="timeline" 
-             placeholder="Ví dụ: 2 tháng, 20/12/2025..." 
+             type="date"
              value={timeline}
              onChange={(e) => setTimeline(e.target.value)}
+             className="w-full block"
            />
         </div>
       </div>

@@ -6,9 +6,11 @@ import { Spinner } from "@/shared/components/ui";
 // Lazy load pages for better performance
 import { lazy, Suspense } from "react";
 
-const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
+const ClientDashboard = lazy(() => import("@/features/dashboard/ClientDashboard").then(module => ({ default: module.ClientDashboard })));
+const RequestDetailPage = lazy(() => import("@/features/requests/RequestDetailPage"));
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
 const WizardPage = lazy(() => import("@/features/wizard/WizardPage"));
+const MyRequestsPage = lazy(() => import("@/features/requests/MyRequestsPage").then(module => ({ default: module.MyRequestsPage })));
 
 // Loading fallback
 function PageLoader() {
@@ -34,11 +36,22 @@ function App() {
         />
         
         {/* Dashboard */}
+        {/* Dashboard */}
         <Route
           path={ROUTES.DASHBOARD}
           element={
             <MainLayout>
-              <DashboardPage />
+              <ClientDashboard />
+            </MainLayout>
+          }
+        />
+
+        {/* Request Detail */}
+        <Route
+          path="/requests/:id"
+          element={
+            <MainLayout>
+              <RequestDetailPage />
             </MainLayout>
           }
         />
@@ -49,6 +62,16 @@ function App() {
           element={
             <MainLayout>
               <AuditLogsPage />
+            </MainLayout>
+          }
+        />
+
+        {/* My Requests */}
+        <Route
+          path={ROUTES.MY_REQUESTS}
+          element={
+            <MainLayout>
+              <MyRequestsPage />
             </MainLayout>
           }
         />

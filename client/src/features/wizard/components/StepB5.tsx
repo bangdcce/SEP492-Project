@@ -43,34 +43,34 @@ export function StepB5({ description, setDescription, title, setTitle, onFileUpl
   return (
     <div className="space-y-6 max-w-2xl mx-auto">
       <div className="text-center mb-8">
-        <h2 className="text-2xl font-bold text-primary">Mô tả ý tưởng</h2>
-        <p className="text-muted-foreground mt-2">Chi tiết càng rõ, sản phẩm càng đúng ý bạn</p>
+        <h2 className="text-2xl font-bold text-primary">Idea Description</h2>
+        <p className="text-muted-foreground mt-2">The more detailed, the better the result</p>
       </div>
 
       <div className="space-y-4">
         <div className="space-y-2">
-           <Label htmlFor="title">Tên dự án (ngắn gọn)</Label>
+           <Label htmlFor="title">Project Title (Short)</Label>
            <Input 
              id="title" 
-             placeholder="Ví dụ: Website bán quần áo trẻ em" 
+             placeholder="e.g. Kids Clothing E-commerce Website" 
              value={title}
              onChange={(e) => setTitle(e.target.value)}
            />
         </div>
 
         <div className="space-y-2">
-            <Label htmlFor="description">Mô tả chi tiết</Label>
+            <Label htmlFor="description">Detailed Description</Label>
             <Textarea
                 id="description"
                 className="min-h-[150px]"
-                placeholder="Mô tả các yêu cầu đặc biệt, khách hàng mục tiêu, màu sắc chủ đạo..."
+                placeholder="Describe special requirements, target audience, preferred colors, etc."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
             />
         </div>
 
         <div className="space-y-2">
-            <Label>Tài liệu tham khảo (nếu có)</Label>
+            <Label>Reference Documents (Optional)</Label>
             {!fileName ? (
                 <div className="border-2 border-dashed border-muted-foreground/25 rounded-lg p-8 text-center hover:bg-muted/50 transition-colors cursor-pointer relative">
                     <Input 
@@ -81,7 +81,7 @@ export function StepB5({ description, setDescription, title, setTitle, onFileUpl
                     />
                     <div className="flex flex-col items-center justify-center gap-2 text-muted-foreground">
                         <Upload className="w-8 h-8" />
-                        <p>{uploading ? "Đang tải lên..." : "Kéo thả file hoặc click để tải lên"}</p>
+                        <p>{uploading ? "Uploading..." : "Drag & drop or directly click to upload"}</p>
                         <p className="text-xs">PDF, DOCX, PNG, JPG (Max 10MB)</p>
                     </div>
                 </div>

@@ -1,5 +1,6 @@
 
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { PartialType } from '@nestjs/mapped-types';
 import { IsArray, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -43,9 +44,16 @@ export class CreateProjectRequestDto {
   @IsString()
   techPreferences?: string;
 
+  @ApiPropertyOptional({ default: false, description: 'Set to true to save as draft' })
+  @IsOptional()
+  isDraft?: boolean;
+
   @ApiProperty({ type: [CreateProjectRequestAnswerDto] })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CreateProjectRequestAnswerDto)
+  @Type(() => CreateProjectRequestAnswerDto)
   answers: CreateProjectRequestAnswerDto[];
 }
+
+export class UpdateProjectRequestDto extends PartialType(CreateProjectRequestDto) {}

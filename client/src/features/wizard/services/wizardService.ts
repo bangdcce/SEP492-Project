@@ -24,6 +24,7 @@ export interface CreateProjectRequestDto {
   budgetRange?: string;
   intendedTimeline?: string;
   techPreferences?: string;
+  isDraft?: boolean;
   answers: {
     questionId: string;
     optionId?: string;
@@ -50,6 +51,31 @@ export const wizardService = {
         "Content-Type": "multipart/form-data",
       },
     });
+    return response.data;
+  },
+
+  updateRequest: async (id: string, data: Partial<CreateProjectRequestDto>) => {
+    const response = await axiosClient.patch(`/project-requests/${id}`, data);
+    return response.data;
+  },
+
+  getDrafts: async () => {
+    const response = await axiosClient.get("/project-requests/drafts/mine");
+    return response.data;
+  },
+
+  getMatches: async (requestId: string) => {
+    const response = await axiosClient.get(`/project-requests/${requestId}/matches`);
+    return response.data;
+  },
+
+  getRequests: async () => {
+    const response = await axiosClient.get("/project-requests");
+    return response.data;
+  },
+
+  getRequestById: async (id: string) => {
+    const response = await axiosClient.get(`/project-requests/${id}`);
     return response.data;
   }
 };

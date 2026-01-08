@@ -5,27 +5,27 @@ export class ProjectRequestAnswerEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'request_id' })
+  @Column({ name: 'requestId' })
   requestId: string;
 
-  @Column({ name: 'question_id' })
+  @Column({ name: 'questionId' })
   questionId: string;
 
-  @Column({ name: 'option_id', nullable: true })
+  @Column({ name: 'optionId', nullable: true })
   optionId: string;
 
-  @Column({ name: 'value_text', type: 'text', nullable: true })
+  @Column({ name: 'valueText', type: 'text', nullable: true })
   valueText: string;
 
   @ManyToOne('ProjectRequestEntity', 'answers', { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'request_id' })
+  @JoinColumn({ name: 'requestId' })
   request: any;
 
   @ManyToOne('WizardQuestionEntity', 'answers', { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'question_id' })
+  @JoinColumn({ name: 'questionId' })
   question: any;
 
   @ManyToOne('WizardOptionEntity', { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'option_id' })
+  @JoinColumn({ name: 'optionId' })
   option: any;
 }

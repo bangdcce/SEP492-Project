@@ -23,6 +23,12 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     path: "/dashboard",
   },
   {
+    id: "my-requests",
+    label: "My Requests",
+    icon: FileText,
+    path: "/requests",
+  },
+  {
     id: "audit-logs",
     label: "System Logs",
     icon: ScrollText,

@@ -4,13 +4,10 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
-<<<<<<< Updated upstream
-=======
 import { AuthModule } from './modules/auth/auth.module';
 import jwtConfig from './config/jwt.config';
 import { WizardModule } from './modules/wizard/wizard.module';
 import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
->>>>>>> Stashed changes
 
 @Module({
   imports: [
@@ -18,6 +15,7 @@ import { ProjectRequestsModule } from './modules/project-requests/project-reques
     ConfigModule.forRoot({
       envFilePath: '.env', // Sửa từ '../.env' thành '.env'
       isGlobal: true,
+      load: [jwtConfig],
     }),
 
     // 2. Cấu hình TypeORM lấy đúng key từ .env
@@ -55,12 +53,9 @@ import { ProjectRequestsModule } from './modules/project-requests/project-reques
     }),
 
     AuditLogsModule,
-<<<<<<< Updated upstream
-=======
     AuthModule,
     WizardModule,
     ProjectRequestsModule,
->>>>>>> Stashed changes
   ],
   controllers: [AppController],
   providers: [AppService],
