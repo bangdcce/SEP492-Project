@@ -6,13 +6,19 @@ import { Spinner } from "@/shared/components/ui";
 // Lazy load pages for better performance
 import { lazy, Suspense } from "react";
 
+// Admin Pages
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
+
+// Auth Pages
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
 const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
 // const GoogleCompletePage = lazy(() => import("@/pages/GoogleCompletePage"));
 // const GoogleSuccessPage = lazy(() => import("@/pages/GoogleSuccessPage"));
+
+// Other Pages
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage")
 );
@@ -59,6 +65,16 @@ function App() {
           }
         />
 
+        {/* Profile */}
+        <Route
+          path={ROUTES.PROFILE}
+          element={
+            <MainLayout>
+              <ProfilePage />
+            </MainLayout>
+          }
+        />
+
         {/* Review Moderation (Admin) */}
         <Route
           path={ROUTES.REVIEW_MODERATION}
@@ -69,7 +85,7 @@ function App() {
           }
         />
 
-        {/* Redirect root to admin dashboard */}
+        {/* Redirect root to admin dashboard */
         <Route
           path={ROUTES.HOME}
           element={<Navigate to={ROUTES.DASHBOARD} replace />}

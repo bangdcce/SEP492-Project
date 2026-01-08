@@ -1,17 +1,11 @@
 import React from 'react';
-import { Bell, ChevronRight } from 'lucide-react';
+import { Bell, ChevronRight, User } from 'lucide-react';
 
 interface HeaderProps {
   breadcrumbs: string[];
-  userName?: string;
-  userAvatar?: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({ 
-  breadcrumbs, 
-  userName = 'Admin User',
-  userAvatar = 'https://ui-avatars.com/api/?name=Admin+User&background=14b8a6&color=fff'
-}) => {
+export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
   return (
     <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-8 py-4">
       <div className="flex items-center justify-between">
@@ -43,17 +37,9 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full" />
           </button>
 
-          {/* User Profile */}
-          <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-            <img
-              src={userAvatar}
-              alt={userName}
-              className="h-9 w-9 rounded-full"
-            />
-            <div className="text-sm">
-              <p className="text-slate-900">{userName}</p>
-              <p className="text-gray-500 text-xs">Administrator</p>
-            </div>
+          {/* Simple User Avatar */}
+          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center">
+            <User className="h-5 w-5 text-gray-600" />
           </div>
         </div>
       </div>

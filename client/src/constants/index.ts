@@ -14,6 +14,8 @@ export const ROUTES = {
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
+  
+  // Admin Routes
   DASHBOARD: "/admin/dashboard",
   PROFILE: "/admin/profile",
   AUDIT_LOGS: "/admin/audit-logs",
@@ -23,6 +25,7 @@ export const ROUTES = {
   PROJECTS: "/admin/projects",
   ANALYTICS: "/admin/analytics",
   SETTINGS: "/admin/settings",
+  
   NOT_FOUND: "/404",
 } as const;
 

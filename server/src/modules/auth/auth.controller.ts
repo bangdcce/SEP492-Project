@@ -8,6 +8,7 @@ import {
   Req,
   Res,
   Get,
+  Put,
   ValidationPipe,
   Ip
 } from '@nestjs/common';
@@ -20,7 +21,8 @@ import {
   ApiBearerAuth,
   ApiUnauthorizedResponse,
   ApiBadRequestResponse,
-  ApiConflictResponse
+  ApiConflictResponse,
+  ApiOkResponse
 } from '@nestjs/swagger';
 import { Request } from 'express';
 import { AuthGuard } from '@nestjs/passport';
@@ -41,6 +43,7 @@ import {
   ResetPasswordResponseDto,
   VerifyOtpDto,
   VerifyOtpResponseDto,
+  UpdateProfileDto
   // CompleteGoogleSignupDto
 } from './dto';
 import { UserEntity } from '../../database/entities/user.entity';
@@ -207,7 +210,7 @@ export class AuthController {
     };
   }
 
-  @Post('profile')
+  @Get('profile')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({ 
@@ -230,12 +233,16 @@ export class AuthController {
     message: string;
     data: AuthResponseDto;
   }> {
+    // Fetch user with profile to get avatarUrl
+    const userWithProfile = await this.authService.findUserWithProfile(req.user.id);
+    
     // Service method để map user entity thành response DTO
     const userResponse: AuthResponseDto = {
       id: req.user.id,
       email: req.user.email,
       fullName: req.user.fullName,
       phoneNumber: req.user.phoneNumber,
+      avatarUrl: userWithProfile?.profile?.avatarUrl,
       role: req.user.role,
       isVerified: req.user.isVerified,
       currentTrustScore: req.user.currentTrustScore,
@@ -252,6 +259,36 @@ export class AuthController {
     return {
       message: 'Lấy thông tin tài khoản thành công',
       data: userResponse,
+    };
+  }
+
+  @Put('profile')
+  @UseGuards(JwtAuthGuard)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Cập nhật thông tin profile' })
+  @ApiOkResponse({
+    description: 'Cập nhật thành công',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Cập nhật thông tin thành công' },
+        data: { type: 'object' },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
+  async updateProfile(
+    @Req() req: AuthRequest,
+    @Body() updateProfileDto: UpdateProfileDto,
+  ): Promise<{
+    message: string;
+    data: AuthResponseDto;
+  }> {
+    const updatedUser = await this.authService.updateProfile(req.user.id, updateProfileDto);
+
+    return {
+      message: 'Cập nhật thông tin thành công',
+      data: updatedUser,
     };
   }
 

@@ -7,6 +7,7 @@ import { randomBytes } from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
+import { ProfileEntity } from '../../database/entities/profile.entity';
 import { EmailService } from './email.service';
 import { 
   LoginDto, 
@@ -19,7 +20,8 @@ import {
   ForgotPasswordResponseDto,
   ResetPasswordResponseDto,
   VerifyOtpDto,
-  VerifyOtpResponseDto
+  VerifyOtpResponseDto,
+  UpdateProfileDto
 } from './dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -31,6 +33,8 @@ export class AuthService {
     private userRepository: Repository<UserEntity>,
     @InjectRepository(AuthSessionEntity)
     private authSessionRepository: Repository<AuthSessionEntity>,
+    @InjectRepository(ProfileEntity)
+    private profileRepository: Repository<ProfileEntity>,
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
@@ -539,12 +543,60 @@ export class AuthService {
   }
   */
 
+  async findUserWithProfile(userId: string): Promise<UserEntity | null> {
+    return await this.userRepository.findOne({
+      where: { id: userId },
+      relations: ['profile'],
+    });
+  }
+
+  async updateProfile(userId: string, updateProfileDto: UpdateProfileDto): Promise<AuthResponseDto> {
+    // Cập nhật thông tin User
+    const updateUserData: Partial<UserEntity> = {};
+    if (updateProfileDto.fullName) updateUserData.fullName = updateProfileDto.fullName;
+    if (updateProfileDto.phoneNumber) updateUserData.phoneNumber = updateProfileDto.phoneNumber;
+
+    if (Object.keys(updateUserData).length > 0) {
+      await this.userRepository.update({ id: userId }, updateUserData);
+    }
+
+    // Tìm hoặc tạo Profile
+    let profile = await this.profileRepository.findOne({ where: { userId } });
+    
+    if (!profile) {
+      // Tạo profile mới nếu chưa có
+      profile = this.profileRepository.create({
+        userId,
+        avatarUrl: updateProfileDto.avatarUrl,
+        bio: updateProfileDto.bio,
+      });
+      await this.profileRepository.save(profile);
+    } else {
+      // Cập nhật profile
+      const updateProfileData: Partial<ProfileEntity> = {};
+      if (updateProfileDto.avatarUrl !== undefined) updateProfileData.avatarUrl = updateProfileDto.avatarUrl;
+      if (updateProfileDto.bio !== undefined) updateProfileData.bio = updateProfileDto.bio;
+
+      if (Object.keys(updateProfileData).length > 0) {
+        await this.profileRepository.update({ userId }, updateProfileData);
+      }
+    }
+
+    // Lấy lại user với profile
+    const updatedUser = await this.findUserWithProfile(userId);
+    if (!updatedUser) {
+      throw new Error('User not found after update');
+    }
+    return this.mapToAuthResponse(updatedUser);
+  }
+
   private mapToAuthResponse(user: UserEntity): AuthResponseDto {
     return {
       id: user.id,
       email: user.email,
       fullName: user.fullName,
       phoneNumber: user.phoneNumber,
+      avatarUrl: (user as any).profile?.avatarUrl,
       role: user.role,
       isVerified: user.isVerified,
       currentTrustScore: user.currentTrustScore,
