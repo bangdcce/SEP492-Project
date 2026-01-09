@@ -1,12 +1,17 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 
 export enum RequestStatus {
-  DRAFT = 'DRAFT',
-  PENDING = 'PENDING',
-  PROCESSING = 'PROCESSING',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
+  PUBLIC_DRAFT = 'PUBLIC_DRAFT', // Visible in marketplace
+  PRIVATE_DRAFT = 'PRIVATE_DRAFT', // Invite only
+  PENDING_SPECS = 'PENDING_SPECS', // Deal locked, Broker drafting specs (was PENDING)
+  HIRING = 'HIRING', // Broker hired, looking for freelancers
+  IN_PROGRESS = 'IN_PROGRESS', // Project execution
+  COMPLETED = 'COMPLETED',
   CANCELED = 'CANCELED',
+  
+  // Legacy mappings (will be migrated or kept for safety during transition)
+  DRAFT = 'DRAFT', 
+  PENDING = 'PENDING',
 }
 
 @Entity('project_requests')
@@ -59,4 +64,7 @@ export class ProjectRequestEntity {
 
   @OneToMany('ProjectRequestProposalEntity', 'request')
   proposals: any[];
+
+  @OneToMany('BrokerProposalEntity', 'request')
+  brokerProposals: any[];
 }

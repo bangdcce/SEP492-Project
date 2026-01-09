@@ -16,7 +16,7 @@ export function ProjectPhaseStepper({
   const steps: Step[] = [
     {
       id: 1,
-      label: "Pending Broker",
+      label: "Finalizing Specs",
       status:
         currentPhase > 1
           ? "completed"
@@ -66,7 +66,6 @@ export function ProjectPhaseStepper({
             key={step.id}
             className="flex flex-col items-center gap-2 bg-background px-2"
           >
-            \n{" "}
             <div
               className={`w-8 h-8 rounded-full flex items-center justify-center border-2 transition-colors
                 ${

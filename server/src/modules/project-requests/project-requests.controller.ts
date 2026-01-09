@@ -118,4 +118,25 @@ export class ProjectRequestsController {
       url: `/uploads/${file?.originalname}`, // Mock URL
     };
   }
+
+  @Post(':id/invite')
+  @ApiOperation({ summary: 'Invite a broker to a project request' })
+  @ApiResponse({ status: 201, description: 'Invitation sent' })
+  async invite(
+      @Param('id') id: string,
+      @Body('brokerId') brokerId: string
+  ) {
+      return this.projectRequestsService.inviteBroker(id, brokerId);
+  }
+
+  @Post(':id/apply')
+  @ApiOperation({ summary: 'Broker applies to a project request' })
+  @ApiResponse({ status: 201, description: 'Application submitted' })
+  async apply(
+      @Param('id') id: string,
+      @GetUser('id') brokerId: string,
+      @Body('coverLetter') coverLetter: string
+  ) {
+      return this.projectRequestsService.applyToRequest(id, brokerId, coverLetter);
+  }
 }

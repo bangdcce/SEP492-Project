@@ -25,6 +25,7 @@ export interface CreateProjectRequestDto {
   intendedTimeline?: string;
   techPreferences?: string;
   isDraft?: boolean;
+  status?: string; // Allowing string to support new enum values
   answers: {
     questionId: string;
     optionId?: string;
@@ -76,6 +77,17 @@ export const wizardService = {
 
   getRequestById: async (id: string) => {
     const response = await axiosClient.get(`/project-requests/${id}`);
+    return response.data;
+  },
+
+  inviteBroker: async (requestId: string, brokerId: string) => {
+    const response = await axiosClient.post(`/project-requests/${requestId}/invite`, { brokerId });
+    return response.data;
+  },
+
+  applyToRequest: async (requestId: string, coverLetter: string) => {
+    // Note: This endpoint expects brokerId from token, so we only send coverLetter
+    const response = await axiosClient.post(`/project-requests/${requestId}/apply`, { coverLetter });
     return response.data;
   }
 };
