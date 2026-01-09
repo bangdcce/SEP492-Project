@@ -10,6 +10,7 @@ import { ReviewModule } from './modules/review/review.module';
 import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
 import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
+import { ProjectSpecsModule } from './modules/project-specs/project-specs.module';
 
 @Module({
   imports: [
@@ -58,6 +59,7 @@ import { ProjectRequestsModule } from './modules/project-requests/project-reques
     TrustScoreModule,
     ReportModule,
     ProjectRequestsModule,
+    ProjectSpecsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

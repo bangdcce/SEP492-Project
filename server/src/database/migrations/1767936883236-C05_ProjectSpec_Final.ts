@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class CreateProjectSpec1767936446221 implements MigrationInterface {
-    name = 'CreateProjectSpec1767936446221'
+export class C05ProjectSpecFinal1767936883236 implements MigrationInterface {
+    name = 'C05ProjectSpecFinal1767936883236'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`CREATE TYPE "public"."project_specs_status_enum" AS ENUM('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED')`);
@@ -13,7 +13,10 @@ export class CreateProjectSpec1767936446221 implements MigrationInterface {
         await queryRunner.query(`ALTER TABLE "project_requests" ALTER COLUMN "status" TYPE "public"."project_requests_status_enum" USING "status"::"text"::"public"."project_requests_status_enum"`);
         await queryRunner.query(`ALTER TABLE "project_requests" ALTER COLUMN "status" SET DEFAULT 'PENDING'`);
         await queryRunner.query(`DROP TYPE "public"."project_requests_status_enum_old"`);
+        await queryRunner.query(`ALTER TABLE "milestones" DROP CONSTRAINT "FK_662a1f9d865fe49768fa369fd0f"`);
+        await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "projectId" DROP NOT NULL`);
         await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "amount" TYPE numeric(14,2)`);
+        await queryRunner.query(`ALTER TABLE "milestones" ADD CONSTRAINT "FK_662a1f9d865fe49768fa369fd0f" FOREIGN KEY ("projectId") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "milestones" ADD CONSTRAINT "FK_927a9184a0da350a677aa7e6269" FOREIGN KEY ("projectSpecId") REFERENCES "project_specs"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`ALTER TABLE "project_specs" ADD CONSTRAINT "FK_97ee9024805b4f2abe68ed78623" FOREIGN KEY ("requestId") REFERENCES "project_requests"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
     }
@@ -21,7 +24,10 @@ export class CreateProjectSpec1767936446221 implements MigrationInterface {
     public async down(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`ALTER TABLE "project_specs" DROP CONSTRAINT "FK_97ee9024805b4f2abe68ed78623"`);
         await queryRunner.query(`ALTER TABLE "milestones" DROP CONSTRAINT "FK_927a9184a0da350a677aa7e6269"`);
+        await queryRunner.query(`ALTER TABLE "milestones" DROP CONSTRAINT "FK_662a1f9d865fe49768fa369fd0f"`);
         await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "amount" TYPE numeric(15,2)`);
+        await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "projectId" SET NOT NULL`);
+        await queryRunner.query(`ALTER TABLE "milestones" ADD CONSTRAINT "FK_662a1f9d865fe49768fa369fd0f" FOREIGN KEY ("projectId") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
         await queryRunner.query(`CREATE TYPE "public"."project_requests_status_enum_old" AS ENUM('PENDING', 'PROCESSING', 'APPROVED', 'REJECTED', 'CANCELLED')`);
         await queryRunner.query(`ALTER TABLE "project_requests" ALTER COLUMN "status" DROP DEFAULT`);
         await queryRunner.query(`ALTER TABLE "project_requests" ALTER COLUMN "status" TYPE "public"."project_requests_status_enum_old" USING "status"::"text"::"public"."project_requests_status_enum_old"`);

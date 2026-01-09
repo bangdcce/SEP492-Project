@@ -14,7 +14,7 @@ export class MilestoneEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ nullable: true })
   projectId: string;
 
   @Column({ type: 'varchar', length: 255 })
