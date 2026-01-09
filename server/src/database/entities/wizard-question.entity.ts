@@ -1,4 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn, OneToMany } from 'typeorm';
+import { WizardOptionEntity } from './wizard-option.entity';
+import { ProjectRequestAnswerEntity } from './project-request-answer.entity';
 
 @Entity('wizard_questions')
 export class WizardQuestionEntity {
@@ -27,9 +29,9 @@ export class WizardQuestionEntity {
   createdAt: Date;
 
   // Relations
-  @OneToMany('WizardOptionEntity', 'question')
-  options: any[];
+  @OneToMany(() => WizardOptionEntity, (option) => option.question)
+  options: WizardOptionEntity[];
 
-  @OneToMany('ProjectRequestAnswerEntity', 'question')
-  answers: any[];
+  @OneToMany(() => ProjectRequestAnswerEntity, (answer) => answer.question)
+  answers: ProjectRequestAnswerEntity[];
 }

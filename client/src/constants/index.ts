@@ -13,6 +13,16 @@ export const ROUTES = {
   HOME: "/",
   LOGIN: "/login",
   REGISTER: "/register",
+  FORGOT_PASSWORD: "/forgot-password",
+  WIZARD: "/wizard",
+  MY_REQUESTS: "/requests",
+  
+  // Client Routes
+  CLIENT_DASHBOARD: "/dashboard",
+  CLIENT_PROFILE: "/profile",
+  CLIENT_AUDIT_LOGS: "/audit-logs",
+  
+  // Admin Routes
   DASHBOARD: "/admin/dashboard",
   PROFILE: "/admin/profile",
   AUDIT_LOGS: "/admin/audit-logs",
@@ -22,6 +32,7 @@ export const ROUTES = {
   PROJECTS: "/admin/projects",
   ANALYTICS: "/admin/analytics",
   SETTINGS: "/admin/settings",
+  
   NOT_FOUND: "/404",
 } as const;
 

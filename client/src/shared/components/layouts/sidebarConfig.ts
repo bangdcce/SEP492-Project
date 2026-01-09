@@ -27,6 +27,12 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     description: "Overview and statistics",
   },
   {
+    id: "my-requests",
+    label: "My Requests",
+    icon: FileText,
+    path: "/requests",
+  },
+  {
     id: "audit-logs",
     label: "System Logs",
     icon: ScrollText,

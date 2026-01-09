@@ -1,17 +1,95 @@
-import React from 'react';
-import { Bell, ChevronRight } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Bell, ChevronRight, User, LogOut, UserCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ROUTES, STORAGE_KEYS } from '@/constants';
 
 interface HeaderProps {
   breadcrumbs: string[];
-  userName?: string;
-  userAvatar?: string;
 }
 
-export const Header: React.FC<HeaderProps> = ({ 
-  breadcrumbs, 
-  userName = 'Admin User',
-  userAvatar = 'https://ui-avatars.com/api/?name=Admin+User&background=14b8a6&color=fff'
-}) => {
+export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
+  const navigate = useNavigate();
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState<string>('');
+  const [userName, setUserName] = useState<string>('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  
+  // Load user data from localStorage
+  useEffect(() => {
+    const loadUserData = () => {
+      const userStr = localStorage.getItem(STORAGE_KEYS.USER);
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        setAvatarUrl(user.avatarUrl || '');
+        setUserName(user.fullName || user.email || '');
+      }
+    };
+    
+    loadUserData();
+    
+    // Listen for custom event when user data is updated
+    window.addEventListener('userDataUpdated', loadUserData);
+    return () => window.removeEventListener('userDataUpdated', loadUserData);
+  }, []);
+  
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+
+    if (showDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDropdown]);
+  
+  const handleViewProfile = () => {
+    setShowDropdown(false);
+    
+    // Get user role to determine which profile page to navigate to
+    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
+    if (userStr) {
+      const user = JSON.parse(userStr);
+      const role = user.role?.toUpperCase();
+      
+      if (role === 'ADMIN') {
+        navigate(ROUTES.PROFILE); // Admin profile
+      } else {
+        navigate(ROUTES.CLIENT_PROFILE); // Client profile
+      }
+    } else {
+      navigate(ROUTES.CLIENT_PROFILE);
+    }
+  };
+  
+  const handleLogout = () => {
+    setShowDropdown(false);
+    
+    // Clear localStorage
+    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+    localStorage.removeItem(STORAGE_KEYS.USER);
+    
+    // Redirect to login
+    navigate(ROUTES.LOGIN);
+  };
+  
+  const getInitials = (name: string) => {
+    if (!name) return 'U';
+    return name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase()
+      .slice(0, 2);
+  };
+  
   return (
     <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-8 py-4">
       <div className="flex items-center justify-between">
@@ -43,17 +121,39 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="absolute top-1.5 right-1.5 h-2 w-2 bg-red-500 rounded-full" />
           </button>
 
-          {/* User Profile */}
-          <div className="flex items-center gap-3 pl-4 border-l border-gray-200">
-            <img
-              src={userAvatar}
-              alt={userName}
-              className="h-9 w-9 rounded-full"
-            />
-            <div className="text-sm">
-              <p className="text-slate-900">{userName}</p>
-              <p className="text-gray-500 text-xs">Administrator</p>
-            </div>
+          {/* User Avatar with Dropdown */}
+          <div className="relative" ref={dropdownRef}>
+            <button
+              onClick={() => setShowDropdown(!showDropdown)}
+              className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center hover:ring-2 hover:ring-blue-300 transition-all cursor-pointer overflow-hidden"
+              title="Menu"
+            >
+              {avatarUrl ? (
+                <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+              ) : (
+                <span className="text-white text-sm font-bold">{getInitials(userName)}</span>
+              )}
+            </button>
+
+            {/* Dropdown Menu */}
+            {showDropdown && (
+              <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg border border-gray-200 py-1 z-50">
+                <button
+                  onClick={handleViewProfile}
+                  className="w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 flex items-center gap-2"
+                >
+                  <UserCircle className="h-4 w-4" />
+                  View Profile
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="w-full px-4 py-2 text-left text-sm text-red-600 hover:bg-red-50 flex items-center gap-2"
+                >
+                  <LogOut className="h-4 w-4" />
+                  Logout
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </div>
