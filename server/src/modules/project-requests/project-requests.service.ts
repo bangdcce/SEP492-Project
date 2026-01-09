@@ -9,6 +9,7 @@ import {
 import { ProjectRequestAnswerEntity } from '../../database/entities/project-request-answer.entity';
 import { CreateProjectRequestDto, UpdateProjectRequestDto } from './dto/create-project-request.dto';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { UserEntity, UserRole } from '../../database/entities/user.entity';
 
 @Injectable()
 export class ProjectRequestsService {
@@ -135,10 +136,11 @@ export class ProjectRequestsService {
         ? request.techPreferences.split(',').map(s => s.trim().toLowerCase()) 
         : [];
 
-    const brokers = await this.requestRepo.manager.createQueryBuilder('UserEntity', 'user')
-        .leftJoinAndSelect('user.profile', 'profile')
-        .where('user.role = :role', { role: 'BROKER' })
-        .getMany();
+    // Use getRepository to ensure Entity metadata is found
+    const brokers = await this.requestRepo.manager.getRepository(UserEntity).find({
+        where: { role: UserRole.BROKER },
+        relations: ['profile']
+    });
 
     const scoredBrokers = brokers.map(broker => {
         let score = 0;

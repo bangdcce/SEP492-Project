@@ -131,7 +131,7 @@ export default function WizardPage() {
         }
         
         // If draft, maybe just stay here or go to dashboard? Let's stay to allow more edits
-        // navigate(ROUTES.DASHBOARD); 
+        // navigate(ROUTES.CLIENT_DASHBOARD); 
 
      } catch (error) {
         toast.error("Submission Failed", {
@@ -192,7 +192,7 @@ export default function WizardPage() {
                     )}
                 </CardContent>
                 <CardFooter className="flex justify-center p-6 bg-muted/20 border-t rounded-b-xl">
-                    <Button onClick={() => navigate(ROUTES.DASHBOARD)} className="w-48">
+                    <Button onClick={() => navigate(ROUTES.CLIENT_DASHBOARD)} className="w-48">
                         Go to Dashboard
                     </Button>
                 </CardFooter>

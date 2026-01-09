@@ -14,7 +14,7 @@ export const ROUTES = {
   LOGIN: "/login",
   REGISTER: "/register",
   // Client Routes
-  CLIENT_DASHBOARD: "/client-dashboard",
+  CLIENT_DASHBOARD: "/client/dashboard",
   CLIENT_PROFILE: "/profile",
   CLIENT_AUDIT_LOGS: "/audit-logs",
 

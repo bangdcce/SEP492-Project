@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
 import { CommentsSection } from "./components/CommentsSection";
+import { MilestoneDetailView } from "./components/MilestoneDetailView";
 
 export default function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +18,7 @@ export default function RequestDetailPage() {
   const [matches, setMatches] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [specsAccepted, setSpecsAccepted] = useState(false);
+  const [viewMilestoneId, setViewMilestoneId] = useState<number | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -27,25 +29,33 @@ export default function RequestDetailPage() {
   const fetchData = async (requestId: string) => {
     try {
       setLoading(true);
-      const [reqData, matchData] = await Promise.all([
-        wizardService.getRequestById(requestId),
-        wizardService.getMatches(requestId)
-      ]);
+      
+      // 1. Fetch Request Details (Critical)
+      const reqData = await wizardService.getRequestById(requestId);
       console.log("Fetched Request Data:", reqData);
+      
       if (!reqData) {
           console.error("Request data is null for ID:", requestId);
+          setRequest(null);
+          return;
       }
       setRequest(reqData);
-      
-      // Handle matches only if request found
-      if (reqData) {
-         setMatches(matchData);
-      }
-      
-      // Mock check if specs accepted (based on status or flag)
-      if (reqData && (reqData.status === 'HIRING' || reqData.status === 'IN_PROGRESS')) {
+
+      // Mock check if specs accepted
+      if (reqData && (reqData.status === 'HIRING' || reqData.status === 'IN_PROGRESS' || reqData.status === 'APPROVED')) {
           setSpecsAccepted(true);
       }
+
+      // 2. Fetch Matches (Non-critical) - logic depends on status
+      try {
+          const matchData = await wizardService.getMatches(requestId);
+          setMatches(matchData || []);
+      } catch (matchError) {
+          console.error("Failed to load matches:", matchError);
+          // Don't crash the page, just show 0 matches or error UI in tab
+          setMatches([]); 
+      }
+
     } catch (error) {
       console.error("Failed to load request details", error);
       toast.error("Error", { description: "Could not load request details." });
@@ -71,13 +81,24 @@ export default function RequestDetailPage() {
   // Determine current phase
   const getPhase = (status: string) => {
       if (status === 'PENDING' || status === 'PENDING_BROKER') return 1;
-      if (status === 'WAITING_FOR_REVIEW' || status === 'SPEC_REVIEW') return 2;
-      if (status === 'HIRING' || status === 'WAITING_FREELANCER') return 3;
-      if (status === 'IN_PROGRESS') return 4;
+      if (status === 'PROCESSING' || status === 'WAITING_FOR_REVIEW' || status === 'SPEC_REVIEW') return 2;
+      if (status === 'APPROVED' || status === 'HIRING' || status === 'WAITING_FREELANCER') return 3;
+      if (status === 'IN_PROGRESS' || status === 'COMPLETED') return 4;
       return 1; // Default
   };
 
   const currentPhase = getPhase(request.status);
+
+  if (viewMilestoneId) {
+      return (
+        <div className="container mx-auto p-4 md:p-6 max-w-7xl">
+             <MilestoneDetailView 
+                milestoneId={viewMilestoneId} 
+                onBack={() => setViewMilestoneId(null)} 
+             />
+        </div>
+      );
+  }
 
   return (
     <div className="container mx-auto p-4 md:p-6 max-w-7xl">
@@ -117,7 +138,9 @@ export default function RequestDetailPage() {
                 <TabsList className="grid w-full grid-cols-3 mb-4">
                 <TabsTrigger value="overview">Overview</TabsTrigger>
                 <TabsTrigger value="documents">Specs & Milestones</TabsTrigger>
-                <TabsTrigger value="recruitment">Recruitment</TabsTrigger>
+                <TabsTrigger value="recruitment">
+                    {currentPhase === 1 ? "Available Brokers" : "Recruitment"}
+                </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="overview">
@@ -172,7 +195,7 @@ export default function RequestDetailPage() {
                         <CardContent className="space-y-6">
                             {currentPhase < 2 ? (
                                 <div className="text-center py-12 bg-muted/20 border-2 border-dashed rounded-lg">
-                                    <p className="text-muted-foreground">Broker is currently preparing the specifications.</p>
+                                    <p className="text-muted-foreground">Please hire a broker regarding to the <strong>Available Brokers</strong> tab to begin the specification phase.</p>
                                 </div>
                             ) : (
                                 <>
@@ -203,7 +226,14 @@ export default function RequestDetailPage() {
                                                         <div className="font-medium text-base">Milestone {m}: Phase {m} Delivery</div>
                                                         <div className="text-sm text-muted-foreground mt-1">Estimated duration: 2 weeks</div>
                                                     </div>
-                                                    <Badge variant="outline">Planned</Badge>
+                                                    <div className="flex items-center gap-3">
+                                                        <Badge variant="outline">Planned</Badge>
+                                                        {currentPhase >= 3 && (
+                                                            <Button size="sm" variant="outline" onClick={() => setViewMilestoneId(m)}>
+                                                                View Detail
+                                                            </Button>
+                                                        )}
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
@@ -216,39 +246,61 @@ export default function RequestDetailPage() {
 
                 <TabsContent value="recruitment">
                     <Card>
-                        <CardHeader><h2 className="text-xl font-semibold">Suggested Freelancers</h2></CardHeader>
+                        <CardHeader>
+                            <h2 className="text-xl font-semibold">
+                                {currentPhase === 1 ? "Matching Brokers" : "Suggested Freelancers"}
+                            </h2>
+                        </CardHeader>
                         <CardContent>
-                            {currentPhase < 3 ? (
+                            {/* Logic: If Phase 2, wait. If Phase 1 (Brokers) or Phase 3+ (Freelancers), show list if available. */}
+                            {currentPhase === 2 ? (
                                 <div className="text-center py-12 bg-muted/20 border-2 border-dashed rounded-lg">
                                     <p className="text-muted-foreground">Recruitment will be available after Spec Approval.</p>
                                 </div>
                             ) : matches.length === 0 ? (
-                                <p className="text-muted-foreground text-center py-8">No specific matches found for this request.</p>
+                                <p className="text-muted-foreground text-center py-8">
+                                    {currentPhase === 1 ? "No matching brokers found yet." : "No specific matches found for this request."}
+                                </p>
                             ) : (
                                 <div className="space-y-4">
-                                    {matches.map((match: any) => (
-                                        <div key={match.broker.id} className="flex items-center justify-between p-4 border rounded-lg bg-background hover:bg-muted/30 transition-colors">
+                                    {matches.map((item: any, index: number) => {
+                                        // item might be { broker, score, matches } 
+                                        const broker = item.broker;
+                                        return (
+                                        <div key={broker?.id || index} className="flex items-center justify-between p-4 border rounded-lg bg-background hover:bg-muted/30 transition-colors">
                                             <div className="flex items-center gap-4">
                                                 <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
-                                                    {match.broker.fullName?.charAt(0) || 'B'}
+                                                    {broker.fullName?.charAt(0) || 'B'}
                                                 </div>
                                                 <div>
-                                                    <h4 className="font-semibold text-lg">{match.broker.fullName}</h4>
+                                                    <h4 className="font-semibold text-lg">{broker.fullName}</h4>
                                                     <div className="text-sm text-muted-foreground flex gap-3 mt-1">
-                                                        <span className="bg-secondary px-2 py-0.5 rounded text-xs">Score: {match.score}</span>
+                                                        <span className="bg-secondary px-2 py-0.5 rounded text-xs">
+                                                            Score: {typeof item.score === 'number' ? item.score.toFixed(1) : Number(item.score || 0).toFixed(1)}
+                                                        </span>
                                                         <span>•</span>
-                                                        <span>{match.matches} Skill Matches</span>
+                                                        <span>{item.matches || 0} Skill Matches</span>
                                                     </div>
+                                                    {/* Skills */}
+                                                    {broker.profile?.skills && (
+                                                        <div className="flex gap-1 mt-2">
+                                                            {broker.profile.skills.slice(0, 3).map((s: string) => (
+                                                                <Badge key={s} variant="outline" className="text-[10px] px-1 py-0">{s}</Badge>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                            <div className="flex gap-2">
-                                                <Button size="sm" variant="outline">Profile</Button>
-                                                <Button size="sm" onClick={() => handleInvite(match.broker.fullName)}>
+                                            <div className="flex flex-col gap-2">
+                                                <Button size="sm" variant="outline" onClick={() => toast.info('CV Preview feature coming soon')}>
+                                                    <FileText className="w-3 h-3 mr-1" /> CV
+                                                </Button>
+                                                <Button size="sm" onClick={() => handleInvite(broker.fullName)}>
                                                     <UserPlus className="w-4 h-4 mr-2" /> Invite
                                                 </Button>
                                             </div>
                                         </div>
-                                    ))}
+                                    )})}
                                 </div>
                             )}
                         </CardContent>

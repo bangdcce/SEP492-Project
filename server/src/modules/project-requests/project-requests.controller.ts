@@ -27,8 +27,10 @@ import { GetUser } from '../auth/decorators/get-user.decorator';
 import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
 
 @ApiTags('Project Requests')
+@ApiTags('Project Requests')
+@ApiTags('Project Requests')
 @Controller('project-requests')
-// @UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard)
 @ApiBearerAuth()
 export class ProjectRequestsController {
   constructor(private readonly projectRequestsService: ProjectRequestsService) {}
@@ -41,11 +43,11 @@ export class ProjectRequestsController {
     type: ProjectRequestEntity,
   })
   async create(
-    // @GetUser('id') userId: string,
+    @GetUser('id') userId: string,
     @Body() createDto: CreateProjectRequestDto,
     @Req() req: any,
   ) {
-    const userId = 'd4e5f6a7-b8c9-0123-defa-234567890123'; // TEST CLIENT ID
+    // const userId = 'd4e5f6a7-b8c9-0123-defa-234567890123'; // TEST CLIENT ID
     return this.projectRequestsService.create(userId, createDto, req);
   }
 
@@ -56,16 +58,16 @@ export class ProjectRequestsController {
     type: [ProjectRequestEntity],
   })
   async findAll(@GetUser('id') userId: string) {
-    const testUserId = 'd4e5f6a7-b8c9-0123-defa-234567890123';
-    return this.projectRequestsService.findAllByClient(testUserId);
+    // const testUserId = 'd4e5f6a7-b8c9-0123-defa-234567890123';
+    return this.projectRequestsService.findAllByClient(userId);
   }
 
   @Get('drafts/mine')
   @ApiOperation({ summary: 'Get all draft requests for the current user' })
   @ApiResponse({ status: 200, type: [ProjectRequestEntity] })
   async findMyDrafts(@GetUser('id') userId: string) {
-    const testUserId = 'd4e5f6a7-b8c9-0123-defa-234567890123';
-    return this.projectRequestsService.findDraftsByClient(testUserId);
+    // const testUserId = 'd4e5f6a7-b8c9-0123-defa-234567890123';
+    return this.projectRequestsService.findDraftsByClient(userId);
   }
 
   @Get(':id/matches')
