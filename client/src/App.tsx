@@ -22,6 +22,7 @@ const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage")
 );
+const AdminDashboard = lazy(() => import("@/features/dashboard/AdminDashboard").then(module => ({ default: module.AdminDashboard })));
 
 // Loading fallback
 function PageLoader() {
@@ -54,7 +55,6 @@ function App() {
         <Route path="/auth/google-complete" element={<GoogleCompletePage />} />
         <Route path="/auth/google-success" element={<GoogleSuccessPage />} />
         */}
-        
         {/* Client Dashboard */}
         <Route
           path={ROUTES.CLIENT_DASHBOARD}
@@ -65,12 +65,12 @@ function App() {
           }
         />
         
-        {/* Admin Dashboard */}
+        {/* Admin Dashboard (Main /dashboard) */}
         <Route
-          path={ROUTES.DASHBOARD}
+          path={ROUTES.ADMIN_DASHBOARD}
           element={
             <MainLayout>
-              <ClientDashboard />
+              <AdminDashboard />
             </MainLayout>
           }
         />
@@ -133,11 +133,11 @@ function App() {
           element={<Navigate to={ROUTES.LOGIN} replace />}
         />
 
-        {/* Redirect /admin to admin dashboard */}
         <Route
           path="/admin"
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+          element={<Navigate to={ROUTES.ADMIN_DASHBOARD} replace />}
         />
+
 
         {/* 404 - Not Found */}
         <Route
