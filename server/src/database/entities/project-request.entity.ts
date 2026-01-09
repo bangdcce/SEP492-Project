@@ -1,6 +1,7 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 
 export enum RequestStatus {
+  DRAFT = 'DRAFT',
   PENDING = 'PENDING',
   PROCESSING = 'PROCESSING',
   APPROVED = 'APPROVED',
@@ -13,7 +14,7 @@ export class ProjectRequestEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ name: 'clientId' })
   clientId: string;
 
   @Column({ type: 'varchar', length: 255 })
@@ -22,13 +23,13 @@ export class ProjectRequestEntity {
   @Column({ type: 'text' })
   description: string;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ name: 'budgetRange', type: 'varchar', nullable: true })
   budgetRange: string;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ name: 'intendedTimeline', type: 'varchar', nullable: true })
   intendedTimeline: string;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ name: 'techPreferences', type: 'varchar', nullable: true })
   techPreferences: string;
 
   @Column({
@@ -38,10 +39,10 @@ export class ProjectRequestEntity {
   })
   status: RequestStatus;
 
-  @Column({ nullable: true })
+  @Column({ name: 'brokerId', nullable: true })
   brokerId: string;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'createdAt' })
   createdAt: Date;
 
   // Relations

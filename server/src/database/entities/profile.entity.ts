@@ -9,7 +9,11 @@ export class ProfileEntity {
   userId: string;
 
   @Column({ type: 'text', nullable: true })
+  avatarUrl: string;
+
+  @Column({ type: 'text', nullable: true })
   bio: string;
+
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   companyName: string;

@@ -37,6 +37,17 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  
+  /* Auth Theme Colors */
+  --auth-primary: #2563EB;
+  --auth-background: #FFFFFF;
+  --auth-text: #0F172A;
+  --auth-text-muted: #64748B;
+  --auth-text-secondary: #94A3B8;
+  --auth-border: #E2E8F0;
+  --auth-input-bg: #FFFFFF;
+  --auth-success: #16A34A;
+  --auth-error: #EF4444;
 }
 
 .dark {

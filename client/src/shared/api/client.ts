@@ -39,12 +39,13 @@ class ApiClient {
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
-        // Handle 401 - Unauthorized
-        if (error.response?.status === 401) {
-          localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-          localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-          window.location.href = "/login";
-        }
+        // TODO: [DEV] Auth disabled for testing - Re-enable before production
+        // if (error.response?.status === 401) {
+        //   localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+        //   localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+        //   window.location.href = "/login";
+        // }
+        console.warn("[DEV] API Error:", error.response?.status, error.message);
 
         return Promise.reject(error);
       }

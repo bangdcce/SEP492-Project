@@ -13,9 +13,28 @@ export const ROUTES = {
   HOME: "/",
   LOGIN: "/login",
   REGISTER: "/register",
-  DASHBOARD: "/dashboard",
-  PROFILE: "/profile",
-  AUDIT_LOGS: "/audit-logs",
+  FORGOT_PASSWORD: "/forgot-password",
+
+  // ========== CLIENT ROUTES - prefix /client ==========
+  CLIENT_DASHBOARD: "/client/dashboard",
+  CLIENT_MY_REQUESTS: "/client/my-requests",
+  CLIENT_WIZARD: "/client/wizard",
+  CLIENT_PROFILE: "/client/profile",
+
+  // ========== ADMIN ROUTES - prefix /admin ==========
+  ADMIN_DASHBOARD: "/admin/dashboard",
+  ADMIN_AUDIT_LOGS: "/admin/audit-logs",
+  ADMIN_REVIEW_MODERATION: "/admin/reviews",
+  ADMIN_PROFILE: "/admin/profile",
+
+  // ========== LEGACY ALIASES (backward compatibility) ==========
+  DASHBOARD: "/admin/dashboard",
+  WIZARD: "/client/wizard",
+  MY_REQUESTS: "/client/my-requests",
+  PROFILE: "/admin/profile",
+  AUDIT_LOGS: "/admin/audit-logs",
+  REVIEW_MODERATION: "/admin/reviews",
+
   NOT_FOUND: "/404",
 } as const;
 
