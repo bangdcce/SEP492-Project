@@ -3,7 +3,6 @@
  * Full-page view for displaying review edit history with timeline
  */
 
-import { useState, useEffect } from "react";
 import {
   ArrowLeft,
   Clock,
@@ -13,7 +12,7 @@ import {
   CheckCircle2,
   Loader2,
 } from "lucide-react";
-import type { Review, ReviewEditHistoryEntry } from "../types";
+import type { Review } from "../types";
 import { useReviewHistory } from "../hooks/useReviews";
 import { DiffViewer } from "../components/ui/DiffViewer";
 import { StarRating } from "../components/ui/StarRating";

@@ -13,30 +13,28 @@ export const ROUTES = {
   HOME: "/",
   LOGIN: "/login",
   REGISTER: "/register",
-  // Client Routes
-  CLIENT_DASHBOARD: "/client-dashboard",
-  CLIENT_PROFILE: "/profile",
-  CLIENT_AUDIT_LOGS: "/audit-logs",
-
-  WIZARD: "/wizard",
-  MY_REQUESTS: "/requests",
-  REVIEW_MODERATION: "/admin/reviews",
-  TRUST_PROFILES: "/admin/trust-profiles",
-  FREELANCERS: "/admin/freelancers",
-  PROJECTS: "/admin/projects",
-  ANALYTICS: "/admin/analytics",
-  SETTINGS: "/admin/settings",
-  
-  // Admin Routes
   FORGOT_PASSWORD: "/forgot-password",
-  ADMIN_DASHBOARD: "/dashboard", // Admin gets the main /dashboard URL per user request
-  ADMIN_PROFILE: "/admin/profile",
+
+  // ========== CLIENT ROUTES - prefix /client ==========
+  CLIENT_DASHBOARD: "/client/dashboard",
+  CLIENT_MY_REQUESTS: "/client/my-requests",
+  CLIENT_WIZARD: "/client/wizard",
+  CLIENT_PROFILE: "/client/profile",
+
+  // ========== ADMIN ROUTES - prefix /admin ==========
+  ADMIN_DASHBOARD: "/admin/dashboard",
   ADMIN_AUDIT_LOGS: "/admin/audit-logs",
-  
-  // Admin Feature Routes (from Incoming)
-  DASHBOARD: "/admin/dashboard", // Legacy/Incoming mapping, might be unused or redirect? Keeping for safety or aliasing.
-  PROFILE: "/admin/profile",     // Legacy/Incoming mapping
-  AUDIT_LOGS: "/admin/audit-logs", // Legacy/Incoming mapping
+  ADMIN_REVIEW_MODERATION: "/admin/reviews",
+  ADMIN_PROFILE: "/admin/profile",
+
+  // ========== LEGACY ALIASES (backward compatibility) ==========
+  DASHBOARD: "/admin/dashboard",
+  WIZARD: "/client/wizard",
+  MY_REQUESTS: "/client/my-requests",
+  PROFILE: "/admin/profile",
+  AUDIT_LOGS: "/admin/audit-logs",
+  REVIEW_MODERATION: "/admin/reviews",
+
   NOT_FOUND: "/404",
 } as const;
 
