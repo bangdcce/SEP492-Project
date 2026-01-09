@@ -15,7 +15,7 @@ export class MilestoneEntity {
   id: string;
 
   @Column({ nullable: true })
-  projectId: string;
+  projectId: string | null;
 
   @Column({ type: 'varchar', length: 255 })
   title: string;

@@ -108,7 +108,7 @@ export class ProjectSpecsService {
           ...m,
           projectSpecId: savedSpec.id,
           status: MilestoneStatus.PENDING,
-          projectId: '', // Not assigned to a project yet
+          projectId: null, // Not assigned to a project yet
         }),
       );
       // We need to allow nullable projectId in MilestoneEntity? Yes, existing entity might need checking.
