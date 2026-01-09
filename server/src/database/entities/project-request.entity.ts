@@ -1,5 +1,6 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany, OneToOne } from 'typeorm';
 import { UserEntity } from './user.entity';
+import { ProjectSpecEntity } from './project-spec.entity';
 
 export enum RequestStatus {
   PENDING = 'PENDING',
@@ -7,6 +8,7 @@ export enum RequestStatus {
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
   CANCELLED = 'CANCELLED',
+  SPEC_SUBMITTED = 'SPEC_SUBMITTED',
 }
 
 @Entity('project_requests')
@@ -59,4 +61,7 @@ export class ProjectRequestEntity {
 
   @OneToMany('ProjectRequestProposalEntity', 'request')
   proposals: any[];
+
+  @OneToOne(() => ProjectSpecEntity, (spec) => spec.request)
+  spec: ProjectSpecEntity;
 }

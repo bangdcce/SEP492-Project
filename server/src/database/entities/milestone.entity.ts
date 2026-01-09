@@ -1,4 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import { ProjectSpecEntity } from './project-spec.entity';
 
 export enum MilestoneStatus {
   PENDING = 'PENDING',
@@ -22,8 +23,11 @@ export class MilestoneEntity {
   @Column({ type: 'text', nullable: true })
   description: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  @Column({ type: 'decimal', precision: 14, scale: 2 })
   amount: number;
+
+  @Column({ nullable: true })
+  projectSpecId: string;
 
   @Column({ type: 'timestamp', nullable: true })
   startDate: Date;
@@ -56,4 +60,8 @@ export class MilestoneEntity {
 
   @OneToMany('TaskEntity', 'milestone')
   tasks: any[];
+
+  @ManyToOne(() => ProjectSpecEntity, (spec) => spec.milestones, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'projectSpecId' })
+  projectSpec: ProjectSpecEntity;
 }
