@@ -1,5 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
-import { ProjectSpecEntity } from './project-spec.entity';
+import type { ProjectSpecEntity } from './project-spec.entity';
 
 export enum MilestoneStatus {
   PENDING = 'PENDING',
@@ -61,7 +61,7 @@ export class MilestoneEntity {
   @OneToMany('TaskEntity', 'milestone')
   tasks: any[];
 
-  @ManyToOne(() => ProjectSpecEntity, (spec) => spec.milestones, { onDelete: 'CASCADE' })
+  @ManyToOne('ProjectSpecEntity', 'milestones', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'projectSpecId' })
   projectSpec: ProjectSpecEntity;
 }

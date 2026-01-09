@@ -8,7 +8,7 @@ import {
   OneToMany,
 } from 'typeorm';
 import { ProjectRequestEntity } from './project-request.entity';
-import { MilestoneEntity } from './milestone.entity';
+import type { MilestoneEntity } from './milestone.entity';
 
 export enum ProjectSpecStatus {
   DRAFT = 'DRAFT',
@@ -49,6 +49,6 @@ export class ProjectSpecEntity {
   @JoinColumn({ name: 'requestId' })
   request: ProjectRequestEntity;
 
-  @OneToMany(() => MilestoneEntity, (milestone) => milestone.projectSpec)
+  @OneToMany('MilestoneEntity', 'projectSpec')
   milestones: MilestoneEntity[];
 }

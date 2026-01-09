@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link } from 'react-router-dom';
 import {
   Table,
   TableBody,
@@ -39,7 +40,11 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
         <TableBody>
           {requests.map((request) => (
             <TableRow key={request.id}>
-              <TableCell className="font-medium">{request.title}</TableCell>
+              <TableCell className="font-medium">
+                <Link to={`/project-requests/${request.id}`} className="text-teal-600 hover:underline">
+                  {request.title}
+                </Link>
+              </TableCell>
               <TableCell className="max-w-xs truncate">
                 {request.description}
               </TableCell>

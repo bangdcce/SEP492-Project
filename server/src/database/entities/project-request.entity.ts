@@ -1,6 +1,6 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany, OneToOne } from 'typeorm';
 import { UserEntity } from './user.entity';
-import { ProjectSpecEntity } from './project-spec.entity';
+import type { ProjectSpecEntity } from './project-spec.entity';
 
 export enum RequestStatus {
   PENDING = 'PENDING',
@@ -62,6 +62,6 @@ export class ProjectRequestEntity {
   @OneToMany('ProjectRequestProposalEntity', 'request')
   proposals: any[];
 
-  @OneToOne(() => ProjectSpecEntity, (spec) => spec.request)
+  @OneToOne('ProjectSpecEntity', 'request')
   spec: ProjectSpecEntity;
 }

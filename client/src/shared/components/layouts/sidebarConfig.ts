@@ -69,6 +69,13 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     description: "Platform analytics",
   },
   {
+    id: "project-requests",
+    label: "Project Requests",
+    icon: FileText,
+    path: "/project-requests",
+    description: "Manage project requests",
+  },
+  {
     id: "settings",
     label: "Settings",
     icon: Settings,

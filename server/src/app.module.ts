@@ -11,6 +11,7 @@ import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
 import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
 import { ProjectSpecsModule } from './modules/project-specs/project-specs.module';
+import { SeedingModule } from './modules/seeding/seeding.module';
 
 @Module({
   imports: [
@@ -60,6 +61,7 @@ import { ProjectSpecsModule } from './modules/project-specs/project-specs.module
     ReportModule,
     ProjectRequestsModule,
     ProjectSpecsModule,
+    SeedingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

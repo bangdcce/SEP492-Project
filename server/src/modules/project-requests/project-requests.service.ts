@@ -99,6 +99,8 @@ export class ProjectRequestsService {
         'answers',
         'answers.question',
         'answers.option',
+        'spec',
+        'spec.milestones',
       ],
     });
 

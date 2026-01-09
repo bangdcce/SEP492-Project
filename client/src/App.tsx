@@ -13,6 +13,7 @@ const AdminReviewModerationPage = lazy(
 );
 const ProjectRequestsPage = lazy(() => import("@/features/project-requests/ProjectRequestsPage").then(module => ({ default: module.ProjectRequestsPage })));
 const ProjectRequestDetailsPage = lazy(() => import("@/features/project-requests/ProjectRequestDetailsPage"));
+const CreateProjectSpecPage = lazy(() => import("@/features/project-specs/CreateProjectSpecPage"));
 
 // Loading fallback
 function PageLoader() {
@@ -71,6 +72,15 @@ function App() {
           element={
             <MainLayout>
               <ProjectRequestDetailsPage />
+            </MainLayout>
+          }
+        />
+
+        <Route
+          path="/project-requests/:id/create-spec"
+          element={
+            <MainLayout>
+              <CreateProjectSpecPage />
             </MainLayout>
           }
         />

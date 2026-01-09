@@ -3,6 +3,7 @@ export const RequestStatus = {
   PROCESSING: 'PROCESSING',
   COMPLETED: 'COMPLETED',
   CANCELLED: 'CANCELLED',
+  SPEC_SUBMITTED: 'SPEC_SUBMITTED',
 } as const;
 
 export type RequestStatus = (typeof RequestStatus)[keyof typeof RequestStatus];
@@ -29,6 +30,19 @@ export interface ProjectRequest {
     question: { id: string; content: string };
     option: { id: string; content: string };
   }[];
+  spec?: {
+    id: string;
+    title: string;
+    description: string;
+    totalBudget: number;
+    status: string;
+    milestones: {
+      id: string;
+      title: string;
+      amount: number;
+      status: string;
+    }[];
+  };
 }
 
 export interface GetRequestsParams {

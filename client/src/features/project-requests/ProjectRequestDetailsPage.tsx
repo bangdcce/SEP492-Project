@@ -209,6 +209,45 @@ export default function ProjectRequestDetailsPage() {
             </CardContent>
           </Card>
 
+          {request.spec && (
+            <Card className="border-teal-200 bg-teal-50/50">
+              <CardHeader>
+                <CardTitle className="text-lg text-teal-900">Project Specification</CardTitle>
+                <CardDescription>Submitted specification for this project.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                   <h4 className="font-semibold text-sm mb-1">Title</h4>
+                   <p className="text-sm">{request.spec.title}</p>
+                </div>
+                <div>
+                   <h4 className="font-semibold text-sm mb-1">Total Budget</h4>
+                   <p className="text-sm font-medium text-teal-700">
+                     {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(request.spec.totalBudget)}
+                   </p>
+                </div>
+                <div>
+                   <h4 className="font-semibold text-sm mb-2">Milestones ({request.spec.milestones?.length || 0})</h4>
+                   <div className="space-y-2">
+                     {request.spec.milestones?.map((m) => (
+                       <div key={m.id} className="flex justify-between items-center text-sm bg-white p-2 rounded border border-teal-100">
+                         <span>{m.title}</span>
+                         <span className="font-medium">
+                           {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(m.amount)}
+                         </span>
+                       </div>
+                     ))}
+                   </div>
+                </div>
+                 <div className="pt-2">
+                    <Badge variant="outline" className="bg-white border-teal-200 text-teal-700">
+                      Status: {request.spec.status}
+                    </Badge>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Broker Actions</CardTitle>
@@ -220,8 +259,19 @@ export default function ProjectRequestDetailsPage() {
                   <Button className="w-full" onClick={handleAssign}>Assign to Me</Button>
                 </div>
               ) : (
-                <div className="text-sm text-muted-foreground">
-                   {request.brokerId ? `Assigned to broker ID: ${request.brokerId}` : 'No broker assigned yet.'}
+                <div className="space-y-4">
+                    <div className="text-sm text-muted-foreground">
+                       {request.brokerId ? `Assigned to broker ID: ${request.brokerId}` : 'No broker assigned yet.'}
+                    </div>
+                    {/* Check if current status is PROCESSING to allow creation */}
+                    {request.status === 'PROCESSING' && (
+                        <Button 
+                          className="w-full" 
+                          onClick={() => navigate(`/project-requests/${request.id}/create-spec`)}
+                        >
+                          Create Specification
+                        </Button>
+                    )}
                 </div>
               )}
             </CardContent>
