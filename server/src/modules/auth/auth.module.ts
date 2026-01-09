@@ -14,11 +14,12 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CaptchaGuard } from '../../common/guards/captcha.guard';
 import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
+import { ProfileEntity } from '../../database/entities/profile.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity, AuthSessionEntity]),
+    TypeOrmModule.forFeature([UserEntity, AuthSessionEntity, ProfileEntity]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     AuditLogsModule, // Import để dùng AuditLogsService
     JwtModule.registerAsync({

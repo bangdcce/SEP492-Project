@@ -67,16 +67,34 @@ export function SignInPage({
       });
 
       // Save tokens to localStorage
-      localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, response.accessToken);
-      localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, response.refreshToken);
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(response.user));
+      console.log('Login response:', response);
+      
+      // Backend returns {message, data: {accessToken, refreshToken, user}}
+      const loginData = (response as any).data || response;
+      console.log('Access token:', loginData.accessToken);
+      console.log('User:', loginData.user);
+      
+      localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, loginData.accessToken);
+      localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, loginData.refreshToken);
+      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(loginData.user));
 
       toast.success('Sign in successful!');
       
       if (onSignInSuccess) {
         onSignInSuccess();
       } else {
-        navigate(ROUTES.DASHBOARD);
+        // Role-based redirect
+        const userRole = loginData.user?.role?.toUpperCase();
+        
+        if (userRole === 'ADMIN') {
+          navigate(ROUTES.DASHBOARD);
+        } else if (userRole === 'CLIENT' || userRole === 'SME') {
+          navigate(ROUTES.CLIENT_DASHBOARD);
+        }
+         else {
+          // Default fallback to client dashboard
+          navigate(ROUTES.CLIENT_DASHBOARD);
+        }
       }
     } catch (error: any) {
       console.error('Sign in error:', error);

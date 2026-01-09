@@ -14,8 +14,11 @@ const MyRequestsPage = lazy(() => import("@/features/requests/MyRequestsPage").t
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
 const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 // const GoogleCompletePage = lazy(() => import("@/pages/GoogleCompletePage"));
 // const GoogleSuccessPage = lazy(() => import("@/pages/GoogleSuccessPage"));
+
+// Other Pages
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage")
 );
@@ -51,7 +54,18 @@ function App() {
         <Route path="/auth/google-complete" element={<GoogleCompletePage />} />
         <Route path="/auth/google-success" element={<GoogleSuccessPage />} />
         */}
-        {/* Dashboard */}
+        
+        {/* Client Dashboard */}
+        <Route
+          path={ROUTES.CLIENT_DASHBOARD}
+          element={
+            <MainLayout>
+              <ClientDashboard />
+            </MainLayout>
+          }
+        />
+        
+        {/* Admin Dashboard */}
         <Route
           path={ROUTES.DASHBOARD}
           element={
@@ -91,6 +105,18 @@ function App() {
           }
         />
 
+        {/* Client Profile - No sidebar layout */}
+        <Route
+          path={ROUTES.CLIENT_PROFILE}
+          element={<ProfilePage />}
+        />
+
+        {/* Admin Profile - No sidebar layout */}
+        <Route
+          path={ROUTES.PROFILE}
+          element={<ProfilePage />}
+        />
+
         {/* Review Moderation (Admin) */}
         <Route
           path={ROUTES.REVIEW_MODERATION}
@@ -101,21 +127,15 @@ function App() {
           }
         />
 
-        {/* Redirect root to dashboard */}
+        {/* Redirect root to login */}
         <Route
           path={ROUTES.HOME}
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+          element={<Navigate to={ROUTES.LOGIN} replace />}
         />
 
         {/* Redirect /admin to admin dashboard */}
         <Route
           path="/admin"
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
-        />
-
-        {/* Redirect login to dashboard (bypass) */}
-        <Route
-          path={ROUTES.LOGIN}
           element={<Navigate to={ROUTES.DASHBOARD} replace />}
         />
 

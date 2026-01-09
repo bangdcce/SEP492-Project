@@ -34,6 +34,9 @@ export class AuthResponseDto {
   @ApiProperty({ description: 'Số điện thoại', example: '0123456789' })
   phoneNumber: string;
 
+  @ApiProperty({ description: 'URL ảnh đại diện', example: 'https://example.com/avatar.jpg', required: false })
+  avatarUrl?: string;
+
   @ApiProperty({ description: 'Vai trò người dùng', example: 'CLIENT' })
   role: string;
 
