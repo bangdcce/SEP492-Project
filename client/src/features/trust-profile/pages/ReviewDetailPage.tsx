@@ -188,7 +188,7 @@ export function ReviewDetailPage({ review, onBack }: ReviewDetailPageProps) {
               <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
                 <div className="text-xs text-gray-600">Score</div>
                 <div className="text-lg text-slate-900">
-                  {review.reviewer.stats.score.toFixed(1)}
+                  {Number(review.reviewer.stats.score).toFixed(1)}
                 </div>
               </div>
             </div>

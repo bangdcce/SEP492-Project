@@ -5,16 +5,16 @@ export type BadgeType = "NEW" | "VERIFIED" | "TRUSTED" | "WARNING" | "NORMAL";
 export interface TrustStats {
   finished: number;
   disputes: number;
-  score: number;
+  score: number | string;
 }
 
-//Simplified User Profile for Trus Display
+//Simplified User Profile for Trust Display
 export interface User {
   id: string;
   fullName: string;
   avatarUrl: string;
   isVerified: boolean;
-  currentTrustScore: number;
+  currentTrustScore: number | string;
   badge: BadgeType;
   stats: TrustStats;
 }

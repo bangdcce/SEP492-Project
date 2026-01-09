@@ -1,7 +1,12 @@
-
-import { Input } from "@/shared/components/ui/input";
+import { Input } from "@/shared/components/ui/Input";
 import { Label } from "@/shared/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/components/ui/select";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
 
 interface StepB3Props {
   budget: string;
@@ -10,12 +15,19 @@ interface StepB3Props {
   setTimeline: (val: string) => void;
 }
 
-export function StepB3({ budget, setBudget, timeline, setTimeline }: StepB3Props) {
+export function StepB3({
+  budget,
+  setBudget,
+  timeline,
+  setTimeline,
+}: StepB3Props) {
   return (
     <div className="space-y-6 max-w-md mx-auto">
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-primary">Budget & Timeline</h2>
-        <p className="text-muted-foreground mt-2">Helping us find the best solution for you</p>
+        <p className="text-muted-foreground mt-2">
+          Helping us find the best solution for you
+        </p>
       </div>
 
       <div className="space-y-4">
@@ -36,14 +48,14 @@ export function StepB3({ budget, setBudget, timeline, setTimeline }: StepB3Props
         </div>
 
         <div className="space-y-2">
-           <Label htmlFor="timeline">Expected Completion Date</Label>
-           <Input 
-             id="timeline" 
-             type="date"
-             value={timeline}
-             onChange={(e) => setTimeline(e.target.value)}
-             className="w-full block"
-           />
+          <Label htmlFor="timeline">Expected Completion Date</Label>
+          <Input
+            id="timeline"
+            type="date"
+            value={timeline}
+            onChange={(e) => setTimeline(e.target.value)}
+            className="w-full block"
+          />
         </div>
       </div>
     </div>

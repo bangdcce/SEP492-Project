@@ -1,25 +1,25 @@
-import React, { useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ROUTES } from '@/constants';
-import { toast } from 'sonner';
+import { useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import { ROUTES } from "@/constants";
+import { toast } from "sonner";
 
 export function GoogleSuccessPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const accessToken = searchParams.get('accessToken');
-    const refreshToken = searchParams.get('refreshToken');
+    const accessToken = searchParams.get("accessToken");
+    const refreshToken = searchParams.get("refreshToken");
 
     if (accessToken && refreshToken) {
       // Save tokens
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
+      localStorage.setItem("accessToken", accessToken);
+      localStorage.setItem("refreshToken", refreshToken);
 
-      toast.success('Welcome back!');
+      toast.success("Welcome back!");
       navigate(ROUTES.DASHBOARD);
     } else {
-      toast.error('Authentication failed');
+      toast.error("Authentication failed");
       navigate(ROUTES.LOGIN);
     }
   }, [searchParams, navigate]);

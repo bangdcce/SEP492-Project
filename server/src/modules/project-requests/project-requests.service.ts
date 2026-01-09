@@ -1,4 +1,3 @@
-
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -55,9 +54,16 @@ export class ProjectRequestsService {
 
     // Audit Log
     try {
-        await this.auditLogsService.logCreate('ProjectRequest', savedRequest.id, fullRequest, req);
+      if (fullRequest) {
+        await this.auditLogsService.logCreate(
+          'ProjectRequest',
+          savedRequest.id,
+          fullRequest as unknown as Record<string, unknown>,
+          req,
+        );
+      }
     } catch (error) {
-        console.error('Audit log failed', error);
+      console.error('Audit log failed', error);
     }
 
     return fullRequest;
@@ -90,13 +96,13 @@ export class ProjectRequestsService {
     if (dto.budgetRange) request.budgetRange = dto.budgetRange;
     if (dto.intendedTimeline) request.intendedTimeline = dto.intendedTimeline;
     if (dto.techPreferences) request.techPreferences = dto.techPreferences;
-    
+
     // Manage status
     if (request.status === RequestStatus.DRAFT && dto.isDraft === false) {
-        request.status = RequestStatus.PENDING;
+      request.status = RequestStatus.PENDING;
     }
     if (dto.isDraft === true) {
-        request.status = RequestStatus.DRAFT;
+      request.status = RequestStatus.DRAFT;
     }
 
     await this.requestRepo.save(request);
@@ -104,7 +110,7 @@ export class ProjectRequestsService {
     // Update answers if provided
     if (dto.answers && dto.answers.length > 0) {
       await this.answerRepo.delete({ requestId: id });
-      
+
       const answers = dto.answers.map((ans) =>
         this.answerRepo.create({
           requestId: id,
@@ -131,28 +137,27 @@ export class ProjectRequestsService {
     const request = await this.findOne(id);
     if (!request) throw new Error('Request not found');
 
-    const techPrefs = request.techPreferences 
-        ? request.techPreferences.split(',').map(s => s.trim().toLowerCase()) 
-        : [];
+    const techPrefs = request.techPreferences
+      ? request.techPreferences.split(',').map((s) => s.trim().toLowerCase())
+      : [];
 
-    const brokers = await this.requestRepo.manager.createQueryBuilder('UserEntity', 'user')
-        .leftJoinAndSelect('user.profile', 'profile')
-        .where('user.role = :role', { role: 'BROKER' })
-        .getMany();
+    const brokers = await this.requestRepo.manager
+      .createQueryBuilder('UserEntity', 'user')
+      .leftJoinAndSelect('user.profile', 'profile')
+      .where('user.role = :role', { role: 'BROKER' })
+      .getMany();
 
-    const scoredBrokers = brokers.map(broker => {
-        let score = 0;
-        const skills = broker.profile?.skills?.map((s: string) => s.toLowerCase()) || [];
-        
-        const matchCount = techPrefs.filter(pref => skills.includes(pref)).length;
-        score += matchCount * 10; 
-        score += (broker.currentTrustScore || 0);
+    const scoredBrokers = brokers.map((broker) => {
+      let score = 0;
+      const skills = broker.profile?.skills?.map((s: string) => s.toLowerCase()) || [];
 
-        return { broker, score, matches: matchCount };
+      const matchCount = techPrefs.filter((pref) => skills.includes(pref)).length;
+      score += matchCount * 10;
+      score += broker.currentTrustScore || 0;
+
+      return { broker, score, matches: matchCount };
     });
 
-    return scoredBrokers
-        .filter(b => b.score > 0)
-        .sort((a, b) => b.score - a.score);
+    return scoredBrokers.filter((b) => b.score > 0).sort((a, b) => b.score - a.score);
   }
 }

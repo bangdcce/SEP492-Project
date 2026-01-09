@@ -12,6 +12,8 @@ import { ProjectRequestsModule } from './modules/project-requests/project-reques
 import { ReviewModule } from './modules/review/review.module';
 import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
+import { UserWarningModule } from './modules/user-warning/user-warning.module';
 
 @Module({
   imports: [
@@ -82,6 +84,8 @@ import { ReportModule } from './modules/report/report.module';
     ReviewModule,
     TrustScoreModule,
     ReportModule,
+    DisputesModule,
+    UserWarningModule, // NEW: User warning/flag system
   ],
   controllers: [AppController],
   providers: [AppService],

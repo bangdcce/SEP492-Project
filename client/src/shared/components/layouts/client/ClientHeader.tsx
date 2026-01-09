@@ -1,0 +1,261 @@
+/**
+ * ClientHeader Component
+ * Top navigation header for client dashboard
+ */
+
+import React, { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import {
+  Bell,
+  Search,
+  Menu,
+  X,
+  ChevronDown,
+  User,
+  Settings,
+  LogOut,
+} from "lucide-react";
+import { ROUTES, STORAGE_KEYS } from "@/constants";
+import { Logo } from "../../custom/Logo";
+
+interface ClientHeaderProps {
+  userName?: string;
+  userRole?: string;
+  userAvatar?: string;
+  onMenuToggle?: () => void;
+  isMobileMenuOpen?: boolean;
+}
+
+export const ClientHeader: React.FC<ClientHeaderProps> = ({
+  userName: propUserName,
+  userRole: propUserRole,
+  userAvatar: propUserAvatar,
+  onMenuToggle,
+  isMobileMenuOpen = false,
+}) => {
+  const navigate = useNavigate();
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+
+  // Get user from localStorage (sync initial read)
+  const getInitialUser = () => {
+    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
+    if (userStr) {
+      try {
+        return JSON.parse(userStr);
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  };
+
+  const [user, setUser] = useState<{
+    fullName?: string;
+    role?: string;
+    avatarUrl?: string;
+  }>(getInitialUser);
+
+  useEffect(() => {
+    // Listen for user data updates
+    const handleUserUpdate = () => {
+      const updatedUserStr = localStorage.getItem(STORAGE_KEYS.USER);
+      if (updatedUserStr) {
+        try {
+          setUser(JSON.parse(updatedUserStr));
+        } catch {
+          // ignore
+        }
+      }
+    };
+
+    window.addEventListener("userDataUpdated", handleUserUpdate);
+    return () =>
+      window.removeEventListener("userDataUpdated", handleUserUpdate);
+  }, []);
+
+  const userName = propUserName || user.fullName || "User";
+  const userRole = propUserRole || user.role || "Client";
+  const userAvatar = propUserAvatar || user.avatarUrl;
+
+  const handleLogout = () => {
+    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
+    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+    localStorage.removeItem(STORAGE_KEYS.USER);
+    navigate(ROUTES.LOGIN);
+  };
+
+  const getInitial = (name: string) => {
+    return name.charAt(0).toUpperCase();
+  };
+
+  return (
+    <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
+      <div className="px-6 py-4">
+        <div className="flex items-center justify-between gap-4">
+          {/* Left Section: Mobile Menu Toggle */}
+          <div className="flex items-center gap-4">
+            {/* Mobile Menu Toggle */}
+            <button
+              onClick={onMenuToggle}
+              className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="Toggle menu"
+            >
+              {isMobileMenuOpen ? (
+                <X className="w-5 h-5 text-slate-900" />
+              ) : (
+                <Menu className="w-5 h-5 text-slate-900" />
+              )}
+            </button>
+
+            {/* Logo for mobile */}
+            <Link
+              to="/client/dashboard"
+              className="lg:hidden flex items-center"
+            >
+              <Logo size="sm" />
+            </Link>
+          </div>
+
+          {/* Center Section: Search Bar (Desktop) */}
+          <div className="hidden md:flex flex-1 max-w-xl">
+            <div className="relative w-full">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search projects, freelancers, or messages..."
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Right Section: Actions + User Menu */}
+          <div className="flex items-center gap-3">
+            {/* Search Icon (Mobile) */}
+            <button
+              onClick={() => setIsSearchOpen(!isSearchOpen)}
+              className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              aria-label="Search"
+            >
+              <Search className="w-5 h-5 text-slate-900" />
+            </button>
+
+            {/* Notifications */}
+            <div className="relative">
+              <button
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors relative"
+                aria-label="Notifications"
+              >
+                <Bell className="w-5 h-5 text-slate-900" />
+                {/* Notification Badge */}
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+              </button>
+            </div>
+
+            {/* User Profile Dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+                className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                aria-label="User menu"
+              >
+                {/* Avatar */}
+                {userAvatar ? (
+                  <img
+                    src={userAvatar}
+                    alt={userName}
+                    className="w-8 h-8 rounded-lg object-cover"
+                  />
+                ) : (
+                  <div className="w-8 h-8 bg-linear-to-br from-teal-500 to-teal-600 rounded-lg flex items-center justify-center">
+                    <span className="text-white text-sm font-medium">
+                      {getInitial(userName)}
+                    </span>
+                  </div>
+                )}
+
+                {/* User Info (Desktop) */}
+                <div className="hidden lg:block text-left">
+                  <div className="text-sm text-slate-900">{userName}</div>
+                  <div className="text-xs text-gray-600">{userRole}</div>
+                </div>
+
+                <ChevronDown
+                  className={`w-4 h-4 text-gray-600 transition-transform hidden lg:block ${
+                    isProfileMenuOpen ? "rotate-180" : ""
+                  }`}
+                />
+              </button>
+
+              {/* Dropdown Menu */}
+              {isProfileMenuOpen && (
+                <>
+                  {/* Backdrop */}
+                  <div
+                    className="fixed inset-0 z-10"
+                    onClick={() => setIsProfileMenuOpen(false)}
+                  />
+
+                  {/* Menu */}
+                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-20">
+                    {/* User Info */}
+                    <div className="px-4 py-3 border-b border-gray-200">
+                      <div className="text-sm text-slate-900">{userName}</div>
+                      <div className="text-xs text-gray-600">{userRole}</div>
+                    </div>
+
+                    {/* Menu Items */}
+                    <div className="py-2">
+                      <Link
+                        to={ROUTES.CLIENT_PROFILE}
+                        className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        onClick={() => setIsProfileMenuOpen(false)}
+                      >
+                        <User className="w-4 h-4" />
+                        My Profile
+                      </Link>
+                      <Link
+                        to="/settings"
+                        className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        onClick={() => setIsProfileMenuOpen(false)}
+                      >
+                        <Settings className="w-4 h-4" />
+                        Settings
+                      </Link>
+                    </div>
+
+                    {/* Logout */}
+                    <div className="border-t border-gray-200 pt-2">
+                      <button
+                        onClick={handleLogout}
+                        className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        Logout
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile Search Bar */}
+        {isSearchOpen && (
+          <div className="md:hidden mt-4">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search..."
+                autoFocus
+                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+              />
+            </div>
+          </div>
+        )}
+      </div>
+    </header>
+  );
+};

@@ -1,5 +1,5 @@
 // User & Auth Entities
-export { UserEntity, UserRole } from './user.entity';
+export { UserEntity, UserRole, BadgeType } from './user.entity';
 export { SocialAccountEntity } from './social-account.entity';
 export { ProfileEntity } from './profile.entity';
 export { SavedFreelancerEntity } from './saved-freelancer.entity';
@@ -23,16 +23,36 @@ export { DigitalSignatureEntity } from './digital-signature.entity';
 export { DocumentEntity, DocType } from './document.entity';
 
 // Payment & Wallet Entities
-export { WalletEntity } from './wallet.entity';
+export { WalletEntity, WalletStatus } from './wallet.entity';
 export { TransactionEntity, TransactionType, TransactionStatus } from './transaction.entity';
-export { MilestonePaymentEntity } from './milestone-payment.entity';
+export { EscrowEntity, EscrowStatus } from './escrow.entity';
+export { PayoutMethodEntity } from './payout-method.entity';
+export { FeeConfigEntity, FeeType } from './fee-config.entity';
 export { PayoutRequestEntity, PayoutStatus } from './payout-request.entity';
 export { PlatformSettingsEntity } from './platform-settings.entity';
 
 // Trust & Dispute Entities
-export { DisputeEntity, DisputeStatus } from './dispute.entity';
+export {
+  DisputeEntity,
+  DisputeStatus,
+  DisputeResult,
+  DisputeCategory,
+  DisputePriority,
+  DisputeType,
+} from './dispute.entity';
+export { DisputeNoteEntity } from './dispute-note.entity';
+export { DisputeActivityEntity, DisputeAction } from './dispute-activity.entity';
+export {
+  DisputeHearingEntity,
+  HearingParticipantEntity,
+  HearingStatementEntity,
+  HearingQuestionEntity,
+  HearingStatus,
+  HearingStatementType,
+  HearingParticipantRole,
+} from './dispute-hearing.entity';
 export { TrustScoreHistoryEntity } from './trust-score-history.entity';
-export { UserFlagEntity } from './user-flag.entity';
+export { UserFlagEntity, FlagStatus } from './user-flag.entity';
 export { ReviewEntity } from './review.entity';
 export { ReportEntity, ReportStatus, ReportReason } from './report.entity';
 export { VerificationDocumentEntity, VerificationStatus } from './verification-document.entity';
