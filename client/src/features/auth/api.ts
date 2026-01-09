@@ -81,3 +81,22 @@ export const refreshToken = async (refreshToken: string): Promise<{ accessToken:
 export const signOut = async (): Promise<void> => {
   await apiClient.post('/auth/logout');
 };
+
+/**
+ * Get user profile
+ */
+export const getProfile = async () => {
+  return await apiClient.get('/auth/profile');
+};
+
+/**
+ * Update user profile
+ */
+export const updateProfile = async (data: {
+  fullName?: string;
+  phoneNumber?: string;
+  avatarUrl?: string;
+  bio?: string;
+}) => {
+  return await apiClient.put('/auth/profile', data);
+};

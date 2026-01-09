@@ -14,8 +14,11 @@ const MyRequestsPage = lazy(() => import("@/features/requests/MyRequestsPage").t
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
 const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 // const GoogleCompletePage = lazy(() => import("@/pages/GoogleCompletePage"));
 // const GoogleSuccessPage = lazy(() => import("@/pages/GoogleSuccessPage"));
+
+// Other Pages
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage")
 );
@@ -61,7 +64,7 @@ function App() {
             </MainLayout>
           }
         />
-
+        
         {/* Admin Dashboard (Main /dashboard) */}
         <Route
           path={ROUTES.ADMIN_DASHBOARD}
@@ -102,6 +105,18 @@ function App() {
           }
         />
 
+        {/* Client Profile - No sidebar layout */}
+        <Route
+          path={ROUTES.CLIENT_PROFILE}
+          element={<ProfilePage />}
+        />
+
+        {/* Admin Profile - No sidebar layout */}
+        <Route
+          path={ROUTES.PROFILE}
+          element={<ProfilePage />}
+        />
+
         {/* Review Moderation (Admin) */}
         <Route
           path={ROUTES.REVIEW_MODERATION}
@@ -112,10 +127,10 @@ function App() {
           }
         />
 
-        {/* Redirect root to dashboard */}
+        {/* Redirect root to login */}
         <Route
           path={ROUTES.HOME}
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+          element={<Navigate to={ROUTES.LOGIN} replace />}
         />
 
         <Route
@@ -123,11 +138,6 @@ function App() {
           element={<Navigate to={ROUTES.ADMIN_DASHBOARD} replace />}
         />
 
-        {/* Redirect login to dashboard (bypass) */}
-        <Route
-          path={ROUTES.LOGIN}
-          element={<Navigate to={ROUTES.ADMIN_DASHBOARD} replace />}
-        />
 
         {/* 404 - Not Found */}
         <Route
