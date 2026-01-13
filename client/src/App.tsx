@@ -15,6 +15,8 @@ const SignInPage = lazy(() => import("@/pages/SignInPage"));
 const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
+const FreelancerDashboardPage = lazy(() => import("@/pages/FreelancerDashboardPage"));
+const FreelancerOnboardingPage = lazy(() => import("@/pages/FreelancerOnboardingPage"));
 // const GoogleCompletePage = lazy(() => import("@/pages/GoogleCompletePage"));
 // const GoogleSuccessPage = lazy(() => import("@/pages/GoogleSuccessPage"));
 
@@ -108,6 +110,51 @@ function App() {
         {/* Client Profile - No sidebar layout */}
         <Route
           path={ROUTES.CLIENT_PROFILE}
+          element={<ProfilePage />}
+        />
+
+        {/* Freelancer Onboarding - First-time setup */}
+        <Route
+          path={ROUTES.FREELANCER_ONBOARDING}
+          element={
+            <MainLayout>
+              <FreelancerOnboardingPage />
+            </MainLayout>
+          }
+        />
+
+        {/* Freelancer Dashboard */}
+        <Route
+          path={ROUTES.FREELANCER_DASHBOARD}
+          element={
+            <MainLayout>
+              <FreelancerDashboardPage />
+            </MainLayout>
+          }
+        />
+
+        {/* Freelancer Profile - No sidebar layout */}
+        <Route
+          path={ROUTES.FREELANCER_PROFILE}
+          element={<ProfilePage />}
+        />
+
+        {/* Broker Dashboard - Placeholder */}
+        <Route
+          path={ROUTES.BROKER_DASHBOARD}
+          element={
+            <MainLayout>
+              <div className="p-6">
+                <h1 className="text-2xl font-bold">Broker Dashboard</h1>
+                <p className="text-gray-600 mt-2">Coming soon...</p>
+              </div>
+            </MainLayout>
+          }
+        />
+
+        {/* Broker Profile - No sidebar layout */}
+        <Route
+          path={ROUTES.BROKER_PROFILE}
           element={<ProfilePage />}
         />
 

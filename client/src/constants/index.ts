@@ -22,6 +22,15 @@ export const ROUTES = {
   CLIENT_PROFILE: "/profile",
   CLIENT_AUDIT_LOGS: "/audit-logs",
   
+  // Freelancer Routes
+  FREELANCER_DASHBOARD: "/freelancer/dashboard",
+  FREELANCER_PROFILE: "/freelancer/profile",
+  FREELANCER_ONBOARDING: "/freelancer/onboarding",
+  
+  // Broker Routes
+  BROKER_DASHBOARD: "/broker/dashboard",
+  BROKER_PROFILE: "/broker/profile",
+  
   // Admin Routes
   DASHBOARD: "/admin/dashboard",
   PROFILE: "/admin/profile",
