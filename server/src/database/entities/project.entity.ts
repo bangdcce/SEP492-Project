@@ -1,4 +1,14 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany, ManyToMany, JoinTable } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  OneToMany,
+  ManyToMany,
+  JoinTable,
+} from 'typeorm';
 import { ProjectCategoryEntity } from './project-category.entity';
 
 export enum ProjectStatus {
@@ -6,6 +16,7 @@ export enum ProjectStatus {
   IN_PROGRESS = 'IN_PROGRESS',
   TESTING = 'TESTING',
   COMPLETED = 'COMPLETED',
+  PAID = 'PAID',
   DISPUTED = 'DISPUTED',
   CANCELED = 'CANCELED',
 }

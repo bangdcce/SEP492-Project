@@ -5,16 +5,16 @@ export class ProjectRequestAnswerEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ name: 'requestId' })
   requestId: string;
 
-  @Column()
+  @Column({ name: 'questionId' })
   questionId: string;
 
-  @Column({ nullable: true })
+  @Column({ name: 'optionId', nullable: true })
   optionId: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ name: 'valueText', type: 'text', nullable: true })
   valueText: string;
 
   @ManyToOne('ProjectRequestEntity', 'answers', { onDelete: 'CASCADE' })

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
@@ -9,6 +10,13 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { ProjectsModule } from './modules/projects/projects.module';
 // import { MilestonesModule } from './modules/milestones/milestones.module'; // Removed - using mock data
 import jwtConfig from './config/jwt.config';
+import { WizardModule } from './modules/wizard/wizard.module';
+import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
+import { ReviewModule } from './modules/review/review.module';
+import { TrustScoreModule } from './modules/trust-score/trust-score.module';
+import { ReportModule } from './modules/report/report.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
+import { UserWarningModule } from './modules/user-warning/user-warning.module';
 
 @Module({
   imports: [
@@ -53,11 +61,37 @@ import jwtConfig from './config/jwt.config';
       }),
     }),
 
+    // 3. Rate Limiting - Chống spam
+    ThrottlerModule.forRoot([
+      {
+        name: 'short',
+        ttl: 1000, // 1 second
+        limit: 3, // 3 requests per second
+      },
+      {
+        name: 'medium',
+        ttl: 10000, // 10 seconds
+        limit: 20, // 20 requests per 10 seconds
+      },
+      {
+        name: 'long',
+        ttl: 60000, // 1 minute
+        limit: 100, // 100 requests per minute
+      },
+    ]),
+
     AuditLogsModule,
     AuthModule,
     TasksModule,
     ProjectsModule,
     // MilestonesModule, // Removed - using mock data in frontend
+    WizardModule,
+    ProjectRequestsModule,
+    ReviewModule,
+    TrustScoreModule,
+    ReportModule,
+    DisputesModule,
+    UserWarningModule, // NEW: User warning/flag system
   ],
   controllers: [AppController],
   providers: [AppService],

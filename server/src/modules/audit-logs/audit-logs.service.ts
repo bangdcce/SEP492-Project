@@ -5,6 +5,45 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { GetAuditLogsDto } from './dto/get-audit-logs.dto';
 
 /**
+ * Request interface for type safety
+ */
+interface RequestContext {
+  user?: {
+    id?: string;
+    sub?: string;
+    userId?: string;
+  };
+  headers?: Record<string, string | string[] | undefined>;
+  ip?: string;
+  connection?: {
+    remoteAddress?: string;
+  };
+}
+
+/**
+ * Audit log payload interface
+ */
+interface AuditLogPayload {
+  actorId: string;
+  action: string;
+  entityType: string;
+  entityId: string;
+  oldData?: Record<string, unknown>;
+  newData?: Record<string, unknown>;
+  req?: RequestContext;
+}
+
+/**
+ * Security analysis metadata interface
+ */
+interface SecurityAnalysis {
+  flags: string[];
+  riskLevel: RiskLevel;
+  baseRiskLevel: RiskLevel;
+  timestamp: string;
+}
+
+/**
  * Risk Level definitions:
  * - LOW: Read-only actions (VIEW, EXPORT, LIST)
  * - NORMAL: Standard CRUD operations (CREATE, UPDATE)
@@ -77,7 +116,13 @@ export class AuditLogsService {
    * Log a CREATE action
    * @example await this.auditLogsService.logCreate('Project', project.id, project, req);
    */
-  async logCreate(entityType: string, entityId: string, newData: any, req?: any, actorId?: string) {
+  async logCreate(
+    entityType: string,
+    entityId: string,
+    newData: Record<string, unknown>,
+    req?: RequestContext,
+    actorId?: string,
+  ) {
     return this.log({
       actorId: actorId || this.extractActorId(req),
       action: 'CREATE',
@@ -95,9 +140,9 @@ export class AuditLogsService {
   async logUpdate(
     entityType: string,
     entityId: string,
-    oldData: any,
-    newData: any,
-    req?: any,
+    oldData: Record<string, unknown>,
+    newData: Record<string, unknown>,
+    req?: RequestContext,
     actorId?: string,
   ) {
     return this.log({
@@ -118,8 +163,8 @@ export class AuditLogsService {
   async logDelete(
     entityType: string,
     entityId: string,
-    deletedData: any,
-    req?: any,
+    deletedData: Record<string, unknown>,
+    req?: RequestContext,
     actorId?: string,
   ) {
     return this.log({
@@ -136,7 +181,7 @@ export class AuditLogsService {
    * Log a VIEW/READ action
    * @example await this.auditLogsService.logView('Document', docId, req);
    */
-  async logView(entityType: string, entityId: string, req?: any, actorId?: string) {
+  async logView(entityType: string, entityId: string, req?: RequestContext, actorId?: string) {
     return this.log({
       actorId: actorId || this.extractActorId(req),
       action: 'VIEW',
@@ -150,7 +195,7 @@ export class AuditLogsService {
    * Log a LOGIN action
    * @example await this.auditLogsService.logLogin(user.id, { success: true }, req);
    */
-  async logLogin(actorId: string, metadata: any, req?: any) {
+  async logLogin(actorId: string, metadata: Record<string, unknown>, req?: RequestContext) {
     return this.log({
       actorId,
       action: 'LOGIN',
@@ -165,7 +210,7 @@ export class AuditLogsService {
    * Log a LOGOUT action
    * @example await this.auditLogsService.logLogout(user.id, req);
    */
-  async logLogout(actorId: string, req?: any) {
+  async logLogout(actorId: string, req?: RequestContext) {
     return this.log({
       actorId,
       action: 'LOGOUT',
@@ -183,8 +228,8 @@ export class AuditLogsService {
     action: string,
     entityType: string,
     entityId: string,
-    data?: any,
-    req?: any,
+    data?: Record<string, unknown>,
+    req?: RequestContext,
     actorId?: string,
   ) {
     return this.log({
@@ -214,18 +259,16 @@ export class AuditLogsService {
    *   req: request,
    * });
    */
-  async log(payload: {
-    actorId: string;
-    action: string;
-    entityType: string;
-    entityId: string;
-    oldData?: any;
-    newData?: any;
-    req?: any;
-  }) {
+  async log(payload: AuditLogPayload) {
     try {
       const ip = this.extractIp(payload.req);
-      const userAgent = payload.req?.headers?.['user-agent'] || 'unknown';
+      const userAgentHeader = payload.req?.headers?.['user-agent'];
+      const userAgent: string =
+        typeof userAgentHeader === 'string'
+          ? userAgentHeader
+          : Array.isArray(userAgentHeader)
+            ? userAgentHeader[0] || 'unknown'
+            : 'unknown';
 
       // Security Analysis
       const securityFlags: string[] = [];
@@ -245,17 +288,20 @@ export class AuditLogsService {
 
       // Determine risk level
       const baseRiskLevel = this.determineRiskLevel(payload.action);
-      const finalRiskLevel = securityFlags.length > 0 ? 'HIGH' : baseRiskLevel;
+      const finalRiskLevel: RiskLevel = securityFlags.length > 0 ? 'HIGH' : baseRiskLevel;
+
+      // Build security analysis metadata
+      const securityAnalysis: SecurityAnalysis = {
+        flags: securityFlags,
+        riskLevel: finalRiskLevel,
+        baseRiskLevel: baseRiskLevel,
+        timestamp: new Date().toISOString(),
+      };
 
       // Build enriched data with security analysis
-      const enrichedAfterData = {
+      const enrichedAfterData: Record<string, unknown> = {
         ...(payload.newData || {}),
-        _security_analysis: {
-          flags: securityFlags,
-          riskLevel: finalRiskLevel,
-          baseRiskLevel: baseRiskLevel,
-          timestamp: new Date().toISOString(),
-        },
+        _security_analysis: securityAnalysis,
       };
 
       // Create and save log entry
@@ -266,7 +312,7 @@ export class AuditLogsService {
         entityId: payload.entityId,
         ipAddress: ip,
         userAgent: userAgent,
-        beforeData: payload.oldData,
+        beforeData: payload.oldData as Record<string, unknown>,
         afterData: enrichedAfterData,
       });
 
@@ -280,8 +326,10 @@ export class AuditLogsService {
       }
 
       return logEntry;
-    } catch (error) {
-      this.logger.error(`[AuditLog] Error: ${error.message}`, error.stack);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`[AuditLog] Error: ${errorMessage}`, errorStack);
       // Don't throw - audit logging should never break the main flow
       return null;
     }
@@ -378,7 +426,7 @@ export class AuditLogsService {
   /**
    * Extract actor ID from request (from JWT payload)
    */
-  private extractActorId(req: any): string {
+  private extractActorId(req?: RequestContext): string {
     if (!req) return 'system';
     // From JWT auth guard - req.user should contain the decoded token
     return req.user?.id || req.user?.sub || req.user?.userId || 'anonymous';
@@ -387,11 +435,14 @@ export class AuditLogsService {
   /**
    * Extract IP address from request
    */
-  private extractIp(req: any): string {
+  private extractIp(req?: RequestContext): string {
     if (!req) return 'system';
     const forwarded = req.headers?.['x-forwarded-for'];
     if (forwarded) {
-      return Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0].trim();
+      if (Array.isArray(forwarded)) {
+        return forwarded[0] || 'unknown';
+      }
+      return forwarded.split(',')[0].trim();
     }
     return req.ip || req.connection?.remoteAddress || 'unknown';
   }
@@ -438,7 +489,9 @@ export class AuditLogsService {
    * Transform entity to client-compatible response format
    */
   private transformToResponseDto(entity: AuditLogEntity) {
-    const riskLevel = entity.afterData?._security_analysis?.riskLevel || 'NORMAL';
+    const afterData = entity.afterData as Record<string, unknown> | undefined;
+    const securityAnalysis = afterData?._security_analysis as SecurityAnalysis | undefined;
+    const riskLevel: RiskLevel = securityAnalysis?.riskLevel || 'NORMAL';
 
     return {
       id: entity.id,
@@ -451,7 +504,7 @@ export class AuditLogsService {
       entity: `${entity.entityType}#${entity.entityId}`,
       ipAddress: entity.ipAddress || 'unknown',
       timestamp: entity.createdAt.toISOString(),
-      riskLevel: riskLevel as RiskLevel,
+      riskLevel,
       beforeData: entity.beforeData,
       afterData: entity.afterData,
       metadata: {
