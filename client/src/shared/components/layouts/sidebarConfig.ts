@@ -24,9 +24,9 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
   },
   {
     id: "audit-logs",
-    label: "System Logs",
+    label: "Projects",
     icon: ScrollText,
-    path: "/audit-logs",
+    path: "/projects",
   },
   {
     id: "freelancers",

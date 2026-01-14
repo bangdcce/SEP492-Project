@@ -7,7 +7,10 @@ import { Spinner } from "@/shared/components/ui";
 import { lazy, Suspense } from "react";
 
 const DashboardPage = lazy(() => import("@/pages/DashboardPage"));
-const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
+const ProjectWorkspacePage = lazy(() => import("@/pages/ProjectWorkspacePage"));
+const ProjectListPage = lazy(
+  () => import("@/features/project-list/ProjectListPage")
+);
 
 // Loading fallback
 function PageLoader() {
@@ -32,12 +35,22 @@ function App() {
           }
         />
 
-        {/* Audit Logs */}
+        {/* Projects List */}
+        <Route
+          path={ROUTES.PROJECTS}
+          element={
+            <MainLayout>
+              <ProjectListPage />
+            </MainLayout>
+          }
+        />
+
+        {/* Workspace */}
         <Route
           path={ROUTES.AUDIT_LOGS}
           element={
             <MainLayout>
-              <AuditLogsPage />
+              <ProjectWorkspacePage />
             </MainLayout>
           }
         />

@@ -15,7 +15,8 @@ export const ROUTES = {
   REGISTER: "/register",
   DASHBOARD: "/dashboard",
   PROFILE: "/profile",
-  AUDIT_LOGS: "/audit-logs",
+  AUDIT_LOGS: "/workspace/:projectId",
+  PROJECTS: "/projects",
   NOT_FOUND: "/404",
 } as const;
 

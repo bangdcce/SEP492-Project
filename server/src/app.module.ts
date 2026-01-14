@@ -5,6 +5,9 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { ProjectsModule } from './modules/projects/projects.module';
+// import { MilestonesModule } from './modules/milestones/milestones.module'; // Removed - using mock data
 import jwtConfig from './config/jwt.config';
 
 @Module({
@@ -52,6 +55,9 @@ import jwtConfig from './config/jwt.config';
 
     AuditLogsModule,
     AuthModule,
+    TasksModule,
+    ProjectsModule,
+    // MilestonesModule, // Removed - using mock data in frontend
   ],
   controllers: [AppController],
   providers: [AppService],
