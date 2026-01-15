@@ -14,12 +14,8 @@ export const ROUTES = {
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
-  WIZARD: "/wizard",
-  MY_REQUESTS: "/requests",
   
   // Client Routes
-  CLIENT_DASHBOARD: "/dashboard",
-  CLIENT_PROFILE: "/profile",
   CLIENT_AUDIT_LOGS: "/audit-logs",
   
   // Freelancer Routes
@@ -32,16 +28,27 @@ export const ROUTES = {
   BROKER_PROFILE: "/broker/profile",
   
   // Admin Routes
+
+  // ========== CLIENT ROUTES - prefix /client ==========
+  CLIENT_DASHBOARD: "/client/dashboard",
+  CLIENT_MY_REQUESTS: "/client/my-requests",
+  CLIENT_WIZARD: "/client/wizard",
+  CLIENT_PROFILE: "/client/profile",
+
+  // ========== ADMIN ROUTES - prefix /admin ==========
+  ADMIN_DASHBOARD: "/admin/dashboard",
+  ADMIN_AUDIT_LOGS: "/admin/audit-logs",
+  ADMIN_REVIEW_MODERATION: "/admin/reviews",
+  ADMIN_PROFILE: "/admin/profile",
+
+  // ========== LEGACY ALIASES (backward compatibility) ==========
   DASHBOARD: "/admin/dashboard",
+  WIZARD: "/client/wizard",
+  MY_REQUESTS: "/client/my-requests",
   PROFILE: "/admin/profile",
   AUDIT_LOGS: "/admin/audit-logs",
   REVIEW_MODERATION: "/admin/reviews",
-  TRUST_PROFILES: "/admin/trust-profiles",
-  FREELANCERS: "/admin/freelancers",
-  PROJECTS: "/admin/projects",
-  ANALYTICS: "/admin/analytics",
-  SETTINGS: "/admin/settings",
-  
+
   NOT_FOUND: "/404",
 } as const;
 

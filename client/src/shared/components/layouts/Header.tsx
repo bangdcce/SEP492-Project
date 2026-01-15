@@ -1,7 +1,7 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Bell, ChevronRight, User, LogOut, UserCircle } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { ROUTES, STORAGE_KEYS } from '@/constants';
+import React, { useState, useRef, useEffect } from "react";
+import { Bell, ChevronRight, LogOut, UserCircle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { ROUTES, STORAGE_KEYS } from "@/constants";
 
 interface HeaderProps {
   breadcrumbs: string[];
@@ -10,86 +10,76 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
   const navigate = useNavigate();
   const [showDropdown, setShowDropdown] = useState(false);
-  const [avatarUrl, setAvatarUrl] = useState<string>('');
-  const [userName, setUserName] = useState<string>('');
+  const [avatarUrl, setAvatarUrl] = useState<string>("");
+  const [userName, setUserName] = useState<string>("");
   const dropdownRef = useRef<HTMLDivElement>(null);
-  
+
   // Load user data from localStorage
   useEffect(() => {
     const loadUserData = () => {
       const userStr = localStorage.getItem(STORAGE_KEYS.USER);
       if (userStr) {
         const user = JSON.parse(userStr);
-        setAvatarUrl(user.avatarUrl || '');
-        setUserName(user.fullName || user.email || '');
+        setAvatarUrl(user.avatarUrl || "");
+        setUserName(user.fullName || user.email || "");
       }
     };
-    
+
     loadUserData();
-    
+
     // Listen for custom event when user data is updated
-    window.addEventListener('userDataUpdated', loadUserData);
-    return () => window.removeEventListener('userDataUpdated', loadUserData);
+    window.addEventListener("userDataUpdated", loadUserData);
+    return () => window.removeEventListener("userDataUpdated", loadUserData);
   }, []);
-  
+
   // Close dropdown when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target as Node)
+      ) {
         setShowDropdown(false);
       }
     };
 
     if (showDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener("mousedown", handleClickOutside);
     }
 
     return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener("mousedown", handleClickOutside);
     };
   }, [showDropdown]);
-  
+
   const handleViewProfile = () => {
     setShowDropdown(false);
-    
-    // Get user role to determine which profile page to navigate to
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      const user = JSON.parse(userStr);
-      const role = user.role?.toUpperCase();
-      
-      if (role === 'ADMIN') {
-        navigate(ROUTES.PROFILE); // Admin profile
-      } else {
-        navigate(ROUTES.CLIENT_PROFILE); // Client profile
-      }
-    } else {
-      navigate(ROUTES.CLIENT_PROFILE);
-    }
+    // Admin always goes to admin profile
+    navigate(ROUTES.ADMIN_PROFILE);
   };
-  
+
   const handleLogout = () => {
     setShowDropdown(false);
-    
+
     // Clear localStorage
     localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
     localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
     localStorage.removeItem(STORAGE_KEYS.USER);
-    
+
     // Redirect to login
     navigate(ROUTES.LOGIN);
   };
-  
+
   const getInitials = (name: string) => {
-    if (!name) return 'U';
+    if (!name) return "U";
     return name
-      .split(' ')
-      .map(n => n[0])
-      .join('')
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
       .toUpperCase()
       .slice(0, 2);
   };
-  
+
   return (
     <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-8 py-4">
       <div className="flex items-center justify-between">
@@ -97,14 +87,12 @@ export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
         <div className="flex items-center gap-2 text-sm">
           {breadcrumbs.map((crumb, index) => (
             <React.Fragment key={index}>
-              {index > 0 && (
-                <ChevronRight className="h-4 w-4 text-gray-400" />
-              )}
+              {index > 0 && <ChevronRight className="h-4 w-4 text-gray-400" />}
               <span
                 className={
                   index === breadcrumbs.length - 1
-                    ? 'text-slate-900'
-                    : 'text-gray-500'
+                    ? "text-slate-900"
+                    : "text-gray-500"
                 }
               >
                 {crumb}
@@ -129,9 +117,15 @@ export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
               title="Menu"
             >
               {avatarUrl ? (
-                <img src={avatarUrl} alt="Avatar" className="w-full h-full object-cover" />
+                <img
+                  src={avatarUrl}
+                  alt="Avatar"
+                  className="w-full h-full object-cover"
+                />
               ) : (
-                <span className="text-white text-sm font-bold">{getInitials(userName)}</span>
+                <span className="text-white text-sm font-bold">
+                  {getInitials(userName)}
+                </span>
               )}
             </button>
 

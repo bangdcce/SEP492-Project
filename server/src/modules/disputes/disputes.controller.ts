@@ -1,0 +1,271 @@
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { DisputesService } from './disputes.service';
+import { CreateDisputeDto } from './dto/create-dispute.dto';
+import { JwtAuthGuard, Roles, RolesGuard, GetUser } from '../auth';
+import { UpdateDisputeDto } from './dto/update-disputes.dto';
+import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { AddNoteDto } from './dto/add-note.dto';
+import { DefendantResponseDto } from './dto/defendant-response.dto';
+import { AppealDto, ResolveAppealDto } from './dto/appeal.dto';
+import { AdminUpdateDisputeDto } from './dto/admin-update-dispute.dto';
+import { DisputeFilterDto } from './dto/dispute-filter.dto';
+import { UserRole, UserEntity } from 'src/database/entities';
+
+@Controller('disputes')
+export class DisputesController {
+  constructor(private readonly disputesService: DisputesService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Post()
+  async createDisputes(@GetUser() user: UserEntity, @Body() createDisputes: CreateDisputeDto) {
+    return await this.disputesService.create(user.id, createDisputes);
+  }
+
+  // =============================================================================
+  // LIST DISPUTES WITH PAGINATION & FILTERS
+  // =============================================================================
+
+  /**
+   * Lấy danh sách disputes với pagination, filters, và smart sorting
+   * GET /disputes?page=1&limit=20&status=OPEN&sortBy=urgency
+   *
+   * Smart sorting: Disputes gần hết hạn + priority cao sẽ được đẩy lên đầu
+   */
+  @Get()
+  async getListDisputes(@Query() filters: DisputeFilterDto) {
+    return await this.disputesService.getAll(filters);
+  }
+
+  /**
+   * Lấy disputes của tôi (tôi kiện / kiện tôi / liên quan)
+   * GET /disputes/my?asRaiser=true&asDefendant=true
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('my')
+  async getMyDisputes(@GetUser() user: UserEntity, @Query() filters: DisputeFilterDto) {
+    return await this.disputesService.getMyDisputes(user.id, filters);
+  }
+
+  /**
+   * Lấy thống kê disputes cho admin dashboard
+   * GET /disputes/stats
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Get('stats')
+  async getDisputeStats() {
+    return await this.disputesService.getDisputeStats();
+  }
+
+  @Get(':id')
+  async getDetailDisputes(@Param('id', ParseUUIDPipe) id: string) {
+    return await this.disputesService.getDetail(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('/messages/:id')
+  async updateDisputes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateDisputeDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.updateDisputes(user.id, id, dto);
+  }
+
+  // =============================================================================
+  // ACTIVITY TIMELINE
+  // =============================================================================
+
+  /**
+   * Lấy timeline hoạt động của dispute
+   * GET /disputes/:id/activities
+   * Query: includeInternal (chỉ Admin mới xem được internal)
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/activities')
+  async getActivities(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('includeInternal') includeInternal: string,
+    @GetUser() user: UserEntity,
+  ) {
+    // Chỉ Admin/Staff mới xem được hoạt động internal
+    const canViewInternal = [UserRole.ADMIN, UserRole.STAFF].includes(user.role);
+    const showInternal = includeInternal === 'true' && canViewInternal;
+    return await this.disputesService.getActivities(id, showInternal);
+  }
+
+  // =============================================================================
+  // NOTES (Ghi chú)
+  // =============================================================================
+
+  /**
+   * Lấy danh sách ghi chú của dispute
+   * GET /disputes/:id/notes
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/notes')
+  async getNotes(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('includeInternal') includeInternal: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const canViewInternal = [UserRole.ADMIN, UserRole.STAFF].includes(user.role);
+    const showInternal = includeInternal === 'true' && canViewInternal;
+    return await this.disputesService.getNotes(id, showInternal);
+  }
+
+  /**
+   * Thêm ghi chú vào dispute (Admin/Staff)
+   * POST /disputes/:id/notes
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Post(':id/notes')
+  async addNote(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AddNoteDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.addNote(user.id, user.role, id, dto);
+  }
+
+  /**
+   * Xóa ghi chú
+   * DELETE /disputes/:id/notes/:noteId
+   */
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id/notes/:noteId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async deleteNote(@Param('noteId', ParseUUIDPipe) noteId: string, @GetUser() user: UserEntity) {
+    await this.disputesService.deleteNote(user.id, noteId);
+  }
+
+  // =============================================================================
+  // DEFENDANT RESPONSE
+  // =============================================================================
+
+  /**
+   * Bị đơn gửi phản hồi và bằng chứng phản bác
+   * POST /disputes/:id/respond
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/respond')
+  async submitDefendantResponse(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DefendantResponseDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.submitDefendantResponse(user.id, id, dto);
+  }
+
+  // =============================================================================
+  // APPEAL SYSTEM
+  // =============================================================================
+
+  /**
+   * Gửi khiếu nại lại (Appeal)
+   * POST /disputes/:id/appeal
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/appeal')
+  async submitAppeal(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AppealDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.submitAppeal(user.id, id, dto);
+  }
+
+  /**
+   * Admin xử lý Appeal
+   * PATCH /disputes/:id/appeal/resolve
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch(':id/appeal/resolve')
+  async resolveAppeal(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResolveAppealDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.resolveAppeal(user.id, id, dto);
+  }
+
+  // =============================================================================
+  // ADMIN ENDPOINTS
+  // =============================================================================
+
+  /**
+   * Admin cập nhật thông tin dispute (category, priority, deadlines)
+   * PATCH /disputes/:id/admin-update
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch(':id/admin-update')
+  async adminUpdateDispute(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AdminUpdateDisputeDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.adminUpdateDispute(user.id, id, dto);
+  }
+
+  /**
+   * 🔥 API Phán quyết tranh chấp (Chỉ ADMIN/STAFF)
+   *
+   * POST /disputes/:id/resolve
+   * Body: { verdict: 'WIN_CLIENT' | 'WIN_FREELANCER' | 'SPLIT', adminComment: string, splitRatioClient?: number }
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Post(':id/resolve')
+  @HttpCode(HttpStatus.OK)
+  async resolveDispute(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResolveDisputeDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.resolveDispute(user.id, id, dto);
+  }
+
+  /**
+   * Chuyển Dispute sang trạng thái IN_MEDIATION (Admin bắt đầu xem xét)
+   *
+   * PATCH /disputes/:id/escalate
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch(':id/escalate')
+  async escalateDispute(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
+    return await this.disputesService.escalateToMediation(user.id, id);
+  }
+
+  /**
+   * Từ chối Dispute (không hợp lệ)
+   *
+   * PATCH /disputes/:id/reject
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch(':id/reject')
+  async rejectDispute(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('reason') reason: string,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.rejectDispute(user.id, id, reason);
+  }
+}

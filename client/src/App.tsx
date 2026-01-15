@@ -1,29 +1,46 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { ROUTES } from "@/constants";
 import { MainLayout } from "@/shared/components/layouts";
+import { ClientDashboardLayout } from "@/shared/components/layouts/client";
 import { Spinner } from "@/shared/components/ui";
 
 // Lazy load pages for better performance
 import { lazy, Suspense } from "react";
 
-const ClientDashboard = lazy(() => import("@/features/dashboard/ClientDashboard").then(module => ({ default: module.ClientDashboard })));
-const RequestDetailPage = lazy(() => import("@/features/requests/RequestDetailPage"));
-const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
+// ========== CLIENT PAGES ==========
+const ClientDashboard = lazy(() =>
+  import("@/features/dashboard/ClientDashboard").then((module) => ({
+    default: module.ClientDashboard,
+  }))
+);
 const WizardPage = lazy(() => import("@/features/wizard/WizardPage"));
-const MyRequestsPage = lazy(() => import("@/features/requests/MyRequestsPage").then(module => ({ default: module.MyRequestsPage })));
-const SignInPage = lazy(() => import("@/pages/SignInPage"));
-const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
-const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
-const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
-const FreelancerDashboardPage = lazy(() => import("@/pages/FreelancerDashboardPage"));
-const FreelancerOnboardingPage = lazy(() => import("@/pages/FreelancerOnboardingPage"));
-// const GoogleCompletePage = lazy(() => import("@/pages/GoogleCompletePage"));
-// const GoogleSuccessPage = lazy(() => import("@/pages/GoogleSuccessPage"));
+const MyRequestsPage = lazy(() =>
+  import("@/features/requests/MyRequestsPage").then((module) => ({
+    default: module.MyRequestsPage,
+  }))
+);
+const RequestDetailPage = lazy(
+  () => import("@/features/requests/RequestDetailPage")
+);
 
-// Other Pages
+// ========== ADMIN PAGES ==========
+const AdminDashboard = lazy(() =>
+  import("@/features/dashboard/AdminDashboard").then((module) => ({
+    default: module.AdminDashboard,
+  }))
+);
+const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage")
 );
+
+// ========== SHARED PAGES ==========
+const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
+
+// ========== AUTH PAGES ==========
+const SignInPage = lazy(() => import("@/pages/SignInPage"));
+const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
+const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
 
 // Loading fallback
 function PageLoader() {
@@ -38,155 +55,105 @@ function App() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
-        {/* Wizard */}
-        <Route
-            path={ROUTES.WIZARD}
-            element={
-                <MainLayout>
-                    <WizardPage />
-                </MainLayout>
-            }
-        />
-        
-        {/* Auth Routes - No Layout */}
+        {/* ========== AUTH ROUTES - No Layout ========== */}
         <Route path={ROUTES.LOGIN} element={<SignInPage />} />
         <Route path={ROUTES.REGISTER} element={<SignUpPage />} />
         <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPasswordPage />} />
-        {/* Google OAuth Routes - TEMPORARILY DISABLED
-        <Route path="/auth/google-complete" element={<GoogleCompletePage />} />
-        <Route path="/auth/google-success" element={<GoogleSuccessPage />} />
-        */}
-        
-        {/* Client Dashboard */}
+
+        {/* ========== CLIENT ROUTES - /client/* ========== */}
         <Route
           path={ROUTES.CLIENT_DASHBOARD}
           element={
-            <MainLayout>
+            <ClientDashboardLayout>
               <ClientDashboard />
-            </MainLayout>
+            </ClientDashboardLayout>
           }
         />
-        
-        {/* Admin Dashboard */}
         <Route
-          path={ROUTES.DASHBOARD}
+          path={ROUTES.CLIENT_WIZARD}
           element={
-            <MainLayout>
-              <ClientDashboard />
-            </MainLayout>
+            <ClientDashboardLayout>
+              <WizardPage />
+            </ClientDashboardLayout>
           }
         />
-
-        {/* Request Detail */}
         <Route
-          path="/requests/:id"
+          path={ROUTES.CLIENT_MY_REQUESTS}
           element={
-            <MainLayout>
+            <ClientDashboardLayout>
+              <MyRequestsPage />
+            </ClientDashboardLayout>
+          }
+        />
+        <Route
+          path="/client/requests/:id"
+          element={
+            <ClientDashboardLayout>
               <RequestDetailPage />
-            </MainLayout>
+            </ClientDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_PROFILE}
+          element={
+            <ClientDashboardLayout>
+              <ProfilePage />
+            </ClientDashboardLayout>
           }
         />
 
-        {/* Audit Logs */}
+        {/* ========== ADMIN ROUTES - /admin/* ========== */}
         <Route
-          path={ROUTES.AUDIT_LOGS}
+          path={ROUTES.ADMIN_DASHBOARD}
+          element={
+            <MainLayout>
+              <AdminDashboard />
+            </MainLayout>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_AUDIT_LOGS}
           element={
             <MainLayout>
               <AuditLogsPage />
             </MainLayout>
           }
         />
-
-        {/* My Requests */}
         <Route
-          path={ROUTES.MY_REQUESTS}
-          element={
-            <MainLayout>
-              <MyRequestsPage />
-            </MainLayout>
-          }
-        />
-
-        {/* Client Profile - No sidebar layout */}
-        <Route
-          path={ROUTES.CLIENT_PROFILE}
-          element={<ProfilePage />}
-        />
-
-        {/* Freelancer Onboarding - First-time setup */}
-        <Route
-          path={ROUTES.FREELANCER_ONBOARDING}
-          element={
-            <MainLayout>
-              <FreelancerOnboardingPage />
-            </MainLayout>
-          }
-        />
-
-        {/* Freelancer Dashboard */}
-        <Route
-          path={ROUTES.FREELANCER_DASHBOARD}
-          element={
-            <MainLayout>
-              <FreelancerDashboardPage />
-            </MainLayout>
-          }
-        />
-
-        {/* Freelancer Profile - No sidebar layout */}
-        <Route
-          path={ROUTES.FREELANCER_PROFILE}
-          element={<ProfilePage />}
-        />
-
-        {/* Broker Dashboard - Placeholder */}
-        <Route
-          path={ROUTES.BROKER_DASHBOARD}
-          element={
-            <MainLayout>
-              <div className="p-6">
-                <h1 className="text-2xl font-bold">Broker Dashboard</h1>
-                <p className="text-gray-600 mt-2">Coming soon...</p>
-              </div>
-            </MainLayout>
-          }
-        />
-
-        {/* Broker Profile - No sidebar layout */}
-        <Route
-          path={ROUTES.BROKER_PROFILE}
-          element={<ProfilePage />}
-        />
-
-        {/* Admin Profile - No sidebar layout */}
-        <Route
-          path={ROUTES.PROFILE}
-          element={<ProfilePage />}
-        />
-
-        {/* Review Moderation (Admin) */}
-        <Route
-          path={ROUTES.REVIEW_MODERATION}
+          path={ROUTES.ADMIN_REVIEW_MODERATION}
           element={
             <MainLayout>
               <AdminReviewModerationPage />
             </MainLayout>
           }
         />
+        <Route
+          path={ROUTES.ADMIN_PROFILE}
+          element={
+            <MainLayout>
+              <ProfilePage />
+            </MainLayout>
+          }
+        />
 
-        {/* Redirect root to login */}
+        {/* ========== REDIRECTS ========== */}
+        {/* Root -> Login */}
         <Route
           path={ROUTES.HOME}
           element={<Navigate to={ROUTES.LOGIN} replace />}
         />
-
-        {/* Redirect /admin to admin dashboard */}
+        {/* /admin -> Admin Dashboard */}
         <Route
           path="/admin"
-          element={<Navigate to={ROUTES.DASHBOARD} replace />}
+          element={<Navigate to={ROUTES.ADMIN_DASHBOARD} replace />}
+        />
+        {/* /client -> Client Dashboard */}
+        <Route
+          path="/client"
+          element={<Navigate to={ROUTES.CLIENT_DASHBOARD} replace />}
         />
 
-        {/* 404 - Not Found */}
+        {/* ========== 404 - Not Found ========== */}
         <Route
           path="*"
           element={

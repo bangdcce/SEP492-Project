@@ -1,14 +1,11 @@
+/**
+ * Admin Sidebar Configuration
+ * Menu items for Admin Dashboard
+ */
+
 import type { LucideIcon } from "lucide-react";
-import {
-  LayoutDashboard,
-  ScrollText,
-  Users,
-  FileText,
-  Settings,
-  BarChart3,
-  Shield,
-  Star,
-} from "lucide-react";
+import { LayoutDashboard, ScrollText, Shield } from "lucide-react";
+
 export interface SidebarMenuItem {
   id: string;
   label: string;
@@ -27,12 +24,6 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     description: "Overview and statistics",
   },
   {
-    id: "my-requests",
-    label: "My Requests",
-    icon: FileText,
-    path: "/requests",
-  },
-  {
     id: "audit-logs",
     label: "System Logs",
     icon: ScrollText,
@@ -45,40 +36,5 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     icon: Shield,
     path: "/admin/reviews",
     description: "Moderate user reviews",
-  },
-  {
-    id: "trust-profiles",
-    label: "Trust Profiles",
-    icon: Star,
-    path: "/admin/trust-profiles",
-    description: "User trust scores & badges",
-  },
-  {
-    id: "freelancers",
-    label: "Freelancers",
-    icon: Users,
-    path: "/admin/freelancers",
-    description: "Manage freelancers",
-  },
-  {
-    id: "projects",
-    label: "Projects",
-    icon: FileText,
-    path: "/admin/projects",
-    description: "View all projects",
-  },
-  {
-    id: "analytics",
-    label: "Analytics",
-    icon: BarChart3,
-    path: "/admin/analytics",
-    description: "Platform analytics",
-  },
-  {
-    id: "settings",
-    label: "Settings",
-    icon: Settings,
-    path: "/admin/settings",
-    description: "System settings",
   },
 ];

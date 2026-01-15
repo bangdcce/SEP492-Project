@@ -118,6 +118,10 @@ export class UserEntity {
   @OneToMany('ProjectEntity', 'freelancer')
   freelancerProjects: any[];
 
+  // NEW: Relation với user_flags
+  @OneToMany('UserFlagEntity', 'user')
+  flags: any[];
+
   // --- E05: LOGIC HUY HIỆU (VIRTUAL PROPERTY) ---
   // @Expose: Báo cho NestJS biết là "Hãy trả field này về cho Frontend dù nó không có trong DB"
   @Expose()
@@ -171,5 +175,19 @@ export class UserEntity {
       disputes: this.totalDisputesLost,
       score: Number(this.currentTrustScore), // Đảm bảo là số
     };
+  }
+
+  // --- E07: Warning level từ flags (tính toán từ DB) ---
+  // Note: Đây chỉ là placeholder, actual logic nên lấy từ UserWarningService
+  // vì cần query database để lấy flags active
+  @Expose()
+  get warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE' {
+    // Dựa trên totalDisputesLost để estimate warning level
+    // (Thực tế sẽ được override bởi API response từ UserWarningService)
+    if (this.totalDisputesLost >= 4) return 'SEVERE';
+    if (this.totalDisputesLost >= 3) return 'CRITICAL';
+    if (this.totalDisputesLost >= 2) return 'HIGH';
+    if (this.totalDisputesLost >= 1) return 'MEDIUM';
+    return 'NONE';
   }
 }
