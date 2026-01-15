@@ -21,6 +21,10 @@ export const ROUTES = {
   CLIENT_WIZARD: "/client/wizard",
   CLIENT_PROFILE: "/client/profile",
 
+  // ========== PROJECT ROUTES ==========
+  CLIENT_PROJECTS: "/client/projects",
+  CLIENT_WORKSPACE: "/client/workspace/:projectId",
+
   // ========== ADMIN ROUTES - prefix /admin ==========
   ADMIN_DASHBOARD: "/admin/dashboard",
   ADMIN_AUDIT_LOGS: "/admin/audit-logs",

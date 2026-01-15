@@ -2,11 +2,17 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { TaskEntity, TaskStatus } from '../../database/entities/task.entity';
+import { MilestoneEntity } from '../../database/entities/milestone.entity';
 
 export interface KanbanBoard {
   TODO: TaskEntity[];
   IN_PROGRESS: TaskEntity[];
   DONE: TaskEntity[];
+}
+
+export interface BoardWithMilestones {
+  tasks: KanbanBoard;
+  milestones: MilestoneEntity[];
 }
 
 export type KanbanStatus = TaskStatus.TODO | TaskStatus.IN_PROGRESS | TaskStatus.DONE;
@@ -16,15 +22,25 @@ export class TasksService {
   constructor(
     @InjectRepository(TaskEntity)
     private readonly taskRepository: Repository<TaskEntity>,
+    @InjectRepository(MilestoneEntity)
+    private readonly milestoneRepository: Repository<MilestoneEntity>,
   ) {}
 
-  async getKanbanBoard(projectId: string): Promise<KanbanBoard> {
+  async getKanbanBoard(projectId: string): Promise<BoardWithMilestones> {
+    // Fetch all tasks for the project
     const tasks = await this.taskRepository.find({
       where: { projectId },
       relations: ['assignee'],
       order: { sortOrder: 'ASC', createdAt: 'DESC' },
     });
 
+    // Fetch all milestones for the project
+    const milestones = await this.milestoneRepository.find({
+      where: { projectId },
+      order: { startDate: 'ASC', sortOrder: 'ASC', createdAt: 'ASC' },
+    });
+
+    // Group tasks by status
     const board: KanbanBoard = {
       TODO: [],
       IN_PROGRESS: [],
@@ -41,7 +57,10 @@ export class TasksService {
       }
     }
 
-    return board;
+    return {
+      tasks: board,
+      milestones,
+    };
   }
 
   async updateStatus(id: string, status: KanbanStatus): Promise<TaskEntity> {

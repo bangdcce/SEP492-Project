@@ -1,5 +1,5 @@
 import { BadRequestException, Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
-import { TasksService, KanbanBoard, KanbanStatus } from './tasks.service';
+import { TasksService, BoardWithMilestones, KanbanStatus } from './tasks.service';
 import { TaskStatus } from '../../database/entities/task.entity';
 
 @Controller('tasks')
@@ -7,7 +7,7 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   @Get('board/:projectId')
-  async getBoard(@Param('projectId') projectId: string): Promise<KanbanBoard> {
+  async getBoard(@Param('projectId') projectId: string): Promise<BoardWithMilestones> {
     return this.tasksService.getKanbanBoard(projectId);
   }
 

@@ -23,6 +23,12 @@ const RequestDetailPage = lazy(
   () => import("@/features/requests/RequestDetailPage")
 );
 
+// ========== PROJECT PAGES ==========
+const ProjectListPage = lazy(
+  () => import("@/features/project-list/ProjectListPage")
+);
+const ProjectWorkspacePage = lazy(() => import("@/pages/ProjectWorkspacePage"));
+
 // ========== ADMIN PAGES ==========
 const AdminDashboard = lazy(() =>
   import("@/features/dashboard/AdminDashboard").then((module) => ({
@@ -98,6 +104,22 @@ function App() {
           element={
             <ClientDashboardLayout>
               <ProfilePage />
+            </ClientDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_PROJECTS}
+          element={
+            <ClientDashboardLayout>
+              <ProjectListPage />
+            </ClientDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_WORKSPACE}
+          element={
+            <ClientDashboardLayout>
+              <ProjectWorkspacePage />
             </ClientDashboardLayout>
           }
         />
