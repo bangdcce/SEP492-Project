@@ -89,5 +89,20 @@ export const wizardService = {
     // Note: This endpoint expects brokerId from token, so we only send coverLetter
     const response = await axiosClient.post(`/project-requests/${requestId}/apply`, { coverLetter });
     return response.data;
+  },
+
+  acceptBroker: async (requestId: string, brokerId: string) => {
+    const response = await axiosClient.post(`/project-requests/${requestId}/accept-broker`, { brokerId });
+    return response.data;
+  },
+
+  approveSpecs: async (requestId: string) => {
+    const response = await axiosClient.post(`/project-requests/${requestId}/approve-specs`, {});
+    return response.data;
+  },
+
+  convertToProject: async (requestId: string) => {
+     const response = await axiosClient.post(`/project-requests/${requestId}/convert`, {});
+     return response.data;
   }
 };

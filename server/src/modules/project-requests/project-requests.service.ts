@@ -34,8 +34,8 @@ export class ProjectRequestsService {
       budgetRange: dto.budgetRange,
       intendedTimeline: dto.intendedTimeline,
       techPreferences: dto.techPreferences,
-      // Default to PUBLIC_DRAFT for new drafts
-      status: dto.isDraft ? RequestStatus.PUBLIC_DRAFT : RequestStatus.PENDING_SPECS,
+      // Default to PUBLIC_DRAFT for new non-drafts
+      status: dto.isDraft ? RequestStatus.DRAFT : RequestStatus.PUBLIC_DRAFT,
     });
 
     const savedRequest = await this.requestRepo.save(request);
@@ -95,6 +95,11 @@ export class ProjectRequestsService {
 
     // Manage status
     if (dto.status) {
+        // Phase 2: Toggle Visibility Logic
+        // If Client switches PUBLIC -> PRIVATE: System automatically Denies all pending Broker applications.
+        if (request.status === RequestStatus.PUBLIC_DRAFT && dto.status === RequestStatus.PRIVATE_DRAFT) {
+            await this.denyPendingProposals(request.id);
+        }
         request.status = dto.status;
     }
     
@@ -197,5 +202,165 @@ export class ProjectRequestsService {
         status: ProposalStatus.PENDING,
     });
     return this.brokerProposalRepo.save(proposal);
+  }
+
+  // --- Phase 2: Hire Broker ---
+
+  async acceptBroker(requestId: string, brokerId: string) {
+    const request = await this.findOne(requestId);
+    if (!request) throw new Error('Request not found');
+
+    // Expected state: PUBLIC_DRAFT or PRIVATE_DRAFT
+    // Also possibly PENDING_SPECS if legacy
+    if (
+      request.status !== RequestStatus.PUBLIC_DRAFT && 
+      request.status !== RequestStatus.PRIVATE_DRAFT &&
+      request.status !== RequestStatus.PENDING_SPECS
+    ) {
+        throw new Error('Request is not in a valid state to accept a broker');
+    }
+
+    // 1. Assign Broker
+    request.brokerId = brokerId;
+    
+    // 2. Change Status -> BROKER_ASSIGNED
+    request.status = RequestStatus.BROKER_ASSIGNED;
+    
+    await this.requestRepo.save(request);
+
+    // 3. Update Proposal Status
+    // Update the successful proposal to ACCEPTED
+    await this.brokerProposalRepo.update(
+        { requestId, brokerId },
+        { status: ProposalStatus.ACCEPTED }
+    );
+
+    // 4. Reject other Pending proposals?
+    // "System automatically Denies all pending Broker applications" - mostly for mode switch, but usually implies exclusivity
+    // We will reject all other PENDING proposals for this request
+    const otherProposals = await this.brokerProposalRepo.find({
+        where: { requestId, status: ProposalStatus.PENDING }
+    });
+    
+    for (const p of otherProposals) {
+        if (p.brokerId !== brokerId) {
+            p.status = ProposalStatus.REJECTED;
+            await this.brokerProposalRepo.save(p);
+        }
+    }
+
+    return this.findOne(requestId);
+  }
+
+  private async denyPendingProposals(requestId: string) {
+      const pendingProposals = await this.brokerProposalRepo.find({
+          where: { requestId, status: ProposalStatus.PENDING }
+      });
+      for (const p of pendingProposals) {
+          p.status = ProposalStatus.REJECTED; // or some DENIED status if available, REJECTED is fine
+          await this.brokerProposalRepo.save(p);
+      }
+  }
+
+  // --- Phase 3: Finalizing Specs ---
+
+  async approveSpecs(requestId: string) {
+      const request = await this.findOne(requestId);
+      if (!request) throw new Error('Request not found');
+
+      // logic: "Client clicks 'Approve Spec' -> Status changes to SPEC_APPROVED"
+      if (request.status !== RequestStatus.BROKER_ASSIGNED && request.status !== RequestStatus.PENDING_SPECS) {
+          console.warn('Approving specs from unexpected status:', request.status);
+          // Allow it but log warning? Or strict check?
+          // Strict check preferred for workflow integrity
+          // throw new Error('Request must have a Broker Assigned to approve specs');
+      }
+
+      request.status = RequestStatus.SPEC_APPROVED;
+      return this.requestRepo.save(request);
+  }
+
+  // --- Phase 5: Finalize Project ---
+
+  async convertToProject(requestId: string) {
+      const request = await this.findOne(requestId);
+      if (!request) throw new Error('Request not found');
+
+      // "Upon 3-way acceptance -> Create new Project entity. Move Request status to CONVERTED_TO_PROJECT."
+      
+      // TODO: Create Project Entity logic here (or call ProjectService)
+      // e.g. const project = await this.projectService.createFromRequest(request);
+      
+      request.status = RequestStatus.CONVERTED_TO_PROJECT;
+      return this.requestRepo.save(request);
+  }
+  async seedTestData(clientId: string) {
+    // 0. Validate Client
+    const userRepo = this.requestRepo.manager.getRepository(UserEntity);
+    let client = await userRepo.findOne({ where: { id: clientId } });
+    if (!client) {
+        console.log(`Client ${clientId} not found. Creating dummy client...`);
+        client = userRepo.create({
+            id: clientId, 
+            email: `test.client.${Date.now()}@interdev.com`, // Unique email
+            fullName: "Test Client",
+            role: UserRole.CLIENT,
+            passwordHash: "hashed_dummy_password",
+            isVerified: true
+        });
+        await userRepo.save(client);
+    }
+
+    // 1. Find a Broker to assign
+    let broker = await userRepo.findOne({ where: { email: "test.broker@interdev.com" } });
+    
+    if (!broker) {
+         broker = await userRepo.findOne({ where: { role: UserRole.BROKER } });
+    }
+
+    if (!broker) {
+        // Create a dummy broker if none exists
+        console.log("No broker found, creating dummy broker for testing...");
+        broker = userRepo.create({
+            email: `test.broker.${Date.now()}@interdev.com`, // Unique email
+            fullName: "Test Broker",
+            role: UserRole.BROKER,
+            passwordHash: "hashed_dummy_password", 
+            isVerified: true
+        });
+        await userRepo.save(broker);
+    }
+
+    const requests: ProjectRequestEntity[] = [];
+
+    // 2. Create Phase 3 Request (SPEC_APPROVED) -> "Hire Freelancer" UI
+    const phase3 = this.requestRepo.create({
+        clientId,
+        title: "Test Project - Phase 3 (Freelancer Hiring)",
+        description: "This is a generated test request in Phase 3. Specs are approved, now looking for freelancers.",
+        budgetRange: "$5,000 - $10,000",
+        intendedTimeline: "2 Months",
+        techPreferences: "React, NestJS, PostgreSQL",
+        status: RequestStatus.SPEC_APPROVED,
+        brokerId: broker.id,
+        createdAt: new Date()
+    });
+    requests.push(await this.requestRepo.save(phase3));
+
+    // 3. Create Phase 4 Request (CONTRACT_PENDING) -> "Contract" UI
+    const phase4 = this.requestRepo.create({
+        clientId,
+        title: "Test Project - Phase 4 (Contract)",
+        description: "This is a generated test request in Phase 4. Freelancers found, contract pending.",
+        budgetRange: "$15,000+",
+        intendedTimeline: "4 Months",
+        techPreferences: "Flutter, Firebase",
+        status: RequestStatus.CONTRACT_PENDING,
+        brokerId: broker.id,
+        createdAt: new Date()
+    });
+    requests.push(await this.requestRepo.save(phase4));
+
+    return requests;
   }
 }

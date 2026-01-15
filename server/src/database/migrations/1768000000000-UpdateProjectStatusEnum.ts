@@ -14,8 +14,12 @@ export class UpdateProjectStatusEnum1768000000000 implements MigrationInterface 
         
         await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'PUBLIC_DRAFT'`);
         await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'PRIVATE_DRAFT'`);
+        await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'BROKER_ASSIGNED'`);
+        await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'SPEC_APPROVED'`);
+        await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'CONTRACT_PENDING'`);
         await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'PENDING_SPECS'`);
         await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'HIRING'`);
+        await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'CONVERTED_TO_PROJECT'`);
         await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'IN_PROGRESS'`);
         await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'COMPLETED'`);
         await queryRunner.query(`ALTER TYPE "project_requests_status_enum" ADD VALUE IF NOT EXISTS 'CANCELED'`);

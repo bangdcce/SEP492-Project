@@ -16,43 +16,23 @@ export function ProjectPhaseStepper({
   const steps: Step[] = [
     {
       id: 1,
-      label: "Finalizing Specs",
-      status:
-        currentPhase > 1
-          ? "completed"
-          : currentPhase === 1
-          ? "current"
-          : "upcoming",
+      label: "Hire Broker",
+      status: currentPhase > 1 ? "completed" : currentPhase === 1 ? "current" : "upcoming",
     },
     {
       id: 2,
-      label: "Spec Review",
-      status:
-        currentPhase > 2
-          ? "completed"
-          : currentPhase === 2
-          ? "current"
-          : "upcoming",
+      label: "Finalizing Specs",
+      status: currentPhase > 2 ? "completed" : currentPhase === 2 ? "current" : "upcoming",
     },
     {
       id: 3,
-      label: "Hiring",
-      status:
-        currentPhase > 3
-          ? "completed"
-          : currentPhase === 3
-          ? "current"
-          : "upcoming",
+      label: "Hire Freelancer",
+      status: currentPhase > 3 ? "completed" : currentPhase === 3 ? "current" : "upcoming",
     },
     {
       id: 4,
-      label: "In Progress",
-      status:
-        currentPhase > 4
-          ? "completed"
-          : currentPhase === 4
-          ? "current"
-          : "upcoming",
+      label: "Contract",
+      status: currentPhase > 4 ? "completed" : currentPhase === 4 ? "current" : "upcoming",
     },
   ];
 
