@@ -19,22 +19,21 @@ export default function ProjectRequestDetailsPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const fetchRequest = async () => {
     if (!id) return;
+    try {
+      setIsLoading(true);
+      const response = await projectRequestsApi.getById(id);
+      setRequest(response);
+    } catch (err: unknown) {
+      console.error('Failed to fetch request:', err);
+      setError('Failed to load project request details.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
-    const fetchRequest = async () => {
-      try {
-        setIsLoading(true);
-        const response = await projectRequestsApi.getById(id);
-        setRequest(response);
-      } catch (err: unknown) {
-        console.error('Failed to fetch request:', err);
-        setError('Failed to load project request details.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
+  useEffect(() => {
     fetchRequest();
   }, [id]);
 
@@ -91,8 +90,8 @@ export default function ProjectRequestDetailsPage() {
       // Optimistically update UI or show loading
       await projectRequestsApi.assignBroker(request.id);
       
-      // Update local state to reflect change
-      setRequest(prev => prev ? ({ ...prev, status: 'PROCESSING', brokerId: 'me' }) : null);
+      // Refresh data from server to get correct brokerId and status
+      await fetchRequest();
       alert('Request assigned successfully!');
       
       // Navigate back or refresh? For now just stay.
