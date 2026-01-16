@@ -8,13 +8,14 @@ import { UserRole } from '../../../database/entities/user.entity';
  * ADMIN and STAFF roles are excluded from self-registration for security reasons.
  * These roles should only be assigned by existing administrators.
  */
-export type RegisterableRole = UserRole.CLIENT | UserRole.BROKER | UserRole.FREELANCER;
+export type RegisterableRole = UserRole.CLIENT | UserRole.CLIENT_SME | UserRole.BROKER | UserRole.FREELANCER;
 
 /**
  * Object containing only the registerable roles for validation
  */
 export const REGISTERABLE_ROLES = {
   CLIENT: UserRole.CLIENT,
+  CLIENT_SME: UserRole.CLIENT_SME,
   BROKER: UserRole.BROKER,
   FREELANCER: UserRole.FREELANCER,
 } as const;

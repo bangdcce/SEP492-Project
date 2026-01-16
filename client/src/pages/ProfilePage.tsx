@@ -1,13 +1,3 @@
-<<<<<<< HEAD
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Mail, Phone, MapPin, Edit2, Briefcase, X, ArrowLeft, Shield, Award, TrendingUp, CheckCircle, FileText, Download, ExternalLink } from 'lucide-react';
-import { toast } from 'sonner';
-import { Button } from '@/shared/components/ui/button';
-import { Input } from '@/shared/components/custom/input';
-import { getProfile, updateProfile } from '@/features/auth/api';
-import { ROUTES, STORAGE_KEYS } from '@/constants';
-=======
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -26,7 +16,6 @@ import { getProfile, updateProfile } from "@/features/auth/api";
 import { STORAGE_KEYS } from "@/constants";
 import { TrustScoreCard } from "@/features/trust-profile/components";
 import type { BadgeType, TrustStats } from "@/features/trust-profile/types";
->>>>>>> efb959df412e52bb898edb609d9a0e34d269fd8b
 
 interface UserProfile {
   id: string;
@@ -39,13 +28,9 @@ interface UserProfile {
   badge: BadgeType;
   isVerified: boolean;
   currentTrustScore: number;
-<<<<<<< HEAD
   skills?: string[];
   linkedinUrl?: string;
   cvUrl?: string;
-=======
-  stats?: TrustStats;
->>>>>>> efb959df412e52bb898edb609d9a0e34d269fd8b
 }
 
 export default function ProfilePage() {
