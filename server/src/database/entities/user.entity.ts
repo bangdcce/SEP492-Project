@@ -109,6 +109,9 @@ export class UserEntity {
   @OneToMany('ProjectRequestProposalEntity', 'freelancer')
   freelancerProposals: any[];
 
+  @OneToMany('BrokerProposalEntity', 'broker')
+  brokerProposals: any[];
+
   @OneToMany('ProjectEntity', 'client')
   clientProjects: any[];
 

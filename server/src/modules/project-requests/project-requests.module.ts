@@ -7,9 +7,11 @@ import { ProjectRequestEntity } from '../../database/entities/project-request.en
 import { ProjectRequestAnswerEntity } from '../../database/entities/project-request-answer.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
+import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
+
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ProjectRequestEntity, ProjectRequestAnswerEntity]),
+    TypeOrmModule.forFeature([ProjectRequestEntity, ProjectRequestAnswerEntity, BrokerProposalEntity]),
     AuditLogsModule,
   ],
   controllers: [ProjectRequestsController],

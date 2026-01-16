@@ -1,12 +1,22 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
 
 export enum RequestStatus {
-  DRAFT = 'DRAFT',
-  PENDING = 'PENDING',
-  PROCESSING = 'PROCESSING',
-  APPROVED = 'APPROVED',
-  REJECTED = 'REJECTED',
+  PUBLIC_DRAFT = 'PUBLIC_DRAFT', // Visible in marketplace
+  PRIVATE_DRAFT = 'PRIVATE_DRAFT', // Invite only
+  BROKER_ASSIGNED = 'BROKER_ASSIGNED', // Phase 2: Broker hired, drafting specs
+  SPEC_APPROVED = 'SPEC_APPROVED', // Phase 3: Specs agreed, looking for freelancers
+  CONTRACT_PENDING = 'CONTRACT_PENDING', // Phase 4: Found freelancers, negotiating contract
+  HIRING = 'HIRING', // (Deprecated or reused?) Let's keep for backward compat but prefer SPEC_APPROVED for Phase 3 start.
+  CONVERTED_TO_PROJECT = 'CONVERTED_TO_PROJECT', // Project started
+  
+  IN_PROGRESS = 'IN_PROGRESS', // Legacy or direct execution
+  COMPLETED = 'COMPLETED',
   CANCELED = 'CANCELED',
+  
+  // Legacy
+  DRAFT = 'DRAFT', 
+  PENDING = 'PENDING',
+  PENDING_SPECS = 'PENDING_SPECS', // Deprecated in favor of BROKER_ASSIGNED or kept for transition
 }
 
 @Entity('project_requests')
@@ -59,4 +69,7 @@ export class ProjectRequestEntity {
 
   @OneToMany('ProjectRequestProposalEntity', 'request')
   proposals: any[];
+
+  @OneToMany('BrokerProposalEntity', 'request')
+  brokerProposals: any[];
 }
