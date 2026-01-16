@@ -2,7 +2,7 @@
  * Auth Feature - Type Definitions
  */
 
-export type UserRole = 'client' | 'broker' | 'freelancer';
+export type UserRole = 'client' | 'broker' | 'freelancer' | 'admin' | 'ADMIN' | 'CLIENT' | 'BROKER' | 'FREELANCER';
 
 export interface User {
   id: string;

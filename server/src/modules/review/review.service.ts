@@ -120,7 +120,7 @@ export class ReviewService {
       action: 'CREATE_REVIEW',
       entityType: 'Review',
       entityId: String(savedReview.id),
-      newData: savedReview,
+      newData: savedReview as unknown as Record<string, unknown>,
       req: reqInfo,
     });
     return savedReview;
@@ -180,7 +180,7 @@ export class ReviewService {
       entityType: 'Review',
       entityId: review.id,
       oldData: oldData, // Dữ liệu trước khi sửa
-      newData: updatedReview,
+      newData: updatedReview as unknown as Record<string, unknown>,
       req: reqInfo, // Truyền req từ controller vào nếu có
     });
 
@@ -294,7 +294,7 @@ export class ReviewService {
       entityId: reviewId,
       actorId: adminId,
       oldData: oldData,
-      newData: null,
+      newData: undefined,
     });
 
     return { message: 'Review deleted successfully' };

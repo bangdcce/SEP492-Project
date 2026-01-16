@@ -5,5 +5,17 @@
     "source.fixAll": "explicit"
   },
   "terminal.integrated.accessibleViewFocusOnCommandExecution": false,
-  "google.antigravity.terminal.executionPolicy": "turbo"
+  "google.antigravity.terminal.executionPolicy": "turbo",
+  "terminal.integrated.shellIntegration.enabled": false,
+  "terminal.integrated.profiles.windows": {
+    "AG PowerShell (clean)": {
+      "path": "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+      "args": []
+    }
+  },
+  "terminal.integrated.defaultProfile.windows": "AG PowerShell (clean)",
+  "terminal.integrated.automationProfile.windows": {
+    "path": "powershell.exe",
+    "args": []
+  }
 }

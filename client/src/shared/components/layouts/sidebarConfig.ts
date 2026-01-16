@@ -1,14 +1,20 @@
+/**
+ * Admin Sidebar Configuration
+ * Menu items for Admin Dashboard
+ */
+
 import type { LucideIcon } from "lucide-react";
-import {
-  LayoutDashboard,
-  ScrollText,
-  Users,
-  FileText,
-  Settings,
-  BarChart3,
+import { 
+  LayoutDashboard, 
+  ScrollText, 
   Shield,
   Star,
+  Users,
+  FileText,
+  BarChart3,
+  Settings
 } from "lucide-react";
+
 export interface SidebarMenuItem {
   id: string;
   label: string;
@@ -25,12 +31,6 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     icon: LayoutDashboard,
     path: "/admin/dashboard",
     description: "Overview and statistics",
-  },
-  {
-    id: "my-requests",
-    label: "My Requests",
-    icon: FileText,
-    path: "/requests",
   },
   {
     id: "audit-logs",

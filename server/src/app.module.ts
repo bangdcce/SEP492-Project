@@ -6,15 +6,19 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { ProjectsModule } from './modules/projects/projects.module';
+// import { MilestonesModule } from './modules/milestones/milestones.module'; // Removed - using mock data
 import jwtConfig from './config/jwt.config';
 import { WizardModule } from './modules/wizard/wizard.module';
 import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
 import { ReviewModule } from './modules/review/review.module';
 import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
-import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
 import { ProjectSpecsModule } from './modules/project-specs/project-specs.module';
 import { SeedingModule } from './modules/seeding/seeding.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
+import { UserWarningModule } from './modules/user-warning/user-warning.module';
 
 @Module({
   imports: [
@@ -62,12 +66,12 @@ import { SeedingModule } from './modules/seeding/seeding.module';
       {
         name: 'short',
         ttl: 1000, // 1 second
-        limit: 3,  // 3 requests per second
+        limit: 3, // 3 requests per second
       },
       {
         name: 'medium',
         ttl: 10000, // 10 seconds
-        limit: 20,  // 20 requests per 10 seconds
+        limit: 20, // 20 requests per 10 seconds
       },
       {
         name: 'long',
@@ -78,14 +82,18 @@ import { SeedingModule } from './modules/seeding/seeding.module';
 
     AuditLogsModule,
     AuthModule,
+    TasksModule,
+    ProjectsModule,
+    // MilestonesModule, // Removed - using mock data in frontend
     WizardModule,
     ProjectRequestsModule,
     ReviewModule,
     TrustScoreModule,
     ReportModule,
-    ProjectRequestsModule,
     ProjectSpecsModule,
     SeedingModule,
+    DisputesModule,
+    UserWarningModule,
   ],
   controllers: [AppController],
   providers: [AppService],

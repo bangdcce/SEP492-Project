@@ -87,12 +87,11 @@ export function SignInPage({
         const userRole = loginData.user?.role?.toUpperCase();
         
         if (userRole === 'ADMIN') {
-          navigate(ROUTES.DASHBOARD);
+          navigate(ROUTES.ADMIN_DASHBOARD);
         } else if (userRole === 'CLIENT' || userRole === 'SME') {
           navigate(ROUTES.CLIENT_DASHBOARD);
-        }
-         else {
-          // Default fallback to client dashboard
+        } else {
+          // Default fallback
           navigate(ROUTES.CLIENT_DASHBOARD);
         }
       }

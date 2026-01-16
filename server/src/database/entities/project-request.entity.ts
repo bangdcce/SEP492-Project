@@ -3,8 +3,21 @@ import { UserEntity } from './user.entity';
 import type { ProjectSpecEntity } from './project-spec.entity';
 
 export enum RequestStatus {
-  DRAFT = 'DRAFT',
+  PUBLIC_DRAFT = 'PUBLIC_DRAFT',
+  PRIVATE_DRAFT = 'PRIVATE_DRAFT',
+  BROKER_ASSIGNED = 'BROKER_ASSIGNED',
+  SPEC_APPROVED = 'SPEC_APPROVED',
+  CONTRACT_PENDING = 'CONTRACT_PENDING',
+  HIRING = 'HIRING',
+  CONVERTED_TO_PROJECT = 'CONVERTED_TO_PROJECT',
+  
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  CANCELED = 'CANCELED',
+  
+  DRAFT = 'DRAFT', 
   PENDING = 'PENDING',
+  PENDING_SPECS = 'PENDING_SPECS',
   PROCESSING = 'PROCESSING',
   APPROVED = 'APPROVED',
   REJECTED = 'REJECTED',
@@ -65,4 +78,7 @@ export class ProjectRequestEntity {
 
   @OneToOne('ProjectSpecEntity', 'request')
   spec: ProjectSpecEntity;
+
+  @OneToMany('BrokerProposalEntity', 'request')
+  brokerProposals: any[];
 }
