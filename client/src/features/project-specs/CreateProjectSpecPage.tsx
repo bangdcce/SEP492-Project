@@ -17,6 +17,7 @@ export default function CreateProjectSpecPage() {
   const [request, setRequest] = useState<ProjectRequest | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
@@ -31,12 +32,6 @@ export default function CreateProjectSpecPage() {
         const data = await projectRequestsApi.getById(id);
         console.log('[CreateProjectSpecPage] Fetched request:', data);
         setRequest(data);
-        
-        // Basic protection: redirect if not eligible (though backend also checks)
-        // We might want to allow viewing this page even if not strictly processing? 
-        // No, let's keep it strict for creation.
-        // NOTE: we can't easily check 'brokerId === me' here without auth context, 
-        // relying on backend protection mostly.
       } catch (err) {
         console.error('Failed to fetch request:', err);
         setError('Could not load project request details.');
@@ -50,6 +45,7 @@ export default function CreateProjectSpecPage() {
   const handleSubmit = async (data: CreateProjectSpecDTO) => {
     try {
       setIsSubmitting(true);
+      setSubmitError(null);
       const newSpec = await projectSpecsApi.createSpec(data);
       console.log('Spec created:', newSpec);
       // Redirect to request details or the new spec details (when we have a page for it)
@@ -58,10 +54,9 @@ export default function CreateProjectSpecPage() {
       navigate(`/project-requests/${id}`);
     } catch (err) {
       console.error('Failed to create spec:', err);
-      // Show error calculation if available
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const message = (err as any).response?.data?.message || 'Failed to create project specification.';
-      setError(message);
+      setSubmitError(message);
       setIsSubmitting(false);
     }
   };
@@ -74,7 +69,7 @@ export default function CreateProjectSpecPage() {
     );
   }
 
-  if (error || !request) {
+  if (!request) {
     return (
       <div className="container mx-auto py-8">
         <Alert variant="destructive">
@@ -100,10 +95,10 @@ export default function CreateProjectSpecPage() {
         </div>
       </div>
 
-      {error && (
+      {submitError && (
          <Alert variant="destructive">
             <AlertTitle>Submission Error</AlertTitle>
-            <AlertDescription>{error}</AlertDescription>
+            <AlertDescription>{submitError}</AlertDescription>
          </Alert>
       )}
 
