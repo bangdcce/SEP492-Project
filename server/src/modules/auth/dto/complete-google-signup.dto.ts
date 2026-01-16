@@ -26,7 +26,8 @@ export class CompleteGoogleSignupDto {
   @IsString()
   @IsNotEmpty({ message: 'Số điện thoại không được để trống' })
   @Matches(/^(0[3|5|7|8|9])+([0-9]{8})$/, {
-    message: 'Số điện thoại phải là số điện thoại Việt Nam hợp lệ (10 số, bắt đầu bằng 03, 05, 07, 08 hoặc 09)',
+    message:
+      'Số điện thoại phải là số điện thoại Việt Nam hợp lệ (10 số, bắt đầu bằng 03, 05, 07, 08 hoặc 09)',
   })
   phoneNumber: string;
 

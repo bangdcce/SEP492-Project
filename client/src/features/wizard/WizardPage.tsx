@@ -79,6 +79,7 @@ export default function WizardPage() {
 
   const handleSubmit = async (mode: 'draft' | 'marketplace' | 'invite') => {
      try {
+        const isDraft = mode === 'draft';
         setSubmitting(true);
 
         // Check KYC before submitting project (if not draft)
@@ -100,7 +101,6 @@ export default function WizardPage() {
             return;
           }
         }
-        const isDraft = mode === 'draft';
         
         // Map questions to answers
         const payload: CreateProjectRequestDto = {

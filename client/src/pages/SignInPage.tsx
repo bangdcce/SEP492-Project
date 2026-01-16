@@ -88,7 +88,6 @@ export function SignInPage({
       } else {
         // Role-based redirect
         const userRole = loginData.user?.role?.toUpperCase();
-        const userSkills = loginData.user?.skills || [];
         
         if (userRole === 'ADMIN') {
           navigate(ROUTES.ADMIN_DASHBOARD);

@@ -7,7 +7,7 @@ import { GetAuditLogsDto } from './dto/get-audit-logs.dto';
 /**
  * Request interface for type safety
  */
-interface RequestContext {
+export interface RequestContext {
   user?: {
     id?: string;
     sub?: string;

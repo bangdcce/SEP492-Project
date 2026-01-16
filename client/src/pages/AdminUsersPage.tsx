@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Search, Ban, UserCheck, Key, Shield, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 

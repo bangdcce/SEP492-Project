@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import { Upload, Camera, User, CheckCircle, ArrowLeft, ArrowRight } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
 import { Input } from '@/shared/components/custom/input';
@@ -21,7 +21,7 @@ interface KYCFormData {
 }
 
 export default function KYCPage() {
-  const navigate = useNavigate();
+
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState<KYCFormData>({
     fullName: '',

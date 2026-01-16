@@ -27,7 +27,7 @@ export default function ProjectRequestDetailsPage() {
         setIsLoading(true);
         const response = await projectRequestsApi.getById(id);
         setRequest(response);
-      } catch (err) {
+      } catch (err: unknown) {
         console.error('Failed to fetch request:', err);
         setError('Failed to load project request details.');
       } finally {
@@ -96,7 +96,7 @@ export default function ProjectRequestDetailsPage() {
       alert('Request assigned successfully!');
       
       // Navigate back or refresh? For now just stay.
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Failed to assign request:', err);
       alert('Failed to assign request');
     }
@@ -167,7 +167,7 @@ export default function ProjectRequestDetailsPage() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-4">
-                  {request.answers.map((answer: any) => (
+                  {request.answers.map((answer) => (
                     <div key={answer.id} className="p-4 bg-muted/50 rounded-lg space-y-2">
                        {/* Use safer access and fallback */}
                       <p className="text-sm font-medium">{answer.question?.label || 'Unknown Question'}</p>

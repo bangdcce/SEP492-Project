@@ -9,6 +9,7 @@ interface SidebarProps {
   onNavigate: (path: string) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
+  menuItems?: SidebarMenuItem[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -16,6 +17,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onNavigate,
   isCollapsed,
   onToggleCollapse,
+  menuItems = sidebarMenuItems,
 }) => {
   const isActive = (item: SidebarMenuItem) => activePath === item.path;
 
@@ -67,7 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Navigation Menu */}
       <nav className="flex-1 px-3 py-4">
         <ul className="space-y-1">
-          {sidebarMenuItems.map((item) => {
+          {menuItems.map((item) => {
             const Icon = item.icon;
             const active = isActive(item);
 

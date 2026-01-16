@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
-import { ProjectRequestEntity, RequestStatus } from '../../database/entities/project-request.entity';
+import {
+  ProjectRequestEntity,
+  RequestStatus,
+} from '../../database/entities/project-request.entity';
 import { ProjectSpecEntity, ProjectSpecStatus } from '../../database/entities/project-spec.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
 import * as bcrypt from 'bcryptjs';
@@ -29,20 +32,24 @@ export class SeedingService {
 
       // 2. Create Pending Request
       const pendingTitle = 'E-commerce Website Redesign';
-      const existingPending = await this.requestRepository.findOne({ where: { title: pendingTitle } });
+      const existingPending = await this.requestRepository.findOne({
+        where: { title: pendingTitle },
+      });
       if (!existingPending) {
         await this.createRequest(
           client.id,
           pendingTitle,
           'Need a modern redesign for our shopify store.',
           '50-100M VND',
-          RequestStatus.PENDING
+          RequestStatus.PENDING,
         );
       }
 
       // 3. Create Processing Request
       const processingTitle = 'Mobile App for Food Delivery';
-      const existingProcessing = await this.requestRepository.findOne({ where: { title: processingTitle } });
+      const existingProcessing = await this.requestRepository.findOne({
+        where: { title: processingTitle },
+      });
       if (!existingProcessing) {
         await this.createRequest(
           client.id,
@@ -50,14 +57,17 @@ export class SeedingService {
           'UberEats clone for local market.',
           '100-200M VND',
           RequestStatus.PROCESSING,
-          broker.id
+          broker.id,
         );
       }
 
       // 4. Create Spec Submitted Request
       const specTitle = 'Corporate CRM System';
-      let reqWithSpec = await this.requestRepository.findOne({ where: { title: specTitle }, relations: ['spec'] });
-      
+      let reqWithSpec = await this.requestRepository.findOne({
+        where: { title: specTitle },
+        relations: ['spec'],
+      });
+
       if (!reqWithSpec) {
         reqWithSpec = await this.createRequest(
           client.id,
@@ -65,7 +75,7 @@ export class SeedingService {
           'Internal CRM for managing sales leads.',
           '200M+ VND',
           RequestStatus.SPEC_SUBMITTED,
-          broker.id
+          broker.id,
         );
       }
 
@@ -78,13 +88,13 @@ export class SeedingService {
           totalBudget: 150000000,
           status: ProjectSpecStatus.PENDING_APPROVAL,
         });
-        
+
         // Save spec first
         const savedSpec = await this.specRepository.save(spec);
-        
+
         // Manually link back if needed or let TypeORM handle via requestId
         // In one-to-one, we established relation.
-        
+
         // Create Milestones
         const m1 = this.milestoneRepository.create({
           projectSpecId: savedSpec.id, // Assuming implicit columns or relation
@@ -126,15 +136,22 @@ export class SeedingService {
       });
       await this.userRepository.save(user);
     } else if (!user.passwordHash) {
-        // Fix for existing users without password (e.g. from bad seed)
-        console.log(`Updating password for ${email}`);
-        user.passwordHash = await bcrypt.hash('password123', 10);
-        await this.userRepository.save(user);
+      // Fix for existing users without password (e.g. from bad seed)
+      console.log(`Updating password for ${email}`);
+      user.passwordHash = await bcrypt.hash('password123', 10);
+      await this.userRepository.save(user);
     }
     return user;
   }
 
-  private async createRequest(clientId: string, title: string, description: string, budget: string, status: RequestStatus, brokerId?: string) {
+  private async createRequest(
+    clientId: string,
+    title: string,
+    description: string,
+    budget: string,
+    status: RequestStatus,
+    brokerId?: string,
+  ) {
     const req = this.requestRepository.create({
       clientId,
       title,

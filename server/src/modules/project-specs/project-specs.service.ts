@@ -7,14 +7,8 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
-import {
-  ProjectSpecEntity,
-  ProjectSpecStatus,
-} from '../../database/entities/project-spec.entity';
-import {
-  MilestoneEntity,
-  MilestoneStatus,
-} from '../../database/entities/milestone.entity';
+import { ProjectSpecEntity, ProjectSpecStatus } from '../../database/entities/project-spec.entity';
+import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
 import {
   ProjectRequestEntity,
   RequestStatus,
@@ -22,6 +16,7 @@ import {
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { UserEntity } from '../../database/entities/user.entity';
+import type { RequestContext } from '../audit-logs/audit-logs.service';
 
 @Injectable()
 export class ProjectSpecsService {
@@ -41,7 +36,7 @@ export class ProjectSpecsService {
   async createSpec(
     user: UserEntity,
     createSpecDto: CreateProjectSpecDto,
-    req: any,
+    req: RequestContext,
   ): Promise<ProjectSpecEntity> {
     const { requestId, milestones, totalBudget, ...specData } = createSpecDto;
 
@@ -63,28 +58,14 @@ export class ProjectSpecsService {
 
       // Check ownership
       if (projectRequest.brokerId !== user.id) {
-        throw new ForbiddenException(
-          'You are not authorized to create a spec for this request',
-        );
+        throw new ForbiddenException('You are not authorized to create a spec for this request');
       }
 
-      // Check status
-      if (projectRequest.status !== RequestStatus.PROCESSING) {
-         // Allow if it was already spec submitted (updating spec?) - for now strict
-         if (projectRequest.status !== RequestStatus.SPEC_SUBMITTED) {
-             throw new BadRequestException(
-               'Project request must be in PROCESSING status to submit a spec',
-             );
-         }
-      }
 
       // 2. Financial Integrity Check
       // Calculate total milestone amount. Use parseFloat to handle potential string inputs from DTO if not strictly transformed,
       // but class-transformer @Type should handle it. Being safe with number operations.
-      const totalMilestoneAmount = milestones.reduce(
-        (sum, m) => sum + Number(m.amount),
-        0,
-      );
+      const totalMilestoneAmount = milestones.reduce((sum, m) => sum + Number(m.amount), 0);
 
       // Compare with totalBudget (handling floating point small diffs if necessary, but here we expect exact match for business logic)
       if (Math.abs(totalMilestoneAmount - totalBudget) > 0.01) {
@@ -128,16 +109,14 @@ export class ProjectSpecsService {
       await queryRunner.manager.save(projectRequest);
 
       // 6. Audit Log
-      await this.auditLogsService.log(
-        {
-            actorId: user.id,
-            action: 'SUBMIT_SPEC',
-            entityType: 'ProjectSpec',
-            entityId: savedSpec.id,
-            newData: { totalBudget, milestoneCount: milestones.length },
-            req,
-        }
-      );
+      await this.auditLogsService.log({
+        actorId: user.id,
+        action: 'SUBMIT_SPEC',
+        entityType: 'ProjectSpec',
+        entityId: savedSpec.id,
+        newData: { totalBudget, milestoneCount: milestones.length },
+        req,
+      });
 
       await queryRunner.commitTransaction();
 

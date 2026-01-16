@@ -1,4 +1,13 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany, OneToOne } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  OneToMany,
+  OneToOne,
+} from 'typeorm';
 import { UserEntity } from './user.entity';
 import type { ProjectSpecEntity } from './project-spec.entity';
 
@@ -10,12 +19,12 @@ export enum RequestStatus {
   CONTRACT_PENDING = 'CONTRACT_PENDING',
   HIRING = 'HIRING',
   CONVERTED_TO_PROJECT = 'CONVERTED_TO_PROJECT',
-  
+
   IN_PROGRESS = 'IN_PROGRESS',
   COMPLETED = 'COMPLETED',
   CANCELED = 'CANCELED',
-  
-  DRAFT = 'DRAFT', 
+
+  DRAFT = 'DRAFT',
   PENDING = 'PENDING',
   PENDING_SPECS = 'PENDING_SPECS',
   PROCESSING = 'PROCESSING',

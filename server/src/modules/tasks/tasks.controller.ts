@@ -1,11 +1,21 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Logger, InternalServerErrorException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Logger,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { TasksService, BoardWithMilestones, KanbanStatus } from './tasks.service';
 import { TaskStatus } from '../../database/entities/task.entity';
 
 @Controller('tasks')
 export class TasksController {
   private readonly logger = new Logger(TasksController.name);
-  
+
   constructor(private readonly tasksService: TasksService) {}
 
   @Get('board/:projectId')

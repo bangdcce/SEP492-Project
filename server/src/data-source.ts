@@ -4,7 +4,7 @@ import * as dotenv from 'dotenv';
 import * as path from 'path';
 
 // 1. Phải tự load .env vì không có ConfigModule ở đây
-dotenv.config(); 
+dotenv.config();
 
 // 2. Tạo biến DataSource
 const AppDataSource = new DataSource({
@@ -15,10 +15,10 @@ const AppDataSource = new DataSource({
   username: process.env.DB_USERNAME,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_DATABASE,
-  
+
   synchronize: false,
   logging: process.env.DB_LOGGING === 'true',
-  
+
   // 4. Đường dẫn file dùng path.join và __dirname để an toàn
   entities: [path.join(__dirname, '**/*.entity{.ts,.js}')],
   migrations: [path.join(__dirname, 'database/migrations/*{.ts,.js}')],

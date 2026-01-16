@@ -240,7 +240,7 @@ export class UserWarningService {
     type: UserFlagType,
     severity: FlagSeverity,
     description: string,
-    metadata?: Record<string, any>,
+    metadata?: Record<string, unknown>,
   ): Promise<UserFlagEntity> {
     // Kiểm tra xem đã có flag active cùng loại chưa
     const existingFlag = await this.findActiveFlag(userId, type);
@@ -511,7 +511,7 @@ export class UserWarningService {
     minSeverity?: number,
     page: number = 1,
     limit: number = 20,
-  ): Promise<{ users: any[]; total: number }> {
+  ): Promise<{ users: Record<string, unknown>[]; total: number }> {
     const queryBuilder = this.flagRepo
       .createQueryBuilder('flag')
       .select('flag.userId', 'userId')

@@ -30,8 +30,9 @@ export interface ProjectRequest {
   };
   answers?: {
     id: string;
-    question: { id: string; content: string };
-    option: { id: string; content: string };
+    question: { id: string; label: string };
+    option: { id: string; label: string };
+    valueText?: string;
   }[];
   spec?: {
     id: string;

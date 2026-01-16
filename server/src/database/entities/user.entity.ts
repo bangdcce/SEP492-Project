@@ -10,6 +10,8 @@ import {
   ManyToMany,
   JoinColumn,
 } from 'typeorm';
+import { ProfileEntity } from './profile.entity';
+import { UserFlagEntity } from './user-flag.entity';
 
 export enum UserRole {
   ADMIN = 'ADMIN',
@@ -37,7 +39,7 @@ export class UserEntity {
   email: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
-  passwordHash: string;
+  passwordHash: string | null;
 
   @Column({ type: 'varchar', length: 255 })
   fullName: string;
@@ -50,7 +52,7 @@ export class UserEntity {
   role: UserRole;
 
   @Column({ type: 'varchar', length: 20, nullable: true })
-  phoneNumber: string;
+  phoneNumber: string | null;
 
   @Column({ type: 'boolean', default: false })
   isVerified: boolean;
@@ -74,23 +76,23 @@ export class UserEntity {
   currentTrustScore: number; // Kết quả của thuật toán
 
   @Column({ type: 'varchar', length: 6, nullable: true, name: 'resetpasswordotp' })
-  resetPasswordOtp: string;
+  resetPasswordOtp: string | null;
 
   @Column({ type: 'timestamp', nullable: true, name: 'resetpasswordotpexpires' })
-  resetPasswordOtpExpires: Date;
+  resetPasswordOtpExpires: Date | null;
 
   // --- BAN/UNBAN FIELDS (Admin only) ---
   @Column({ type: 'boolean', default: false })
   isBanned: boolean;
 
   @Column({ type: 'text', nullable: true })
-  banReason: string;
+  banReason: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  bannedAt: Date;
+  bannedAt: Date | null;
 
   @Column({ type: 'uuid', nullable: true })
-  bannedBy: string;
+  bannedBy: string | null;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -100,7 +102,7 @@ export class UserEntity {
 
   // Relations
   @OneToOne('ProfileEntity', 'user')
-  profile: any;
+  profile: ProfileEntity;
 
   @OneToMany('SocialAccountEntity', 'user')
   socialAccounts: any[];
@@ -137,7 +139,7 @@ export class UserEntity {
 
   // NEW: Relation với user_flags
   @OneToMany('UserFlagEntity', 'user')
-  flags: any[];
+  flags: UserFlagEntity[];
 
   // --- E05: LOGIC HUY HIỆU (VIRTUAL PROPERTY) ---
   // @Expose: Báo cho NestJS biết là "Hãy trả field này về cho Frontend dù nó không có trong DB"

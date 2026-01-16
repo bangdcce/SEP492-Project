@@ -3,7 +3,10 @@ import { ProjectSpecsService } from './project-specs.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { ProjectSpecEntity, ProjectSpecStatus } from '../../database/entities/project-spec.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
-import { ProjectRequestEntity, RequestStatus } from '../../database/entities/project-request.entity';
+import {
+  ProjectRequestEntity,
+  RequestStatus,
+} from '../../database/entities/project-request.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { DataSource, QueryRunner } from 'typeorm';
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
@@ -91,14 +94,18 @@ describe('ProjectSpecsService', () => {
       (queryRunner.manager.findOne as jest.Mock).mockResolvedValue(mockRequest);
 
       // Mock Save Spec
-      const mockSavedSpec = { id: 'spec-uuid', ...createDto, status: ProjectSpecStatus.PENDING_APPROVAL };
+      const mockSavedSpec = {
+        id: 'spec-uuid',
+        ...createDto,
+        status: ProjectSpecStatus.PENDING_APPROVAL,
+      };
       (queryRunner.manager.create as jest.Mock).mockImplementation((entity, data) => data);
       (queryRunner.manager.save as jest.Mock).mockImplementation((entityOrEntities) => {
         if (Array.isArray(entityOrEntities)) return Promise.resolve(entityOrEntities); // Milestones
         if (entityOrEntities.title) return Promise.resolve(mockSavedSpec); // Spec
         return Promise.resolve(entityOrEntities); // Request update
       });
-      
+
       // Mock findOne for return
       mockProjectSpecsRepo.findOne.mockResolvedValue(mockSavedSpec);
 
@@ -108,9 +115,12 @@ describe('ProjectSpecsService', () => {
       expect(dataSource.createQueryRunner).toHaveBeenCalled();
       expect(queryRunner.connect).toHaveBeenCalled();
       expect(queryRunner.startTransaction).toHaveBeenCalled();
-      
+
       // Verify Validation Check
-      expect(queryRunner.manager.findOne).toHaveBeenCalledWith(ProjectRequestEntity, expect.any(Object));
+      expect(queryRunner.manager.findOne).toHaveBeenCalledWith(
+        ProjectRequestEntity,
+        expect.any(Object),
+      );
 
       // Verify Saves
       expect(queryRunner.manager.save).toHaveBeenCalledTimes(3); // Spec, Milestones, Request
@@ -124,7 +134,7 @@ describe('ProjectSpecsService', () => {
     });
 
     it('Scenario 2: Validation Trap - Should throw BadRequest if budget mismatch', async () => {
-       const mockRequest = {
+      const mockRequest = {
         id: 'request-uuid',
         brokerId: 'broker-uuid',
         status: RequestStatus.PROCESSING,
@@ -134,9 +144,9 @@ describe('ProjectSpecsService', () => {
       // Create mismatch DTO
       const mismatchDto = { ...createDto, totalBudget: 2000 }; // Milestones sum is 1000
 
-      await expect(service.createSpec(mockUser, mismatchDto, {}))
-        .rejects
-        .toThrow(BadRequestException);
+      await expect(service.createSpec(mockUser, mismatchDto, {})).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
       expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
@@ -144,7 +154,7 @@ describe('ProjectSpecsService', () => {
     });
 
     it('Scenario 3: Transaction Check - Should rollback on error during save', async () => {
-        const mockRequest = {
+      const mockRequest = {
         id: 'request-uuid',
         brokerId: 'broker-uuid',
         status: RequestStatus.PROCESSING,
@@ -153,14 +163,13 @@ describe('ProjectSpecsService', () => {
 
       // Mock Save Spec Success
       (queryRunner.manager.create as jest.Mock).mockImplementation((entity, data) => data);
-      
+
       // Mock Save Milestones Failure
-      (queryRunner.manager.save as jest.Mock).mockImplementationOnce(() => Promise.resolve({ id: 'spec-id' })) // Spec save ok
+      (queryRunner.manager.save as jest.Mock)
+        .mockImplementationOnce(() => Promise.resolve({ id: 'spec-id' })) // Spec save ok
         .mockRejectedValueOnce(new Error('DB Error')); // Milestones save fail
 
-      await expect(service.createSpec(mockUser, createDto, {}))
-        .rejects
-        .toThrow('DB Error');
+      await expect(service.createSpec(mockUser, createDto, {})).rejects.toThrow('DB Error');
 
       expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
       expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
@@ -168,32 +177,30 @@ describe('ProjectSpecsService', () => {
     });
 
     it('Should throw Forbidden if broker does not own request', async () => {
-         const mockRequest = {
+      const mockRequest = {
         id: 'request-uuid',
         brokerId: 'other-broker', // Mismatch
         status: RequestStatus.PROCESSING,
       };
       (queryRunner.manager.findOne as jest.Mock).mockResolvedValue(mockRequest);
 
-      await expect(service.createSpec(mockUser, createDto, {}))
-        .rejects
-        .toThrow(ForbiddenException);
-        
+      await expect(service.createSpec(mockUser, createDto, {})).rejects.toThrow(ForbiddenException);
+
       expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
     });
 
     it('Should throw BadRequest if request status is not PROCESSING', async () => {
-         const mockRequest = {
+      const mockRequest = {
         id: 'request-uuid',
         brokerId: 'broker-uuid',
         status: RequestStatus.PENDING, // Wrong status
       };
       (queryRunner.manager.findOne as jest.Mock).mockResolvedValue(mockRequest);
 
-      await expect(service.createSpec(mockUser, createDto, {}))
-        .rejects
-        .toThrow(BadRequestException);
-        
+      await expect(service.createSpec(mockUser, createDto, {})).rejects.toThrow(
+        BadRequestException,
+      );
+
       expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
     });
   });

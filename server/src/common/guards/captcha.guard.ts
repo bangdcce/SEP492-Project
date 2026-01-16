@@ -27,7 +27,7 @@ export class CaptchaGuard implements CanActivate {
 
     // Verify with Google reCAPTCHA API
     const isValid = await this.captchaService.verifyRecaptcha(recaptchaToken);
-    
+
     if (!isValid) {
       throw new BadRequestException('reCAPTCHA verification failed. Please try again.');
     }

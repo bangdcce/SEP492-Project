@@ -3,7 +3,7 @@ import { Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
-  label: string;
+  label?: string;
   error?: string;
   success?: boolean;
   helperText?: string;
@@ -12,6 +12,7 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
 export function Input({ label, error, success, helperText, ...props }: InputProps) {
   return (
     <div>
+      {label && (
       <label 
         htmlFor={props.id}
         style={{ 
@@ -24,6 +25,7 @@ export function Input({ label, error, success, helperText, ...props }: InputProp
       >
         {label} {props.required && <span style={{ color: 'var(--auth-error)' }}>*</span>}
       </label>
+      )}
       <div className="relative">
         <input
           {...props}

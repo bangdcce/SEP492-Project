@@ -65,6 +65,7 @@ import {
   PaginatedDisputesResponse,
 } from './dto/dispute-filter.dto';
 import { UserWarningService } from '../user-warning/user-warning.service';
+import type { RequestContext } from '../audit-logs/audit-logs.service';
 
 // Constants for deadlines
 const DEFAULT_RESPONSE_DEADLINE_DAYS = 7;
@@ -680,11 +681,12 @@ export class DisputesService {
    * @throws BadRequestException | NotFoundException | ForbiddenException
    */
 
+
   async resolveDispute(
     adminId: string,
     disputeId: string,
     dto: ResolveDisputeDto,
-    req?: any,
+    req?: RequestContext,
   ): Promise<ResolutionResult> {
     const { verdict, adminComment, splitRatioClient = 50 } = dto;
 
@@ -709,6 +711,24 @@ export class DisputesService {
 
       if (!dispute) throw new NotFoundException(`Dispute with ID: ${disputeId} not found`);
 
+      // Lock Escrow, Project, Milestone
+      const escrow = await queryRunner.manager.findOne(EscrowEntity, {
+        where: { milestoneId: dispute.milestoneId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const project = await queryRunner.manager.findOne(ProjectEntity, {
+        where: { id: dispute.projectId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const milestone = await queryRunner.manager.findOne(MilestoneEntity, {
+        where: { id: dispute.milestoneId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!dispute) throw new NotFoundException(`Dispute with ID: ${disputeId} not found`);
+
       if (!DisputeStateMachine.canResolve(dispute.status)) {
         throw new BadRequestException(
           `Dispute is in "${dispute.status}" status and cannot be resolved. ` +
@@ -716,21 +736,6 @@ export class DisputesService {
         );
       }
 
-      // PERFORMANCE: Parallel load Escrow, Project, Milestone with pessimistic lock
-      const [escrow, project, milestone] = await Promise.all([
-        queryRunner.manager.findOne(EscrowEntity, {
-          where: { milestoneId: dispute.milestoneId },
-          lock: { mode: 'pessimistic_write' },
-        }),
-        queryRunner.manager.findOne(ProjectEntity, {
-          where: { id: dispute.projectId },
-          lock: { mode: 'pessimistic_write' },
-        }),
-        queryRunner.manager.findOne(MilestoneEntity, {
-          where: { id: dispute.milestoneId },
-          lock: { mode: 'pessimistic_write' },
-        }),
-      ]);
 
       // Validate all entities exist
       if (!escrow) {
@@ -1909,7 +1914,7 @@ export class DisputesService {
     actorRole: UserRole,
     action: DisputeAction,
     description: string,
-    metadata?: Record<string, any>,
+    metadata?: Record<string, unknown>,
     isInternal: boolean = false,
   ): Promise<DisputeActivityEntity> {
     const activity = queryRunner.manager.create(DisputeActivityEntity, {

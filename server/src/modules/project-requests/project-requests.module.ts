@@ -11,7 +11,11 @@ import { BrokerProposalEntity } from '../../database/entities/broker-proposal.en
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ProjectRequestEntity, ProjectRequestAnswerEntity, BrokerProposalEntity]),
+    TypeOrmModule.forFeature([
+      ProjectRequestEntity,
+      ProjectRequestAnswerEntity,
+      BrokerProposalEntity,
+    ]),
     AuditLogsModule,
     AuthModule,
   ],

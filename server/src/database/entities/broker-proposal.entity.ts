@@ -1,4 +1,12 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, Index } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  Index,
+} from 'typeorm';
 import { ProjectRequestEntity } from './project-request.entity';
 import { UserEntity } from './user.entity';
 
@@ -35,7 +43,9 @@ export class BrokerProposalEntity {
   createdAt: Date;
 
   // Relations
-  @ManyToOne(() => ProjectRequestEntity, (request) => request.brokerProposals, { onDelete: 'CASCADE' })
+  @ManyToOne(() => ProjectRequestEntity, (request) => request.brokerProposals, {
+    onDelete: 'CASCADE',
+  })
   @JoinColumn({ name: 'requestId' })
   request: ProjectRequestEntity;
 

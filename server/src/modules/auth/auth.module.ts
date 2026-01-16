@@ -45,7 +45,14 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, EmailService, CaptchaService, JwtStrategy, /* GoogleStrategy, */ JwtAuthGuard, CaptchaGuard],
+  providers: [
+    AuthService,
+    EmailService,
+    CaptchaService,
+    JwtStrategy,
+    /* GoogleStrategy, */ JwtAuthGuard,
+    CaptchaGuard,
+  ],
   exports: [AuthService, JwtStrategy, PassportModule, JwtModule, CaptchaService],
 })
 export class AuthModule {}

@@ -9,11 +9,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([
-      ProjectSpecEntity,
-      MilestoneEntity,
-      ProjectRequestEntity,
-    ]),
+    TypeOrmModule.forFeature([ProjectSpecEntity, MilestoneEntity, ProjectRequestEntity]),
     AuditLogsModule, // For logging actions
   ],
   controllers: [ProjectSpecsController],
