@@ -7,7 +7,7 @@ import type { ProjectRequest, RequestStatus } from './types';
 import { projectRequestsApi } from './api';
 import { Button } from '@/shared/components/custom/Button';
 import { Badge } from '@/shared/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/shared/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/shared/components/ui/Card';
 import { Separator } from '@/shared/components/ui/separator';
 import { Skeleton } from '@/shared/components/ui/skeleton';
 

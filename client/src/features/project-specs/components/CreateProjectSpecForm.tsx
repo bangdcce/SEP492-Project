@@ -4,9 +4,9 @@ import * as z from 'zod';
 import { Plus, Trash2 } from 'lucide-react';
 
 import { Button } from '@/shared/components/custom/Button';
-import { Input } from '@/shared/components/ui/input';
+import { Input } from '@/shared/components/ui/Input';
 import { Textarea } from '@/shared/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
 import {
   Form,
   FormControl,
