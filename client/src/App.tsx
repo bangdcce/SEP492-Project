@@ -23,6 +23,12 @@ const RequestDetailPage = lazy(
   () => import("@/features/requests/RequestDetailPage")
 );
 
+// ========== PROJECT PAGES ==========
+const ProjectListPage = lazy(
+  () => import("@/features/project-list/ProjectListPage")
+);
+const ProjectWorkspacePage = lazy(() => import("@/pages/ProjectWorkspacePage"));
+
 // ========== ADMIN PAGES ==========
 const AdminDashboard = lazy(() =>
   import("@/features/dashboard/AdminDashboard").then((module) => ({
@@ -33,9 +39,16 @@ const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage")
 );
+const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
+const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
+
+// ========== FREELANCER PAGES ==========
+const FreelancerOnboardingPage = lazy(() => import("@/pages/FreelancerOnboardingPage"));
+const FreelancerDashboardPage = lazy(() => import("@/pages/FreelancerDashboardPage"));
 
 // ========== SHARED PAGES ==========
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
+const KYCPage = lazy(() => import("@/pages/KYCPage"));
 
 // ========== AUTH PAGES ==========
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
@@ -59,6 +72,17 @@ function App() {
         <Route path={ROUTES.LOGIN} element={<SignInPage />} />
         <Route path={ROUTES.REGISTER} element={<SignUpPage />} />
         <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPasswordPage />} />
+        <Route path="/kyc" element={<KYCPage />} />
+
+        {/* ========== FREELANCER ROUTES - /freelancer/* ========== */}
+        <Route
+          path={ROUTES.FREELANCER_ONBOARDING}
+          element={<FreelancerOnboardingPage />}
+        />
+        <Route
+          path={ROUTES.FREELANCER_DASHBOARD}
+          element={<FreelancerDashboardPage />}
+        />
 
         {/* ========== CLIENT ROUTES - /client/* ========== */}
         <Route
@@ -101,6 +125,22 @@ function App() {
             </ClientDashboardLayout>
           }
         />
+        <Route
+          path={ROUTES.CLIENT_PROJECTS}
+          element={
+            <ClientDashboardLayout>
+              <ProjectListPage />
+            </ClientDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_WORKSPACE}
+          element={
+            <ClientDashboardLayout>
+              <ProjectWorkspacePage />
+            </ClientDashboardLayout>
+          }
+        />
 
         {/* ========== ADMIN ROUTES - /admin/* ========== */}
         <Route
@@ -124,6 +164,22 @@ function App() {
           element={
             <MainLayout>
               <AdminReviewModerationPage />
+            </MainLayout>
+          }
+        />
+        <Route
+          path="/admin/kyc"
+          element={
+            <MainLayout>
+              <AdminKYCPage />
+            </MainLayout>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <MainLayout>
+              <AdminUsersPage />
             </MainLayout>
           }
         />

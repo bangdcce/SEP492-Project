@@ -6,6 +6,9 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { TasksModule } from './modules/tasks/tasks.module';
+import { ProjectsModule } from './modules/projects/projects.module';
+// import { MilestonesModule } from './modules/milestones/milestones.module'; // Removed - using mock data
 import jwtConfig from './config/jwt.config';
 import { WizardModule } from './modules/wizard/wizard.module';
 import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
@@ -14,6 +17,8 @@ import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
 import { DisputesModule } from './modules/disputes/disputes.module';
 import { UserWarningModule } from './modules/user-warning/user-warning.module';
+import { KycModule } from './modules/kyc/kyc.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -63,12 +68,12 @@ import { UserWarningModule } from './modules/user-warning/user-warning.module';
       {
         name: 'short',
         ttl: 1000, // 1 second
-        limit: 3,  // 3 requests per second
+        limit: 3, // 3 requests per second
       },
       {
         name: 'medium',
         ttl: 10000, // 10 seconds
-        limit: 20,  // 20 requests per 10 seconds
+        limit: 20, // 20 requests per 10 seconds
       },
       {
         name: 'long',
@@ -79,6 +84,9 @@ import { UserWarningModule } from './modules/user-warning/user-warning.module';
 
     AuditLogsModule,
     AuthModule,
+    TasksModule,
+    ProjectsModule,
+    // MilestonesModule, // Removed - using mock data in frontend
     WizardModule,
     ProjectRequestsModule,
     ReviewModule,
@@ -86,6 +94,8 @@ import { UserWarningModule } from './modules/user-warning/user-warning.module';
     ReportModule,
     DisputesModule,
     UserWarningModule, // NEW: User warning/flag system
+    KycModule, // NEW: KYC verification system
+    UsersModule, // NEW: Admin user management
   ],
   controllers: [AppController],
   providers: [AppService],

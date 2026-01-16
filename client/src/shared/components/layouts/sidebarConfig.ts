@@ -4,7 +4,7 @@
  */
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, ScrollText, Shield } from "lucide-react";
+import { LayoutDashboard, ScrollText, Shield, UserCheck, Users } from "lucide-react";
 
 export interface SidebarMenuItem {
   id: string;
@@ -36,5 +36,19 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     icon: Shield,
     path: "/admin/reviews",
     description: "Moderate user reviews",
+  },
+  {
+    id: "kyc-verification",
+    label: "KYC Verification",
+    icon: UserCheck,
+    path: "/admin/kyc",
+    description: "Review KYC submissions",
+  },
+  {
+    id: "user-management",
+    label: "User Management",
+    icon: Users,
+    path: "/admin/users",
+    description: "Manage users, ban/unban",
   },
 ];

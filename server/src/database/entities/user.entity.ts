@@ -16,6 +16,7 @@ export enum UserRole {
   STAFF = 'STAFF',
   BROKER = 'BROKER',
   CLIENT = 'CLIENT',
+  CLIENT_SME = 'CLIENT_SME',
   FREELANCER = 'FREELANCER',
 }
 
@@ -78,6 +79,19 @@ export class UserEntity {
   @Column({ type: 'timestamp', nullable: true, name: 'resetpasswordotpexpires' })
   resetPasswordOtpExpires: Date;
 
+  // --- BAN/UNBAN FIELDS (Admin only) ---
+  @Column({ type: 'boolean', default: false })
+  isBanned: boolean;
+
+  @Column({ type: 'text', nullable: true })
+  banReason: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  bannedAt: Date;
+
+  @Column({ type: 'uuid', nullable: true })
+  bannedBy: string;
+
   @CreateDateColumn()
   createdAt: Date;
 
@@ -108,6 +122,9 @@ export class UserEntity {
 
   @OneToMany('ProjectRequestProposalEntity', 'freelancer')
   freelancerProposals: any[];
+
+  @OneToMany('BrokerProposalEntity', 'broker')
+  brokerProposals: any[];
 
   @OneToMany('ProjectEntity', 'client')
   clientProjects: any[];

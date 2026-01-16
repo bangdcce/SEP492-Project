@@ -81,9 +81,10 @@ export class AuthService {
   ): Promise<LoginResponseDto> {
     const { email, password } = loginDto;
 
-    // Tìm user theo email
+    // Tìm user theo email với profile relation
     const user = await this.userRepository.findOne({
       where: { email },
+      relations: ['profile'],
     });
 
     if (!user) {
@@ -569,6 +570,9 @@ export class AuthService {
         userId,
         avatarUrl: updateProfileDto.avatarUrl,
         bio: updateProfileDto.bio,
+        companyName: updateProfileDto.companyName,
+        skills: updateProfileDto.skills,
+        portfolioLinks: updateProfileDto.portfolioLinks,
       });
       await this.profileRepository.save(profile);
     } else {
@@ -576,6 +580,11 @@ export class AuthService {
       const updateProfileData: Partial<ProfileEntity> = {};
       if (updateProfileDto.avatarUrl !== undefined) updateProfileData.avatarUrl = updateProfileDto.avatarUrl;
       if (updateProfileDto.bio !== undefined) updateProfileData.bio = updateProfileDto.bio;
+      if (updateProfileDto.companyName !== undefined) updateProfileData.companyName = updateProfileDto.companyName;
+      if (updateProfileDto.skills !== undefined) updateProfileData.skills = updateProfileDto.skills;
+      if (updateProfileDto.portfolioLinks !== undefined) updateProfileData.portfolioLinks = updateProfileDto.portfolioLinks;
+      if (updateProfileDto.linkedinUrl !== undefined) updateProfileData['linkedinUrl'] = updateProfileDto.linkedinUrl;
+      if (updateProfileDto.cvUrl !== undefined) updateProfileData['cvUrl'] = updateProfileDto.cvUrl;
 
       if (Object.keys(updateProfileData).length > 0) {
         await this.profileRepository.update({ userId }, updateProfileData);
@@ -597,6 +606,12 @@ export class AuthService {
       fullName: user.fullName,
       phoneNumber: user.phoneNumber,
       avatarUrl: (user as any).profile?.avatarUrl,
+      bio: (user as any).profile?.bio,
+      skills: (user as any).profile?.skills,
+      linkedinUrl: (user as any).profile?.linkedinUrl,
+      cvUrl: (user as any).profile?.cvUrl,
+      companyName: (user as any).profile?.companyName,
+      portfolioLinks: (user as any).profile?.portfolioLinks,
       role: user.role,
       isVerified: user.isVerified,
       currentTrustScore: user.currentTrustScore,
