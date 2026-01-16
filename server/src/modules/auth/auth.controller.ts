@@ -233,7 +233,7 @@ export class AuthController {
     message: string;
     data: AuthResponseDto;
   }> {
-    // Fetch user with profile to get avatarUrl
+    // Fetch user with profile to get all profile data
     const userWithProfile = await this.authService.findUserWithProfile(req.user.id);
     
     // Service method để map user entity thành response DTO
@@ -243,6 +243,12 @@ export class AuthController {
       fullName: req.user.fullName,
       phoneNumber: req.user.phoneNumber,
       avatarUrl: userWithProfile?.profile?.avatarUrl,
+      bio: userWithProfile?.profile?.bio,
+      companyName: userWithProfile?.profile?.companyName,
+      skills: userWithProfile?.profile?.skills,
+      linkedinUrl: userWithProfile?.profile?.linkedinUrl,
+      cvUrl: userWithProfile?.profile?.cvUrl,
+      portfolioLinks: userWithProfile?.profile?.portfolioLinks,
       role: req.user.role,
       isVerified: req.user.isVerified,
       currentTrustScore: req.user.currentTrustScore,

@@ -37,6 +37,24 @@ export class AuthResponseDto {
   @ApiProperty({ description: 'URL ảnh đại diện', example: 'https://example.com/avatar.jpg', required: false })
   avatarUrl?: string;
 
+  @ApiProperty({ description: 'Giới thiệu bản thân', example: 'Software developer...', required: false })
+  bio?: string;
+
+  @ApiProperty({ description: 'Tên công ty (cho freelancer)', example: 'ABC Company', required: false })
+  companyName?: string;
+
+  @ApiProperty({ description: 'Kỹ năng (cho freelancer)', example: ['React', 'Node.js'], required: false })
+  skills?: string[];
+
+  @ApiProperty({ description: 'LinkedIn URL', example: 'https://linkedin.com/in/username', required: false })
+  linkedinUrl?: string;
+
+  @ApiProperty({ description: 'CV URL', example: 'data:application/pdf;base64,...', required: false })
+  cvUrl?: string;
+
+  @ApiProperty({ description: 'Portfolio links', required: false })
+  portfolioLinks?: Array<{ title: string; url: string }>;
+
   @ApiProperty({ description: 'Vai trò người dùng', example: 'CLIENT' })
   role: string;
 

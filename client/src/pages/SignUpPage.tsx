@@ -16,7 +16,7 @@ interface SignUpPageProps {
   onSignUpSuccess?: () => void;
 }
 
-type UserRole = 'client' | 'broker' | 'freelancer';
+type UserRole = 'client_large' | 'client_small' | 'broker' | 'freelancer';
 
 export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPageProps = {}) {
   const navigate = useNavigate();
@@ -87,8 +87,8 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
       newErrors.email = 'Email is required';
     } else if (!validateEmail(formData.email)) {
       newErrors.email = 'Invalid email address';
-    } else if (formData.role === 'client' && !validateCorporateEmail(formData.email)) {
-      newErrors.email = 'Business owners must use a corporate/organization email (not Gmail, Yahoo, Hotmail, etc.)';
+    } else if (formData.role === 'client_large' && !validateCorporateEmail(formData.email)) {
+      newErrors.email = 'Large SMEs must use a corporate/organization email (not Gmail, Yahoo, Hotmail, etc.)';
     }
 
     if (!formData.phoneNumber) {
@@ -126,12 +126,22 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     setLoading(true);
 
     try {
+      // Map frontend roles to backend roles
+      let backendRole;
+      if (formData.role === 'client_large') {
+        backendRole = 'CLIENT';
+      } else if (formData.role === 'client_small') {
+        backendRole = 'CLIENT_SME';
+      } else {
+        backendRole = formData.role.toUpperCase();
+      }
+
       await signUp({
         email: formData.email,
         password: formData.password,
         fullName: formData.fullName,
         phoneNumber: formData.phoneNumber,
-        role: formData.role.toUpperCase() as any,
+        role: backendRole as any,
         recaptchaToken: formData.recaptchaToken,
       });
 
@@ -183,8 +193,10 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
 
   const getRoleLabel = (role: UserRole) => {
     switch (role) {
-      case 'client':
-        return 'Business Owner (SME)';
+      case 'client_large':
+        return 'Business Owner (Large SME)';
+      case 'client_small':
+        return 'Business Owner (Small SME/Individual)';
       case 'broker':
         return 'Broker (Project Consultant)';
       case 'freelancer':
@@ -194,8 +206,10 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
 
   const getRoleDescription = (role: UserRole) => {
     switch (role) {
-      case 'client':
-        return 'I need software solutions for my business';
+      case 'client_large':
+        return 'I need software solutions for my established business (requires corporate email)';
+      case 'client_small':
+        return 'I need software solutions for my small business or personal project';
       case 'broker':
         return 'I help translate business needs into technical requirements';
       case 'freelancer':
@@ -224,7 +238,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
             I am a... <span style={{ color: 'var(--auth-error)' }}>*</span>
           </label>
           <div className="space-y-3">
-            {(['client', 'broker', 'freelancer'] as UserRole[]).map((role) => (
+            {(['client_large', 'client_small', 'broker', 'freelancer'] as UserRole[]).map((role) => (
               <button
                 key={role}
                 type="button"
@@ -318,11 +332,11 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
           id="email"
           label="Email"
           type="email"
-          placeholder={formData.role === 'client' ? 'company@yourbusiness.com' : 'Enter your email'}
+          placeholder={formData.role === 'client_large' ? 'company@yourbusiness.com' : 'Enter your email'}
           value={formData.email}
           onChange={(e) => handleChange('email', e.target.value)}
           error={errors.email}
-          helperText={formData.role === 'client' ? 'Use your company/university email (e.g., name@company.com, student@university.edu)' : undefined}
+          helperText={formData.role === 'client_large' ? 'Use your company/university email (e.g., name@company.com, student@university.edu)' : undefined}
           required
         />
 

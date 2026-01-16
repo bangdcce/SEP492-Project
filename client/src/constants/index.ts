@@ -14,6 +14,20 @@ export const ROUTES = {
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
+  
+  // Client Routes
+  CLIENT_AUDIT_LOGS: "/audit-logs",
+  
+  // Freelancer Routes
+  FREELANCER_DASHBOARD: "/freelancer/dashboard",
+  FREELANCER_PROFILE: "/freelancer/profile",
+  FREELANCER_ONBOARDING: "/freelancer/onboarding",
+  
+  // Broker Routes
+  BROKER_DASHBOARD: "/broker/dashboard",
+  BROKER_PROFILE: "/broker/profile",
+  
+  // Admin Routes
 
   // ========== CLIENT ROUTES - prefix /client ==========
   CLIENT_DASHBOARD: "/client/dashboard",

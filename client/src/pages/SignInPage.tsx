@@ -78,6 +78,9 @@ export function SignInPage({
       localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, loginData.refreshToken);
       localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(loginData.user));
 
+      // Dispatch event to notify Header component of user data update
+      window.dispatchEvent(new Event('userDataUpdated'));
+
       toast.success('Sign in successful!');
       
       if (onSignInSuccess) {
@@ -85,15 +88,18 @@ export function SignInPage({
       } else {
         // Role-based redirect
         const userRole = loginData.user?.role?.toUpperCase();
+        const userSkills = loginData.user?.skills || [];
         
         if (userRole === 'ADMIN') {
           navigate(ROUTES.ADMIN_DASHBOARD);
         } else if (userRole === 'CLIENT' || userRole === 'SME') {
           navigate(ROUTES.CLIENT_DASHBOARD);
+        } else if (userRole === 'FREELANCER') {
+          navigate(ROUTES.FREELANCER_DASHBOARD);
         } else if (userRole === 'BROKER') {
           navigate(ROUTES.BROKER_DASHBOARD);
         } else {
-          // Default fallback
+          // Default fallback to client dashboard
           navigate(ROUTES.CLIENT_DASHBOARD);
         }
       }

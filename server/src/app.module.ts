@@ -19,6 +19,8 @@ import { ProjectSpecsModule } from './modules/project-specs/project-specs.module
 import { SeedingModule } from './modules/seeding/seeding.module';
 import { DisputesModule } from './modules/disputes/disputes.module';
 import { UserWarningModule } from './modules/user-warning/user-warning.module';
+import { KycModule } from './modules/kyc/kyc.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -94,6 +96,8 @@ import { UserWarningModule } from './modules/user-warning/user-warning.module';
     SeedingModule,
     DisputesModule,
     UserWarningModule,
+    KycModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],
