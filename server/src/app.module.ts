@@ -17,6 +17,8 @@ import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
 import { DisputesModule } from './modules/disputes/disputes.module';
 import { UserWarningModule } from './modules/user-warning/user-warning.module';
+import { KycModule } from './modules/kyc/kyc.module';
+import { UsersModule } from './modules/users/users.module';
 
 @Module({
   imports: [
@@ -92,6 +94,8 @@ import { UserWarningModule } from './modules/user-warning/user-warning.module';
     ReportModule,
     DisputesModule,
     UserWarningModule, // NEW: User warning/flag system
+    KycModule, // NEW: KYC verification system
+    UsersModule, // NEW: Admin user management
   ],
   controllers: [AppController],
   providers: [AppService],

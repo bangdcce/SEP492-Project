@@ -9,8 +9,8 @@ import { StepB4 } from "./components/StepB4";
 import { StepB5 } from "./components/StepB5";
 import { wizardService } from "./services/wizardService";
 import type { WizardQuestion, CreateProjectRequestDto } from "./services/wizardService";
-import { ROUTES } from "@/constants";
-import { ArrowLeft, ArrowRight, Check } from "lucide-react";
+import { ROUTES, API_CONFIG } from "@/constants";
+import { ArrowLeft, ArrowRight, Check, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export default function WizardPage() {
@@ -20,6 +20,7 @@ export default function WizardPage() {
   const [questions, setQuestions] = useState<WizardQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [kycStatus, setKycStatus] = useState<string | null>(null);
 
   const [requestId, setRequestId] = useState<string | null>(null);
   
@@ -46,7 +47,23 @@ export default function WizardPage() {
         setLoading(false);
       }
     };
+
+    const checkKycStatus = async () => {
+      try {
+        const response = await fetch(`${API_CONFIG.BASE_URL}/kyc/me`, {
+          headers: {
+            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          },
+        });
+        const data = await response.json();
+        setKycStatus(data.status || 'NOT_STARTED');
+      } catch (error) {
+        console.error('Error checking KYC:', error);
+      }
+    };
+
     fetchQuestions();
+    checkKycStatus();
   }, []);
 
   const totalSteps = 5;
@@ -63,6 +80,26 @@ export default function WizardPage() {
   const handleSubmit = async (mode: 'draft' | 'marketplace' | 'invite') => {
      try {
         setSubmitting(true);
+
+        // Check KYC before submitting project (if not draft)
+        if (!isDraft && kycStatus !== 'APPROVED') {
+          if (kycStatus === 'NOT_STARTED' || kycStatus === 'REJECTED') {
+            toast.error('KYC verification required', {
+              description: 'Please complete KYC verification before posting a project.',
+            });
+            setTimeout(() => {
+              navigate('/kyc');
+            }, 2000);
+            return;
+          }
+          
+          if (kycStatus === 'PENDING') {
+            toast.warning('KYC verification pending', {
+              description: 'Your KYC is being reviewed. You can save as draft or wait for approval.',
+            });
+            return;
+          }
+        }
         const isDraft = mode === 'draft';
         
         // Map questions to answers
@@ -160,6 +197,45 @@ export default function WizardPage() {
         </div>
         <Progress value={progress} className="h-2" />
       </div>
+
+      {/* KYC Warning Banner */}
+      {kycStatus && kycStatus !== 'APPROVED' && (
+        <div className={`w-full max-w-4xl rounded-lg border p-4 mb-6 ${
+          kycStatus === 'PENDING' 
+            ? 'bg-yellow-50 border-yellow-200' 
+            : 'bg-blue-50 border-blue-200'
+        }`}>
+          <div className="flex items-start gap-3">
+            <AlertCircle className={`w-5 h-5 mt-0.5 ${
+              kycStatus === 'PENDING' ? 'text-yellow-600' : 'text-blue-600'
+            }`} />
+            <div className="flex-1">
+              <h3 className={`font-semibold ${
+                kycStatus === 'PENDING' ? 'text-yellow-800' : 'text-blue-800'
+              }`}>
+                {kycStatus === 'PENDING' 
+                  ? 'KYC Verification Pending' 
+                  : 'KYC Verification Required'}
+              </h3>
+              <p className={`text-sm mt-1 ${
+                kycStatus === 'PENDING' ? 'text-yellow-700' : 'text-blue-700'
+              }`}>
+                {kycStatus === 'PENDING' 
+                  ? 'Your KYC is being reviewed. You can save as draft or wait for approval to submit.' 
+                  : 'Please complete KYC verification to post projects.'}
+              </p>
+              {kycStatus !== 'PENDING' && (
+                <button
+                  onClick={() => navigate('/kyc')}
+                  className="text-sm font-medium text-blue-600 hover:text-blue-700 mt-2 underline"
+                >
+                  Complete KYC Now →
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <Card className="w-full max-w-4xl border-none shadow-xl bg-card/50 backdrop-blur-sm">
         <CardHeader></CardHeader>
