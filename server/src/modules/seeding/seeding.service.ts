@@ -125,6 +125,11 @@ export class SeedingService {
         phoneNumber: '0900000000' + Math.floor(Math.random() * 10),
       });
       await this.userRepository.save(user);
+    } else if (!user.passwordHash) {
+        // Fix for existing users without password (e.g. from bad seed)
+        console.log(`Updating password for ${email}`);
+        user.passwordHash = await bcrypt.hash('password123', 10);
+        await this.userRepository.save(user);
     }
     return user;
   }
