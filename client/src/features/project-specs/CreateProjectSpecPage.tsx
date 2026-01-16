@@ -20,11 +20,16 @@ export default function CreateProjectSpecPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
-    if (!id) return;
+    console.log('[CreateProjectSpecPage] URL param id:', id, 'type:', typeof id);
+    if (!id) {
+      console.error('[CreateProjectSpecPage] No id from URL params!');
+      return;
+    }
     const fetchRequest = async () => {
       try {
         setIsLoading(true);
         const data = await projectRequestsApi.getById(id);
+        console.log('[CreateProjectSpecPage] Fetched request:', data);
         setRequest(data);
         
         // Basic protection: redirect if not eligible (though backend also checks)

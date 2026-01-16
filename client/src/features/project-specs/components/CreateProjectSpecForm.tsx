@@ -65,10 +65,13 @@ export function CreateProjectSpecForm({ requestId, onSubmit, isSubmitting }: Cre
   });
 
   const handleSubmit = (values: FormValues) => {
-    onSubmit({
+    const payload = {
       requestId,
       ...values,
-    });
+    };
+    console.log('[CreateProjectSpecForm] Submitting payload:', payload);
+    console.log('[CreateProjectSpecForm] requestId:', requestId, 'type:', typeof requestId);
+    onSubmit(payload);
   };
 
   const milestoneSum = form.watch('milestones').reduce((sum, m) => sum + (Number(m.amount) || 0), 0);

@@ -31,7 +31,7 @@ export class CreateMilestoneDto {
 }
 
 export class CreateProjectSpecDto {
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
   requestId: string;
 

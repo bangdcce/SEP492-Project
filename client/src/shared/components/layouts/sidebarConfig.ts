@@ -33,6 +33,13 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     description: "Overview and statistics",
   },
   {
+    id: "broker-dashboard",
+    label: "Broker Dashboard",
+    icon: LayoutDashboard,
+    path: "/broker/dashboard",
+    description: "Broker overview",
+  },
+  {
     id: "audit-logs",
     label: "System Logs",
     icon: ScrollText,

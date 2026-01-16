@@ -20,6 +20,8 @@ export class ProjectSpecsController {
     @Body() createSpecDto: CreateProjectSpecDto,
     @Req() req: any,
   ) {
+    console.log('[ProjectSpecsController] Received DTO:', createSpecDto);
+    console.log('[ProjectSpecsController] requestId:', createSpecDto.requestId, 'type:', typeof createSpecDto.requestId);
     return this.projectSpecsService.createSpec(user, createSpecDto, req);
   }
 }

@@ -78,7 +78,16 @@ export class ProjectRequestsService {
 
   // ... existing methods ...
   
-  // (No changes needed for simple lookups)
+  async findAll(status?: RequestStatus) {
+    const options: any = {
+      relations: ['answers', 'answers.question', 'answers.option', 'client', 'broker'],
+      order: { createdAt: 'DESC' },
+    };
+    if (status) {
+      options.where = { status };
+    }
+    return this.requestRepo.find(options);
+  }
 
   async update(id: string, dto: UpdateProjectRequestDto) {
     const request = await this.findOne(id);
@@ -157,11 +166,21 @@ export class ProjectRequestsService {
   }
 
 
-  async findOne(id: string) {
-    return this.requestRepo.findOne({
+  async findOne(id: string, user?: UserEntity) {
+    const request = await this.requestRepo.findOne({
       where: { id },
-      relations: ['answers', 'answers.question', 'answers.option', 'client', 'brokerProposals', 'brokerProposals.broker'],
+      relations: ['answers', 'answers.question', 'answers.option', 'client', 'brokerProposals', 'brokerProposals.broker', 'spec', 'spec.milestones'],
     });
+
+    if (!request) return null;
+
+    if (user) {
+      if (user.role === UserRole.CLIENT && request.clientId !== user.id) {
+        throw new Error('Forbidden: You can only view your own requests');
+      }
+    }
+
+    return request;
   }
 
   async findMatches(id: string) {
@@ -202,6 +221,46 @@ export class ProjectRequestsService {
         status: ProposalStatus.PENDING,
     });
     return this.brokerProposalRepo.save(proposal);
+  }
+
+  // --- Broker Self-Assignment (C02) ---
+
+  async assignBroker(requestId: string, brokerId: string, req?: any) {
+    const request = await this.findOne(requestId);
+    if (!request) {
+      throw new Error('Request not found');
+    }
+
+    // Only allow assignment if request is PENDING (waiting for broker)
+    if (request.status !== RequestStatus.PENDING) {
+      throw new Error(`Cannot assign broker. Request status is ${request.status}, expected PENDING`);
+    }
+
+    // Check if already has a broker
+    if (request.brokerId) {
+      throw new Error('Request already has a broker assigned');
+    }
+
+    // Assign broker and change status to PROCESSING
+    request.brokerId = brokerId;
+    request.status = RequestStatus.PROCESSING;
+
+    const savedRequest = await this.requestRepo.save(request);
+
+    // Audit Log
+    try {
+      await this.auditLogsService.logUpdate(
+        'ProjectRequest',
+        requestId,
+        { brokerId: null, status: RequestStatus.PENDING },
+        { brokerId, status: RequestStatus.PROCESSING },
+        req,
+      );
+    } catch (error) {
+      console.error('Audit log failed', error);
+    }
+
+    return savedRequest;
   }
 
   // --- Phase 2: Hire Broker ---

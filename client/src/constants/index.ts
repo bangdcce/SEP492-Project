@@ -20,6 +20,9 @@ export const ROUTES = {
   CLIENT_MY_REQUESTS: "/client/my-requests",
   CLIENT_WIZARD: "/client/wizard",
   CLIENT_PROFILE: "/client/profile",
+  
+  // ========== BROKER ROUTES - prefix /broker ==========
+  BROKER_DASHBOARD: "/broker/dashboard",
 
   // ========== PROJECT ROUTES ==========
   CLIENT_PROJECTS: "/client/projects",

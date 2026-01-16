@@ -35,6 +35,11 @@ const AdminDashboard = lazy(() =>
     default: module.AdminDashboard,
   }))
 );
+const BrokerDashboard = lazy(() =>
+  import("@/features/dashboard/BrokerDashboard").then((module) => ({
+    default: module.BrokerDashboard,
+  }))
+);
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage")
@@ -157,6 +162,16 @@ function App() {
           element={
             <MainLayout>
               <ProfilePage />
+            </MainLayout>
+          }
+        />
+
+        {/* ========== BROKER ROUTES ========== */}
+        <Route
+          path={ROUTES.BROKER_DASHBOARD}
+          element={
+            <MainLayout>
+              <BrokerDashboard />
             </MainLayout>
           }
         />
