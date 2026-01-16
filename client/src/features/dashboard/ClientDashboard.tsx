@@ -3,6 +3,8 @@ import {
   Card,
   CardHeader,
   CardContent,
+  CardFooter,
+  CardTitle,
   Button,
   Badge,
   Spinner,
@@ -12,6 +14,7 @@ import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { PlusCircle, AlertCircle } from "lucide-react";
 import { ROUTES } from "@/constants";
+import { RequestStatus } from "../requests/types";
 
 export function ClientDashboard() {
   const navigate = useNavigate();
@@ -24,15 +27,29 @@ export function ClientDashboard() {
 
   const fetchRecent = async () => {
     try {
-      // In a real app we might have a specific endpoint for recent or dashboard stats
       const data = await wizardService.getRequests();
-      // Just take top 3
-      setRecentRequests(data.slice(0, 3));
+      setRecentRequests(data.slice(0, 5));
     } catch (error) {
       console.error("Failed to fetch dashboard data", error);
     } finally {
       setLoading(false);
     }
+  };
+
+  const getStatusVariant = (status: string) => {
+      switch(status) {
+          case RequestStatus.DRAFT: 
+          case RequestStatus.PUBLIC_DRAFT: 
+          case RequestStatus.PRIVATE_DRAFT: 
+            return 'secondary';
+          case RequestStatus.PENDING: 
+          case RequestStatus.PENDING_SPECS: 
+            return 'default'; 
+          case RequestStatus.HIRING: 
+          case RequestStatus.IN_PROGRESS:
+            return 'default';
+          default: return 'outline';
+      }
   };
 
   if (loading)
@@ -43,7 +60,7 @@ export function ClientDashboard() {
     );
 
   const attentionItems = recentRequests.filter(
-    (r) => r.status === "PENDING" || r.status === "WAITING_FOR_REVIEW"
+    (r) => r.status === RequestStatus.PENDING || r.status === RequestStatus.PENDING_SPECS || r.status === "WAITING_FOR_REVIEW"
   );
 
   return (
@@ -62,7 +79,7 @@ export function ClientDashboard() {
           <Button
             size="lg"
             className="gap-2 shadow-lg"
-            onClick={() => navigate(ROUTES.WIZARD)}
+            onClick={() => navigate(ROUTES.CLIENT_WIZARD)}
           >
             <PlusCircle className="w-5 h-5" /> Create New Request
           </Button>
@@ -74,94 +91,93 @@ export function ClientDashboard() {
         <div className="md:col-span-2 space-y-8">
           {/* Attention Needed */}
           {attentionItems.length > 0 && (
-            <section>
-              <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-amber-500" />
-                Needs Attention
-              </h2>
-              <div className="grid gap-3">
-                {attentionItems.map((item) => (
-                  <div
-                    key={item.id}
-                    className="flex items-center justify-between p-4 border border-amber-200 bg-amber-50 rounded-lg"
-                  >
-                    <div>
-                      <div className="font-medium">{item.title}</div>
-                      <div className="text-sm text-amber-700">
-                        Waiting for broker review
+            <Card className="border-amber-200 bg-amber-50/50">
+              <CardHeader>
+                <h2 className="text-xl font-semibold flex items-center gap-2 text-amber-900">
+                  <AlertCircle className="w-5 h-5 text-amber-500" />
+                  Needs Attention
+                </h2>
+              </CardHeader>
+              <CardContent>
+                <div className="grid gap-3">
+                  {attentionItems.map((item) => (
+                    <div
+                      key={item.id}
+                      className="flex flex-col p-4 border border-amber-200 bg-white rounded-lg cursor-pointer hover:shadow-sm transition-all"
+                      onClick={() => navigate(`/client/requests/${item.id}`)}
+                    >
+                      <div className="flex justify-between items-start">
+                        <h3 className="font-medium text-lg truncate pr-4 text-amber-900">
+                          {item.title || "Untitled Request"}
+                        </h3>
+                        <Badge variant="outline" className="border-amber-200 text-amber-700">
+                          {item.status.replace(/_/g, " ")}
+                        </Badge>
+                      </div>
+                      <div className="flex justify-between items-center text-sm text-muted-foreground mt-2">
+                        <span>Created {format(new Date(item.createdAt), 'MMM d, yyyy')}</span>
+                        <span>{item.answers?.length || 0} details</span>
                       </div>
                     </div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="bg-white"
-                      onClick={() => navigate(`/requests/${item.id}`)}
-                    >
-                      View
-                    </Button>
-                  </div>
-                ))}
-              </div>
-            </section>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
           )}
 
-          {/* Recent Activity */}
-          <section>
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-semibold">Recent Requests</h2>
-              <Button
-                variant="link"
-                onClick={() => navigate(ROUTES.MY_REQUESTS)}
-              >
-                View All
-              </Button>
-            </div>
-
-            <div className="grid gap-4">
+          {/* Recent Activity Card */}
+          <Card>
+            <CardHeader>
+              <CardTitle>Recent Projects</CardTitle>
+            </CardHeader>
+            <CardContent>
               {recentRequests.length === 0 ? (
-                <div className="text-center py-8 text-muted-foreground border-2 border-dashed rounded-lg">
-                  No recent activity.
+                <div className="text-center py-8 text-muted-foreground">
+                  <p>No recent activity</p>
                 </div>
               ) : (
-                recentRequests.map((request) => (
-                  <Card
-                    key={request.id}
-                    className="hover:shadow-sm transition-shadow cursor-pointer"
-                    onClick={() =>
-                      navigate(
-                        request.status === "DRAFT"
-                          ? `/wizard?draftId=${request.id}`
-                          : `/requests/${request.id}`
-                      )
-                    }
-                  >
-                    <CardContent className="p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-4">
+                <div className="space-y-4">
+                  {recentRequests.map((request) => (
+                    <div
+                      key={request.id}
+                      className="flex items-center gap-4 p-3 rounded-lg hover:bg-muted/50 transition-colors cursor-pointer border"
+                      onClick={() => navigate(`/client/requests/${request.id}`)}
+                    >
                         <div
                           className={`w-2 h-12 rounded-full ${
-                            request.status === "DRAFT"
+                            request.status.includes("DRAFT")
                               ? "bg-gray-300"
-                              : request.status === "PENDING"
+                              : request.status.includes("PENDING")
                               ? "bg-yellow-400"
                               : "bg-green-500"
                           }`}
                         />
-                        <div>
-                          <h3 className="font-semibold">
+                        <div className="flex-1 min-w-0">
+                          <h3 className="font-semibold truncate">
                             {request.title || "Untitled Draft"}
                           </h3>
                           <p className="text-sm text-muted-foreground">
                             {format(new Date(request.createdAt), "MMM d, yyyy")}
                           </p>
                         </div>
-                      </div>
-                      <Badge variant="outline">{request.status}</Badge>
-                    </CardContent>
-                  </Card>
-                ))
+                        <Badge variant={getStatusVariant(request.status)}>
+                            {request.status.replace(/_/g, ' ')}
+                        </Badge>
+                    </div>
+                  ))}
+                </div>
               )}
-            </div>
-          </section>
+            </CardContent>
+            <CardFooter>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => navigate(ROUTES.CLIENT_MY_REQUESTS)}
+              >
+                View All Requests
+              </Button>
+            </CardFooter>
+          </Card>
         </div>
 
         {/* Right Column: Quick Links / Resources */}
@@ -207,7 +223,9 @@ export function ClientDashboard() {
                 <span className="text-sm text-muted-foreground">
                   Active Projects
                 </span>
-                <span className="font-bold">0</span>
+                <span className="font-bold">
+                    {recentRequests.filter(r => !r.status.includes('DRAFT')).length}
+                </span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">
