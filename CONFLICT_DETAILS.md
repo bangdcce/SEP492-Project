@@ -29,9 +29,13 @@ This document provides a detailed breakdown of each conflicting file identified 
 
 **server/package-lock.json** and **server/yarn.lock**
 - **Conflict Type:** Add/Add
-- **Issue:** Lock file mismatch (server uses both npm and yarn)
-- **Risk:** Inconsistent dependency resolution  
-- **Resolution Strategy:** Regenerate appropriate lock file after resolving package.json
+- **Issue:** Both npm and yarn lock files exist, indicating inconsistent package manager usage
+- **Risk:** Inconsistent dependency resolution and future conflicts
+- **Resolution Strategy:** 
+  - **Decision needed:** Choose to standardize on either npm OR yarn (not both)
+  - Remove the lock file for the non-chosen package manager
+  - Regenerate lock file after resolving package.json
+  - Update CI/CD scripts to use only the chosen package manager
 
 ### 2. Core Application Files (3 files)
 #### Impact: CRITICAL - Affects application structure
@@ -173,9 +177,10 @@ This document provides a detailed breakdown of each conflicting file identified 
 
 ### Phase 1: Foundation (Week 1)
 1. Resolve configuration files (package.json)
-2. Regenerate and test lock files
-3. Resolve database entities
-4. Create and test database migrations (only after all entity conflicts resolved)
+2. Decide on package manager standard (npm vs yarn) for server
+3. Regenerate and test lock files
+4. Resolve database entities completely
+5. **IMPORTANT:** Create migrations ONLY after all entity conflicts are fully resolved to avoid multiple migration iterations
 
 ### Phase 2: Core Features (Week 2)
 1. Resolve core application files (App.tsx, app.module.ts, main.ts)

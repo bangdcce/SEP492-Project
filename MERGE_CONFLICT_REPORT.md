@@ -110,7 +110,7 @@ Besides the conflicting files, there are **85 total files** that differ between 
 
 - **Current Branch HEAD:** c6fbc72
 - **Target Branch HEAD:** 8e9171b  
-- **Merge Command Used:** `git merge --no-commit --no-ff --allow-unrelated-histories <target-branch>`
+- **Merge Command Used:** `git merge --no-commit --no-ff --allow-unrelated-histories main`
 - **Merge Status:** Failed due to conflicts
 
 ---
