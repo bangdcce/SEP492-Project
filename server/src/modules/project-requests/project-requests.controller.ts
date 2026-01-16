@@ -33,6 +33,13 @@ import { ProjectRequestEntity } from '../../database/entities/project-request.en
 export class ProjectRequestsController {
   constructor(private readonly projectRequestsService: ProjectRequestsService) {}
 
+  @Post('seed-test-data')
+  @ApiOperation({ summary: 'Seed test data for UI verification (Phase 3 & 4)' })
+  async seedTestData(@Body('clientId') clientId?: string) {
+      const targetClientId = clientId || 'd4e5f6a7-b8c9-0123-defa-234567890123';
+      return this.projectRequestsService.seedTestData(targetClientId);
+  }
+
   @Post()
   @ApiOperation({ summary: 'Submit a new project request (Wizard submission)' })
   @ApiResponse({
@@ -117,5 +124,49 @@ export class ProjectRequestsController {
       filename: file?.originalname,
       url: `/uploads/${file?.originalname}`, // Mock URL
     };
+  }
+
+  @Post(':id/invite')
+  @ApiOperation({ summary: 'Invite a broker to a project request' })
+  @ApiResponse({ status: 201, description: 'Invitation sent' })
+  async invite(
+      @Param('id') id: string,
+      @Body('brokerId') brokerId: string
+  ) {
+      return this.projectRequestsService.inviteBroker(id, brokerId);
+  }
+
+  @Post(':id/apply')
+  @ApiOperation({ summary: 'Broker applies to a project request' })
+  @ApiResponse({ status: 201, description: 'Application submitted' })
+  async apply(
+      @Param('id') id: string,
+      @GetUser('id') brokerId: string,
+      @Body('coverLetter') coverLetter: string
+  ) {
+      return this.projectRequestsService.applyToRequest(id, brokerId, coverLetter);
+  }
+  @Post(':id/accept-broker')
+  @ApiOperation({ summary: 'Client accepts a broker proposal' })
+  @ApiResponse({ status: 200, description: 'Broker accepted' })
+  async acceptBroker(
+      @Param('id') id: string,
+      @Body('brokerId') brokerId: string
+  ) {
+      return this.projectRequestsService.acceptBroker(id, brokerId);
+  }
+
+  @Post(':id/approve-specs')
+  @ApiOperation({ summary: 'Client approves the finalized specs' })
+  @ApiResponse({ status: 200, description: 'Specs approved' })
+  async approveSpecs(@Param('id') id: string) {
+      return this.projectRequestsService.approveSpecs(id);
+  }
+
+  @Post(':id/convert')
+  @ApiOperation({ summary: 'Convert finalized request to project' })
+  @ApiResponse({ status: 201, description: 'Project created' })
+  async convertToProject(@Param('id') id: string) {
+      return this.projectRequestsService.convertToProject(id);
   }
 }

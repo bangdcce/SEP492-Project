@@ -56,4 +56,10 @@ export class CreateProjectRequestDto {
   answers: CreateProjectRequestAnswerDto[];
 }
 
-export class UpdateProjectRequestDto extends PartialType(CreateProjectRequestDto) {}
+import { RequestStatus } from '../../../database/entities/project-request.entity';
+
+export class UpdateProjectRequestDto extends PartialType(CreateProjectRequestDto) {
+    @ApiPropertyOptional({ enum: RequestStatus })
+    @IsOptional()
+    status?: RequestStatus;
+}
