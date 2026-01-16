@@ -8,7 +8,7 @@ import { UserEntity } from '../../../database/entities/user.entity';
 
 /**
  * JWT Token Payload Interface
- * 
+ *
  * Defines the structure of data stored within JWT tokens for authentication.
  * This payload is embedded in every JWT access token issued by the system.
  */
@@ -53,10 +53,10 @@ export interface JwtPayload {
 
 /**
  * JWT Authentication Strategy
- * 
+ *
  * Implements Passport JWT strategy for validating and processing JWT tokens.
  * This strategy is automatically used by guards decorated with @UseGuards(JwtAuthGuard).
- * 
+ *
  * @example
  * ```typescript
  * @UseGuards(JwtAuthGuard)
@@ -75,10 +75,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private userRepository: Repository<UserEntity>,
   ) {
     const jwtSecret = configService.get<string>('jwt.secret');
-    
+
     if (!jwtSecret) {
       throw new Error(
-        'JWT_SECRET is not configured. Please set JWT_SECRET environment variable or configure jwt.secret in your config.'
+        'JWT_SECRET is not configured. Please set JWT_SECRET environment variable or configure jwt.secret in your config.',
       );
     }
 
@@ -91,14 +91,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
   /**
    * Validates JWT payload and retrieves user information
-   * 
+   *
    * This method is automatically called by Passport after JWT signature verification.
    * It ensures the user still exists in the database and hasn't been deleted.
-   * 
+   *
    * @param payload - Decoded JWT payload containing user information
    * @returns Promise<UserEntity> - Full user object that gets attached to request.user
    * @throws UnauthorizedException - When user is not found in database (deleted/deactivated)
-   * 
+   *
    * @example
    * Input payload: { sub: "user-id-123", email: "user@example.com", role: "CLIENT" }
    * Output: UserEntity object with all user fields populated

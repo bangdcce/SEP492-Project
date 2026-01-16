@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AuditLogEntity } from 'src/database/entities';
+import { AuditLogEntity } from '../../database/entities';
 import { Repository } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { GetAuditLogsDto } from './dto/get-audit-logs.dto';
@@ -7,7 +7,7 @@ import { GetAuditLogsDto } from './dto/get-audit-logs.dto';
 /**
  * Request interface for type safety
  */
-interface RequestContext {
+export interface RequestContext {
   user?: {
     id?: string;
     sub?: string;

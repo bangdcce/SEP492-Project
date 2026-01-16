@@ -31,25 +31,49 @@ export class AuthResponseDto {
   @ApiProperty({ description: 'Họ tên đầy đủ', example: 'Nguyễn Văn A' })
   fullName: string;
 
-  @ApiProperty({ description: 'Số điện thoại', example: '0123456789' })
-  phoneNumber: string;
+  @ApiProperty({ description: 'Số điện thoại', example: '0123456789', nullable: true })
+  phoneNumber: string | null;
 
-  @ApiProperty({ description: 'URL ảnh đại diện', example: 'https://example.com/avatar.jpg', required: false })
+  @ApiProperty({
+    description: 'URL ảnh đại diện',
+    example: 'https://example.com/avatar.jpg',
+    required: false,
+  })
   avatarUrl?: string;
 
-  @ApiProperty({ description: 'Giới thiệu bản thân', example: 'Software developer...', required: false })
+  @ApiProperty({
+    description: 'Giới thiệu bản thân',
+    example: 'Software developer...',
+    required: false,
+  })
   bio?: string;
 
-  @ApiProperty({ description: 'Tên công ty (cho freelancer)', example: 'ABC Company', required: false })
+  @ApiProperty({
+    description: 'Tên công ty (cho freelancer)',
+    example: 'ABC Company',
+    required: false,
+  })
   companyName?: string;
 
-  @ApiProperty({ description: 'Kỹ năng (cho freelancer)', example: ['React', 'Node.js'], required: false })
+  @ApiProperty({
+    description: 'Kỹ năng (cho freelancer)',
+    example: ['React', 'Node.js'],
+    required: false,
+  })
   skills?: string[];
 
-  @ApiProperty({ description: 'LinkedIn URL', example: 'https://linkedin.com/in/username', required: false })
+  @ApiProperty({
+    description: 'LinkedIn URL',
+    example: 'https://linkedin.com/in/username',
+    required: false,
+  })
   linkedinUrl?: string;
 
-  @ApiProperty({ description: 'CV URL', example: 'data:application/pdf;base64,...', required: false })
+  @ApiProperty({
+    description: 'CV URL',
+    example: 'data:application/pdf;base64,...',
+    required: false,
+  })
   cvUrl?: string;
 
   @ApiProperty({ description: 'Portfolio links', required: false })

@@ -1,21 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Mail,
-  Phone,
-  MapPin,
-  Edit2,
-  Briefcase,
-  X,
-  ArrowLeft,
-  TrendingUp,
-  Shield,
-} from "lucide-react";
+import { Mail, Phone, MapPin, Edit2, Shield, ExternalLink, FileText, Download, ArrowLeft, Briefcase, X, TrendingUp } from 'lucide-react';
 import { toast } from "sonner";
 import { getProfile, updateProfile } from "@/features/auth/api";
 import { STORAGE_KEYS } from "@/constants";
 import { TrustScoreCard } from "@/features/trust-profile/components";
-import type { BadgeType, TrustStats } from "@/features/trust-profile/types";
+import type { BadgeType } from "@/features/trust-profile/types";
 
 interface UserProfile {
   id: string;
@@ -31,6 +21,11 @@ interface UserProfile {
   skills?: string[];
   linkedinUrl?: string;
   cvUrl?: string;
+  stats?: {
+    finished: number;
+    disputes: number;
+    score: number;
+  };
 }
 
 export default function ProfilePage() {

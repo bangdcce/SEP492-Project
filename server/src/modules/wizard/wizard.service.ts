@@ -1,4 +1,3 @@
-
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -22,8 +21,8 @@ export class WizardService {
       order: {
         sortOrder: 'ASC',
         options: {
-            sortOrder: 'ASC'
-        }
+          sortOrder: 'ASC',
+        },
       },
     });
 

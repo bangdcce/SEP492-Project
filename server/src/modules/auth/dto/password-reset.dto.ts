@@ -64,12 +64,9 @@ export class ResetPasswordDto {
   })
   @IsString({ message: 'Password must be a string' })
   @MinLength(8, { message: 'Password must be at least 8 characters' })
-  @Matches(
-    /^(?=.*[a-z])(?=.*\d)(?=.*[@$!%*?&])/,
-    {
-      message: 'Mật khẩu phải chứa ít nhất một chữ thường, một số và một ký tự đặc biệt (@$!%*?&)',
-    }
-  )
+  @Matches(/^(?=.*[a-z])(?=.*\d)(?=.*[@$!%*?&])/, {
+    message: 'Mật khẩu phải chứa ít nhất một chữ thường, một số và một ký tự đặc biệt (@$!%*?&)',
+  })
   newPassword: string;
 
   @ApiProperty({

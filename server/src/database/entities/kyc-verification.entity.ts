@@ -38,9 +38,9 @@ export class KycVerificationEntity {
   documentType: DocumentType;
 
   @Column({ type: 'date', nullable: true })
-  dateOfBirth: Date;
+  dateOfBirth: Date | null;
   @Column({ type: 'date', nullable: true })
-  documentExpiryDate: Date; // Ngày hết hạn CCCD
+  documentExpiryDate: Date | null; // Ngày hết hạn CCCD
 
   // --- ẢNH TÀI LIỆU (URL từ Cloud Storage) ---
   @Column({ type: 'varchar', length: 500 })

@@ -15,6 +15,8 @@ import { ProjectRequestsModule } from './modules/project-requests/project-reques
 import { ReviewModule } from './modules/review/review.module';
 import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
+import { ProjectSpecsModule } from './modules/project-specs/project-specs.module';
+import { SeedingModule } from './modules/seeding/seeding.module';
 import { DisputesModule } from './modules/disputes/disputes.module';
 import { UserWarningModule } from './modules/user-warning/user-warning.module';
 import { KycModule } from './modules/kyc/kyc.module';
@@ -53,13 +55,11 @@ import { UsersModule } from './modules/users/users.module';
         entities: [__dirname + '/**/*.entity{.ts,.js}'],
 
         // Development settings
-        synchronize: false, // Tắt sync vì bạn đang dùng migration
+        synchronize: configService.get<string>('DB_SYNCHRONIZE') === 'true',
         logging: true,
 
         // Sửa: Supabase BẮT BUỘC phải có SSL
-        ssl: {
-          rejectUnauthorized: false,
-        },
+        ssl: false,
       }),
     }),
 
@@ -92,10 +92,12 @@ import { UsersModule } from './modules/users/users.module';
     ReviewModule,
     TrustScoreModule,
     ReportModule,
+    ProjectSpecsModule,
+    SeedingModule,
     DisputesModule,
-    UserWarningModule, // NEW: User warning/flag system
-    KycModule, // NEW: KYC verification system
-    UsersModule, // NEW: Admin user management
+    UserWarningModule,
+    KycModule,
+    UsersModule,
   ],
   controllers: [AppController],
   providers: [AppService],

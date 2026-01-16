@@ -1,14 +1,32 @@
-import { BadRequestException, Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Logger,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { TasksService, BoardWithMilestones, KanbanStatus } from './tasks.service';
 import { TaskStatus } from '../../database/entities/task.entity';
 
 @Controller('tasks')
 export class TasksController {
+  private readonly logger = new Logger(TasksController.name);
+
   constructor(private readonly tasksService: TasksService) {}
 
   @Get('board/:projectId')
   async getBoard(@Param('projectId') projectId: string): Promise<BoardWithMilestones> {
-    return this.tasksService.getKanbanBoard(projectId);
+    try {
+      this.logger.log(`Fetching board for project: ${projectId}`);
+      return await this.tasksService.getKanbanBoard(projectId);
+    } catch (error) {
+      this.logger.error(`Error fetching board for project ${projectId}:`, error);
+      throw new InternalServerErrorException('Failed to fetch project board');
+    }
   }
 
   @Patch(':id/status')

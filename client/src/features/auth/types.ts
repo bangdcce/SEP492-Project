@@ -15,6 +15,11 @@ export interface User {
   updatedAt: string;
 }
 
+export interface PortfolioLink {
+  title: string;
+  url: string;
+}
+
 // ============================================
 // Sign In
 // ============================================

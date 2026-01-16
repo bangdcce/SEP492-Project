@@ -6,9 +6,7 @@ import { KycVerificationEntity } from '../../database/entities/kyc-verification.
 import { UserEntity } from '../../database/entities/user.entity';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([KycVerificationEntity, UserEntity]),
-  ],
+  imports: [TypeOrmModule.forFeature([KycVerificationEntity, UserEntity])],
   controllers: [KycController],
   providers: [KycService],
   exports: [KycService],
