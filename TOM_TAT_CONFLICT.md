@@ -92,7 +92,7 @@ Xem thêm thông tin chi tiết trong:
 - **MERGE_CONFLICT_REPORT.md** - Báo cáo tổng quan về conflicts
 - **CONFLICT_DETAILS.md** - Phân tích từng file và chiến lược giải quyết
 
-## Ước Tính Thời Gian
+## Ước tính Thời Gian
 
 - **Thời gian tối thiểu:** 3 tuần (làm full-time)
 - **Thời gian khuyến nghị:** 5 tuần (có testing đầy đủ)

@@ -27,11 +27,11 @@ This document provides a detailed breakdown of each conflicting file identified 
 - **Risk:** Inconsistent dependency resolution
 - **Resolution Strategy:** Regenerate after resolving package.json
 
-**server/package-lock.json** (or yarn.lock)
+**server/package-lock.json** and **server/yarn.lock**
 - **Conflict Type:** Add/Add
-- **Issue:** Lock file mismatch
+- **Issue:** Lock file mismatch (server uses both npm and yarn)
 - **Risk:** Inconsistent dependency resolution  
-- **Resolution Strategy:** Regenerate after resolving package.json
+- **Resolution Strategy:** Regenerate appropriate lock file after resolving package.json
 
 ### 2. Core Application Files (3 files)
 #### Impact: CRITICAL - Affects application structure
@@ -172,9 +172,10 @@ This document provides a detailed breakdown of each conflicting file identified 
 ## Merge Strategy Recommendations
 
 ### Phase 1: Foundation (Week 1)
-1. Resolve configuration files (package.json, lock files)
-2. Resolve database entities
-3. Create and test database migrations
+1. Resolve configuration files (package.json)
+2. Regenerate and test lock files
+3. Resolve database entities
+4. Create and test database migrations (only after all entity conflicts resolved)
 
 ### Phase 2: Core Features (Week 2)
 1. Resolve core application files (App.tsx, app.module.ts, main.ts)
