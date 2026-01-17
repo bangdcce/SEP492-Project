@@ -27,6 +27,9 @@ build
 Thumbs.db
 
 # IDE
+docs/*
+figma/*
+.agent/*
 .vscode/*
 !.vscode/settings.json
 !.vscode/tasks.json
