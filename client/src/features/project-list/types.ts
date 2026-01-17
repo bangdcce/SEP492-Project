@@ -4,7 +4,8 @@ export type Project = {
   description?: string | null;
   status: string;
   clientId: string;
-  freelancerId: string;
+  brokerId?: string;
+  freelancerId?: string;
   totalBudget: number;
   createdAt: string;
 };

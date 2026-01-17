@@ -9,7 +9,6 @@ import {
   LayoutDashboard,
   FolderKanban,
   PlusCircle,
-  Briefcase,
 } from "lucide-react";
 
 export interface ClientSidebarMenuItem {
@@ -42,14 +41,6 @@ export const clientSidebarMenuItems: ClientSidebarMenuItem[] = [
     icon: FolderKanban,
     path: "/client/my-requests",
     description: "Your project requests",
-    section: "workspace",
-  },
-  {
-    id: "projects",
-    label: "Projects",
-    icon: Briefcase,
-    path: "/client/projects",
-    description: "Manage your projects",
     section: "workspace",
   },
   {
