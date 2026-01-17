@@ -29,49 +29,38 @@ export const ClientDashboardLayout: React.FC<ClientDashboardLayoutProps> = ({
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Sidebar - Desktop */}
-      <div className="hidden lg:block">
-        <ClientSidebar
-          isCollapsed={isSidebarCollapsed}
-          onToggleCollapse={handleToggleSidebar}
-        />
-      </div>
+    <div className="flex h-screen bg-[#F8FAFC] overflow-hidden">
+      {/* Sidebar Area */}
+      <ClientSidebar
+        isCollapsed={isSidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
+      />
 
       {/* Mobile Sidebar Overlay */}
       {isMobileMenuOpen && (
         <>
           {/* Backdrop */}
           <div
-            className="lg:hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-30"
+            className="lg:hidden fixed inset-0 bg-black/40 z-30"
             onClick={handleMobileMenuToggle}
           />
           {/* Sidebar */}
           <div className="lg:hidden fixed inset-y-0 left-0 z-40">
-            <ClientSidebar />
+            <ClientSidebar className="flex" />
           </div>
         </>
       )}
 
       {/* Main Content Area */}
-      <div
-        className={`
-          flex flex-col min-h-screen
-          transition-all duration-300 ease-in-out
-          ${isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"}
-        `}
-      >
-        {/* Header */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
         />
-
-        {/* Page Content */}
-        <main className="flex-1 p-6 md:p-8">{children}</main>
-
-        {/* Footer */}
-        {showFooter && <ClientFooter />}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-6 flex flex-col">
+          <div className="max-w-7xl mx-auto w-full flex-1">{children}</div>
+          {showFooter && <ClientFooter />}
+        </main>
       </div>
     </div>
   );
