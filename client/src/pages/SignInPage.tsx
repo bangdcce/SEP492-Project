@@ -88,14 +88,12 @@ export function SignInPage({
       } else {
         // Role-based redirect
         const userRole = loginData.user?.role?.toUpperCase();
-        const userSkills = loginData.user?.skills || [];
         
         if (userRole === 'ADMIN') {
           navigate(ROUTES.ADMIN_DASHBOARD);
         } else if (userRole === 'CLIENT' || userRole === 'SME') {
           navigate(ROUTES.CLIENT_DASHBOARD);
         } else if (userRole === 'FREELANCER') {
-          // Skip onboarding, go directly to dashboard
           navigate(ROUTES.FREELANCER_DASHBOARD);
         } else if (userRole === 'BROKER') {
           navigate(ROUTES.BROKER_DASHBOARD);

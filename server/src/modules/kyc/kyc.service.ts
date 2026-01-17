@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KycVerificationEntity, KycStatus } from '../../database/entities/kyc-verification.entity';
@@ -6,6 +11,7 @@ import { UserEntity } from '../../database/entities/user.entity';
 import { SubmitKycDto, RejectKycDto } from './dto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { MulterFile } from '../../common/types/multer.type';
 
 @Injectable()
 export class KycService {
@@ -23,9 +29,9 @@ export class KycService {
     userId: string,
     dto: SubmitKycDto,
     files: {
-      idCardFront: Express.Multer.File;
-      idCardBack: Express.Multer.File;
-      selfie: Express.Multer.File;
+      idCardFront: MulterFile;
+      idCardBack: MulterFile;
+      selfie: MulterFile;
     },
   ) {
     // Check if user already has pending or approved KYC
@@ -49,7 +55,7 @@ export class KycService {
 
     // Save files to disk
     const uploadDir = path.join(process.cwd(), 'uploads', 'kyc', userId);
-    
+
     // Create directory if not exists
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
@@ -109,7 +115,8 @@ export class KycService {
    * Admin: Get all KYC submissions with filters
    */
   async getAllKyc(status?: KycStatus, page = 1, limit = 20) {
-    const query = this.kycRepo.createQueryBuilder('kyc')
+    const query = this.kycRepo
+      .createQueryBuilder('kyc')
       .leftJoinAndSelect('kyc.user', 'user')
       .leftJoinAndSelect('kyc.reviewer', 'reviewer');
 

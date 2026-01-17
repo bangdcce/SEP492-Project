@@ -16,7 +16,7 @@ import {
 } from 'src/database/entities';
 import { Repository } from 'typeorm';
 import { TrustScoreService } from '../trust-score/trust-score.service';
-import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 
@@ -39,7 +39,7 @@ export class ReviewService {
     private auditLogsService: AuditLogsService,
   ) {}
 
-  async create(reviewerId: string, dto: CreateReviewDto, reqInfo: any) {
+  async create(reviewerId: string, dto: CreateReviewDto, reqInfo: RequestContext) {
     const { projectId, targetUserId, rating, comment } = dto;
 
     // 1. Validation Logic: Kiểm tra dự án
@@ -126,7 +126,7 @@ export class ReviewService {
     return savedReview;
   }
 
-  async update(reviewerId: string, reviewId: string, dto: UpdateReviewDto, reqInfo: any) {
+  async update(reviewerId: string, reviewId: string, dto: UpdateReviewDto, reqInfo: RequestContext) {
     // 1. Lấy review cũ
     const review = await this.reviewRepo.findOne({ where: { id: reviewId } });
 

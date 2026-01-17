@@ -1,4 +1,3 @@
-
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WizardController } from './wizard.controller';
@@ -7,9 +6,7 @@ import { WizardQuestionEntity } from '../../database/entities/wizard-question.en
 import { WizardOptionEntity } from '../../database/entities/wizard-option.entity';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([WizardQuestionEntity, WizardOptionEntity]),
-  ],
+  imports: [TypeOrmModule.forFeature([WizardQuestionEntity, WizardOptionEntity])],
   controllers: [WizardController],
   providers: [WizardService],
   exports: [WizardService],

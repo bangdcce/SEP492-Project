@@ -9,9 +9,9 @@ export class SecureLoginResponseDto {
   @ApiProperty({ description: 'Thông tin người dùng', type: AuthResponseDto })
   user: AuthResponseDto;
 
-  @ApiProperty({ 
-    description: 'Access token để xác thực API calls (store in memory only)', 
-    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' 
+  @ApiProperty({
+    description: 'Access token để xác thực API calls (store in memory only)',
+    example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
   accessToken: string;
 

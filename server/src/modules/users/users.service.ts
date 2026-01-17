@@ -2,7 +2,12 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, In } from 'typeorm';
 import { UserEntity } from '../../database/entities/user.entity';
-import { BanUserDto, UnbanUserDto, ResetUserPasswordDto, UserFilterDto } from './dto/admin-user.dto';
+import {
+  BanUserDto,
+  UnbanUserDto,
+  ResetUserPasswordDto,
+  UserFilterDto,
+} from './dto/admin-user.dto';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -27,10 +32,9 @@ export class UsersService {
 
     // Search by email or fullName
     if (search) {
-      queryBuilder.andWhere(
-        '(user.email ILIKE :search OR user.fullName ILIKE :search)',
-        { search: `%${search}%` },
-      );
+      queryBuilder.andWhere('(user.email ILIKE :search OR user.fullName ILIKE :search)', {
+        search: `%${search}%`,
+      });
     }
 
     // Filter by ban status

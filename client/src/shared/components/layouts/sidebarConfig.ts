@@ -4,7 +4,7 @@
  */
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, ScrollText, Shield, UserCheck, Users } from "lucide-react";
+import { LayoutDashboard, ScrollText, Shield, UserCheck, Users, Search } from "lucide-react";
 
 export interface SidebarMenuItem {
   id: string;
@@ -15,7 +15,7 @@ export interface SidebarMenuItem {
   description?: string;
 }
 
-export const sidebarMenuItems: SidebarMenuItem[] = [
+export const adminMenuItems: SidebarMenuItem[] = [
   {
     id: "dashboard",
     label: "Dashboard",
@@ -52,3 +52,23 @@ export const sidebarMenuItems: SidebarMenuItem[] = [
     description: "Manage users, ban/unban",
   },
 ];
+
+export const brokerMenuItems: SidebarMenuItem[] = [
+  {
+    id: "dashboard",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    path: "/broker/dashboard",
+    description: "Overview and statistics",
+  },
+  {
+    id: "project-requests",
+    label: "Find Requests",
+    icon: Search,
+    path: "/project-requests",
+    description: "Browse and assign to project requests",
+  },
+];
+
+// Fallback/Default
+export const sidebarMenuItems = adminMenuItems;

@@ -1,40 +1,40 @@
-import { 
-  Controller, 
-  Post, 
-  Body, 
-  HttpCode, 
-  HttpStatus, 
-  UseGuards, 
+import {
+  Controller,
+  Post,
+  Body,
+  HttpCode,
+  HttpStatus,
+  UseGuards,
   Req,
   Res,
   Get,
   Put,
   ValidationPipe,
-  Ip
+  Ip,
 } from '@nestjs/common';
 import type { Response } from 'express';
-import { 
-  ApiTags, 
-  ApiOperation, 
-  ApiResponse, 
-  ApiBody, 
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiBody,
   ApiBearerAuth,
   ApiUnauthorizedResponse,
   ApiBadRequestResponse,
   ApiConflictResponse,
-  ApiOkResponse
+  ApiOkResponse,
 } from '@nestjs/swagger';
-import { Request } from 'express';
+import type { Request } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { CaptchaGuard } from '../../common/guards/captcha.guard';
 import { JwtAuthGuard } from './guards';
-import { 
-  LoginDto, 
-  RegisterDto, 
-  AuthResponseDto, 
-  LoginResponseDto, 
+import {
+  LoginDto,
+  RegisterDto,
+  AuthResponseDto,
+  LoginResponseDto,
   RefreshTokenResponseDto,
   SecureLoginResponseDto,
   ForgotPasswordDto,
@@ -43,7 +43,7 @@ import {
   ResetPasswordResponseDto,
   VerifyOtpDto,
   VerifyOtpResponseDto,
-  UpdateProfileDto
+  UpdateProfileDto,
   // CompleteGoogleSignupDto
 } from './dto';
 import { UserEntity } from '../../database/entities/user.entity';
@@ -66,29 +66,28 @@ interface AuthRequest extends Request {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(
-    private readonly authService: AuthService,
-  ) {}
+  constructor(private readonly authService: AuthService) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(CaptchaGuard)
   @Throttle({ default: { limit: 3, ttl: 60000 } }) // 3 requests per minute per IP
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Đăng ký tài khoản mới',
-    description: 'Tạo tài khoản mới với thông tin cơ bản. Yêu cầu CAPTCHA và giới hạn 3 lần/phút. Chỉ cho phép 3 loại role: CLIENT, BROKER, FREELANCER' 
+    description:
+      'Tạo tài khoản mới với thông tin cơ bản. Yêu cầu CAPTCHA và giới hạn 3 lần/phút. Chỉ cho phép 3 loại role: CLIENT, BROKER, FREELANCER',
   })
   @ApiBody({ type: RegisterDto })
-  @ApiResponse({ 
-    status: HttpStatus.CREATED, 
+  @ApiResponse({
+    status: HttpStatus.CREATED,
     description: 'Đăng ký thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Đăng ký thành công' },
-        data: { $ref: '#/components/schemas/AuthResponseDto' }
-      }
-    }
+        data: { $ref: '#/components/schemas/AuthResponseDto' },
+      },
+    },
   })
   @ApiBadRequestResponse({ description: 'Dữ liệu đầu vào không hợp lệ hoặc CAPTCHA sai' })
   @ApiConflictResponse({ description: 'Email đã được sử dụng' })
@@ -100,7 +99,7 @@ export class AuthController {
     data: AuthResponseDto;
   }> {
     const user = await this.authService.register(registerDto);
-    
+
     return {
       message: 'Đăng ký thành công',
       data: user,
@@ -109,27 +108,27 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Đăng nhập vào hệ thống',
-    description: 'Xác thực người dùng bằng email và mật khẩu, trả về access token và refresh token' 
+    description: 'Xác thực người dùng bằng email và mật khẩu, trả về access token và refresh token',
   })
   @ApiBody({ type: LoginDto })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Đăng nhập thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Đăng nhập thành công' },
-        data: { $ref: '#/components/schemas/LoginResponseDto' }
-      }
-    }
+        data: { $ref: '#/components/schemas/LoginResponseDto' },
+      },
+    },
   })
   @ApiUnauthorizedResponse({ description: 'Email hoặc mật khẩu không đúng' })
   @ApiBadRequestResponse({ description: 'Dữ liệu đầu vào không hợp lệ' })
   async login(
     @Body(ValidationPipe) loginDto: LoginDto,
-    @Req() req: any,
+    @Req() req: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{
     message: string;
@@ -138,25 +137,21 @@ export class AuthController {
     // Lấy thông tin thiết bị từ request headers
     const userAgent = req.headers['user-agent'] || 'Unknown Device';
     const ipAddress = req.ip || req.connection?.remoteAddress || 'Unknown IP';
-    
-    const result = await this.authService.login(
-      loginDto, 
-      userAgent, 
-      ipAddress
-    );
+
+    const result = await this.authService.login(loginDto, userAgent, ipAddress);
 
     // Set refresh token as httpOnly cookie
     response.cookie('refreshToken', result.refreshToken, {
-      httpOnly: true,                     // Prevent XSS attacks
+      httpOnly: true, // Prevent XSS attacks
       secure: process.env.NODE_ENV === 'production', // HTTPS only in production
-      sameSite: 'lax',                   // CSRF protection while allowing cross-site navigation
-      maxAge: 7 * 24 * 60 * 60 * 1000,   // 7 days
-      path: '/',                         // Available for all routes
+      sameSite: 'lax', // CSRF protection while allowing cross-site navigation
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+      path: '/', // Available for all routes
     });
-    
+
     // Return response without refreshToken (it's now in cookie)
     const { refreshToken, ...dataWithoutRefreshToken } = result;
-    
+
     return {
       message: 'Đăng nhập thành công',
       data: dataWithoutRefreshToken,
@@ -167,20 +162,20 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Đăng xuất khỏi hệ thống',
-    description: 'Hủy bỏ session hiện tại. Refresh token sẽ được đọc từ httpOnly cookie' 
+    description: 'Hủy bỏ session hiện tại. Refresh token sẽ được đọc từ httpOnly cookie',
   })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Đăng xuất thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Đăng xuất thành công' },
-        data: { type: 'null', example: null }
-      }
-    }
+        data: { type: 'null', example: null },
+      },
+    },
   })
   @ApiUnauthorizedResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
   async logout(
@@ -192,18 +187,15 @@ export class AuthController {
   }> {
     // Lấy refresh token từ cookie
     const refreshToken = req.cookies?.refreshToken;
-    
-    const result = await this.authService.logout(
-      req.user.id, 
-      refreshToken
-    );
-    
+
+    const result = await this.authService.logout(req.user.id, refreshToken);
+
     // Clear refresh token cookie
     response.clearCookie('refreshToken', {
       path: '/',
       httpOnly: true,
     });
-    
+
     return {
       message: result.message,
       data: null,
@@ -213,20 +205,20 @@ export class AuthController {
   @Get('profile')
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Lấy thông tin tài khoản hiện tại',
-    description: 'Trả về thông tin chi tiết của người dùng đang đăng nhập' 
+    description: 'Trả về thông tin chi tiết của người dùng đang đăng nhập',
   })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Lấy thông tin thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Lấy thông tin tài khoản thành công' },
-        data: { $ref: '#/components/schemas/AuthResponseDto' }
-      }
-    }
+        data: { $ref: '#/components/schemas/AuthResponseDto' },
+      },
+    },
   })
   @ApiUnauthorizedResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
   async getProfile(@Req() req: AuthRequest): Promise<{
@@ -235,7 +227,7 @@ export class AuthController {
   }> {
     // Fetch user with profile to get all profile data
     const userWithProfile = await this.authService.findUserWithProfile(req.user.id);
-    
+
     // Service method để map user entity thành response DTO
     const userResponse: AuthResponseDto = {
       id: req.user.id,
@@ -300,29 +292,29 @@ export class AuthController {
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ 
+  @ApiOperation({
     summary: 'Làm mới access token',
-    description: 'Sử dụng refresh token từ httpOnly cookie để lấy access token mới' 
+    description: 'Sử dụng refresh token từ httpOnly cookie để lấy access token mới',
   })
-  @ApiResponse({ 
-    status: HttpStatus.OK, 
+  @ApiResponse({
+    status: HttpStatus.OK,
     description: 'Làm mới token thành công',
     schema: {
       type: 'object',
       properties: {
         message: { type: 'string', example: 'Làm mới token thành công' },
-        data: { 
+        data: {
           type: 'object',
           properties: {
-            accessToken: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' }
-          }
-        }
-      }
-    }
+            accessToken: { type: 'string', example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...' },
+          },
+        },
+      },
+    },
   })
   @ApiUnauthorizedResponse({ description: 'Refresh token không hợp lệ hoặc đã hết hạn' })
   async refreshToken(
-    @Req() req: any,
+    @Req() req: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{
     message: string;
@@ -330,13 +322,13 @@ export class AuthController {
   }> {
     // Đọc refresh token từ cookie
     const refreshToken = req.cookies?.refreshToken;
-    
+
     if (!refreshToken) {
       throw new Error('Refresh token not found in cookies');
     }
-    
+
     const tokens = await this.authService.refreshToken(refreshToken);
-    
+
     // Set new refresh token as httpOnly cookie
     response.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
@@ -345,12 +337,12 @@ export class AuthController {
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
     });
-    
+
     // Chỉ trả về access token
     return {
       message: 'Làm mới token thành công',
       data: {
-        accessToken: tokens.accessToken
+        accessToken: tokens.accessToken,
       },
     };
   }
@@ -359,11 +351,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Gửi OTP reset password qua SMS',
-    description: 'Gửi mã OTP 6 số đến số điện thoại đã đăng ký'
+    description: 'Gửi mã OTP 6 số đến số điện thoại đã đăng ký',
   })
-  @ApiBody({ 
+  @ApiBody({
     type: ForgotPasswordDto,
-    description: 'Số điện thoại của tài khoản cần reset password'
+    description: 'Số điện thoại của tài khoản cần reset password',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -377,21 +369,19 @@ export class AuthController {
           properties: {
             message: { type: 'string', example: 'Mã OTP đã được gửi đến số điện thoại của bạn' },
             phoneNumber: { type: 'string', example: '0123***789' },
-            expiresIn: { type: 'number', example: 300 }
-          }
-        }
-      }
-    }
+            expiresIn: { type: 'number', example: 300 },
+          },
+        },
+      },
+    },
   })
   @ApiBadRequestResponse({ description: 'Số điện thoại không hợp lệ' })
-  async forgotPassword(
-    @Body(ValidationPipe) forgotPasswordDto: ForgotPasswordDto,
-  ): Promise<{
+  async forgotPassword(@Body(ValidationPipe) forgotPasswordDto: ForgotPasswordDto): Promise<{
     message: string;
     data: ForgotPasswordResponseDto;
   }> {
     const result = await this.authService.forgotPassword(forgotPasswordDto);
-    
+
     return {
       message: 'Mã OTP đã được gửi',
       data: result,
@@ -402,24 +392,22 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Xác thực mã OTP',
-    description: 'Kiểm tra mã OTP có hợp lệ không (optional, có thể bỏ qua)'
+    description: 'Kiểm tra mã OTP có hợp lệ không (optional, có thể bỏ qua)',
   })
-  @ApiBody({ 
+  @ApiBody({
     type: VerifyOtpDto,
-    description: 'Số điện thoại và mã OTP'
+    description: 'Số điện thoại và mã OTP',
   })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Kết quả xác thực OTP',
   })
-  async verifyOtp(
-    @Body(ValidationPipe) verifyOtpDto: VerifyOtpDto,
-  ): Promise<{
+  async verifyOtp(@Body(ValidationPipe) verifyOtpDto: VerifyOtpDto): Promise<{
     message: string;
     data: VerifyOtpResponseDto;
   }> {
     const result = await this.authService.verifyOtp(verifyOtpDto);
-    
+
     return {
       message: result.isValid ? 'OTP hợp lệ' : 'OTP không hợp lệ',
       data: result,
@@ -430,11 +418,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Đặt lại mật khẩu với OTP',
-    description: 'Sử dụng mã OTP để đặt lại mật khẩu mới'
+    description: 'Sử dụng mã OTP để đặt lại mật khẩu mới',
   })
-  @ApiBody({ 
+  @ApiBody({
     type: ResetPasswordDto,
-    description: 'Số điện thoại, OTP và mật khẩu mới'
+    description: 'Số điện thoại, OTP và mật khẩu mới',
   })
   @ApiResponse({
     status: HttpStatus.OK,
@@ -446,22 +434,23 @@ export class AuthController {
         data: {
           type: 'object',
           properties: {
-            message: { type: 'string', example: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.' }
-          }
-        }
-      }
-    }
+            message: {
+              type: 'string',
+              example: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.',
+            },
+          },
+        },
+      },
+    },
   })
   @ApiUnauthorizedResponse({ description: 'OTP không hợp lệ hoặc đã hết hạn' })
   @ApiBadRequestResponse({ description: 'Dữ liệu đầu vào không hợp lệ' })
-  async resetPassword(
-    @Body(ValidationPipe) resetPasswordDto: ResetPasswordDto,
-  ): Promise<{
+  async resetPassword(@Body(ValidationPipe) resetPasswordDto: ResetPasswordDto): Promise<{
     message: string;
     data: ResetPasswordResponseDto;
   }> {
     const result = await this.authService.resetPassword(resetPasswordDto);
-    
+
     return {
       message: 'Đặt lại mật khẩu thành công',
       data: result,

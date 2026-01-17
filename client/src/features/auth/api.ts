@@ -13,6 +13,7 @@ import type {
   VerifyOtpResponse,
   ResetPasswordRequest,
   ResetPasswordResponse,
+  PortfolioLink,
 } from './types';
 
 /**
@@ -97,6 +98,11 @@ export const updateProfile = async (data: {
   phoneNumber?: string;
   avatarUrl?: string;
   bio?: string;
+  skills?: string[];
+  portfolioLinks?: PortfolioLink[];
+  companyName?: string;
+  linkedinUrl?: string;
+  cvUrl?: string;
 }) => {
   return await apiClient.put('/auth/profile', data);
 };

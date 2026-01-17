@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from 'src/database/entities';
+import { GetUser } from '../auth/decorators/get-user.decorator';
 import { ReportService } from './report.service';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ResolveReportDto } from './dto/resolve-report.dto';
@@ -34,8 +35,7 @@ export class ReportController {
   @ApiOperation({ summary: 'Report một review vi phạm' })
   @ApiResponse({ status: 201, description: 'Report created successfully' })
   @HttpCode(HttpStatus.CREATED)
-  async create(@Body() dto: CreateReportDto, @Req() req: any) {
-    const reporterId = req.user.id;
+  async create(@Body() dto: CreateReportDto, @GetUser('id') reporterId: string) {
     return this.reportService.create(reporterId, dto);
   }
 
@@ -68,8 +68,7 @@ export class ReportController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Xử lý report (resolve/reject)' })
-  async resolve(@Param('id') id: string, @Body() dto: ResolveReportDto, @Req() req: any) {
-    const adminId = req.user.id;
+  async resolve(@Param('id') id: string, @Body() dto: ResolveReportDto, @GetUser('id') adminId: string) {
     return this.reportService.resolve(id, dto, adminId);
   }
 }

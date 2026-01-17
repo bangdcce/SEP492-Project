@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { Check, X, Eye, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
@@ -59,7 +59,7 @@ export default function AdminKYCPage() {
       const response = await apiClient.get(`/kyc/admin/all${statusParam}`);
       
       // apiClient already unwraps response.data
-      const data = response;
+      const data = response as { items: KycVerification[] };
       setKycs(data.items || []);
     } catch (error: any) {
       console.error('Error fetching KYCs:', error);

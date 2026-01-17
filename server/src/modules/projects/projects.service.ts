@@ -12,10 +12,7 @@ export class ProjectsService {
 
   async listByUser(userId: string) {
     return this.projectRepository.find({
-      where: [
-        { clientId: userId },
-        { freelancerId: userId },
-      ],
+      where: [{ clientId: userId }, { freelancerId: userId }],
       select: [
         'id',
         'title',

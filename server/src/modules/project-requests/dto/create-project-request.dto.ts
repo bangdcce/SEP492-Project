@@ -1,4 +1,3 @@
-
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PartialType } from '@nestjs/mapped-types';
 import { IsArray, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
@@ -59,7 +58,7 @@ export class CreateProjectRequestDto {
 import { RequestStatus } from '../../../database/entities/project-request.entity';
 
 export class UpdateProjectRequestDto extends PartialType(CreateProjectRequestDto) {
-    @ApiPropertyOptional({ enum: RequestStatus })
-    @IsOptional()
-    status?: RequestStatus;
+  @ApiPropertyOptional({ enum: RequestStatus })
+  @IsOptional()
+  status?: RequestStatus;
 }
