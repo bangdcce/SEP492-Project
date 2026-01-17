@@ -1,7 +1,9 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { ROUTES } from "@/constants";
-import { MainLayout } from "@/shared/components/layouts";
 import { ClientDashboardLayout } from "@/shared/components/layouts/client";
+import { BrokerDashboardLayout } from "@/shared/components/layouts/broker";
+import { FreelancerDashboardLayout } from "@/shared/components/layouts/freelancer/FreelancerDashboardLayout";
+import { AdminDashboardLayout } from "@/shared/components/layouts/admin";
 import { Spinner } from "@/shared/components/ui";
 
 // Lazy load pages for better performance
@@ -91,6 +93,30 @@ function App() {
           path={ROUTES.FREELANCER_DASHBOARD}
           element={<FreelancerDashboardPage />}
         />
+        <Route
+          path={ROUTES.FREELANCER_PROJECTS}
+          element={
+            <FreelancerDashboardLayout>
+              <ProjectListPage />
+            </FreelancerDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.FREELANCER_WORKSPACE}
+          element={
+            <FreelancerDashboardLayout>
+              <ProjectWorkspacePage />
+            </FreelancerDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.FREELANCER_PROFILE}
+          element={
+            <FreelancerDashboardLayout>
+              <ProfilePage />
+            </FreelancerDashboardLayout>
+          }
+        />
 
         {/* ========== CLIENT ROUTES - /client/* ========== */}
         <Route
@@ -154,87 +180,109 @@ function App() {
         <Route
           path={ROUTES.ADMIN_DASHBOARD}
           element={
-            <MainLayout>
+            <AdminDashboardLayout>
               <AdminDashboard />
-            </MainLayout>
+            </AdminDashboardLayout>
           }
         />
         <Route
           path={ROUTES.ADMIN_AUDIT_LOGS}
           element={
-            <MainLayout>
+            <AdminDashboardLayout>
               <AuditLogsPage />
-            </MainLayout>
+            </AdminDashboardLayout>
           }
         />
         <Route
           path={ROUTES.ADMIN_REVIEW_MODERATION}
           element={
-            <MainLayout>
+            <AdminDashboardLayout>
               <AdminReviewModerationPage />
-            </MainLayout>
+            </AdminDashboardLayout>
           }
         />
         <Route
           path="/admin/kyc"
           element={
-            <MainLayout>
+            <AdminDashboardLayout>
               <AdminKYCPage />
-            </MainLayout>
+            </AdminDashboardLayout>
           }
         />
         <Route
           path="/admin/users"
           element={
-            <MainLayout>
+            <AdminDashboardLayout>
               <AdminUsersPage />
-            </MainLayout>
+            </AdminDashboardLayout>
           }
         />
         <Route
           path={ROUTES.ADMIN_PROFILE}
           element={
-            <MainLayout>
+            <AdminDashboardLayout>
               <ProfilePage />
-            </MainLayout>
+            </AdminDashboardLayout>
           }
         />
 
-        {/* ========== BROKER ROUTES ========== */}
+        {/* ========== BROKER ROUTES - /broker/* ========== */}
         <Route
           path={ROUTES.BROKER_DASHBOARD}
           element={
-            <MainLayout>
+            <BrokerDashboardLayout>
               <BrokerDashboard />
-            </MainLayout>
+            </BrokerDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_PROJECTS}
+          element={
+            <BrokerDashboardLayout>
+              <ProjectListPage />
+            </BrokerDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_WORKSPACE}
+          element={
+            <BrokerDashboardLayout>
+              <ProjectWorkspacePage />
+            </BrokerDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_PROFILE}
+          element={
+            <BrokerDashboardLayout>
+              <ProfilePage />
+            </BrokerDashboardLayout>
           }
         />
 
-        {/* ========== PROJECT REQUEST ROUTES ========== */}
+        {/* ========== PROJECT REQUEST ROUTES (Broker) ========== */}
         <Route
           path="/project-requests"
           element={
-            <MainLayout>
+            <BrokerDashboardLayout>
               <ProjectRequestsPage />
-            </MainLayout>
+            </BrokerDashboardLayout>
           }
         />
-
         <Route
           path="/project-requests/:id"
           element={
-            <MainLayout>
+            <BrokerDashboardLayout>
               <ProjectRequestDetailsPage />
-            </MainLayout>
+            </BrokerDashboardLayout>
           }
         />
-
         <Route
           path="/project-requests/:id/create-spec"
           element={
-            <MainLayout>
+            <BrokerDashboardLayout>
               <CreateProjectSpecPage />
-            </MainLayout>
+            </BrokerDashboardLayout>
           }
         />
 
@@ -253,6 +301,16 @@ function App() {
         <Route
           path="/client"
           element={<Navigate to={ROUTES.CLIENT_DASHBOARD} replace />}
+        />
+        {/* /broker -> Broker Dashboard */}
+        <Route
+          path="/broker"
+          element={<Navigate to={ROUTES.BROKER_DASHBOARD} replace />}
+        />
+        {/* /freelancer -> Freelancer Dashboard */}
+        <Route
+          path="/freelancer"
+          element={<Navigate to={ROUTES.FREELANCER_DASHBOARD} replace />}
         />
 
         {/* ========== 404 - Not Found ========== */}

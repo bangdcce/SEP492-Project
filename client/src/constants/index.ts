@@ -20,11 +20,16 @@ export const ROUTES = {
   
   // Freelancer Routes
   FREELANCER_DASHBOARD: "/freelancer/dashboard",
+  FREELANCER_PROJECTS: "/freelancer/projects",
+  FREELANCER_WORKSPACE: "/freelancer/workspace/:projectId",
   FREELANCER_PROFILE: "/freelancer/profile",
   FREELANCER_ONBOARDING: "/freelancer/onboarding",
   
   // Broker Routes
   BROKER_DASHBOARD: "/broker/dashboard",
+  BROKER_PROJECTS: "/broker/projects",
+  BROKER_WORKSPACE: "/broker/workspace/:projectId",
+  BROKER_FREELANCERS: "/broker/freelancers",
   BROKER_PROFILE: "/broker/profile",
   
   // Admin Routes
