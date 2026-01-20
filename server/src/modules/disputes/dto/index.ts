@@ -6,4 +6,11 @@ export * from './defendant-response.dto';
 export * from './appeal.dto';
 export * from './admin-update-dispute.dto';
 export * from './dispute-filter.dto';
+
+// New DTOs
+export * from './evidence.dto';
+export * from './message.dto';
+export * from './settlement.dto';
+export * from './verdict.dto';
 export * from './hearing.dto';
+export * from './feedback.dto';

@@ -38,6 +38,21 @@ export enum HearingParticipantRole {
   OBSERVER = 'OBSERVER', // Bên thứ 3 liên quan (e.g., broker khi client vs freelancer)
 }
 
+// Enum cho Live Chat - Ai được quyền chat hiện tại
+export enum SpeakerRole {
+  ALL = 'ALL', // Mọi người đều được chat
+  MODERATOR_ONLY = 'MODERATOR_ONLY', // Chỉ Staff/Admin (Tuyên án/Khai mạc)
+  RAISER_ONLY = 'RAISER_ONLY', // Chỉ Nguyên đơn trình bày
+  DEFENDANT_ONLY = 'DEFENDANT_ONLY', // Chỉ Bị đơn trình bày
+  MUTED_ALL = 'MUTED_ALL', // Tạm dừng chat (nghỉ giải lao)
+}
+
+// Enum cho Tier phiên điều trần
+export enum HearingTier {
+  TIER_1 = 'TIER_1', // Staff điều trần
+  TIER_2 = 'TIER_2', // Admin phúc thẩm
+}
+
 // =============================================================================
 // DISPUTE HEARING ENTITY (Phiên điều trần)
 // =============================================================================
@@ -69,14 +84,51 @@ export class DisputeHearingEntity {
   @Column({ type: 'text', nullable: true })
   agenda: string; // Nội dung cần thảo luận
 
-  @Column({ nullable: true })
-  meetingLink: string; // Link Google Meet/Zoom (optional)
+  @Column({
+    nullable: true,
+    comment: 'Link Google Meet/Zoom nếu cần video call (optional, do bên thứ 3 cung cấp)',
+  })
+  externalMeetingLink: string;
 
   @Column({ type: 'jsonb', nullable: true })
   requiredDocuments: string[]; // Tài liệu yêu cầu chuẩn bị
 
-  @Column()
-  moderatorId: string; // Admin chủ trì
+  @Column({ comment: 'Staff/Admin chủ trì phiên điều trần' })
+  moderatorId: string;
+
+  // === LIVE CHAT CONTROL ===
+  @Column({
+    type: 'enum',
+    enum: SpeakerRole,
+    default: SpeakerRole.MUTED_ALL,
+    comment: 'Kiểm soát ai được quyền chat hiện tại',
+  })
+  currentSpeakerRole: SpeakerRole;
+
+  @Column({
+    type: 'enum',
+    enum: HearingTier,
+    default: HearingTier.TIER_1,
+    comment: 'Tier 1 = Staff, Tier 2 = Admin phúc thẩm',
+  })
+  tier: HearingTier;
+
+  @Column({ default: false, comment: 'TRUE = Phòng chat đang hoạt động' })
+  isChatRoomActive: boolean;
+
+  // === DURATION & SCHEDULING ===
+  @Column({ type: 'int', default: 60, comment: 'Thời lượng dự kiến (phút)' })
+  estimatedDurationMinutes: number;
+
+  // === RESCHEDULE TRACKING ===
+  @Column({ default: 0, comment: 'Số lần đã dời lịch (Max 2-3)' })
+  rescheduleCount: number;
+
+  @Column({ nullable: true, comment: 'Phiên cũ nếu đây là reschedule' })
+  previousHearingId: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lastRescheduledAt: Date;
 
   // === SUMMARY (sau khi kết thúc) ===
   @Column({ type: 'text', nullable: true })
@@ -154,6 +206,16 @@ export class HearingParticipantEntity {
 
   @Column({ default: false })
   hasSubmittedStatement: boolean; // Đã nộp lời khai chưa
+
+  // === RESPONSE STATUS ===
+  @Column({ default: false, comment: 'Bắt buộc tham gia (Nguyên đơn, Bị đơn = true)' })
+  isRequired: boolean;
+
+  @Column({ type: 'timestamp', nullable: true, comment: 'Hạn phản hồi lời mời' })
+  responseDeadline: Date;
+
+  @Column({ type: 'text', nullable: true, comment: 'Lý do từ chối/xin dời' })
+  declineReason: string;
 
   @CreateDateColumn()
   createdAt: Date;

@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsUUID, IsString, IsArray } from 'class-validator';
+import { IsNotEmpty, IsString, IsArray } from 'class-validator';
 
 export class UpdateDisputeDto {
   @IsNotEmpty()

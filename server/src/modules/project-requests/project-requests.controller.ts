@@ -117,7 +117,11 @@ export class ProjectRequestsController {
 
   @Patch(':id/assign')
   @Roles(UserRole.BROKER)
-  async assignBroker(@Param('id') id: string, @GetUser('id') brokerId: string, @Req() req: RequestContext) {
+  async assignBroker(
+    @Param('id') id: string,
+    @GetUser('id') brokerId: string,
+    @Req() req: RequestContext,
+  ) {
     return this.projectRequestsService.assignBroker(id, brokerId, req);
   }
 
@@ -159,11 +163,11 @@ export class ProjectRequestsController {
     // In a real app, upload to S3/Firebase and return URL.
     // Here we just return a mock URL or the filename.
     return {
-      requirements: files.requirements?.map(file => ({
+      requirements: files.requirements?.map((file) => ({
         filename: file.originalname,
         url: `/uploads/${file.originalname}`,
       })),
-      attachments: files.attachments?.map(file => ({
+      attachments: files.attachments?.map((file) => ({
         filename: file.originalname,
         url: `/uploads/${file.originalname}`,
       })),

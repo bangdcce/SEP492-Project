@@ -40,7 +40,7 @@ export function ReviewItem({
   useEffect(() => {
     if (commentRef.current) {
       const lineHeight = parseInt(
-        window.getComputedStyle(commentRef.current).lineHeight
+        window.getComputedStyle(commentRef.current).lineHeight,
       );
       const height = commentRef.current.scrollHeight;
       const lines = Math.round(height / lineHeight);
@@ -59,11 +59,11 @@ export function ReviewItem({
     }).format(date);
   };
 
-  // Format VND currency
-  const formatVND = (amount: number) => {
-    return new Intl.NumberFormat("vi-VN", {
+  // Format USD currency
+  const formatUSD = (amount: number) => {
+    return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "VND",
+      currency: "USD",
     }).format(amount);
   };
 
@@ -236,7 +236,7 @@ export function ReviewItem({
               )}
             </div>
             <div className="text-xs text-gray-500 mt-1">
-              Budget: {formatVND(review.project.totalBudget)}
+              Budget: {formatUSD(review.project.totalBudget)}
             </div>
           </div>
 

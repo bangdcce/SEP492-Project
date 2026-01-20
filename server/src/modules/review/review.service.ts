@@ -126,7 +126,12 @@ export class ReviewService {
     return savedReview;
   }
 
-  async update(reviewerId: string, reviewId: string, dto: UpdateReviewDto, reqInfo: RequestContext) {
+  async update(
+    reviewerId: string,
+    reviewId: string,
+    dto: UpdateReviewDto,
+    reqInfo: RequestContext,
+  ) {
     // 1. Lấy review cũ
     const review = await this.reviewRepo.findOne({ where: { id: reviewId } });
 

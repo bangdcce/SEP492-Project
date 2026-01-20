@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import Decimal from 'decimal.js';
 import { ProjectSpecEntity, ProjectSpecStatus } from '../../database/entities/project-spec.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
 import {
@@ -61,16 +62,18 @@ export class ProjectSpecsService {
         throw new ForbiddenException('You are not authorized to create a spec for this request');
       }
 
+      // 2. Financial Integrity Check - SỊ DỤNG DECIMAL.JS cho USD
+      // Calculate total milestone amount with precision
+      const totalMilestoneAmount = milestones.reduce(
+        (sum, m) => sum.plus(new Decimal(m.amount)),
+        new Decimal(0),
+      );
 
-      // 2. Financial Integrity Check
-      // Calculate total milestone amount. Use parseFloat to handle potential string inputs from DTO if not strictly transformed,
-      // but class-transformer @Type should handle it. Being safe with number operations.
-      const totalMilestoneAmount = milestones.reduce((sum, m) => sum + Number(m.amount), 0);
-
-      // Compare with totalBudget (handling floating point small diffs if necessary, but here we expect exact match for business logic)
-      if (Math.abs(totalMilestoneAmount - totalBudget) > 0.01) {
+      // Compare with totalBudget using Decimal for precise comparison
+      const budgetDiff = totalMilestoneAmount.minus(new Decimal(totalBudget)).abs();
+      if (budgetDiff.greaterThan(0.001)) {
         throw new BadRequestException(
-          `Total budget (${totalBudget}) does not match sum of milestones (${totalMilestoneAmount})`,
+          `Total budget ($${totalBudget}) does not match sum of milestones ($${totalMilestoneAmount.toNumber()})`,
         );
       }
 

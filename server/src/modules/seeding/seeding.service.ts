@@ -40,7 +40,7 @@ export class SeedingService {
           client.id,
           pendingTitle,
           'Need a modern redesign for our shopify store.',
-          '50-100M VND',
+          '$1K - $5K',
           RequestStatus.PENDING,
         );
       }
@@ -55,7 +55,7 @@ export class SeedingService {
           client.id,
           processingTitle,
           'UberEats clone for local market.',
-          '100-200M VND',
+          '$5K - $10K',
           RequestStatus.PROCESSING,
           broker.id,
         );
@@ -73,7 +73,7 @@ export class SeedingService {
           client.id,
           specTitle,
           'Internal CRM for managing sales leads.',
-          '200M+ VND',
+          '$10K - $25K',
           RequestStatus.SPEC_SUBMITTED,
           broker.id,
         );
@@ -85,7 +85,7 @@ export class SeedingService {
           requestId: reqWithSpec.id,
           title: 'CRM Specification v1',
           description: 'Detailed spec for CRM...',
-          totalBudget: 150000000,
+          totalBudget: 15000, // $15,000 USD
           status: ProjectSpecStatus.PENDING_APPROVAL,
         });
 
@@ -101,7 +101,7 @@ export class SeedingService {
           projectSpec: savedSpec,
           title: 'Phase 1: Database Design',
           description: 'Schema and Tables',
-          amount: 50000000,
+          amount: 5000, // $5,000 USD
           status: MilestoneStatus.PENDING,
         });
         const m2 = this.milestoneRepository.create({
@@ -109,7 +109,7 @@ export class SeedingService {
           projectSpec: savedSpec,
           title: 'Phase 2: API Development',
           description: 'Core Endpoints',
-          amount: 100000000,
+          amount: 10000, // $10,000 USD
           status: MilestoneStatus.PENDING,
         });
         await this.milestoneRepository.save([m1, m2]);
