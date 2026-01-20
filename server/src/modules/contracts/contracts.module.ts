@@ -7,18 +7,20 @@ import { ProjectEntity } from '../../database/entities/project.entity';
 import { ProjectSpecEntity } from '../../database/entities/project-spec.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
-import { UserEntity } from '../../database/entities/user.entity';
+import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
+import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       ContractEntity,
       ProjectEntity,
-      ProjectSpecEntity, // For reading spec
-      MilestoneEntity,   // For cloning
-      EscrowEntity,      // For mandatory escrow
-      UserEntity
+      ProjectSpecEntity,
+      MilestoneEntity,
+      EscrowEntity,
+      DigitalSignatureEntity,
     ]),
+    AuditLogsModule,
   ],
   controllers: [ContractsController],
   providers: [ContractsService],
