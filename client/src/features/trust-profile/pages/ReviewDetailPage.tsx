@@ -37,11 +37,11 @@ export function ReviewDetailPage({ review, onBack }: ReviewDetailPageProps) {
     }).format(date);
   };
 
-  // Format VND currency
-  const formatVND = (amount: number) => {
-    return new Intl.NumberFormat("vi-VN", {
+  // Format USD currency
+  const formatUSD = (amount: number) => {
+    return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "VND",
+      currency: "USD",
     }).format(amount);
   };
 
@@ -234,7 +234,7 @@ export function ReviewDetailPage({ review, onBack }: ReviewDetailPageProps) {
             {review.project.status && (
               <span
                 className={`inline-block px-3 py-1 rounded-lg text-sm border ${getStatusColor(
-                  review.project.status
+                  review.project.status,
                 )}`}
               >
                 {review.project.status.replace("_", " ")}
@@ -246,7 +246,7 @@ export function ReviewDetailPage({ review, onBack }: ReviewDetailPageProps) {
           <div className="p-4 bg-linear-to-r from-teal-50 to-green-50 border border-teal-200 rounded-lg shadow-sm">
             <div className="text-sm text-gray-600 mb-1">Total Budget</div>
             <div className="text-2xl text-slate-900">
-              {formatVND(review.project.totalBudget)}
+              {formatUSD(review.project.totalBudget)}
             </div>
           </div>
           {/* Category */}
