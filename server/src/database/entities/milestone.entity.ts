@@ -8,6 +8,8 @@ import {
   OneToMany,
 } from 'typeorm';
 import type { ProjectSpecEntity } from './project-spec.entity';
+import type { ProjectEntity } from './project.entity';
+import type { TaskEntity } from './task.entity';
 
 export enum MilestoneStatus {
   PENDING = 'PENDING',
@@ -35,7 +37,7 @@ export class MilestoneEntity {
   amount: number;
 
   @Column({ nullable: true })
-  projectSpecId: string;
+  projectSpecId: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
   startDate: Date;
@@ -62,14 +64,14 @@ export class MilestoneEntity {
   @CreateDateColumn()
   createdAt: Date;
 
-  @ManyToOne('ProjectEntity', 'milestones', { onDelete: 'CASCADE' })
+  @ManyToOne('ProjectEntity', 'milestones', { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'projectId' })
-  project: any;
+  project: ProjectEntity | null;
 
   @OneToMany('TaskEntity', 'milestone')
-  tasks: any[];
+  tasks: TaskEntity[];
 
-  @ManyToOne('ProjectSpecEntity', 'milestones', { onDelete: 'CASCADE' })
+  @ManyToOne('ProjectSpecEntity', 'milestones', { onDelete: 'CASCADE', nullable: true })
   @JoinColumn({ name: 'projectSpecId' })
-  projectSpec: ProjectSpecEntity;
+  projectSpec: ProjectSpecEntity | null;
 }

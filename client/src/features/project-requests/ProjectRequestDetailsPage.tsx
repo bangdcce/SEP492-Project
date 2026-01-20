@@ -112,7 +112,6 @@ export default function ProjectRequestDetailsPage() {
       // Refresh data from server to get correct brokerId and status
       await fetchRequest();
       alert("Request assigned successfully!");
-
       // Navigate back or refresh? For now just stay.
     } catch (err: unknown) {
       console.error("Failed to assign request:", err);

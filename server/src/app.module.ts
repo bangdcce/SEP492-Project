@@ -21,6 +21,7 @@ import { DisputesModule } from './modules/disputes/disputes.module';
 import { UserWarningModule } from './modules/user-warning/user-warning.module';
 import { KycModule } from './modules/kyc/kyc.module';
 import { UsersModule } from './modules/users/users.module';
+import { ContractsModule } from './modules/contracts/contracts.module';
 
 @Module({
   imports: [
@@ -98,6 +99,7 @@ import { UsersModule } from './modules/users/users.module';
     UserWarningModule,
     KycModule,
     UsersModule,
+    ContractsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

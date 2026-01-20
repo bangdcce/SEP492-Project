@@ -13,6 +13,7 @@ import { ProjectCategoryEntity } from './project-category.entity';
 
 export enum ProjectStatus {
   PLANNING = 'PLANNING',
+  INITIALIZING = 'INITIALIZING', // New status for Pre-Contract
   IN_PROGRESS = 'IN_PROGRESS',
   TESTING = 'TESTING',
   COMPLETED = 'COMPLETED',
