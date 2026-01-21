@@ -14,7 +14,6 @@ export class ProfileEntity {
   @Column({ type: 'text', nullable: true })
   bio: string;
 
-
   @Column({ type: 'varchar', length: 255, nullable: true })
   companyName: string;
 
@@ -23,6 +22,12 @@ export class ProfileEntity {
 
   @Column({ type: 'jsonb', nullable: true })
   portfolioLinks: Array<{ title: string; url: string }>;
+
+  @Column({ type: 'text', nullable: true })
+  linkedinUrl: string;
+
+  @Column({ type: 'text', nullable: true })
+  cvUrl: string;
 
   @Column({ type: 'jsonb', nullable: true })
   bankInfo: Record<string, any>;

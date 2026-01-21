@@ -18,6 +18,8 @@ import { JwtAuthGuard } from '../auth';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from 'src/database/entities';
+import type { RequestContext } from '../audit-logs/audit-logs.service';
+import { GetUser } from '../auth/decorators/get-user.decorator';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { DeleteReviewDto } from './dto/delete-review.dto';
@@ -76,15 +78,22 @@ export class ReviewController {
     description: 'Review created successfully & Trust Score updating...',
   })
   @HttpCode(HttpStatus.CREATED)
-  async create(@Body() createReviewDto: CreateReviewDto, @Req() req: any) {
-    const reviewId = req.user.id;
+  async create(
+    @GetUser('id') reviewId: string,
+    @Body() createReviewDto: CreateReviewDto,
+    @Req() req: RequestContext,
+  ) {
     return this.reviewService.create(reviewId, createReviewDto, req);
   }
 
   @Patch(':id')
   @ApiOperation({ summary: 'Chỉnh sửa đánh giá (Trong vòng 72h)' })
-  async update(@Param('id') id: string, @Body() updateReviewDto: UpdateReviewDto, @Req() req: any) {
-    const reviewerId = req.user.id;
+  async update(
+    @GetUser('id') reviewerId: string,
+    @Param('id') id: string,
+    @Body() updateReviewDto: UpdateReviewDto,
+    @Req() req: RequestContext,
+  ) {
     return this.reviewService.update(reviewerId, id, updateReviewDto, req);
   }
 
@@ -107,8 +116,12 @@ export class ReviewController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Xóa mềm review vi phạm' })
-  async softDelete(@Param('id') id: string, @Body() dto: DeleteReviewDto, @Req() req: any) {
-    const adminId = req.user.id;
+  async softDelete(
+    @GetUser('id') adminId: string,
+    @Param('id') id: string,
+    @Body() dto: DeleteReviewDto,
+    @Req() req: RequestContext,
+  ) {
     return this.reviewService.softDelete(id, adminId, dto.reason);
   }
 
@@ -117,8 +130,12 @@ export class ReviewController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Khôi phục review đã bị xóa mềm' })
-  async restore(@Param('id') id: string, @Body() dto: { reason: string }, @Req() req: any) {
-    const adminId = req.user.id;
+  async restore(
+    @GetUser('id') adminId: string,
+    @Param('id') id: string,
+    @Body() dto: { reason: string },
+    @Req() req: RequestContext,
+  ) {
     return this.reviewService.restore(id, adminId, dto.reason);
   }
 
@@ -127,8 +144,12 @@ export class ReviewController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Bỏ qua report của review' })
-  async dismissReport(@Param('id') id: string, @Body() dto: { reason?: string }, @Req() req: any) {
-    const adminId = req.user.id;
+  async dismissReport(
+    @GetUser('id') adminId: string,
+    @Param('id') id: string,
+    @Body() dto: { reason?: string },
+    @Req() req: RequestContext,
+  ) {
     return this.reviewService.dismissReport(id, adminId, dto.reason);
   }
 

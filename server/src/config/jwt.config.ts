@@ -6,13 +6,13 @@ export default registerAs('jwt', () => {
 
   if (!secret) {
     throw new Error(
-      'JWT_SECRET environment variable is required but not set. Please configure JWT_SECRET in your environment variables.'
+      'JWT_SECRET environment variable is required but not set. Please configure JWT_SECRET in your environment variables.',
     );
   }
 
   if (!refreshSecret) {
     throw new Error(
-      'JWT_REFRESH_SECRET environment variable is required but not set. Please configure JWT_REFRESH_SECRET in your environment variables.'
+      'JWT_REFRESH_SECRET environment variable is required but not set. Please configure JWT_REFRESH_SECRET in your environment variables.',
     );
   }
 

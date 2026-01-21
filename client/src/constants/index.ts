@@ -14,12 +14,37 @@ export const ROUTES = {
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
+  
+  // Client Routes
+  CLIENT_AUDIT_LOGS: "/audit-logs",
+  
+  // Freelancer Routes
+  FREELANCER_DASHBOARD: "/freelancer/dashboard",
+  FREELANCER_PROJECTS: "/freelancer/projects",
+  FREELANCER_WORKSPACE: "/freelancer/workspace/:projectId",
+  FREELANCER_PROFILE: "/freelancer/profile",
+  FREELANCER_ONBOARDING: "/freelancer/onboarding",
+  
+  // Broker Routes
+  BROKER_DASHBOARD: "/broker/dashboard",
+  BROKER_PROJECTS: "/broker/projects",
+  BROKER_WORKSPACE: "/broker/workspace/:projectId",
+  BROKER_FREELANCERS: "/broker/freelancers",
+  BROKER_PROFILE: "/broker/profile",
+  
+  // Admin Routes
 
   // ========== CLIENT ROUTES - prefix /client ==========
   CLIENT_DASHBOARD: "/client/dashboard",
   CLIENT_MY_REQUESTS: "/client/my-requests",
   CLIENT_WIZARD: "/client/wizard",
   CLIENT_PROFILE: "/client/profile",
+  
+
+
+  // ========== PROJECT ROUTES ==========
+  CLIENT_PROJECTS: "/client/projects",
+  CLIENT_WORKSPACE: "/client/workspace/:projectId",
 
   // ========== ADMIN ROUTES - prefix /admin ==========
   ADMIN_DASHBOARD: "/admin/dashboard",

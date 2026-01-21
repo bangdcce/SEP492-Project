@@ -1,5 +1,23 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, MinLength, MaxLength, Matches } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  MinLength,
+  MaxLength,
+  Matches,
+  IsArray,
+  ValidateNested,
+  IsUrl,
+} from 'class-validator';
+import { Type } from 'class-transformer';
+
+class PortfolioLinkDto {
+  @IsString()
+  title: string;
+
+  @IsUrl()
+  url: string;
+}
 
 export class UpdateProfileDto {
   @ApiProperty({
@@ -46,12 +64,62 @@ export class UpdateProfileDto {
   @IsString({ message: 'Bio phải là chuỗi ký tự' })
   @MaxLength(500, { message: 'Bio không được vượt quá 500 ký tự' })
   bio?: string;
+
+  @ApiProperty({
+    description: 'Tên công ty (cho freelancer)',
+    example: 'ABC Software Company',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  companyName?: string;
+
+  @ApiProperty({
+    description: 'Danh sách kỹ năng (cho freelancer)',
+    example: ['React', 'Node.js', 'TypeScript'],
+    required: false,
+  })
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  skills?: string[];
+
+  @ApiProperty({
+    description: 'Danh sách portfolio links (cho freelancer)',
+    example: [{ title: 'E-commerce Website', url: 'https://github.com/...' }],
+    required: false,
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => PortfolioLinkDto)
+  portfolioLinks?: PortfolioLinkDto[];
+
+  @ApiProperty({
+    description: 'LinkedIn profile URL',
+    example: 'https://www.linkedin.com/in/username',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  linkedinUrl?: string;
+
+  @ApiProperty({
+    description: 'CV URL (base64 hoặc cloud URL)',
+    example: 'data:application/pdf;base64,...',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  cvUrl?: string;
 }
+
+import { AuthResponseDto } from './auth-response.dto';
 
 export class UpdateProfileResponseDto {
   @ApiProperty({ description: 'Thông báo kết quả' })
   message: string;
 
   @ApiProperty({ description: 'Dữ liệu người dùng sau khi cập nhật' })
-  data: any;
+  data: AuthResponseDto;
 }

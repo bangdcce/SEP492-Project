@@ -97,7 +97,7 @@ export class EscrowEntity {
   @Column({ type: 'decimal', precision: 5, scale: 2, default: 5 })
   platformPercentage: number;
 
-  @Column({ type: 'varchar', length: 3, default: 'VND' })
+  @Column({ type: 'varchar', length: 3, default: 'USD' })
   currency: string;
 
   @Column({

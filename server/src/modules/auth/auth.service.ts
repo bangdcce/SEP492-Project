@@ -9,11 +9,11 @@ import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
 import { EmailService } from './email.service';
-import { 
-  LoginDto, 
-  RegisterDto, 
-  AuthResponseDto, 
-  LoginResponseDto, 
+import {
+  LoginDto,
+  RegisterDto,
+  AuthResponseDto,
+  LoginResponseDto,
   LogoutResponseDto,
   ForgotPasswordDto,
   ResetPasswordDto,
@@ -21,7 +21,7 @@ import {
   ResetPasswordResponseDto,
   VerifyOtpDto,
   VerifyOtpResponseDto,
-  UpdateProfileDto
+  UpdateProfileDto,
 } from './dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -81,9 +81,10 @@ export class AuthService {
   ): Promise<LoginResponseDto> {
     const { email, password } = loginDto;
 
-    // Tìm user theo email
+    // Tìm user theo email với profile relation
     const user = await this.userRepository.findOne({
       where: { email },
+      relations: ['profile'],
     });
 
     if (!user) {
@@ -91,6 +92,9 @@ export class AuthService {
     }
 
     // Kiểm tra password
+    if (!user.passwordHash) {
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
@@ -297,12 +301,12 @@ export class AuthService {
    */
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto> {
     const { email } = forgotPasswordDto;
-    
+
     // 1. Tìm user theo email
-    const user = await this.userRepository.findOne({ 
-      where: { email } 
+    const user = await this.userRepository.findOne({
+      where: { email },
     });
-    
+
     if (!user) {
       // Security: Không tiết lộ email có tồn tại hay không
       return {
@@ -415,7 +419,7 @@ export class AuthService {
     // 7. Revoke all existing auth sessions for security
     await this.authSessionRepository.update(
       { userId: user.id, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date() }
+      { isRevoked: true, revokedAt: new Date() },
     );
 
     console.log(`✅ Password reset successful for user: ${user.email}`);
@@ -550,7 +554,10 @@ export class AuthService {
     });
   }
 
-  async updateProfile(userId: string, updateProfileDto: UpdateProfileDto): Promise<AuthResponseDto> {
+  async updateProfile(
+    userId: string,
+    updateProfileDto: UpdateProfileDto,
+  ): Promise<AuthResponseDto> {
     // Cập nhật thông tin User
     const updateUserData: Partial<UserEntity> = {};
     if (updateProfileDto.fullName) updateUserData.fullName = updateProfileDto.fullName;
@@ -562,20 +569,32 @@ export class AuthService {
 
     // Tìm hoặc tạo Profile
     let profile = await this.profileRepository.findOne({ where: { userId } });
-    
+
     if (!profile) {
       // Tạo profile mới nếu chưa có
       profile = this.profileRepository.create({
         userId,
         avatarUrl: updateProfileDto.avatarUrl,
         bio: updateProfileDto.bio,
+        companyName: updateProfileDto.companyName,
+        skills: updateProfileDto.skills,
+        portfolioLinks: updateProfileDto.portfolioLinks,
       });
       await this.profileRepository.save(profile);
     } else {
       // Cập nhật profile
       const updateProfileData: Partial<ProfileEntity> = {};
-      if (updateProfileDto.avatarUrl !== undefined) updateProfileData.avatarUrl = updateProfileDto.avatarUrl;
+      if (updateProfileDto.avatarUrl !== undefined)
+        updateProfileData.avatarUrl = updateProfileDto.avatarUrl;
       if (updateProfileDto.bio !== undefined) updateProfileData.bio = updateProfileDto.bio;
+      if (updateProfileDto.companyName !== undefined)
+        updateProfileData.companyName = updateProfileDto.companyName;
+      if (updateProfileDto.skills !== undefined) updateProfileData.skills = updateProfileDto.skills;
+      if (updateProfileDto.portfolioLinks !== undefined)
+        updateProfileData.portfolioLinks = updateProfileDto.portfolioLinks;
+      if (updateProfileDto.linkedinUrl !== undefined)
+        updateProfileData['linkedinUrl'] = updateProfileDto.linkedinUrl;
+      if (updateProfileDto.cvUrl !== undefined) updateProfileData['cvUrl'] = updateProfileDto.cvUrl;
 
       if (Object.keys(updateProfileData).length > 0) {
         await this.profileRepository.update({ userId }, updateProfileData);
@@ -596,7 +615,13 @@ export class AuthService {
       email: user.email,
       fullName: user.fullName,
       phoneNumber: user.phoneNumber,
-      avatarUrl: (user as any).profile?.avatarUrl,
+      avatarUrl: user.profile?.avatarUrl,
+      bio: user.profile?.bio,
+      skills: user.profile?.skills,
+      linkedinUrl: user.profile?.linkedinUrl,
+      cvUrl: user.profile?.cvUrl,
+      companyName: user.profile?.companyName,
+      portfolioLinks: user.profile?.portfolioLinks,
       role: user.role,
       isVerified: user.isVerified,
       currentTrustScore: user.currentTrustScore,

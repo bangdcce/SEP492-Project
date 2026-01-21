@@ -4,8 +4,7 @@ import axios from 'axios';
 
 @Injectable()
 export class CaptchaService {
-  private readonly RECAPTCHA_VERIFY_URL =
-    'https://www.google.com/recaptcha/api/siteverify';
+  private readonly RECAPTCHA_VERIFY_URL = 'https://www.google.com/recaptcha/api/siteverify';
 
   constructor(private configService: ConfigService) {}
 
@@ -25,16 +24,12 @@ export class CaptchaService {
     }
 
     try {
-      const response = await axios.post(
-        this.RECAPTCHA_VERIFY_URL,
-        null,
-        {
-          params: {
-            secret: secretKey,
-            response: token,
-          },
+      const response = await axios.post(this.RECAPTCHA_VERIFY_URL, null, {
+        params: {
+          secret: secretKey,
+          response: token,
         },
-      );
+      });
 
       const { success, 'error-codes': errorCodes } = response.data;
 
@@ -54,10 +49,7 @@ export class CaptchaService {
       return true;
     } catch (error) {
       console.error('reCAPTCHA verification error:', error);
-      throw new HttpException(
-        'Failed to verify reCAPTCHA',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new HttpException('Failed to verify reCAPTCHA', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }
 }

@@ -5,7 +5,11 @@
  */
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, FolderKanban, PlusCircle } from "lucide-react";
+import {
+  LayoutDashboard,
+  FolderKanban,
+  PlusCircle,
+} from "lucide-react";
 
 export interface ClientSidebarMenuItem {
   id: string;

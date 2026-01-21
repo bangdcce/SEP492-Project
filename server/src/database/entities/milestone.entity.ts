@@ -1,4 +1,13 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, JoinColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  ManyToOne,
+  JoinColumn,
+  OneToMany,
+} from 'typeorm';
+import type { ProjectSpecEntity } from './project-spec.entity';
 
 export enum MilestoneStatus {
   PENDING = 'PENDING',
@@ -13,8 +22,8 @@ export class MilestoneEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
-  projectId: string;
+  @Column({ nullable: true })
+  projectId: string | null;
 
   @Column({ type: 'varchar', length: 255 })
   title: string;
@@ -22,8 +31,11 @@ export class MilestoneEntity {
   @Column({ type: 'text', nullable: true })
   description: string;
 
-  @Column({ type: 'decimal', precision: 15, scale: 2 })
+  @Column({ type: 'decimal', precision: 14, scale: 2 })
   amount: number;
+
+  @Column({ nullable: true })
+  projectSpecId: string;
 
   @Column({ type: 'timestamp', nullable: true })
   startDate: Date;
@@ -56,4 +68,8 @@ export class MilestoneEntity {
 
   @OneToMany('TaskEntity', 'milestone')
   tasks: any[];
+
+  @ManyToOne('ProjectSpecEntity', 'milestones', { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'projectSpecId' })
+  projectSpec: ProjectSpecEntity;
 }

@@ -1,21 +1,11 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Mail,
-  Phone,
-  MapPin,
-  Edit2,
-  Briefcase,
-  X,
-  ArrowLeft,
-  TrendingUp,
-  Shield,
-} from "lucide-react";
+import { Mail, Phone, MapPin, Edit2, Shield, ExternalLink, FileText, Download, ArrowLeft, Briefcase, X, TrendingUp } from 'lucide-react';
 import { toast } from "sonner";
 import { getProfile, updateProfile } from "@/features/auth/api";
 import { STORAGE_KEYS } from "@/constants";
 import { TrustScoreCard } from "@/features/trust-profile/components";
-import type { BadgeType, TrustStats } from "@/features/trust-profile/types";
+import type { BadgeType } from "@/features/trust-profile/types";
 
 interface UserProfile {
   id: string;
@@ -28,7 +18,14 @@ interface UserProfile {
   badge: BadgeType;
   isVerified: boolean;
   currentTrustScore: number;
-  stats?: TrustStats;
+  skills?: string[];
+  linkedinUrl?: string;
+  cvUrl?: string;
+  stats?: {
+    finished: number;
+    disputes: number;
+    score: number;
+  };
 }
 
 export default function ProfilePage() {
@@ -181,6 +178,73 @@ export default function ProfilePage() {
       BROKER: "Broker",
     };
     return names[role?.toUpperCase()] || role;
+  };
+
+  const handleViewCV = () => {
+    if (!profile?.cvUrl) return;
+    
+    try {
+      // Convert base64 to blob for better browser compatibility
+      const base64Data = profile.cvUrl.split(',')[1];
+      const mimeType = profile.cvUrl.split(',')[0].split(':')[1].split(';')[0];
+      
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: mimeType });
+      
+      // Create object URL and open in new tab
+      const blobUrl = URL.createObjectURL(blob);
+      window.open(blobUrl, '_blank');
+      
+      // Clean up the URL after a delay
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+    } catch (error) {
+      console.error('Error viewing CV:', error);
+      toast.error('Failed to open CV. Try downloading instead.');
+    }
+  };
+
+  const handleDownloadCV = () => {
+    if (!profile?.cvUrl) return;
+    
+    try {
+      // Convert base64 to blob
+      const base64Data = profile.cvUrl.split(',')[1];
+      const mimeType = profile.cvUrl.split(',')[0].split(':')[1].split(';')[0];
+      
+      // Determine file extension based on MIME type
+      let extension = '.pdf';
+      if (mimeType.includes('png')) extension = '.png';
+      else if (mimeType.includes('jpeg') || mimeType.includes('jpg')) extension = '.jpg';
+      
+      const byteCharacters = atob(base64Data);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: mimeType });
+      
+      // Create download link
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `CV_${profile.fullName.replace(/\s+/g, '_')}${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      
+      // Clean up
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+      toast.success('CV downloaded successfully');
+    } catch (error) {
+      console.error('Error downloading CV:', error);
+      toast.error('Failed to download CV');
+    }
   };
 
   if (loading) {
@@ -441,6 +505,81 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
+
+              {/* Freelancer Documents - Only for Freelancer role */}
+              {profile.role === 'FREELANCER' && (profile.cvUrl || profile.linkedinUrl || (profile.skills && profile.skills.length > 0)) && (
+                <div className="border-t pt-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-4">Professional Information</h4>
+                  
+                  {/* Skills */}
+                  {profile.skills && profile.skills.length > 0 && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Skills</label>
+                      <div className="flex flex-wrap gap-2">
+                        {profile.skills.map((skill, index) => (
+                          <span
+                            key={index}
+                            className="px-3 py-1.5 bg-blue-50 text-blue-700 rounded-full text-sm font-medium"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* LinkedIn */}
+                  {profile.linkedinUrl && (
+                    <div className="mb-4">
+                      <label className="block text-sm font-medium text-gray-700 mb-2">LinkedIn Profile</label>
+                      <a
+                        href={profile.linkedinUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 text-blue-600 hover:text-blue-700 hover:underline"
+                      >
+                        <ExternalLink className="w-4 h-4" />
+                        View LinkedIn Profile
+                      </a>
+                    </div>
+                  )}
+
+                  {/* CV Document */}
+                  {profile.cvUrl && (
+                    <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <div className="p-3 bg-blue-100 rounded-lg">
+                            <FileText className="w-6 h-6 text-blue-600" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-gray-900">Curriculum Vitae (CV)</p>
+                            <p className="text-sm text-gray-600">Your professional resume</p>
+                          </div>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={handleDownloadCV}
+                            type="button"
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+                          >
+                            <Download className="w-4 h-4" />
+                            Download
+                          </button>
+                          <button
+                            onClick={handleViewCV}
+                            type="button"
+                            className="flex items-center gap-2 px-4 py-2 border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-lg transition-colors"
+                          >
+                            <ExternalLink className="w-4 h-4" />
+                            View
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Action Buttons */}
               {isEditing && (

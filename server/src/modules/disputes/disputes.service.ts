@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import Decimal from 'decimal.js';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   DisputeEntity,
@@ -65,6 +66,7 @@ import {
   PaginatedDisputesResponse,
 } from './dto/dispute-filter.dto';
 import { UserWarningService } from '../user-warning/user-warning.service';
+import type { RequestContext } from '../audit-logs/audit-logs.service';
 
 // Constants for deadlines
 const DEFAULT_RESPONSE_DEADLINE_DAYS = 7;
@@ -684,7 +686,7 @@ export class DisputesService {
     adminId: string,
     disputeId: string,
     dto: ResolveDisputeDto,
-    req?: any,
+    req?: RequestContext,
   ): Promise<ResolutionResult> {
     const { verdict, adminComment, splitRatioClient = 50 } = dto;
 
@@ -709,28 +711,30 @@ export class DisputesService {
 
       if (!dispute) throw new NotFoundException(`Dispute with ID: ${disputeId} not found`);
 
+      // Lock Escrow, Project, Milestone
+      const escrow = await queryRunner.manager.findOne(EscrowEntity, {
+        where: { milestoneId: dispute.milestoneId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const project = await queryRunner.manager.findOne(ProjectEntity, {
+        where: { id: dispute.projectId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      const milestone = await queryRunner.manager.findOne(MilestoneEntity, {
+        where: { id: dispute.milestoneId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!dispute) throw new NotFoundException(`Dispute with ID: ${disputeId} not found`);
+
       if (!DisputeStateMachine.canResolve(dispute.status)) {
         throw new BadRequestException(
           `Dispute is in "${dispute.status}" status and cannot be resolved. ` +
             `It must be in IN_MEDIATION status first.`,
         );
       }
-
-      // PERFORMANCE: Parallel load Escrow, Project, Milestone with pessimistic lock
-      const [escrow, project, milestone] = await Promise.all([
-        queryRunner.manager.findOne(EscrowEntity, {
-          where: { milestoneId: dispute.milestoneId },
-          lock: { mode: 'pessimistic_write' },
-        }),
-        queryRunner.manager.findOne(ProjectEntity, {
-          where: { id: dispute.projectId },
-          lock: { mode: 'pessimistic_write' },
-        }),
-        queryRunner.manager.findOne(MilestoneEntity, {
-          where: { id: dispute.milestoneId },
-          lock: { mode: 'pessimistic_write' },
-        }),
-      ]);
 
       // Validate all entities exist
       if (!escrow) {
@@ -997,39 +1001,38 @@ export class DisputesService {
         };
 
       case DisputeResult.SPLIT: {
-        // Chia theo tỷ lệ
-        const clientRatio = splitRatioClient / 100;
-        const freelancerRatio = 1 - clientRatio;
+        // Chia theo tỷ lệ - SỬ DỤNG DECIMAL.JS cho USD
+        const total = new Decimal(totalAmount);
+        const clientRatioDecimal = new Decimal(splitRatioClient).dividedBy(100);
+        const freelancerRatioDecimal = new Decimal(1).minus(clientRatioDecimal);
+
         // Phần Client nhận (không mất phí)
-        const clientAmount = totalAmount * clientRatio;
+        const clientAmount = total
+          .times(clientRatioDecimal)
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
         // Phần Freelancer nhận (chia theo tỷ lệ gốc, có trừ phí)
-        const freelancerPortion = totalAmount * freelancerRatio;
-        const freelancerAmount = freelancerPortion * (escrow.developerPercentage / 100);
-        const brokerAmount = freelancerPortion * (escrow.brokerPercentage / 100);
-        const platformFeeAmount = freelancerPortion * (escrow.platformPercentage / 100);
+        const freelancerPortion = total.times(freelancerRatioDecimal);
+        const freelancerAmount = freelancerPortion
+          .times(new Decimal(escrow.developerPercentage).dividedBy(100))
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+        const brokerAmount = freelancerPortion
+          .times(new Decimal(escrow.brokerPercentage).dividedBy(100))
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
-        // PERFORMANCE FIX: Use largest remainder method to prevent rounding loss
-        // VND is an integer currency (no cents), so we round down to whole numbers
-        const rawAmounts = [clientAmount, freelancerAmount, brokerAmount, platformFeeAmount];
-        const roundedAmounts = rawAmounts.map((a) => Math.floor(a));
-        let remainingVND = Math.round(totalAmount - roundedAmounts.reduce((a, b) => a + b, 0));
-
-        // Distribute remainder VND to amounts with largest fractional parts
-        const fractions = rawAmounts
-          .map((a, i) => ({ index: i, fraction: a % 1 }))
-          .sort((a, b) => b.fraction - a.fraction);
-
-        for (const { index } of fractions) {
-          if (remainingVND <= 0) break;
-          roundedAmounts[index] += 1;
-          remainingVND--;
-        }
+        // Platform fee: phần còn lại sau khi chia freelancer + broker
+        // Đảm bảo tổng = totalAmount (tránh lỗi làm tròn)
+        const platformFeeAmount = total
+          .minus(clientAmount)
+          .minus(freelancerAmount)
+          .minus(brokerAmount)
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
         return {
-          clientAmount: roundedAmounts[0],
-          freelancerAmount: roundedAmounts[1],
-          brokerAmount: roundedAmounts[2],
-          platformFee: roundedAmounts[3],
+          clientAmount: clientAmount.toNumber(),
+          freelancerAmount: freelancerAmount.toNumber(),
+          brokerAmount: brokerAmount.toNumber(),
+          platformFee: platformFeeAmount.toNumber(),
           totalAmount,
         };
       }
@@ -1092,15 +1095,25 @@ export class DisputesService {
         throw new NotFoundException(`Wallet for User "${userId}" not found`);
       }
 
-      // Cập nhật balance
-      wallet.balance = Number(wallet.balance) + amount;
+      // Cập nhật balance - SỬ DỤNG DECIMAL.JS cho USD
+      wallet.balance = new Decimal(wallet.balance)
+        .plus(amount)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
 
       if (type === TransactionType.REFUND) {
         // Client nhận refund
-        wallet.heldBalance = Math.max(0, Number(wallet.heldBalance) - amount);
+        const newHeldBalance = new Decimal(wallet.heldBalance)
+          .minus(amount)
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+          .toNumber();
+        wallet.heldBalance = Math.max(0, newHeldBalance);
       } else if (type === TransactionType.ESCROW_RELEASE) {
         // Freelancer/Broker nhận tiền
-        wallet.totalEarned = Number(wallet.totalEarned) + amount;
+        wallet.totalEarned = new Decimal(wallet.totalEarned)
+          .plus(amount)
+          .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+          .toNumber();
       }
 
       await queryRunner.manager.save(WalletEntity, wallet);
@@ -1111,7 +1124,7 @@ export class DisputesService {
         amount,
         fee: 0,
         netAmount: amount,
-        currency: 'VND',
+        currency: 'USD',
         type,
         status: TransactionStatus.COMPLETED,
         referenceType: 'Escrow',
@@ -1218,7 +1231,7 @@ export class DisputesService {
     // Platform fee - chuyển vào ví Platform (có thể là một admin wallet)
     // Tùy vào thiết kế hệ thống, có thể bỏ qua hoặc tạo wallet riêng
     if (distribution.platformFee > 0) {
-      this.logger.log(`[MoneyTransfer] Platform Fee: ${distribution.platformFee} VND`);
+      this.logger.log(`[MoneyTransfer] Platform Fee: $${distribution.platformFee} USD`);
       // Có thể tạo transaction cho platform wallet ở đây
     }
 
@@ -1892,11 +1905,11 @@ export class DisputesService {
       return DisputePriority.CRITICAL;
     }
 
-    // Dựa trên số tiền (VND)
-    if (amount < 1000000) return DisputePriority.LOW; // < 1 triệu
-    if (amount < 10000000) return DisputePriority.MEDIUM; // 1-10 triệu
-    if (amount < 50000000) return DisputePriority.HIGH; // 10-50 triệu
-    return DisputePriority.CRITICAL; // > 50 triệu
+    // Dựa trên số tiền (USD)
+    if (amount < 100) return DisputePriority.LOW; // < $100
+    if (amount < 1000) return DisputePriority.MEDIUM; // $100 - $1,000
+    if (amount < 5000) return DisputePriority.HIGH; // $1,000 - $5,000
+    return DisputePriority.CRITICAL; // > $5,000
   }
 
   /**
@@ -1909,7 +1922,7 @@ export class DisputesService {
     actorRole: UserRole,
     action: DisputeAction,
     description: string,
-    metadata?: Record<string, any>,
+    metadata?: Record<string, unknown>,
     isInternal: boolean = false,
   ): Promise<DisputeActivityEntity> {
     const activity = queryRunner.manager.create(DisputeActivityEntity, {
