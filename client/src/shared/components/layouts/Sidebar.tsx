@@ -1,70 +1,90 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { sidebarMenuItems } from "./sidebarConfig";
 import type { SidebarMenuItem } from "./sidebarConfig";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft } from "lucide-react";
 import { Logo } from "../custom/Logo";
+import { Tooltip, TooltipContent, TooltipTrigger } from "../ui";
+
+const STORAGE_KEY = "sidebar_collapsed";
 
 interface SidebarProps {
   activePath: string;
   onNavigate: (path: string) => void;
-  isCollapsed: boolean;
-  onToggleCollapse: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
   menuItems?: SidebarMenuItem[];
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
   activePath,
   onNavigate,
-  isCollapsed,
+  isCollapsed: isCollapsedProp,
   onToggleCollapse,
   menuItems = sidebarMenuItems,
 }) => {
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      return localStorage.getItem(STORAGE_KEY) === "true";
+    } catch {
+      return false;
+    }
+  });
+
+  const collapsed = isCollapsedProp ?? isCollapsed;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(STORAGE_KEY, String(collapsed));
+    } catch {
+      // ignore storage errors
+    }
+  }, [collapsed]);
+
+  const handleToggleCollapse = () => {
+    onToggleCollapse?.();
+    if (isCollapsedProp === undefined) {
+      setIsCollapsed((prev) => !prev);
+    }
+  };
   const isActive = (item: SidebarMenuItem) => activePath === item.path;
 
   return (
     <aside
       className={`
-        fixed left-0 top-0 h-screen bg-white border-r border-gray-200 flex flex-col
-        transition-all duration-300 ease-in-out
-        ${isCollapsed ? "w-20" : "w-64"}
+        sticky top-0 h-screen flex flex-col border-r border-slate-200 bg-white/50 backdrop-blur-xl relative
+        transition-[width] duration-300 ease-[cubic-bezier(0.4,0,0.2,1)]
+        ${collapsed ? "w-[70px]" : "w-64"}
       `}
     >
       {/* Logo Section - Always visible, centered, 3/4 of container */}
       <div
         className={`
-        h-20 px-4 py-4 flex items-center border-b border-gray-100
-        ${isCollapsed ? "justify-center" : "justify-between"}
+        h-20 px-4 py-4 flex items-center border-b border-slate-200/60 transition-all duration-300
+        ${collapsed ? "justify-center" : "justify-between"}
       `}
       >
         <Logo
-          isCollapsed={isCollapsed}
-          className={isCollapsed ? "w-full" : "flex-1"}
+          variant={collapsed ? "icon" : "full"}
+          size={collapsed ? "lg" : "md"}
+          className={collapsed ? "w-full justify-center" : "flex-1"}
         />
-
-        {/* Toggle Button - Only visible when expanded */}
-        {!isCollapsed && (
-          <button
-            onClick={onToggleCollapse}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors flex-shrink-0 ml-3"
-            aria-label="Collapse sidebar"
-          >
-            <ChevronLeft className="h-5 w-5 text-gray-500" />
-          </button>
-        )}
       </div>
 
-      {/* Collapsed State - Expand Button */}
-      {isCollapsed && (
-        <div className="h-14 flex justify-center items-center border-b border-gray-100">
-          <button
-            onClick={onToggleCollapse}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            aria-label="Expand sidebar"
-          >
-            <ChevronRight className="h-5 w-5 text-gray-500" />
-          </button>
-        </div>
-      )}
+      <button
+        onClick={handleToggleCollapse}
+        type="button"
+        className="absolute -right-3 top-9 z-50 h-6 w-6 rounded-full border border-slate-200 bg-white shadow-sm flex items-center justify-center text-slate-500 hover:text-slate-900 hover:bg-slate-50 cursor-pointer"
+        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      >
+        <ChevronLeft
+          size={14}
+          className={`transition-transform duration-200 ${
+            collapsed ? "rotate-180" : ""
+          }`}
+        />
+      </button>
 
       {/* Navigation Menu */}
       <nav className="flex-1 px-3 py-4">
@@ -73,47 +93,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
             const Icon = item.icon;
             const active = isActive(item);
 
+            const button = (
+              <button
+                onClick={() => onNavigate(item.path)}
+                className={`
+                  w-full h-10 flex items-center rounded-lg px-3
+                  transition-colors duration-150 relative group
+                  ${
+                    active
+                      ? "bg-teal-50 text-teal-700 font-medium"
+                      : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                  }
+                  ${collapsed ? "justify-center" : "justify-start"}
+                `}
+                aria-label={collapsed ? item.label : undefined}
+              >
+                {/* Active indicator bar */}
+                {active && (
+                  <span className="absolute left-0 top-1 bottom-1 w-1 bg-teal-500 rounded-r" />
+                )}
+
+                <Icon className="h-5 w-5 flex-shrink-0" />
+
+                <span
+                  className={`
+                    whitespace-nowrap overflow-hidden transition-all duration-300 origin-left text-sm
+                    ${collapsed ? "w-0 opacity-0 -translate-x-2 ml-0" : "w-auto opacity-100 translate-x-0 ml-3"}
+                  `}
+                >
+                  {item.label}
+                </span>
+              </button>
+            );
+
             return (
               <li key={item.id}>
-                <button
-                  onClick={() => onNavigate(item.path)}
-                  className={`
-                    w-full flex items-center gap-3 px-3 py-2.5 rounded-lg
-                    transition-all duration-150 relative group
-                    ${
-                      active
-                        ? "bg-teal-50 text-teal-600"
-                        : "text-gray-700 hover:bg-slate-50"
-                    }
-                    ${isCollapsed ? "justify-center" : ""}
-                  `}
-                  title={isCollapsed ? item.label : undefined}
-                >
-                  {/* Active indicator bar */}
-                  {active && (
-                    <span className="absolute left-0 top-1 bottom-1 w-1 bg-teal-500 rounded-r" />
-                  )}
-
-                  <Icon className="h-5 w-5 flex-shrink-0" />
-
-                  {/* Label - Hidden when collapsed */}
-                  {!isCollapsed && (
-                    <span className="text-sm">{item.label}</span>
-                  )}
-
-                  {/* Tooltip on hover when collapsed */}
-                  {isCollapsed && (
-                    <span
-                      className="
-                      absolute left-full ml-6 px-2 py-1 bg-slate-900 text-white text-xs rounded
-                      opacity-0 group-hover:opacity-100 pointer-events-none
-                      transition-opacity duration-200 whitespace-nowrap z-50
-                    "
+                {collapsed ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>{button}</TooltipTrigger>
+                    <TooltipContent
+                      side="right"
+                      sideOffset={8}
+                      className="bg-slate-900 text-white"
                     >
                       {item.label}
-                    </span>
-                  )}
-                </button>
+                    </TooltipContent>
+                  </Tooltip>
+                ) : (
+                  button
+                )}
               </li>
             );
           })}
@@ -121,17 +149,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </nav>
 
       {/* Footer */}
-      <div
-        className={`
-        p-6 border-t border-gray-200
-        ${isCollapsed ? "text-center" : ""}
-      `}
-      >
-        {!isCollapsed ? (
-          <p className="text-xs text-gray-500">© 2025 InterDev</p>
-        ) : (
-          <p className="text-xs text-gray-500">©</p>
-        )}
+      <div className="p-4 border-t border-slate-200/60">
+        <span
+          className={`
+            text-xs text-gray-500 whitespace-nowrap overflow-hidden transition-all duration-300 origin-left
+            ${collapsed ? "w-0 opacity-0 -translate-x-2" : "w-auto opacity-100 translate-x-0"}
+          `}
+        >
+          Ac 2025 InterDev
+        </span>
       </div>
     </aside>
   );

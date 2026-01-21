@@ -113,3 +113,84 @@ export const createMilestone = async (payload: {
   console.log("[API] Milestone created:", result);
   return result;
 };
+
+/**
+ * Response from POST /milestones/:id/approve
+ */
+export interface MilestoneApprovalResult {
+  milestone: Milestone;
+  previousStatus: string;
+  fundsReleased: boolean;
+  message: string;
+}
+
+/**
+ * Approve a milestone and release funds
+ * Only Client or Broker can call this
+ * Endpoint: POST /projects/milestones/:id/approve
+ */
+export const approveMilestone = async (
+  milestoneId: string,
+  feedback?: string
+): Promise<MilestoneApprovalResult> => {
+  console.log("[API] Approving milestone:", { milestoneId, feedback });
+
+  const result = await apiClient.post<MilestoneApprovalResult>(
+    `/projects/milestones/${milestoneId}/approve`,
+    { feedback }
+  );
+
+  console.log("[API] Milestone approved:", result);
+  return result;
+};
+
+/**
+ * Dispute category enum (matches backend DisputeCategory)
+ */
+export type DisputeCategory =
+  | "QUALITY"
+  | "DEADLINE"
+  | "COMMUNICATION"
+  | "SCOPE_CHANGE"
+  | "PAYMENT";
+
+/**
+ * Payload for creating a dispute
+ */
+export interface CreateDisputePayload {
+  projectId: string;
+  milestoneId: string;
+  defendantId: string; // Freelancer ID
+  reason: string;
+  evidence: string[];
+  category?: DisputeCategory;
+  disputedAmount?: number;
+}
+
+/**
+ * Response from dispute creation
+ */
+export interface DisputeResponse {
+  id: string;
+  status: string;
+  createdAt: string;
+  reason: string;
+  category?: DisputeCategory;
+  milestoneId: string;
+  projectId: string;
+}
+
+/**
+ * Create a dispute for a milestone
+ * Endpoint: POST /disputes
+ */
+export const createDispute = async (
+  payload: CreateDisputePayload
+): Promise<DisputeResponse> => {
+  console.log("[API] Creating dispute:", payload);
+
+  const result = await apiClient.post<DisputeResponse>("/disputes", payload);
+
+  console.log("[API] Dispute created:", result);
+  return result;
+};
