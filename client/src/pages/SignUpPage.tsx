@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '../shared/components/custom/input';
 import { Button } from '../shared/components/custom/Button';
 // import { GoogleButton } from '../shared/components/auth/GoogleButton';
 import { PasswordStrength } from '../shared/components/auth/PasswordStrength';
 import { CaptchaInput } from '../shared/components/auth/CaptchaInput';
 import { AuthLayout } from '../shared/components/layouts/AuthLayout';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, ArrowRight, Building2, Store, Briefcase, Laptop } from 'lucide-react';
 import { toast } from 'sonner';
 import { ROUTES } from '@/constants';
 import { signUp } from '@/features/auth';
@@ -20,6 +21,7 @@ type UserRole = 'client_large' | 'client_small' | 'broker' | 'freelancer';
 
 export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPageProps = {}) {
   const navigate = useNavigate();
+  const [currentStep, setCurrentStep] = useState(1); // 1: Role Selection, 2: Info Form
   const [formData, setFormData] = useState({
     role: '' as UserRole | '',
     fullName: '',
@@ -217,247 +219,385 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     }
   };
 
+  const getRoleIcon = (role: UserRole) => {
+    switch (role) {
+      case 'client_large':
+        return Building2;
+      case 'client_small':
+        return Store;
+      case 'broker':
+        return Briefcase;
+      case 'freelancer':
+        return Laptop;
+    }
+  };
+const handleRoleSelect = (role: UserRole) => {
+    handleChange('role', role);
+    // Auto-advance to next step after selecting role
+    setTimeout(() => {
+      setCurrentStep(2);
+    }, 300);
+  };
+
+  const handleBackToRoleSelection = () => {
+    setCurrentStep(1);
+  };
+
+  // Animation variants
+  const slideVariants = {
+    enter: (direction: number) => ({
+      x: direction > 0 ? 300 : -300,
+      opacity: 0,
+    }),
+    center: {
+      x: 0,
+      opacity: 1,
+    },
+    exit: (direction: number) => ({
+      x: direction > 0 ? -300 : 300,
+      opacity: 0,
+    }),
+  };
+
+  const getStepTitle = () => {
+    if (currentStep === 1) {
+      return 'Choose Your Role';
+    }
+    return 'Complete Your Profile';
+  };
+
+  const getStepSubtitle = () => {
+    if (currentStep === 1) {
+      return 'Tell us what brings you to our platform';
+    }
+    return `You're signing up as ${formData.role ? getRoleLabel(formData.role) : 'a user'}`;
+  };
+
   return (
     <AuthLayout 
-      title="Create Account" 
-      subtitle="Join our platform to connect SMEs with talented developers."
+      title={getStepTitle()}
+      subtitle={getStepSubtitle()}
     >
-      <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Role Selection */}
-        <div>
-          <label 
-            htmlFor="role"
-            style={{ 
-              display: 'block',
-              marginBottom: '0.5rem',
-              fontSize: '0.875rem',
-              fontWeight: 500,
-              color: 'var(--auth-text)',
+      {/* Progress Indicator */}
+      <div style={{ marginBottom: '2rem' }}>
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
+          <div 
+            style={{
+              flex: 1,
+              height: '4px',
+              borderRadius: '2px',
+              backgroundColor: currentStep >= 1 ? 'var(--auth-primary)' : 'var(--auth-border)',
+              transition: 'background-color 0.3s ease',
             }}
-          >
-            I am a... <span style={{ color: 'var(--auth-error)' }}>*</span>
-          </label>
-          <div className="space-y-3">
-            {(['client_large', 'client_small', 'broker', 'freelancer'] as UserRole[]).map((role) => (
-              <button
-                key={role}
-                type="button"
-                onClick={() => handleChange('role', role)}
-                style={{
-                  width: '100%',
-                  padding: '1rem',
-                  borderRadius: '8px',
-                  border: `2px solid ${formData.role === role ? 'var(--auth-primary)' : 'var(--auth-border)'}`,
-                  backgroundColor: formData.role === role ? 'rgba(37, 99, 235, 0.05)' : 'var(--auth-input-bg)',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  transition: 'all 0.2s ease',
-                }}
-                onMouseEnter={(e) => {
-                  if (formData.role !== role) {
-                    e.currentTarget.style.borderColor = 'var(--auth-primary)';
-                    e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.02)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (formData.role !== role) {
-                    e.currentTarget.style.borderColor = 'var(--auth-border)';
-                    e.currentTarget.style.backgroundColor = 'var(--auth-input-bg)';
-                  }
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                  <div
-                    style={{
-                      width: '20px',
-                      height: '20px',
-                      borderRadius: '50%',
-                      border: `2px solid ${formData.role === role ? 'var(--auth-primary)' : 'var(--auth-border)'}`,
-                      backgroundColor: formData.role === role ? 'var(--auth-primary)' : 'transparent',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                    }}
-                  >
-                    {formData.role === role && (
-                      <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: 'white' }} />
-                    )}
-                  </div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, color: 'var(--auth-text)', marginBottom: '0.25rem' }}>
-                      {getRoleLabel(role)}
-                    </div>
-                    <div style={{ fontSize: '0.875rem', color: 'var(--auth-text-muted)' }}>
-                      {getRoleDescription(role)}
-                    </div>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-          {errors.role && (
-            <p style={{ color: 'var(--auth-error)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
-              {errors.role}
-            </p>
-          )}
-        </div>
-
-        {/* Google OAuth Button - TEMPORARILY DISABLED
-        <GoogleButton text="Continue with Google" forceAccountSelection={true} />
-
-        Divider
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300"></div>
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">or sign up with email</span>
-          </div>
-        </div>
-        */}
-
-        <Input
-          id="fullName"
-          label="Full Name"
-          type="text"
-          placeholder="Enter your full name"
-          value={formData.fullName}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('fullName', e.target.value)}
-          error={errors.fullName}
-          required
-        />
-
-        <Input
-          id="email"
-          label="Email"
-          type="email"
-          placeholder={formData.role === 'client_large' ? 'company@yourbusiness.com' : 'Enter your email'}
-          value={formData.email}
-          onChange={(e) => handleChange('email', e.target.value)}
-          error={errors.email}
-          helperText={formData.role === 'client_large' ? 'Use your company/university email (e.g., name@company.com, student@university.edu)' : undefined}
-          required
-        />
-
-        <Input
-          id="phoneNumber"
-          label="Phone Number"
-          type="tel"
-          placeholder="0987654321"
-          value={formData.phoneNumber}
-          onChange={(e) => handleChange('phoneNumber', e.target.value)}
-          error={errors.phoneNumber}
-          required
-        />
-
-        <div>
-          <div className="relative">
-            <Input
-              id="password"
-              label="Password"
-              type={showPassword ? 'text' : 'password'}
-              placeholder="At least 8 characters with lowercase, number & special char"
-              value={formData.password}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('password', e.target.value)}
-              error={errors.password}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-11"
-              tabIndex={-1}
-            >
-              {showPassword ? (
-                <EyeOff className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
-              ) : (
-                <Eye className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
-              )}
-            </button>
-          </div>
-          <PasswordStrength password={formData.password} />
-        </div>
-
-        <div className="relative">
-          <Input
-            id="confirmPassword"
-            label="Confirm password"
-            type={showConfirmPassword ? 'text' : 'password'}
-            placeholder="Re-enter your password"
-            value={formData.confirmPassword}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('confirmPassword', e.target.value)}
-            error={errors.confirmPassword}
-            success={!!(formData.confirmPassword && formData.password === formData.confirmPassword && formData.confirmPassword.length >= 8)}
           />
-          <button
-            type="button"
-            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-            className="absolute right-3 top-11"
-            tabIndex={-1}
-          >
-            {showConfirmPassword ? (
-              <EyeOff className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
-            ) : (
-              <Eye className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
-            )}
-          </button>
+          <div 
+            style={{
+              flex: 1,
+              height: '4px',
+              borderRadius: '2px',
+              backgroundColor: currentStep >= 2 ? 'var(--auth-primary)' : 'var(--auth-border)',
+              transition: 'background-color 0.3s ease',
+            }}
+          />
         </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--auth-text-muted)' }}>
+          <span style={{ fontWeight: currentStep === 1 ? 600 : 400, color: currentStep === 1 ? 'var(--auth-primary)' : 'var(--auth-text-muted)' }}>Step 1: Role</span>
+          <span style={{ fontWeight: currentStep === 2 ? 600 : 400, color: currentStep === 2 ? 'var(--auth-primary)' : 'var(--auth-text-muted)' }}>Step 2: Details</span>
+        </div>
+      </div>
 
-        {/* CAPTCHA Input */}
-        <CaptchaInput
-          onChange={(token) => handleChange('recaptchaToken', token || '')}
-          error={errors.recaptcha}
-        />
-
-        <div>
-          <label className="flex items-start gap-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={formData.agreeToTerms}
-              onChange={(e) => handleChange('agreeToTerms', e.target.checked)}
-              className="w-4 h-4 mt-0.5 rounded cursor-pointer"
-              style={{
-                accentColor: 'var(--auth-primary)',
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <AnimatePresence mode="wait" custom={currentStep}>
+          {currentStep === 1 ? (
+            <motion.div
+              key="step1"
+              custom={1}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{
+                x: { type: "spring", stiffness: 300, damping: 30 },
+                opacity: { duration: 0.2 }
               }}
-            />
-            <span style={{ color: 'var(--auth-text)', fontSize: '0.875rem' }}>
-              I agree to the{' '}
-              <a href="#" className="hover:underline" style={{ color: 'var(--auth-primary)' }}>
-                Terms and Conditions
-              </a>
-              {' '}and{' '}
-              <a href="#" className="hover:underline" style={{ color: 'var(--auth-primary)' }}>
-                Privacy Policy
-              </a>
-            </span>
-          </label>
-          {errors.agreeToTerms && (
-            <p className="mt-1.5 text-sm" style={{ color: 'var(--auth-error)' }}>
-              {errors.agreeToTerms}
-            </p>
+            >
+              {/* Role Selection */}
+              <div>
+                <label 
+                  htmlFor="role"
+                  style={{ 
+                    display: 'block',
+                    marginBottom: '0.5rem',
+                    fontSize: '0.875rem',
+                    fontWeight: 500,
+                    color: 'var(--auth-text)',
+                  }}
+                >
+                  I am a... <span style={{ color: 'var(--auth-error)' }}>*</span>
+                </label>
+                <div className="space-y-3">
+                  {(['client_large', 'client_small', 'broker', 'freelancer'] as UserRole[]).map((role) => (
+                    <motion.button
+                      key={role}
+                      type="button"
+                      onClick={() => handleRoleSelect(role)}
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      style={{
+                        width: '100%',
+                        padding: '1rem',
+                        borderRadius: '8px',
+                        border: `2px solid ${formData.role === role ? 'var(--auth-primary)' : 'var(--auth-border)'}`,
+                        backgroundColor: formData.role === role ? 'rgba(37, 99, 235, 0.05)' : 'var(--auth-input-bg)',
+                        textAlign: 'left',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                      }}
+                      onMouseEnter={(e) => {
+                        if (formData.role !== role) {
+                          e.currentTarget.style.borderColor = 'var(--auth-primary)';
+                          e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.02)';
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        if (formData.role !== role) {
+                          e.currentTarget.style.borderColor = 'var(--auth-border)';
+                          e.currentTarget.style.backgroundColor = 'var(--auth-input-bg)';
+                        }
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div
+                          style={{
+                            width: '48px',
+                            height: '48px',
+                            borderRadius: '12px',
+                            backgroundColor: formData.role === role ? 'var(--auth-primary)' : 'rgba(37, 99, 235, 0.1)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                            transition: 'all 0.2s ease',
+                          }}
+                        >
+                          {React.createElement(getRoleIcon(role), {
+                            className: 'w-6 h-6',
+                            style: { color: formData.role === role ? 'white' : 'var(--auth-primary)' },
+                          })}
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 600, color: 'var(--auth-text)', marginBottom: '0.25rem' }}>
+                            {getRoleLabel(role)}
+                          </div>
+                          <div style={{ fontSize: '0.875rem', color: 'var(--auth-text-muted)' }}>
+                            {getRoleDescription(role)}
+                          </div>
+                        </div>
+                        <ArrowRight className="w-5 h-5" style={{ color: 'var(--auth-text-muted)', opacity: formData.role === role ? 1 : 0.3 }} />
+                      </div>
+                    </motion.button>
+                  ))}
+                </div>
+                {errors.role && (
+                  <p style={{ color: 'var(--auth-error)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                    {errors.role}
+                  </p>
+                )}
+              </div>
+
+              <p className="text-center" style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem', marginTop: '2rem' }}>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => onNavigateToSignIn ? onNavigateToSignIn() : navigate(ROUTES.LOGIN)}
+                  className="hover:underline"
+                  style={{ color: 'var(--auth-primary)', fontWeight: 500 }}
+                >
+                  Sign in
+                </button>
+              </p>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="step2"
+              custom={2}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{
+                x: { type: "spring", stiffness: 300, damping: 30 },
+                opacity: { duration: 0.2 }
+              }}
+            >
+              {/* Back Button */}
+              <button
+                type="button"
+                onClick={handleBackToRoleSelection}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  marginBottom: '1.5rem',
+                  color: 'var(--auth-primary)',
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0.5rem 0',
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
+                onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Change role
+              </button>
+
+              <Input
+                id="fullName"
+                label="Full Name"
+                type="text"
+                placeholder="Enter your full name"
+                value={formData.fullName}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('fullName', e.target.value)}
+                error={errors.fullName}
+                required
+              />
+
+              <Input
+                id="email"
+                label="Email"
+                type="email"
+                placeholder={formData.role === 'client_large' ? 'company@yourbusiness.com' : 'Enter your email'}
+                value={formData.email}
+                onChange={(e) => handleChange('email', e.target.value)}
+                error={errors.email}
+                helperText={formData.role === 'client_large' ? 'Use your company/university email (e.g., name@company.com, student@university.edu)' : undefined}
+                required
+              />
+
+              <Input
+                id="phoneNumber"
+                label="Phone Number"
+                type="tel"
+                placeholder="0987654321"
+                value={formData.phoneNumber}
+                onChange={(e) => handleChange('phoneNumber', e.target.value)}
+                error={errors.phoneNumber}
+                required
+              />
+
+              <div>
+                <div className="relative">
+                  <Input
+                    id="password"
+                    label="Password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="At least 8 characters with lowercase, number & special char"
+                    value={formData.password}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('password', e.target.value)}
+                    error={errors.password}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-11"
+                    tabIndex={-1}
+                  >
+                    {showPassword ? (
+                      <EyeOff className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+                    ) : (
+                      <Eye className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+                    )}
+                  </button>
+                </div>
+                <PasswordStrength password={formData.password} />
+              </div>
+
+              <div className="relative">
+                <Input
+                  id="confirmPassword"
+                  label="Confirm password"
+                  type={showConfirmPassword ? 'text' : 'password'}
+                  placeholder="Re-enter your password"
+                  value={formData.confirmPassword}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('confirmPassword', e.target.value)}
+                  error={errors.confirmPassword}
+                  success={!!(formData.confirmPassword && formData.password === formData.confirmPassword && formData.confirmPassword.length >= 8)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  className="absolute right-3 top-11"
+                  tabIndex={-1}
+                >
+                  {showConfirmPassword ? (
+                    <EyeOff className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+                  ) : (
+                    <Eye className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+                  )}
+                </button>
+              </div>
+
+              {/* CAPTCHA Input */}
+              <CaptchaInput
+                onChange={(token) => handleChange('recaptchaToken', token || '')}
+                error={errors.recaptcha}
+              />
+
+              <div>
+                <label className="flex items-start gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.agreeToTerms}
+                    onChange={(e) => handleChange('agreeToTerms', e.target.checked)}
+                    className="w-4 h-4 mt-0.5 rounded cursor-pointer"
+                    style={{
+                      accentColor: 'var(--auth-primary)',
+                    }}
+                  />
+                  <span style={{ color: 'var(--auth-text)', fontSize: '0.875rem' }}>
+                    I agree to the{' '}
+                    <a href="#" className="hover:underline" style={{ color: 'var(--auth-primary)' }}>
+                      Terms and Conditions
+                    </a>
+                    {' '}and{' '}
+                    <a href="#" className="hover:underline" style={{ color: 'var(--auth-primary)' }}>
+                      Privacy Policy
+                    </a>
+                  </span>
+                </label>
+                {errors.agreeToTerms && (
+                  <p className="mt-1.5 text-sm" style={{ color: 'var(--auth-error)' }}>
+                    {errors.agreeToTerms}
+                  </p>
+                )}
+              </div>
+
+              <Button 
+                type="submit" 
+                variant="primary" 
+                className="w-full py-3 text-base font-medium justify-center"
+                disabled={loading}
+              >
+                {loading ? 'Creating account...' : 'Create Account'}
+              </Button>
+
+              <p className="text-center" style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem' }}>
+                Already have an account?{' '}
+                <button
+                  type="button"
+                  onClick={() => onNavigateToSignIn ? onNavigateToSignIn() : navigate(ROUTES.LOGIN)}
+                  className="hover:underline"
+                  style={{ color: 'var(--auth-primary)', fontWeight: 500 }}
+                >
+                  Sign in
+                </button>
+              </p>
+            </motion.div>
           )}
-        </div>
-
-        <Button 
-          type="submit" 
-          variant="primary" 
-          className="w-full py-3 text-base font-medium justify-center"
-          disabled={loading}
-        >
-          {loading ? 'Creating account...' : 'Sign Up'}
-        </Button>
-
-        <p className="text-center" style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem' }}>
-          Already have an account?{' '}
-          <button
-            type="button"
-            onClick={() => onNavigateToSignIn ? onNavigateToSignIn() : navigate(ROUTES.LOGIN)}
-            className="hover:underline"
-            style={{ color: 'var(--auth-primary)', fontWeight: 500 }}
-          >
-            Sign in
-          </button>
-        </p>
+        </AnimatePresence>
       </form>
     </AuthLayout>
   );

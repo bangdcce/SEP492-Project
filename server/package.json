@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "seed:admin": "ts-node src/cli/admin-seeder.ts",
+    "generate:keys": "node scripts/generate-keys.js",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
@@ -38,6 +39,9 @@
     "@nestjs/swagger": "^11.2.3",
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
+    "@supabase/supabase-js": "^2.90.1",
+    "@types/multer": "^2.0.0",
+    "@types/sharp": "^0.32.0",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
@@ -52,6 +56,7 @@
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.34.5",
     "typeorm": "^0.3.27"
   },
   "devDependencies": {

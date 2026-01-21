@@ -32,7 +32,7 @@ export class KycVerificationEntity {
   @Column({ type: 'varchar', length: 255 })
   fullNameOnDocument: string; // Tên trên CCCD
   @Column({ type: 'varchar', length: 20 })
-  documentNumber: string; // Số CCCD
+  documentNumber: string; // Số CCCD (hashed 20 chars for security)
 
   @Column({ type: 'enum', enum: DocumentType, default: DocumentType.CCCD })
   documentType: DocumentType;
