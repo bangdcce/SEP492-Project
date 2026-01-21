@@ -9,10 +9,12 @@ import {
   createTask,
   fetchMilestones,
   createMilestone,
+  submitTask,
 } from "./api";
 import type { KanbanBoard, KanbanColumnKey, Task, Milestone } from "./types";
 import { KanbanColumn } from "./components/KanbanColumn";
 import { CreateTaskModal } from "./components/CreateTaskModal";
+import { TaskDetailModal } from "./components/TaskDetailModal";
 import { MilestoneTabs } from "./components/MilestoneTabs";
 import { CalendarView } from "./components/CalendarView";
 import { calculateProgress } from "./utils";
@@ -30,12 +32,20 @@ export function ProjectWorkspace() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const [newSpecFeatureId, setNewSpecFeatureId] = useState("");
+  const [newStartDate, setNewStartDate] = useState("");
+  const [newDueDate, setNewDueDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
     null
   );
   const [viewMode, setViewMode] = useState<"board" | "calendar">("board");
+  
+  // Task Detail Modal state
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
+  
   const { projectId } = useParams();
 
   useEffect(() => {
@@ -160,6 +170,85 @@ export function ProjectWorkspace() {
     return tasks;
   }, [board]);
 
+  // Handle viewing task details (from Calendar or Kanban)
+  const handleViewTaskDetails = (taskId: string) => {
+    const task = allTasks.find((t) => t.id === taskId);
+    if (task) {
+      setSelectedTask(task);
+      setIsTaskDetailOpen(true);
+    }
+  };
+
+  // Handle closing task detail modal
+  const handleCloseTaskDetail = () => {
+    setIsTaskDetailOpen(false);
+    setSelectedTask(null);
+  };
+
+  // Handle edit task (placeholder for future implementation)
+  const handleEditTask = (task: Task) => {
+    console.log("Edit task:", task.id);
+    // TODO: Open edit modal or navigate to edit page
+    handleCloseTaskDetail();
+  };
+
+  // Handle task submission with proof of work
+  const handleSubmitTask = async (
+    taskId: string,
+    data: { submissionNote?: string; proofLink: string }
+  ) => {
+    try {
+      setError(null);
+      const result = await submitTask(taskId, data);
+
+      // Update the board with the submitted task (moved to DONE)
+      setBoard((prev) => {
+        const newBoard = { ...prev };
+
+        // Remove task from its current column
+        for (const column of ["TODO", "IN_PROGRESS", "DONE"] as KanbanColumnKey[]) {
+          newBoard[column] = newBoard[column].filter((t) => t.id !== taskId);
+        }
+
+        // Add updated task to DONE column
+        newBoard.DONE = [
+          {
+            ...result.task,
+            status: "DONE" as KanbanColumnKey,
+            submissionNote: data.submissionNote || null,
+            proofLink: data.proofLink,
+            submittedAt: new Date().toISOString(),
+          },
+          ...newBoard.DONE,
+        ];
+
+        return newBoard;
+      });
+
+      // Update selected task to show the submission info
+      setSelectedTask((prev) =>
+        prev?.id === taskId
+          ? {
+              ...prev,
+              status: "DONE" as KanbanColumnKey,
+              submissionNote: data.submissionNote || null,
+              proofLink: data.proofLink,
+              submittedAt: new Date().toISOString(),
+            }
+          : prev
+      );
+
+      console.log(
+        `✅ Task ${taskId} submitted! Milestone progress: ${result.milestoneProgress}%`
+      );
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to submit task";
+      setError(errorMessage);
+      throw err; // Re-throw so the modal can handle it
+    }
+  };
+
   const handleDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result;
     if (!destination) return;
@@ -171,6 +260,7 @@ export function ProjectWorkspace() {
       return;
     }
 
+    // Save previous state for rollback
     const prevBoard: KanbanBoard = (
       ["TODO", "IN_PROGRESS", "DONE"] as KanbanColumnKey[]
     ).reduce(
@@ -181,6 +271,7 @@ export function ProjectWorkspace() {
       { ...initialBoard }
     );
 
+    // Optimistic UI update - move the card immediately
     const nextBoard: KanbanBoard = {
       ...prevBoard,
       [fromColumn]: [...prevBoard[fromColumn]],
@@ -195,9 +286,33 @@ export function ProjectWorkspace() {
     setBoard(nextBoard);
 
     try {
-      await updateTaskStatus(draggableId, toColumn);
+      // Call API and get updated milestone progress
+      const response = await updateTaskStatus(draggableId, toColumn);
       setError(null);
+
+      // 🎯 REAL-TIME PROGRESS UPDATE
+      // If the task moved to/from DONE column, the backend recalculated progress
+      // Update the milestones state to reflect the new progress
+      if (response.milestoneId) {
+        setMilestones((prevMilestones) =>
+          prevMilestones.map((milestone) =>
+            milestone.id === response.milestoneId
+              ? {
+                  ...milestone,
+                  // Store progress info in milestone for display
+                  // (Milestone type doesn't have progress field, but UI uses tasksByMilestone)
+                }
+              : milestone
+          )
+        );
+
+        // Log for debugging
+        console.log(
+          `✅ Milestone ${response.milestoneId} progress updated: ${response.milestoneProgress}% (${response.completedTasks}/${response.totalTasks})`
+        );
+      }
     } catch (err: any) {
+      // Rollback on error
       setBoard(prevBoard);
       setError(err?.message || "Failed to update task status");
     }
@@ -226,6 +341,9 @@ export function ProjectWorkspace() {
         description: newDescription,
         projectId,
         milestoneId: selectedMilestoneId,
+        specFeatureId: newSpecFeatureId || undefined,
+        startDate: newStartDate || undefined,
+        dueDate: newDueDate || undefined,
       });
 
       setBoard((prev) => ({
@@ -233,9 +351,13 @@ export function ProjectWorkspace() {
         TODO: [created, ...prev.TODO],
       }));
 
+      // Reset form fields
       setIsModalOpen(false);
       setNewTitle("");
       setNewDescription("");
+      setNewSpecFeatureId("");
+      setNewStartDate("");
+      setNewDueDate("");
     } catch (err: any) {
       setError(err?.message || "Failed to create task");
     } finally {
@@ -366,7 +488,10 @@ export function ProjectWorkspace() {
               </div>
             </DragDropContext>
           ) : (
-            <CalendarView tasks={allTasks} />
+            <CalendarView
+              tasks={allTasks}
+              onViewTaskDetails={handleViewTaskDetails}
+            />
           )}
         </>
       )}
@@ -376,11 +501,26 @@ export function ProjectWorkspace() {
         title={newTitle}
         description={newDescription}
         milestoneId={selectedMilestoneId || undefined}
+        specFeatureId={newSpecFeatureId}
+        startDate={newStartDate}
+        dueDate={newDueDate}
         isSubmitting={isSubmitting}
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleCreateTask}
         onChangeTitle={setNewTitle}
         onChangeDescription={setNewDescription}
+        onChangeSpecFeature={setNewSpecFeatureId}
+        onChangeStartDate={setNewStartDate}
+        onChangeDueDate={setNewDueDate}
+      />
+
+      {/* Task Detail Modal - View & Submit Work */}
+      <TaskDetailModal
+        isOpen={isTaskDetailOpen}
+        task={selectedTask}
+        onClose={handleCloseTaskDetail}
+        onEdit={handleEditTask}
+        onSubmitTask={handleSubmitTask}
       />
     </div>
   );

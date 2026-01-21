@@ -49,6 +49,19 @@ export class TaskEntity {
   @Column({ type: 'int', nullable: true })
   sortOrder: number;
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // PROOF OF WORK FIELDS (for task submission / dispute resolution)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  @Column({ name: 'submission_note', type: 'text', nullable: true })
+  submissionNote: string;
+
+  @Column({ name: 'proof_link', type: 'varchar', length: 500, nullable: true })
+  proofLink: string;
+
+  @Column({ name: 'submitted_at', type: 'timestamp', nullable: true })
+  submittedAt: Date;
+
   @CreateDateColumn()
   createdAt: Date;
 
