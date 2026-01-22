@@ -61,13 +61,7 @@ export function MilestoneApprovalCard({
   };
 
   const handleRaiseDispute = () => {
-    if (onRaiseDispute) {
-      onRaiseDispute(milestone.id);
-    } else {
-      alert(
-        "Dispute feature coming soon. Please contact support for assistance."
-      );
-    }
+    onRaiseDispute?.(milestone.id);
   };
 
   const formatAmount = (amount: number) => {
