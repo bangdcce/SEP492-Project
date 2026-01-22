@@ -90,7 +90,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-white border-b border-gray-200">
+    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/60">
       <div className="px-6">
         <div className="flex h-14 items-center justify-between gap-4">
           {/* Left Section: Mobile Menu Toggle */}
@@ -115,6 +115,10 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
             >
               <Logo size="sm" />
             </Link>
+
+            <div className="hidden lg:flex items-center text-xs text-slate-500 ml-2">
+              Home / Projects / ...
+            </div>
           </div>
 
           {/* Center Section: Search Bar (Desktop) */}
