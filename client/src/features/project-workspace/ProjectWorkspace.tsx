@@ -12,7 +12,6 @@ import {
   createMilestone,
   submitTask,
   approveMilestone,
-  createDispute,
 } from "./api";
 import type { KanbanBoard, KanbanColumnKey, Task, Milestone } from "./types";
 import { KanbanColumn } from "./components/KanbanColumn";
@@ -21,10 +20,6 @@ import { TaskDetailModal } from "./components/TaskDetailModal";
 import { MilestoneTabs } from "./components/MilestoneTabs";
 import { CalendarView } from "./components/CalendarView";
 import { MilestoneApprovalCard } from "./components/MilestoneApprovalCard";
-import {
-  CreateDisputeModal,
-  type CreateDisputeData,
-} from "./components/CreateDisputeModal";
 import { calculateProgress } from "./utils";
 
 const initialBoard: KanbanBoard = {
@@ -66,11 +61,6 @@ export function ProjectWorkspace() {
   // Task Detail Modal state
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
-
-  // Dispute Modal state
-  const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
-  const [selectedMilestoneForDispute, setSelectedMilestoneForDispute] =
-    useState<Milestone | null>(null);
 
   const { projectId } = useParams();
 
@@ -264,58 +254,10 @@ export function ProjectWorkspace() {
     }
   };
 
-  // Handle raising a dispute (opens the dispute modal)
+  // Handle raising a dispute (UI only)
   const handleRaiseDispute = (milestoneId: string) => {
-    const milestone = milestones.find((m) => m.id === milestoneId);
-    if (milestone) {
-      setSelectedMilestoneForDispute(milestone);
-      setIsDisputeModalOpen(true);
-    }
-  };
-
-  // Handle dispute submission
-  const handleSubmitDispute = async (data: CreateDisputeData) => {
-    if (!projectId || !selectedMilestoneForDispute) {
-      throw new Error("Missing project or milestone information");
-    }
-
-    try {
-      setError(null);
-
-      // Get the freelancer ID from the project
-      // For now, we'll need to get this from somewhere - could be stored in state or fetched
-      // Assuming the milestone has projectId and we can derive freelancerId
-      // This is a simplification - in a real app, you'd fetch project details
-      const defendantId = "freelancer-id-placeholder"; // TODO: Get actual freelancer ID
-
-      await createDispute({
-        projectId,
-        milestoneId: selectedMilestoneForDispute.id,
-        defendantId, // This should be the freelancer's ID
-        reason: `${data.title}\n\n${data.description}`,
-        evidence: data.evidence,
-        category: data.category,
-        disputedAmount: selectedMilestoneForDispute.amount,
-      });
-
-      console.log(
-        `⚠️ Dispute raised for milestone "${selectedMilestoneForDispute.title}"`
-      );
-
-      // Close modal and show success
-      setIsDisputeModalOpen(false);
-      setSelectedMilestoneForDispute(null);
-      alert(
-        "Dispute submitted successfully. Our mediation team will review your case."
-      );
-
-      // Optionally refresh data to show dispute status
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to submit dispute";
-      setError(errorMessage);
-      throw err; // Re-throw so the modal can handle it
-    }
+    void milestoneId;
+    alert("Feature coming soon");
   };
 
   // Handle task submission with proof of work
@@ -673,16 +615,6 @@ export function ProjectWorkspace() {
         onSubmitTask={handleSubmitTask}
       />
 
-      {/* Dispute Modal - Raise dispute for milestone */}
-      <CreateDisputeModal
-        isOpen={isDisputeModalOpen}
-        milestone={selectedMilestoneForDispute}
-        onClose={() => {
-          setIsDisputeModalOpen(false);
-          setSelectedMilestoneForDispute(null);
-        }}
-        onSubmit={handleSubmitDispute}
-      />
     </div>
   );
 }
