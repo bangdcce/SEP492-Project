@@ -9,4 +9,12 @@ export const projectSpecsApi = {
   getSpec: (id: string): Promise<ProjectSpec> => {
     return apiClient.get(`/project-specs/${id}`);
   },
+
+  getPendingSpecs: (): Promise<ProjectSpec[]> => {
+    return apiClient.get('/project-specs/pending');
+  },
+
+  auditSpec: (id: string, action: 'APPROVE' | 'REJECT', reason?: string): Promise<ProjectSpec> => {
+    return apiClient.post(`/project-specs/${id}/audit`, { action, reason });
+  },
 };

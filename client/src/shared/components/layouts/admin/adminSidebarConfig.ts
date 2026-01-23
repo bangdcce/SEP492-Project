@@ -59,6 +59,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     section: "management",
   },
   {
+    id: "spec-audit",
+    label: "Spec Audit",
+    icon: Shield,
+    path: "/admin/specs",
+    description: "Approve project specifications",
+    section: "management",
+  },
+  {
     id: "user-management",
     label: "User Management",
     icon: Users,
