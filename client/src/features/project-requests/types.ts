@@ -7,6 +7,7 @@ export const RequestStatus = {
   COMPLETED: 'COMPLETED',
   CANCELLED: 'CANCELLED',
   SPEC_SUBMITTED: 'SPEC_SUBMITTED',
+  SPEC_APPROVED: 'SPEC_APPROVED',
 } as const;
 
 export type RequestStatus = (typeof RequestStatus)[keyof typeof RequestStatus];

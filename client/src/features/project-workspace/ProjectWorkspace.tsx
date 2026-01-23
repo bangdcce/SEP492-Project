@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
-import { useParams } from "react-router-dom";
-import { LayoutGrid, Calendar as CalendarIcon } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
+import { LayoutGrid, Calendar as CalendarIcon, FileSignature } from "lucide-react";
 import { Spinner } from "@/shared/components/ui";
 import { STORAGE_KEYS } from "@/constants";
 import {
@@ -12,6 +12,9 @@ import {
   createMilestone,
   submitTask,
   approveMilestone,
+  createDispute,
+  fetchProject,
+  type WorkspaceProject,
 } from "./api";
 import type { KanbanBoard, KanbanColumnKey, Task, Milestone } from "./types";
 import { KanbanColumn } from "./components/KanbanColumn";
@@ -42,7 +45,9 @@ const getCurrentUser = (): { id: string; role?: string } | null => {
 };
 
 export function ProjectWorkspace() {
+  const navigate = useNavigate();
   const [board, setBoard] = useState<KanbanBoard>(initialBoard);
+  const [project, setProject] = useState<WorkspaceProject | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -88,12 +93,14 @@ export function ProjectWorkspace() {
       try {
         setLoading(true);
         setError(null);
-        const [milestoneData, boardData] = await Promise.all([
+        const [milestoneData, boardData, projectData] = await Promise.all([
           fetchMilestones(projectId),
           fetchBoard(projectId),
+          fetchProject(projectId),
         ]);
-        console.log("API Data:", { milestoneData, boardData });
+        console.log("API Data:", { milestoneData, boardData, projectData });
         setMilestones(milestoneData || []);
+        setProject(projectData);
         setSelectedMilestoneId(
           milestoneData && milestoneData.length > 0 ? milestoneData[0].id : null
         );
@@ -446,6 +453,22 @@ export function ProjectWorkspace() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* View Contract Button */}
+          {project && project.contracts && project.contracts.length > 0 && (
+            <button
+              onClick={() => {
+                 const contractId = project?.contracts?.[0].id;
+                 if (!contractId) return;
+                 const role = currentUser?.role?.toLowerCase();
+                 navigate(`/${role}/contracts/${contractId}`);
+              }}
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors border border-blue-200"
+            >
+              <FileSignature className="h-4 w-4" />
+              Contract
+            </button>
+          )}
+
           {/* View Switcher */}
           <div className="flex items-center bg-gray-100 rounded-lg p-1">
             <button

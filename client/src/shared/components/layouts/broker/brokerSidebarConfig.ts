@@ -10,6 +10,7 @@ import {
   Briefcase,
   Users,
   User,
+  FileSignature,
 } from "lucide-react";
 
 export interface BrokerSidebarMenuItem {
@@ -55,6 +56,14 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: Users,
     path: "/broker/freelancers",
     description: "Assigned freelancers",
+    section: "workspace",
+  },
+  {
+    id: "contracts",
+    label: "Contracts",
+    icon: FileSignature,
+    path: "/broker/contracts",
+    description: "Manage project contracts",
     section: "workspace",
   },
   // Account
