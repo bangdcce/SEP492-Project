@@ -49,7 +49,7 @@ export const clientSidebarMenuItems: ClientSidebarMenuItem[] = [
     label: "Projects",
     icon: Briefcase,
     path: "/client/projects",
-    description: "Manage your projects",
+    description: "Manage and track projects",
     section: "workspace",
   },
   {

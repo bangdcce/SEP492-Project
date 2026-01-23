@@ -8,7 +8,6 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { ProjectsModule } from './modules/projects/projects.module';
-// import { MilestonesModule } from './modules/milestones/milestones.module'; // Removed - using mock data
 import jwtConfig from './config/jwt.config';
 import { WizardModule } from './modules/wizard/wizard.module';
 import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
@@ -21,6 +20,7 @@ import { DisputesModule } from './modules/disputes/disputes.module';
 import { UserWarningModule } from './modules/user-warning/user-warning.module';
 import { KycModule } from './modules/kyc/kyc.module';
 import { UsersModule } from './modules/users/users.module';
+import { ContractsModule } from './modules/contracts/contracts.module';
 
 @Module({
   imports: [
@@ -86,7 +86,6 @@ import { UsersModule } from './modules/users/users.module';
     AuthModule,
     TasksModule,
     ProjectsModule,
-    // MilestonesModule, // Removed - using mock data in frontend
     WizardModule,
     ProjectRequestsModule,
     ReviewModule,
@@ -98,6 +97,7 @@ import { UsersModule } from './modules/users/users.module';
     UserWarningModule,
     KycModule,
     UsersModule,
+    ContractsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

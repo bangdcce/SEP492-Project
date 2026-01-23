@@ -90,21 +90,21 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-white border-b border-gray-200 shadow-sm">
-      <div className="px-6 py-4">
-        <div className="flex items-center justify-between gap-4">
+    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/60">
+      <div className="px-6">
+        <div className="flex h-14 items-center justify-between gap-4">
           {/* Left Section: Mobile Menu Toggle */}
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
             {/* Mobile Menu Toggle */}
             <button
               onClick={onMenuToggle}
-              className="lg:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="lg:hidden p-2 hover:bg-gray-100 rounded-md transition-colors"
               aria-label="Toggle menu"
             >
               {isMobileMenuOpen ? (
-                <X className="w-5 h-5 text-slate-900" />
+                <X className="w-5 h-5 text-gray-900" />
               ) : (
-                <Menu className="w-5 h-5 text-slate-900" />
+                <Menu className="w-5 h-5 text-gray-900" />
               )}
             </button>
 
@@ -115,40 +115,44 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
             >
               <Logo size="sm" />
             </Link>
+
+            <div className="hidden lg:flex items-center text-xs text-slate-500 ml-2">
+              Home / Projects / ...
+            </div>
           </div>
 
           {/* Center Section: Search Bar (Desktop) */}
           <div className="hidden md:flex flex-1 max-w-xl">
             <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search projects, freelancers, or messages..."
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                className="w-full h-9 pl-9 pr-4 border border-gray-200 rounded-md bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm placeholder:text-gray-400"
               />
             </div>
           </div>
 
           {/* Right Section: Actions + User Menu */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             {/* Search Icon (Mobile) */}
             <button
               onClick={() => setIsSearchOpen(!isSearchOpen)}
-              className="md:hidden p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="md:hidden p-2 hover:bg-gray-100 rounded-md transition-colors"
               aria-label="Search"
             >
-              <Search className="w-5 h-5 text-slate-900" />
+              <Search className="w-5 h-5 text-gray-900" />
             </button>
 
             {/* Notifications */}
             <div className="relative">
               <button
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors relative"
+                className="p-2 hover:bg-gray-100 rounded-md transition-colors relative"
                 aria-label="Notifications"
               >
-                <Bell className="w-5 h-5 text-slate-900" />
+                <Bell className="w-5 h-5 text-gray-900" />
                 {/* Notification Badge */}
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white" />
               </button>
             </div>
 
@@ -156,7 +160,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
             <div className="relative">
               <button
                 onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
-                className="flex items-center gap-3 p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="flex items-center gap-2.5 p-1.5 hover:bg-gray-100 rounded-md transition-colors"
                 aria-label="User menu"
               >
                 {/* Avatar */}
@@ -164,11 +168,11 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                   <img
                     src={userAvatar}
                     alt={userName}
-                    className="w-8 h-8 rounded-lg object-cover"
+                    className="w-8 h-8 rounded-md object-cover"
                   />
                 ) : (
-                  <div className="w-8 h-8 bg-linear-to-br from-teal-500 to-teal-600 rounded-lg flex items-center justify-center">
-                    <span className="text-white text-sm font-medium">
+                  <div className="w-8 h-8 bg-gradient-to-br from-teal-500 to-teal-600 rounded-md flex items-center justify-center">
+                    <span className="text-white text-sm font-semibold">
                       {getInitial(userName)}
                     </span>
                   </div>
@@ -176,12 +180,14 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
 
                 {/* User Info (Desktop) */}
                 <div className="hidden lg:block text-left">
-                  <div className="text-sm text-slate-900">{userName}</div>
-                  <div className="text-xs text-gray-600">{userRole}</div>
+                  <div className="text-sm text-gray-900 leading-tight">
+                    {userName}
+                  </div>
+                  <div className="text-xs text-gray-500">{userRole}</div>
                 </div>
 
                 <ChevronDown
-                  className={`w-4 h-4 text-gray-600 transition-transform hidden lg:block ${
+                  className={`w-4 h-4 text-gray-500 transition-transform hidden lg:block ${
                     isProfileMenuOpen ? "rotate-180" : ""
                   }`}
                 />
@@ -197,18 +203,18 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                   />
 
                   {/* Menu */}
-                  <div className="absolute right-0 mt-2 w-64 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-20">
+                  <div className="absolute right-0 mt-2 w-60 bg-white rounded-md shadow-lg border border-gray-200 py-1.5 z-20">
                     {/* User Info */}
-                    <div className="px-4 py-3 border-b border-gray-200">
-                      <div className="text-sm text-slate-900">{userName}</div>
-                      <div className="text-xs text-gray-600">{userRole}</div>
+                    <div className="px-3 py-2.5 border-b border-gray-200">
+                      <div className="text-sm text-gray-900">{userName}</div>
+                      <div className="text-xs text-gray-500">{userRole}</div>
                     </div>
 
                     {/* Menu Items */}
-                    <div className="py-2">
+                    <div className="py-1">
                       <Link
                         to={ROUTES.CLIENT_PROFILE}
-                        className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                         onClick={() => setIsProfileMenuOpen(false)}
                       >
                         <User className="w-4 h-4" />
@@ -216,7 +222,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                       </Link>
                       <Link
                         to="/settings"
-                        className="flex items-center gap-3 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                        className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                         onClick={() => setIsProfileMenuOpen(false)}
                       >
                         <Settings className="w-4 h-4" />
@@ -225,10 +231,10 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                     </div>
 
                     {/* Logout */}
-                    <div className="border-t border-gray-200 pt-2">
+                    <div className="border-t border-gray-200 pt-1">
                       <button
                         onClick={handleLogout}
-                        className="flex items-center gap-3 w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                        className="flex items-center gap-3 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
                       >
                         <LogOut className="w-4 h-4" />
                         Logout
@@ -243,14 +249,14 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
 
         {/* Mobile Search Bar */}
         {isSearchOpen && (
-          <div className="md:hidden mt-4">
+          <div className="md:hidden mt-3 pb-3">
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search..."
                 autoFocus
-                className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                className="w-full h-9 pl-9 pr-4 border border-gray-200 rounded-md bg-gray-50 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm placeholder:text-gray-400"
               />
             </div>
           </div>

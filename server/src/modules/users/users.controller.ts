@@ -49,7 +49,11 @@ export class UsersController {
    */
   @Patch(':id/ban')
   @ApiOperation({ summary: '[ADMIN] Ban user' })
-  async banUser(@Param('id') userId: string, @Body() dto: BanUserDto, @GetUser('id') adminId: string) {
+  async banUser(
+    @Param('id') userId: string,
+    @Body() dto: BanUserDto,
+    @GetUser('id') adminId: string,
+  ) {
     return await this.usersService.banUser(userId, adminId, dto);
   }
 
@@ -58,7 +62,11 @@ export class UsersController {
    */
   @Patch(':id/unban')
   @ApiOperation({ summary: '[ADMIN] Unban user' })
-  async unbanUser(@Param('id') userId: string, @Body() dto: UnbanUserDto, @GetUser('id') adminId: string) {
+  async unbanUser(
+    @Param('id') userId: string,
+    @Body() dto: UnbanUserDto,
+    @GetUser('id') adminId: string,
+  ) {
     return await this.usersService.unbanUser(userId, adminId, dto);
   }
 

@@ -93,7 +93,7 @@ export class WalletEntity {
   })
   totalSpent: number; // Cho Client
 
-  @Column({ type: 'varchar', length: 3, default: 'VND' })
+  @Column({ type: 'varchar', length: 3, default: 'USD' })
   currency: string;
 
   @Column({

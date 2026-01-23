@@ -1,14 +1,21 @@
 import { Module } from '@nestjs/common';
+import { TypeOrmModule } from '@nestjs/typeorm';
+import { EventEmitterModule } from '@nestjs/event-emitter';
+
 import { DisputesService } from './disputes.service';
 import { DisputesController } from './disputes.controller';
-import { HearingsService } from './hearings.service';
-import { HearingsController, MyHearingsController } from './hearings.controller';
-import { TypeOrmModule } from '@nestjs/typeorm';
+import { EvidenceModule } from './evidence.module';
+import { SettlementModule } from './modules/settlement.module';
+import { TrustScoreModule } from '../trust-score/trust-score.module';
+import { AuditLogsModule } from '../audit-logs/audit-logs.module';
+import { UserWarningModule } from '../user-warning/user-warning.module';
 import {
   DisputeActivityEntity,
   DisputeEntity,
+  DisputeEvidenceEntity,
   DisputeNoteEntity,
   DisputeHearingEntity,
+  DisputeSettlementEntity,
   HearingParticipantEntity,
   HearingStatementEntity,
   HearingQuestionEntity,
@@ -19,10 +26,7 @@ import {
   UserEntity,
   WalletEntity,
 } from 'src/database/entities';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { TrustScoreModule } from '../trust-score/trust-score.module';
-import { AuditLogsModule } from '../audit-logs/audit-logs.module';
-import { UserWarningModule } from '../user-warning/user-warning.module';
+import { StaffAssignmentModule } from './modules/staff-assignment.module';
 
 @Module({
   imports: [
@@ -30,6 +34,7 @@ import { UserWarningModule } from '../user-warning/user-warning.module';
       DisputeEntity,
       DisputeNoteEntity, // Ghi chú dispute
       DisputeActivityEntity, // Timeline hoạt động
+      DisputeSettlementEntity, // Settlement offers
       // Hearing Room entities
       DisputeHearingEntity,
       HearingParticipantEntity,
@@ -44,12 +49,15 @@ import { UserWarningModule } from '../user-warning/user-warning.module';
       TransactionEntity,
     ]),
     EventEmitterModule.forRoot(), // Enable EventEmitter
+    EvidenceModule, // ← Evidence có module riêng
+    SettlementModule, // ← Settlement có module riêng
     TrustScoreModule,
     AuditLogsModule,
     UserWarningModule, // User warning/flag system
+    StaffAssignmentModule,
   ],
-  controllers: [DisputesController, HearingsController, MyHearingsController],
-  providers: [DisputesService, HearingsService],
-  exports: [DisputesService, HearingsService],
+  controllers: [DisputesController],
+  providers: [DisputesService],
+  exports: [DisputesService],
 })
 export class DisputesModule {}

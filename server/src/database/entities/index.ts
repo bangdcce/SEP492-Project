@@ -51,7 +51,33 @@ export {
   HearingStatus,
   HearingStatementType,
   HearingParticipantRole,
+  SpeakerRole,
+  HearingTier,
 } from './dispute-hearing.entity';
+export { DisputeEvidenceEntity } from './dispute-evidence.entity';
+export { DisputeMessageEntity, MessageType } from './dispute-message.entity';
+export { DisputeSettlementEntity, SettlementStatus } from './dispute-settlement.entity';
+export { DisputeVerdictEntity, FaultType } from './dispute-verdict.entity';
+export { LegalSignatureEntity, LegalActionType } from './legal-signature.entity';
+export { StaffPerformanceEntity } from './staff-performance.entity';
+export { DisputeResolutionFeedbackEntity } from './dispute-resolution-feedback.entity';
+
+// Skill & Tagging Entities (Master Taxonomy System)
+export { SkillDomainEntity } from './skill-domain.entity';
+export { SkillEntity, SkillCategory } from './skill.entity';
+export {
+  UserSkillEntity,
+  SkillPriority,
+  SkillVerificationStatus,
+  StaffExpertiseEntity,
+} from './user-skill.entity';
+export {
+  DisputeSkillRequirementEntity,
+  DisputeSkillSource,
+  SkillMappingRuleEntity,
+} from './dispute-skill.entity';
+
+// Trust Score & User Status Entities
 export { TrustScoreHistoryEntity } from './trust-score-history.entity';
 export { UserFlagEntity, FlagStatus } from './user-flag.entity';
 export { ReviewEntity } from './review.entity';
@@ -59,3 +85,24 @@ export { ReportEntity, ReportStatus, ReportReason } from './report.entity';
 export { VerificationDocumentEntity, VerificationStatus } from './verification-document.entity';
 export { NotificationEntity } from './notification.entity';
 export { AuditLogEntity } from './audit-log.entity';
+
+// Calendar & Scheduling Entities
+export {
+  CalendarEventEntity,
+  EventType,
+  EventStatus,
+  EventPriority,
+} from './calendar-event.entity';
+export {
+  EventParticipantEntity,
+  ParticipantRole,
+  ParticipantStatus,
+  AttendanceStatus,
+} from './event-participant.entity';
+export { UserAvailabilityEntity, AvailabilityType } from './user-availability.entity';
+export { StaffWorkloadEntity } from './staff-workload.entity';
+export {
+  EventRescheduleRequestEntity,
+  RescheduleRequestStatus,
+} from './event-reschedule-request.entity';
+export { AutoScheduleRuleEntity, SchedulingStrategy } from './auto-schedule-rule.entity';

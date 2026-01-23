@@ -3,7 +3,7 @@
  */
 export const formatDate = (
   date: string | Date,
-  options?: Intl.DateTimeFormatOptions
+  options?: Intl.DateTimeFormatOptions,
 ): string => {
   const dateObj = typeof date === "string" ? new Date(date) : date;
 
@@ -33,9 +33,9 @@ export const formatTime = (date: string | Date): string => {
  */
 export const formatCurrency = (
   amount: number,
-  currency: string = "VND"
+  currency: string = "USD",
 ): string => {
-  return new Intl.NumberFormat("vi-VN", {
+  return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: currency,
   }).format(amount);

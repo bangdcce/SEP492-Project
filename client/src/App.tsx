@@ -1,8 +1,11 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import { ROUTES } from "@/constants";
-import { MainLayout } from "@/shared/components/layouts";
 import { ClientDashboardLayout } from "@/shared/components/layouts/client";
+import { BrokerDashboardLayout } from "@/shared/components/layouts/broker";
+import { FreelancerDashboardLayout } from "@/shared/components/layouts/freelancer/FreelancerDashboardLayout";
+import { AdminDashboardLayout } from "@/shared/components/layouts/admin";
 import { Spinner } from "@/shared/components/ui";
+import { RoleGuard } from "@/shared/components/auth/RoleGuard";
 
 // Lazy load pages for better performance
 import { lazy, Suspense } from "react";
@@ -47,6 +50,9 @@ const AdminReviewModerationPage = lazy(
 const ProjectRequestsPage = lazy(() => import("@/features/project-requests/ProjectRequestsPage").then(module => ({ default: module.ProjectRequestsPage })));
 const ProjectRequestDetailsPage = lazy(() => import("@/features/project-requests/ProjectRequestDetailsPage"));
 const CreateProjectSpecPage = lazy(() => import("@/features/project-specs/CreateProjectSpecPage"));
+const AuditSpecsPage = lazy(() => import("@/features/project-specs/AuditSpecsPage"));
+const ContractPage = lazy(() => import("@/features/contracts/ContractPage"));
+const ContractListPage = lazy(() => import("@/features/contracts/ContractListPage"));
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
 
@@ -72,6 +78,7 @@ function PageLoader() {
   );
 }
 
+
 function App() {
   return (
     <Suspense fallback={<PageLoader />}>
@@ -85,68 +92,130 @@ function App() {
         {/* ========== FREELANCER ROUTES - /freelancer/* ========== */}
         <Route
           path={ROUTES.FREELANCER_ONBOARDING}
-          element={<FreelancerOnboardingPage />}
+          element={
+            <RoleGuard allowedRoles={['FREELANCER']}>
+              <FreelancerOnboardingPage />
+            </RoleGuard>
+          }
         />
         <Route
           path={ROUTES.FREELANCER_DASHBOARD}
-          element={<FreelancerDashboardPage />}
+          element={
+            <RoleGuard allowedRoles={['FREELANCER']}>
+              <FreelancerDashboardPage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.FREELANCER_PROJECTS}
+          element={
+            <RoleGuard allowedRoles={['FREELANCER']}>
+              <FreelancerDashboardLayout>
+                <ProjectListPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.FREELANCER_WORKSPACE}
+          element={
+            <RoleGuard allowedRoles={['FREELANCER']}>
+              <FreelancerDashboardLayout>
+                <ProjectWorkspacePage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.FREELANCER_PROFILE}
+          element={
+            <RoleGuard allowedRoles={['FREELANCER']}>
+              <FreelancerDashboardLayout>
+                <ProfilePage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
         />
 
         {/* ========== CLIENT ROUTES - /client/* ========== */}
         <Route
           path={ROUTES.CLIENT_DASHBOARD}
           element={
-            <ClientDashboardLayout>
-              <ClientDashboard />
-            </ClientDashboardLayout>
+            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+              <ClientDashboardLayout>
+                <ClientDashboard />
+              </ClientDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path={ROUTES.CLIENT_WIZARD}
           element={
-            <ClientDashboardLayout>
-              <WizardPage />
-            </ClientDashboardLayout>
+            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+              <ClientDashboardLayout>
+                <WizardPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path={ROUTES.CLIENT_MY_REQUESTS}
           element={
-            <ClientDashboardLayout>
-              <MyRequestsPage />
-            </ClientDashboardLayout>
+            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+              <ClientDashboardLayout>
+                <MyRequestsPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path="/client/requests/:id"
           element={
-            <ClientDashboardLayout>
-              <RequestDetailPage />
-            </ClientDashboardLayout>
+            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+              <ClientDashboardLayout>
+                <RequestDetailPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path={ROUTES.CLIENT_PROFILE}
           element={
-            <ClientDashboardLayout>
-              <ProfilePage />
-            </ClientDashboardLayout>
+            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+              <ClientDashboardLayout>
+                <ProfilePage />
+              </ClientDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path={ROUTES.CLIENT_PROJECTS}
           element={
-            <ClientDashboardLayout>
-              <ProjectListPage />
-            </ClientDashboardLayout>
+            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+              <ClientDashboardLayout>
+                <ProjectListPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path={ROUTES.CLIENT_WORKSPACE}
           element={
-            <ClientDashboardLayout>
-              <ProjectWorkspacePage />
-            </ClientDashboardLayout>
+            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+              <ClientDashboardLayout>
+                <ProjectWorkspacePage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/client/contracts/:id"
+          element={
+            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+              <ClientDashboardLayout>
+                <ContractPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
           }
         />
 
@@ -154,87 +223,175 @@ function App() {
         <Route
           path={ROUTES.ADMIN_DASHBOARD}
           element={
-            <MainLayout>
-              <AdminDashboard />
-            </MainLayout>
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <AdminDashboardLayout>
+                <AdminDashboard />
+              </AdminDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path={ROUTES.ADMIN_AUDIT_LOGS}
           element={
-            <MainLayout>
-              <AuditLogsPage />
-            </MainLayout>
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <AdminDashboardLayout>
+                <AuditLogsPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path={ROUTES.ADMIN_REVIEW_MODERATION}
           element={
-            <MainLayout>
-              <AdminReviewModerationPage />
-            </MainLayout>
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <AdminDashboardLayout>
+                <AdminReviewModerationPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path="/admin/kyc"
           element={
-            <MainLayout>
-              <AdminKYCPage />
-            </MainLayout>
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <AdminDashboardLayout>
+                <AdminKYCPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path="/admin/users"
           element={
-            <MainLayout>
-              <AdminUsersPage />
-            </MainLayout>
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <AdminDashboardLayout>
+                <AdminUsersPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/admin/specs"
+          element={
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <AdminDashboardLayout>
+                <AuditSpecsPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/admin/requests/:id"
+          element={
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <AdminDashboardLayout>
+                <ProjectRequestDetailsPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
           path={ROUTES.ADMIN_PROFILE}
           element={
-            <MainLayout>
-              <ProfilePage />
-            </MainLayout>
+            <RoleGuard allowedRoles={['ADMIN']}>
+              <AdminDashboardLayout>
+                <ProfilePage />
+              </AdminDashboardLayout>
+            </RoleGuard>
           }
         />
 
-        {/* ========== BROKER ROUTES ========== */}
+        {/* ========== BROKER ROUTES - /broker/* ========== */}
         <Route
           path={ROUTES.BROKER_DASHBOARD}
           element={
-            <MainLayout>
-              <BrokerDashboard />
-            </MainLayout>
+            <RoleGuard allowedRoles={['BROKER']}>
+              <BrokerDashboardLayout>
+                <BrokerDashboard />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_PROJECTS}
+          element={
+            <RoleGuard allowedRoles={['BROKER']}>
+              <BrokerDashboardLayout>
+                <ProjectListPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_WORKSPACE}
+          element={
+            <RoleGuard allowedRoles={['BROKER']}>
+              <BrokerDashboardLayout>
+                <ProjectWorkspacePage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/broker/contracts"
+          element={
+            <RoleGuard allowedRoles={['BROKER']}>
+              <BrokerDashboardLayout>
+                <ContractListPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/broker/contracts/:id"
+          element={
+            <RoleGuard allowedRoles={['BROKER']}>
+              <BrokerDashboardLayout>
+                <ContractPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_PROFILE}
+          element={
+            <RoleGuard allowedRoles={['BROKER']}>
+              <BrokerDashboardLayout>
+                <ProfilePage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
           }
         />
 
-        {/* ========== PROJECT REQUEST ROUTES ========== */}
+        {/* ========== PROJECT REQUEST ROUTES (Broker) ========== */}
         <Route
           path="/project-requests"
           element={
-            <MainLayout>
-              <ProjectRequestsPage />
-            </MainLayout>
+            <RoleGuard allowedRoles={['BROKER']}>
+              <BrokerDashboardLayout>
+                <ProjectRequestsPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
           }
         />
-
         <Route
           path="/project-requests/:id"
           element={
-            <MainLayout>
-              <ProjectRequestDetailsPage />
-            </MainLayout>
+            <RoleGuard allowedRoles={['BROKER']}>
+              <BrokerDashboardLayout>
+                <ProjectRequestDetailsPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
           }
         />
-
         <Route
           path="/project-requests/:id/create-spec"
           element={
-            <MainLayout>
-              <CreateProjectSpecPage />
-            </MainLayout>
+            <RoleGuard allowedRoles={['BROKER']}>
+              <BrokerDashboardLayout>
+                <CreateProjectSpecPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
           }
         />
 
@@ -253,6 +410,16 @@ function App() {
         <Route
           path="/client"
           element={<Navigate to={ROUTES.CLIENT_DASHBOARD} replace />}
+        />
+        {/* /broker -> Broker Dashboard */}
+        <Route
+          path="/broker"
+          element={<Navigate to={ROUTES.BROKER_DASHBOARD} replace />}
+        />
+        {/* /freelancer -> Freelancer Dashboard */}
+        <Route
+          path="/freelancer"
+          element={<Navigate to={ROUTES.FREELANCER_DASHBOARD} replace />}
         />
 
         {/* ========== 404 - Not Found ========== */}

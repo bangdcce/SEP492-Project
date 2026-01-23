@@ -68,7 +68,11 @@ export class ReportController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Xử lý report (resolve/reject)' })
-  async resolve(@Param('id') id: string, @Body() dto: ResolveReportDto, @GetUser('id') adminId: string) {
+  async resolve(
+    @Param('id') id: string,
+    @Body() dto: ResolveReportDto,
+    @GetUser('id') adminId: string,
+  ) {
     return this.reportService.resolve(id, dto, adminId);
   }
 }

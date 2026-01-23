@@ -1,212 +1,109 @@
 import {
   IsNotEmpty,
-  IsString,
-  IsOptional,
-  IsDateString,
-  IsArray,
-  IsEnum,
   IsUUID,
-  MinLength,
-  MaxLength,
-  IsBoolean,
-  IsNumber,
+  IsDateString,
+  IsEnum,
+  IsOptional,
+  IsInt,
   Min,
+  Max,
+  IsString,
+  IsArray,
 } from 'class-validator';
-
-export enum HearingStatus {
-  SCHEDULED = 'SCHEDULED',
-  IN_PROGRESS = 'IN_PROGRESS',
-  COMPLETED = 'COMPLETED',
-  CANCELED = 'CANCELED',
-  RESCHEDULED = 'RESCHEDULED',
-}
-
-export enum HearingStatementType {
-  OPENING = 'OPENING', // Lời khai mở đầu
-  EVIDENCE = 'EVIDENCE', // Trình bày bằng chứng
-  REBUTTAL = 'REBUTTAL', // Phản bác
-  CLOSING = 'CLOSING', // Kết luận
-  QUESTION = 'QUESTION', // Câu hỏi từ Admin
-  ANSWER = 'ANSWER', // Trả lời
-}
+import { SpeakerRole, HearingTier } from 'src/database/entities';
 
 /**
- * DTO để schedule một phiên điều trần
+ * DTO để lên lịch phiên điều trần
  */
 export class ScheduleHearingDto {
+  @IsUUID()
   @IsNotEmpty()
-  @IsDateString()
-  scheduledAt: string;
+  disputeId: string;
 
+  @IsDateString()
+  @IsNotEmpty()
+  scheduledAt: string; // ISO 8601 format
+
+  @IsInt()
+  @Min(15)
+  @Max(240)
   @IsOptional()
+  estimatedDurationMinutes?: number; // Default: 60
+
   @IsString()
-  @MaxLength(500)
+  @IsOptional()
   agenda?: string; // Nội dung cần thảo luận
 
-  @IsOptional()
-  @IsString()
-  meetingLink?: string; // Link Google Meet/Zoom
-
-  @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  requiredDocuments?: string[]; // Tài liệu yêu cầu các bên chuẩn bị
-
   @IsOptional()
-  @IsArray()
-  @IsUUID('4', { each: true })
-  additionalParticipantIds?: string[]; // Thêm người tham gia khác (nhân chứng)
+  requiredDocuments?: string[]; // Tài liệu yêu cầu chuẩn bị
+
+  @IsEnum(HearingTier)
+  @IsOptional()
+  tier?: HearingTier; // Default: TIER_1 (Staff)
+
+  @IsString()
+  @IsOptional()
+  externalMeetingLink?: string; // Link Google Meet/Zoom nếu cần video call
 }
 
 /**
- * DTO để reschedule phiên điều trần
+ * DTO để Staff/Admin điều khiển Live Chat trong phiên điều trần
  */
-export class RescheduleHearingDto {
+export class ModerateHearingDto {
+  @IsUUID()
   @IsNotEmpty()
-  @IsDateString()
-  newScheduledAt: string;
+  hearingId: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  reason?: string;
+  @IsEnum(SpeakerRole)
+  @IsNotEmpty()
+  speakerRole: SpeakerRole;
 }
 
 /**
- * DTO để gửi statement trong phiên điều trần
+ * DTO để bắt đầu/kết thúc phiên điều trần
  */
-export class SubmitStatementDto {
+export class UpdateHearingStatusDto {
+  @IsUUID()
   @IsNotEmpty()
-  @IsEnum(HearingStatementType)
-  type: HearingStatementType;
+  hearingId: string;
 
-  @IsNotEmpty()
   @IsString()
-  @MinLength(10)
-  @MaxLength(5000)
-  content: string;
-
-  @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  attachments?: string[]; // URLs của file đính kèm
-
-  @IsOptional()
-  @IsUUID('4')
-  replyToStatementId?: string; // Nếu là phản bác/trả lời statement trước
-}
-
-/**
- * DTO Admin đặt câu hỏi cho các bên
- */
-export class AdminQuestionDto {
   @IsNotEmpty()
-  @IsUUID('4')
-  targetUserId: string; // Người cần trả lời
+  action: 'start' | 'end' | 'cancel';
 
-  @IsNotEmpty()
   @IsString()
-  @MinLength(10)
-  @MaxLength(1000)
-  question: string;
-
   @IsOptional()
-  @IsNumber()
-  @Min(1)
-  deadlineMinutes?: number; // Hạn trả lời tính bằng phút
+  summary?: string; // Tóm tắt (khi end)
 
-  @IsOptional()
-  @IsBoolean()
-  isRequired?: boolean; // Bắt buộc trả lời trước khi kết phiên
-}
-
-/**
- * DTO để trả lời câu hỏi từ Admin
- */
-export class AnswerQuestionDto {
-  @IsNotEmpty()
   @IsString()
-  @MinLength(10)
-  @MaxLength(5000)
-  answer: string;
-}
-
-/**
- * DTO để conclude phiên điều trần
- */
-export class ConcludeHearingDto {
-  @IsNotEmpty()
-  @IsString()
-  @MinLength(50)
-  @MaxLength(5000)
-  summary: string; // Tóm tắt phiên điều trần
-
   @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  findings?: string; // Những phát hiện quan trọng
+  findings?: string; // Phát hiện quan trọng (khi end)
 
-  @IsOptional()
   @IsArray()
   @IsString({ each: true })
-  pendingActions?: string[]; // Các việc cần làm tiếp
-
   @IsOptional()
-  @IsBoolean()
-  forceClose?: boolean; // Bỏ qua các câu hỏi chưa được trả lời
+  pendingActions?: string[]; // Việc cần làm tiếp (khi end)
+
+  @IsString()
+  @IsOptional()
+  cancelReason?: string; // Lý do hủy (khi cancel)
 }
 
 /**
- * Response interface cho Hearing
+ * DTO để participant phản hồi lời mời
  */
-export interface HearingResponse {
-  id: string;
-  disputeId: string;
-  status: HearingStatus;
-  scheduledAt: Date;
-  startedAt?: Date;
-  endedAt?: Date;
-  agenda?: string;
-  meetingLink?: string;
-  requiredDocuments?: string[];
-  summary?: string;
-  findings?: string;
-  moderatorId: string;
-  participants: HearingParticipant[];
-  statements: HearingStatement[];
-  questions: HearingQuestion[];
-  createdAt: Date;
-  updatedAt: Date;
-}
+export class RespondHearingInviteDto {
+  @IsUUID()
+  @IsNotEmpty()
+  participantId: string; // HearingParticipantEntity.id
 
-export interface HearingParticipant {
-  id: string;
-  hearingId: string;
-  userId: string;
-  role: 'RAISER' | 'DEFENDANT' | 'WITNESS' | 'MODERATOR';
-  joinedAt?: Date;
-  leftAt?: Date;
-  isOnline: boolean;
-}
+  @IsString()
+  @IsNotEmpty()
+  response: 'accept' | 'decline' | 'tentative';
 
-export interface HearingStatement {
-  id: string;
-  hearingId: string;
-  participantId: string;
-  type: HearingStatementType;
-  content: string;
-  attachments?: string[];
-  replyToStatementId?: string;
-  createdAt: Date;
-}
-
-export interface HearingQuestion {
-  id: string;
-  hearingId: string;
-  askedById: string;
-  targetUserId: string;
-  question: string;
-  answer?: string;
-  answeredAt?: Date;
-  deadline?: Date;
+  @IsString()
+  @IsOptional()
+  declineReason?: string;
 }
