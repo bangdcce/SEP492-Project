@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { TaskEntity, TaskStatus } from '../../database/entities/task.entity';
+import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import {
   CalendarEventEntity,
@@ -55,7 +55,7 @@ export class TasksService {
     // Fetch all tasks for the project
     const tasks = await this.taskRepository.find({
       where: { projectId },
-      relations: ['assignee'],
+      relations: ['assignee', 'reporter'],
       order: { sortOrder: 'ASC', createdAt: 'DESC' },
     });
 
@@ -269,7 +269,11 @@ export class TasksService {
     specFeatureId?: string;
     startDate?: string;
     dueDate?: string;
-    organizerId?: string; // User who created the task (for calendar)
+    organizerId?: string;
+    priority?: TaskPriority;
+    storyPoints?: number;
+    labels?: string[];
+    reporterId?: string;
   }): Promise<TaskEntity> {
     // Step A: Create the task
     const newTask = this.taskRepository.create({
@@ -278,7 +282,12 @@ export class TasksService {
       projectId: data.projectId,
       milestoneId: data.milestoneId,
       status: TaskStatus.TODO,
+      startDate: data.startDate ? new Date(data.startDate) : undefined,
       dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+      priority: data.priority ?? TaskPriority.MEDIUM,
+      storyPoints: data.storyPoints,
+      labels: data.labels,
+      reporterId: data.reporterId,
     });
 
     const saved = await this.taskRepository.save(newTask);
@@ -291,7 +300,7 @@ export class TasksService {
 
     const created = await this.taskRepository.findOne({
       where: { id: saved.id },
-      relations: ['assignee'],
+      relations: ['assignee', 'reporter'],
     });
 
     if (!created) {
@@ -299,6 +308,26 @@ export class TasksService {
     }
 
     return created;
+  }
+
+  async updateTask(id: string, data: Partial<TaskEntity>): Promise<TaskEntity> {
+    const task = await this.taskRepository.findOne({ where: { id } });
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    await this.taskRepository.update(id, data);
+
+    const updated = await this.taskRepository.findOne({
+      where: { id },
+      relations: ['assignee', 'reporter'],
+    });
+
+    if (!updated) {
+      throw new NotFoundException('Task not found after update');
+    }
+
+    return updated;
   }
 
   /**

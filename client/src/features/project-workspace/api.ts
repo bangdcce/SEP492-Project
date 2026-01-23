@@ -1,5 +1,5 @@
 import { apiClient } from "@/shared/api/client";
-import type { KanbanBoard, KanbanColumnKey, Task, Milestone, TaskStatusUpdateResult } from "./types";
+import type { KanbanBoard, KanbanColumnKey, Task, Milestone, TaskStatusUpdateResult, TaskPriority } from "./types";
 
 // ============================================
 // REAL API - Database Integration
@@ -61,6 +61,19 @@ export const submitTask = async (
     completed: `${result.completedTasks}/${result.totalTasks}`,
   });
 
+  return result;
+};
+
+// Update General Task Details
+export const updateTask = async (
+  taskId: string,
+  payload: Partial<Task>
+): Promise<Task> => {
+  console.log("[API] Updating task details:", { taskId, payload });
+
+  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, payload);
+
+  console.log("[API] Task updated:", result);
   return result;
 };
 

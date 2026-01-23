@@ -1,0 +1,134 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class AddTaskColumnJira1769155481889 implements MigrationInterface {
+    name = 'AddTaskColumnJira1769155481889'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "hearing_statements" DROP CONSTRAINT "FK_563a966c8469466df1c6200004e"`);
+        await queryRunner.query(`ALTER TABLE "hearing_questions" DROP CONSTRAINT "FK_0a74115a3ce8722a5a4580a37f3"`);
+        await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "emailVerificationToken"`);
+        await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "emailVerificationExpires"`);
+        await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "emailVerifiedAt"`);
+        await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "termsAcceptedAt"`);
+        await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "privacyAcceptedAt"`);
+        await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "registrationIp"`);
+        await queryRunner.query(`ALTER TABLE "users" DROP COLUMN "registrationUserAgent"`);
+        await queryRunner.query(`ALTER TABLE "staff_performances" DROP COLUMN "pendingAppealCases"`);
+        await queryRunner.query(`ALTER TABLE "staff_performances" DROP COLUMN "totalCasesFinalized"`);
+        await queryRunner.query(`ALTER TABLE "project_specs" DROP COLUMN "features"`);
+        await queryRunner.query(`ALTER TABLE "project_specs" DROP COLUMN "techStack"`);
+        await queryRunner.query(`ALTER TABLE "project_specs" DROP COLUMN "referenceLinks"`);
+        await queryRunner.query(`ALTER TABLE "project_specs" DROP COLUMN "rejectionReason"`);
+        await queryRunner.query(`ALTER TABLE "project_specs" DROP COLUMN "updatedAt"`);
+        await queryRunner.query(`ALTER TABLE "milestones" DROP COLUMN "deliverableType"`);
+        await queryRunner.query(`DROP TYPE "public"."deliverable_type_enum"`);
+        await queryRunner.query(`ALTER TABLE "milestones" DROP COLUMN "retentionAmount"`);
+        await queryRunner.query(`ALTER TABLE "milestones" DROP COLUMN "acceptanceCriteria"`);
+        await queryRunner.query(`ALTER TABLE "milestones" DROP COLUMN "videoDemoUrl"`);
+        await queryRunner.query(`ALTER TABLE "hearing_participants" DROP COLUMN "lastOnlineAt"`);
+        await queryRunner.query(`ALTER TABLE "hearing_participants" DROP COLUMN "totalOnlineMinutes"`);
+        await queryRunner.query(`ALTER TABLE "hearing_statements" DROP COLUMN "title"`);
+        await queryRunner.query(`ALTER TABLE "hearing_statements" DROP COLUMN "status"`);
+        await queryRunner.query(`DROP TYPE "public"."hearing_statements_status_enum"`);
+        await queryRunner.query(`ALTER TABLE "hearing_statements" DROP COLUMN "retractionOfStatementId"`);
+        await queryRunner.query(`ALTER TABLE "hearing_questions" DROP COLUMN "status"`);
+        await queryRunner.query(`DROP TYPE "public"."hearing_questions_status_enum"`);
+        await queryRunner.query(`ALTER TABLE "hearing_questions" DROP COLUMN "cancelledAt"`);
+        await queryRunner.query(`ALTER TABLE "hearing_questions" DROP COLUMN "cancelledById"`);
+        await queryRunner.query(`ALTER TABLE "tasks" ADD "reporterId" uuid`);
+        await queryRunner.query(`CREATE TYPE "public"."tasks_priority_enum" AS ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT')`);
+        await queryRunner.query(`ALTER TABLE "tasks" ADD "priority" "public"."tasks_priority_enum" NOT NULL DEFAULT 'MEDIUM'`);
+        await queryRunner.query(`ALTER TABLE "tasks" ADD "storyPoints" integer`);
+        await queryRunner.query(`ALTER TABLE "tasks" ADD "startDate" TIMESTAMP`);
+        await queryRunner.query(`ALTER TABLE "tasks" ADD "labels" text`);
+        await queryRunner.query(`ALTER TYPE "public"."projects_status_enum" RENAME TO "projects_status_enum_old"`);
+        await queryRunner.query(`CREATE TYPE "public"."projects_status_enum" AS ENUM('PLANNING', 'IN_PROGRESS', 'TESTING', 'COMPLETED', 'PAID', 'DISPUTED', 'CANCELED')`);
+        await queryRunner.query(`ALTER TABLE "projects" ALTER COLUMN "status" DROP DEFAULT`);
+        // Fix for legacy data: Convert 'INITIALIZING' to 'PLANNING' before type change
+        await queryRunner.query(`UPDATE "projects" SET "status" = 'PLANNING' WHERE "status" = 'INITIALIZING'`);
+        await queryRunner.query(`ALTER TABLE "projects" ALTER COLUMN "status" TYPE "public"."projects_status_enum" USING "status"::"text"::"public"."projects_status_enum"`);
+        await queryRunner.query(`ALTER TABLE "projects" ALTER COLUMN "status" SET DEFAULT 'PLANNING'`);
+        await queryRunner.query(`DROP TYPE "public"."projects_status_enum_old"`);
+        await queryRunner.query(`ALTER TYPE "public"."project_specs_status_enum" RENAME TO "project_specs_status_enum_old"`);
+        await queryRunner.query(`CREATE TYPE "public"."project_specs_status_enum" AS ENUM('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED')`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ALTER COLUMN "status" DROP DEFAULT`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ALTER COLUMN "status" TYPE "public"."project_specs_status_enum" USING "status"::"text"::"public"."project_specs_status_enum"`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ALTER COLUMN "status" SET DEFAULT 'PENDING_APPROVAL'`);
+        await queryRunner.query(`DROP TYPE "public"."project_specs_status_enum_old"`);
+        await queryRunner.query(`ALTER TYPE "public"."milestones_status_enum" RENAME TO "milestones_status_enum_old"`);
+        await queryRunner.query(`CREATE TYPE "public"."milestones_status_enum" AS ENUM('PENDING', 'IN_PROGRESS', 'LOCKED', 'COMPLETED', 'PAID')`);
+        await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "status" DROP DEFAULT`);
+        await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "status" TYPE "public"."milestones_status_enum" USING "status"::"text"::"public"."milestones_status_enum"`);
+        await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "status" SET DEFAULT 'PENDING'`);
+        await queryRunner.query(`DROP TYPE "public"."milestones_status_enum_old"`);
+        await queryRunner.query(`ALTER TABLE "auto_schedule_rules" ALTER COLUMN "workingHoursStart" SET DEFAULT '08:00'`);
+        await queryRunner.query(`ALTER TABLE "auto_schedule_rules" ALTER COLUMN "workingHoursEnd" SET DEFAULT '18:00'`);
+        await queryRunner.query(`ALTER TABLE "auto_schedule_rules" ALTER COLUMN "lunchStartTime" SET DEFAULT '11:30'`);
+        await queryRunner.query(`ALTER TABLE "auto_schedule_rules" ALTER COLUMN "lunchEndTime" SET DEFAULT '13:00'`);
+        await queryRunner.query(`ALTER TABLE "tasks" ADD CONSTRAINT "FK_7ecc6be7d74a3f441f7aa5215ef" FOREIGN KEY ("reporterId") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "tasks" DROP CONSTRAINT "FK_7ecc6be7d74a3f441f7aa5215ef"`);
+        await queryRunner.query(`ALTER TABLE "auto_schedule_rules" ALTER COLUMN "lunchEndTime" SET DEFAULT '13:00:00'`);
+        await queryRunner.query(`ALTER TABLE "auto_schedule_rules" ALTER COLUMN "lunchStartTime" SET DEFAULT '11:30:00'`);
+        await queryRunner.query(`ALTER TABLE "auto_schedule_rules" ALTER COLUMN "workingHoursEnd" SET DEFAULT '18:00:00'`);
+        await queryRunner.query(`ALTER TABLE "auto_schedule_rules" ALTER COLUMN "workingHoursStart" SET DEFAULT '08:00:00'`);
+        await queryRunner.query(`CREATE TYPE "public"."milestones_status_enum_old" AS ENUM('PENDING', 'IN_PROGRESS', 'LOCKED', 'COMPLETED', 'PAID', 'SUBMITTED', 'REVISIONS_REQUIRED')`);
+        await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "status" DROP DEFAULT`);
+        await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "status" TYPE "public"."milestones_status_enum_old" USING "status"::"text"::"public"."milestones_status_enum_old"`);
+        await queryRunner.query(`ALTER TABLE "milestones" ALTER COLUMN "status" SET DEFAULT 'PENDING'`);
+        await queryRunner.query(`DROP TYPE "public"."milestones_status_enum"`);
+        await queryRunner.query(`ALTER TYPE "public"."milestones_status_enum_old" RENAME TO "milestones_status_enum"`);
+        await queryRunner.query(`CREATE TYPE "public"."project_specs_status_enum_old" AS ENUM('DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'PENDING_AUDIT')`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ALTER COLUMN "status" DROP DEFAULT`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ALTER COLUMN "status" TYPE "public"."project_specs_status_enum_old" USING "status"::"text"::"public"."project_specs_status_enum_old"`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ALTER COLUMN "status" SET DEFAULT 'PENDING_APPROVAL'`);
+        await queryRunner.query(`DROP TYPE "public"."project_specs_status_enum"`);
+        await queryRunner.query(`ALTER TYPE "public"."project_specs_status_enum_old" RENAME TO "project_specs_status_enum"`);
+        await queryRunner.query(`CREATE TYPE "public"."projects_status_enum_old" AS ENUM('PLANNING', 'IN_PROGRESS', 'TESTING', 'COMPLETED', 'PAID', 'DISPUTED', 'CANCELED', 'INITIALIZING')`);
+        await queryRunner.query(`ALTER TABLE "projects" ALTER COLUMN "status" DROP DEFAULT`);
+        await queryRunner.query(`ALTER TABLE "projects" ALTER COLUMN "status" TYPE "public"."projects_status_enum_old" USING "status"::"text"::"public"."projects_status_enum_old"`);
+        await queryRunner.query(`ALTER TABLE "projects" ALTER COLUMN "status" SET DEFAULT 'PLANNING'`);
+        await queryRunner.query(`DROP TYPE "public"."projects_status_enum"`);
+        await queryRunner.query(`ALTER TYPE "public"."projects_status_enum_old" RENAME TO "projects_status_enum"`);
+        await queryRunner.query(`ALTER TABLE "tasks" DROP COLUMN "labels"`);
+        await queryRunner.query(`ALTER TABLE "tasks" DROP COLUMN "startDate"`);
+        await queryRunner.query(`ALTER TABLE "tasks" DROP COLUMN "storyPoints"`);
+        await queryRunner.query(`ALTER TABLE "tasks" DROP COLUMN "priority"`);
+        await queryRunner.query(`DROP TYPE "public"."tasks_priority_enum"`);
+        await queryRunner.query(`ALTER TABLE "tasks" DROP COLUMN "reporterId"`);
+        await queryRunner.query(`ALTER TABLE "hearing_questions" ADD "cancelledById" uuid`);
+        await queryRunner.query(`ALTER TABLE "hearing_questions" ADD "cancelledAt" TIMESTAMP`);
+        await queryRunner.query(`CREATE TYPE "public"."hearing_questions_status_enum" AS ENUM('PENDING_ANSWER', 'ANSWERED', 'CANCELLED_BY_MODERATOR')`);
+        await queryRunner.query(`ALTER TABLE "hearing_questions" ADD "status" "public"."hearing_questions_status_enum" NOT NULL DEFAULT 'PENDING_ANSWER'`);
+        await queryRunner.query(`ALTER TABLE "hearing_statements" ADD "retractionOfStatementId" uuid`);
+        await queryRunner.query(`CREATE TYPE "public"."hearing_statements_status_enum" AS ENUM('DRAFT', 'SUBMITTED')`);
+        await queryRunner.query(`ALTER TABLE "hearing_statements" ADD "status" "public"."hearing_statements_status_enum" NOT NULL DEFAULT 'DRAFT'`);
+        await queryRunner.query(`ALTER TABLE "hearing_statements" ADD "title" character varying(255)`);
+        await queryRunner.query(`ALTER TABLE "hearing_participants" ADD "totalOnlineMinutes" integer NOT NULL DEFAULT '0'`);
+        await queryRunner.query(`ALTER TABLE "hearing_participants" ADD "lastOnlineAt" TIMESTAMP`);
+        await queryRunner.query(`ALTER TABLE "milestones" ADD "videoDemoUrl" character varying(500)`);
+        await queryRunner.query(`ALTER TABLE "milestones" ADD "acceptanceCriteria" jsonb`);
+        await queryRunner.query(`ALTER TABLE "milestones" ADD "retentionAmount" numeric(14,2) DEFAULT '0'`);
+        await queryRunner.query(`CREATE TYPE "public"."deliverable_type_enum" AS ENUM('DESIGN_PROTOTYPE', 'API_DOCS', 'DEPLOYMENT', 'SOURCE_CODE', 'SYS_OPERATION_DOCS', 'CREDENTIAL_VAULT', 'OTHER')`);
+        await queryRunner.query(`ALTER TABLE "milestones" ADD "deliverableType" "public"."deliverable_type_enum" DEFAULT 'OTHER'`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ADD "updatedAt" TIMESTAMP DEFAULT now()`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ADD "rejectionReason" text`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ADD "referenceLinks" jsonb`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ADD "techStack" character varying(500)`);
+        await queryRunner.query(`ALTER TABLE "project_specs" ADD "features" jsonb`);
+        await queryRunner.query(`ALTER TABLE "staff_performances" ADD "totalCasesFinalized" integer NOT NULL DEFAULT '0'`);
+        await queryRunner.query(`ALTER TABLE "staff_performances" ADD "pendingAppealCases" integer NOT NULL DEFAULT '0'`);
+        await queryRunner.query(`ALTER TABLE "users" ADD "registrationUserAgent" text`);
+        await queryRunner.query(`ALTER TABLE "users" ADD "registrationIp" character varying(45)`);
+        await queryRunner.query(`ALTER TABLE "users" ADD "privacyAcceptedAt" TIMESTAMP`);
+        await queryRunner.query(`ALTER TABLE "users" ADD "termsAcceptedAt" TIMESTAMP`);
+        await queryRunner.query(`ALTER TABLE "users" ADD "emailVerifiedAt" TIMESTAMP`);
+        await queryRunner.query(`ALTER TABLE "users" ADD "emailVerificationExpires" TIMESTAMP`);
+        await queryRunner.query(`ALTER TABLE "users" ADD "emailVerificationToken" character varying(64)`);
+        await queryRunner.query(`ALTER TABLE "hearing_questions" ADD CONSTRAINT "FK_0a74115a3ce8722a5a4580a37f3" FOREIGN KEY ("cancelledById") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "hearing_statements" ADD CONSTRAINT "FK_563a966c8469466df1c6200004e" FOREIGN KEY ("retractionOfStatementId") REFERENCES "hearing_statements"("id") ON DELETE NO ACTION ON UPDATE NO ACTION`);
+    }
+
+}

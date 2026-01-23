@@ -31,9 +31,10 @@ const getAssigneeVisuals = (task: Task) => {
 type TaskCardProps = {
   task: Task;
   index: number;
+  onClick: (taskId: string) => void;
 };
 
-export function TaskCard({ task, index }: TaskCardProps) {
+export function TaskCard({ task, index, onClick }: TaskCardProps) {
   return (
     <Draggable draggableId={task.id} index={index}>
       {(dragProvided, snapshot) => (
@@ -41,21 +42,22 @@ export function TaskCard({ task, index }: TaskCardProps) {
           ref={dragProvided.innerRef}
           {...dragProvided.draggableProps}
           {...dragProvided.dragHandleProps}
+          onClick={() => onClick(task.id)}
           className={cn(
-            "group bg-white border border-gray-200 rounded-xl p-4 shadow-sm transition-all duration-200",
+            "group bg-white border border-gray-300 rounded-[3px] p-3 shadow-sm hover:bg-gray-50 transition-colors cursor-pointer",
             snapshot.isDragging
-              ? "shadow-2xl border-teal-500 ring-1 ring-teal-400/70 scale-[1.03] rotate-1 z-50 cursor-grabbing"
-              : "hover:shadow-md hover:border-teal-200 hover:-translate-y-0.5 cursor-grab"
+              ? "shadow-lg border-teal-500 ring-1 ring-teal-400/50 z-50 rotate-2"
+              : "hover:border-gray-400"
           )}
         >
           <div className="flex items-start gap-3">
-            <div className="h-8 w-8 flex items-center justify-center rounded-lg bg-slate-100 text-slate-500 hover:bg-slate-200 transition-colors">
-              <GripVertical className="h-4 w-4" />
+            <div className="hidden group-hover:flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors absolute top-2 right-2">
+              <GripVertical className="h-3 w-3" />
             </div>
-            <div className="flex-1 space-y-2">
+            <div className="flex-1 space-y-1.5">
               <div className="flex items-start justify-between gap-2">
                 <div>
-                  <p className="text-sm font-semibold text-slate-900">
+                  <p className="text-sm font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
                     {task.title}
                   </p>
                   {task.description && (
@@ -75,15 +77,14 @@ export function TaskCard({ task, index }: TaskCardProps) {
                       <>
                         <div
                           className={cn(
-                            "h-9 w-9 rounded-full flex items-center justify-center text-xs font-semibold",
+                            "h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold border border-white shadow-sm",
                             colorClass
                           )}
                         >
                           {initials}
                         </div>
                         <div className="flex flex-col">
-                          <span className="text-sm text-slate-900">{name}</span>
-                          <span className="text-xs text-gray-500">Assignee</span>
+                          <span className="text-xs text-gray-500 group-hover:text-slate-800 transition-colors">{name}</span>
                         </div>
                       </>
                     );
