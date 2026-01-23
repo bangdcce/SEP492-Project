@@ -30,6 +30,17 @@ export enum HearingStatementType {
   ANSWER = 'ANSWER', // Trả lời
 }
 
+export enum HearingStatementStatus {
+  DRAFT = 'DRAFT',
+  SUBMITTED = 'SUBMITTED',
+}
+
+export enum HearingQuestionStatus {
+  PENDING_ANSWER = 'PENDING_ANSWER',
+  ANSWERED = 'ANSWERED',
+  CANCELLED_BY_MODERATOR = 'CANCELLED_BY_MODERATOR',
+}
+
 export enum HearingParticipantRole {
   RAISER = 'RAISER',
   DEFENDANT = 'DEFENDANT',
@@ -204,6 +215,12 @@ export class HearingParticipantEntity {
   @Column({ default: false })
   isOnline: boolean;
 
+  @Column({ type: 'timestamp', nullable: true, comment: 'Lần online gần nhất' })
+  lastOnlineAt: Date;
+
+  @Column({ type: 'int', default: 0, comment: 'Tổng phút online trong phiên' })
+  totalOnlineMinutes: number;
+
   @Column({ default: false })
   hasSubmittedStatement: boolean; // Đã nộp lời khai chưa
 
@@ -251,14 +268,27 @@ export class HearingStatementEntity {
   })
   type: HearingStatementType;
 
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  title: string;
+
   @Column({ type: 'text' })
   content: string;
+
+  @Column({
+    type: 'enum',
+    enum: HearingStatementStatus,
+    default: HearingStatementStatus.DRAFT,
+  })
+  status: HearingStatementStatus;
 
   @Column({ type: 'jsonb', nullable: true })
   attachments: string[]; // URLs của file đính kèm
 
   @Column({ nullable: true })
-  replyToStatementId: string; // Nếu là phản bác statement trước
+  replyToStatementId: string; // Reply to prior statement
+
+  @Column({ nullable: true })
+  retractionOfStatementId: string; // Correction for prior statement
 
   @Column({ default: 0 })
   orderIndex: number; // Thứ tự trong phiên
@@ -284,6 +314,10 @@ export class HearingStatementEntity {
   @ManyToOne('HearingStatementEntity', { nullable: true })
   @JoinColumn({ name: 'replyToStatementId' })
   replyToStatement: HearingStatementEntity;
+
+  @ManyToOne('HearingStatementEntity', { nullable: true })
+  @JoinColumn({ name: 'retractionOfStatementId' })
+  retractionOfStatement: HearingStatementEntity;
 }
 
 // =============================================================================
@@ -310,11 +344,24 @@ export class HearingQuestionEntity {
   @Column({ type: 'text', nullable: true })
   answer: string;
 
+  @Column({
+    type: 'enum',
+    enum: HearingQuestionStatus,
+    default: HearingQuestionStatus.PENDING_ANSWER,
+  })
+  status: HearingQuestionStatus;
+
   @Column({ type: 'timestamp', nullable: true })
   answeredAt: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  deadline: Date; // Hạn trả lời
+  deadline: Date; // Answer deadline
+
+  @Column({ type: 'timestamp', nullable: true })
+  cancelledAt: Date;
+
+  @Column({ nullable: true })
+  cancelledById: string; // Moderator who cancelled
 
   @Column({ default: false })
   isRequired: boolean; // Bắt buộc trả lời trước khi kết phiên
@@ -337,4 +384,8 @@ export class HearingQuestionEntity {
   @ManyToOne('UserEntity', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'targetUserId' })
   targetUser: any;
+
+  @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'cancelledById' })
+  cancelledBy: any;
 }

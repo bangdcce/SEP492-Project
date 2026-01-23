@@ -41,6 +41,7 @@ import {
   EarlyReleaseDto,
   EmergencyReassignDto,
   ScheduleHearingDto,
+  ReassignDisputeDto,
 } from '../dto/staff-assignment.dto';
 
 @ApiTags('Staff Assignment')
@@ -197,6 +198,63 @@ export class StaffAssignmentController {
         staffId: result.staffId,
         complexity: result.complexity,
         estimatedDuration: result.complexity.timeEstimation,
+      },
+    };
+  }
+
+  // ===========================================================================
+  // MANUAL DISPUTE REASSIGNMENT
+  // ===========================================================================
+
+  @Post('disputes/:disputeId/reassign')
+  @Roles(UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Manually reassign dispute to different staff',
+    description: `
+      Allows Admin to manually reassign a dispute to a different staff member.
+      
+      **Use cases:**
+      - Staff overloaded, need rebalancing
+      - Staff on extended leave
+      - Assigning to specific expert
+      
+      **Algorithm:**
+      1. Validate dispute status (must not be RESOLVED or REJECTED)
+      2. Validate new staff exists and is active
+      3. Update assignment and workload for both staff
+      4. Emit DISPUTE_REASSIGNED event
+    `,
+  })
+  @ApiParam({ name: 'disputeId', description: 'UUID of the dispute to reassign' })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Dispute reassigned successfully',
+  })
+  @ApiResponse({
+    status: HttpStatus.BAD_REQUEST,
+    description: 'Cannot reassign - invalid status or staff',
+  })
+  async reassignDispute(
+    @Param('disputeId', ParseUUIDPipe) disputeId: string,
+    @Body() dto: ReassignDisputeDto,
+    @GetUser() user: UserEntity,
+  ) {
+    const result = await this.staffAssignmentService.reassignDispute(
+      disputeId,
+      dto.newStaffId,
+      dto.reason,
+      user.id,
+      dto.notes,
+    );
+
+    return {
+      success: result.success,
+      message: result.message,
+      data: {
+        disputeId,
+        oldStaffId: result.oldStaffId,
+        newStaffId: result.newStaffId,
       },
     };
   }
@@ -416,6 +474,72 @@ export class StaffAssignmentController {
           : idleResult.shouldWarn
             ? 'WARNING'
             : 'ACTIVE',
+      },
+    };
+  }
+
+  // ===========================================================================
+  // SMART SUGGESTION API (For Reassignment UI)
+  // ===========================================================================
+
+  @Get('suggestions-for-reassign')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get staff suggestions for reassignment',
+    description: `
+      Returns a sorted list of staff suggestions for reassigning a dispute.
+      
+      **Algorithm:**
+      1. Filter staff by skill match (>= 50%)
+      2. Check availability at scheduled time (if provided)
+      3. Sort by: availability DESC, workload ASC, skill match DESC
+      
+      **Response colors:**
+      - 🟢 Green (RECOMMENDED): Rảnh, skill phù hợp
+      - 🟡 Yellow (AVAILABLE): Bận vừa hoặc skill trung bình
+      - 🔴 Red (CONFLICT/BUSY): Trùng lịch hoặc quá tải
+      
+      **UI Usage:**
+      - Show green staff first as recommended
+      - Disable selection for red staff with conflicts
+    `,
+  })
+  @ApiQuery({
+    name: 'disputeId',
+    required: true,
+    description: 'UUID of the dispute to reassign',
+  })
+  @ApiQuery({
+    name: 'scheduledTime',
+    required: false,
+    description: 'ISO timestamp of scheduled hearing (for conflict check)',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Staff suggestions returned',
+  })
+  async getSuggestionsForReassign(
+    @Query('disputeId', ParseUUIDPipe) disputeId: string,
+    @Query('scheduledTime') scheduledTime?: string,
+  ) {
+    const scheduledDate = scheduledTime ? new Date(scheduledTime) : undefined;
+    const result = await this.staffAssignmentService.suggestReplacementStaff(
+      disputeId,
+      scheduledDate,
+    );
+
+    return {
+      success: true,
+      data: {
+        ...result,
+        ui: {
+          colorLegend: {
+            green: 'Gợi ý tốt nhất - có thể chọn ngay',
+            yellow: 'Khả dụng - cân nhắc workload',
+            red: 'Không khả dụng - trùng lịch hoặc quá tải',
+          },
+          note: 'Chọn người màu xanh (green) là an toàn nhất',
+        },
       },
     };
   }

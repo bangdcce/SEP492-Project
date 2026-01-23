@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Delete,
   Get,
@@ -19,9 +20,14 @@ import { UpdateDisputeDto } from './dto/update-disputes.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { DefendantResponseDto } from './dto/defendant-response.dto';
-import { AppealDto, ResolveAppealDto } from './dto/appeal.dto';
+import { AppealDto } from './dto/appeal.dto';
+import { AppealRejectionDto } from './dto/appeal-rejection.dto';
+import { RequestDisputeInfoDto } from './dto/request-info.dto';
+import { ResolveRejectionAppealDto } from './dto/resolve-rejection-appeal.dto';
+import { AppealVerdictDto } from './dto/verdict.dto';
 import { AdminUpdateDisputeDto } from './dto/admin-update-dispute.dto';
 import { DisputeFilterDto } from './dto/dispute-filter.dto';
+import { SendDisputeMessageDto, HideMessageDto } from './dto/message.dto';
 import { UserRole, UserEntity } from 'src/database/entities';
 
 @Controller('disputes')
@@ -36,7 +42,6 @@ export class DisputesController {
 
   // =============================================================================
   // LIST DISPUTES WITH PAGINATION & FILTERS
-  // =============================================================================
 
   /**
    * Lấy danh sách disputes với pagination, filters, và smart sorting
@@ -83,6 +88,59 @@ export class DisputesController {
     @GetUser() user: UserEntity,
   ) {
     return await this.disputesService.updateDisputes(user.id, id, dto);
+  }
+
+  // =============================================================================
+  // DISPUTE MESSAGES (LIVE CHAT)
+  // =============================================================================
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':disputeId/messages')
+  async sendDisputeMessage(
+    @Param('disputeId', ParseUUIDPipe) disputeId: string,
+    @Body() dto: SendDisputeMessageDto,
+    @GetUser() user: UserEntity,
+  ) {
+    if (dto.disputeId && dto.disputeId !== disputeId) {
+      throw new BadRequestException('disputeId in body does not match URL');
+    }
+
+    const result = await this.disputesService.sendDisputeMessage(
+      { ...dto, disputeId },
+      user.id,
+      user.role,
+    );
+
+    return {
+      success: true,
+      message: 'Message sent',
+      data: result,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch('messages/:messageId/hide')
+  async hideMessage(
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @Body() dto: HideMessageDto,
+    @GetUser() user: UserEntity,
+  ) {
+    if (dto.messageId && dto.messageId !== messageId) {
+      throw new BadRequestException('messageId in body does not match URL');
+    }
+
+    const result = await this.disputesService.hideMessage(
+      { ...dto, messageId },
+      user.id,
+      user.role,
+    );
+
+    return {
+      success: true,
+      message: 'Message hidden',
+      data: result,
+    };
   }
 
   // =============================================================================
@@ -190,6 +248,20 @@ export class DisputesController {
   }
 
   /**
+   * Appeal a dismissal (within 24h after rejection)
+   * POST /disputes/:id/rejection/appeal
+   */
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/rejection/appeal')
+  async appealRejection(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AppealRejectionDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.appealRejection(user.id, id, dto.reason);
+  }
+
+  /**
    * Admin xử lý Appeal
    * PATCH /disputes/:id/appeal/resolve
    */
@@ -198,15 +270,51 @@ export class DisputesController {
   @Patch(':id/appeal/resolve')
   async resolveAppeal(
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: ResolveAppealDto,
+    @Body() dto: AppealVerdictDto,
     @GetUser() user: UserEntity,
   ) {
     return await this.disputesService.resolveAppeal(user.id, id, dto);
   }
 
+  /**
+   * Admin resolves dismissal appeal
+   * PATCH /disputes/:id/rejection/appeal/resolve
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Patch(':id/rejection/appeal/resolve')
+  async resolveRejectionAppeal(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResolveRejectionAppealDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.resolveRejectionAppeal(
+      user.id,
+      id,
+      dto.decision,
+      dto.resolution,
+    );
+  }
+
   // =============================================================================
   // ADMIN ENDPOINTS
   // =============================================================================
+
+
+  /**
+   * Staff/Admin request additional info before preliminary review
+   * PATCH /disputes/:id/request-info
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch(':id/request-info')
+  async requestAdditionalInfo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RequestDisputeInfoDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.requestAdditionalInfo(user.id, id, dto.reason);
+  }
 
   /**
    * Admin cập nhật thông tin dispute (category, priority, deadlines)

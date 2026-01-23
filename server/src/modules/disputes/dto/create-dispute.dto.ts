@@ -19,6 +19,10 @@ export class CreateDisputeDto {
   @IsUUID('4')
   milestoneId: string;
 
+  @IsUUID('4')
+  @IsOptional()
+  parentDisputeId?: string;
+
   @IsNotEmpty()
   @IsUUID('4')
   defendantId: string;

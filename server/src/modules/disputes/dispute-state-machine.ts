@@ -2,9 +2,12 @@ import { BadRequestException } from '@nestjs/common';
 import { DisputeResult, DisputeStatus, DisputeType } from 'src/database/entities';
 
 const VALID_TRANSITIONS: Record<DisputeStatus, DisputeStatus[]> = {
-  [DisputeStatus.OPEN]: [DisputeStatus.IN_MEDIATION, DisputeStatus.REJECTED],
+  [DisputeStatus.OPEN]: [DisputeStatus.PENDING_REVIEW, DisputeStatus.IN_MEDIATION, DisputeStatus.INFO_REQUESTED, DisputeStatus.REJECTED],
+  [DisputeStatus.PENDING_REVIEW]: [DisputeStatus.IN_MEDIATION, DisputeStatus.INFO_REQUESTED, DisputeStatus.REJECTED],
+  [DisputeStatus.INFO_REQUESTED]: [DisputeStatus.PENDING_REVIEW, DisputeStatus.REJECTED],
   [DisputeStatus.IN_MEDIATION]: [DisputeStatus.REJECTED, DisputeStatus.RESOLVED],
-  [DisputeStatus.REJECTED]: [],
+  [DisputeStatus.REJECTED]: [DisputeStatus.REJECTION_APPEALED],
+  [DisputeStatus.REJECTION_APPEALED]: [DisputeStatus.IN_MEDIATION, DisputeStatus.REJECTED],
   [DisputeStatus.RESOLVED]: [DisputeStatus.APPEALED], // Resolved có thể chuyển sang APPEALED
   [DisputeStatus.APPEALED]: [DisputeStatus.IN_MEDIATION, DisputeStatus.RESOLVED], // Appeal có thể mở lại hoặc giữ nguyên
 };

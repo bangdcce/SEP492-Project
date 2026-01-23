@@ -574,7 +574,7 @@ export class SettlementService {
       const savedSettlement = await settlementRepo.save(settlement);
 
       // 8. Update dispute status if needed
-      if (dispute.status === DisputeStatus.OPEN) {
+      if ([DisputeStatus.OPEN, DisputeStatus.PENDING_REVIEW].includes(dispute.status)) {
         dispute.status = DisputeStatus.IN_MEDIATION;
         await manager.save(dispute);
       }
