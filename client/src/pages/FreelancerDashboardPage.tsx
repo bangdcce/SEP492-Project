@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Search, Filter, DollarSign, Clock, MapPin, Star, TrendingUp, CheckCircle2, AlertCircle, Settings } from 'lucide-react';
-import { Button } from '@/shared/components/ui/button';
+import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/custom/input';
 import { ROUTES, STORAGE_KEYS } from '@/constants';
+import { FreelancerDashboardLayout } from '@/shared/components/layouts/freelancer/FreelancerDashboardLayout';
 
 interface Job {
   id: string;
@@ -116,32 +117,32 @@ export default function FreelancerDashboardPage() {
   const isProfileIncomplete = userSkills.length === 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Profile Incomplete Banner */}
-      {isProfileIncomplete && (
-        <div className="bg-amber-50 border-b border-amber-200">
-          <div className="max-w-7xl mx-auto px-4 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <AlertCircle className="w-5 h-5 text-amber-600" />
-                <div>
-                  <p className="text-sm font-medium text-amber-900">
-                    Complete your profile to start receiving job offers
-                  </p>
-                  <p className="text-xs text-amber-700">
-                    Add your skills, portfolio, and experience to unlock all features
-                  </p>
+    <FreelancerDashboardLayout>
+      <div className="w-full">
+        {/* Profile Incomplete Banner */}
+        {isProfileIncomplete && (
+          <div className="bg-amber-50 border-b border-amber-200 mb-6">
+            <div className="py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-900">
+                      Complete your profile to start receiving job offers
+                    </p>
+                    <p className="text-xs text-amber-700">
+                      Add your skills, portfolio, and experience to unlock all features
+                    </p>
+                  </div>
                 </div>
+                <Button onClick={handleCompleteProfile} size="sm" variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-100">
+                  Complete Profile
+                </Button>
               </div>
-              <Button onClick={handleCompleteProfile} size="sm" variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-100">
-                Complete Profile
-              </Button>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <div className="max-w-7xl mx-auto px-4 py-8">
         {/* Header */}
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">Freelancer Dashboard</h1>
@@ -343,6 +344,6 @@ export default function FreelancerDashboardPage() {
           )}
         </div>
       </div>
-    </div>
+    </FreelancerDashboardLayout>
   );
 }

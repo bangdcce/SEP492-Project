@@ -2,15 +2,13 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Plus, X, Link as LinkIcon, Award, Code, Save, Loader2, Upload, FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/shared/components/ui/button';
+import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/custom/input';
 import { getProfile, updateProfile } from '@/features/auth/api';
 import { ROUTES } from '@/constants';
+import type { PortfolioLink } from '@/features/auth/types';
 
-interface PortfolioLink {
-  title: string;
-  url: string;
-}
+
 
 interface FreelancerProfile {
   skills: string[];
@@ -47,8 +45,10 @@ export default function FreelancerOnboardingPage() {
   const loadProfile = async () => {
     try {
       setLoading(true);
-      const response = await getProfile() as any;
-      const userData = response.data || response.data?.data;
+      const response = await getProfile();
+      // Safely access data, using optional chaining and type assertion if needed for the response structure
+      // Assuming response has data property which contains the user profile
+      const userData = (response as any).data || (response as any).data?.data || response;
       
       setProfile({
         skills: userData.skills || [],

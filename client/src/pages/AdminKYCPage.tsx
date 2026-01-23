@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
-import { Check, X, Eye, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { Button } from '@/shared/components/custom/Button';
+import { Eye, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { apiClient } from '@/shared/api/client';
+import { KYCVerificationModal } from '@/shared/components/figma/kycmodal';
 
 interface KycVerification {
   id: string;
@@ -23,6 +23,10 @@ interface KycVerification {
     email: string;
     fullName: string;
     role: string;
+    avatarUrl?: string;
+    profile?: {
+      avatarUrl?: string;
+    };
   };
   reviewer?: {
     fullName: string;
@@ -35,16 +39,14 @@ export default function AdminKYCPage() {
   const [filter, setFilter] = useState<'ALL' | 'PENDING' | 'APPROVED' | 'REJECTED'>('PENDING');
   const [selectedKyc, setSelectedKyc] = useState<KycVerification | null>(null);
   const [showModal, setShowModal] = useState(false);
-  const [rejectionReason, setRejectionReason] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
-  const [lightboxImage, setLightboxImage] = useState<string | null>(null);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
   // Helper function to get full image URL
   const getImageUrl = (path: string) => {
     if (!path) return '';
-    if (path.startsWith('http')) return path;
+    if (path.startsWith('http') || path.startsWith('data:image')) return path;
     return `${API_URL}${path}`;
   };
 
@@ -59,7 +61,7 @@ export default function AdminKYCPage() {
       const response = await apiClient.get(`/kyc/admin/all${statusParam}`);
       
       // apiClient already unwraps response.data
-      const data = response;
+      const data = response as { items: KycVerification[] };
       setKycs(data.items || []);
     } catch (error: any) {
       console.error('Error fetching KYCs:', error);
@@ -70,13 +72,31 @@ export default function AdminKYCPage() {
     }
   };
 
+  const openReview = async (kyc: KycVerification) => {
+    setSelectedKyc(kyc);
+    setShowModal(true);
+
+    try {
+      const response = await apiClient.get(`/kyc/admin/${kyc.id}/watermark`);
+      setSelectedKyc(response as KycVerification);
+    } catch (error: any) {
+      console.error('Error loading KYC details:', error);
+      toast.error(error.response?.data?.message || 'Failed to load KYC images');
+    }
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setSelectedKyc(null);
+  };
+
   const handleApprove = async (id: string) => {
     try {
       setActionLoading(true);
       await apiClient.patch(`/kyc/admin/${id}/approve`);
       toast.success('KYC approved successfully');
       fetchKycs();
-      setShowModal(false);
+      closeModal();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to approve KYC');
     } finally {
@@ -84,21 +104,18 @@ export default function AdminKYCPage() {
     }
   };
 
-  const handleReject = async (id: string) => {
-    if (!rejectionReason.trim()) {
+  const handleReject = async (id: string, reason?: string) => {
+    if (!reason?.trim()) {
       toast.error('Please provide a rejection reason');
       return;
     }
 
     try {
       setActionLoading(true);
-      await apiClient.patch(`/kyc/admin/${id}/reject`, {
-        rejectionReason,
-      });
+      await apiClient.patch(`/kyc/admin/${id}/reject`, { rejectionReason: reason });
       toast.success('KYC rejected');
       fetchKycs();
-      setShowModal(false);
-      setRejectionReason('');
+      closeModal();
     } catch (error: any) {
       toast.error(error.response?.data?.message || 'Failed to reject KYC');
     } finally {
@@ -125,6 +142,14 @@ export default function AdminKYCPage() {
         {status}
       </span>
     );
+  };
+
+  const getRoleKey = (role: string): 'sme' | 'broker' | 'freelancer' => {
+    const normalized = role.toLowerCase();
+    if (normalized.includes('broker')) return 'broker';
+    if (normalized.includes('freelancer')) return 'freelancer';
+    if (normalized.includes('sme') || normalized.includes('client')) return 'sme';
+    return 'sme';
   };
 
   return (
@@ -212,10 +237,7 @@ export default function AdminKYCPage() {
                     </td>
                     <td className="px-6 py-4 text-sm">
                       <button
-                        onClick={() => {
-                          setSelectedKyc(kyc);
-                          setShowModal(true);
-                        }}
+                        onClick={() => openReview(kyc)}
                         className="text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1"
                       >
                         <Eye className="w-4 h-4" />
@@ -230,168 +252,45 @@ export default function AdminKYCPage() {
         )}
 
         {/* Review Modal */}
-        {showModal && selectedKyc && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-            <div className="bg-white rounded-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
-              <div className="p-6">
-                <div className="flex justify-between items-start mb-6">
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-900">KYC Verification Review</h2>
-                    <p className="text-gray-600">{selectedKyc.user.fullName} - {selectedKyc.user.email}</p>
-                  </div>
-                  <button
-                    onClick={() => setShowModal(false)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <X className="w-6 h-6" />
-                  </button>
-                </div>
-
-                {/* Document Info */}
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold mb-3">Personal Information</h3>
-                  <div className="grid grid-cols-2 gap-4 bg-gray-50 p-4 rounded-lg">
-                    <div>
-                      <p className="text-sm text-gray-600">Full Name on Document</p>
-                      <p className="font-medium">{selectedKyc.fullNameOnDocument}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Document Number</p>
-                      <p className="font-medium">{selectedKyc.documentNumber}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Date of Birth</p>
-                      <p className="font-medium">{format(new Date(selectedKyc.dateOfBirth), 'dd/MM/yyyy')}</p>
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600">Document Type</p>
-                      <p className="font-medium">{selectedKyc.documentType}</p>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Document Images */}
-                <div className="mb-6">
-                  <h3 className="text-lg font-semibold mb-3">Uploaded Documents (Click to enlarge)</h3>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <p className="text-sm text-gray-600 mb-2">ID Card - Front</p>
-                      <img
-                        src={getImageUrl(selectedKyc.documentFrontUrl)}
-                        alt="ID Front"
-                        className="w-full h-48 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => setLightboxImage(getImageUrl(selectedKyc.documentFrontUrl))}
-                        onError={(e) => {
-                          e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="300" height="200"%3E%3Crect fill="%23ddd" width="300" height="200"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="monospace" font-size="20"%3ENo Image%3C/text%3E%3C/svg%3E';
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 mb-2">ID Card - Back</p>
-                      <img
-                        src={getImageUrl(selectedKyc.documentBackUrl)}
-                        alt="ID Back"
-                        className="w-full h-48 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => setLightboxImage(getImageUrl(selectedKyc.documentBackUrl))}
-                        onError={(e) => {
-                          e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="300" height="200"%3E%3Crect fill="%23ddd" width="300" height="200"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="monospace" font-size="20"%3ENo Image%3C/text%3E%3C/svg%3E';
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <p className="text-sm text-gray-600 mb-2">Selfie with ID</p>
-                      <img
-                        src={getImageUrl(selectedKyc.selfieUrl)}
-                        alt="Selfie"
-                        className="w-full h-48 object-cover rounded-lg border cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => setLightboxImage(getImageUrl(selectedKyc.selfieUrl))}
-                        onError={(e) => {
-                          e.currentTarget.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="300" height="200"%3E%3Crect fill="%23ddd" width="300" height="200"/%3E%3Ctext fill="%23999" x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="monospace" font-size="20"%3ENo Image%3C/text%3E%3C/svg%3E';
-                        }}
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Rejection Reason Input (if rejecting) */}
-                {selectedKyc.status === 'PENDING' && (
-                  <div className="mb-6">
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Rejection Reason (if rejecting)
-                    </label>
-                    <textarea
-                      rows={3}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="Provide a reason if you're rejecting this KYC..."
-                      value={rejectionReason}
-                      onChange={(e) => setRejectionReason(e.target.value)}
-                    />
-                  </div>
-                )}
-
-                {/* Rejection Info (if already rejected) */}
-                {selectedKyc.status === 'REJECTED' && selectedKyc.rejectionReason && (
-                  <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
-                    <p className="text-sm font-medium text-red-800 mb-1">Rejection Reason:</p>
-                    <p className="text-sm text-red-700">{selectedKyc.rejectionReason}</p>
-                    {selectedKyc.reviewer && (
-                      <p className="text-xs text-red-600 mt-2">
-                        Rejected by: {selectedKyc.reviewer.fullName}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                {/* Actions */}
-                {selectedKyc.status === 'PENDING' && (
-                  <div className="flex gap-3">
-                    <Button
-                      onClick={() => handleApprove(selectedKyc.id)}
-                      disabled={actionLoading}
-                      className="flex-1 bg-green-600 hover:bg-green-700 text-white flex items-center justify-center gap-2"
-                    >
-                      <Check className="w-5 h-5" />
-                      Approve KYC
-                    </Button>
-                    <Button
-                      onClick={() => handleReject(selectedKyc.id)}
-                      disabled={actionLoading || !rejectionReason.trim()}
-                      variant="outline"
-                      className="flex-1 border-red-300 text-red-600 hover:bg-red-50 flex items-center justify-center gap-2"
-                    >
-                      <X className="w-5 h-5" />
-                      Reject KYC
-                    </Button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
+        {selectedKyc && (
+          <KYCVerificationModal
+            isOpen={showModal}
+            onClose={closeModal}
+            kycData={{
+              userId: selectedKyc.id,
+              userName: selectedKyc.user.fullName,
+              userEmail: selectedKyc.user.email,
+              userRole: getRoleKey(selectedKyc.user.role),
+              avatarImage: getImageUrl(
+                selectedKyc.user.avatarUrl || selectedKyc.user.profile?.avatarUrl || ''
+              ),
+              idCardFront: getImageUrl(selectedKyc.documentFrontUrl),
+              idCardBack: getImageUrl(selectedKyc.documentBackUrl),
+              selfieImage: getImageUrl(selectedKyc.selfieUrl),
+              submittedAt: format(new Date(selectedKyc.createdAt), 'dd/MM/yyyy HH:mm'),
+              status: selectedKyc.status.toLowerCase() as 'pending' | 'approved' | 'rejected',
+              rejectionReason: selectedKyc.rejectionReason,
+            }}
+            onApprove={(kycId) => {
+              if (actionLoading) return;
+              if (selectedKyc.status !== 'PENDING') {
+                toast.info('This KYC has already been reviewed.');
+                return;
+              }
+              handleApprove(kycId);
+            }}
+            onReject={(kycId, reason) => {
+              if (actionLoading) return;
+              if (selectedKyc.status !== 'PENDING') {
+                toast.info('This KYC has already been reviewed.');
+                return;
+              }
+              handleReject(kycId, reason);
+            }}
+          />
         )}
-
-      {/* Image Lightbox Modal */}
-      {lightboxImage && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-90 z-50 flex items-center justify-center p-4"
-          onClick={() => setLightboxImage(null)}
-        >
-          <div className="relative max-w-7xl max-h-full">
-            <button
-              onClick={() => setLightboxImage(null)}
-              className="absolute -top-10 right-0 text-white hover:text-gray-300 text-xl font-bold"
-            >
-              ✕ Close
-            </button>
-            <img
-              src={lightboxImage}
-              alt="Full size"
-              className="max-w-full max-h-[90vh] object-contain rounded-lg"
-              onClick={(e) => e.stopPropagation()}
-            />
-          </div>
-        </div>
-      )}
       </div>
     </div>
   );
 }
+

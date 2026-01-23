@@ -1,0 +1,110 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-06 Manage Account</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Signed-in User (Client/Broker/Freelancer/Admin)</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Account/Profile System</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The user opens the Account/Profile screen from the menu.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allow the user to view and update basic profile information such as name, phone number, bio, and avatar.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user is signed in.<br>
+      <b>PRE2:</b> The user has an internet connection.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> The user can view current account/profile information.<br>
+      <b>POS2:</b> If saved, the user's profile changes are stored and shown in the UI.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. View and Update Profile</b>
+      <ol>
+        <li>The user opens the profile screen.</li>
+        <li>The system shows current profile information.</li>
+        <li>The user selects "Edit".</li>
+        <li>The user changes profile fields and optionally selects a new avatar image.</li>
+        <li>The user selects "Save".</li>
+        <li>The system validates and saves the updates.</li>
+        <li>The system shows the updated profile information.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A5. Invalid avatar file</b>
+      <ol>
+        <li>The user selects a file that is not an image or is too large.</li>
+        <li>The system shows an error and asks the user to choose another file.</li>
+      </ol>
+      <b>A8. Cancel editing</b>
+      <ol>
+        <li>The user cancels editing.</li>
+        <li>The system discards unsaved changes and shows the last saved profile.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> The system cannot save changes due to a temporary error; the user can retry.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>BR1:</b> Only signed-in users can access account management.<br>
+      <b>BR2:</b> Profile changes must be validated before saving.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">Some profile fields may be read-only depending on role or policy.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+

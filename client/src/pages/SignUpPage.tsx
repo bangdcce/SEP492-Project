@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Input } from '../shared/components/custom/input';
@@ -7,10 +7,12 @@ import { Button } from '../shared/components/custom/Button';
 import { PasswordStrength } from '../shared/components/auth/PasswordStrength';
 import { CaptchaInput } from '../shared/components/auth/CaptchaInput';
 import { AuthLayout } from '../shared/components/layouts/AuthLayout';
-import { Eye, EyeOff, ArrowLeft, ArrowRight, Building2, Store, Briefcase, Laptop } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, ArrowRight, Building2, Store, Briefcase, Laptop, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { ROUTES } from '@/constants';
-import { signUp } from '@/features/auth';
+import { signUp, getSkillDomains, getSkills, type SkillDomain, type Skill } from '@/features/auth';
+import TermsOfService from '@/components/legal/TermsOfService';
+import PrivacyPolicy from '@/components/legal/PrivacyPolicy';
 
 interface SignUpPageProps {
   onNavigateToSignIn?: () => void;
@@ -21,7 +23,7 @@ type UserRole = 'client_large' | 'client_small' | 'broker' | 'freelancer';
 
 export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPageProps = {}) {
   const navigate = useNavigate();
-  const [currentStep, setCurrentStep] = useState(1); // 1: Role Selection, 2: Info Form
+  const [currentStep, setCurrentStep] = useState(1); // 1: Role Selection, 2: Info Form, 3: Domain (Freelancer/Broker), 4: Skills (Freelancer/Broker)
   const [formData, setFormData] = useState({
     role: '' as UserRole | '',
     fullName: '',
@@ -29,13 +31,58 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     phoneNumber: '',
     password: '',
     confirmPassword: '',
-    agreeToTerms: false,
+    acceptTerms: false,
+    acceptPrivacy: false,
     recaptchaToken: '',
+    domains: [] as string[], // Domain IDs (UUIDs)
+    skills: [] as string[], // Skill IDs (UUIDs)
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showTermsModal, setShowTermsModal] = useState(false);
+  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
+
+  // State for domains and skills from API
+  const [availableDomains, setAvailableDomains] = useState<SkillDomain[]>([]);
+  const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
+  const [loadingDomains, setLoadingDomains] = useState(false);
+  const [loadingSkills, setLoadingSkills] = useState(false);
+
+  // Fetch domains when entering step 3
+  useEffect(() => {
+    if (currentStep === 3 && availableDomains?.length === 0) {
+      setLoadingDomains(true);
+      getSkillDomains()
+        .then(domains => {
+          console.log('Loaded domains:', domains);
+          setAvailableDomains(domains || []);
+        })
+        .catch(err => {
+          console.error('Failed to load domains:', err);
+          toast.error('Failed to load domains');
+          setAvailableDomains([]);
+        })
+        .finally(() => setLoadingDomains(false));
+    }
+  }, [currentStep]);
+
+  // Fetch skills when entering step 4
+  useEffect(() => {
+    if (currentStep === 4 && availableSkills?.length === 0) {
+      setLoadingSkills(true);
+      const role = formData.role === 'freelancer' ? 'FREELANCER' : 'BROKER';
+      getSkills(role)
+        .then(skills => setAvailableSkills(skills || []))
+        .catch(err => {
+          console.error('Failed to load skills:', err);
+          toast.error('Failed to load skills');
+          setAvailableSkills([]);
+        })
+        .finally(() => setLoadingSkills(false));
+    }
+  }, [currentStep, formData.role]);
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -111,8 +158,12 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
       newErrors.confirmPassword = 'Passwords do not match';
     }
 
-    if (!formData.agreeToTerms) {
-      newErrors.agreeToTerms = 'You must agree to the terms and conditions';
+    if (!formData.acceptTerms) {
+      newErrors.acceptTerms = 'You must accept the Terms of Service';
+    }
+
+    if (!formData.acceptPrivacy) {
+      newErrors.acceptPrivacy = 'You must accept the Privacy Policy';
     }
 
     if (!formData.recaptchaToken) {
@@ -145,17 +196,23 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
         phoneNumber: formData.phoneNumber,
         role: backendRole as any,
         recaptchaToken: formData.recaptchaToken,
+        domainIds: formData.domains.length > 0 ? formData.domains : undefined,
+        skillIds: formData.skills.length > 0 ? formData.skills : undefined,
+        acceptTerms: formData.acceptTerms,
+        acceptPrivacy: formData.acceptPrivacy,
       });
 
-      toast.success('Account created successfully! Please sign in.');
+      toast.success('Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.');
       
       if (onSignUpSuccess) {
         onSignUpSuccess();
       } else {
-        navigate(ROUTES.LOGIN);
+        const pendingUrl = `${ROUTES.VERIFY_EMAIL}?email=${encodeURIComponent(formData.email)}`;
+        navigate(pendingUrl);
       }
     } catch (error: any) {
       console.error('Sign up error:', error);
+      console.error('Error response:', error.response?.data);
       
       // Handle error message (could be string, array, or object)
       let errorMessage = 'Failed to create account. Please try again.';
@@ -165,7 +222,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
         if (typeof msg === 'string') {
           errorMessage = msg;
         } else if (Array.isArray(msg)) {
-          errorMessage = msg[0];
+          errorMessage = msg.join(', ');
         } else if (typeof msg === 'object') {
           errorMessage = JSON.stringify(msg);
         }
@@ -176,8 +233,12 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
         setErrors({ email: errorMessage });
       } else if (typeof errorMessage === 'string' && (errorMessage.toLowerCase().includes('captcha') || errorMessage.toLowerCase().includes('recaptcha'))) {
         setErrors({ recaptcha: errorMessage });
+      } else if (typeof errorMessage === 'string' && errorMessage.toLowerCase().includes('terms')) {
+        setErrors({ acceptTerms: errorMessage });
+      } else if (typeof errorMessage === 'string' && errorMessage.toLowerCase().includes('privacy')) {
+        setErrors({ acceptPrivacy: errorMessage });
       } else {
-        setErrors({ agreeToTerms: errorMessage });
+        setErrors({ acceptTerms: errorMessage });
       }
       
       toast.error(errorMessage);
@@ -239,6 +300,93 @@ const handleRoleSelect = (role: UserRole) => {
     }, 300);
   };
 
+  const handleInfoFormNext = () => {
+    // Validation for step 2
+    const newErrors: Record<string, string> = {};
+
+    if (!formData.fullName) newErrors.fullName = 'Full name is required';
+    
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!validateEmail(formData.email)) {
+      newErrors.email = 'Invalid email address';
+    } else if (formData.role === 'client_large' && !validateCorporateEmail(formData.email)) {
+      newErrors.email = 'Large SMEs must use a corporate/organization email (not Gmail, Yahoo, Hotmail, etc.)';
+    }
+    
+    if (!formData.phoneNumber) {
+      newErrors.phoneNumber = 'Phone number is required';
+    } else if (!validatePhone(formData.phoneNumber)) {
+      newErrors.phoneNumber = 'Invalid phone number. Format: 0[3|5|7|8|9]xxxxxxxx';
+    }
+    
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (!isPasswordValid) {
+      newErrors.password = 'Password must be at least 8 characters with lowercase, number and special character';
+    }
+    
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = 'Confirm password is required';
+    } else if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+    
+    if (!formData.acceptTerms) newErrors.acceptTerms = 'You must accept Terms of Service';
+    if (!formData.acceptPrivacy) newErrors.acceptPrivacy = 'You must accept Privacy Policy';
+    if (!formData.recaptchaToken) newErrors.recaptcha = 'Complete reCAPTCHA';
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    // If Freelancer or Broker → go to Domain selection (Step 3)
+    if (formData.role === 'freelancer' || formData.role === 'broker') {
+      setCurrentStep(3);
+    } else {
+      // Client roles → submit immediately
+      handleSubmit(new Event('submit') as any);
+    }
+  };
+
+  const handleDomainNext = () => {
+    if (formData.domains.length === 0) {
+      setErrors({ domains: 'Please select at least one domain' });
+      return;
+    }
+    setCurrentStep(4); // Go to Skills selection
+  };
+
+  const handleSkillsNext = () => {
+    if (formData.skills.length === 0) {
+      setErrors({ skills: 'Please select at least one skill' });
+      return;
+    }
+    // All steps completed → submit
+    handleSubmit(new Event('submit') as any);
+  };
+
+  const toggleDomain = (domain: string) => {
+    setFormData(prev => ({
+      ...prev,
+      domains: prev.domains.includes(domain)
+        ? prev.domains.filter(d => d !== domain)
+        : [...prev.domains, domain]
+    }));
+    if (errors.domains) setErrors(prev => ({ ...prev, domains: '' }));
+  };
+
+  const toggleSkill = (skill: string) => {
+    setFormData(prev => ({
+      ...prev,
+      skills: prev.skills.includes(skill)
+        ? prev.skills.filter(s => s !== skill)
+        : [...prev.skills, skill]
+    }));
+    if (errors.skills) setErrors(prev => ({ ...prev, skills: '' }));
+  };
+
   const handleBackToRoleSelection = () => {
     setCurrentStep(1);
   };
@@ -260,18 +408,22 @@ const handleRoleSelect = (role: UserRole) => {
   };
 
   const getStepTitle = () => {
-    if (currentStep === 1) {
-      return 'Choose Your Role';
-    }
-    return 'Complete Your Profile';
+    if (currentStep === 1) return 'Choose Your Role';
+    if (currentStep === 2) return 'Complete Your Profile';
+    if (currentStep === 3) return 'Select Your Domains';
+    if (currentStep === 4) return 'Choose Your Skills';
+    return 'Sign Up';
   };
 
   const getStepSubtitle = () => {
-    if (currentStep === 1) {
-      return 'Tell us what brings you to our platform';
-    }
-    return `You're signing up as ${formData.role ? getRoleLabel(formData.role) : 'a user'}`;
+    if (currentStep === 1) return 'Tell us what brings you to our platform';
+    if (currentStep === 2) return `You're signing up as ${formData.role ? getRoleLabel(formData.role) : 'a user'}`;
+    if (currentStep === 3) return 'What industries/areas do you specialize in?';
+    if (currentStep === 4) return 'What technologies/skills do you work with?';
+    return '';
   };
+
+  const totalSteps = (formData.role === 'freelancer' || formData.role === 'broker') ? 4 : 2;
 
   return (
     <AuthLayout 
@@ -280,35 +432,169 @@ const handleRoleSelect = (role: UserRole) => {
     >
       {/* Progress Indicator */}
       <div style={{ marginBottom: '2rem' }}>
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem' }}>
-          <div 
-            style={{
-              flex: 1,
-              height: '4px',
-              borderRadius: '2px',
-              backgroundColor: currentStep >= 1 ? 'var(--auth-primary)' : 'var(--auth-border)',
-              transition: 'background-color 0.3s ease',
-            }}
-          />
-          <div 
-            style={{
-              flex: 1,
-              height: '4px',
-              borderRadius: '2px',
-              backgroundColor: currentStep >= 2 ? 'var(--auth-primary)' : 'var(--auth-border)',
-              transition: 'background-color 0.3s ease',
-            }}
-          />
+        {/* Progress bars */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+          {[...Array(totalSteps)].map((_, idx) => (
+            <div 
+              key={idx}
+              style={{
+                flex: 1,
+                height: '4px',
+                borderRadius: '2px',
+                backgroundColor: currentStep > idx ? '#14b8a6' : 'var(--auth-border)',
+                transition: 'background-color 0.3s ease',
+              }}
+            />
+          ))}
         </div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--auth-text-muted)' }}>
-          <span style={{ fontWeight: currentStep === 1 ? 600 : 400, color: currentStep === 1 ? 'var(--auth-primary)' : 'var(--auth-text-muted)' }}>Step 1: Role</span>
-          <span style={{ fontWeight: currentStep === 2 ? 600 : 400, color: currentStep === 2 ? 'var(--auth-primary)' : 'var(--auth-text-muted)' }}>Step 2: Details</span>
+        
+        {/* Step labels with numbers */}
+        <div style={{ 
+          display: 'grid', 
+          gridTemplateColumns: totalSteps === 4 ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)',
+          gap: '0.5rem',
+        }}>
+          {/* Step 1 */}
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center',
+            gap: '0.25rem',
+          }}>
+            <div style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '50%',
+              backgroundColor: currentStep === 1 ? '#14b8a6' : currentStep > 1 ? '#14b8a6' : 'var(--auth-border)',
+              color: currentStep >= 1 ? 'white' : 'var(--auth-text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              transition: 'all 0.3s ease',
+            }}>
+              {currentStep > 1 ? '✓' : '1'}
+            </div>
+            <span style={{ 
+              fontSize: '0.75rem', 
+              fontWeight: currentStep === 1 ? 600 : 400, 
+              color: currentStep === 1 ? '#14b8a6' : 'var(--auth-text-muted)',
+              textAlign: 'center',
+              transition: 'all 0.3s ease',
+            }}>
+              Role
+            </span>
+          </div>
+
+          {/* Step 2 */}
+          <div style={{ 
+            display: 'flex', 
+            flexDirection: 'column', 
+            alignItems: 'center',
+            gap: '0.25rem',
+          }}>
+            <div style={{
+              width: '28px',
+              height: '28px',
+              borderRadius: '50%',
+              backgroundColor: currentStep === 2 ? '#14b8a6' : currentStep > 2 ? '#14b8a6' : 'var(--auth-border)',
+              color: currentStep >= 2 ? 'white' : 'var(--auth-text-muted)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.75rem',
+              fontWeight: 600,
+              transition: 'all 0.3s ease',
+            }}>
+              {currentStep > 2 ? '✓' : '2'}
+            </div>
+            <span style={{ 
+              fontSize: '0.75rem', 
+              fontWeight: currentStep === 2 ? 600 : 400, 
+              color: currentStep === 2 ? '#14b8a6' : 'var(--auth-text-muted)',
+              textAlign: 'center',
+              transition: 'all 0.3s ease',
+            }}>
+              Details
+            </span>
+          </div>
+
+          {/* Step 3 (only for Freelancer/Broker) */}
+          {totalSteps === 4 && (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center',
+              gap: '0.25rem',
+            }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                backgroundColor: currentStep === 3 ? '#14b8a6' : currentStep > 3 ? '#14b8a6' : 'var(--auth-border)',
+                color: currentStep >= 3 ? 'white' : 'var(--auth-text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                transition: 'all 0.3s ease',
+              }}>
+                {currentStep > 3 ? '✓' : '3'}
+              </div>
+              <span style={{ 
+                fontSize: '0.75rem', 
+                fontWeight: currentStep === 3 ? 600 : 400, 
+                color: currentStep === 3 ? '#14b8a6' : 'var(--auth-text-muted)',
+                textAlign: 'center',
+                transition: 'all 0.3s ease',
+              }}>
+                Domains
+              </span>
+            </div>
+          )}
+
+          {/* Step 4 (only for Freelancer/Broker) */}
+          {totalSteps === 4 && (
+            <div style={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center',
+              gap: '0.25rem',
+            }}>
+              <div style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                backgroundColor: currentStep === 4 ? '#14b8a6' : 'var(--auth-border)',
+                color: currentStep === 4 ? 'white' : 'var(--auth-text-muted)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.75rem',
+                fontWeight: 600,
+                transition: 'all 0.3s ease',
+              }}>
+                4
+              </div>
+              <span style={{ 
+                fontSize: '0.75rem', 
+                fontWeight: currentStep === 4 ? 600 : 400, 
+                color: currentStep === 4 ? '#14b8a6' : 'var(--auth-text-muted)',
+                textAlign: 'center',
+                transition: 'all 0.3s ease',
+              }}>
+                Skills
+              </span>
+            </div>
+          )}
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={(e) => { e.preventDefault(); }} className="space-y-6">
         <AnimatePresence mode="wait" custom={currentStep}>
-          {currentStep === 1 ? (
+          {currentStep === 1 && (
             <motion.div
               key="step1"
               custom={1}
@@ -417,7 +703,9 @@ const handleRoleSelect = (role: UserRole) => {
                 </button>
               </p>
             </motion.div>
-          ) : (
+          )}
+
+          {currentStep === 2 && (
             <motion.div
               key="step2"
               custom={2}
@@ -546,42 +834,63 @@ const handleRoleSelect = (role: UserRole) => {
                 error={errors.recaptcha}
               />
 
-              <div>
+              <div style={{ marginBottom: '1.2rem' }}>
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={formData.agreeToTerms}
-                    onChange={(e) => handleChange('agreeToTerms', e.target.checked)}
+                    checked={formData.acceptTerms && formData.acceptPrivacy}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      handleChange('acceptTerms', checked);
+                      handleChange('acceptPrivacy', checked);
+                    }}
                     className="w-4 h-4 mt-0.5 rounded cursor-pointer"
                     style={{
-                      accentColor: 'var(--auth-primary)',
+                      accentColor: '#14b8a6',
                     }}
                   />
                   <span style={{ color: 'var(--auth-text)', fontSize: '0.875rem' }}>
-                    I agree to the{' '}
-                    <a href="#" className="hover:underline" style={{ color: 'var(--auth-primary)' }}>
-                      Terms and Conditions
-                    </a>
-                    {' '}and{' '}
-                    <a href="#" className="hover:underline" style={{ color: 'var(--auth-primary)' }}>
+                    I accept the{' '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setShowTermsModal(true);
+                      }}
+                      className="hover:underline font-medium"
+                      style={{ color: '#14b8a6' }}
+                    >
+                      Terms of Service
+                    </button>
+                    {' and '}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setShowPrivacyModal(true);
+                      }}
+                      className="hover:underline font-medium"
+                      style={{ color: '#14b8a6' }}
+                    >
                       Privacy Policy
-                    </a>
+                    </button>
                   </span>
                 </label>
-                {errors.agreeToTerms && (
+                {(errors.acceptTerms || errors.acceptPrivacy) && (
                   <p className="mt-1.5 text-sm" style={{ color: 'var(--auth-error)' }}>
-                    {errors.agreeToTerms}
+                    {errors.acceptTerms || errors.acceptPrivacy}
                   </p>
                 )}
               </div>
 
               <Button 
-                type="submit" 
+                type="button"
+                onClick={handleInfoFormNext}
                 variant="primary" 
                 className="w-full py-3 text-base font-medium justify-center"
                 disabled={loading}
               >
-                {loading ? 'Creating account...' : 'Create Account'}
+                {(formData.role === 'freelancer' || formData.role === 'broker') ? 'Next' : (loading ? 'Creating account...' : 'Create Account')}
               </Button>
 
               <p className="text-center" style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem' }}>
@@ -597,8 +906,236 @@ const handleRoleSelect = (role: UserRole) => {
               </p>
             </motion.div>
           )}
+
+          {/* STEP 3: Domain Selection (Freelancer/Broker only) */}
+          {currentStep === 3 && (
+            <motion.div
+              key="step3"
+              custom={3}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{
+                x: { type: "spring", stiffness: 300, damping: 30 },
+                opacity: { duration: 0.2 }
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setCurrentStep(2)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  marginBottom: '1.5rem',
+                  color: 'var(--auth-primary)',
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0.5rem 0',
+                }}
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to profile
+              </button>
+
+              <div className="space-y-4">
+                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--auth-text)', marginBottom: '1rem' }}>
+                  Select domains you work in (choose at least 1)
+                </label>
+                {loadingDomains ? (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--auth-text-muted)' }}>
+                    Loading domains...
+                  </div>
+                ) : availableDomains && availableDomains.length > 0 ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
+                    {availableDomains.map((domain) => (
+                      <button
+                        key={domain.id}
+                        type="button"
+                        onClick={() => toggleDomain(domain.id)}
+                        style={{
+                          padding: '1rem',
+                          border: `2px solid ${formData.domains.includes(domain.id) ? 'var(--auth-primary)' : 'var(--auth-border)'}`,
+                          borderRadius: '12px',
+                          backgroundColor: formData.domains.includes(domain.id) ? 'rgba(37, 99, 235, 0.05)' : 'var(--auth-input-bg)',
+                          textAlign: 'left',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        {domain.icon && (
+                          <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>{domain.icon}</div>
+                        )}
+                        <div style={{ fontWeight: 600, color: 'var(--auth-text)', fontSize: '0.875rem' }}>
+                          {domain.name}
+                        </div>
+                        {domain.description && (
+                          <div style={{ fontSize: '0.75rem', color: 'var(--auth-text-muted)', marginTop: '0.25rem' }}>
+                            {domain.description}
+                          </div>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--auth-error)' }}>
+                    <p>No domains available. Please contact administrator.</p>
+                    <p style={{ fontSize: '0.75rem', marginTop: '0.5rem', color: 'var(--auth-text-muted)' }}>
+                      Database may need to be seeded with domain data.
+                    </p>
+                  </div>
+                )}
+                {errors.domains && (
+                  <p style={{ color: 'var(--auth-error)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                    {errors.domains}
+                  </p>
+                )}
+              </div>
+
+              <Button 
+                type="button"
+                onClick={handleDomainNext}
+                variant="primary" 
+                className="w-full py-3 text-base font-medium justify-center mt-6"
+              >
+                Next
+              </Button>
+            </motion.div>
+          )}
+
+          {/* STEP 4: Skills Selection (Freelancer/Broker only) */}
+          {currentStep === 4 && (
+            <motion.div
+              key="step4"
+              custom={4}
+              variants={slideVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{
+                x: { type: "spring", stiffness: 300, damping: 30 },
+                opacity: { duration: 0.2 }
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setCurrentStep(3)}
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem',
+                  marginBottom: '1.5rem',
+                  color: 'var(--auth-primary)',
+                  fontSize: '0.875rem',
+                  fontWeight: 500,
+                  background: 'none',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '0.5rem 0',
+                }}
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to domains
+              </button>
+
+              <div className="space-y-4">
+                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--auth-text)', marginBottom: '1rem' }}>
+                  Select your skills/technologies (choose at least 1)
+                </label>
+                {loadingSkills ? (
+                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--auth-text-muted)' }}>
+                    Loading skills...
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    {availableSkills.map((skill) => (
+                      <button
+                        key={skill.id}
+                        type="button"
+                        onClick={() => toggleSkill(skill.id)}
+                        style={{
+                          padding: '0.5rem 1rem',
+                          border: `2px solid ${formData.skills.includes(skill.id) ? 'var(--auth-primary)' : 'var(--auth-border)'}`,
+                          borderRadius: '20px',
+                          backgroundColor: formData.skills.includes(skill.id) ? 'var(--auth-primary)' : 'transparent',
+                          color: formData.skills.includes(skill.id) ? 'white' : 'var(--auth-text)',
+                          fontSize: '0.875rem',
+                          fontWeight: 500,
+                          cursor: 'pointer',
+                          transition: 'all 0.2s ease',
+                        }}
+                      >
+                        {skill.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {errors.skills && (
+                  <p style={{ color: 'var(--auth-error)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                    {errors.skills}
+                  </p>
+                )}
+              </div>
+
+              <Button 
+                type="button"
+                onClick={handleSkillsNext}
+                variant="primary" 
+                className="w-full py-3 text-base font-medium justify-center mt-6"
+                disabled={loading}
+              >
+                {loading ? 'Creating account...' : 'Create Account'}
+              </Button>
+            </motion.div>
+          )}
         </AnimatePresence>
       </form>
+
+      {/* Terms of Service Modal */}
+      {showTermsModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowTermsModal(false)}
+        >
+          <div 
+            className="bg-white rounded-lg max-w-4xl max-h-[90vh] overflow-y-auto relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowTermsModal(false)}
+              className="sticky top-4 right-4 float-right bg-gray-100 hover:bg-gray-200 rounded-full p-2 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <TermsOfService />
+          </div>
+        </div>
+      )}
+
+      {/* Privacy Policy Modal */}
+      {showPrivacyModal && (
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+          onClick={() => setShowPrivacyModal(false)}
+        >
+          <div 
+            className="bg-white rounded-lg max-w-4xl max-h-[90vh] overflow-y-auto relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setShowPrivacyModal(false)}
+              className="sticky top-4 right-4 float-right bg-gray-100 hover:bg-gray-200 rounded-full p-2 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <PrivacyPolicy />
+          </div>
+        </div>
+      )}
     </AuthLayout>
   );
 }

@@ -14,6 +14,7 @@ import {
   DisputeCategory,
   DisputePriority,
   DisputeType,
+  DisputeEntity,
 } from 'src/database/entities';
 
 export enum DisputeSortBy {
@@ -137,7 +138,7 @@ export class DisputeFilterDto {
  * Response format cho paginated disputes
  */
 export interface PaginatedDisputesResponse {
-  data: any[];
+  data: DisputeEntity[];
   meta: {
     total: number;
     page: number;

@@ -160,6 +160,36 @@ export class DisputeEntity {
   @Column({ nullable: true })
   groupId: string; // Nhóm các dispute cùng vụ việc
 
+  // === STAFF ASSIGNMENT & TIER SYSTEM ===
+  @Column({ nullable: true, comment: 'Staff được gán xử lý' })
+  assignedStaffId: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  assignedAt: Date;
+
+  @Column({ default: 1, comment: '1 = Staff xử lý, 2 = Admin phúc thẩm' })
+  currentTier: number;
+
+  @Column({ nullable: true, comment: 'Admin phúc thẩm (nếu escalate)' })
+  escalatedToAdminId: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  escalatedAt: Date;
+
+  @Column({ type: 'text', nullable: true, comment: 'Lý do escalate lên Admin' })
+  escalationReason: string;
+
+  // === SETTLEMENT LINK ===
+  @Column({ nullable: true, comment: 'Settlement đã được accept (nếu có)' })
+  acceptedSettlementId: string;
+
+  // === AUTO-RESOLUTION ===
+  @Column({ default: false, comment: 'TRUE = Auto-win do bị đơn không phản hồi' })
+  isAutoResolved: boolean;
+
+  @Column({ default: 0, comment: 'Số lần đề xuất hòa giải bị reject (max 3)' })
+  settlementAttempts: number;
+
   // === APPEAL SYSTEM ===
   @Column({ default: false })
   isAppealed: boolean;
@@ -169,6 +199,9 @@ export class DisputeEntity {
 
   @Column({ type: 'timestamp', nullable: true })
   appealedAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true, comment: 'Hạn kháng cáo (3 ngày sau resolve)' })
+  appealDeadline: Date;
 
   @Column({ nullable: true })
   appealResolvedById: string;
@@ -216,4 +249,12 @@ export class DisputeEntity {
 
   @OneToMany('DisputeActivityEntity', 'dispute')
   activities: any[];
+
+  @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'assignedStaffId' })
+  assignedStaff: any;
+
+  @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'escalatedToAdminId' })
+  escalatedToAdmin: any;
 }

@@ -32,17 +32,17 @@ export function StepB3({
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="budget">Estimated Budget (VND)</Label>
+          <Label htmlFor="budget">Estimated Budget (USD)</Label>
           <Select value={budget} onValueChange={setBudget}>
             <SelectTrigger id="budget" className="w-full">
               <SelectValue placeholder="Select Budget Range" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="UNDER_10M">Under 10 Million</SelectItem>
-              <SelectItem value="10M_30M">10 - 30 Million</SelectItem>
-              <SelectItem value="30M_50M">30 - 50 Million</SelectItem>
-              <SelectItem value="50M_100M">50 - 100 Million</SelectItem>
-              <SelectItem value="ABOVE_100M">Above 100 Million</SelectItem>
+              <SelectItem value="UNDER_1K">Under $1,000</SelectItem>
+              <SelectItem value="1K_5K">$1,000 - $5,000</SelectItem>
+              <SelectItem value="5K_10K">$5,000 - $10,000</SelectItem>
+              <SelectItem value="10K_25K">$10,000 - $25,000</SelectItem>
+              <SelectItem value="ABOVE_25K">Above $25,000</SelectItem>
             </SelectContent>
           </Select>
         </div>

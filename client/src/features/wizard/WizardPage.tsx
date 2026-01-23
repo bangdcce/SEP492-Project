@@ -79,11 +79,11 @@ export default function WizardPage() {
 
   const handleSubmit = async (mode: 'draft' | 'marketplace' | 'invite') => {
      try {
+        const isDraftMode = mode === 'draft';
         setSubmitting(true);
-        const isDraft = mode === 'draft';
 
         // Check KYC before submitting project (if not draft)
-        if (!isDraft && kycStatus !== 'APPROVED') {
+        if (!isDraftMode && kycStatus !== 'APPROVED') {
           if (kycStatus === 'NOT_STARTED' || kycStatus === 'REJECTED') {
             toast.error('KYC verification required', {
               description: 'Please complete KYC verification before posting a project.',
@@ -104,11 +104,11 @@ export default function WizardPage() {
         
         // Map questions to answers
         const payload: CreateProjectRequestDto = {
-            title: title || (isDraft ? "Draft Project Request" : "New Project Request"),
+            title: title || (isDraftMode ? "Draft Project Request" : "New Project Request"),
             description: description + (fileUrl ? `\n\nAttachments: ${fileUrl}` : ""),
             budgetRange: budget,
             intendedTimeline: timeline,
-            isDraft: isDraft,
+            isDraft: isDraftMode,
             answers: []
         };
         // Find IDs for questions

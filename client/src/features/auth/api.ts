@@ -13,6 +13,7 @@ import type {
   VerifyOtpResponse,
   ResetPasswordRequest,
   ResetPasswordResponse,
+  PortfolioLink,
 } from './types';
 
 /**
@@ -97,6 +98,27 @@ export const updateProfile = async (data: {
   phoneNumber?: string;
   avatarUrl?: string;
   bio?: string;
+  skills?: string[];
+  portfolioLinks?: PortfolioLink[];
+  companyName?: string;
+  linkedinUrl?: string;
+  cvUrl?: string;
 }) => {
   return await apiClient.put('/auth/profile', data);
+};
+
+/**
+ * Verify email with token from email link
+ */
+export const verifyEmail = async (token: string): Promise<{ message: string; email: string }> => {
+  return await apiClient.get<{ message: string; email: string }>(
+    `/auth/verify-email?token=${token}`
+  );
+};
+
+/**
+ * Resend verification email
+ */
+export const resendVerificationEmail = async (email: string): Promise<{ message: string }> => {
+  return await apiClient.post<{ message: string }>('/auth/resend-verification', { email });
 };

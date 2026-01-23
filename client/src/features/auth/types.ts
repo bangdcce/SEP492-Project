@@ -15,6 +15,11 @@ export interface User {
   updatedAt: string;
 }
 
+export interface PortfolioLink {
+  title: string;
+  url: string;
+}
+
 // ============================================
 // Sign In
 // ============================================
@@ -39,6 +44,10 @@ export interface SignUpRequest {
   phoneNumber: string;
   role: UserRole;
   recaptchaToken?: string;
+  domainIds?: string[]; // UUID arrays thay vì slugs
+  skillIds?: string[]; // UUID arrays thay vì slugs
+  acceptTerms: boolean;
+  acceptPrivacy: boolean;
 }
 
 export interface SignUpResponse {

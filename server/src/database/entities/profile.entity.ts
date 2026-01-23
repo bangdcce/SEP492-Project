@@ -14,7 +14,6 @@ export class ProfileEntity {
   @Column({ type: 'text', nullable: true })
   bio: string;
 
-
   @Column({ type: 'varchar', length: 255, nullable: true })
   companyName: string;
 

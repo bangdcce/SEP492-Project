@@ -134,17 +134,31 @@ export const getSignedUrl = async (
   storagePath: string,
   expiresIn: number = 3600,
 ): Promise<string> => {
+  if (!storagePath) {
+    return '';
+  }
+
   try {
     const bucket = getKycBucket();
     
     const { data, error } = await bucket.createSignedUrl(storagePath, expiresIn);
     
     if (error) {
+      const message = (error.message || '').toLowerCase();
+      if (message.includes('object not found') || message.includes('not found')) {
+        console.warn(`[Supabase] Signed URL missing for ${storagePath}`);
+        return '';
+      }
       throw new Error(`Failed to create signed URL: ${error.message}`);
     }
     
-    return data.signedUrl;
-  } catch (error) {
+    return data?.signedUrl || '';
+  } catch (error: any) {
+    const message = (error?.message || '').toLowerCase();
+    if (message.includes('object not found') || message.includes('not found')) {
+      console.warn(`[Supabase] Signed URL missing for ${storagePath}`);
+      return '';
+    }
     console.error('Get signed URL error:', error);
     throw new Error('Failed to generate signed URL');
   }

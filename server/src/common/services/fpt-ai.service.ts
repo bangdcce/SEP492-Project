@@ -180,22 +180,26 @@ export class FptAiService {
    * FPT.AI only provides OCR, not face matching
    */
   private calculateConfidenceOcrOnly(frontOcr: any, backOcr: any): number {
-    let score = 0;
-    let weights = 0;
+    const frontData = this.normalizeOcrData(frontOcr);
+    const backData = this.normalizeOcrData(backOcr);
+    const frontConfidence = this.getOcrConfidence(frontData);
+    const backConfidence = this.getOcrConfidence(backData);
 
-    // OCR front quality (60% - increased weight)
-    if (frontOcr?.data?.confidence) {
-      score += frontOcr.data.confidence * 0.6;
-      weights += 0.6;
+    if (frontConfidence !== null || backConfidence !== null) {
+      let score = 0;
+      let weights = 0;
+      if (frontConfidence !== null) {
+        score += frontConfidence * 0.6;
+        weights += 0.6;
+      }
+      if (backConfidence !== null) {
+        score += backConfidence * 0.4;
+        weights += 0.4;
+      }
+      return weights > 0 ? score / weights : 0.5;
     }
 
-    // OCR back quality (40% - increased weight)
-    if (backOcr?.data?.confidence) {
-      score += backOcr.data.confidence * 0.4;
-      weights += 0.4;
-    }
-
-    return weights > 0 ? score / weights : 0.5; // Default to 50% if no data
+    return this.estimateConfidence(frontData, backData);
   }
 
   /**
@@ -245,18 +249,52 @@ export class FptAiService {
    */
   private extractData(frontOcr: any, backOcr: any): any {
     const data: any = {};
+    const frontData = this.normalizeOcrData(frontOcr);
+    const backData = this.normalizeOcrData(backOcr);
 
-    if (frontOcr?.data) {
-      data.fullName = frontOcr.data.name || frontOcr.data.fullName;
-      data.idNumber = frontOcr.data.id || frontOcr.data.idNumber;
-      data.dateOfBirth = frontOcr.data.dob || frontOcr.data.dateOfBirth;
-    }
-
-    if (backOcr?.data) {
-      data.address = backOcr.data.address || backOcr.data.permanentAddress;
-      data.issueDate = backOcr.data.issueDate;
-      data.expiryDate = backOcr.data.expiryDate;
-    }
+    data.fullName = this.getOcrField(frontData, [
+      'name',
+      'fullName',
+      'full_name',
+      'fullNameOnDocument',
+      'hoTen',
+      'ho_ten',
+    ]);
+    data.idNumber = this.getOcrField(frontData, [
+      'id',
+      'idNumber',
+      'id_number',
+      'idNo',
+      'id_no',
+      'identityNumber',
+      'identity_number',
+      'so',
+      'so_cccd',
+      'socccd',
+    ]);
+    data.dateOfBirth = this.getOcrField(frontData, [
+      'dob',
+      'dateOfBirth',
+      'date_of_birth',
+      'birthDate',
+      'birthday',
+    ]);
+    data.address = this.getOcrField(backData, [
+      'address',
+      'permanentAddress',
+      'permanent_address',
+      'residence',
+    ]);
+    data.issueDate = this.getOcrField(backData, [
+      'issueDate',
+      'issue_date',
+      'issueDateTime',
+    ]);
+    data.expiryDate = this.getOcrField(backData, [
+      'expiryDate',
+      'expiry_date',
+      'expireDate',
+    ]);
 
     return data;
   }
@@ -266,26 +304,189 @@ export class FptAiService {
    */
   private detectIssuesOcrOnly(frontOcr: any, backOcr: any): string[] {
     const issues: string[] = [];
+    const frontData = this.normalizeOcrData(frontOcr);
+    const backData = this.normalizeOcrData(backOcr);
+    const hasName = !!this.getOcrField(frontData, [
+      'name',
+      'fullName',
+      'full_name',
+      'fullNameOnDocument',
+      'hoTen',
+      'ho_ten',
+    ]);
+    const hasId = !!this.getOcrField(frontData, [
+      'id',
+      'idNumber',
+      'id_number',
+      'idNo',
+      'id_no',
+      'identityNumber',
+      'identity_number',
+      'so',
+      'so_cccd',
+      'socccd',
+    ]);
 
     // Check OCR quality
-    if (frontOcr?.data?.confidence < 0.7) {
+    const frontConfidence = this.getOcrConfidence(frontData);
+    const backConfidence = this.getOcrConfidence(backData);
+
+    if (frontConfidence !== null && frontConfidence < 0.7) {
       issues.push('ID card front image quality is low');
     }
 
-    if (backOcr?.data?.confidence < 0.7) {
+    if (backConfidence !== null && backConfidence < 0.7) {
       issues.push('ID card back image quality is low');
     }
 
     // Check for missing data
-    if (!frontOcr?.data?.name) {
+    if (!hasName) {
       issues.push('Could not extract name from ID card');
     }
 
-    if (!frontOcr?.data?.id) {
+    if (!hasId) {
       issues.push('Could not extract ID number from ID card');
     }
 
     return issues;
+  }
+
+  private normalizeOcrData(ocr: any): Record<string, any> {
+    if (!ocr) return {};
+    const data = ocr.data ?? ocr;
+
+    if (Array.isArray(data)) {
+      return this.mapKeyValueArray(data);
+    }
+
+    if (data?.data) {
+      if (Array.isArray(data.data)) {
+        return this.mapKeyValueArray(data.data);
+      }
+      if (typeof data.data === 'object') {
+        return data.data;
+      }
+    }
+
+    return data || {};
+  }
+
+  private mapKeyValueArray(items: any[]): Record<string, any> {
+    if (!items.length) return {};
+    const mapped: Record<string, any> = {};
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const key = item.type || item.field || item.label || item.key;
+      const value = item.value ?? item.text ?? item.result;
+      if (key && value !== undefined) {
+        mapped[key] = value;
+      }
+    }
+    if (Object.keys(mapped).length > 0) {
+      return mapped;
+    }
+    return items[0] || {};
+  }
+
+  private normalizeKey(value: string): string {
+    return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+  }
+
+  private getOcrField(data: any, keys: string[]): string | undefined {
+    if (!data || typeof data !== 'object') return undefined;
+
+    for (const key of keys) {
+      const value = data[key];
+      if (value !== undefined && value !== null && value !== '') {
+        return typeof value === 'object' ? value.value ?? value.text ?? String(value) : value;
+      }
+    }
+
+    const normalizedLookup = new Map<string, any>();
+    for (const [rawKey, rawValue] of Object.entries(data)) {
+      normalizedLookup.set(this.normalizeKey(rawKey), rawValue);
+    }
+
+    for (const key of keys) {
+      const normalized = this.normalizeKey(key);
+      if (normalizedLookup.has(normalized)) {
+        const value = normalizedLookup.get(normalized);
+        if (value !== undefined && value !== null && value !== '') {
+          return typeof value === 'object' ? value.value ?? value.text ?? String(value) : value;
+        }
+      }
+    }
+
+    const regexes = keys.map((key) => new RegExp(this.normalizeKey(key), 'i'));
+    for (const [rawKey, rawValue] of Object.entries(data)) {
+      const normalized = this.normalizeKey(rawKey);
+      if (regexes.some((regex) => regex.test(normalized))) {
+        if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
+          return typeof rawValue === 'object'
+            ? rawValue.value ?? rawValue.text ?? String(rawValue)
+            : rawValue;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
+  private getOcrConfidence(data: any): number | null {
+    if (!data || typeof data !== 'object') return null;
+    const raw =
+      data.confidence ??
+      data.ocr_confidence ??
+      data.quality ??
+      data.confidenceScore ??
+      data.confidence_score ??
+      data.score;
+    const numeric = typeof raw === 'string' ? Number(raw) : raw;
+    if (typeof numeric === 'number' && !Number.isNaN(numeric)) {
+      return numeric;
+    }
+    return null;
+  }
+
+  private estimateConfidence(frontData: any, backData: any): number {
+    const hasName = !!this.getOcrField(frontData, [
+      'name',
+      'fullName',
+      'full_name',
+      'fullNameOnDocument',
+      'hoTen',
+      'ho_ten',
+    ]);
+    const hasId = !!this.getOcrField(frontData, [
+      'id',
+      'idNumber',
+      'id_number',
+      'idNo',
+      'id_no',
+      'identityNumber',
+      'identity_number',
+      'so',
+      'so_cccd',
+      'socccd',
+    ]);
+    const hasDob = !!this.getOcrField(frontData, [
+      'dob',
+      'dateOfBirth',
+      'date_of_birth',
+      'birthDate',
+      'birthday',
+    ]);
+    const hasAddress = !!this.getOcrField(backData, [
+      'address',
+      'permanentAddress',
+      'permanent_address',
+      'residence',
+    ]);
+
+    if (hasName && hasId) return 0.85;
+    if (hasName || hasId) return 0.6;
+    if (hasDob || hasAddress) return 0.5;
+    return 0.4;
   }
 
   /**

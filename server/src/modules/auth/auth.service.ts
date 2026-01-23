@@ -9,11 +9,12 @@ import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
 import { EmailService } from './email.service';
-import { 
-  LoginDto, 
-  RegisterDto, 
-  AuthResponseDto, 
-  LoginResponseDto, 
+import { EmailVerificationService } from './email-verification.service';
+import {
+  LoginDto,
+  RegisterDto,
+  AuthResponseDto,
+  LoginResponseDto,
   LogoutResponseDto,
   ForgotPasswordDto,
   ResetPasswordDto,
@@ -21,7 +22,7 @@ import {
   ResetPasswordResponseDto,
   VerifyOtpDto,
   VerifyOtpResponseDto,
-  UpdateProfileDto
+  UpdateProfileDto,
 } from './dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -38,37 +39,110 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
+    private emailVerificationService: EmailVerificationService,
     private auditLogsService: AuditLogsService, // Inject AuditLogsService
   ) {}
 
-  async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
-    const { email, password, fullName, phoneNumber, role } = registerDto;
+  async register(
+    registerDto: RegisterDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthResponseDto> {
+    const {
+      email,
+      password,
+      fullName,
+      phoneNumber,
+      role,
+      domainIds,
+      skillIds,
+      acceptTerms,
+      acceptPrivacy,
+    } = registerDto;
 
     // Kiểm tra email đã tồn tại
+    // Chỉ select các cột cần thiết để tránh lỗi nếu có cột chưa tồn tại
     const existingUser = await this.userRepository.findOne({
       where: { email },
+      select: ['id', 'email', 'passwordHash', 'fullName', 'role', 'phoneNumber', 'isVerified'],
     });
 
     if (existingUser) {
       throw new ConflictException('Email đã được sử dụng');
     }
 
+    // Validate legal consent
+    if (!acceptTerms || !acceptPrivacy) {
+      throw new ConflictException('Bạn phải chấp nhận Điều khoản Dịch vụ và Chính sách Bảo mật');
+    }
+
     // Hash password
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Tạo user mới
+    // Tạo user mới với legal consent timestamps
+    const now = new Date();
     const newUser = this.userRepository.create({
       email,
       passwordHash,
       fullName,
       phoneNumber,
-      role: role, // No more type casting needed - RegisterableRole is subset of UserRole
+      role: role,
       isVerified: false,
-      currentTrustScore: 2.5, // Neutral score cho user mới (chưa có track record)
+      currentTrustScore: 2.5,
+      termsAcceptedAt: acceptTerms ? now : null,
+      privacyAcceptedAt: acceptPrivacy ? now : null,
+      registrationIp: ipAddress,
+      registrationUserAgent: userAgent,
     });
 
     const savedUser = await this.userRepository.save(newUser);
+
+    // Nếu là BROKER hoặc FREELANCER → Lưu domains và skills
+    if ((role === 'BROKER' || role === 'FREELANCER') && (domainIds || skillIds)) {
+      const userSkillDomainRepo = this.userRepository.manager.getRepository('UserSkillDomainEntity');
+      const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
+
+      // Lưu domains
+      if (domainIds && domainIds.length > 0) {
+        const domainRecords = domainIds.map(domainId => ({
+          userId: savedUser.id,
+          domainId,
+        }));
+        await userSkillDomainRepo.save(domainRecords);
+      }
+
+      // Lưu skills
+      if (skillIds && skillIds.length > 0) {
+        const skillRecords = skillIds.map(skillId => ({
+          userId: savedUser.id,
+          skillId,
+          priority: 'SECONDARY', // Default to SECONDARY, user can upgrade later
+          verificationStatus: 'SELF_DECLARED',
+        }));
+        await userSkillRepo.save(skillRecords);
+      }
+    }
+
+    // Send email verification
+    try {
+      await this.emailVerificationService.sendVerificationEmail(savedUser.id, savedUser.email);
+    } catch (error) {
+      console.error('Failed to send verification email:', error);
+      // Don't fail registration if email fails, user can resend later
+    }
+
+    // Audit Log: REGISTRATION EVENT
+    this.auditLogsService
+      .logRegistration(savedUser.id, {
+        role: savedUser.role,
+        email: savedUser.email,
+        ipAddress,
+        userAgent,
+        domainCount: domainIds?.length || 0,
+        skillCount: skillIds?.length || 0,
+      })
+      .catch(err => console.error('Failed to log registration:', err));
 
     // Return user data (không bao gồm password)
     return this.mapToAuthResponse(savedUser);
@@ -92,9 +166,19 @@ export class AuthService {
     }
 
     // Kiểm tra password
+    if (!user.passwordHash) {
+      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
+
+    // Check if email is verified
+    if (!user.emailVerifiedAt) {
+      throw new UnauthorizedException(
+        'Vui lòng xác thực email của bạn trước khi đăng nhập. Kiểm tra hộp thư của bạn.',
+      );
     }
 
     // Tạo JWT tokens
@@ -298,12 +382,12 @@ export class AuthService {
    */
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto> {
     const { email } = forgotPasswordDto;
-    
+
     // 1. Tìm user theo email
-    const user = await this.userRepository.findOne({ 
-      where: { email } 
+    const user = await this.userRepository.findOne({
+      where: { email },
     });
-    
+
     if (!user) {
       // Security: Không tiết lộ email có tồn tại hay không
       return {
@@ -416,7 +500,7 @@ export class AuthService {
     // 7. Revoke all existing auth sessions for security
     await this.authSessionRepository.update(
       { userId: user.id, isRevoked: false },
-      { isRevoked: true, revokedAt: new Date() }
+      { isRevoked: true, revokedAt: new Date() },
     );
 
     console.log(`✅ Password reset successful for user: ${user.email}`);
@@ -551,7 +635,10 @@ export class AuthService {
     });
   }
 
-  async updateProfile(userId: string, updateProfileDto: UpdateProfileDto): Promise<AuthResponseDto> {
+  async updateProfile(
+    userId: string,
+    updateProfileDto: UpdateProfileDto,
+  ): Promise<AuthResponseDto> {
     // Cập nhật thông tin User
     const updateUserData: Partial<UserEntity> = {};
     if (updateProfileDto.fullName) updateUserData.fullName = updateProfileDto.fullName;
@@ -563,7 +650,7 @@ export class AuthService {
 
     // Tìm hoặc tạo Profile
     let profile = await this.profileRepository.findOne({ where: { userId } });
-    
+
     if (!profile) {
       // Tạo profile mới nếu chưa có
       profile = this.profileRepository.create({
@@ -578,12 +665,16 @@ export class AuthService {
     } else {
       // Cập nhật profile
       const updateProfileData: Partial<ProfileEntity> = {};
-      if (updateProfileDto.avatarUrl !== undefined) updateProfileData.avatarUrl = updateProfileDto.avatarUrl;
+      if (updateProfileDto.avatarUrl !== undefined)
+        updateProfileData.avatarUrl = updateProfileDto.avatarUrl;
       if (updateProfileDto.bio !== undefined) updateProfileData.bio = updateProfileDto.bio;
-      if (updateProfileDto.companyName !== undefined) updateProfileData.companyName = updateProfileDto.companyName;
+      if (updateProfileDto.companyName !== undefined)
+        updateProfileData.companyName = updateProfileDto.companyName;
       if (updateProfileDto.skills !== undefined) updateProfileData.skills = updateProfileDto.skills;
-      if (updateProfileDto.portfolioLinks !== undefined) updateProfileData.portfolioLinks = updateProfileDto.portfolioLinks;
-      if (updateProfileDto.linkedinUrl !== undefined) updateProfileData['linkedinUrl'] = updateProfileDto.linkedinUrl;
+      if (updateProfileDto.portfolioLinks !== undefined)
+        updateProfileData.portfolioLinks = updateProfileDto.portfolioLinks;
+      if (updateProfileDto.linkedinUrl !== undefined)
+        updateProfileData['linkedinUrl'] = updateProfileDto.linkedinUrl;
       if (updateProfileDto.cvUrl !== undefined) updateProfileData['cvUrl'] = updateProfileDto.cvUrl;
 
       if (Object.keys(updateProfileData).length > 0) {
@@ -605,13 +696,13 @@ export class AuthService {
       email: user.email,
       fullName: user.fullName,
       phoneNumber: user.phoneNumber,
-      avatarUrl: (user as any).profile?.avatarUrl,
-      bio: (user as any).profile?.bio,
-      skills: (user as any).profile?.skills,
-      linkedinUrl: (user as any).profile?.linkedinUrl,
-      cvUrl: (user as any).profile?.cvUrl,
-      companyName: (user as any).profile?.companyName,
-      portfolioLinks: (user as any).profile?.portfolioLinks,
+      avatarUrl: user.profile?.avatarUrl,
+      bio: user.profile?.bio,
+      skills: user.profile?.skills,
+      linkedinUrl: user.profile?.linkedinUrl,
+      cvUrl: user.profile?.cvUrl,
+      companyName: user.profile?.companyName,
+      portfolioLinks: user.profile?.portfolioLinks,
       role: user.role,
       isVerified: user.isVerified,
       currentTrustScore: user.currentTrustScore,

@@ -64,7 +64,7 @@ export class TransactionEntity {
   })
   netAmount: number; // amount - fee (số tiền thực nhận)
 
-  @Column({ type: 'varchar', length: 3, default: 'VND' })
+  @Column({ type: 'varchar', length: 3, default: 'USD' })
   currency: string;
 
   @Column({ type: 'enum', enum: TransactionType })

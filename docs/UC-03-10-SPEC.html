@@ -1,0 +1,935 @@
+﻿<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>UC-03 to UC-10 Specifications</title>
+</head>
+<body>
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-03 Login</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">User (any registered role)</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Authentication System</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The user opens the Sign In screen and selects "Sign In".</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allow a registered user to sign in with email and password and enter the correct dashboard for their role.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user already has an account.<br>
+      <b>PRE2:</b> The user has verified their email address (if email verification is required).<br>
+      <b>PRE3:</b> The user has an internet connection.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> The user is signed in and can access protected features.<br>
+      <b>POS2:</b> The user is redirected to the correct dashboard based on their role.<br>
+      <b>POS3:</b> The system records the sign-in event for security.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Sign In Successfully</b>
+      <ol>
+        <li>The user opens the Sign In screen.</li>
+        <li>The user enters their email and password.</li>
+        <li>The user selects "Sign In".</li>
+        <li>The system validates the credentials.</li>
+        <li>If valid and the account is eligible to sign in, the system signs the user in.</li>
+        <li>The system redirects the user to the correct dashboard.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A3. Missing or invalid input</b>
+      <ol>
+        <li>The user leaves email/password empty or enters an invalid email format.</li>
+        <li>The system displays a message asking the user to correct the input.</li>
+      </ol>
+      <b>A5. Email not verified</b>
+      <ol>
+        <li>The system informs the user that email verification is required.</li>
+        <li>The user checks their email and completes verification, then tries again.</li>
+      </ol>
+      <b>A6. Wrong email or password</b>
+      <ol>
+        <li>The system informs the user that the credentials are incorrect.</li>
+        <li>The user retries or selects "Forgot password".</li>
+      </ol>
+      <b>A7. Connection problem</b>
+      <ol>
+        <li>The system cannot complete the sign-in request due to a connection/server issue.</li>
+        <li>The system shows an error message and the user can retry.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> The system is temporarily unavailable and sign-in cannot be completed.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>BR1:</b> The user must provide valid credentials.<br>
+      <b>BR2:</b> If email verification is required, unverified users cannot sign in.<br>
+      <b>BR3:</b> The system records sign-in activity for security.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">If the user forgets the password, they can use the "Forgot password" option.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+
+
+<br><br>
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-04 Forgot Password</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Guest (not signed in)</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Email Delivery System</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The user selects "Forgot password" from the Sign In screen.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allow the user to reset the account password by receiving a one-time verification code by email and setting a new password.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user knows the email address used for the account.<br>
+      <b>PRE2:</b> The user can access that email inbox.<br>
+      <b>PRE3:</b> The user has an internet connection.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> A verification code is sent to the user's email.<br>
+      <b>POS2:</b> If the code is correct and not expired, the password is updated.<br>
+      <b>POS3:</b> The user can sign in with the new password.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Reset Password Successfully</b>
+      <ol>
+        <li>The user opens the "Forgot password" screen.</li>
+        <li>The user enters their email and selects "Send code".</li>
+        <li>The system sends a 6-digit code to the user's email.</li>
+        <li>The user enters the code and selects "Verify".</li>
+        <li>The system confirms the code is valid.</li>
+        <li>The user enters a new password and confirms it.</li>
+        <li>The user selects "Reset password".</li>
+        <li>The system updates the password and shows success.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A2. Invalid email format</b>
+      <ol>
+        <li>The user enters an invalid email format.</li>
+        <li>The system asks the user to correct the email.</li>
+      </ol>
+      <b>A4. Resend code</b>
+      <ol>
+        <li>The user does not receive the email.</li>
+        <li>After a short waiting time, the user selects "Resend code".</li>
+        <li>The system sends a new code to the email.</li>
+      </ol>
+      <b>A6. Wrong or expired code</b>
+      <ol>
+        <li>The user enters an incorrect or expired code.</li>
+        <li>The system shows an error and allows retry or resend.</li>
+      </ol>
+      <b>A8. Password does not meet requirements</b>
+      <ol>
+        <li>The new password is too weak or confirmation does not match.</li>
+        <li>The system shows a message and asks the user to correct it.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> Email delivery is delayed or fails; the user can try again later.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>BR1:</b> The verification code is 6 digits and expires after a limited time.<br>
+      <b>BR2:</b> The system may limit how often codes can be resent to prevent spam.<br>
+      <b>BR3:</b> The new password must meet the platform's password rules.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">If the user no longer has access to the email account, they should contact support.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+
+
+<br><br>
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-05 View Public Landing Page</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Guest</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Web Application</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The guest opens the platform website.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allow a guest to view general information about the platform and navigate to Sign In or Sign Up.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> Internet connection is available.<br>
+      <b>PRE2:</b> The website is accessible.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> The landing page content is shown.<br>
+      <b>POS2:</b> The guest can choose to sign in or create an account.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. View Public Landing Page</b>
+      <ol>
+        <li>The guest opens the website.</li>
+        <li>The system displays public information such as platform overview and key features.</li>
+        <li>The system displays navigation options like "Sign In" and "Sign Up".</li>
+        <li>The guest reads the information and may choose a navigation option.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A2. Slow network</b>
+      <ol>
+        <li>The page loads slowly due to network conditions.</li>
+        <li>The system shows a loading state until content appears.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> The website cannot be reached; the guest can retry later.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">Public content should not require the user to sign in.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+
+
+<br><br>
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-06 Manage Account</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Signed-in User (Client/Broker/Freelancer/Admin)</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Account/Profile System</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The user opens the Account/Profile screen from the menu.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allow the user to view and update basic profile information such as name, phone number, bio, and avatar.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user is signed in.<br>
+      <b>PRE2:</b> The user has an internet connection.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> The user can view current account/profile information.<br>
+      <b>POS2:</b> If saved, the user's profile changes are stored and shown in the UI.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. View and Update Profile</b>
+      <ol>
+        <li>The user opens the profile screen.</li>
+        <li>The system shows current profile information.</li>
+        <li>The user selects "Edit".</li>
+        <li>The user changes profile fields and optionally selects a new avatar image.</li>
+        <li>The user selects "Save".</li>
+        <li>The system validates and saves the updates.</li>
+        <li>The system shows the updated profile information.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A5. Invalid avatar file</b>
+      <ol>
+        <li>The user selects a file that is not an image or is too large.</li>
+        <li>The system shows an error and asks the user to choose another file.</li>
+      </ol>
+      <b>A8. Cancel editing</b>
+      <ol>
+        <li>The user cancels editing.</li>
+        <li>The system discards unsaved changes and shows the last saved profile.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> The system cannot save changes due to a temporary error; the user can retry.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>BR1:</b> Only signed-in users can access account management.<br>
+      <b>BR2:</b> Profile changes must be validated before saving.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">Some profile fields may be read-only depending on role or policy.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+
+
+<br><br>
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-07 Register KYC</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Signed-in User (Client/Broker/Freelancer)</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">KYC Review Team (Admin/Staff)</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The user starts identity verification (KYC) from the application.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allow the user to submit identity information and documents for verification so the platform can approve sensitive actions.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user is signed in.<br>
+      <b>PRE2:</b> The user has required documents and photos ready (ID front/back, selfie).<br>
+      <b>PRE3:</b> The user has an internet connection.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> The KYC submission is recorded in the system.<br>
+      <b>POS2:</b> The KYC status becomes "Pending" until reviewed.<br>
+      <b>POS3:</b> The user can see the current KYC status in the application.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Submit KYC Successfully</b>
+      <ol>
+        <li>The user opens the KYC screen.</li>
+        <li>The user enters personal information (name, date of birth, document number, address).</li>
+        <li>The user uploads required images (ID front, ID back, selfie).</li>
+        <li>The user confirms and submits.</li>
+        <li>The system validates the submission and stores it.</li>
+        <li>The system shows a confirmation message that the review is pending.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A3. Missing required information</b>
+      <ol>
+        <li>The user does not provide required fields or documents.</li>
+        <li>The system highlights missing items and blocks submission.</li>
+      </ol>
+      <b>A5. Invalid image file</b>
+      <ol>
+        <li>The user uploads a file that is not an image or exceeds the size limit.</li>
+        <li>The system shows an error and asks the user to upload a valid image.</li>
+      </ol>
+      <b>A7. Resubmission after rejection</b>
+      <ol>
+        <li>The user's previous KYC was rejected.</li>
+        <li>The user corrects the information and submits again.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> Upload or save fails due to a system error; the user can retry later.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>BR1:</b> Only signed-in users can submit KYC.<br>
+      <b>BR2:</b> KYC status follows a review flow: Pending, Approved, or Rejected.<br>
+      <b>BR3:</b> Uploaded documents must be clear images and may be size-limited.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">The review process may take time. The user can continue using non-restricted features while waiting.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+
+
+<br><br>
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-08 Do Request Wizard</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Client</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Wizard System</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The client starts creating a new request using the guided wizard.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Guide the client through a step-by-step form to describe their project needs and choose how to proceed (save draft, post, or invite).</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The client is signed in.<br>
+      <b>PRE2:</b> The client has enough information about the project to answer the wizard questions.<br>
+      <b>PRE3:</b> Some actions may require approved KYC (depending on policy).
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> The client completes the wizard steps and the system prepares a request summary.<br>
+      <b>POS2:</b> Depending on the chosen action, the request is saved as a draft or submitted for visibility.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Complete Wizard and Continue</b>
+      <ol>
+        <li>The client opens the request wizard.</li>
+        <li>The system shows step-by-step questions (type, industry, budget/timeline, features, title/description).</li>
+        <li>The client answers each step and selects "Next".</li>
+        <li>At the final step, the client chooses one option:
+          <ul>
+            <li>Save Draft</li>
+            <li>Post to Market</li>
+            <li>Find and Invite</li>
+          </ul>
+        </li>
+        <li>The system confirms the action and shows a success message.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A3. Missing required information</b>
+      <ol>
+        <li>The client skips a required step or leaves required fields empty.</li>
+        <li>The system prevents moving forward until the information is provided.</li>
+      </ol>
+      <b>A5. KYC is not approved (when required)</b>
+      <ol>
+        <li>The client tries to post or invite but KYC is not approved.</li>
+        <li>The system informs the client to complete KYC or wait for approval.</li>
+        <li>The client can still choose to save as draft.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> The system fails to save or submit due to a temporary error; the client can retry.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>BR1:</b> Only Clients can create requests using this wizard.<br>
+      <b>BR2:</b> Required questions must be completed before submission.<br>
+      <b>BR3:</b> Some actions may require approved KYC based on platform rules.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">A draft can be edited later before being posted.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+
+
+<br><br>
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-09 Create Request</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Client</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Request Management System</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The client finishes the wizard and confirms creation of a request.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Create a new project request based on the information provided by the client.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The client is signed in.<br>
+      <b>PRE2:</b> The client has provided the required request information.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> A new request is created and saved in the system.<br>
+      <b>POS2:</b> The client sees the request in their list of requests.<br>
+      <b>POS3:</b> The system records the create action for tracking and security.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Create Request Successfully</b>
+      <ol>
+        <li>The client completes the request wizard.</li>
+        <li>The client chooses how to proceed (draft or visible request).</li>
+        <li>The system creates the request and stores the details.</li>
+        <li>The system shows a confirmation message.</li>
+        <li>The client is redirected to the request list or request details screen.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A4. Save as draft</b>
+      <ol>
+        <li>The client chooses to save as a draft.</li>
+        <li>The system saves the request without making it visible to others.</li>
+      </ol>
+      <b>A6. Missing required fields</b>
+      <ol>
+        <li>The client attempts to create a request with missing required information.</li>
+        <li>The system shows validation messages and asks the client to complete the fields.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> The system cannot create the request due to a temporary error; the client can retry.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>BR1:</b> Only Clients can create project requests.<br>
+      <b>BR2:</b> Required information must be provided before creation.<br>
+      <b>BR3:</b> The system tracks request creation activity.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">The client can edit a draft request later before posting it.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+
+
+<br><br>
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-10 Invite Broker Directly</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Client</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Broker (invited user)</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The client chooses a broker and selects "Invite".</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allow a client to invite a broker to participate in a specific request.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The client is signed in.<br>
+      <b>PRE2:</b> The request exists and belongs to the client.<br>
+      <b>PRE3:</b> The broker is available to be invited.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> The broker receives an invitation in their account/notifications.<br>
+      <b>POS2:</b> The request shows that an invitation was sent.<br>
+      <b>POS3:</b> The system records the invitation event.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Invite Broker Successfully</b>
+      <ol>
+        <li>The client opens the request details.</li>
+        <li>The client views suggested brokers (if available).</li>
+        <li>The client selects a broker and chooses "Invite".</li>
+        <li>The system sends the invitation and confirms success.</li>
+        <li>The broker can later accept or respond to the invitation.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A2. Broker already invited</b>
+      <ol>
+        <li>The client tries to invite the same broker again.</li>
+        <li>The system informs the client that the broker is already invited.</li>
+      </ol>
+      <b>A4. No brokers available</b>
+      <ol>
+        <li>No brokers are available for invitation.</li>
+        <li>The system shows an empty state and the client can try again later.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> The system cannot send the invitation due to a temporary error; the client can retry.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>BR1:</b> A client can only invite brokers for their own requests.<br>
+      <b>BR2:</b> The same broker should not be invited multiple times for the same request.<br>
+      <b>BR3:</b> Invitations and responses are tracked by the system.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">Inviting a broker does not automatically hire them; the broker must respond.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+
+
+</body>
+</html>

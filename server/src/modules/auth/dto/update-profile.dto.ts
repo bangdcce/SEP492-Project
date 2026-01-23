@@ -1,5 +1,14 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, MinLength, MaxLength, Matches, IsArray, ValidateNested, IsUrl } from 'class-validator';
+import {
+  IsString,
+  IsOptional,
+  MinLength,
+  MaxLength,
+  Matches,
+  IsArray,
+  ValidateNested,
+  IsUrl,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 class PortfolioLinkDto {
@@ -105,11 +114,12 @@ export class UpdateProfileDto {
   cvUrl?: string;
 }
 
+import { AuthResponseDto } from './auth-response.dto';
 
 export class UpdateProfileResponseDto {
   @ApiProperty({ description: 'Thông báo kết quả' })
   message: string;
 
   @ApiProperty({ description: 'Dữ liệu người dùng sau khi cập nhật' })
-  data: any;
+  data: AuthResponseDto;
 }

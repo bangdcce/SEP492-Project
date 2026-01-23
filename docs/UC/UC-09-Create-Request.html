@@ -1,0 +1,110 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-09 Create Request</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">2026-01-22</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Client</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Request Management System</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The client finishes the wizard and confirms creation of a request.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Create a new project request based on the information provided by the client.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The client is signed in.<br>
+      <b>PRE2:</b> The client has provided the required request information.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> A new request is created and saved in the system.<br>
+      <b>POS2:</b> The client sees the request in their list of requests.<br>
+      <b>POS3:</b> The system records the create action for tracking and security.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Create Request Successfully</b>
+      <ol>
+        <li>The client completes the request wizard.</li>
+        <li>The client chooses how to proceed (draft or visible request).</li>
+        <li>The system creates the request and stores the details.</li>
+        <li>The system shows a confirmation message.</li>
+        <li>The client is redirected to the request list or request details screen.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A4. Save as draft</b>
+      <ol>
+        <li>The client chooses to save as a draft.</li>
+        <li>The system saves the request without making it visible to others.</li>
+      </ol>
+      <b>A6. Missing required fields</b>
+      <ol>
+        <li>The client attempts to create a request with missing required information.</li>
+        <li>The system shows validation messages and asks the client to complete the fields.</li>
+      </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>E1:</b> The system cannot create the request due to a temporary error; the client can retry.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>BR1:</b> Only Clients can create project requests.<br>
+      <b>BR2:</b> Required information must be provided before creation.<br>
+      <b>BR3:</b> The system tracks request creation activity.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">The client can edit a draft request later before posting it.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
+

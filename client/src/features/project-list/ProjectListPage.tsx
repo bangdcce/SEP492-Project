@@ -66,9 +66,20 @@ export default function ProjectListPage() {
 
   const renderRole = (project: Project) => {
     if (!user) return "Unknown";
-    if (project.freelancerId === user.id) return "Freelancer";
     if (project.clientId === user.id) return "Client";
+    if (project.brokerId === user.id) return "Broker";
+    if (project.freelancerId === user.id) return "Freelancer";
     return "Collaborator";
+  };
+
+  // Get workspace path based on user role
+  const getWorkspacePath = (projectId: string) => {
+    if (!user) return `/client/workspace/${projectId}`;
+    
+    const role = user.role?.toUpperCase();
+    if (role === "BROKER") return `/broker/workspace/${projectId}`;
+    if (role === "FREELANCER") return `/freelancer/workspace/${projectId}`;
+    return `/client/workspace/${projectId}`;
   };
 
   // Show loading while checking auth
@@ -104,7 +115,7 @@ export default function ProjectListPage() {
           {projects.map((project) => (
             <button
               key={project.id}
-              onClick={() => navigate(`/client/workspace/${project.id}`)}
+              onClick={() => navigate(getWorkspacePath(project.id))}
               className="text-left bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
             >
               <div className="flex items-start justify-between gap-2">

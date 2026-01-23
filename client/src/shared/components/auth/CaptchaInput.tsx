@@ -34,7 +34,7 @@ export function CaptchaInput({ onChange, error }: ReCaptchaInputProps) {
       </label>
 
       <div style={{ marginBottom: "0.75rem" }}>
-        <ReCAPTCHA sitekey={siteKey} onChange={onChange} theme="light" />
+        <ReCAPTCHA sitekey={siteKey} onChange={onChange} theme="light" hl="en" />
       </div>
 
       {error && (

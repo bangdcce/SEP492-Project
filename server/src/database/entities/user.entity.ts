@@ -79,6 +79,30 @@ export class UserEntity {
   @Column({ type: 'timestamp', nullable: true, name: 'resetpasswordotpexpires' })
   resetPasswordOtpExpires: Date;
 
+  // --- EMAIL VERIFICATION FIELDS ---
+  @Column({ type: 'varchar', length: 64, nullable: true, name: 'emailVerificationToken' })
+  emailVerificationToken: string;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'emailVerificationExpires' })
+  emailVerificationExpires: Date;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'emailVerifiedAt' })
+  emailVerifiedAt: Date;
+
+  // --- LEGAL CONSENT FIELDS ---
+  @Column({ type: 'timestamp', nullable: true, name: 'termsAcceptedAt' })
+  termsAcceptedAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true, name: 'privacyAcceptedAt' })
+  privacyAcceptedAt: Date;
+
+  // --- REGISTRATION TRACKING FIELDS ---
+  @Column({ type: 'varchar', length: 45, nullable: true, name: 'registrationIp' })
+  registrationIp: string;
+
+  @Column({ type: 'text', nullable: true, name: 'registrationUserAgent' })
+  registrationUserAgent: string;
+
   // --- BAN/UNBAN FIELDS (Admin only) ---
   @Column({ type: 'boolean', default: false })
   isBanned: boolean;

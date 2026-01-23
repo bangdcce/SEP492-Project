@@ -1,11 +1,17 @@
 import { Controller, Get, Post, Patch, Param, Body, Query, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 import { UsersService } from './users.service';
-import { BanUserDto, UnbanUserDto, ResetUserPasswordDto, UserFilterDto } from './dto/admin-user.dto';
+import {
+  BanUserDto,
+  UnbanUserDto,
+  ResetUserPasswordDto,
+  UserFilterDto,
+} from './dto/admin-user.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import { UserRole } from '../../database/entities/user.entity';
+import { GetUser } from '../auth/decorators/get-user.decorator';
 
 @ApiTags('Users (Admin)')
 @Controller('users')
@@ -43,8 +49,11 @@ export class UsersController {
    */
   @Patch(':id/ban')
   @ApiOperation({ summary: '[ADMIN] Ban user' })
-  async banUser(@Param('id') userId: string, @Body() dto: BanUserDto, @Req() req: any) {
-    const adminId = req.user.id;
+  async banUser(
+    @Param('id') userId: string,
+    @Body() dto: BanUserDto,
+    @GetUser('id') adminId: string,
+  ) {
     return await this.usersService.banUser(userId, adminId, dto);
   }
 
@@ -53,8 +62,11 @@ export class UsersController {
    */
   @Patch(':id/unban')
   @ApiOperation({ summary: '[ADMIN] Unban user' })
-  async unbanUser(@Param('id') userId: string, @Body() dto: UnbanUserDto, @Req() req: any) {
-    const adminId = req.user.id;
+  async unbanUser(
+    @Param('id') userId: string,
+    @Body() dto: UnbanUserDto,
+    @GetUser('id') adminId: string,
+  ) {
     return await this.usersService.unbanUser(userId, adminId, dto);
   }
 
@@ -66,9 +78,8 @@ export class UsersController {
   async resetUserPassword(
     @Param('id') userId: string,
     @Body() dto: ResetUserPasswordDto,
-    @Req() req: any,
+    @GetUser('id') adminId: string,
   ) {
-    const adminId = req.user.id;
     return await this.usersService.resetUserPassword(userId, adminId, dto);
   }
 

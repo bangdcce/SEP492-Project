@@ -1,4 +1,9 @@
-import { Injectable, BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  Injectable,
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KycVerificationEntity, KycStatus } from '../../database/entities/kyc-verification.entity';
@@ -30,9 +35,9 @@ export class KycService {
     userId: string,
     dto: SubmitKycDto,
     files: {
-      idCardFront: Express.Multer.File;
-      idCardBack: Express.Multer.File;
-      selfie: Express.Multer.File;
+      idCardFront: MulterFile;
+      idCardBack: MulterFile;
+      selfie: MulterFile;
     },
   ) {
     // Check if user already has pending or approved KYC
@@ -78,12 +83,17 @@ export class KycService {
     // Step 2: Determine KYC status based on AI decision
     let kycStatus: KycStatus;
     let autoApproved = false;
+    const aiIssues = aiVerification.issues || [];
+    const hasUnreadableIssue = aiIssues.some(issue =>
+      /could not extract|cannot extract|unable to extract/i.test(issue),
+    );
     
     if (aiVerification.decision === 'AUTO_APPROVED') {
       kycStatus = KycStatus.APPROVED;
       autoApproved = true;
     } else if (aiVerification.decision === 'AUTO_REJECTED') {
-      kycStatus = KycStatus.REJECTED;
+      // If AI cannot read key fields, send to manual review instead of hard reject
+      kycStatus = hasUnreadableIssue ? KycStatus.PENDING : KycStatus.REJECTED;
     } else {
       kycStatus = KycStatus.PENDING; // Needs admin review
     }
@@ -124,7 +134,10 @@ export class KycService {
       console.log('User verification status updated.\n');
     } else if (kycStatus === KycStatus.REJECTED) {
       console.log('\n❌ [REJECTED] KYC auto-rejected by AI');
-      console.log('Reason:', aiVerification.issues?.join(', ') || 'Quality issues detected\n');
+      console.log('Reason:', aiIssues.join(', ') || 'Quality issues detected\n');
+    } else if (hasUnreadableIssue) {
+      console.log('\n⏳ [PENDING] AI could not extract key fields. Sent for manual review');
+      console.log('Issues:', aiIssues.join(', ') || 'Unreadable fields\n');
     } else {
       console.log('\n⏳ [PENDING] KYC requires manual admin review');
       console.log('Confidence too low for auto-decision\n');
@@ -187,8 +200,10 @@ export class KycService {
    * Generate fresh signed URLs for each item
    */
   async getAllKyc(status?: KycStatus, page = 1, limit = 20) {
-    const query = this.kycRepo.createQueryBuilder('kyc')
+    const query = this.kycRepo
+      .createQueryBuilder('kyc')
       .leftJoinAndSelect('kyc.user', 'user')
+      .leftJoinAndSelect('user.profile', 'profile')
       .leftJoinAndSelect('kyc.reviewer', 'reviewer');
 
     if (status) {
@@ -213,6 +228,12 @@ export class KycService {
 
         return {
           ...kyc,
+          user: kyc.user
+            ? {
+                ...kyc.user,
+                avatarUrl: kyc.user.profile?.avatarUrl,
+              }
+            : kyc.user,
           documentFrontUrl: frontUrl,
           documentBackUrl: backUrl,
           selfieUrl: selfieUrl,
@@ -247,7 +268,7 @@ export class KycService {
   ) {
     const kyc = await this.kycRepo.findOne({
       where: { id },
-      relations: ['user', 'reviewer'],
+      relations: ['user', 'user.profile', 'reviewer'],
     });
 
     if (!kyc) {
@@ -302,6 +323,12 @@ export class KycService {
     // Convert buffers to base64 for frontend display
     return {
       ...kyc,
+      user: kyc.user
+        ? {
+            ...kyc.user,
+            avatarUrl: kyc.user.profile?.avatarUrl,
+          }
+        : kyc.user,
       documentFrontUrl: `data:image/jpeg;base64,${frontBuffer.toString('base64')}`,
       documentBackUrl: `data:image/jpeg;base64,${backBuffer.toString('base64')}`,
       selfieUrl: `data:image/jpeg;base64,${selfieBuffer.toString('base64')}`,
@@ -325,7 +352,7 @@ export class KycService {
   async getKycById(id: string) {
     const kyc = await this.kycRepo.findOne({
       where: { id },
-      relations: ['user', 'reviewer'],
+      relations: ['user', 'user.profile', 'reviewer'],
     });
 
     if (!kyc) {
@@ -341,6 +368,12 @@ export class KycService {
 
     return {
       ...kyc,
+      user: kyc.user
+        ? {
+            ...kyc.user,
+            avatarUrl: kyc.user.profile?.avatarUrl,
+          }
+        : kyc.user,
       documentFrontUrl: frontUrl,
       documentBackUrl: backUrl,
       selfieUrl: selfieUrl,
@@ -393,8 +426,13 @@ export class KycService {
       throw new BadRequestException('Only pending KYC can be rejected');
     }
 
+    const reason = dto.rejectionReason?.trim();
+    if (!reason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+
     kyc.status = KycStatus.REJECTED;
-    kyc.rejectionReason = dto.rejectionReason;
+    kyc.rejectionReason = reason;
     kyc.reviewedBy = adminId;
     kyc.reviewedAt = new Date();
 
@@ -414,3 +452,4 @@ export class KycService {
     return !!kyc;
   }
 }
+
