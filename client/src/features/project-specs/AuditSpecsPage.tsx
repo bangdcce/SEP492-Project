@@ -120,7 +120,7 @@ export default function AuditSpecsPage() {
                 </div>
                 
                 <div className="flex gap-2 justify-end">
-                  <Button variant="outline" size="sm" onClick={() => navigate(`/project-requests/${spec.requestId}`)}>
+                  <Button variant="outline" size="sm" onClick={() => navigate(`/admin/requests/${spec.requestId}`)}>
                     <Eye className="w-4 h-4 mr-2" /> View Request
                   </Button>
                   <Button variant="destructive" size="sm" onClick={() => setRejectId(spec.id)} disabled={isProcessing}>

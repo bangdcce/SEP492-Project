@@ -32,6 +32,27 @@ export default function ProjectRequestDetailsPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const userJson = localStorage.getItem("user");
+    if (userJson) {
+      setUser(JSON.parse(userJson));
+    }
+  }, []);
+
+  const isAdmin = user?.role === "ADMIN";
+
+  const handleBack = () => {
+    if (isAdmin) {
+      navigate("/admin/specs"); 
+    } else if (user?.role === "BROKER") {
+      navigate("/project-requests");
+    } else {
+      navigate("/client/my-requests");
+    }
+  };
+
   const fetchRequest = async () => {
     if (!id) return;
     try {
@@ -119,10 +140,12 @@ export default function ProjectRequestDetailsPage() {
     }
   };
 
+
+
   return (
     <div className="container mx-auto py-8 space-y-6">
       <div className="flex items-center gap-4">
-        <Button variant="outline" onClick={() => navigate("/project-requests")}>
+        <Button variant="outline" onClick={handleBack}>
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <h1 className="text-2xl font-bold tracking-tight">Request Details</h1>
@@ -312,6 +335,7 @@ export default function ProjectRequestDetailsPage() {
             </Card>
           )}
 
+          {!isAdmin && (
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Broker Actions</CardTitle>
@@ -378,6 +402,7 @@ export default function ProjectRequestDetailsPage() {
               )}
             </CardContent>
           </Card>
+          )}
         </div>
       </div>
     </div>
