@@ -333,16 +333,46 @@ export default function ProjectRequestDetailsPage() {
                       ? `Assigned to broker ID: ${request.brokerId}`
                       : "No broker assigned yet."}
                   </div>
-                  {/* Check if current status is PROCESSING to allow creation */}
-                  {request.status === "PROCESSING" && (
-                    <Button
-                      className="w-full"
-                      onClick={() =>
-                        navigate(`/project-requests/${request.id}/create-spec`)
-                      }
-                    >
-                      Create Specification
-                    </Button>
+                  {(request.status === "PROCESSING" || request.status === "SPEC_APPROVED") && (
+                    <>
+                      {request.status === "PROCESSING" && (
+                        <Button
+                          className="w-full mb-3"
+                          onClick={() =>
+                            navigate(`/project-requests/${request.id}/create-spec`)
+                          }
+                        >
+                          Create Specification
+                        </Button>
+                      )}
+                      
+                       {/* Initialize Contract Button - Only when Spec is APPROVED */}
+                       {request.spec && request.spec.status === 'APPROVED' && (
+                          <Button
+                            className="w-full bg-indigo-600 hover:bg-indigo-700"
+                            onClick={async () => {
+                              try {
+                                if(!confirm("Initialize contract for this spec?")) return;
+                                // Need to call POST /contracts/initialize/:specId
+                                // We can use the apiClient directly here or add to api.ts
+                                // For speed, I'll direct call but clean code suggests imports.
+                                // Assuming apiClient exists (need to import it if not, checking imports...)
+                                // Import apiClient from shared api
+                                const { apiClient } = await import('@/shared/api/client');
+                                const contract = await apiClient.post<any>(`/contracts/initialize/${request.spec?.id}`);
+                                alert("Contract Initialized! Redirecting to preview...");
+                                // Navigate to contract preview
+                                navigate(`/broker/contracts/${contract.id}`);
+                              } catch(err) {
+                                console.error(err);
+                                alert("Failed to initialize contract");
+                              }
+                            }}
+                          >
+                            Initialize Contract
+                          </Button>
+                       )}
+                    </>
                   )}
                 </div>
               )}

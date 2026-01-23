@@ -11,6 +11,17 @@ interface BoardWithMilestones {
   milestones: Milestone[];
 }
 
+export interface WorkspaceProject {
+  id: string;
+  contracts?: { id: string; status: string }[];
+  brokerId: string;
+  clientId: string;
+}
+
+export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {
+  return apiClient.get<WorkspaceProject>(`/projects/${projectId}`);
+};
+
 export const fetchBoard = async (projectId: string): Promise<KanbanBoard> => {
   console.log("[API] Fetching board for project:", projectId);
 

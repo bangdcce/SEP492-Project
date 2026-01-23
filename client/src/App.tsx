@@ -49,6 +49,9 @@ const AdminReviewModerationPage = lazy(
 const ProjectRequestsPage = lazy(() => import("@/features/project-requests/ProjectRequestsPage").then(module => ({ default: module.ProjectRequestsPage })));
 const ProjectRequestDetailsPage = lazy(() => import("@/features/project-requests/ProjectRequestDetailsPage"));
 const CreateProjectSpecPage = lazy(() => import("@/features/project-specs/CreateProjectSpecPage"));
+const AuditSpecsPage = lazy(() => import("@/features/project-specs/AuditSpecsPage"));
+const ContractPage = lazy(() => import("@/features/contracts/ContractPage"));
+const ContractListPage = lazy(() => import("@/features/contracts/ContractListPage"));
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
 
@@ -175,6 +178,14 @@ function App() {
             </ClientDashboardLayout>
           }
         />
+        <Route
+          path="/client/contracts/:id"
+          element={
+            <ClientDashboardLayout>
+              <ContractPage />
+            </ClientDashboardLayout>
+          }
+        />
 
         {/* ========== ADMIN ROUTES - /admin/* ========== */}
         <Route
@@ -218,6 +229,14 @@ function App() {
           }
         />
         <Route
+          path="/admin/specs"
+          element={
+            <AdminDashboardLayout>
+              <AuditSpecsPage />
+            </AdminDashboardLayout>
+          }
+        />
+        <Route
           path={ROUTES.ADMIN_PROFILE}
           element={
             <AdminDashboardLayout>
@@ -248,6 +267,22 @@ function App() {
           element={
             <BrokerDashboardLayout>
               <ProjectWorkspacePage />
+            </BrokerDashboardLayout>
+          }
+        />
+        <Route
+          path="/broker/contracts"
+          element={
+            <BrokerDashboardLayout>
+              <ContractListPage />
+            </BrokerDashboardLayout>
+          }
+        />
+        <Route
+          path="/broker/contracts/:id"
+          element={
+            <BrokerDashboardLayout>
+              <ContractPage />
             </BrokerDashboardLayout>
           }
         />

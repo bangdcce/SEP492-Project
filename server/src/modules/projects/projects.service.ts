@@ -154,7 +154,7 @@ export class ProjectsService {
     }
 
     // Step 2: Check user authorization (must be Client or Broker of the project)
-    let project: ProjectEntity | null = milestone.project;
+    let project: ProjectEntity | null = (milestone.project as unknown as ProjectEntity) || null;
 
     // If no project relation, try to find by projectId
     if (!project && milestone.projectId) {
@@ -249,5 +249,11 @@ export class ProjectsService {
       fundsReleased: true,
       message: `Milestone "${milestone.title}" has been approved. Funds will be released.`,
     };
+  }
+  async findOne(id: string): Promise<ProjectEntity | null> {
+    return this.projectRepository.findOne({
+      where: { id },
+      relations: ['contracts'],
+    });
   }
 }

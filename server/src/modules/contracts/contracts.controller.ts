@@ -1,124 +1,58 @@
-import {
-  Controller,
-  Post,
-  Get,
-  Body,
-  Param,
-  UseGuards,
-  Req,
-  ParseUUIDPipe,
-} from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Body, Controller, Param, Post, UseGuards, Get, Res } from '@nestjs/common';
+import type { Response } from 'express';
 import { ContractsService } from './contracts.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
-import type { UserEntity } from '../../database/entities/user.entity';
-import type { Request } from 'express';
-import { InitializeContractDto, SignContractDto } from './dto';
+import { UserEntity } from '../../database/entities/user.entity';
 
-@ApiTags('Contracts')
-@ApiBearerAuth()
-@UseGuards(JwtAuthGuard)
 @Controller('contracts')
+@UseGuards(JwtAuthGuard)
 export class ContractsController {
   constructor(private readonly contractsService: ContractsService) {}
 
-  /**
-   * PHASE 1: Initialize Project and Contract from an Approved Spec
-   * Creates Project (INITIALIZING) + Contract (DRAFT)
-   */
-  @Post('initialize')
-  @ApiOperation({ summary: 'Initialize Project and Contract from Approved Spec' })
-  @ApiResponse({ status: 201, description: 'Project and Contract created successfully' })
-  @ApiResponse({ status: 400, description: 'Spec not approved or contract already exists' })
-  @ApiResponse({ status: 404, description: 'Spec not found' })
+  @Get('list')
+  async listContracts(@GetUser() user: UserEntity) {
+    return this.contractsService.listByUser(user.id);
+  }
+
+  @Get(':id')
+  async getContract(@Param('id') id: string) {
+    return this.contractsService.findOne(id);
+  }
+
+  @Post('initialize/:specId')
   async initializeContract(
     @GetUser() user: UserEntity,
-    @Body() dto: InitializeContractDto,
-    @Req() req: Request,
+    @Param('specId') specId: string,
   ) {
-    const result = await this.contractsService.initializeProjectAndContract(user, dto, req);
-    return {
-      success: true,
-      message: 'Project and Contract initialized successfully. Awaiting signatures.',
-      data: result,
-    };
+    return this.contractsService.initializeProjectAndContract(user, specId);
   }
 
-  /**
-   * Sign a contract (Client or Freelancer)
-   */
-  @Post(':id/sign')
-  @ApiOperation({ summary: 'Sign a contract' })
-  @ApiResponse({ status: 200, description: 'Contract signed successfully' })
-  @ApiResponse({ status: 400, description: 'Already signed or contract not in DRAFT' })
-  @ApiResponse({ status: 403, description: 'Not authorized to sign' })
+  @Post('sign/:contractId')
   async signContract(
     @GetUser() user: UserEntity,
-    @Param('id', ParseUUIDPipe) contractId: string,
-    @Req() req: Request,
+    @Param('contractId') contractId: string,
+    @Body('signatureHash') signatureHash: string,
   ) {
-    const result = await this.contractsService.signContract(
-      user,
-      { contractId },
-      req,
-    );
-
-    return {
-      success: true,
-      message: result.allPartiesSigned
-        ? 'Contract signed! All parties have signed. Ready to activate.'
-        : 'Contract signed! Waiting for other party to sign.',
-      data: result,
-    };
+    return this.contractsService.signContract(user, contractId, signatureHash);
   }
 
-  /**
-   * PHASE 2: Activate Project after all signatures
-   * Clones Milestones, creates Escrows, starts Project
-   */
-  @Post(':id/activate')
-  @ApiOperation({ summary: 'Activate Project after contract is fully signed' })
-  @ApiResponse({ status: 200, description: 'Project activated with milestones and escrows' })
-  @ApiResponse({ status: 400, description: 'Not all parties signed or financial mismatch' })
+  @Post('activate/:contractId')
   async activateProject(
     @GetUser() user: UserEntity,
-    @Param('id', ParseUUIDPipe) contractId: string,
-    @Req() req: Request,
+    @Param('contractId') contractId: string,
   ) {
-    const result = await this.contractsService.activateProject(user, contractId, req);
-    return {
-      success: true,
-      message: `Project activated! ${result.milestonesCreated} milestones and ${result.escrowsCreated} escrow entries created.`,
-      data: result,
-    };
+    return this.contractsService.activateProject(user, contractId);
   }
 
-  /**
-   * Get contract details
-   */
-  @Get(':id')
-  @ApiOperation({ summary: 'Get contract details' })
-  @ApiResponse({ status: 200, description: 'Contract details' })
-  @ApiResponse({ status: 404, description: 'Contract not found' })
-  async getContract(@Param('id', ParseUUIDPipe) contractId: string) {
-    const contract = await this.contractsService.getContract(contractId);
-    return {
-      success: true,
-      data: contract,
-    };
-  }
-
-  /**
-   * Get all contracts for a project
-   */
-  @Get('project/:projectId')
-  @ApiOperation({ summary: 'Get all contracts for a project' })
-  async getContractsByProject(@Param('projectId', ParseUUIDPipe) projectId: string) {
-    const contracts = await this.contractsService.getContractsByProject(projectId);
-    return {
-      success: true,
-      data: contracts,
-    };
+  @Get(':id/pdf')
+  async downloadPdf(@Param('id') id: string, @Res() res: Response) {
+    const buffer = await this.contractsService.generatePdf(id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename=contract-${id}.pdf`,
+      'Content-Length': buffer.length,
+    });
+    res.end(buffer);
   }
 }
