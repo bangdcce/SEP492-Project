@@ -29,7 +29,7 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
   };
 
   return (
-    <div className="flex h-screen bg-[#F8FAFC] overflow-hidden">
+    <div className="flex h-screen bg-slate-50/50 overflow-hidden">
       {/* Desktop Sidebar */}
       <AdminSidebar
         isCollapsed={isSidebarCollapsed}
@@ -40,10 +40,10 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
       {isMobileMenuOpen && (
         <>
           <div
-            className="lg:hidden fixed inset-0 bg-black/40 z-30"
+            className="lg:hidden fixed inset-0 bg-black/40 z-50"
             onClick={handleMobileMenuToggle}
           />
-          <div className="lg:hidden fixed inset-y-0 left-0 z-40">
+          <div className="lg:hidden fixed inset-y-0 left-0 z-50">
             <AdminSidebar className="flex" />
           </div>
         </>
