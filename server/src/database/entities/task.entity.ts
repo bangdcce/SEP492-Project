@@ -16,6 +16,13 @@ export enum TaskStatus {
   DONE = 'DONE',
 }
 
+export enum TaskPriority {
+  LOW = 'LOW',
+  MEDIUM = 'MEDIUM',
+  HIGH = 'HIGH',
+  URGENT = 'URGENT',
+}
+
 @Entity('tasks')
 export class TaskEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -76,4 +83,27 @@ export class TaskEntity {
   @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'assignedTo' })
   assignee: any;
+
+  @Column({ nullable: true })
+  reporterId: string;
+
+  @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'reporterId' })
+  reporter: any;
+
+  @Column({
+    type: 'enum',
+    enum: TaskPriority,
+    default: TaskPriority.MEDIUM,
+  })
+  priority: TaskPriority;
+
+  @Column({ type: 'int', nullable: true })
+  storyPoints: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  startDate: Date;
+
+  @Column({ type: 'simple-array', nullable: true })
+  labels: string[];
 }
