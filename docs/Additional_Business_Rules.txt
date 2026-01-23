@@ -1,0 +1,27 @@
+
+BR-55
+The "Active Dispute" list for Staff must only show disputes with status "Open", "In Progress", or "Mediating". "Resolved" disputes are moved to the Archive/History view.
+
+BR-56
+Disputes are automatically prioritized based on "Risk Score". Factors increasing risk include: Amount > $1000, "Unresponsive" tag, or if the user has a low Trust Score.
+
+BR-57
+Creating a dispute immediately freezes 100% of the funds associated with the specific Milestone in question. These funds cannot be withdrawn or released until a Verdict (UC-36/Resolution) is reached.
+
+BR-58
+Dispute Categories are fixed to: "Quality Issue", "Missed Deadline", "Communication/Ghosting", "Payment Issue", and "Scope Creep".
+
+BR-59
+To prevention spam/frivolous disputes, a user cannot raise a dispute on a milestone with $0 funds or a milestone that has already been marked "Completed" for more than 30 days (Statute of Limitations).
+
+BR-60
+Sensitive information in the Dispute Hub (such as internal Staff Notes or Risk Score details) must be hidden from the Client and Freelancer. Only Staff/Admin can view these internal fields.
+
+BR-61
+Evidence files are limited to 50MB per file. Executable files (.exe, .bat) are strictly prohibited for security.
+
+BR-62
+Users have a 14-day window after project completion to submit a rating. After this period, the rating system is locked for that specific project.
+
+BR-63
+System Logs (Audit Logs) must be retained for a minimum of 2 years for legal compliance. Logs older than 2 years may be archived to cold storage.

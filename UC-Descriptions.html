@@ -1,0 +1,1900 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Use Case Descriptions - InterDev</title>
+    <style>
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-family: Arial, sans-serif;
+        font-size: 11pt;
+        margin-bottom: 30px;
+      }
+      td {
+        border: 1px solid black;
+        padding: 8px;
+        vertical-align: top;
+      }
+      .label-cell {
+        width: 20%;
+        /* Removed bold and background color as requested */
+        background-color: white;
+        font-weight: normal;
+        text-align: right; /* Optional: aligns labels for better readability */
+      }
+      .value-cell {
+        /* content cells */
+      }
+      .uc-title {
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- UC-38 & UC-70: Rate Partner -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">
+          (UC-38 / UC-70) Rate Freelancer/Broker/Client
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Client, Freelancer, Broker</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">
+          A Project is marked as "Completed" or "Cancelled". System prompts
+          parties to leave feedback.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Allows users to rate their counterparts based on performance (Soft
+          skills, Quality, Adherence to Schedule) and leave a text review. This
+          data feeds into the Trust Score.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3">
+          <b>PRE1:</b> Project status is "Completed".<br />
+          <b>PRE2:</b> User has not already submitted a review for this project.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Review is saved and visible on profile.<br />
+          <b>POS2:</b> Trust Score is recalculated.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Submit Review</b>
+          <ol>
+            <li>System displays the "Rate Your Experience" modal.</li>
+            <li>User selects a star rating (1-5) for general satisfaction.</li>
+            <li>
+              User selects specific tags (e.g., "Good Communication", "High
+              Quality").
+            </li>
+            <li>User enters a text comment (Optional).</li>
+            <li>User clicks "Submit Review".</li>
+            <li>
+              System calculates the new average score for the target user.
+            </li>
+            <li>System updates the Trust Score (UC-80 logic).</li>
+            <li>System publishes the review on the target user's profile.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.3 Cancel Review</b>
+          <ol>
+            <li>User clicks the "X" or "Cancel" button on the modal.</li>
+            <li>System closes the modal without saving data.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+          <ul>
+            <li>
+              The system displays an error message and prompts the user to retry
+              action when connection is restored.
+            </li>
+          </ul>
+          <b>EXC-02: Database Transaction Error</b>
+          <ul>
+            <li>
+              If the Trust Score calculation fails, the system logs the error
+              and asks the user to try again later. Review is not saved.
+            </li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Medium (Once per project completion)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">BR-62</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-67: View Review History -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-67 View Review History</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Client, Freelancer, Broker</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">
+          User clicks "Edited" label or "View History" on a review.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          View previous versions of an edited review to ensure transparency.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> Review has been edited at least once.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3"><b>POS1:</b> History modal is displayed.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. View History</b>
+          <ol>
+            <li>User clicks on the "Edited" timestamp/label.</li>
+            <li>System opens the History Modal.</li>
+            <li>System lists all versions chronologically.</li>
+            <li>User views the changes.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">BR-62</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-68: Edit Review -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-68 Edit Review</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Client, Freelancer, Broker</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">User clicks "Edit" on their own review.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Allows the author to modify their review within a specific timeframe.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3">
+          <b>PRE1:</b> User is the author of the review.<br />
+          <b>PRE2:</b> Review is within the editable window (72 hours).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Review content is updated.<br />
+          <b>POS2:</b> "Edited" status is applied.<br />
+          <b>POS3:</b> Trust Score is recalculated (if rating changed).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Edit Success</b>
+          <ol>
+            <li>User selects "Edit" from the review menu.</li>
+            <li>System loads the review data into the form.</li>
+            <li>User modifies the rating, tags, or text.</li>
+            <li>User clicks "Save Changes".</li>
+            <li>System records the old version in history (UC-67).</li>
+            <li>System updates the live review.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.1 Cancel Edit</b>
+          <ol>
+            <li>User clicks "Cancel".</li>
+            <li>System discards changes.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Edit Period Expired</b>
+          <ul>
+            <li>
+              If user attempts to edit after 72 hours, System denies access and
+              shows "Edit period expired".
+            </li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">BR-62 (Edit Window)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-69: Report Review -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-69 Report Review</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Client, Freelancer, Broker</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System, Admin</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">User clicks "Report Abuse" on a review.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Flag a review for policy violations (Spam, Hate Speech, etc.).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> User is logged in.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Report is filed to Admin Queue (UC-71).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Submit Report</b>
+          <ol>
+            <li>User clicks "Report Abuse".</li>
+            <li>System asks for a reason (Spam, Harassment, Irrelevant).</li>
+            <li>User adds optional details.</li>
+            <li>User clicks "Submit Report".</li>
+            <li>
+              System acknowledges receipt ("Report submitted for review").
+            </li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Already Reported</b>
+          <ul>
+            <li>
+              If user tries to report the same review twice, System alerts "You
+              have already reported this review".
+            </li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-42 & UC-76: View List Active Dispute -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">(UC-42 / UC-76) View Dispute List</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Staff, Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Staff logs in and accesses Dashboard.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Allows authorized staff to view a centralized queue of active disputes
+          for triage.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> User is authenticated as Staff/Admin.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3"><b>POS1:</b> List is displayed sorted by priority.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. View Queue Successfully</b>
+          <ol>
+            <li>The Staff selects the "Dispute Queue" menu item.</li>
+            <li>
+              The System retrieves the list of disputes assigned to the Staff or
+              unassigned in the pool, filtered by "Active" status (Open, In
+              Progress). (Refer BR-55)
+            </li>
+            <li>
+              The System calculates the logic for "Complexity Badge" and "Risk
+              Score" for each item.
+            </li>
+            <li>
+              The System displays the dispute cards sorted by Priority (Critical
+              first).
+            </li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 Empty Queue</b>
+          <ol>
+            <li>System detects zero active disputes in database.</li>
+            <li>
+              System displays an "All caught up" message with an empty state
+              illustration.
+            </li>
+          </ol>
+          <b>A.4 Filter by My Disputes</b>
+          <ol>
+            <li>Staff clicks the "My Disputes" filter tab.</li>
+            <li>
+              System updates the list to show only items assigned to the current
+              user ID.
+            </li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+          <ul>
+            <li>
+              The system displays an error message and prompts the user to
+              refresh the page when connection is restored.
+            </li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">High</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">High (Daily)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">BR-55, BR-56</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-43: Create Dispute -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-43 Create Dispute</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Client, Freelancer</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">User clicks "Raise Dispute".</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">Initiating a formal dispute for mediation.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3">
+          <b>PRE1:</b> Milestone is active/founded.<br />
+          <b>PRE2:</b> No existing open dispute on this milestone.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Funds frozen.<br />
+          <b>POS2:</b> Staff notified.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Create Dispute Wizard</b>
+          <ol>
+            <li>The User clicks "Raise Dispute".</li>
+            <li>The System opens the Dispute Wizard modal (Step 1).</li>
+            <li>
+              The User selects a "Reason Category" (Quality, Deadline,
+              Communication, etc.). (Refer BR-58)
+            </li>
+            <li>
+              The User selects the "Defendant" (Faulty Party) from the dropdown
+              list.
+            </li>
+            <li>
+              The User enters a detailed description (> 20 characters)
+              explaining the issue.
+            </li>
+            <li>
+              The User optionally uploads supporting evidence files
+              (Images/PDFs).
+            </li>
+            <li>The User clicks "Confirm Dispute".</li>
+            <li>
+              The System saves the dispute, freezes the funds, and redirects the
+              user to the Dispute Detail page (UC-44).
+            </li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 Cancel Creation</b>
+          <ol>
+            <li>User clicks "Back" or "Cancel".</li>
+            <li>System closes the wizard.</li>
+            <li>No dispute is created, funds remain active.</li>
+          </ol>
+          <b>A.5 Invalid Input Retry</b>
+          <ol>
+            <li>User enters too short description.</li>
+            <li>System shows red error "Minimum 20 characters required".</li>
+            <li>User edits the text to be longer.</li>
+            <li>System enables the "Confirm" button.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+          <ul>
+            <li>
+              The system displays an error message and prompts the user to retry
+              action when connection is restored.
+            </li>
+          </ul>
+          <b>EXC-02: Invalid Input Data</b>
+          <ul>
+            <li>
+              If description is less than 20 characters, System highlights the
+              field in red and disables the Submit button.
+            </li>
+          </ul>
+          <b>EXC-03: File Upload Error</b>
+          <ul>
+            <li>
+              If evidence file exceeds 50MB (BR-61) or is an invalid type,
+              System displays "File Upload Failed" and rejects the file.
+            </li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">High</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low (Exceptional case)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">BR-57, BR-58, BR-59</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-44 & UC-77: View Dispute Information -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">
+          (UC-44 / UC-77) View Dispute Information
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Client, Freelancer, Staff</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">User clicks on a Dispute.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Detailed view of the Dispute Hub (Timeline, Evidence, Chat).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> User has view permission.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Dispute details are displayed.<br />
+          <b>POS2:</b> Sub-features (Evidence, Chat) are accessible.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Load Dispute Hub</b>
+          <ol>
+            <li>The User requests to view a dispute.</li>
+            <li>
+              The System validates the User has permission (is a party member or
+              Staff).
+            </li>
+            <li>
+              The System loads the Dispute Header (ID, Status, Criticality
+              Badge).
+            </li>
+            <li>
+              The System loads the "Right Sidebar" displaying Involved Parties
+              and Frozen Escrow Amount.
+            </li>
+            <li>
+              The System defaults to the "Timeline" tab showing chronological
+              events.
+            </li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.6 Navigate Tabs</b>
+          <ol>
+            <li>User clicks on "Evidence Vault" (UC-45).</li>
+            <li>System switches view to display grid of uploaded files.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+          <ul>
+            <li>
+              The system displays an error message and prompts the user to
+              refresh the page when connection is restored.
+            </li>
+          </ul>
+          <b>EXC-04: User Not Authorized</b>
+          <ul>
+            <li>
+              If a user tries to access a dispute ID they are not part of,
+              System redirects to Dashboard with "Access Denied" error.
+            </li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">High</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">High (During active disputes)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">BR-10, BR-60</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-45: Add Evidence -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-45 Add Evidence</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Client, Freelancer</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">User clicks "Upload".</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">Uploading documents to the Evidence Vault.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> Dispute is open.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3"><b>POS1:</b> File stored.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Upload Success</b>
+          <ol>
+            <li>The User selects files from their local device.</li>
+            <li>The System validates file size and type. (Refer BR-61)</li>
+            <li>The User adds a description/caption for the evidence.</li>
+            <li>The User clicks "Submit Evidence".</li>
+            <li>The System stores the file securely.</li>
+            <li>The System adds an entry to the Dispute Timeline.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 Remove File Before Submit</b>
+          <ol>
+            <li>User selects file.</li>
+            <li>User clicks the "X" button next to file name.</li>
+            <li>System removes file from the pending list.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+          <ul>
+            <li>System displays error "Upload Failed" and allows retry.</li>
+          </ul>
+          <b>EXC-03: File Upload Error</b>
+          <ul>
+            <li>
+              If evidence file exceeds 50MB (BR-61) or is executable (.exe,
+              etc), System immediately rejects file and alerts "Invalid File".
+            </li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">BR-61</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-46: Report Dispute (Escalate) -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">
+          UC-46 Report Dispute (Escalate to Admin)
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Staff</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System, Admin</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">
+          Staff clicks "Escalate to Admin" in the Dispute Hub.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Allows Staff to transfer a high-risk or complex dispute to a Senior
+          Admin for final resolution if they cannot reach a verdict.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3">
+          <b>PRE1:</b> Dispute is assigned to Staff.<br />
+          <b>PRE2:</b> Staff justification is provided.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3"><b>POS1:</b> Dispute assigned to Admin.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Escalation Success</b>
+          <ol>
+            <li>Staff clicks "Escalate".</li>
+            <li>System prompts for "Reason for Escalation".</li>
+            <li>
+              Staff enters reason (e.g., "Conflict of Interest" or "Out of
+              Expertise").
+            </li>
+            <li>System updates Dispute Status to "Escalated".</li>
+            <li>System re-routes the dispute to the Admin Queue.</li>
+            <li>System logs the escalation action.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 Cancel Escalation</b>
+          <ol>
+            <li>Staff decides not to escalate.</li>
+            <li>Staff clicks "Cancel".</li>
+            <li>Dispute remains assigned to current Staff.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">Admin is available to take over.</td>
+      </tr>
+    </table>
+
+    <!-- UC-71: View Moderation Queue -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-71 View Review Moderation Queue</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Admin navigates to "Review Moderation" page.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Displays a list of reviews matching specific criteria (e.g.,
+          Flagged/Reported) for moderation action.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> Admin logged in.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3"><b>POS1:</b> Reviews are listed with actions.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. View Flagged Reviews</b>
+          <ol>
+            <li>Admin selects "Flagged Reviews" filter.</li>
+            <li>System calls `getFlaggedReviews` API.</li>
+            <li>
+              System displays cards showing Reviewer, Rating, Comment, and
+              Report Reason.
+            </li>
+            <li>Admin can proceed to Dismiss or Delete.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 Filter by Status</b>
+          <ol>
+            <li>Admin filters by "Soft Deleted".</li>
+            <li>System lists hidden reviews eligible for restoration.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">High</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">High (Daily)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-72: Soft Delete Review -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-72 Soft Delete Review</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Admin clicks "Delete" on a review item.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Hides a review from public view due to policy violation content.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> Review is currently visible (Active).</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Review status becomes "Deleted".<br />
+          <b>POS2:</b> Trust Score recalculated (omitting this review).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Hide Review</b>
+          <ol>
+            <li>Admin clicks the "Delete/Hide" button.</li>
+            <li>System prompts for "Reason for Deletion".</li>
+            <li>Admin inputs reason (e.g., "Hate Speech").</li>
+            <li>Admin confirms action.</li>
+            <li>
+              System calculates new Trust Score effectively removing this
+              review's impact.
+            </li>
+            <li>System hides review from public profile.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 Cancel Action</b>
+          <ol>
+            <li>Admin closes the modal.</li>
+            <li>No changes made.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">Soft delete allows for future restoration.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-73: Restore Review -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-73 Restore Review</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Admin clicks "Restore" on a deleted review.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Re-activates a previously hidden review (e.g., after successful
+          appeal).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> Review is currently "Deleted".</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Review becomes "Active" visible.<br />
+          <b>POS2:</b> Trust Score recalculated (including this review).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Restore Content</b>
+          <ol>
+            <li>Admin selects a deleted review.</li>
+            <li>
+              System opens "Restore Review Modal" showing preview and history.
+            </li>
+            <li>Admin validates the content is safe.</li>
+            <li>Admin enters "Reason for Restoration".</li>
+            <li>Admin clicks "Restore".</li>
+            <li>System updates status to "Active".</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>N/A</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">Logs previous deleter's name in history.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-74: Dismiss Report -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-74 Dismiss Report</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Admin clicks "Dismiss" on a reported item.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Validates a review as safe, ignoring the user report.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> Review has pending reports.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3"><b>POS1:</b> Report flag is cleared.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Ignore Report</b>
+          <ol>
+            <li>Admin reviews the "Report Reason".</li>
+            <li>Admin determines content is valid.</li>
+            <li>Admin clicks "Dismiss Report".</li>
+            <li>System removes the "Flagged" status.</li>
+            <li>Review remains visible.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>N/A</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-75: Batch Moderation Actions -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-75 Batch Moderation Actions</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Admin selects multiple items and chooses an action.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Deletes or Restores multiple reviews at once to save time.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> Multiple reviews selected in list.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> All selected items processed successfully.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Bulk Delete</b>
+          <ol>
+            <li>Admin checks checkboxes for 5 spam reviews.</li>
+            <li>Admin selects "Bulk Action" -> "Soft Delete".</li>
+            <li>Admin enters a common reason (e.g., "Spam Attack").</li>
+            <li>System processes all IDs loop.</li>
+            <li>System reports "5 items processed".</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.3 Partial Failure</b>
+          <ol>
+            <li>System fails to delete 1 out of 5 items.</li>
+            <li>System shows result: "4 Success, 1 Failed".</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-78: Resolve Dispute (Verdict) -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-78 Resolve Dispute</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Staff, Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Staff Action.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Submitting a final binding decision on the dispute (Who gets the
+          money?).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3">PRE1: Dispute In Progress.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Submit Verdict</b>
+          <ol>
+            <li>Staff navigates to Resolution Tab.</li>
+            <li>
+              Staff selects Verdict Type (Win Client, Win Freelancer, Split).
+            </li>
+            <li>(If Split) Staff adjusts the percentage slider.</li>
+            <li>Staff enters "Legal Analysis" text.</li>
+            <li>Staff clicks "Submit Verdict".</li>
+            <li>System processes transaction.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 Change Verdict Type</b>
+          <ol>
+            <li>Staff initially selects "Win Client".</li>
+            <li>Staff changes mind and clicks "Split Verdict".</li>
+            <li>System updates UI to show slider control.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          <b>EXC-06: Payment Gateway Error</b> - Internal fund transfer failed.
+          System rolls back verdict status and alerts Staff to retry.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Critical</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">Verdict is final and cannot be undone via UI.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">Escrow Service is online.</td>
+      </tr>
+    </table>
+
+    <!-- UC-80: View Trust Profile -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-80 View Trust Profile</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Client, Freelancer, Broker, Staff</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">User clicks on a user's name or avatar.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Displays the public reputation profile of a user, including Trust
+          Score, badges, and review history.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> User is logged in.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Profile page is displayed.<br />
+          <b>POS2:</b> Reviews are listed.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. View Profile</b>
+          <ol>
+            <li>User requests to view a profile.</li>
+            <li>
+              System retrieves user statistics (Completed Projects,
+              Earnings/Spend).
+            </li>
+            <li>System retrieves the calculated Trust Score (0-100).</li>
+            <li>
+              System displays "Badges" (e.g., "Top Rated", "Verified ID") based
+              on score.
+            </li>
+            <li>System lists past reviews (aggregated from UC-38).</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-04: User Not Found/Suspended</b>
+          <ul>
+            <li>
+              If the user account is deleted or suspended, System shows "User
+              not available".
+            </li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">High</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">High</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">BR-62 (Trust Score Calculation)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+    </table>
+
+    <!-- UC-85: View System Logs -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-85 View System Logs</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Admin navigates to "System Audit Logs" page.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Allows Admin to monitor system activities, security events, and user
+          actions for compliance.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> User is logged in as Admin.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Logs are displayed in a paginated table.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Browse Logs</b>
+          <ol>
+            <li>Admin accesses the Audit Log page.</li>
+            <li>System retrieves the latest 20 log entries.</li>
+            <li>
+              System displays summary stats (Total Logs, High Risk count).
+            </li>
+            <li>
+              System displays the log table (Timestamp, Actor, Action, Entity,
+              IP Address).
+            </li>
+            <li>Admin clicks on a specific row to view JSON details.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 Filter Logs</b>
+          <ol>
+            <li>Admin enters a "Search Term" (e.g., User ID).</li>
+            <li>Admin selects a "Date Range" (From/To).</li>
+            <li>Admin filters by "Risk Level" (High/Normal).</li>
+            <li>System updates list to show matching records.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Medium</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">BR-63 (Log Retention Policy)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">Logs are immutable.</td>
+      </tr>
+    </table>
+
+    <!-- UC-86: Export Audit Logs -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-86 Export Audit Logs</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Admin clicks the "Export" button on Logs page.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Generates a downloadable file of the log data for external auditing or
+          offline storage.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> Logs are currently displayed/loaded.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3"><b>POS1:</b> File is downloaded to Admin's device.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. Export to JSON</b>
+          <ol>
+            <li>Admin applies desired filters (Optional).</li>
+            <li>Admin clicks "Export".</li>
+            <li>System compiles the current dataset into a JSON file.</li>
+            <li>
+              System initiates the file download (e.g., audit-logs-date.json).
+            </li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3"><b>N/A</b> (Single action flow)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-03: System Error</b>
+          <ul>
+            <li>
+              If dataset is too large (>10MB), System alerts "Export too large,
+              please reduce date range".
+            </li>
+          </ul>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">Low (Monthly)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">Browser supports Blob downloads.</td>
+      </tr>
+    </table>
+
+    <!-- UC-87: View Platform Statistics -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-87 View Platform Statistics</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%"></td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Admin</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">Admin logs in (Landing Page) or clicks "Dashboard".</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Displays high-level metrics about platform health, user growth, and
+          financial activity.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3"><b>PRE1:</b> Admin logged in.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3"><b>POS1:</b> Dashboard widgets loaded.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. View Dashboard Widgets</b>
+          <ol>
+            <li>System loads the "System Overview" card.</li>
+            <li>System checks "Total Users" count.</li>
+            <li>System checks "Active Projects" count.</li>
+            <li>System displays "Revenue Month-to-Date" chart.</li>
+            <li>Admin views the visual indicators (Graphs/Charts).</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 Refresh Data</b>
+          <ol>
+            <li>Admin clicks "Refresh" or reloads page.</li>
+            <li>System fetches latest real-time numbers.</li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">Low</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">High (Daily)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">Stats are calculated nightly or cached.</td>
+      </tr>
+    </table>
+  </body>
+</html>

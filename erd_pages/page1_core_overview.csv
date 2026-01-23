@@ -1,0 +1,30 @@
+##
+## Draw.io - CORE OVERVIEW
+## Tổng quan - Users và bảng vệ tinh chính
+##
+# label: %name%
+# style: rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;
+# stylename: nodeStyle
+# styles: {"ghostNode": "rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#999999;dashed=1;fontSize=11;", "centerNode": "rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;fontStyle=1;"}
+# namespace: p1_cor-
+# connect: {"from": "refs_n1", "to": "id", "style": "curved=0;rounded=1;edgeStyle=orthogonalEdgeStyle;endArrow=ERone;startArrow=ERmany;html=1;jettySize=60;orthogonalLoop=1;strokeWidth=2;"}
+# connect: {"from": "refs_11", "to": "id", "style": "curved=0;rounded=1;edgeStyle=orthogonalEdgeStyle;endArrow=ERone;startArrow=ERone;html=1;jettySize=60;orthogonalLoop=1;strokeWidth=2;strokeColor=#009900;"}
+# width: 140
+# height: 50
+# padding: 30
+# nodespacing: 180
+# levelseparation: 220
+# layout: auto
+# ignore: id,refs_n1,refs_11,nodeStyle
+##
+## Data
+##
+id,name,refs_n1,refs_11,nodeStyle
+users,users,"","",centerNode
+profiles,profiles,"","users",
+wallets,wallets,"","users",
+projects,projects,"project_requests,users","",
+project_requests,project_requests,"users","",
+disputes,disputes,"projects,users,milestones,disputes","",
+notifications,notifications,"users","",
+milestones,milestones,"projects","",
