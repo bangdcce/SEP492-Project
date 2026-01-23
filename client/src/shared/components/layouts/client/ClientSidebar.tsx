@@ -35,14 +35,14 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
   return (
     <aside
       className={`
-        ${displayClassName} h-full flex-shrink-0 bg-white border-r border-gray-200
+        ${displayClassName} h-full flex-shrink-0 bg-white/80 backdrop-blur-md border-r border-slate-200/60 shadow-sm
         transition-all duration-200 ease-in-out flex flex-col
         ${isCollapsed ? "w-20" : "w-64"}
       `}
     >
       {/* Logo */}
       <div
-        className={`h-14 border-b border-gray-200 flex items-center ${
+        className={`h-14 border-b border-slate-200/60 flex items-center ${
           isCollapsed ? "justify-center px-0" : "justify-between pr-4"
         }`}
       >
@@ -77,7 +77,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
 
       {/* Collapsed Expand Button */}
       {onToggleCollapse && isCollapsed && (
-        <div className="h-12 flex items-center justify-center border-b border-gray-200">
+        <div className="h-12 flex items-center justify-center border-b border-slate-200/60">
           <button
             onClick={onToggleCollapse}
             className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md transition-colors"
@@ -119,7 +119,7 @@ export const ClientSidebar: React.FC<ClientSidebarProps> = ({
                           ${
                             active
                               ? "bg-teal-50 text-teal-700 border-teal-600 font-medium"
-                              : "text-gray-700 border-transparent hover:bg-gray-50 hover:text-gray-900"
+                              : "text-slate-700 border-transparent hover:bg-slate-50 hover:text-slate-900"
                           }
                           ${isCollapsed ? "justify-center" : ""}
                         `}

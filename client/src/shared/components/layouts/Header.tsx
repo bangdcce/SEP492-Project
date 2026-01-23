@@ -80,17 +80,20 @@ export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
       .slice(0, 2);
   };
 
+  const breadcrumbItems =
+    breadcrumbs.length > 0 ? breadcrumbs : ["Home", "Projects", "..."];
+
   return (
-    <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-8 py-4">
+    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/60 px-8 py-4">
       <div className="flex items-center justify-between">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm">
-          {breadcrumbs.map((crumb, index) => (
+          {breadcrumbItems.map((crumb, index) => (
             <React.Fragment key={index}>
               {index > 0 && <ChevronRight className="h-4 w-4 text-gray-400" />}
               <span
                 className={
-                  index === breadcrumbs.length - 1
+                  index === breadcrumbItems.length - 1
                     ? "text-slate-900"
                     : "text-gray-500"
                 }

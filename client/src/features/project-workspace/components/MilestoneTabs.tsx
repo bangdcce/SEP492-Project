@@ -8,7 +8,8 @@ type MilestoneTabsProps = {
   selectedId?: string | null;
   tasksMap?: Record<string, Task[]>;
   onSelect: (id: string) => void;
-  onAdd: () => void;
+  /** Optional - if not provided, "Add Milestone" button is hidden (read-only mode) */
+  onAdd?: () => void;
 };
 
 export function MilestoneTabs({
@@ -49,13 +50,16 @@ export function MilestoneTabs({
           </span>
         </button>
       ))}
-      <button
-        onClick={onAdd}
-        className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-teal-300 text-teal-700 hover:bg-teal-50 transition-colors"
-      >
-        <Plus className="h-4 w-4" />
-        Add Milestone
-      </button>
+      {/* Only show Add Milestone button if onAdd is provided (not read-only mode) */}
+      {onAdd && (
+        <button
+          onClick={onAdd}
+          className="flex items-center gap-2 px-3 py-2 rounded-lg border border-dashed border-teal-300 text-teal-700 hover:bg-teal-50 transition-colors"
+        >
+          <Plus className="h-4 w-4" />
+          Add Milestone
+        </button>
+      )}
     </div>
   );
 }

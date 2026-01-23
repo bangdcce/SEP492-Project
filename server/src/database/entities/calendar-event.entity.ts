@@ -20,6 +20,7 @@ export enum EventType {
   INTERNAL_MEETING = 'INTERNAL_MEETING', // Họp nội bộ (Staff/Admin)
   PERSONAL_BLOCK = 'PERSONAL_BLOCK', // Khóa lịch cá nhân (nghỉ, bận việc riêng)
   REVIEW_SESSION = 'REVIEW_SESSION', // Phiên review code/deliverable
+  TASK_DEADLINE = 'TASK_DEADLINE', // Task deadline (auto-created from task)
   OTHER = 'OTHER',
 }
 

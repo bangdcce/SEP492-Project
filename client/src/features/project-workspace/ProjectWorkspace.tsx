@@ -3,24 +3,47 @@ import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import { useParams } from "react-router-dom";
 import { LayoutGrid, Calendar as CalendarIcon } from "lucide-react";
 import { Spinner } from "@/shared/components/ui";
+import { STORAGE_KEYS } from "@/constants";
 import {
   fetchBoard,
   updateTaskStatus,
   createTask,
   fetchMilestones,
   createMilestone,
+  submitTask,
+  approveMilestone,
+  createDispute,
 } from "./api";
 import type { KanbanBoard, KanbanColumnKey, Task, Milestone } from "./types";
 import { KanbanColumn } from "./components/KanbanColumn";
 import { CreateTaskModal } from "./components/CreateTaskModal";
+import { TaskDetailModal } from "./components/TaskDetailModal";
 import { MilestoneTabs } from "./components/MilestoneTabs";
 import { CalendarView } from "./components/CalendarView";
+import { MilestoneApprovalCard } from "./components/MilestoneApprovalCard";
+import {
+  CreateDisputeModal,
+  type CreateDisputeData,
+} from "./components/CreateDisputeModal";
 import { calculateProgress } from "./utils";
 
 const initialBoard: KanbanBoard = {
   TODO: [],
   IN_PROGRESS: [],
   DONE: [],
+};
+
+// Helper to get current user from localStorage
+const getCurrentUser = (): { id: string; role?: string } | null => {
+  try {
+    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
+    if (userStr) {
+      return JSON.parse(userStr);
+    }
+  } catch {
+    // ignore parse errors
+  }
+  return null;
 };
 
 export function ProjectWorkspace() {
@@ -30,13 +53,40 @@ export function ProjectWorkspace() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
+  const [newSpecFeatureId, setNewSpecFeatureId] = useState("");
+  const [newStartDate, setNewStartDate] = useState("");
+  const [newDueDate, setNewDueDate] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
     null
   );
   const [viewMode, setViewMode] = useState<"board" | "calendar">("board");
+  
+  // Task Detail Modal state
+  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
+
+  // Dispute Modal state
+  const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
+  const [selectedMilestoneForDispute, setSelectedMilestoneForDispute] =
+    useState<Milestone | null>(null);
+
   const { projectId } = useParams();
+
+  // Get current user for role-based UI restrictions
+  const currentUser = useMemo(() => getCurrentUser(), []);
+  
+  // CLIENT users should have read-only access (no creating tasks/milestones)
+  const isReadOnly = useMemo(() => {
+    const role = currentUser?.role?.toUpperCase();
+    return role === "CLIENT";
+  }, [currentUser]);
+
+  const canApproveMilestone = useMemo(() => {
+    const role = currentUser?.role?.toUpperCase();
+    return role === "CLIENT" || role === "BROKER";
+  }, [currentUser]);
 
   useEffect(() => {
     if (!projectId) {
@@ -160,6 +210,171 @@ export function ProjectWorkspace() {
     return tasks;
   }, [board]);
 
+  // Handle viewing task details (from Calendar or Kanban)
+  const handleViewTaskDetails = (taskId: string) => {
+    const task = allTasks.find((t) => t.id === taskId);
+    if (task) {
+      setSelectedTask(task);
+      setIsTaskDetailOpen(true);
+    }
+  };
+
+  // Handle closing task detail modal
+  const handleCloseTaskDetail = () => {
+    setIsTaskDetailOpen(false);
+    setSelectedTask(null);
+  };
+
+  // Handle edit task (placeholder for future implementation)
+  const handleEditTask = (task: Task) => {
+    console.log("Edit task:", task.id);
+    // TODO: Open edit modal or navigate to edit page
+    handleCloseTaskDetail();
+  };
+
+  // Handle milestone approval (Client/Broker only)
+  const handleApproveMilestone = async (
+    milestoneId: string,
+    feedback?: string
+  ) => {
+    try {
+      setError(null);
+      const result = await approveMilestone(milestoneId, feedback);
+
+      // Update the milestone status in local state
+      setMilestones((prev) =>
+        prev.map((m) =>
+          m.id === milestoneId
+            ? { ...m, status: "COMPLETED" }
+            : m
+        )
+      );
+
+      console.log(
+        `✅ Milestone "${result.milestone.title}" approved! Funds released: ${result.fundsReleased}`
+      );
+      
+      // Show success message (you could use a toast here)
+      alert(result.message);
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to approve milestone";
+      setError(errorMessage);
+      throw err; // Re-throw so the modal can handle it
+    }
+  };
+
+  // Handle raising a dispute (opens the dispute modal)
+  const handleRaiseDispute = (milestoneId: string) => {
+    const milestone = milestones.find((m) => m.id === milestoneId);
+    if (milestone) {
+      setSelectedMilestoneForDispute(milestone);
+      setIsDisputeModalOpen(true);
+    }
+  };
+
+  // Handle dispute submission
+  const handleSubmitDispute = async (data: CreateDisputeData) => {
+    if (!projectId || !selectedMilestoneForDispute) {
+      throw new Error("Missing project or milestone information");
+    }
+
+    try {
+      setError(null);
+
+      // Get the freelancer ID from the project
+      // For now, we'll need to get this from somewhere - could be stored in state or fetched
+      // Assuming the milestone has projectId and we can derive freelancerId
+      // This is a simplification - in a real app, you'd fetch project details
+      const defendantId = "freelancer-id-placeholder"; // TODO: Get actual freelancer ID
+
+      await createDispute({
+        projectId,
+        milestoneId: selectedMilestoneForDispute.id,
+        defendantId, // This should be the freelancer's ID
+        reason: `${data.title}\n\n${data.description}`,
+        evidence: data.evidence,
+        category: data.category,
+        disputedAmount: selectedMilestoneForDispute.amount,
+      });
+
+      console.log(
+        `⚠️ Dispute raised for milestone "${selectedMilestoneForDispute.title}"`
+      );
+
+      // Close modal and show success
+      setIsDisputeModalOpen(false);
+      setSelectedMilestoneForDispute(null);
+      alert(
+        "Dispute submitted successfully. Our mediation team will review your case."
+      );
+
+      // Optionally refresh data to show dispute status
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to submit dispute";
+      setError(errorMessage);
+      throw err; // Re-throw so the modal can handle it
+    }
+  };
+
+  // Handle task submission with proof of work
+  const handleSubmitTask = async (
+    taskId: string,
+    data: { submissionNote?: string; proofLink: string }
+  ) => {
+    try {
+      setError(null);
+      const result = await submitTask(taskId, data);
+
+      // Update the board with the submitted task (moved to DONE)
+      setBoard((prev) => {
+        const newBoard = { ...prev };
+
+        // Remove task from its current column
+        for (const column of ["TODO", "IN_PROGRESS", "DONE"] as KanbanColumnKey[]) {
+          newBoard[column] = newBoard[column].filter((t) => t.id !== taskId);
+        }
+
+        // Add updated task to DONE column
+        newBoard.DONE = [
+          {
+            ...result.task,
+            status: "DONE" as KanbanColumnKey,
+            submissionNote: data.submissionNote || null,
+            proofLink: data.proofLink,
+            submittedAt: new Date().toISOString(),
+          },
+          ...newBoard.DONE,
+        ];
+
+        return newBoard;
+      });
+
+      // Update selected task to show the submission info
+      setSelectedTask((prev) =>
+        prev?.id === taskId
+          ? {
+              ...prev,
+              status: "DONE" as KanbanColumnKey,
+              submissionNote: data.submissionNote || null,
+              proofLink: data.proofLink,
+              submittedAt: new Date().toISOString(),
+            }
+          : prev
+      );
+
+      console.log(
+        `✅ Task ${taskId} submitted! Milestone progress: ${result.milestoneProgress}%`
+      );
+    } catch (err: unknown) {
+      const errorMessage =
+        err instanceof Error ? err.message : "Failed to submit task";
+      setError(errorMessage);
+      throw err; // Re-throw so the modal can handle it
+    }
+  };
+
   const handleDragEnd = async (result: DropResult) => {
     const { destination, source, draggableId } = result;
     if (!destination) return;
@@ -171,6 +386,7 @@ export function ProjectWorkspace() {
       return;
     }
 
+    // Save previous state for rollback
     const prevBoard: KanbanBoard = (
       ["TODO", "IN_PROGRESS", "DONE"] as KanbanColumnKey[]
     ).reduce(
@@ -181,6 +397,7 @@ export function ProjectWorkspace() {
       { ...initialBoard }
     );
 
+    // Optimistic UI update - move the card immediately
     const nextBoard: KanbanBoard = {
       ...prevBoard,
       [fromColumn]: [...prevBoard[fromColumn]],
@@ -195,9 +412,33 @@ export function ProjectWorkspace() {
     setBoard(nextBoard);
 
     try {
-      await updateTaskStatus(draggableId, toColumn);
+      // Call API and get updated milestone progress
+      const response = await updateTaskStatus(draggableId, toColumn);
       setError(null);
+
+      // 🎯 REAL-TIME PROGRESS UPDATE
+      // If the task moved to/from DONE column, the backend recalculated progress
+      // Update the milestones state to reflect the new progress
+      if (response.milestoneId) {
+        setMilestones((prevMilestones) =>
+          prevMilestones.map((milestone) =>
+            milestone.id === response.milestoneId
+              ? {
+                  ...milestone,
+                  // Store progress info in milestone for display
+                  // (Milestone type doesn't have progress field, but UI uses tasksByMilestone)
+                }
+              : milestone
+          )
+        );
+
+        // Log for debugging
+        console.log(
+          `✅ Milestone ${response.milestoneId} progress updated: ${response.milestoneProgress}% (${response.completedTasks}/${response.totalTasks})`
+        );
+      }
     } catch (err: any) {
+      // Rollback on error
       setBoard(prevBoard);
       setError(err?.message || "Failed to update task status");
     }
@@ -226,6 +467,9 @@ export function ProjectWorkspace() {
         description: newDescription,
         projectId,
         milestoneId: selectedMilestoneId,
+        specFeatureId: newSpecFeatureId || undefined,
+        startDate: newStartDate || undefined,
+        dueDate: newDueDate || undefined,
       });
 
       setBoard((prev) => ({
@@ -233,9 +477,13 @@ export function ProjectWorkspace() {
         TODO: [created, ...prev.TODO],
       }));
 
+      // Reset form fields
       setIsModalOpen(false);
       setNewTitle("");
       setNewDescription("");
+      setNewSpecFeatureId("");
+      setNewStartDate("");
+      setNewDueDate("");
     } catch (err: any) {
       setError(err?.message || "Failed to create task");
     } finally {
@@ -281,12 +529,15 @@ export function ProjectWorkspace() {
               Calendar
             </button>
           </div>
-          <button
-            onClick={openCreateModal}
-            className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors shadow-sm"
-          >
-            + New Task
-          </button>
+          {/* Hide New Task button for CLIENT users (read-only mode) */}
+          {!isReadOnly && (
+            <button
+              onClick={openCreateModal}
+              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors shadow-sm"
+            >
+              + New Task
+            </button>
+          )}
         </div>
       </div>
 
@@ -304,23 +555,43 @@ export function ProjectWorkspace() {
             No milestones yet
           </p>
           <p className="text-sm text-gray-600">
-            Create your first milestone to start adding tasks for this project.
+            {isReadOnly
+              ? "The team will create milestones soon. Check back later."
+              : "Create your first milestone to start adding tasks for this project."}
           </p>
-          <button
-            onClick={handleCreateMilestone}
-            className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
-          >
-            + Create Milestone
-          </button>
+          {/* Hide Create Milestone button for CLIENT users (read-only mode) */}
+          {!isReadOnly && (
+            <button
+              onClick={handleCreateMilestone}
+              className="px-4 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors"
+            >
+              + Create Milestone
+            </button>
+          )}
         </div>
       ) : (
         <>
+          {/* Milestone Approval Card - Show when progress is 100% */}
+          {activeMilestone &&
+           activeProgress === 100 &&
+           activeMilestone.status !== "COMPLETED" &&
+           activeMilestone.status !== "PAID" &&
+           canApproveMilestone && (
+            <MilestoneApprovalCard
+              milestone={activeMilestone}
+              tasks={activeTasks}
+              progress={activeProgress}
+              onApprove={handleApproveMilestone}
+              onRaiseDispute={handleRaiseDispute}
+            />
+          )}
+
           <MilestoneTabs
             milestones={milestones}
             selectedId={selectedMilestoneId || undefined}
             tasksMap={tasksByMilestone}
             onSelect={handleSelectMilestone}
-            onAdd={handleCreateMilestone}
+            onAdd={isReadOnly ? undefined : handleCreateMilestone}
           />
 
           {activeMilestone && viewMode === "board" && (
@@ -361,12 +632,16 @@ export function ProjectWorkspace() {
                     description={col.description}
                     tasks={filteredBoard[col.key]}
                     onAddTask={openCreateModal}
+                    isReadOnly={isReadOnly}
                   />
                 ))}
               </div>
             </DragDropContext>
           ) : (
-            <CalendarView tasks={allTasks} />
+            <CalendarView
+              tasks={allTasks}
+              onViewTaskDetails={handleViewTaskDetails}
+            />
           )}
         </>
       )}
@@ -376,11 +651,37 @@ export function ProjectWorkspace() {
         title={newTitle}
         description={newDescription}
         milestoneId={selectedMilestoneId || undefined}
+        specFeatureId={newSpecFeatureId}
+        startDate={newStartDate}
+        dueDate={newDueDate}
         isSubmitting={isSubmitting}
         onClose={() => setIsModalOpen(false)}
         onSubmit={handleCreateTask}
         onChangeTitle={setNewTitle}
         onChangeDescription={setNewDescription}
+        onChangeSpecFeature={setNewSpecFeatureId}
+        onChangeStartDate={setNewStartDate}
+        onChangeDueDate={setNewDueDate}
+      />
+
+      {/* Task Detail Modal - View & Submit Work */}
+      <TaskDetailModal
+        isOpen={isTaskDetailOpen}
+        task={selectedTask}
+        onClose={handleCloseTaskDetail}
+        onEdit={handleEditTask}
+        onSubmitTask={handleSubmitTask}
+      />
+
+      {/* Dispute Modal - Raise dispute for milestone */}
+      <CreateDisputeModal
+        isOpen={isDisputeModalOpen}
+        milestone={selectedMilestoneForDispute}
+        onClose={() => {
+          setIsDisputeModalOpen(false);
+          setSelectedMilestoneForDispute(null);
+        }}
+        onSubmit={handleSubmitDispute}
       />
     </div>
   );

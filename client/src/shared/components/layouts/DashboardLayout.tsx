@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
@@ -16,8 +16,6 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
 }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-
   // Determine menu items based on user role
   const userStr = localStorage.getItem(STORAGE_KEYS.USER);
   const user = userStr ? JSON.parse(userStr) : null;
@@ -34,26 +32,15 @@ export const DashboardLayout: React.FC<DashboardLayoutProps> = ({
     navigate(path);
   };
 
-  const handleToggleSidebar = () => {
-    setIsSidebarCollapsed(!isSidebarCollapsed);
-  };
-
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-slate-50/50 flex">
       <Sidebar
         menuItems={menuItems}
         activePath={location.pathname}
         onNavigate={handleNavigate}
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={handleToggleSidebar}
       />
 
-      <div
-        className={`
-          transition-all duration-300 ease-in-out
-          ${isSidebarCollapsed ? "ml-20" : "ml-64"}
-        `}
-      >
+      <div className="flex-1 min-w-0">
         <Header breadcrumbs={breadcrumbs} />
 
         <main className="p-8">{children}</main>
