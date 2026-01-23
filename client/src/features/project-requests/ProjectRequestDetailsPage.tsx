@@ -20,7 +20,7 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-} from "@/shared/components/ui/Card";
+} from "@/shared/components/ui/card";
 import { Separator } from "@/shared/components/ui/separator";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 
