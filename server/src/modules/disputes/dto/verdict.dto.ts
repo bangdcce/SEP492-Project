@@ -69,8 +69,8 @@ export class VerdictReasoningDto {
  */
 export class AdminVerdictDto {
   @IsUUID()
-  @IsNotEmpty()
-  disputeId: string;
+  @IsOptional()
+  disputeId?: string;
 
   // === DECISION ===
   @IsEnum(DisputeResult, {
@@ -91,6 +91,10 @@ export class AdminVerdictDto {
   @Type(() => VerdictReasoningDto)
   @IsNotEmpty({ message: 'Lý do phán quyết không được để trống' })
   reasoning: VerdictReasoningDto;
+
+  @IsString()
+  @IsOptional()
+  adminComment?: string;
 
   // === MONEY SPLIT ===
   @IsNumber()

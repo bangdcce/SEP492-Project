@@ -120,7 +120,6 @@ export class ReviewController {
     @GetUser('id') adminId: string,
     @Param('id') id: string,
     @Body() dto: DeleteReviewDto,
-    @Req() req: RequestContext,
   ) {
     return this.reviewService.softDelete(id, adminId, dto.reason);
   }
@@ -134,7 +133,6 @@ export class ReviewController {
     @GetUser('id') adminId: string,
     @Param('id') id: string,
     @Body() dto: { reason: string },
-    @Req() req: RequestContext,
   ) {
     return this.reviewService.restore(id, adminId, dto.reason);
   }
@@ -148,7 +146,6 @@ export class ReviewController {
     @GetUser('id') adminId: string,
     @Param('id') id: string,
     @Body() dto: { reason?: string },
-    @Req() req: RequestContext,
   ) {
     return this.reviewService.dismissReport(id, adminId, dto.reason);
   }

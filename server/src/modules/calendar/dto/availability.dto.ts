@@ -76,6 +76,26 @@ export class CreateRecurringAvailabilityDto {
 }
 
 /**
+ * DTO để set availability (one-time + recurring)
+ */
+export class SetAvailabilityDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CreateAvailabilityDto)
+  @IsOptional()
+  slots?: CreateAvailabilityDto[];
+
+  @ValidateNested()
+  @Type(() => CreateRecurringAvailabilityDto)
+  @IsOptional()
+  recurring?: CreateRecurringAvailabilityDto;
+
+  @IsBoolean()
+  @IsOptional()
+  allowConflicts?: boolean;
+}
+
+/**
  * DTO để query availability
  */
 export class AvailabilityQueryDto {

@@ -364,4 +364,75 @@ export interface StaffAssignmentEvents {
     staffId: string;
     releasedMinutes: number;
   };
+  // NEW: Workload update events
+  'workload.incremented': {
+    staffId: string;
+    disputeId: string;
+    newPendingCount: number;
+  };
+  'workload.decremented': {
+    staffId: string;
+    disputeId: string;
+    newPendingCount: number;
+  };
+}
+
+// =============================================================================
+// STAFF SUGGESTION (For Reassignment UI)
+// =============================================================================
+
+/**
+ * Staff suggestion for reassignment
+ * Used by Admin UI to display replacement options
+ */
+export type SuggestionLevel = 'RECOMMENDED' | 'AVAILABLE' | 'BUSY' | 'CONFLICT';
+
+export interface StaffSuggestion {
+  staffId: string;
+  staffName: string;
+  staffEmail?: string;
+
+  /** Số vụ đang xử lý */
+  currentWorkload: number;
+
+  /** Skill match score 0-100 */
+  skillMatchScore: number;
+
+  /** Có trống lịch tại thời điểm cần không */
+  isAvailableAtTime: boolean;
+
+  /** Event ID nếu trùng lịch */
+  conflictingEventId?: string;
+
+  /** Tên event trùng lịch */
+  conflictingEventTitle?: string;
+
+  /** Cấp độ gợi ý */
+  suggestion: SuggestionLevel;
+
+  /** Màu hiển thị trên UI */
+  displayColor: 'green' | 'yellow' | 'red';
+
+  /** Lý do gợi ý / không gợi ý */
+  reason: string;
+
+  /** Metrics chi tiết */
+  metrics?: {
+    utilizationRate: number;
+    avgUserRating: number;
+    overturnRate: number;
+  };
+}
+
+/**
+ * Result of suggestion API
+ */
+export interface StaffSuggestionResult {
+  disputeId: string;
+  currentStaffId?: string;
+  currentStaffName?: string;
+  scheduledTime?: Date;
+  suggestions: StaffSuggestion[];
+  totalCandidates: number;
+  recommendedStaffId: string | null;
 }

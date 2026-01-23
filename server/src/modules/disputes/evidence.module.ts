@@ -4,7 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { EvidenceService } from './services/evidence.service';
 import { EvidenceController } from './controllers/evidence.controller';
-import { DisputeEvidenceEntity, DisputeEntity, UserEntity } from 'src/database/entities';
+import { DisputeActivityEntity, DisputeEvidenceEntity, DisputeEntity, UserEntity } from 'src/database/entities';
 
 /**
  * Evidence Module - Quản lý bằng chứng cho tranh chấp
@@ -21,7 +21,7 @@ import { DisputeEvidenceEntity, DisputeEntity, UserEntity } from 'src/database/e
       max: 5000, // Max 5000 cached URLs
     }),
     // TypeORM entities
-    TypeOrmModule.forFeature([DisputeEvidenceEntity, DisputeEntity, UserEntity]),
+    TypeOrmModule.forFeature([DisputeEvidenceEntity, DisputeEntity, DisputeActivityEntity, UserEntity]),
   ],
   controllers: [EvidenceController],
   providers: [EvidenceService],

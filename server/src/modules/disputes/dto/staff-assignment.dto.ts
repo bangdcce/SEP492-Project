@@ -240,6 +240,36 @@ export class WorkloadQueryDto {
 }
 
 // =============================================================================
+// REASSIGN DISPUTE (Manual)
+// =============================================================================
+
+export class ReassignDisputeDto {
+  @ApiProperty({
+    description: 'ID của staff mới sẽ xử lý dispute',
+    example: 'b2c3d4e5-f6a7-8901-bcde-f12345678901',
+  })
+  @IsUUID()
+  newStaffId: string;
+
+  @ApiProperty({
+    description: 'Lý do reassign',
+    example: 'Rebalancing workload between staff members',
+    minLength: 10,
+  })
+  @IsString()
+  @MinLength(10, { message: 'Please provide a detailed reason (minimum 10 characters)' })
+  reason: string;
+
+  @ApiPropertyOptional({
+    description: 'Ghi chú thêm cho việc reassign',
+    example: 'Staff A is overloaded this week',
+  })
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+// =============================================================================
 // SESSION ADJOURN
 // =============================================================================
 

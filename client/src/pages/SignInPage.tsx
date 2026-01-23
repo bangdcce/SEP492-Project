@@ -1,13 +1,13 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AuthLayout } from '../shared/components/layouts/AuthLayout';
-import { Input } from '../shared/components/custom/input';
-import { Button } from '../shared/components/custom/Button';
+import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { AuthLayout } from "../shared/components/layouts/AuthLayout";
+import { Input } from "../shared/components/custom/input";
+import { Button } from "../shared/components/custom/Button";
 // import { GoogleButton } from '../shared/components/auth/GoogleButton';
-import { Eye, EyeOff } from 'lucide-react';
-import { toast } from 'sonner';
-import { ROUTES, STORAGE_KEYS } from '@/constants';
-import { signIn } from '@/features/auth';
+import { Eye, EyeOff } from "lucide-react";
+import { toast } from "sonner";
+import { ROUTES, STORAGE_KEYS } from "@/constants";
+import { signIn } from "@/features/auth";
 
 export interface SignInPageProps {
   onNavigateToSignUp?: () => void;
@@ -15,15 +15,15 @@ export interface SignInPageProps {
   onSignInSuccess?: () => void;
 }
 
-export function SignInPage({ 
-  onNavigateToSignUp, 
+export function SignInPage({
+  onNavigateToSignUp,
   onNavigateToForgotPassword,
-  onSignInSuccess 
+  onSignInSuccess,
 }: SignInPageProps = {}) {
   const navigate = useNavigate();
   const [formData, setFormData] = useState({
-    email: '',
-    password: '',
+    email: "",
+    password: "",
     rememberMe: false,
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -41,15 +41,15 @@ export function SignInPage({
 
     // Validation
     if (!formData.email) {
-      newErrors.email = 'Email is required';
+      newErrors.email = "Email is required";
     } else if (!validateEmail(formData.email)) {
-      newErrors.email = 'Invalid email address';
+      newErrors.email = "Invalid email address";
     }
 
     if (!formData.password) {
-      newErrors.password = 'Password is required';
+      newErrors.password = "Password is required";
     } else if (formData.password.length < 8) {
-      newErrors.password = 'Password must be at least 8 characters';
+      newErrors.password = "Password must be at least 8 characters";
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -67,44 +67,48 @@ export function SignInPage({
       });
 
       // Save tokens to localStorage
-      console.log('Login response:', response);
-      
+      console.log("Login response:", response);
+
       // Backend returns {message, data: {accessToken, refreshToken, user}}
       const loginData = (response as any).data || response;
-      console.log('Access token:', loginData.accessToken);
-      console.log('User:', loginData.user);
-      
+      console.log("Access token:", loginData.accessToken);
+      console.log("User:", loginData.user);
+
       localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, loginData.accessToken);
       localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, loginData.refreshToken);
       localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(loginData.user));
 
       // Dispatch event to notify Header component of user data update
-      window.dispatchEvent(new Event('userDataUpdated'));
+      window.dispatchEvent(new Event("userDataUpdated"));
 
-      toast.success('Sign in successful!');
-      
+      toast.success("Sign in successful!");
+
       if (onSignInSuccess) {
         onSignInSuccess();
       } else {
         // Role-based redirect
         const userRole = loginData.user?.role?.toUpperCase();
-        
-        if (userRole === 'ADMIN') {
+
+        if (userRole === "ADMIN") {
           navigate(ROUTES.ADMIN_DASHBOARD);
-        } else if (userRole === 'CLIENT' || userRole === 'SME') {
+        } else if (userRole === "CLIENT" || userRole === "SME") {
           navigate(ROUTES.CLIENT_DASHBOARD);
-        } else if (userRole === 'FREELANCER') {
+        } else if (userRole === "FREELANCER") {
           navigate(ROUTES.FREELANCER_DASHBOARD);
-        } else if (userRole === 'BROKER') {
+        } else if (userRole === "BROKER") {
+        } else if (userRole === "BROKER") {
           navigate(ROUTES.BROKER_DASHBOARD);
+        } else if (userRole === "STAFF") {
+          navigate("/staff/dashboard");
         } else {
           // Default fallback to client dashboard
           navigate(ROUTES.CLIENT_DASHBOARD);
         }
       }
     } catch (error: any) {
-      console.error('Sign in error:', error);
-      const errorMessage = error.response?.data?.message || 'Invalid email or password';
+      console.error("Sign in error:", error);
+      const errorMessage =
+        error.response?.data?.message || "Invalid email or password";
       setErrors({ password: errorMessage });
       toast.error(errorMessage);
     } finally {
@@ -113,15 +117,15 @@ export function SignInPage({
   };
 
   const handleChange = (field: string, value: string | boolean) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) {
-      setErrors(prev => ({ ...prev, [field]: '' }));
+      setErrors((prev) => ({ ...prev, [field]: "" }));
     }
   };
 
   return (
-    <AuthLayout 
-      title="Sign In" 
+    <AuthLayout
+      title="Sign In"
       subtitle="Welcome back! Access your dashboard and manage your projects."
     >
       <form onSubmit={handleSubmit} className="space-y-6">
@@ -145,7 +149,9 @@ export function SignInPage({
           type="email"
           placeholder="Enter your email"
           value={formData.email}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('email', e.target.value)}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            handleChange("email", e.target.value)
+          }
           error={errors.email}
         />
 
@@ -153,10 +159,12 @@ export function SignInPage({
           <Input
             id="password"
             label="Password"
-            type={showPassword ? 'text' : 'password'}
+            type={showPassword ? "text" : "password"}
             placeholder="Enter your password"
             value={formData.password}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('password', e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              handleChange("password", e.target.value)
+            }
             error={errors.password}
           />
           <button
@@ -166,9 +174,15 @@ export function SignInPage({
             tabIndex={-1}
           >
             {showPassword ? (
-              <EyeOff className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+              <EyeOff
+                className="w-5 h-5"
+                style={{ color: "var(--auth-text-muted)" }}
+              />
             ) : (
-              <Eye className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+              <Eye
+                className="w-5 h-5"
+                style={{ color: "var(--auth-text-muted)" }}
+              />
             )}
           </button>
         </div>
@@ -178,43 +192,54 @@ export function SignInPage({
             <input
               type="checkbox"
               checked={formData.rememberMe}
-              onChange={(e) => handleChange('rememberMe', e.target.checked)}
+              onChange={(e) => handleChange("rememberMe", e.target.checked)}
               className="w-4 h-4 rounded cursor-pointer"
               style={{
-                accentColor: 'var(--auth-primary)',
+                accentColor: "var(--auth-primary)",
               }}
             />
-            <span style={{ color: 'var(--auth-text)', fontSize: '0.875rem' }}>
+            <span style={{ color: "var(--auth-text)", fontSize: "0.875rem" }}>
               Remember me
             </span>
           </label>
 
           <button
             type="button"
-            onClick={() => onNavigateToForgotPassword ? onNavigateToForgotPassword() : navigate(ROUTES.FORGOT_PASSWORD)}
+            onClick={() =>
+              onNavigateToForgotPassword
+                ? onNavigateToForgotPassword()
+                : navigate(ROUTES.FORGOT_PASSWORD)
+            }
             className="text-sm hover:underline"
-            style={{ color: 'var(--auth-primary)' }}
+            style={{ color: "var(--auth-primary)" }}
           >
             Forgot password?
           </button>
         </div>
 
-        <Button 
-          type="submit" 
-          variant="primary" 
+        <Button
+          type="submit"
+          variant="primary"
           className="w-full py-3 text-base font-medium justify-center"
           disabled={loading}
         >
-          {loading ? 'Signing in...' : 'Sign In'}
+          {loading ? "Signing in..." : "Sign In"}
         </Button>
 
-        <p className="text-center" style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem' }}>
-          Don't have an account?{' '}
+        <p
+          className="text-center"
+          style={{ color: "var(--auth-text-muted)", fontSize: "0.875rem" }}
+        >
+          Don't have an account?{" "}
           <button
             type="button"
-            onClick={() => onNavigateToSignUp ? onNavigateToSignUp() : navigate(ROUTES.REGISTER)}
+            onClick={() =>
+              onNavigateToSignUp
+                ? onNavigateToSignUp()
+                : navigate(ROUTES.REGISTER)
+            }
             className="hover:underline"
-            style={{ color: 'var(--auth-primary)', fontWeight: 500 }}
+            style={{ color: "var(--auth-primary)", fontWeight: 500 }}
           >
             Sign up
           </button>

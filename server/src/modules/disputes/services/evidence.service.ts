@@ -4,21 +4,28 @@ import {
   BadRequestException,
   NotFoundException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { createHash } from 'crypto';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import axios from 'axios';
+import { fromBuffer } from 'file-type';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import type { Cache } from 'cache-manager';
 import { ConfigService } from '@nestjs/config';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import {
   DisputeEvidenceEntity,
   DisputeEntity,
+  DisputeActivityEntity,
+  DisputeAction,
   UserRole,
   DisputeStatus,
 } from 'src/database/entities';
+import { DISPUTE_EVENTS } from '../events/dispute.events';
 
 // =============================================================================
 // CONSTANTS
@@ -30,10 +37,13 @@ const ALLOWED_MIME_TYPES = [
   'image/webp',
   'application/pdf',
   'text/plain',
+  'application/json',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/zip',
+  'application/x-zip-compressed',
   'video/mp4',
   'video/webm',
   'audio/mpeg',
@@ -47,6 +57,7 @@ const FILE_SIZE_LIMITS: Record<string, number> = {
   'image/webp': 10 * 1024 * 1024,
   'application/pdf': 25 * 1024 * 1024,
   'text/plain': 1 * 1024 * 1024,
+  'application/json': 5 * 1024 * 1024,
   'application/msword': 15 * 1024 * 1024,
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 15 * 1024 * 1024,
   'application/vnd.ms-excel': 15 * 1024 * 1024,
@@ -55,6 +66,8 @@ const FILE_SIZE_LIMITS: Record<string, number> = {
   'video/webm': 50 * 1024 * 1024,
   'audio/mpeg': 20 * 1024 * 1024,
   'audio/wav': 20 * 1024 * 1024,
+  'application/zip': 50 * 1024 * 1024,
+  'application/x-zip-compressed': 50 * 1024 * 1024,
 };
 
 const ABSOLUTE_MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -62,6 +75,8 @@ const MAX_EVIDENCE_PER_USER_PER_DISPUTE = 20;
 const SIGNED_URL_CACHE_TTL_SECONDS = 55 * 60;
 const SIGNED_URL_BATCH_SIZE = 20;
 const BUCKET_NAME = 'disputes';
+const VIRUSTOTAL_BASE_URL = 'https://www.virustotal.com/api/v3';
+const VIRUSTOTAL_BLOCK_THRESHOLD = 1;
 
 // =============================================================================
 // INTERFACES
@@ -70,6 +85,32 @@ export interface FileValidationResult {
   isValid: boolean;
   error?: string;
   sanitizedFileName?: string;
+}
+
+export interface FileContentValidationResult {
+  isValid: boolean;
+  error?: string;
+  actualMimeType?: string | null;
+}
+
+export interface GitEvidenceInput {
+  repoUrl: string;
+  commitHash?: string;
+  branch?: string;
+  filePaths?: string[];
+}
+
+export interface GitEvidenceMetadata {
+  provider: 'github' | 'gitlab' | 'bitbucket';
+  owner: string;
+  repo: string;
+  commitHash?: string;
+}
+
+export interface GitEvidenceValidationResult {
+  valid: boolean;
+  error?: string;
+  metadata?: GitEvidenceMetadata;
 }
 
 export interface StoragePathResult {
@@ -105,6 +146,7 @@ export interface UploadEvidenceResult {
   error?: string;
   isDuplicate?: boolean;
   existingEvidenceId?: string;
+  warning?: string;
 }
 
 export interface EvidenceWithSignedUrl extends DisputeEvidenceEntity {
@@ -124,10 +166,13 @@ export class EvidenceService {
     private readonly evidenceRepo: Repository<DisputeEvidenceEntity>,
     @InjectRepository(DisputeEntity)
     private readonly disputeRepo: Repository<DisputeEntity>,
+    @InjectRepository(DisputeActivityEntity)
+    private readonly activityRepo: Repository<DisputeActivityEntity>,
     @Inject(CACHE_MANAGER)
     private readonly cacheManager: Cache,
     private readonly configService: ConfigService,
     private readonly dataSource: DataSource,
+    @Optional() private readonly eventEmitter?: EventEmitter2,
   ) {
     const supabaseUrl = this.configService.get<string>('SUPABASE_URL');
     const supabaseKey = this.configService.get<string>('SUPABASE_SERVICE_KEY');
@@ -143,8 +188,10 @@ export class EvidenceService {
   // UNIT FUNCTION: validateFileUpload
   // ===========================================================================
   validateFileUpload(fileName: string, fileSize: number, mimeType: string): FileValidationResult {
+    const normalizedMimeType = this.normalizeMimeType(mimeType);
+
     // 1. Check MIME type
-    if (!ALLOWED_MIME_TYPES.includes(mimeType)) {
+    if (!ALLOWED_MIME_TYPES.includes(normalizedMimeType)) {
       return {
         isValid: false,
         error: `File type '${mimeType}' is not allowed. Allowed types: ${ALLOWED_MIME_TYPES.join(', ')}`,
@@ -152,7 +199,7 @@ export class EvidenceService {
     }
 
     // 2. Check file size by type
-    const maxSizeForType = FILE_SIZE_LIMITS[mimeType] || ABSOLUTE_MAX_FILE_SIZE;
+    const maxSizeForType = FILE_SIZE_LIMITS[normalizedMimeType] || ABSOLUTE_MAX_FILE_SIZE;
     if (fileSize > maxSizeForType) {
       const maxSizeMB = Math.round(maxSizeForType / (1024 * 1024));
       return {
@@ -179,7 +226,7 @@ export class EvidenceService {
     }
 
     // 5. Validate extension matches MIME
-    if (!this.validateExtensionMatchesMime(sanitized, mimeType)) {
+    if (!this.validateExtensionMatchesMime(sanitized, normalizedMimeType)) {
       return {
         isValid: false,
         error: 'File extension does not match content type',
@@ -190,6 +237,213 @@ export class EvidenceService {
       isValid: true,
       sanitizedFileName: sanitized,
     };
+  }
+
+  private normalizeMimeType(mimeType: string): string {
+    if (mimeType === 'application/x-zip-compressed') {
+      return 'application/zip';
+    }
+    return mimeType;
+  }
+
+  private isProbablyText(buffer: Buffer): boolean {
+    const sample = buffer.subarray(0, Math.min(buffer.length, 512));
+    for (const byte of sample) {
+      if (byte === 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  private isValidJson(buffer: Buffer): boolean {
+    try {
+      const content = buffer.toString('utf8');
+      JSON.parse(content);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private async validateFileContent(
+    fileBuffer: Buffer,
+    declaredMimeType: string,
+  ): Promise<FileContentValidationResult> {
+    const normalizedDeclared = this.normalizeMimeType(declaredMimeType);
+
+    const detected = await fromBuffer(fileBuffer);
+    const detectedMime = detected?.mime ? this.normalizeMimeType(detected.mime) : null;
+
+    if (detectedMime && detectedMime !== normalizedDeclared) {
+      return {
+        isValid: false,
+        error: `Detected content type '${detectedMime}' does not match declared '${normalizedDeclared}'`,
+        actualMimeType: detectedMime,
+      };
+    }
+
+    if (!detectedMime) {
+      if (normalizedDeclared === 'application/json') {
+        if (!this.isValidJson(fileBuffer)) {
+          return {
+            isValid: false,
+            error: 'Declared JSON file is not valid JSON content',
+          };
+        }
+      } else if (normalizedDeclared === 'text/plain') {
+        if (!this.isProbablyText(fileBuffer)) {
+          return {
+            isValid: false,
+            error: 'Declared text file contains binary data',
+          };
+        }
+      } else if (normalizedDeclared === 'application/zip') {
+        return {
+          isValid: false,
+          error: 'Unable to validate ZIP file signature',
+        };
+      }
+    }
+
+    return {
+      isValid: true,
+      actualMimeType: detectedMime,
+    };
+  }
+
+  async validateGitEvidence(input: GitEvidenceInput): Promise<GitEvidenceValidationResult> {
+    const trimmedUrl = input.repoUrl?.trim();
+    if (!trimmedUrl) {
+      return { valid: false, error: 'Repository URL is required' };
+    }
+
+    const githubCommit = /github\.com\/([^/]+)\/([^/]+)\/commit\/([0-9a-fA-F]{7,40})/i;
+    const githubRepo = /github\.com\/([^/]+)\/([^/]+)/i;
+    const gitlabCommit = /gitlab\.com\/([^/]+)\/([^/]+)\/-\/commit\/([0-9a-fA-F]{7,40})/i;
+    const bitbucketCommit = /bitbucket\.org\/([^/]+)\/([^/]+)\/commits\/([0-9a-fA-F]{7,40})/i;
+
+    let provider: GitEvidenceMetadata['provider'] | null = null;
+    let owner = '';
+    let repo = '';
+    let commitHash = input.commitHash?.trim();
+
+    let match = trimmedUrl.match(githubCommit);
+    if (match) {
+      provider = 'github';
+      owner = match[1];
+      repo = match[2];
+      commitHash = commitHash || match[3];
+    } else {
+      match = trimmedUrl.match(githubRepo);
+      if (match) {
+        provider = 'github';
+        owner = match[1];
+        repo = match[2];
+      }
+    }
+
+    if (!provider) {
+      match = trimmedUrl.match(gitlabCommit);
+      if (match) {
+        provider = 'gitlab';
+        owner = match[1];
+        repo = match[2];
+        commitHash = commitHash || match[3];
+      }
+    }
+
+    if (!provider) {
+      match = trimmedUrl.match(bitbucketCommit);
+      if (match) {
+        provider = 'bitbucket';
+        owner = match[1];
+        repo = match[2];
+        commitHash = commitHash || match[3];
+      }
+    }
+
+    if (!provider) {
+      return { valid: false, error: 'Unsupported Git provider or invalid URL format' };
+    }
+
+    const metadata: GitEvidenceMetadata = {
+      provider,
+      owner,
+      repo,
+      commitHash: commitHash || undefined,
+    };
+
+    if (provider === 'github' && commitHash) {
+      const exists = await this.verifyGitHubCommitExists(owner, repo, commitHash);
+      if (!exists) {
+        return { valid: false, error: 'GitHub commit not found', metadata };
+      }
+    }
+
+    return { valid: true, metadata };
+  }
+
+  private async verifyGitHubCommitExists(
+    owner: string,
+    repo: string,
+    commitHash: string,
+  ): Promise<boolean> {
+    const apiToken = this.configService.get<string>('GITHUB_API_TOKEN');
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+    };
+
+    if (apiToken) {
+      headers.Authorization = `Bearer ${apiToken}`;
+    }
+
+    try {
+      const response = await axios.get(
+        `https://api.github.com/repos/${owner}/${repo}/commits/${commitHash}`,
+        { headers },
+      );
+      return response.status === 200;
+    } catch (error) {
+      return false;
+    }
+  }
+
+  private async scanWithVirusTotal(
+    fileHash: string,
+  ): Promise<{ blocked: boolean; reason?: string }> {
+    const apiKey = this.configService.get<string>('VIRUSTOTAL_API_KEY');
+    if (!apiKey) {
+      return { blocked: false };
+    }
+
+    const baseUrl = this.configService.get<string>('VIRUSTOTAL_API_URL') || VIRUSTOTAL_BASE_URL;
+
+    try {
+      const response = await axios.get(`${baseUrl}/files/${fileHash}`, {
+        headers: {
+          'x-apikey': apiKey,
+        },
+      });
+
+      const stats = response?.data?.data?.attributes?.last_analysis_stats;
+      const malicious = Number(stats?.malicious || 0);
+      const suspicious = Number(stats?.suspicious || 0);
+
+      if (malicious + suspicious >= VIRUSTOTAL_BLOCK_THRESHOLD) {
+        return {
+          blocked: true,
+          reason: `VirusTotal flagged file (malicious: ${malicious}, suspicious: ${suspicious})`,
+        };
+      }
+    } catch (error) {
+      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+      if (status && status !== 404) {
+        console.warn('VirusTotal scan failed:', error);
+      }
+    }
+
+    return { blocked: false };
   }
 
   private sanitizeFileName(fileName: string): string | null {
@@ -230,6 +484,7 @@ export class EvidenceService {
       'image/webp': ['webp'],
       'application/pdf': ['pdf'],
       'text/plain': ['txt'],
+      'application/json': ['json'],
       'application/msword': ['doc'],
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['docx'],
       'application/vnd.ms-excel': ['xls'],
@@ -238,6 +493,7 @@ export class EvidenceService {
       'video/webm': ['webm'],
       'audio/mpeg': ['mp3'],
       'audio/wav': ['wav'],
+      'application/zip': ['zip'],
     };
 
     const allowedExts = mimeToExt[mimeType];
@@ -374,6 +630,11 @@ export class EvidenceService {
       return { success: false, error: validation.error };
     }
 
+    const contentValidation = await this.validateFileContent(fileBuffer, mimeType);
+    if (!contentValidation.isValid) {
+      return { success: false, error: contentValidation.error };
+    }
+
     // 3. Check rate limit
     const rateLimit = await this.checkRateLimit(disputeId, uploaderId);
     if (!rateLimit.allowed) {
@@ -432,10 +693,61 @@ export class EvidenceService {
         };
       }
 
+      // Virus scanning (best-effort)
+      const scanResult = await this.scanWithVirusTotal(fileHash);
+      if (scanResult.blocked) {
+        await this.supabase.storage.from(this.bucketName).remove([storagePath.path]);
+        await this.evidenceRepo.delete(savedEvidence.id);
+        return {
+          success: false,
+          error: scanResult.reason || 'File failed malware scan',
+        };
+      }
+
+      const warning =
+        this.normalizeMimeType(mimeType) === 'application/zip'
+          ? 'Consider submitting a GitHub link instead of ZIP for source code evidence.'
+          : undefined;
+
+      this.eventEmitter?.emit(DISPUTE_EVENTS.EVIDENCE_ADDED, {
+        disputeId,
+        evidenceId: savedEvidence.id,
+        uploaderId,
+        uploaderRole,
+        fileName: savedEvidence.fileName,
+        mimeType: savedEvidence.mimeType,
+        fileSize: savedEvidence.fileSize,
+        uploadedAt: savedEvidence.uploadedAt,
+      });
+      if (dispute.status === DisputeStatus.INFO_REQUESTED && uploaderId === dispute.raisedById) {
+        dispute.status = DisputeStatus.PENDING_REVIEW;
+        dispute.infoProvidedAt = new Date();
+        await this.disputeRepo.save(dispute);
+
+        await this.activityRepo.save(
+          this.activityRepo.create({
+            disputeId,
+            actorId: uploaderId,
+            actorRole: uploaderRole,
+            action: DisputeAction.INFO_PROVIDED,
+            description: 'Additional evidence submitted for review',
+            metadata: { evidenceId: savedEvidence.id },
+          }),
+        );
+
+        this.eventEmitter?.emit(DISPUTE_EVENTS.INFO_PROVIDED, {
+          disputeId,
+          userId: uploaderId,
+          providedAt: dispute.infoProvidedAt,
+        });
+      }
+
+
       // Upload successful
       return {
         success: true,
         evidence: savedEvidence,
+        warning,
       };
     } catch (error) {
       // Unexpected error - cleanup DB record

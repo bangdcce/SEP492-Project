@@ -14,21 +14,21 @@ import { lazy, Suspense } from "react";
 const ClientDashboard = lazy(() =>
   import("@/features/dashboard/ClientDashboard").then((module) => ({
     default: module.ClientDashboard,
-  }))
+  })),
 );
 const WizardPage = lazy(() => import("@/features/wizard/WizardPage"));
 const MyRequestsPage = lazy(() =>
   import("@/features/requests/MyRequestsPage").then((module) => ({
     default: module.MyRequestsPage,
-  }))
+  })),
 );
 const RequestDetailPage = lazy(
-  () => import("@/features/requests/RequestDetailPage")
+  () => import("@/features/requests/RequestDetailPage"),
 );
 
 // ========== PROJECT PAGES ==========
 const ProjectListPage = lazy(
-  () => import("@/features/project-list/ProjectListPage")
+  () => import("@/features/project-list/ProjectListPage"),
 );
 const ProjectWorkspacePage = lazy(() => import("@/pages/ProjectWorkspacePage"));
 
@@ -36,33 +36,81 @@ const ProjectWorkspacePage = lazy(() => import("@/pages/ProjectWorkspacePage"));
 const AdminDashboard = lazy(() =>
   import("@/features/dashboard/AdminDashboard").then((module) => ({
     default: module.AdminDashboard,
-  }))
+  })),
 );
 const BrokerDashboard = lazy(() =>
   import("@/features/dashboard/BrokerDashboard").then((module) => ({
     default: module.BrokerDashboard,
-  }))
+  })),
 );
 const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
 const AdminReviewModerationPage = lazy(
-  () => import("@/pages/AdminReviewModerationPage")
+  () => import("@/pages/AdminReviewModerationPage"),
 );
-const ProjectRequestsPage = lazy(() => import("@/features/project-requests/ProjectRequestsPage").then(module => ({ default: module.ProjectRequestsPage })));
-const ProjectRequestDetailsPage = lazy(() => import("@/features/project-requests/ProjectRequestDetailsPage"));
-const CreateProjectSpecPage = lazy(() => import("@/features/project-specs/CreateProjectSpecPage"));
-const AuditSpecsPage = lazy(() => import("@/features/project-specs/AuditSpecsPage"));
+const ProjectRequestsPage = lazy(() =>
+  import("@/features/project-requests/ProjectRequestsPage").then((module) => ({
+    default: module.ProjectRequestsPage,
+  })),
+);
+const ProjectRequestDetailsPage = lazy(
+  () => import("@/features/project-requests/ProjectRequestDetailsPage"),
+);
+const CreateProjectSpecPage = lazy(
+  () => import("@/features/project-specs/CreateProjectSpecPage"),
+);
+const AuditSpecsPage = lazy(
+  () => import("@/features/project-specs/AuditSpecsPage"),
+);
 const ContractPage = lazy(() => import("@/features/contracts/ContractPage"));
-const ContractListPage = lazy(() => import("@/features/contracts/ContractListPage"));
+const ContractListPage = lazy(
+  () => import("@/features/contracts/ContractListPage"),
+);
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
 
 // ========== FREELANCER PAGES ==========
-const FreelancerOnboardingPage = lazy(() => import("@/pages/FreelancerOnboardingPage"));
-const FreelancerDashboardPage = lazy(() => import("@/pages/FreelancerDashboardPage"));
+const FreelancerOnboardingPage = lazy(
+  () => import("@/pages/FreelancerOnboardingPage"),
+);
+const FreelancerDashboardPage = lazy(
+  () => import("@/pages/FreelancerDashboardPage"),
+);
 
 // ========== SHARED PAGES ==========
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const KYCPage = lazy(() => import("@/pages/KYCPage"));
+
+// ========== STAFF PAGES ==========
+const StaffLayout = lazy(() =>
+  import("@/features/staff/components/layout/StaffLayout").then((m) => ({
+    default: m.StaffLayout,
+  })),
+);
+const StaffDashboardPage = lazy(() =>
+  import("@/features/staff/pages/StaffDashboardPage").then((m) => ({
+    default: m.StaffDashboardPage,
+  })),
+);
+const StaffQueuePage = lazy(() =>
+  import("@/features/staff/pages/StaffQueuePage").then((m) => ({
+    default: m.StaffQueuePage,
+  })),
+);
+const StaffCaseloadPage = lazy(() =>
+  import("@/features/staff/pages/StaffCaseloadPage").then((m) => ({
+    default: m.StaffCaseloadPage,
+  })),
+);
+const StaffCalendarPage = lazy(() =>
+  import("@/features/staff/pages/StaffCalendarPage").then((m) => ({
+    default: m.StaffCalendarPage,
+  })),
+);
+const StaffWorkloadPage = lazy(() =>
+  import("@/features/staff/pages/StaffWorkloadPage").then((m) => ({
+    default: m.StaffWorkloadPage,
+  })),
+);
 
 // ========== AUTH PAGES ==========
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
@@ -78,7 +126,6 @@ function PageLoader() {
   );
 }
 
-
 function App() {
   return (
     <Suspense fallback={<PageLoader />}>
@@ -93,7 +140,7 @@ function App() {
         <Route
           path={ROUTES.FREELANCER_ONBOARDING}
           element={
-            <RoleGuard allowedRoles={['FREELANCER']}>
+            <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerOnboardingPage />
             </RoleGuard>
           }
@@ -101,7 +148,7 @@ function App() {
         <Route
           path={ROUTES.FREELANCER_DASHBOARD}
           element={
-            <RoleGuard allowedRoles={['FREELANCER']}>
+            <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardPage />
             </RoleGuard>
           }
@@ -109,7 +156,7 @@ function App() {
         <Route
           path={ROUTES.FREELANCER_PROJECTS}
           element={
-            <RoleGuard allowedRoles={['FREELANCER']}>
+            <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <ProjectListPage />
               </FreelancerDashboardLayout>
@@ -119,7 +166,7 @@ function App() {
         <Route
           path={ROUTES.FREELANCER_WORKSPACE}
           element={
-            <RoleGuard allowedRoles={['FREELANCER']}>
+            <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <ProjectWorkspacePage />
               </FreelancerDashboardLayout>
@@ -129,7 +176,7 @@ function App() {
         <Route
           path={ROUTES.FREELANCER_PROFILE}
           element={
-            <RoleGuard allowedRoles={['FREELANCER']}>
+            <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <ProfilePage />
               </FreelancerDashboardLayout>
@@ -141,7 +188,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_DASHBOARD}
           element={
-            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
               <ClientDashboardLayout>
                 <ClientDashboard />
               </ClientDashboardLayout>
@@ -151,7 +198,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_WIZARD}
           element={
-            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
               <ClientDashboardLayout>
                 <WizardPage />
               </ClientDashboardLayout>
@@ -161,7 +208,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_MY_REQUESTS}
           element={
-            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
               <ClientDashboardLayout>
                 <MyRequestsPage />
               </ClientDashboardLayout>
@@ -171,7 +218,7 @@ function App() {
         <Route
           path="/client/requests/:id"
           element={
-            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
               <ClientDashboardLayout>
                 <RequestDetailPage />
               </ClientDashboardLayout>
@@ -181,7 +228,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_PROFILE}
           element={
-            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
               <ClientDashboardLayout>
                 <ProfilePage />
               </ClientDashboardLayout>
@@ -191,7 +238,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_PROJECTS}
           element={
-            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
               <ClientDashboardLayout>
                 <ProjectListPage />
               </ClientDashboardLayout>
@@ -201,7 +248,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_WORKSPACE}
           element={
-            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
               <ClientDashboardLayout>
                 <ProjectWorkspacePage />
               </ClientDashboardLayout>
@@ -211,7 +258,7 @@ function App() {
         <Route
           path="/client/contracts/:id"
           element={
-            <RoleGuard allowedRoles={['CLIENT', 'SME']}>
+            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
               <ClientDashboardLayout>
                 <ContractPage />
               </ClientDashboardLayout>
@@ -223,7 +270,7 @@ function App() {
         <Route
           path={ROUTES.ADMIN_DASHBOARD}
           element={
-            <RoleGuard allowedRoles={['ADMIN']}>
+            <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminDashboard />
               </AdminDashboardLayout>
@@ -233,7 +280,7 @@ function App() {
         <Route
           path={ROUTES.ADMIN_AUDIT_LOGS}
           element={
-            <RoleGuard allowedRoles={['ADMIN']}>
+            <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AuditLogsPage />
               </AdminDashboardLayout>
@@ -243,7 +290,7 @@ function App() {
         <Route
           path={ROUTES.ADMIN_REVIEW_MODERATION}
           element={
-            <RoleGuard allowedRoles={['ADMIN']}>
+            <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminReviewModerationPage />
               </AdminDashboardLayout>
@@ -253,7 +300,7 @@ function App() {
         <Route
           path="/admin/kyc"
           element={
-            <RoleGuard allowedRoles={['ADMIN']}>
+            <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminKYCPage />
               </AdminDashboardLayout>
@@ -263,7 +310,7 @@ function App() {
         <Route
           path="/admin/users"
           element={
-            <RoleGuard allowedRoles={['ADMIN']}>
+            <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminUsersPage />
               </AdminDashboardLayout>
@@ -273,7 +320,7 @@ function App() {
         <Route
           path="/admin/specs"
           element={
-            <RoleGuard allowedRoles={['ADMIN']}>
+            <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AuditSpecsPage />
               </AdminDashboardLayout>
@@ -283,7 +330,7 @@ function App() {
         <Route
           path="/admin/requests/:id"
           element={
-            <RoleGuard allowedRoles={['ADMIN']}>
+            <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <ProjectRequestDetailsPage />
               </AdminDashboardLayout>
@@ -293,7 +340,7 @@ function App() {
         <Route
           path={ROUTES.ADMIN_PROFILE}
           element={
-            <RoleGuard allowedRoles={['ADMIN']}>
+            <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <ProfilePage />
               </AdminDashboardLayout>
@@ -305,7 +352,7 @@ function App() {
         <Route
           path={ROUTES.BROKER_DASHBOARD}
           element={
-            <RoleGuard allowedRoles={['BROKER']}>
+            <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <BrokerDashboard />
               </BrokerDashboardLayout>
@@ -315,7 +362,7 @@ function App() {
         <Route
           path={ROUTES.BROKER_PROJECTS}
           element={
-            <RoleGuard allowedRoles={['BROKER']}>
+            <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <ProjectListPage />
               </BrokerDashboardLayout>
@@ -325,7 +372,7 @@ function App() {
         <Route
           path={ROUTES.BROKER_WORKSPACE}
           element={
-            <RoleGuard allowedRoles={['BROKER']}>
+            <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <ProjectWorkspacePage />
               </BrokerDashboardLayout>
@@ -335,7 +382,7 @@ function App() {
         <Route
           path="/broker/contracts"
           element={
-            <RoleGuard allowedRoles={['BROKER']}>
+            <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <ContractListPage />
               </BrokerDashboardLayout>
@@ -345,7 +392,7 @@ function App() {
         <Route
           path="/broker/contracts/:id"
           element={
-            <RoleGuard allowedRoles={['BROKER']}>
+            <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <ContractPage />
               </BrokerDashboardLayout>
@@ -355,7 +402,7 @@ function App() {
         <Route
           path={ROUTES.BROKER_PROFILE}
           element={
-            <RoleGuard allowedRoles={['BROKER']}>
+            <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <ProfilePage />
               </BrokerDashboardLayout>
@@ -367,7 +414,7 @@ function App() {
         <Route
           path="/project-requests"
           element={
-            <RoleGuard allowedRoles={['BROKER']}>
+            <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <ProjectRequestsPage />
               </BrokerDashboardLayout>
@@ -377,7 +424,7 @@ function App() {
         <Route
           path="/project-requests/:id"
           element={
-            <RoleGuard allowedRoles={['BROKER']}>
+            <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <ProjectRequestDetailsPage />
               </BrokerDashboardLayout>
@@ -387,13 +434,23 @@ function App() {
         <Route
           path="/project-requests/:id/create-spec"
           element={
-            <RoleGuard allowedRoles={['BROKER']}>
+            <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <CreateProjectSpecPage />
               </BrokerDashboardLayout>
             </RoleGuard>
           }
         />
+        {/* ========== STAFF ROUTES - /staff/* ========== */}
+        <Route path="/staff" element={<StaffLayout />}>
+          <Route path="dashboard" element={<StaffDashboardPage />} />
+          <Route path="queue" element={<StaffQueuePage />} />
+          <Route path="caseload" element={<StaffCaseloadPage />} />
+          <Route path="calendar" element={<StaffCalendarPage />} />
+          <Route path="workload" element={<StaffWorkloadPage />} />
+          {/* Fallback */}
+          <Route index element={<Navigate to="dashboard" replace />} />
+        </Route>
 
         {/* ========== REDIRECTS ========== */}
         {/* Root -> Login */}

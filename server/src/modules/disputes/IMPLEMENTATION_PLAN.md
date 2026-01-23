@@ -5,12 +5,12 @@
 **Hiện trạng:**
 
 - Có DisputesService cơ bản: create, resolve, appeal, notes
-- ✅ **Phase 1 COMPLETED:** Evidence System (upload, flag, git evidence)
-- ✅ **Phase 2 COMPLETED:** Settlement System (create, respond, cancel, expire)
-- ✅ **Phase 3 COMPLETED:** Staff Assignment System (workload, skill matching, edge cases)
-- ✅ **Tagging System COMPLETED:** Master Taxonomy for Skills & Domains
-- Chưa có: Hearing, Verdict, Calendar/Scheduling
-- Chưa có: Live chat, Performance tracking
+- **Phase 1 PARTIAL:** Evidence System (upload/flag done, thieu git evidence)
+- **Phase 2 DONE:** Settlement System (create, respond, cancel, expire)
+- **Phase 3 DONE:** Staff Assignment System (workload, skill matching, edge cases)
+- **Tagging System DONE:** Master Taxonomy for Skills & Domains
+- Hearing: PARTIAL (helpers only); Verdict: TODO; Calendar/Scheduling: TODO
+- Live chat: TODO; Performance tracking: PARTIAL (logic only, chua co service/controller/cron)
 
 **Mục tiêu:**
 Xây dựng hệ thống giải quyết tranh chấp chuyên nghiệp với:
@@ -62,24 +62,25 @@ disputes/
 │   ├── disputes.service.ts (existing - sẽ refactor)
 │   ├── evidence.service.ts (NEW) ✅ DONE
 │   ├── settlement.service.ts (NEW) ✅ DONE
-│   ├── hearing.service.ts (NEW)
-│   ├── verdict.service.ts (NEW)
-│   ├── feedback.service.ts (NEW)
+│   ├── hearing.service.ts (NEW) PARTIAL (helpers only)
+│   ├── verdict.service.ts (NEW) TODO (missing)
+│   ├── feedback.service.ts (NEW) TODO (missing)
 │   └── staff-assignment.service.ts (NEW) ✅ DONE
 ├── controllers/
 │   ├── disputes.controller.ts (existing - sẽ mở rộng)
 │   ├── evidence.controller.ts (NEW) ✅ DONE
 │   ├── settlement.controller.ts (NEW) ✅ DONE
-│   ├── hearing.controller.ts (NEW)
-│   └── verdict.controller.ts (NEW)
+│   ├── hearing.controller.ts (NEW) PARTIAL (placeholder)
+│   ├── verdict.controller.ts (NEW) TODO (missing)
 │   └── staff-assignment.controller.ts (NEW) ✅ DONE
 ├── modules/
 │   ├── evidence.module.ts ✅ DONE
 │   ├── settlement.module.ts ✅ DONE
+│   ├── hearing.module.ts PARTIAL (helpers only)
 │   └── staff-assignment.module.ts ✅ DONE
 └── dto/ (đã có đầy đủ) ✅ DONE
 
-calendar/ (NEW MODULE)
+calendar/ (NEW MODULE) TODO (moi co dto + entities)
 ├── services/
 │   ├── calendar-event.service.ts
 │   ├── availability.service.ts
@@ -110,7 +111,12 @@ database/migrations/
 
 ---
 
-## **PHASE 1: FOUNDATION - Evidence & Storage System** ✅ COMPLETED
+## **PHASE 1: FOUNDATION - Evidence & Storage System** (PARTIAL - missing git evidence)
+
+**Backend status:**
+
+- DONE: validateFileUpload, generateStoragePath, calculateFileHash, checkDuplicateEvidence, checkRateLimit, uploadEvidence, flagEvidence, getEvidenceList
+- TODO: validateGitEvidence + uploadGitEvidence + `POST /disputes/:disputeId/evidence/git`
 
 _Ước tính: 1-2 ngày_
 
@@ -130,7 +136,7 @@ Algorithm: Whitelist approach
 Why: Security first - chỉ cho phép format an toàn, tránh malicious files
 ```
 
-#### **Unit Function 1.1.1b: `validateGitEvidence()` (NEW)**
+#### **Unit Function 1.1.1b: `validateGitEvidence()` (NEW)** TODO
 
 ```typescript
 Purpose: Validate Git repository/commit evidence cho code-based disputes
@@ -242,12 +248,12 @@ Algorithm: Batch generate signed URLs (1 Supabase API call)
 Why signed URLs: Bảo mật - không expose permanent URLs
 ```
 
-#### **Compose Function 1.2.4: `uploadGitEvidence()` (NEW)**
+#### **Compose Function 1.2.4: `uploadGitEvidence()` (NEW)** TODO
 
 ```typescript
 Purpose: Upload Git repository/commit as evidence for code-based disputes
 Flow:
-1. validateGitEvidence() → Parse and validate URL
+1. validateGitEvidence() → Parse and validate URL TODO
 2. checkRateLimit() → Same limit as file uploads
 3. Optionally fetch commit metadata from GitHub API
 4. Create EvidenceEntity:
@@ -272,7 +278,7 @@ Evidence Types (UPDATED):
 
 ```typescript
 POST /disputes/:disputeId/evidence (upload file)
-POST /disputes/:disputeId/evidence/git (upload git evidence) // NEW
+POST /disputes/:disputeId/evidence/git (upload git evidence) // NEW TODO
 POST /disputes/:disputeId/evidence/:evidenceId/flag (flag)
 GET /disputes/:disputeId/evidence (list)
 ```
@@ -290,13 +296,17 @@ GET /disputes/:disputeId/evidence (list)
 | Orphan files                   | ✅       | DB-first approach with rollback             |
 | Signed URL expiry              | ✅       | 1 hour TTL with refresh                     |
 | Flagged evidence visibility    | ✅       | Role-based filtering                        |
-| Git evidence for code disputes | ✅       | validateGitEvidence() + uploadGitEvidence() |
+| Git evidence for code disputes | TODO     | validateGitEvidence() + uploadGitEvidence() |
 | Private Git repos              | ⏳       | Future: OAuth integration                   |
 | Evidence tampering             | ✅       | SHA-256 hash verification                   |
 
 ---
 
-## **PHASE 2: SETTLEMENT SYSTEM - Pre-Hearing Negotiation** ✅ COMPLETED
+## **PHASE 2: SETTLEMENT SYSTEM - Pre-Hearing Negotiation** (DONE)
+
+**Backend status:**
+
+- DONE: createSettlementOffer, respondToSettlement, cancelSettlement, expiry handling, staff suggestion, chat-lock checks
 
 _Ước tính: 1-2 ngày_
 
@@ -700,7 +710,11 @@ GET  /disputes/:disputeId/settlements/non-compliance  // Non-compliance summary
 
 ---
 
-## **PHASE 3: STAFF ASSIGNMENT & WORKLOAD - Auto-Assignment Brain**
+## **PHASE 3: STAFF ASSIGNMENT SYSTEM - Auto-Assignment** (DONE)
+
+**Backend status:**
+
+- DONE: auto-assign staff, workload scoring, skill matching, emergency reassign, performance metrics (calc only)
 
 _Ước tính: 2-3 ngày_
 
@@ -839,7 +853,12 @@ Why incremental: Performance - chỉ update delta
 
 ---
 
-## **PHASE 4: HEARING SYSTEM - Live Chat Control**
+## **PHASE 4: HEARING SYSTEM - Live Chat Control** (PARTIAL - schedule/start/statement/question/end)
+
+**Backend status:**
+
+- PARTIAL: validateHearingSchedule, determineRequiredParticipants, canControlSpeaker, scheduleHearing, startHearing, submitHearingStatement (draft/submit), askHearingQuestion, endHearing, updateSpeakerControl, moderator disconnect/reconnect
+- TODO: reschedule, live chat persistence, WebSocket
 
 _Ước tính: 3-4 ngày_
 
@@ -882,7 +901,7 @@ Why: Prevent participants tự mute người khác
 
 ### 4.2. Hearing Service - Compose Functions
 
-#### **Compose Function 4.2.1: `scheduleHearing()`**
+#### **Compose Function 4.2.1: `scheduleHearing()`** Check
 
 ```typescript
 Flow:
@@ -899,7 +918,7 @@ Transaction: Yes (hearing + calendar + participants)
 Rollback: Nếu send invitation fail → vẫn keep DB records, retry later
 ```
 
-#### **Compose Function 4.2.2: `startHearing()`**
+#### **Compose Function 4.2.2: `startHearing()`** Check
 
 ```typescript
 Purpose: Bắt đầu hearing session (activate live chat)
@@ -916,7 +935,7 @@ Transaction: Yes
 Why WebSocket: Real-time chat cần bidirectional communication
 ```
 
-#### **Compose Function 4.2.3: `updateSpeakerControl()`**
+#### **Compose Function 4.2.3: `updateSpeakerControl()`** Check
 
 ```typescript
 Purpose: Moderator điều khiển ai được phát ngôn
@@ -933,7 +952,7 @@ Modes:
 Why granular control: Tránh chaos, đảm bảo due process
 ```
 
-#### **Compose Function 4.2.4: `submitHearingStatement()`**
+#### **Compose Function 4.2.4: `submitHearingStatement()`**check
 
 ```typescript
 Purpose: Participant nộp statement văn bản (trước/trong hearing)
@@ -946,7 +965,7 @@ Flow:
 Why separate from messages: Statements là official testimony, messages là chat
 ```
 
-#### **Compose Function 4.2.5: `askHearingQuestion()`**
+#### **Compose Function 4.2.5: `askHearingQuestion()`**check
 
 ```typescript
 Purpose: Moderator đặt câu hỏi chính thức
@@ -959,7 +978,7 @@ Flow:
 Why structured: Questions/Answers phải trackable cho verdict reasoning
 ```
 
-#### **Compose Function 4.2.6: `endHearing()`**
+#### **Compose Function 4.2.6: `endHearing()`**check
 
 ```typescript
 Flow:
@@ -974,7 +993,7 @@ Flow:
 Why transcript: Staff cần review lại toàn bộ hearing để viết verdict
 ```
 
-#### **Compose Function 4.2.7: `rescheduleHearing()`**
+#### **Compose Function 4.2.7: `rescheduleHearing()`**check
 
 ```typescript
 Flow:
@@ -991,7 +1010,7 @@ Why limit 3: Tránh vô tận reschedule, force proceed sau 3 lần
 
 ### 4.3. Message Service (Live Chat)
 
-#### **Compose Function 4.3.1: `sendDisputeMessage()`**
+#### **Compose Function 4.3.1: `sendDisputeMessage()`**check
 
 ```typescript
 Flow:
@@ -1008,7 +1027,7 @@ Transaction: No (high-frequency writes)
 Why WORM: Legal compliance - chat history immutable
 ```
 
-#### **Compose Function 4.3.2: `hideMessage()`**
+#### **Compose Function 4.3.2: `hideMessage()`**check
 
 ```typescript
 Purpose: Admin/Staff soft-hide inappropriate messages
@@ -1035,13 +1054,18 @@ WebSocket: /ws/hearings/:id (real-time chat)
 
 ---
 
-## **PHASE 5: VERDICT SYSTEM - Structured Judgment**
+## **PHASE 5: VERDICT SYSTEM - Structured Judgment** (TODO)
+
+**Backend status:**
+
+- TODO: verdict.service + verdict.controller + structured reasoning + appeal verdict flow
+- NOTE: DisputesService.resolveDispute exists (basic verdict + money transfer), not wired to DisputeVerdictEntity
 
 _Ước tính: 2 ngày_
 
 ### 5.1. Verdict Service - Unit Functions
 
-#### **Unit Function 5.1.1: `validateVerdictReasoning()`**
+#### **Unit Function 5.1.1: `validateVerdictReasoning()`**check
 
 ```typescript
 Purpose: Validate structured reasoning đầy đủ
@@ -1053,10 +1077,10 @@ Algorithm: Business rules
 - factualFindings: min 100 chars
 - legalAnalysis: min 100 chars
 - conclusion: min 50 chars
-Why strict: Đảm bảo verdict có chất lượng, không敷衍
+Why strict: Đảm bảo verdict có chất lượng, không mơ hồ , có tính minh bạch và pháp lý nếu staff hay nền tảng vi phạm
 ```
 
-#### **Unit Function 5.1.2: `validateMoneyDistribution()`**
+#### **Unit Function 5.1.2: `validateMoneyDistribution()`**check
 
 ```typescript
 Purpose: Verify money split logic
@@ -1068,7 +1092,7 @@ Algorithm: Same as settlement validation
 Why: Tránh arithmetic errors
 ```
 
-#### **Unit Function 5.1.3: `calculateTrustScorePenalty()`**
+#### **Unit Function 5.1.3: `calculateTrustScorePenalty()`**check
 
 ```typescript
 Purpose: Suggest penalty dựa trên faultType
@@ -1088,7 +1112,7 @@ Note: Staff có thể override suggestion
 
 ### 5.2. Verdict Service - Compose Functions
 
-#### **Compose Function 5.2.1: `issueVerdict()`**
+#### **Compose Function 5.2.1: `issueVerdict()`**check
 
 ```typescript
 Flow:
@@ -1115,7 +1139,7 @@ Rollback: Nếu money transfer fail → rollback toàn bộ verdict
 Why strict transaction: Financial integrity tối thượng
 ```
 
-#### **Compose Function 5.2.2: `appealVerdict()`**
+#### **Compose Function 5.2.2: `appealVerdict()`**check
 
 ```typescript
 Purpose: User appeal lên Admin (Tier 2)
@@ -1136,7 +1160,7 @@ Flow:
 Why auto-assign admin: Tránh delay, admin phải xử lý nhanh
 ```
 
-#### **Compose Function 5.2.3: `issueAppealVerdict()`**
+#### **Compose Function 5.2.3: `issueAppealVerdict()`**check
 
 ```typescript
 Purpose: Admin ra verdict Tier 2 (final)
@@ -1171,13 +1195,17 @@ GET /disputes/:id/verdict/transcript (hearing + verdict full document)
 
 ---
 
-## **PHASE 6: CALENDAR & AUTO-SCHEDULING**
+## **PHASE 6: CALENDAR & AUTO-SCHEDULING** (TODO)
+
+**Backend status:**
+
+- TODO: calendar module services/controllers + auto-scheduling (entities + dto only)
 
 _Ước tính: 3-4 ngày_
 
 ### 6.1. Calendar Service - Unit Functions
 
-#### **Unit Function 6.1.1: `findAvailableSlots()`**
+#### **Unit Function 6.1.1: `findAvailableSlots()`**check
 
 ```typescript
 Purpose: Tìm khung giờ trống cho participants
@@ -1204,7 +1232,7 @@ Why not CP-SAT:
 Optimization: Cache availability per user (1 hour TTL)
 ```
 
-#### **Unit Function 6.1.2: `estimateEventDuration()`**
+#### **Unit Function 6.1.2: `estimateEventDuration()`**check
 
 ```typescript
 Purpose: Estimate thời gian cần cho event type
@@ -1220,7 +1248,7 @@ Why estimates: Để block đủ calendar space
 
 ### 6.2. Auto-Schedule Service - Compose Functions
 
-#### **Compose Function 6.2.1: `autoScheduleEvent()`**
+#### **Compose Function 6.2.1: `autoScheduleEvent()`**check
 
 ```typescript
 Flow:
@@ -1243,7 +1271,7 @@ Transaction: Yes
 Why participant confirmation: Tránh force calendar không hợp lý
 ```
 
-#### **Compose Function 6.2.2: `handleRescheduleRequest()`**
+#### **Compose Function 6.2.2: `handleRescheduleRequest()`**check
 
 ```typescript
 Flow:
@@ -1265,7 +1293,7 @@ Algorithm: Try user proposals first (respect user preference)
 Why proposal system: Balance automation với user control
 ```
 
-#### **Compose Function 6.2.3: `processEventInvitations()`**
+#### **Compose Function 6.2.3: `processEventInvitations()`**check
 
 ```typescript
 Purpose: Handle participant responses (ACCEPT/DECLINE/TENTATIVE)
@@ -1284,7 +1312,7 @@ Why separate: Invitation workflow phức tạp, cần state machine riêng
 
 ### 6.3. Availability Service
 
-#### **Compose Function 6.3.1: `setUserAvailability()`**
+#### **Compose Function 6.3.1: `setUserAvailability()`**check
 
 ```typescript
 Flow:
@@ -1298,7 +1326,7 @@ Flow:
 Why recurring: Staff set "Thứ 2-6, 9am-5pm" 1 lần, auto-apply
 ```
 
-#### **Compose Function 6.3.2: `syncCalendarEvents()`**
+#### **Compose Function 6.3.2: `syncCalendarEvents()`**check
 
 ```typescript
 Purpose: Auto-generate BUSY slots from scheduled events
@@ -1328,7 +1356,7 @@ GET /calendar/availability/staff (staff availability grid view)
 
 ---
 
-## **PHASE 7: INTEGRATION & REFACTORING**
+## **PHASE 7: INTEGRATION & REFACTORING** (TODO)
 
 _Ước tính: 2-3 ngày_
 
@@ -1391,7 +1419,7 @@ SETTLEMENT_OFFERED - Real-time settlement alert
 
 ---
 
-## **PHASE 8: TESTING & OPTIMIZATION**
+## **PHASE 8: TESTING & OPTIMIZATION** (TODO)
 
 _Ước tính: 3-4 ngày_
 
@@ -1445,14 +1473,14 @@ CREATE INDEX idx_messages_hearing ON dispute_messages(hearing_id, sent_at);
 
 | Phase               | Duration | Dependencies   | Risk Level | Status  |
 | ------------------- | -------- | -------------- | ---------- | ------- |
-| 1. Evidence         | 1-2 days | Supabase setup | LOW        | ✅ DONE |
-| 2. Settlement       | 1 day    | Phase 1        | LOW        | ⏳ TODO |
-| 3. Staff Assignment | 2-3 days | None           | MEDIUM     | ⏳ TODO |
-| 4. Hearing          | 3-4 days | Phase 1, 3     | HIGH       | ⏳ TODO |
-| 5. Verdict          | 2 days   | Phase 4        | MEDIUM     | ⏳ TODO |
-| 6. Calendar         | 3-4 days | Phase 3        | HIGH       | ⏳ TODO |
-| 7. Integration      | 2-3 days | All above      | MEDIUM     | ⏳ TODO |
-| 8. Testing          | 3-4 days | All above      | LOW        | ⏳ TODO |
+| 1. Evidence         | 1-2 days | Supabase setup | LOW        | PARTIAL |
+| 2. Settlement       | 1 day    | Phase 1        | LOW        | DONE    |
+| 3. Staff Assignment | 2-3 days | None           | MEDIUM     | DONE    |
+| 4. Hearing          | 3-4 days | Phase 1, 3     | HIGH       | PARTIAL |
+| 5. Verdict          | 2 days   | Phase 4        | MEDIUM     | TODO    |
+| 6. Calendar         | 3-4 days | Phase 3        | HIGH       | TODO    |
+| 7. Integration      | 2-3 days | All above      | MEDIUM     | TODO    |
+| 8. Testing          | 3-4 days | All above      | LOW        | TODO    |
 
 **Total: 17-25 days (3-5 weeks)**
 
@@ -1580,18 +1608,18 @@ if (staffHasRequiredSkill && expertiseLevel >= requiredLevel) {
 
 **Completed:**
 
-- ✅ Phase 1: Evidence Service with all unit functions
-- ✅ Phase 2: Settlement Service with edge cases
-- ✅ Phase 3: Staff Assignment Service with edge cases
-- ✅ Tagging System: Master Taxonomy for skill-based matching
+- Phase 1: Evidence Service PARTIAL (missing git evidence)
+- Phase 2: Settlement Service with edge cases DONE
+- Phase 3: Staff Assignment Service with edge cases DONE
+- Tagging System: Master Taxonomy for skill-based matching DONE
 - ✅ Supabase bucket policies configured
 - ✅ All DTOs created for disputes and calendar modules
 - ✅ All entities created with proper relationships
 
 **Next Steps:**
 
-- Phase 4: Hearing Service implementation
-- Phase 5: Verdict Service implementation
-- Phase 6: Calendar/Scheduling Service
+- Phase 4: Hearing Service implementation (remaining scheduling + live chat)
+- Phase 5: Verdict Service implementation (service + controller)
+- Phase 6: Calendar/Scheduling Service (module + services + controller)
 
 **Contact:** Kiến trúc sư trưởng để review và approve plan này trước khi tiếp tục code.
