@@ -20,7 +20,7 @@
 ## Data
 ##
 id,name,refs_n1,refs_11,nodeStyle
-users,users,"","",centerNode
+users,"<b>users</b><hr>id: uuid<br>email: varchar(255)<br>passwordHash: varchar(255)<br>fullName: varchar(255)<br>role: enum<br>phoneNumber: varchar(20)<br>isVerified: boolean<br>totalProjectsFinished: int<br>totalProjectsCancelled: int<br>totalDisputesLost: int<br>totalLateProjects: int<br>currentTrustScore: decimal(3,2)<br>resetPasswordOtp: varchar(6)<br>resetPasswordOtpExpires: timestamp<br>isBanned: boolean<br>banReason: text<br>bannedAt: timestamp<br>bannedBy: uuid<br>createdAt: timestamp<br>updatedAt: timestamp","","",centerNode
 profiles,profiles,"","users",
 wallets,wallets,"","users",
 projects,projects,"project_requests,users","",

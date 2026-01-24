@@ -1,27 +1,21 @@
 UC-38 Rate Freelancer/Broker
 UC-42 View List Of Active Dispute
 UC-43 Create Dispute
-
 UC-44 View Dispute Information
-
 UC-45 Add Evidence
-
 UC-46 Report Dispute
-
 UC-70 Rate Freelancer/Client
-UC-71View List Feedback
-UC-72View List Feedback Report
-UC-73View Feedback Report Detail
-UC-74Delete Feedback
-UC-75Restore Feedback
-UC-76View List Dispute
-UC-77View Dispute Specific Information
-UC-78Resolve Dispute
-
-UC-85View System Log
-
-UC-86Export Log
-UC-87View Statistic
+UC-71 View List Feedback
+UC-72 View List Feedback Report
+UC-73 View Feedback Report Detail
+UC-74 Delete Feedback
+UC-75 Restore Feedback
+UC-76 View List Dispute
+UC-77 View Dispute Specific Information
+UC-78 Resolve Dispute
+UC-85 View System Log
+UC-86 Export Log
+UC-87 View Statistic
 
 ID
 Rule Definition
