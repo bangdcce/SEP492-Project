@@ -7,12 +7,9 @@
   "license": "UNLICENSED",
   "scripts": {
     "seed:admin": "ts-node src/cli/admin-seeder.ts",
-<<<<<<< HEAD
     "seed:domains": "ts-node src/database/seeds/run-seeds.ts",
     "generate:keys": "node scripts/generate-keys.js",
-=======
     "generate:ssl": "ts-node src/scripts/generate-ssl.ts",
->>>>>>> cf6865d305062bd0bd69fa2f98965d85e0b7a87b
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
@@ -49,11 +46,8 @@
     "@nestjs/websockets": "^11.0.1",
     "@supabase/supabase-js": "^2.90.1",
     "@types/multer": "^2.0.0",
-<<<<<<< HEAD
     "@types/sharp": "^0.32.0",
-=======
     "@types/pdfmake": "^0.2.12",
->>>>>>> cf6865d305062bd0bd69fa2f98965d85e0b7a87b
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
     "cache-manager": "^7.2.8",
@@ -73,11 +67,8 @@
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-<<<<<<< HEAD
     "sharp": "^0.34.5",
-=======
     "socket.io": "^4.7.5",
->>>>>>> cf6865d305062bd0bd69fa2f98965d85e0b7a87b
     "typeorm": "^0.3.27"
   },
   "devDependencies": {
