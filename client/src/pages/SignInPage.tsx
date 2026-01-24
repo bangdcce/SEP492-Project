@@ -8,6 +8,7 @@ import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
 import { ROUTES, STORAGE_KEYS } from '@/constants';
 import { signIn } from '@/features/auth';
+import { setStoredItem } from '@/shared/utils/storage';
 
 export interface SignInPageProps {
   onNavigateToSignUp?: () => void;
@@ -66,7 +67,7 @@ export function SignInPage({
         password: formData.password,
       });
 
-      // Save tokens to localStorage
+      // Save tokens based on remember-me choice
       console.log('Login response:', response);
       
       // Backend returns {message, data: {accessToken, refreshToken, user}}
@@ -74,9 +75,21 @@ export function SignInPage({
       console.log('Access token:', loginData.accessToken);
       console.log('User:', loginData.user);
       
-      localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, loginData.accessToken);
-      localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, loginData.refreshToken);
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(loginData.user));
+      setStoredItem(
+        STORAGE_KEYS.ACCESS_TOKEN,
+        loginData.accessToken,
+        formData.rememberMe
+      );
+      setStoredItem(
+        STORAGE_KEYS.REFRESH_TOKEN,
+        loginData.refreshToken,
+        formData.rememberMe
+      );
+      setStoredItem(
+        STORAGE_KEYS.USER,
+        JSON.stringify(loginData.user),
+        formData.rememberMe
+      );
 
       // Dispatch event to notify Header component of user data update
       window.dispatchEvent(new Event('userDataUpdated'));

@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-
 import { Upload, Camera, User, CheckCircle, ArrowLeft, ArrowRight, Loader2, XCircle } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
 import { Input } from '@/shared/components/custom/input';
 import { toast } from 'sonner';
+import { getStoredItem } from '@/shared/utils/storage';
 
 interface KYCFormData {
   // Personal Information
@@ -192,7 +192,7 @@ export default function KYCPage() {
       const response = await fetch(`${baseUrl}/kyc`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${getStoredItem('access_token')}`,
         },
         body: submitData,
       });
@@ -216,7 +216,7 @@ export default function KYCPage() {
     try {
       const response = await fetch(`${baseUrl}/kyc/me`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${getStoredItem('access_token')}`,
         },
       });
 

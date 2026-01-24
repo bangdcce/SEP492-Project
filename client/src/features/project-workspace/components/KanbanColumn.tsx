@@ -9,6 +9,8 @@ type KanbanColumnProps = {
   description?: string;
   tasks: Task[];
   onAddTask: () => void;
+  /** If true, hide "Add Task" button (for CLIENT read-only mode) */
+  isReadOnly?: boolean;
 };
 
 export function KanbanColumn({
@@ -17,6 +19,7 @@ export function KanbanColumn({
   description,
   tasks,
   onAddTask,
+  isReadOnly = false,
 }: KanbanColumnProps) {
   const renderIcon = () => {
     if (columnId === "DONE") {
@@ -75,20 +78,23 @@ export function KanbanColumn({
               ))
             )}
             {provided.placeholder}
-            <button
-              type="button"
-              className={`mt-1 flex items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-3 text-sm font-medium transition-colors duration-200 ${
-                columnId === "DONE"
-                  ? "border-emerald-300/80 text-emerald-600 bg-emerald-50/40"
-                  : columnId === "IN_PROGRESS"
-                  ? "border-sky-300/80 text-sky-600 bg-sky-50/40"
-                  : "border-slate-300/80 text-slate-500 bg-transparent"
-              } hover:text-teal-700 hover:border-teal-400 hover:bg-teal-50`}
-              onClick={onAddTask}
-            >
-              <Plus className="h-4 w-4" />
-              Add task
-            </button>
+            {/* Hide Add Task button in read-only mode (CLIENT users) */}
+            {!isReadOnly && (
+              <button
+                type="button"
+                className={`mt-1 flex items-center justify-center gap-2 rounded-xl border border-dashed px-3 py-3 text-sm font-medium transition-colors duration-200 ${
+                  columnId === "DONE"
+                    ? "border-emerald-300/80 text-emerald-600 bg-emerald-50/40"
+                    : columnId === "IN_PROGRESS"
+                    ? "border-sky-300/80 text-sky-600 bg-sky-50/40"
+                    : "border-slate-300/80 text-slate-500 bg-transparent"
+                } hover:text-teal-700 hover:border-teal-400 hover:bg-teal-50`}
+                onClick={onAddTask}
+              >
+                <Plus className="h-4 w-4" />
+                Add task
+              </button>
+            )}
           </div>
         </div>
       )}

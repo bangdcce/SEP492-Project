@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Bell, ChevronRight, LogOut, UserCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
+import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
 
 interface HeaderProps {
   breadcrumbs: string[];
@@ -14,12 +15,11 @@ export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
   const [userName, setUserName] = useState<string>("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load user data from localStorage
+  // Load user data from storage (session/local)
   useEffect(() => {
     const loadUserData = () => {
-      const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-      if (userStr) {
-        const user = JSON.parse(userStr);
+      const user = getStoredJson<any>(STORAGE_KEYS.USER);
+      if (user) {
         setAvatarUrl(user.avatarUrl || "");
         setUserName(user.fullName || user.email || "");
       }
@@ -61,10 +61,10 @@ export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
   const handleLogout = () => {
     setShowDropdown(false);
 
-    // Clear localStorage
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.USER);
+    // Clear storage (session/local)
+    removeStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
+    removeStoredItem(STORAGE_KEYS.REFRESH_TOKEN);
+    removeStoredItem(STORAGE_KEYS.USER);
 
     // Redirect to login
     navigate(ROUTES.LOGIN);
@@ -80,17 +80,20 @@ export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
       .slice(0, 2);
   };
 
+  const breadcrumbItems =
+    breadcrumbs.length > 0 ? breadcrumbs : ["Home", "Projects", "..."];
+
   return (
-    <header className="sticky top-0 z-10 bg-white border-b border-gray-200 px-8 py-4">
+    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/60 px-8 py-4">
       <div className="flex items-center justify-between">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm">
-          {breadcrumbs.map((crumb, index) => (
+          {breadcrumbItems.map((crumb, index) => (
             <React.Fragment key={index}>
               {index > 0 && <ChevronRight className="h-4 w-4 text-gray-400" />}
               <span
                 className={
-                  index === breadcrumbs.length - 1
+                  index === breadcrumbItems.length - 1
                     ? "text-slate-900"
                     : "text-gray-500"
                 }

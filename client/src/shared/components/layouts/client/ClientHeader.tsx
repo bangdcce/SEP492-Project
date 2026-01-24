@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { Logo } from "../../custom/Logo";
+import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
 
 interface ClientHeaderProps {
   userName?: string;
@@ -37,17 +38,13 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
-  // Get user from localStorage (sync initial read)
+  // Get user from storage (session/local)
   const getInitialUser = () => {
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      try {
-        return JSON.parse(userStr);
-      } catch {
-        return {};
-      }
-    }
-    return {};
+    return getStoredJson<{
+      fullName?: string;
+      role?: string;
+      avatarUrl?: string;
+    }>(STORAGE_KEYS.USER) || {};
   };
 
   const [user, setUser] = useState<{
@@ -59,14 +56,12 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   useEffect(() => {
     // Listen for user data updates
     const handleUserUpdate = () => {
-      const updatedUserStr = localStorage.getItem(STORAGE_KEYS.USER);
-      if (updatedUserStr) {
-        try {
-          setUser(JSON.parse(updatedUserStr));
-        } catch {
-          // ignore
-        }
-      }
+      const updatedUser = getStoredJson<{
+        fullName?: string;
+        role?: string;
+        avatarUrl?: string;
+      }>(STORAGE_KEYS.USER);
+      if (updatedUser) setUser(updatedUser);
     };
 
     window.addEventListener("userDataUpdated", handleUserUpdate);
@@ -79,9 +74,9 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   const userAvatar = propUserAvatar || user.avatarUrl;
 
   const handleLogout = () => {
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.USER);
+    removeStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
+    removeStoredItem(STORAGE_KEYS.REFRESH_TOKEN);
+    removeStoredItem(STORAGE_KEYS.USER);
     navigate(ROUTES.LOGIN);
   };
 
@@ -96,7 +91,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   };
 
   return (
-    <header className="sticky top-0 z-30 bg-white border-b border-gray-200">
+    <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/60">
       <div className="px-6">
         <div className="flex h-14 items-center justify-between gap-4">
           {/* Left Section: Mobile Menu Toggle */}
@@ -121,6 +116,10 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
             >
               <Logo size="sm" />
             </Link>
+
+            <div className="hidden lg:flex items-center text-xs text-slate-500 ml-2">
+              Home / Projects / ...
+            </div>
           </div>
 
           {/* Center Section: Search Bar (Desktop) */}

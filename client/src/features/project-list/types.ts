@@ -8,4 +8,7 @@ export type Project = {
   freelancerId?: string;
   totalBudget: number;
   createdAt: string;
+  // Dispute-related fields (enriched by backend)
+  hasActiveDispute?: boolean;
+  activeDisputeCount?: number;
 };

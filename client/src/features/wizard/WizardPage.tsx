@@ -12,6 +12,7 @@ import type { WizardQuestion, CreateProjectRequestDto } from "./services/wizardS
 import { ROUTES, API_CONFIG } from "@/constants";
 import { ArrowLeft, ArrowRight, Check, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { getStoredItem } from "@/shared/utils/storage";
 
 export default function WizardPage() {
   const navigate = useNavigate();
@@ -52,7 +53,7 @@ export default function WizardPage() {
       try {
         const response = await fetch(`${API_CONFIG.BASE_URL}/kyc/me`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${getStoredItem('access_token')}`,
           },
         });
         const data = await response.json();

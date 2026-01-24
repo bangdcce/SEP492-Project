@@ -1,38 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { AlertTriangle } from "lucide-react";
 import { fetchProjectsByUser } from "./api";
 import type { Project } from "./types";
+import { ProjectCard } from "./components/ProjectCard";
 import { Spinner } from "@/shared/components/ui";
-import { cn } from "@/lib/utils";
 import { STORAGE_KEYS, ROUTES } from "@/constants";
 import type { User } from "@/features/auth/types";
+import { getStoredJson } from "@/shared/utils/storage";
 
-const statusBadge = (status: string) => {
-  const normalized = status?.toLowerCase();
-  if (normalized === "completed" || normalized === "done") {
-    return "bg-emerald-100 text-emerald-700";
-  }
-  if (
-    normalized === "in_progress" ||
-    normalized === "in-progress" ||
-    normalized === "inprogress"
-  ) {
-    return "bg-sky-100 text-sky-700";
-  }
-  return "bg-slate-100 text-slate-700";
-};
-
-// Helper to get current user from localStorage
+// Helper to get current user from storage (session/local)
 const getCurrentUser = (): User | null => {
-  try {
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      return JSON.parse(userStr);
-    }
-  } catch {
-    // Invalid JSON in localStorage
-  }
-  return null;
+  return getStoredJson<User>(STORAGE_KEYS.USER);
 };
 
 export default function ProjectListPage() {
@@ -64,7 +43,8 @@ export default function ProjectListPage() {
     load();
   }, [user, navigate]);
 
-  const renderRole = (project: Project) => {
+  // Determine user's role in a specific project
+  const getUserRoleInProject = (project: Project): string => {
     if (!user) return "Unknown";
     if (project.clientId === user.id) return "Client";
     if (project.brokerId === user.id) return "Broker";
@@ -82,6 +62,13 @@ export default function ProjectListPage() {
     return `/client/workspace/${projectId}`;
   };
 
+  // Count disputed projects for summary
+  const disputedProjectsCount = useMemo(() => {
+    return projects.filter(
+      (p) => p.status?.toUpperCase() === "DISPUTED" || p.hasActiveDispute
+    ).length;
+  }, [projects]);
+
   // Show loading while checking auth
   if (!user) {
     return (
@@ -93,6 +80,7 @@ export default function ProjectListPage() {
 
   return (
     <div className="space-y-6">
+      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">My Projects</h1>
@@ -100,6 +88,16 @@ export default function ProjectListPage() {
             Select a project to open its workspace.
           </p>
         </div>
+        
+        {/* Dispute Alert Summary */}
+        {disputedProjectsCount > 0 && (
+          <div className="flex items-center gap-2 px-4 py-2 bg-red-50 border border-red-200 rounded-lg">
+            <AlertTriangle className="h-5 w-5 text-red-600" />
+            <span className="text-sm font-medium text-red-700">
+              {disputedProjectsCount} project{disputedProjectsCount > 1 ? "s" : ""} with active disputes
+            </span>
+          </div>
+        )}
       </div>
 
       {loading ? (
@@ -110,44 +108,22 @@ export default function ProjectListPage() {
         <div className="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4">
           {error}
         </div>
+      ) : projects.length === 0 ? (
+        <div className="text-center py-16 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+          <p className="text-gray-600">No projects found.</p>
+          <p className="text-sm text-gray-500 mt-1">
+            Projects you're involved in will appear here.
+          </p>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {projects.map((project) => (
-            <button
+            <ProjectCard
               key={project.id}
-              onClick={() => navigate(getWorkspacePath(project.id))}
-              className="text-left bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md hover:-translate-y-0.5 transition-all duration-200"
-            >
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <h2 className="text-lg font-semibold text-slate-900">
-                    {project.title}
-                  </h2>
-                  {project.description && (
-                    <p className="text-sm text-gray-600 line-clamp-2 mt-1">
-                      {project.description}
-                    </p>
-                  )}
-                </div>
-                <span
-                  className={cn(
-                    "px-2 py-1 rounded-full text-xs font-semibold",
-                    statusBadge(project.status)
-                  )}
-                >
-                  {project.status}
-                </span>
-              </div>
-
-              <div className="mt-3 flex items-center gap-3 text-sm text-gray-600">
-                <span className="px-2 py-1 rounded-full bg-slate-100 text-slate-700">
-                  Role: {renderRole(project)}
-                </span>
-                <span className="px-2 py-1 rounded-full bg-gray-100 text-gray-700">
-                  Budget: ${Number(project.totalBudget || 0).toLocaleString()}
-                </span>
-              </div>
-            </button>
+              project={project}
+              userRole={getUserRoleInProject(project)}
+              onNavigate={() => navigate(getWorkspacePath(project.id))}
+            />
           ))}
         </div>
       )}
