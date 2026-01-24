@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   BadRequestException,
   InternalServerErrorException,
+  NotFoundException,
 } from '@nestjs/common';
 import { ProjectsService, MilestoneApprovalResult } from './projects.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -37,6 +38,15 @@ export class ProjectsController {
   @Get('list/:userId')
   listByUser(@Param('userId') userId: string) {
     return this.projectsService.listByUser(userId);
+  }
+
+  @Get(':id')
+  async getProject(@Param('id', ParseUUIDPipe) id: string) {
+    const project = await this.projectsService.findOne(id);
+    if (!project) {
+      throw new NotFoundException(`Project ${id} not found`);
+    }
+    return project;
   }
 
   /**

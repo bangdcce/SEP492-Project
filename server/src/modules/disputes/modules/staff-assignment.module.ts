@@ -24,6 +24,7 @@ import {
   SkillMappingRuleEntity,
 } from '../../../database/entities/dispute-skill.entity';
 import { SkillEntity } from '../../../database/entities/skill.entity';
+import { StaffPerformanceEntity } from '../../../database/entities/staff-performance.entity';
 
 // Services
 import { StaffAssignmentService } from '../services/staff-assignment.service';
@@ -44,6 +45,8 @@ import { StaffAssignmentService } from '../services/staff-assignment.service';
       DisputeSkillRequirementEntity,
       SkillMappingRuleEntity,
       SkillEntity,
+      // Performance Tracking
+      StaffPerformanceEntity,
     ]),
   ],
   providers: [StaffAssignmentService],

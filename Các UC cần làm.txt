@@ -1,0 +1,133 @@
+UC-38 Rate Freelancer/Broker
+UC-42 View List Of Active Dispute
+UC-43 Create Dispute
+UC-44 View Dispute Information
+UC-45 Add Evidence
+UC-46 Report Dispute
+UC-70 Rate Freelancer/Client
+UC-71 View List Feedback
+UC-72 View List Feedback Report
+UC-73 View Feedback Report Detail
+UC-74 Delete Feedback
+UC-75 Restore Feedback
+UC-76 View List Dispute
+UC-77 View Dispute Specific Information
+UC-78 Resolve Dispute
+UC-85 View System Log
+UC-86 Export Log
+UC-87 View Statistic
+
+ID
+Rule Definition
+BR-01
+All user input data must be validated for correctness before processing
+BR-02
+User email must be unique
+BR-03
+User password must be
+BR-04
+The Client must answer all required questions in the Guided Input Wizard before a request can be created. Incomplete specs cannot be posted.
+BR-05
+If "Post to Market" is selected, the request is visible to all Freelancers on the "Public Request" board.
+
+If "Find and Invite" is selected, the request is hidden from the public board and is only viewable by freelancers specifically invited by the Client or matched by the System.
+BR-06
+The text input fields in the wizard must pass a content filter to ensure no prohibited content is posted.
+BR-07
+When the user create project from request, the visibility of project is private and cannot be changed
+BR-08
+The Client must only see Requests created by their own account. They cannot see Requests belonging to other Clients.
+BR-09
+This list strictly displays Requests (pre-contract). Once a Request becomes a "Project" (contract signed), it is moved to the "My Projects" list and removed from this view.
+BR-10
+User can strictly only view the details of Requests they created or are asigned
+BR-11
+The available actions on this page are determined by the Request Status state machine. For example, a "Private" request allows "Post to Market," but a "Public" request does not allow "Post to Market" (since it is already there).
+BR-12
+A Public Request allows open bidding. A Private Request relies on specific invites. To prevent "Ghost Bids" (where a Broker thinks they are in the running for a job that is no longer open to them), the system mandates the rejection of all open public bids when switching to Private.
+BR-13
+If the Client later makes the request Public again, previously rejected bids do not automatically restore. The Brokers must re-apply.
+BR-14
+Active "Projects" (contracts signed) cannot use this flow. They are already private by nature of the contract.
+BR-15
+If a Request has reached the "Accepted" stage (implied verbal agreement or active negotiation), one party cannot unilaterally destroy the record. Hard deletion requires the explicit consent (digital signature/button click) of all "Accepted" parties (Client, Broker, Freelancer).
+BR-16
+If no candidates are "Accepted," the Client retains full ownership and can hard delete unilaterally.
+BR-17
+The Broker is the sole role authorized to modify or upload the initial contract structure. The Client and Freelancer can only view and (in subsequent UCs) sign or comment.
+BR-18
+The contract is strictly confidential and visible only to the specific Client, Broker, and Freelancer involved in this specific Request. It is never public.
+BR-19
+A Project cannot start until Client + Broker + Freelancer have all electronically signed. No exceptions.
+BR-20
+Once the 3rd signature is placed, the negotiation phase ends immediately. The System must prevent any further edits to the specifications or budget.
+BR-21
+The parties can sign in any order (e.g., Client first, or Broker first). The system handles the asynchronous nature of the signatures.
+BR-22
+Request can only be edited when it is a Draft
+BR-23
+These specs serve as the "Scope of Work" attachment for the Contract. The Contract cannot be finalized until at least one valid version of Specs exists.
+BR-24
+Since the specs define the product the Client is paying for, any change (no matter how small) triggers a notification to the Client to ensure transparency.
+BR-25
+A user cannot serve as both the Broker and the Freelancer on the same Request/Project to prevent self-dealing and conflict of interest.
+BR-26
+The Broker is the sole party authorized to define the "Definition of Done" (DoD) for milestones. Once the Client approves these specs (UC-98), they become the binding criteria for payment.
+BR-27
+To prevent platform circumvention, the sharing of external contact information (emails, phone numbers, external links) in Public Requests or Cover Letters is strictly prohibited and subject to automated filtering.
+BR-28
+A Freelancer shall not be required to start work on a milestone until the Client has deposited 100% of that milestone's value into the Virtual Escrow.
+BR-29
+Funds held in Escrow can only be released to the Freelancer/Broker after the Client clicks "Approve Milestone" or after the Auto-Approval period (BR-30) expires.
+BR-30
+If a Freelancer submits a milestone for review and the Client takes no action (neither approves nor disputes) within 14 calendar days, the system will automatically release the funds to the Freelancer.
+BR-31
+The system must automatically split the Escrow payout based on the contract terms (e.g., 80% to Freelancer, 20% to Broker) at the moment of milestone approval.
+BR-32
+A Project can only have one "Active" milestone at a time. A subsequent milestone cannot be funded until the previous one is marked as "Completed" or "Cancelled."
+BR-33
+Only the Freelancer assigned to the project can move items to "In Review" on the Kanban board. The Broker and Client can move items to "Accepted" or "Rejected."
+BR-34
+Only the Freelancer assigned to the project can move items to "In Review" on the Kanban board. The Broker and Client can move items to "Accepted" or "Rejected."
+BR-35
+If a user’s account is "Banned" (UC-83), all their Public Requests are hidden, and all active negotiations are paused. However, active Projects (with signed contracts) move into a "Legal Review" state.
+BR-36
+Users who are currently "Banned" or have "Inactive" KYC status are hidden from this list and cannot be searched or invited.
+BR-37
+Once a contract is submitted for review, the Technical Specifications are locked and cannot be edited.
+BR-38
+The list prioritizes "Verified" partners and those with higher completion rates in the search ranking.
+BR-39
+Users can only view public profile information; private contact details (phone/personal email) are hidden unless a contract is signed.
+BR-40
+A Client can send a maximum of 10 active pending invitations per Request to prevent spamming.
+BR-41
+The list should prioritize projects with "Pending Action" (e.g., milestone approval needed) by placing them at the top.
+BR-42
+Only the Client assigned to this specific project can view this milestone list.
+BR-43
+Every rejection must be accompanied by text feedback to maintain a project audit trail.
+BR-44
+: A milestone cannot be approved by the Client until the Broker has first marked it as "Approved" in this review process.
+BR-45
+Both the Client and the Freelancer must approve the specifications/milestones before they are considered binding.
+BR-46
+Approving a milestone during the Project phase (scope change) may update the total project budget or timeline.
+BR-47
+Chat content must pass through a basic filter to prevent harassment or prohibited exchange of external contact info
+BR-48
+Discussion history is archived and cannot be deleted by the users to ensure a record exists for potential disputes.
+BR-49
+A Request is removed from this list the moment the contract is fully signed by all three parties (moving it to the Allocated Projects list).
+BR-50
+Admin data access is restricted to the Admin panel only.
+BR-51
+Questions must be displayed in the exact numerical order they appear to the Client in the wizard.
+BR-52
+Answer options are only applicable to selection-based questions; text-input questions will show a "Manual Input" status instead.
+BR-53
+Editing an answer only affects the display for future users; it does not retroactively change the answers submitted in existing Requests.
+BR-54
+An answer cannot be deleted if it is the only remaining option for a mandatory multiple-choice question.
+
+

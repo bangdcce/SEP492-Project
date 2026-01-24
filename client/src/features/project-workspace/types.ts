@@ -1,4 +1,4 @@
-export type KanbanColumnKey = "TODO" | "IN_PROGRESS" | "DONE";
+export type KanbanColumnKey = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
 
 export type Assignee = {
   id?: string;
@@ -6,6 +6,8 @@ export type Assignee = {
   email?: string;
   avatarUrl?: string;
 };
+
+export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
 export type Task = {
   id: string;
@@ -18,6 +20,14 @@ export type Task = {
   dueDate?: string | null;
   specFeatureId?: string | null; // Links task to spec feature (anti-scope creep)
   assignee?: Assignee | null;
+  
+  // Jira-style fields
+  priority: TaskPriority;
+  storyPoints?: number | null;
+  labels?: string[] | null;
+  reporterId?: string | null;
+  reporter?: Assignee | null;
+
   // Proof of Work fields (for task submission / dispute resolution)
   submissionNote?: string | null;
   proofLink?: string | null;

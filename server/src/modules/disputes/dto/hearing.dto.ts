@@ -9,8 +9,10 @@ import {
   Max,
   IsString,
   IsArray,
+  IsBoolean,
 } from 'class-validator';
-import { SpeakerRole, HearingTier } from 'src/database/entities';
+import { ApiPropertyOptional } from '@nestjs/swagger';
+import { SpeakerRole, HearingTier, HearingStatementType } from 'src/database/entities';
 
 /**
  * DTO để lên lịch phiên điều trần
@@ -46,6 +48,14 @@ export class ScheduleHearingDto {
   @IsString()
   @IsOptional()
   externalMeetingLink?: string; // Link Google Meet/Zoom nếu cần video call
+
+  @ApiPropertyOptional({
+    description: 'Emergency hearing flag to bypass 24h notice rule',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isEmergency?: boolean;
 }
 
 /**
@@ -106,4 +116,135 @@ export class RespondHearingInviteDto {
   @IsString()
   @IsOptional()
   declineReason?: string;
+}
+
+/**
+ * DTO nộp lời khai (draft hoặc submit)
+ */
+export class SubmitHearingStatementDto {
+  @IsUUID()
+  @IsNotEmpty()
+  hearingId: string;
+
+  @IsEnum(HearingStatementType)
+  @IsNotEmpty()
+  type: HearingStatementType;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
+  content?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  attachments?: string[];
+
+  @IsUUID()
+  @IsOptional()
+  replyToStatementId?: string;
+
+  @IsUUID()
+  @IsOptional()
+  retractionOfStatementId?: string;
+
+  @IsUUID()
+  @IsOptional()
+  draftId?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isDraft?: boolean;
+}
+
+/**
+ * DTO đặt câu hỏi trong hearing
+ */
+export class AskHearingQuestionDto {
+  @IsUUID()
+  @IsNotEmpty()
+  hearingId: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  targetUserId: string;
+
+  @IsString()
+  @IsNotEmpty()
+  question: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(60)
+  @IsOptional()
+  deadlineMinutes?: number; // Default: 10 minutes
+}
+
+/**
+ * DTO kết thúc hearing
+ */
+export class EndHearingDto {
+  @IsUUID()
+  @IsNotEmpty()
+  hearingId: string;
+
+  @IsString()
+  @IsOptional()
+  summary?: string;
+
+  @IsString()
+  @IsOptional()
+  findings?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  pendingActions?: string[];
+
+  @IsOptional()
+  @IsBoolean()
+  forceEnd?: boolean;
+}
+
+/**
+ * DTO dời lịch phiên điều trần
+ */
+export class RescheduleHearingDto {
+  @IsUUID()
+  @IsNotEmpty()
+  hearingId: string;
+
+  @IsDateString()
+  @IsNotEmpty()
+  scheduledAt: string; // ISO 8601 format
+
+  @IsInt()
+  @Min(15)
+  @Max(240)
+  @IsOptional()
+  estimatedDurationMinutes?: number;
+
+  @IsString()
+  @IsOptional()
+  agenda?: string;
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  requiredDocuments?: string[];
+
+  @IsString()
+  @IsOptional()
+  externalMeetingLink?: string;
+
+  @ApiPropertyOptional({
+    description: 'Emergency hearing flag to bypass 24h notice rule',
+    default: false,
+  })
+  @IsOptional()
+  @IsBoolean()
+  isEmergency?: boolean;
 }

@@ -51,6 +51,7 @@ export function BrokerDashboard() {
     (r) =>
       r.status === RequestStatus.PROCESSING ||
       r.status === RequestStatus.SPEC_SUBMITTED ||
+      r.status === RequestStatus.SPEC_APPROVED ||
       r.status === RequestStatus.APPROVED
   );
 

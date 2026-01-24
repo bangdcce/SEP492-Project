@@ -16,7 +16,7 @@ import {
   KanbanStatus,
   TaskStatusUpdateResult,
 } from './tasks.service';
-import { TaskStatus } from '../../database/entities/task.entity';
+import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { SubmitTaskDto } from './dto/submit-task.dto';
 
 // Interface for authenticated request with user context
@@ -50,7 +50,13 @@ export class TasksController {
     @Param('id') id: string,
     @Body('status') status: string,
   ): Promise<TaskStatusUpdateResult> {
-    const allowed: TaskStatus[] = [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.DONE];
+    const allowed: TaskStatus[] = [
+      TaskStatus.TODO,
+      TaskStatus.IN_PROGRESS,
+      TaskStatus.IN_REVIEW,
+      TaskStatus.REVISIONS_REQUIRED,
+      TaskStatus.DONE,
+    ];
 
     if (!allowed.includes(status as TaskStatus)) {
       throw new BadRequestException('Invalid status');
@@ -89,6 +95,14 @@ export class TasksController {
     return await this.tasksService.submitTask(id, dto, actorId, reqContext);
   }
 
+  @Patch(':id')
+  async updateTask(
+    @Param('id') id: string,
+    @Body() body: Partial<TaskEntity>,
+  ) {
+    return this.tasksService.updateTask(id, body);
+  }
+
   @Post()
   async createTask(
     @Body()
@@ -100,11 +114,18 @@ export class TasksController {
       specFeatureId?: string;
       startDate?: string;
       dueDate?: string;
+      priority?: TaskPriority;
+      storyPoints?: number;
+      labels?: string[];
+      reporterId?: string;
     },
+    @Req() req: AuthenticatedRequest,
   ) {
     if (!body?.title || !body?.projectId || !body?.milestoneId) {
       throw new BadRequestException('title, projectId and milestoneId are required');
     }
+
+    const reporterId = body.reporterId || req.user?.id;
 
     this.logger.log(`Creating task: ${body.title} for project ${body.projectId}`);
 
@@ -116,6 +137,10 @@ export class TasksController {
       specFeatureId: body.specFeatureId,
       startDate: body.startDate,
       dueDate: body.dueDate,
+      priority: body.priority,
+      storyPoints: body.storyPoints,
+      labels: body.labels,
+      reporterId,
     });
   }
 }

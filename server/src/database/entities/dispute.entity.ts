@@ -16,9 +16,12 @@ import { UserRole } from './user.entity';
 
 export enum DisputeStatus {
   OPEN = 'OPEN',
+  PENDING_REVIEW = 'PENDING_REVIEW',
+  INFO_REQUESTED = 'INFO_REQUESTED',
   IN_MEDIATION = 'IN_MEDIATION',
   RESOLVED = 'RESOLVED',
   REJECTED = 'REJECTED',
+  REJECTION_APPEALED = 'REJECTION_APPEALED',
   APPEALED = 'APPEALED', // Đang khiếu nại lại
 }
 
@@ -128,6 +131,22 @@ export class DisputeEntity {
   @Column({ default: false })
   isOverdue: boolean;
 
+  // === PRELIMINARY REVIEW ===
+  @Column({ type: 'text', nullable: true })
+  infoRequestReason: string;
+
+  @Column({ nullable: true })
+  infoRequestedById: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  infoRequestedAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  infoProvidedAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
+  dismissalHoldUntil: Date;
+
   // === STATUS & RESULT ===
   @Column({
     type: 'enum',
@@ -152,6 +171,22 @@ export class DisputeEntity {
 
   @Column({ type: 'timestamp', nullable: true })
   resolvedAt: Date;
+
+  // === DISMISSAL APPEAL (REJECTION REVIEW) ===
+  @Column({ type: 'text', nullable: true })
+  rejectionAppealReason: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  rejectionAppealedAt: Date;
+
+  @Column({ nullable: true })
+  rejectionAppealResolvedById: string;
+
+  @Column({ type: 'text', nullable: true })
+  rejectionAppealResolution: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  rejectionAppealResolvedAt: Date;
 
   // === MULTI-DEFENDANT SUPPORT (Linked Disputes) ===
   @Column({ nullable: true })
