@@ -1,5 +1,5 @@
 import { apiClient } from "@/shared/api/client";
-import type { KanbanBoard, KanbanColumnKey, Task, Milestone, TaskStatusUpdateResult, TaskPriority } from "./types";
+import type { KanbanBoard, KanbanColumnKey, Task, Milestone, TaskStatusUpdateResult } from "./types";
 
 // ============================================
 // REAL API - Database Integration
@@ -167,3 +167,5 @@ export const approveMilestone = async (
   console.log("[API] Milestone approved:", result);
   return result;
 };
+
+
