@@ -1,0 +1,28 @@
+##
+## Draw.io - CALENDAR & SCHEDULING
+## Lịch, sự kiện
+##
+# label: %name%
+# style: rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;fontSize=12;
+# stylename: nodeStyle
+# styles: {"ghostNode": "rounded=1;whiteSpace=wrap;html=1;fillColor=#f5f5f5;strokeColor=#666666;fontColor=#999999;dashed=1;fontSize=11;", "centerNode": "rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;fontSize=14;fontStyle=1;"}
+# namespace: p6_cal-
+# connect: {"from": "refs_n1", "to": "id", "style": "curved=0;rounded=1;edgeStyle=orthogonalEdgeStyle;endArrow=ERone;startArrow=ERmany;html=1;jettySize=60;orthogonalLoop=1;strokeWidth=2;"}
+# connect: {"from": "refs_11", "to": "id", "style": "curved=0;rounded=1;edgeStyle=orthogonalEdgeStyle;endArrow=ERone;startArrow=ERone;html=1;jettySize=60;orthogonalLoop=1;strokeWidth=2;strokeColor=#009900;"}
+# width: 140
+# height: 50
+# padding: 30
+# nodespacing: 180
+# levelseparation: 220
+# layout: auto
+# ignore: id,refs_n1,refs_11,nodeStyle
+##
+## Data
+##
+id,name,refs_n1,refs_11,nodeStyle
+calendar_events,calendar_events,"users,calendar_events","",centerNode
+event_participants,event_participants,"calendar_events,users","",
+event_reschedule_requests,event_reschedule_requests,"calendar_events,users","",
+user_availabilities,user_availabilities,"users,calendar_events","",
+auto_schedule_rules,auto_schedule_rules,"","",
+users,users,"","",ghostNode

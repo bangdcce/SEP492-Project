@@ -20,6 +20,18 @@ import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.servi
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 
+// Type for audit log review data
+interface AuditLogReviewData {
+  rating?: number;
+  comment?: string;
+}
+
+// Type for raw report query result
+interface PendingReportRaw {
+  reviewId: string;
+  reportCount: string;
+}
+
 @Injectable()
 export class ReviewService {
   private readonly logger = new Logger(ReviewService.name);
@@ -226,22 +238,26 @@ export class ReviewService {
     });
 
     // Build history entries from audit logs
-    const historyFromLogs = logs.map((log, index) => ({
-      id: log.id,
-      reviewId: reviewId,
-      version: logs.length - index + 1, // Latest = highest version
-      rating: log.afterData?.rating,
-      comment: log.afterData?.comment,
-      editedAt: log.createdAt.toISOString(),
-      editedBy: {
-        id: log.actor?.id || 'unknown',
-        fullName: log.actor?.fullName || 'Unknown',
-      },
-      changesSummary: {
-        ratingChanged: log.beforeData?.rating !== log.afterData?.rating,
-        commentChanged: log.beforeData?.comment !== log.afterData?.comment,
-      },
-    }));
+    const historyFromLogs = logs.map((log, index) => {
+      const afterData = log.afterData as AuditLogReviewData | null;
+      const beforeData = log.beforeData as AuditLogReviewData | null;
+      return {
+        id: log.id,
+        reviewId: reviewId,
+        version: logs.length - index + 1, // Latest = highest version
+        rating: afterData?.rating,
+        comment: afterData?.comment,
+        editedAt: log.createdAt.toISOString(),
+        editedBy: {
+          id: log.actor?.id || 'unknown',
+          fullName: log.actor?.fullName || 'Unknown',
+        },
+        changesSummary: {
+          ratingChanged: beforeData?.rating !== afterData?.rating,
+          commentChanged: beforeData?.comment !== afterData?.comment,
+        },
+      };
+    });
 
     // Add original version (from review.createdAt) - no changesSummary for original
     const originalEntry = {
@@ -400,7 +416,7 @@ export class ReviewService {
       .addSelect('COUNT(*)', 'reportCount')
       .where('report.status = :status', { status: ReportStatus.PENDING })
       .groupBy('report.reviewId')
-      .getRawMany();
+      .getRawMany<PendingReportRaw>();
 
     if (pendingReports.length === 0) {
       return [];

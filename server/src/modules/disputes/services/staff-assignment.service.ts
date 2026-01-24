@@ -14,7 +14,8 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, LessThan, MoreThan, In, IsNull } from 'typeorm';
-import { EventEmitter2 } from '@nestjs/event-emitter';
+import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { DISPUTE_EVENTS } from '../events/dispute.events';
 
 // Entities
 import {
@@ -29,10 +30,7 @@ import {
   EventType,
   EventStatus,
 } from '../../../database/entities/calendar-event.entity';
-import {
-  UserAvailabilityEntity,
-  AvailabilityType,
-} from '../../../database/entities/user-availability.entity';
+import { UserAvailabilityEntity } from '../../../database/entities/user-availability.entity';
 import {
   AutoScheduleRuleEntity,
   SchedulingStrategy,
@@ -47,6 +45,7 @@ import {
   SkillMappingRuleEntity,
 } from '../../../database/entities/dispute-skill.entity';
 import { SkillEntity } from '../../../database/entities/skill.entity';
+import { StaffPerformanceEntity } from '../../../database/entities/staff-performance.entity';
 
 // Interfaces
 import type {
@@ -57,20 +56,19 @@ import type {
   StaffScoreBreakdown,
   AvailableStaffResult,
   TimeSlot,
-  SchedulingConstraints,
-  AvailableSlotsResult,
   BufferConfig,
   SessionTimingStatus,
   SessionTimingResult,
   IdleCheckConfig,
   IdleCheckResult,
   FillerTask,
-  FillerTaskType,
   FragmentedTimeResult,
   EarlyReleaseResult,
   ReassignmentRequest,
   ReassignmentResult,
-  StaffPerformanceMetrics,
+  StaffSuggestion,
+  StaffSuggestionResult,
+  SuggestionLevel,
 } from '../interfaces/staff-assignment.interface';
 
 // Re-export interfaces for external use
@@ -87,6 +85,8 @@ export type {
   FragmentedTimeResult,
   EarlyReleaseResult,
   ReassignmentResult,
+  StaffSuggestion,
+  StaffSuggestionResult,
 };
 
 // =============================================================================
@@ -184,6 +184,9 @@ export class StaffAssignmentService {
     private readonly skillMappingRepository: Repository<SkillMappingRuleEntity>,
     @InjectRepository(SkillEntity)
     private readonly skillRepository: Repository<SkillEntity>,
+    // Performance Tracking
+    @InjectRepository(StaffPerformanceEntity)
+    private readonly performanceRepository: Repository<StaffPerformanceEntity>,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -634,7 +637,7 @@ export class StaffAssignmentService {
     const workloads = await this.workloadRepository.find({
       where: {
         staffId: In(allStaff.map((s) => s.id)),
-        date: dateStr as any,
+        date: dateStr as unknown as Date,
       },
     });
 
@@ -651,10 +654,15 @@ export class StaffAssignmentService {
       .groupBy('d.assignedStaffId')
       .getRawMany();
 
-    const monthlyMap = new Map(monthlyStats.map((s) => [s.staffId, parseInt(s.count)]));
+    const monthlyMap = new Map(
+      monthlyStats.map((s: { staffId: string; count: string }) => [s.staffId, parseInt(s.count)]),
+    );
     const avgMonthly =
       monthlyStats.length > 0
-        ? monthlyStats.reduce((sum, s) => sum + parseInt(s.count), 0) / monthlyStats.length
+        ? monthlyStats.reduce(
+            (sum, s: { staffId: string; count: string }) => sum + parseInt(s.count),
+            0,
+          ) / monthlyStats.length
         : 0;
 
     // 4. Score each staff
@@ -888,7 +896,7 @@ export class StaffAssignmentService {
    * - Staff forgets to end session
    * - System auto-warns then auto-closes
    */
-  async checkSessionIdle(eventId: string, lastActivityAt: Date): Promise<IdleCheckResult> {
+  checkSessionIdle(eventId: string, lastActivityAt: Date): IdleCheckResult {
     const config = ASSIGNMENT_CONFIG.IDLE_CHECK;
     const now = new Date();
     const idleMs = now.getTime() - lastActivityAt.getTime();
@@ -977,7 +985,7 @@ export class StaffAssignmentService {
     // Update staff workload
     const dateStr = actualEndTime.toISOString().split('T')[0];
     const workload = await this.workloadRepository.findOne({
-      where: { staffId: event.organizerId, date: dateStr as any },
+      where: { staffId: event.organizerId, date: dateStr as unknown as Date },
     });
 
     let canAcceptNewEvent = false;
@@ -1014,7 +1022,7 @@ export class StaffAssignmentService {
 
     // Count pending disputes that could be assigned
     const pendingDisputes = await this.disputeRepository.count({
-      where: { assignedStaffId: IsNull(), status: DisputeStatus.OPEN },
+      where: { assignedStaffId: IsNull(), status: In([DisputeStatus.OPEN, DisputeStatus.PENDING_REVIEW, DisputeStatus.INFO_REQUESTED]) },
     });
 
     this.logger.log(
@@ -1148,7 +1156,7 @@ export class StaffAssignmentService {
       const pendingReview = await this.disputeRepository.count({
         where: {
           assignedStaffId: staffId,
-          status: DisputeStatus.OPEN, // Disputes that need review
+          status: In([DisputeStatus.OPEN, DisputeStatus.PENDING_REVIEW, DisputeStatus.INFO_REQUESTED]), // Disputes that need review
         },
       });
 
@@ -1179,6 +1187,278 @@ export class StaffAssignmentService {
       canScheduleHearing: false,
       suggestedFillerTasks: suggestedTasks.slice(0, 3), // Max 3 suggestions
       reason: `Gap of ${gapMinutes} minutes - suggesting async tasks instead of hearing`,
+    };
+  }
+
+  // ===========================================================================
+  // EVENT-DRIVEN WORKLOAD UPDATES (Giải quyết "Stale Workload" edge case)
+  // ===========================================================================
+
+  /**
+   * UNIT: Increment pending disputes khi có dispute mới được assign
+   *
+   * Trigger: Sau khi assign dispute (cả auto và manual)
+   * Purpose: Realtime update thay vì đợi cronjob 00:00
+   */
+  async incrementPendingDisputes(staffId: string, disputeId: string): Promise<void> {
+    const dateStr = new Date().toISOString().split('T')[0];
+
+    // Upsert workload record
+    const existingWorkload = await this.workloadRepository.findOne({
+      where: { staffId, date: dateStr as unknown as Date },
+    });
+
+    let newPendingCount: number;
+
+    if (existingWorkload) {
+      existingWorkload.totalDisputesPending += 1;
+      // Recalculate flags
+      existingWorkload.canAcceptNewEvent =
+        existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
+      existingWorkload.isOverloaded =
+        existingWorkload.utilizationRate >= ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD;
+      await this.workloadRepository.save(existingWorkload);
+      newPendingCount = existingWorkload.totalDisputesPending;
+    } else {
+      // Create new workload record for today
+      const newWorkload = this.workloadRepository.create({
+        staffId,
+        date: dateStr as unknown as Date,
+        totalDisputesPending: 1,
+        totalEventsScheduled: 0,
+        scheduledMinutes: 0,
+        dailyCapacityMinutes: 480,
+        utilizationRate: 0,
+        isOverloaded: false,
+        canAcceptNewEvent: true,
+        isOnLeave: false,
+      });
+      await this.workloadRepository.save(newWorkload);
+      newPendingCount = 1;
+    }
+
+    // Emit event for tracking
+    this.eventEmitter.emit('workload.incremented', {
+      staffId,
+      disputeId,
+      newPendingCount,
+    });
+
+    this.logger.log(
+      `Incremented pending disputes for staff ${staffId}: now ${newPendingCount} pending`,
+    );
+  }
+
+  /**
+   * UNIT: Decrement pending disputes khi dispute resolved/closed
+   *
+   * Trigger: Sau khi resolve hoặc close dispute
+   * Purpose: Realtime update để staff có thể nhận việc mới ngay
+   */
+  async decrementPendingDisputes(staffId: string, disputeId: string): Promise<void> {
+    const dateStr = new Date().toISOString().split('T')[0];
+
+    const existingWorkload = await this.workloadRepository.findOne({
+      where: { staffId, date: dateStr as unknown as Date },
+    });
+
+    if (!existingWorkload) {
+      this.logger.warn(
+        `No workload record found for staff ${staffId} on ${dateStr}. Cannot decrement.`,
+      );
+      return;
+    }
+
+    // Decrement but don't go below 0
+    existingWorkload.totalDisputesPending = Math.max(0, existingWorkload.totalDisputesPending - 1);
+
+    // Recalculate flags - staff có thể nhận việc mới ngay
+    existingWorkload.canAcceptNewEvent =
+      existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
+    existingWorkload.isOverloaded =
+      existingWorkload.utilizationRate >= ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD;
+
+    await this.workloadRepository.save(existingWorkload);
+
+    // Emit event for tracking
+    this.eventEmitter.emit('workload.decremented', {
+      staffId,
+      disputeId,
+      newPendingCount: existingWorkload.totalDisputesPending,
+    });
+
+    this.logger.log(
+      `Decremented pending disputes for staff ${staffId}: now ${existingWorkload.totalDisputesPending} pending`,
+    );
+  }
+
+  // ===========================================================================
+  // SMART SUGGESTION API (For Reassignment UI)
+  // ===========================================================================
+
+  /**
+   * COMPOSE: Gợi ý staff thay thế cho dispute
+   *
+   * Algorithm:
+   * 1. Lọc Staff đủ skill (skillMatchScore >= 50)
+   * 2. Check availability tại scheduledTime (nếu có hearing)
+   * 3. Sắp xếp theo: isAvailable DESC, workload ASC, skillMatch DESC
+   *
+   * UI sẽ hiển thị:
+   * - 🟢 Green = RECOMMENDED (rảnh, skill match cao)
+   * - 🟡 Yellow = AVAILABLE (bận vừa hoặc skill trung bình)
+   * - 🔴 Red = CONFLICT (trùng lịch hoặc quá tải)
+   */
+  async suggestReplacementStaff(
+    disputeId: string,
+    scheduledTime?: Date,
+  ): Promise<StaffSuggestionResult> {
+    // 1. Load dispute để lấy info
+    const dispute = await this.disputeRepository.findOne({
+      where: { id: disputeId },
+      relations: ['assignedStaff'],
+    });
+
+    if (!dispute) {
+      throw new NotFoundException(`Dispute ${disputeId} not found`);
+    }
+
+    // 2. Get all available staff
+    const availableResult = await this.getAvailableStaff();
+    const allStaff = availableResult.staff;
+
+    // 3. Get skill match scores
+    const staffIds = allStaff.map((s) => s.staffId);
+    const skillMatches = await this.getStaffBySkillMatch(disputeId, staffIds);
+    const skillMatchMap = new Map(skillMatches.map((m) => [m.staffId, m.skillMatchScore]));
+
+    // 4. Get staff names
+    const staffUsers = await this.userRepository.find({
+      where: { id: In(staffIds) },
+      select: ['id', 'email'],
+      relations: ['profile'],
+    });
+    const staffInfoMap = new Map(
+      staffUsers.map((u) => [
+        u.id,
+        {
+          // ProfileEntity uses companyName for display, fallback to email prefix
+          name: u.profile?.companyName || u.email.split('@')[0],
+          email: u.email,
+        },
+      ]),
+    );
+
+    // 5. Check calendar conflicts if scheduledTime provided
+    const conflictMap = new Map<string, { eventId: string; eventTitle: string }>();
+    if (scheduledTime) {
+      // Find events that overlap with scheduledTime (assuming 1 hour window)
+      const endTime = new Date(scheduledTime.getTime() + 60 * 60 * 1000);
+
+      for (const staffId of staffIds) {
+        const conflictingEvent = await this.calendarRepository.findOne({
+          where: {
+            organizerId: staffId,
+            startTime: LessThan(endTime),
+            endTime: MoreThan(scheduledTime),
+            status: In([EventStatus.SCHEDULED, EventStatus.IN_PROGRESS]),
+          },
+        });
+
+        if (conflictingEvent) {
+          conflictMap.set(staffId, {
+            eventId: conflictingEvent.id,
+            eventTitle: conflictingEvent.title || 'Scheduled Event',
+          });
+        }
+      }
+    }
+
+    // 6. Build suggestions
+    const suggestions: StaffSuggestion[] = [];
+
+    for (const staff of allStaff) {
+      // Skip current assignee
+      if (staff.staffId === dispute.assignedStaffId) continue;
+
+      const skillScore = skillMatchMap.get(staff.staffId) || 0;
+      const staffInfo = staffInfoMap.get(staff.staffId);
+      const conflict = conflictMap.get(staff.staffId);
+      const hasConflict = !!conflict;
+
+      // Determine suggestion level and color
+      let suggestion: SuggestionLevel;
+      let displayColor: 'green' | 'yellow' | 'red';
+      let reason: string;
+
+      if (hasConflict) {
+        suggestion = 'CONFLICT';
+        displayColor = 'red';
+        reason = `Trùng lịch với "${conflict.eventTitle}"`;
+      } else if (!staff.isAvailable) {
+        suggestion = 'BUSY';
+        displayColor = 'red';
+        reason = staff.unavailableReason || 'Không khả dụng';
+      } else if (staff.utilizationRate >= 70) {
+        suggestion = 'BUSY';
+        displayColor = 'yellow';
+        reason = `Đang bận (${staff.monthlyDisputeCount} vụ trong tháng)`;
+      } else if (skillScore >= 70 && staff.utilizationRate < 50) {
+        suggestion = 'RECOMMENDED';
+        displayColor = 'green';
+        reason = `Gợi ý tốt nhất: Rảnh và skill phù hợp (${skillScore}%)`;
+      } else if (skillScore >= 50) {
+        suggestion = 'AVAILABLE';
+        displayColor = 'green';
+        reason = `Phù hợp: ${staff.monthlyDisputeCount} vụ đang xử lý`;
+      } else {
+        suggestion = 'AVAILABLE';
+        displayColor = 'yellow';
+        reason = `Skill match thấp (${skillScore}%)`;
+      }
+
+      suggestions.push({
+        staffId: staff.staffId,
+        staffName: staffInfo?.name || 'Unknown',
+        staffEmail: staffInfo?.email,
+        currentWorkload: staff.monthlyDisputeCount,
+        skillMatchScore: skillScore,
+        isAvailableAtTime: !hasConflict,
+        conflictingEventId: conflict?.eventId,
+        conflictingEventTitle: conflict?.eventTitle,
+        suggestion,
+        displayColor,
+        reason,
+        metrics: {
+          utilizationRate: staff.utilizationRate,
+          avgUserRating: staff.avgUserRating,
+          overturnRate: staff.overturnRate,
+        },
+      });
+    }
+
+    // 7. Sort: Green first, then Yellow, then Red. Within each, sort by workload ASC
+    suggestions.sort((a, b) => {
+      const colorOrder = { green: 0, yellow: 1, red: 2 };
+      if (colorOrder[a.displayColor] !== colorOrder[b.displayColor]) {
+        return colorOrder[a.displayColor] - colorOrder[b.displayColor];
+      }
+      // Within same color, less workload = better
+      return a.currentWorkload - b.currentWorkload;
+    });
+
+    const assignedStaff = dispute.assignedStaff as UserEntity | null;
+
+    return {
+      disputeId,
+      currentStaffId: dispute.assignedStaffId || undefined,
+      currentStaffName: assignedStaff
+        ? staffInfoMap.get(assignedStaff.id)?.name || 'Unknown'
+        : undefined,
+      scheduledTime,
+      suggestions,
+      totalCandidates: suggestions.length,
+      recommendedStaffId: suggestions.find((s) => s.suggestion === 'RECOMMENDED')?.staffId || null,
     };
   }
 
@@ -1223,16 +1503,8 @@ export class StaffAssignmentService {
       assignedAt: new Date(),
     });
 
-    // 4. Update workload
-    const dateStr = new Date().toISOString().split('T')[0];
-    await this.workloadRepository.upsert(
-      {
-        staffId,
-        date: dateStr as any,
-        totalDisputesPending: () => 'total_disputes_pending + 1',
-      },
-      ['staffId', 'date'],
-    );
+    // 4. Update workload using event-driven function (realtime update)
+    await this.incrementPendingDisputes(staffId, disputeId);
 
     // 5. Emit event
     this.eventEmitter.emit('staff.assigned', {
@@ -1251,6 +1523,108 @@ export class StaffAssignmentService {
       staffId,
       complexity,
       success: true,
+    };
+  }
+
+  // ===========================================================================
+  // COMPOSE FUNCTIONS: MANUAL DISPUTE REASSIGNMENT
+  // ===========================================================================
+
+  /**
+   * COMPOSE FUNCTION: Manual reassign dispute to different staff
+   *
+   * Purpose: Admin thủ công reassign dispute cho staff khác
+   * Use cases:
+   * - Staff quá tải, cần rebalance
+   * - Staff xin nghỉ dài hạn
+   * - Admin muốn gán cho chuyên gia cụ thể
+   *
+   * Flow:
+   * 1. Load dispute + validate old staff
+   * 2. Validate new staff exists và isActive
+   * 3. Update dispute.assignedStaffId
+   * 4. Decrement old staff workload
+   * 5. Increment new staff workload
+   * 6. Log and emit event
+   */
+  async reassignDispute(
+    disputeId: string,
+    newStaffId: string,
+    reason: string,
+    performedById: string,
+    notes?: string,
+  ): Promise<{
+    success: boolean;
+    oldStaffId: string | null;
+    newStaffId: string;
+    message: string;
+  }> {
+    // 1. Load dispute
+    const dispute = await this.disputeRepository.findOne({
+      where: { id: disputeId },
+      select: ['id', 'assignedStaffId', 'status'],
+    });
+
+    if (!dispute) {
+      throw new NotFoundException(`Dispute ${disputeId} not found`);
+    }
+
+    // 2. Validate dispute status - không reassign dispute đã đóng
+    if (dispute.status === DisputeStatus.RESOLVED || dispute.status === DisputeStatus.REJECTED) {
+      throw new BadRequestException(`Cannot reassign dispute with status ${dispute.status}`);
+    }
+    // 3. Validate new staff exists and is active
+    const newStaff = await this.userRepository.findOne({
+      where: { id: newStaffId, role: UserRole.STAFF, isBanned: false },
+    });
+
+    if (!newStaff) {
+      throw new BadRequestException(`Staff ${newStaffId} not found or is not active`);
+    }
+
+    // 4. Check not reassigning to same staff
+    if (dispute.assignedStaffId === newStaffId) {
+      return {
+        success: false,
+        oldStaffId: dispute.assignedStaffId,
+        newStaffId,
+        message: 'Dispute is already assigned to this staff',
+      };
+    }
+
+    const oldStaffId = dispute.assignedStaffId;
+
+    // 5. Update dispute assignment
+    await this.disputeRepository.update(disputeId, {
+      assignedStaffId: newStaffId,
+      assignedAt: new Date(),
+    });
+
+    // 6. Update workloads
+    if (oldStaffId) {
+      await this.decrementPendingDisputes(oldStaffId, disputeId);
+    }
+    await this.incrementPendingDisputes(newStaffId, disputeId);
+
+    // 7. Emit event
+    this.eventEmitter.emit(DISPUTE_EVENTS.REASSIGNED, {
+      disputeId,
+      oldStaffId,
+      newStaffId,
+      reason,
+      performedById,
+      notes,
+    });
+
+    this.logger.log(
+      `Reassigned dispute ${disputeId} from ${oldStaffId || 'unassigned'} to ${newStaffId}. Reason: ${reason}`,
+    );
+
+    return {
+      success: true,
+      oldStaffId,
+      newStaffId,
+      message: `Dispute reassigned successfully from ${oldStaffId || 'unassigned'} to ${newStaffId}`,
     };
   }
 
@@ -1318,12 +1692,12 @@ export class StaffAssignmentService {
       // Update workloads
       const dateStr = event.startTime.toISOString().split('T')[0];
       await this.workloadRepository.decrement(
-        { staffId: request.originalStaffId, date: dateStr as any },
+        { staffId: request.originalStaffId, date: dateStr as unknown as Date },
         'totalEventsScheduled',
         1,
       );
       await this.workloadRepository.increment(
-        { staffId: newStaffId, date: dateStr as any },
+        { staffId: newStaffId, date: dateStr as unknown as Date },
         'totalEventsScheduled',
         1,
       );
@@ -1365,6 +1739,159 @@ export class StaffAssignmentService {
   }
 
   // ===========================================================================
+  // PENDING APPEAL HANDLING (Giải quyết "Kháng Cáo Treo" edge case)
+  // ===========================================================================
+
+  /**
+   * UNIT FUNCTION: Get only finalized cases for performance calculation
+   *
+   * Finalized cases are:
+   * - Status = RESOLVED (không còn IN_APPEAL)
+   * - Status = REJECTED hoặc CLOSED
+   * - Appeal deadline đã qua (nếu có)
+   *
+   * Exclude:
+   * - Cases đang IN_APPEAL (chưa có kết quả cuối cùng từ Admin)
+   */
+  async getFinalizedCasesForPeriod(
+    staffId: string,
+    periodStart: Date,
+    periodEnd: Date,
+  ): Promise<DisputeEntity[]> {
+    return this.disputeRepository.find({
+      where: [
+        // Cases đã resolved và không bị appeal
+        {
+          assignedStaffId: staffId,
+          resolvedAt: Between(periodStart, periodEnd),
+          status: DisputeStatus.RESOLVED,
+          isAppealed: false,
+        },
+        // Cases bị appeal nhưng Admin đã xử xong (không còn IN_APPEAL)
+        {
+          assignedStaffId: staffId,
+          resolvedAt: Between(periodStart, periodEnd),
+          status: DisputeStatus.RESOLVED,
+          isAppealed: true,
+          // appealResolvedAt is not null means appeal was handled
+        },
+      ],
+    });
+  }
+
+  /**
+   * COMPOSE FUNCTION: Update staff performance với pending appeal exclusion
+   *
+   * EDGE CASE ADDRESSED: "Kháng Cáo Treo"
+   * - Chỉ tính điểm cho cases đã FINALIZED
+   * - Cases đang IN_APPEAL sẽ được track riêng
+   * - Không tính vào overturnRate cho đến khi Admin xử xong
+   */
+  async updateStaffPerformanceWithAppealExclusion(
+    staffId: string,
+    period: string, // Format: YYYY-MM
+  ): Promise<void> {
+    // Parse period to get date range
+    const [year, month] = period.split('-').map(Number);
+    const periodStart = new Date(year, month - 1, 1);
+    const periodEnd = new Date(year, month, 0, 23, 59, 59); // Last day of month
+
+    // Get finalized cases only (exclude IN_APPEAL)
+    const finalizedCases = await this.getFinalizedCasesForPeriod(staffId, periodStart, periodEnd);
+
+    // Count pending appeal cases (status = APPEALED, chưa có appealResolvedAt)
+    const pendingAppealCases = await this.disputeRepository.count({
+      where: {
+        assignedStaffId: staffId,
+        resolvedAt: Between(periodStart, periodEnd),
+        status: DisputeStatus.APPEALED, // Use APPEALED instead of IN_APPEAL
+      },
+    });
+
+    // Calculate metrics from FINALIZED cases only
+    const totalFinalized = finalizedCases.length;
+    const totalAppealed = finalizedCases.filter((c) => c.isAppealed).length;
+    // Overturned = appeal was resolved by admin (appealResolvedById not null)
+    // and admin changed the original decision
+    const totalOverturned = finalizedCases.filter(
+      (c) => c.isAppealed && c.appealResolvedById != null,
+    ).length;
+
+    // Calculate rates
+    const appealRate = totalFinalized > 0 ? (totalAppealed / totalFinalized) * 100 : 0;
+    const overturnRate = totalAppealed > 0 ? (totalOverturned / totalAppealed) * 100 : 0;
+
+    // Calculate average resolution time
+    let avgResolutionHours = 0;
+    if (finalizedCases.length > 0) {
+      const totalHours = finalizedCases.reduce((sum, c) => {
+        if (c.resolvedAt && c.createdAt) {
+          return sum + (c.resolvedAt.getTime() - c.createdAt.getTime()) / (1000 * 60 * 60);
+        }
+        return sum;
+      }, 0);
+      avgResolutionHours = totalHours / finalizedCases.length;
+    }
+
+    this.logger.log(
+      `[StaffPerformance] Staff ${staffId} Period ${period}: ` +
+        `${totalFinalized} finalized, ${pendingAppealCases} pending appeal, ` +
+        `Overturn rate: ${overturnRate.toFixed(2)}%`,
+    );
+
+    // Count total assigned in this period (including not yet resolved)
+    const totalAssigned = await this.disputeRepository.count({
+      where: {
+        assignedStaffId: staffId,
+        assignedAt: Between(periodStart, periodEnd),
+      },
+    });
+
+    // Count pending disputes (not yet resolved)
+    const totalPending = await this.disputeRepository.count({
+      where: {
+        assignedStaffId: staffId,
+        assignedAt: Between(periodStart, periodEnd),
+        resolvedAt: IsNull(),
+      },
+    });
+
+    // Upsert into staff_performances table
+    await this.performanceRepository.upsert(
+      {
+        staffId,
+        period,
+        totalDisputesAssigned: totalAssigned,
+        totalDisputesResolved: totalFinalized,
+        totalDisputesPending: totalPending,
+        totalAppealed,
+        totalOverturnedByAdmin: totalOverturned,
+        appealRate: Math.round(appealRate * 100) / 100,
+        overturnRate: Math.round(overturnRate * 100) / 100,
+        avgResolutionTimeHours: Math.round(avgResolutionHours * 100) / 100,
+        pendingAppealCases,
+        totalCasesFinalized: totalFinalized,
+      },
+      ['staffId', 'period'],
+    );
+
+    // Also emit event for other listeners (notifications, dashboards, etc.)
+    this.eventEmitter.emit('staff.performanceUpdated', {
+      staffId,
+      period,
+      totalCasesFinalized: totalFinalized,
+      pendingAppealCases,
+      appealRate: Math.round(appealRate * 100) / 100,
+      overturnRate: Math.round(overturnRate * 100) / 100,
+      avgResolutionTimeHours: Math.round(avgResolutionHours * 100) / 100,
+    });
+
+    this.logger.log(
+      `[StaffPerformance] Upserted performance for staff ${staffId} period ${period}`,
+    );
+  }
+
+  // ===========================================================================
   // SCHEDULED TASKS (Call these via external scheduler or TaskScheduler)
   // ===========================================================================
 
@@ -1399,7 +1926,7 @@ export class StaffAssignmentService {
       await this.workloadRepository.upsert(
         {
           staffId: staff.id,
-          date: dateStr as any,
+          date: dateStr as unknown as Date,
           totalEventsScheduled: events.length,
           scheduledMinutes,
           dailyCapacityMinutes: dailyCapacity,
@@ -1430,7 +1957,7 @@ export class StaffAssignmentService {
       // In real implementation, get last activity from message table
       // For now, use a placeholder
       const lastActivity = session.updatedAt || session.startTime;
-      const idleResult = await this.checkSessionIdle(session.id, lastActivity);
+      const idleResult = this.checkSessionIdle(session.id, lastActivity);
 
       if (idleResult.shouldAutoClose) {
         this.logger.warn(`Auto-closing idle session ${session.id}`);
@@ -1440,6 +1967,63 @@ export class StaffAssignmentService {
           reason: 'Inactivity timeout',
         });
       }
+    }
+  }
+
+  // ===========================================================================
+  // EVENT LISTENERS (Giải quyết "Stale Workload" bằng Event-Driven)
+  // ===========================================================================
+
+  /**
+   * EVENT LISTENER: Khi dispute được resolve, tự động giảm workload của staff
+   */
+  @OnEvent(DISPUTE_EVENTS.RESOLVED)
+  async handleDisputeResolved(payload: { disputeId: string; adminId?: string }): Promise<void> {
+    this.logger.log(`[Event] ${DISPUTE_EVENTS.RESOLVED}: ${payload.disputeId}`);
+
+    try {
+      // Get dispute để lấy assignedStaffId
+      const dispute = await this.disputeRepository.findOne({
+        where: { id: payload.disputeId },
+        select: ['id', 'assignedStaffId'],
+      });
+
+      if (dispute?.assignedStaffId) {
+        await this.decrementPendingDisputes(dispute.assignedStaffId, payload.disputeId);
+        this.logger.log(
+          `[Event] Workload decremented for staff ${dispute.assignedStaffId} after resolve`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `[Event] Failed to handle DISPUTE_RESOLVED for ${payload.disputeId}: ${error}`,
+      );
+    }
+  }
+
+  /**
+   * EVENT LISTENER: Khi dispute bị đóng (closed), tự động giảm workload
+   */
+  @OnEvent(DISPUTE_EVENTS.CLOSED)
+  async handleDisputeClosed(payload: { disputeId: string; reason?: string }): Promise<void> {
+    this.logger.log(`[Event] ${DISPUTE_EVENTS.CLOSED}: ${payload.disputeId}`);
+
+    try {
+      const dispute = await this.disputeRepository.findOne({
+        where: { id: payload.disputeId },
+        select: ['id', 'assignedStaffId'],
+      });
+
+      if (dispute?.assignedStaffId) {
+        await this.decrementPendingDisputes(dispute.assignedStaffId, payload.disputeId);
+        this.logger.log(
+          `[Event] Workload decremented for staff ${dispute.assignedStaffId} after close`,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `[Event] Failed to handle DISPUTE_CLOSED for ${payload.disputeId}: ${error}`,
+      );
     }
   }
 }

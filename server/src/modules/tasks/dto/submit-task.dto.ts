@@ -12,7 +12,6 @@ export class SubmitTaskDto {
    */
   @IsString()
   @IsNotEmpty({ message: 'Proof link is required to submit task' })
-  @IsUrl({}, { message: 'Proof link must be a valid URL' })
   @MaxLength(500, { message: 'Proof link must not exceed 500 characters' })
   proofLink: string;
 

@@ -9,24 +9,35 @@ import { SettlementModule } from './modules/settlement.module';
 import { TrustScoreModule } from '../trust-score/trust-score.module';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { UserWarningModule } from '../user-warning/user-warning.module';
+import { CalendarModule } from '../calendar/calendar.module';
+import { AuthModule } from '../auth/auth.module';
 import {
   DisputeActivityEntity,
   DisputeEntity,
   DisputeEvidenceEntity,
+  DisputeMessageEntity,
   DisputeNoteEntity,
   DisputeHearingEntity,
   DisputeSettlementEntity,
   HearingParticipantEntity,
   HearingStatementEntity,
   HearingQuestionEntity,
+  DisputeVerdictEntity,
+  LegalSignatureEntity,
   EscrowEntity,
   MilestoneEntity,
   ProjectEntity,
   TransactionEntity,
   UserEntity,
   WalletEntity,
+  NotificationEntity,
 } from 'src/database/entities';
 import { StaffAssignmentModule } from './modules/staff-assignment.module';
+import { HearingModule } from './modules/hearing.module';
+import { VerdictService } from './services/verdict.service';
+import { DisputeGateway } from './gateways/dispute.gateway';
+import { DisputeEventListener } from './events/dispute-event.listener';
+import { DisputeNotificationListener } from './events/dispute-notification.listener';
 
 @Module({
   imports: [
@@ -35,11 +46,15 @@ import { StaffAssignmentModule } from './modules/staff-assignment.module';
       DisputeNoteEntity, // Ghi chú dispute
       DisputeActivityEntity, // Timeline hoạt động
       DisputeSettlementEntity, // Settlement offers
+      DisputeEvidenceEntity,
+      DisputeMessageEntity,
       // Hearing Room entities
       DisputeHearingEntity,
       HearingParticipantEntity,
       HearingStatementEntity,
       HearingQuestionEntity,
+      DisputeVerdictEntity,
+      LegalSignatureEntity,
       // Payment entities
       EscrowEntity,
       MilestoneEntity,
@@ -47,6 +62,7 @@ import { StaffAssignmentModule } from './modules/staff-assignment.module';
       UserEntity,
       WalletEntity,
       TransactionEntity,
+      NotificationEntity,
     ]),
     EventEmitterModule.forRoot(), // Enable EventEmitter
     EvidenceModule, // ← Evidence có module riêng
@@ -55,9 +71,18 @@ import { StaffAssignmentModule } from './modules/staff-assignment.module';
     AuditLogsModule,
     UserWarningModule, // User warning/flag system
     StaffAssignmentModule,
+    HearingModule,
+    CalendarModule,
+    AuthModule,
   ],
   controllers: [DisputesController],
-  providers: [DisputesService],
-  exports: [DisputesService],
+  providers: [
+    DisputesService,
+    VerdictService,
+    DisputeGateway,
+    DisputeEventListener,
+    DisputeNotificationListener,
+  ],
+  exports: [DisputesService, VerdictService],
 })
 export class DisputesModule {}
