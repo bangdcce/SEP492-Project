@@ -207,6 +207,20 @@ export class AuditLogsService {
   }
 
   /**
+   * Log a REGISTRATION action
+   * @example await this.auditLogsService.logRegistration(user.id, { role: 'CLIENT', email: 'user@example.com' });
+   */
+  async logRegistration(actorId: string, metadata: Record<string, unknown>) {
+    return this.log({
+      actorId,
+      action: 'REGISTRATION',
+      entityType: 'User',
+      entityId: actorId,
+      newData: metadata,
+    });
+  }
+
+  /**
    * Log a LOGOUT action
    * @example await this.auditLogsService.logLogout(user.id, req);
    */

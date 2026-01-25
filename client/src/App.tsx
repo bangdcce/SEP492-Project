@@ -116,6 +116,7 @@ const StaffWorkloadPage = lazy(() =>
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
 const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
 const ForgotPasswordPage = lazy(() => import("@/pages/ForgotPasswordPage"));
+const VerifyEmailPage = lazy(() => import("@/pages/VerifyEmailPage"));
 
 // Loading fallback
 function PageLoader() {
@@ -134,6 +135,7 @@ function App() {
         <Route path={ROUTES.LOGIN} element={<SignInPage />} />
         <Route path={ROUTES.REGISTER} element={<SignUpPage />} />
         <Route path={ROUTES.FORGOT_PASSWORD} element={<ForgotPasswordPage />} />
+        <Route path={ROUTES.VERIFY_EMAIL} element={<VerifyEmailPage />} />
         <Route path="/kyc" element={<KYCPage />} />
 
         {/* ========== FREELANCER ROUTES - /freelancer/* ========== */}

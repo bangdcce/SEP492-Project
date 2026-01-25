@@ -9,6 +9,8 @@ import { AuthModule } from '../auth/auth.module';
 
 import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
 
+
+
 @Module({
   imports: [
     TypeOrmModule.forFeature([

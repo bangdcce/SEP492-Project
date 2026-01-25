@@ -4,6 +4,7 @@ import { LayoutGrid, Calendar as CalendarIcon, BarChart2, Search, XCircle, FileS
 import { useNavigate, useParams } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
 import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 import {
   fetchBoard,
   updateTaskStatus,
@@ -32,17 +33,9 @@ const initialBoard: KanbanBoard = {
   DONE: [],
 };
 
-// Helper to get current user from localStorage
+// Helper to get current user from storage (session/local)
 const getCurrentUser = (): { id: string; role?: string } | null => {
-  try {
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      return JSON.parse(userStr);
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return null;
+  return getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
 };
 
 export function ProjectWorkspace() {

@@ -1,9 +1,9 @@
-import React, { useState } from 'react';
-
-import { Upload, Camera, User, CheckCircle, ArrowLeft, ArrowRight } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Upload, Camera, User, CheckCircle, ArrowLeft, ArrowRight, Loader2, XCircle } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
 import { Input } from '@/shared/components/custom/input';
 import { toast } from 'sonner';
+import { getStoredItem } from '@/shared/utils/storage';
 
 interface KYCFormData {
   // Personal Information
@@ -23,6 +23,8 @@ interface KYCFormData {
 export default function KYCPage() {
 
   const [currentStep, setCurrentStep] = useState(1);
+  const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'processing' | 'approved' | 'rejected'>('idle');
+  const [rejectionReason, setRejectionReason] = useState('');
   const [formData, setFormData] = useState<KYCFormData>({
     fullName: '',
     dateOfBirth: '',
@@ -39,6 +41,7 @@ export default function KYCPage() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
   const steps = [
     { number: 1, title: 'Personal Info', icon: User },
@@ -186,10 +189,10 @@ export default function KYCPage() {
       }
       
       // Call KYC API
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/kyc`, {
+      const response = await fetch(`${baseUrl}/kyc`, {
         method: 'POST',
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+          'Authorization': `Bearer ${getStoredItem('access_token')}`,
         },
         body: submitData,
       });
@@ -199,17 +202,139 @@ export default function KYCPage() {
         throw new Error(errorData.message || 'Failed to submit KYC');
       }
       
-      toast.success('KYC verification submitted successfully! We will review your information.');
-      
-      // Redirect to client dashboard
-      window.location.href = '/client/dashboard';
+      toast.success('KYC submitted successfully. Your documents are being processed.');
+      setSubmissionStatus('processing');
     } catch (error: any) {
       console.error('KYC submission error:', error);
-      toast.error(error.message || 'Failed to submit KYC. Please try again.');
+      toast.error(error.message || 'Unable to submit KYC. Please try again.');
     } finally {
       setLoading(false);
     }
   };
+
+  const checkKycStatus = async () => {
+    try {
+      const response = await fetch(`${baseUrl}/kyc/me`, {
+        headers: {
+          'Authorization': `Bearer ${getStoredItem('access_token')}`,
+        },
+      });
+
+      if (!response.ok) return;
+      const data = await response.json();
+      const status = data.status;
+
+      if (status === 'APPROVED') {
+        setSubmissionStatus('approved');
+        setRejectionReason('');
+      } else if (status === 'REJECTED') {
+        setSubmissionStatus('rejected');
+        setRejectionReason(
+          data.rejectionReason ||
+            data.message ||
+            'Your documents are not valid. Please check and resubmit.'
+        );
+      } else if (status === 'PENDING') {
+        setSubmissionStatus('processing');
+      }
+    } catch (error) {
+      console.error('KYC status check error:', error);
+    }
+  };
+
+  useEffect(() => {
+    if (submissionStatus !== 'processing') return;
+
+    checkKycStatus();
+    const interval = setInterval(checkKycStatus, 5000);
+    return () => clearInterval(interval);
+  }, [submissionStatus]);
+
+  const handleBackToDashboard = () => {
+    window.location.href = '/client/dashboard';
+  };
+
+  const handleRetry = () => {
+    setSubmissionStatus('idle');
+    setCurrentStep(1);
+  };
+
+  if (submissionStatus !== 'idle') {
+    const isProcessing = submissionStatus === 'processing';
+    const isApproved = submissionStatus === 'approved';
+    const isRejected = submissionStatus === 'rejected';
+
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-purple-50 py-12 px-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-white rounded-xl shadow-lg p-8 text-center">
+            {isProcessing && (
+              <>
+                <div className="flex justify-center mb-6">
+                  <div className="w-20 h-20 rounded-full bg-yellow-100 flex items-center justify-center">
+                    <Loader2 className="w-10 h-10 text-yellow-600 animate-spin" />
+                  </div>
+                </div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-2">Verification in progress</h1>
+                <p className="text-gray-600">
+                  We are reviewing your ID documents. Please wait a few minutes.
+                </p>
+                <div className="space-y-3 mt-6">
+                  <Button onClick={handleBackToDashboard} className="w-full">
+                    Back to dashboard
+                  </Button>
+                  <Button variant="outline" onClick={checkKycStatus} className="w-full">
+                    Check status
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {isApproved && (
+              <>
+                <div className="flex justify-center mb-6">
+                  <div className="w-20 h-20 rounded-full bg-green-100 flex items-center justify-center">
+                    <CheckCircle className="w-10 h-10 text-green-600" />
+                  </div>
+                </div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-2">Verification approved</h1>
+                <p className="text-gray-600">
+                  Your documents have been verified. You can return to your dashboard.
+                </p>
+                <div className="mt-6">
+                  <Button onClick={handleBackToDashboard} className="w-full">
+                    Back to dashboard
+                  </Button>
+                </div>
+              </>
+            )}
+
+            {isRejected && (
+              <>
+                <div className="flex justify-center mb-6">
+                  <div className="w-20 h-20 rounded-full bg-red-100 flex items-center justify-center">
+                    <XCircle className="w-10 h-10 text-red-600" />
+                  </div>
+                </div>
+                <h1 className="text-2xl font-bold text-gray-900 mb-2">Verification failed</h1>
+                <p className="text-gray-600">
+                  {rejectionReason}
+                </p>
+                <div className="space-y-3 mt-6">
+                  <Button onClick={handleRetry} className="w-full">
+                    Re-enter information
+                  </Button>
+                  <Button variant="outline" onClick={handleBackToDashboard} className="w-full">
+                    Back to dashboard
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   const renderUploadBox = (
     field: 'idCardFront' | 'idCardBack' | 'selfiePhoto',

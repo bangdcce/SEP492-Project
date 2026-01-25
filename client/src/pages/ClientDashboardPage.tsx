@@ -15,23 +15,16 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { STORAGE_KEYS, ROUTES } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 
 interface UserData {
   fullName?: string;
   currentTrustScore?: number | string;
 }
 
-// Get initial user from localStorage (sync read)
+// Get initial user from storage (session/local)
 const getInitialUser = (): UserData => {
-  const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-  if (userStr) {
-    try {
-      return JSON.parse(userStr);
-    } catch {
-      return {};
-    }
-  }
-  return {};
+  return getStoredJson<UserData>(STORAGE_KEYS.USER) || {};
 };
 
 export default function ClientDashboardPage() {
@@ -40,14 +33,8 @@ export default function ClientDashboardPage() {
   useEffect(() => {
     // Listen for user data updates
     const handleUserUpdate = () => {
-      const updatedUserStr = localStorage.getItem(STORAGE_KEYS.USER);
-      if (updatedUserStr) {
-        try {
-          setUser(JSON.parse(updatedUserStr));
-        } catch {
-          // ignore
-        }
-      }
+      const updatedUser = getStoredJson<UserData>(STORAGE_KEYS.USER);
+      if (updatedUser) setUser(updatedUser);
     };
 
     window.addEventListener("userDataUpdated", handleUserUpdate);

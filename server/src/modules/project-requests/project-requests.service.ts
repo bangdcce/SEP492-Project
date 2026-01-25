@@ -73,7 +73,7 @@ export class ProjectRequestsService {
         );
       }
     } catch (error) {
-      console.error('Audit log failed', error);
+        console.error('Audit log failed', error);
     }
 
     return fullRequest;
@@ -185,6 +185,13 @@ export class ProjectRequestsService {
         'spec.milestones',
       ],
     });
+    
+    for (const p of otherProposals) {
+        if (p.brokerId !== brokerId) {
+            p.status = ProposalStatus.REJECTED;
+            await this.brokerProposalRepo.save(p);
+        }
+    }
 
     if (!request) return null;
 

@@ -5,7 +5,8 @@ import { Input } from '../shared/components/custom/input';
 import { Button } from '../shared/components/custom/Button';
 import { toast } from 'sonner';
 import { apiClient } from '@/shared/api/client';
-import { ROUTES } from '@/constants';
+import { ROUTES, STORAGE_KEYS } from '@/constants';
+import { setStoredItem, setStoredJson } from '@/shared/utils/storage';
 
 type UserRole = 'client' | 'broker' | 'freelancer';
 
@@ -89,10 +90,10 @@ export function GoogleCompletePage() {
         picture: formData.picture,
       });
 
-      // Save tokens
-      localStorage.setItem('accessToken', response.accessToken);
-      localStorage.setItem('refreshToken', response.refreshToken);
-      localStorage.setItem('user', JSON.stringify(response.user));
+      // Save tokens (OAuth defaults to remember)
+      setStoredItem(STORAGE_KEYS.ACCESS_TOKEN, response.accessToken, true);
+      setStoredItem(STORAGE_KEYS.REFRESH_TOKEN, response.refreshToken, true);
+      setStoredJson(STORAGE_KEYS.USER, response.user, true);
 
       toast.success('Account created successfully!');
       navigate(ROUTES.DASHBOARD);

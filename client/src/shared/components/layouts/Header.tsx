@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from "react";
 import { Bell, ChevronRight, LogOut, UserCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
+import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
 
 interface HeaderProps {
   breadcrumbs: string[];
@@ -14,12 +15,11 @@ export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
   const [userName, setUserName] = useState<string>("");
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  // Load user data from localStorage
+  // Load user data from storage (session/local)
   useEffect(() => {
     const loadUserData = () => {
-      const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-      if (userStr) {
-        const user = JSON.parse(userStr);
+      const user = getStoredJson<any>(STORAGE_KEYS.USER);
+      if (user) {
         setAvatarUrl(user.avatarUrl || "");
         setUserName(user.fullName || user.email || "");
       }
@@ -61,10 +61,10 @@ export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
   const handleLogout = () => {
     setShowDropdown(false);
 
-    // Clear localStorage
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.USER);
+    // Clear storage (session/local)
+    removeStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
+    removeStoredItem(STORAGE_KEYS.REFRESH_TOKEN);
+    removeStoredItem(STORAGE_KEYS.USER);
 
     // Redirect to login
     navigate(ROUTES.LOGIN);

@@ -7,6 +7,8 @@
   "license": "UNLICENSED",
   "scripts": {
     "seed:admin": "ts-node src/cli/admin-seeder.ts",
+    "seed:domains": "ts-node src/database/seeds/run-seeds.ts",
+    "generate:keys": "node scripts/generate-keys.js",
     "generate:ssl": "ts-node src/scripts/generate-ssl.ts",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
@@ -44,6 +46,7 @@
     "@nestjs/websockets": "^11.0.1",
     "@supabase/supabase-js": "^2.90.1",
     "@types/multer": "^2.0.0",
+    "@types/sharp": "^0.32.0",
     "@types/pdfmake": "^0.2.12",
     "axios": "^1.13.2",
     "bcryptjs": "^3.0.3",
@@ -64,6 +67,7 @@
     "pg": "^8.16.3",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
+    "sharp": "^0.34.5",
     "socket.io": "^4.7.5",
     "typeorm": "^0.3.27"
   },

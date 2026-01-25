@@ -5,6 +5,7 @@ import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/custom/input';
 import { ROUTES, STORAGE_KEYS } from '@/constants';
 import { FreelancerDashboardLayout } from '@/shared/components/layouts/freelancer/FreelancerDashboardLayout';
+import { getStoredJson } from '@/shared/utils/storage';
 
 interface Job {
   id: string;
@@ -92,10 +93,9 @@ export default function FreelancerDashboardPage() {
   ]);
 
   useEffect(() => {
-    // Load user skills from localStorage
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      const user = JSON.parse(userStr);
+    // Load user skills from storage (session/local)
+    const user = getStoredJson<{ skills?: string[] }>(STORAGE_KEYS.USER);
+    if (user) {
       setUserSkills(user.skills || []);
     }
   }, []);

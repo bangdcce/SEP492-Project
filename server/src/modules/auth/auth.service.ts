@@ -9,6 +9,7 @@ import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
 import { EmailService } from './email.service';
+import { EmailVerificationService } from './email-verification.service';
 import {
   LoginDto,
   RegisterDto,
@@ -38,37 +39,110 @@ export class AuthService {
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
+    private emailVerificationService: EmailVerificationService,
     private auditLogsService: AuditLogsService, // Inject AuditLogsService
   ) {}
 
-  async register(registerDto: RegisterDto): Promise<AuthResponseDto> {
-    const { email, password, fullName, phoneNumber, role } = registerDto;
+  async register(
+    registerDto: RegisterDto,
+    ipAddress?: string,
+    userAgent?: string,
+  ): Promise<AuthResponseDto> {
+    const {
+      email,
+      password,
+      fullName,
+      phoneNumber,
+      role,
+      domainIds,
+      skillIds,
+      acceptTerms,
+      acceptPrivacy,
+    } = registerDto;
 
     // Kiểm tra email đã tồn tại
+    // Chỉ select các cột cần thiết để tránh lỗi nếu có cột chưa tồn tại
     const existingUser = await this.userRepository.findOne({
       where: { email },
+      select: ['id', 'email', 'passwordHash', 'fullName', 'role', 'phoneNumber', 'isVerified'],
     });
 
     if (existingUser) {
       throw new ConflictException('Email đã được sử dụng');
     }
 
+    // Validate legal consent
+    if (!acceptTerms || !acceptPrivacy) {
+      throw new ConflictException('Bạn phải chấp nhận Điều khoản Dịch vụ và Chính sách Bảo mật');
+    }
+
     // Hash password
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Tạo user mới
+    // Tạo user mới với legal consent timestamps
+    const now = new Date();
     const newUser = this.userRepository.create({
       email,
       passwordHash,
       fullName,
       phoneNumber,
-      role: role, // No more type casting needed - RegisterableRole is subset of UserRole
+      role: role,
       isVerified: false,
-      currentTrustScore: 2.5, // Neutral score cho user mới (chưa có track record)
+      currentTrustScore: 2.5,
+      termsAcceptedAt: acceptTerms ? now : null,
+      privacyAcceptedAt: acceptPrivacy ? now : null,
+      registrationIp: ipAddress,
+      registrationUserAgent: userAgent,
     });
 
     const savedUser = await this.userRepository.save(newUser);
+
+    // Nếu là BROKER hoặc FREELANCER → Lưu domains và skills
+    if ((role === 'BROKER' || role === 'FREELANCER') && (domainIds || skillIds)) {
+      const userSkillDomainRepo = this.userRepository.manager.getRepository('UserSkillDomainEntity');
+      const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
+
+      // Lưu domains
+      if (domainIds && domainIds.length > 0) {
+        const domainRecords = domainIds.map(domainId => ({
+          userId: savedUser.id,
+          domainId,
+        }));
+        await userSkillDomainRepo.save(domainRecords);
+      }
+
+      // Lưu skills
+      if (skillIds && skillIds.length > 0) {
+        const skillRecords = skillIds.map(skillId => ({
+          userId: savedUser.id,
+          skillId,
+          priority: 'SECONDARY', // Default to SECONDARY, user can upgrade later
+          verificationStatus: 'SELF_DECLARED',
+        }));
+        await userSkillRepo.save(skillRecords);
+      }
+    }
+
+    // Send email verification
+    try {
+      await this.emailVerificationService.sendVerificationEmail(savedUser.id, savedUser.email);
+    } catch (error) {
+      console.error('Failed to send verification email:', error);
+      // Don't fail registration if email fails, user can resend later
+    }
+
+    // Audit Log: REGISTRATION EVENT
+    this.auditLogsService
+      .logRegistration(savedUser.id, {
+        role: savedUser.role,
+        email: savedUser.email,
+        ipAddress,
+        userAgent,
+        domainCount: domainIds?.length || 0,
+        skillCount: skillIds?.length || 0,
+      })
+      .catch(err => console.error('Failed to log registration:', err));
 
     // Return user data (không bao gồm password)
     return this.mapToAuthResponse(savedUser);
@@ -98,6 +172,13 @@ export class AuthService {
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
+
+    // Check if email is verified
+    if (!user.emailVerifiedAt) {
+      throw new UnauthorizedException(
+        'Vui lòng xác thực email của bạn trước khi đăng nhập. Kiểm tra hộp thư của bạn.',
+      );
     }
 
     // Tạo JWT tokens
