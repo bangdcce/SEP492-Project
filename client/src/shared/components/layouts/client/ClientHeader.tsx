@@ -188,9 +188,8 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                 </div>
 
                 <ChevronDown
-                  className={`w-4 h-4 text-gray-500 transition-transform hidden lg:block ${
-                    isProfileMenuOpen ? "rotate-180" : ""
-                  }`}
+                  className={`w-4 h-4 text-gray-500 transition-transform hidden lg:block ${isProfileMenuOpen ? "rotate-180" : ""
+                    }`}
                 />
               </button>
 
@@ -214,7 +213,12 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                     {/* Menu Items */}
                     <div className="py-1">
                       <Link
-                        to={ROUTES.CLIENT_PROFILE}
+                        to={
+                          userRole === "ADMIN" ? ROUTES.ADMIN_PROFILE :
+                            userRole === "BROKER" ? ROUTES.BROKER_PROFILE :
+                              userRole === "FREELANCER" ? ROUTES.FREELANCER_PROFILE :
+                                ROUTES.CLIENT_PROFILE
+                        }
                         className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                         onClick={() => setIsProfileMenuOpen(false)}
                       >
@@ -263,6 +267,6 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
           </div>
         )}
       </div>
-    </header>
+    </header >
   );
 };

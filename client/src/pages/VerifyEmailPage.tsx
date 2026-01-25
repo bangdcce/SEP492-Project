@@ -14,7 +14,7 @@ export function VerifyEmailPage() {
   const navigate = useNavigate();
   const token = searchParams.get('token');
   const pendingEmail = searchParams.get('email');
-  
+
   const [status, setStatus] = useState<'loading' | 'success' | 'error' | 'expired' | 'pending'>('loading');
   const [email, setEmail] = useState<string>('');
   const [resendEmail, setResendEmail] = useState<string>('');
@@ -30,16 +30,16 @@ export function VerifyEmailPage() {
       const response = await verifyEmail(token);
       setStatus('success');
       setEmail(response.email);
-      toast.success('Email đã được xác thực thành công!');
-      
+      toast.success('Email verified successfully!');
+
       // Redirect to login after 3 seconds
       setTimeout(() => {
         navigate(ROUTES.LOGIN);
       }, 3000);
     } catch (error: any) {
-      const errorMsg = error?.response?.data?.message || error?.message || 'Lỗi xác thực email';
+      const errorMsg = error?.response?.data?.message || error?.message || 'Email verification failed';
       setErrorMessage(errorMsg);
-      
+
       // Check if token expired
       if (errorMsg.toLowerCase().includes('expired') || errorMsg.toLowerCase().includes('hết hạn')) {
         setStatus('expired');
@@ -53,27 +53,27 @@ export function VerifyEmailPage() {
   const handleResendEmail = async () => {
     const emailToResend = email || resendEmail;
     if (!emailToResend) {
-      toast.error('Vui lòng nhập email để gửi lại');
+      toast.error('Please enter email to resend');
       return;
     }
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(emailToResend)) {
-      toast.error('Email không hợp lệ');
+      toast.error('Invalid email');
       return;
     }
 
     try {
       setResending(true);
       await resendVerificationEmail(emailToResend);
-      toast.success('Email xác thực đã được gửi lại! Vui lòng kiểm tra hộp thư.');
+      toast.success('Verification email resent! Please check your inbox.');
       setStatus(prevStatus => (prevStatus === 'pending' ? 'pending' : 'loading'));
       setErrorMessage('');
       setResendEmail('');
     } catch (error: any) {
       console.error('Resend email error:', error);
-      const errorMsg = error.response?.data?.message || 'Không thể gửi lại email. Vui lòng thử lại sau.';
+      const errorMsg = error.response?.data?.message || 'Failed to resend email. Please try again later.';
       toast.error(errorMsg);
     } finally {
       setResending(false);
@@ -87,7 +87,7 @@ export function VerifyEmailPage() {
         setResendEmail(pendingEmail);
       } else {
         setStatus('error');
-        setErrorMessage('Token xác thực không hợp lệ. Vui lòng kiểm tra lại link trong email.');
+        setErrorMessage('Invalid verification token. Please check the link in your email.');
       }
       return;
     }
