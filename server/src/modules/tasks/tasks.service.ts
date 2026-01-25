@@ -11,10 +11,13 @@ import {
 } from '../../database/entities/calendar-event.entity';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { SubmitTaskDto } from './dto/submit-task.dto';
+import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
+import { TaskCommentEntity } from '../../database/entities/task-comment.entity';
 
 export interface KanbanBoard {
   TODO: TaskEntity[];
   IN_PROGRESS: TaskEntity[];
+  IN_REVIEW: TaskEntity[];
   DONE: TaskEntity[];
 }
 
@@ -23,7 +26,7 @@ export interface BoardWithMilestones {
   milestones: MilestoneEntity[];
 }
 
-export type KanbanStatus = TaskStatus.TODO | TaskStatus.IN_PROGRESS | TaskStatus.DONE;
+export type KanbanStatus = TaskStatus.TODO | TaskStatus.IN_PROGRESS | TaskStatus.IN_REVIEW | TaskStatus.DONE;
 
 /**
  * Response type for task status update
@@ -48,8 +51,82 @@ export class TasksService {
     private readonly milestoneRepository: Repository<MilestoneEntity>,
     @InjectRepository(CalendarEventEntity)
     private readonly calendarEventRepository: Repository<CalendarEventEntity>,
+    @InjectRepository(TaskHistoryEntity)
+    private readonly historyRepository: Repository<TaskHistoryEntity>,
+    @InjectRepository(TaskCommentEntity)
+    private readonly commentRepository: Repository<TaskCommentEntity>,
     private readonly auditLogsService: AuditLogsService,
   ) {}
+
+  async getTaskHistory(taskId: string): Promise<TaskHistoryEntity[]> {
+    return this.historyRepository.find({
+      where: { taskId },
+      relations: ['actor'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getTaskComments(taskId: string): Promise<TaskCommentEntity[]> {
+    return this.commentRepository.find({
+      where: { taskId },
+      relations: ['actor'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async addComment(taskId: string, content: string, actorId: string): Promise<TaskCommentEntity> {
+    const comment = this.commentRepository.create({
+      taskId,
+      content,
+      actorId,
+      createdAt: new Date(), // Force Node.js UTC time
+    });
+    
+    this.logger.log(`[Adding Comment] Saving at UTC: ${comment.createdAt.toISOString()}`);
+    const saved = await this.commentRepository.save(comment);
+    
+    // Return with actor relation
+    // Return with actor relation
+    const fullComment = await this.commentRepository.findOne({
+        where: { id: saved.id },
+        relations: ['actor'],
+    });
+    
+    if (!fullComment) {
+        throw new NotFoundException('Comment not found after creation');
+    }
+    
+    return fullComment;
+  }
+
+  private async createHistory(
+    taskId: string,
+    field: string,
+    oldValue: any,
+    newValue: any,
+    actorId?: string,
+  ) {
+    if (oldValue === newValue) return;
+
+    // Helper to format values
+    const formatValue = (val: any) => {
+        if (val === null || val === undefined) return '';
+        if (typeof val === 'object') return JSON.stringify(val);
+        return String(val);
+    };
+
+    const history = this.historyRepository.create({
+      taskId,
+      actorId,
+      fieldChanged: field,
+      oldValue: formatValue(oldValue),
+      newValue: formatValue(newValue),
+      createdAt: new Date(), // Force Node.js UTC time
+    });
+
+    // this.logger.log(`[TaskHistory] Saving history at UTC: ${history.createdAt.toISOString()}`);
+    await this.historyRepository.save(history);
+  }
 
   async getKanbanBoard(projectId: string): Promise<BoardWithMilestones> {
     // Fetch all tasks for the project
@@ -69,6 +146,7 @@ export class TasksService {
     const board: KanbanBoard = {
       TODO: [],
       IN_PROGRESS: [],
+      IN_REVIEW: [],
       DONE: [],
     };
 
@@ -77,6 +155,8 @@ export class TasksService {
         board.TODO.push(task);
       } else if (task.status === TaskStatus.IN_PROGRESS) {
         board.IN_PROGRESS.push(task);
+      } else if (task.status === TaskStatus.IN_REVIEW) {
+        board.IN_REVIEW.push(task);
       } else if (task.status === TaskStatus.DONE) {
         board.DONE.push(task);
       }
@@ -89,10 +169,9 @@ export class TasksService {
   }
 
   /**
-   * Update task status and recalculate milestone progress
    * Returns both the updated task AND the new milestone progress for real-time UI updates
    */
-  async updateStatus(id: string, status: KanbanStatus): Promise<TaskStatusUpdateResult> {
+  async updateStatus(id: string, status: KanbanStatus, actorId?: string): Promise<TaskStatusUpdateResult> {
     // Step 1: Get the task to find its milestoneId
     const task = await this.taskRepository.findOne({
       where: { id },
@@ -105,6 +184,12 @@ export class TasksService {
 
     const previousStatus = task.status;
     const milestoneId = task.milestoneId;
+
+    // [HISTORY] Record status change
+    if (previousStatus !== status) {
+        // ideally updateStatus should accept actorId optional param
+        await this.createHistory(id, 'status', previousStatus, status, actorId); 
+    }
 
     // Step 2: Update the task status
     await this.taskRepository.update(id, { status });
@@ -310,10 +395,36 @@ export class TasksService {
     return created;
   }
 
-  async updateTask(id: string, data: Partial<TaskEntity>): Promise<TaskEntity> {
+  async updateTask(id: string, data: Partial<TaskEntity>, actorId?: string): Promise<TaskEntity> {
+    this.logger.log(`Updating task ${id} with actor: ${actorId || 'SYSTEM'}`);
     const task = await this.taskRepository.findOne({ where: { id } });
     if (!task) {
       throw new NotFoundException('Task not found');
+    }
+
+    // [HISTORY] Check for changes
+    if (data.title && data.title !== task.title) {
+        await this.createHistory(id, 'title', task.title, data.title, actorId);
+    }
+    if (data.priority && data.priority !== task.priority) {
+        await this.createHistory(id, 'priority', task.priority, data.priority, actorId);
+    }
+    if (data.storyPoints !== undefined && data.storyPoints !== task.storyPoints) {
+        await this.createHistory(id, 'story points', task.storyPoints, data.storyPoints, actorId);
+    }
+    if (data.description && data.description !== task.description) {
+         // Don't log full description, just that it changed
+         await this.createHistory(id, 'description', '...', 'Updated', actorId);
+    }
+    if (data.assignedTo && data.assignedTo !== task.assignedTo) {
+         await this.createHistory(id, 'assignee', task.assignedTo || 'Unassigned', data.assignedTo, actorId);
+    }
+    if (data.labels) {
+        const oldLabels = JSON.stringify(task.labels || []);
+        const newLabels = JSON.stringify(data.labels || []);
+        if (oldLabels !== newLabels) {
+             await this.createHistory(id, 'labels', task.labels?.join(', ') || '', data.labels.join(', '), actorId);
+        }
     }
 
     await this.taskRepository.update(id, data);

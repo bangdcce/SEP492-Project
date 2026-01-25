@@ -64,3 +64,32 @@ export type TaskStatusUpdateResult = {
   totalTasks: number;
   completedTasks: number;
 };
+
+export type TaskHistory = {
+  id: string;
+  taskId: string;
+  actorId?: string;
+  actor?: {
+    id: string;
+    fullName: string;
+    avatarUrl?: string; // Optional if you have it
+  };
+  fieldChanged: string;
+  oldValue: string;
+  newValue: string;
+  createdAt: string;
+};
+
+export type TaskComment = {
+  id: string;
+  taskId: string;
+  actorId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  actor?: {
+    id: string;
+    fullName: string;
+    avatarUrl?: string;
+  };
+};

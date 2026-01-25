@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import {
   X,
   Layers,
@@ -17,7 +17,17 @@ import {
 import { cn } from "@/lib/utils";
 import type { Task, TaskPriority, KanbanColumnKey } from "../types";
 import { MOCK_SPEC_FEATURES } from "./CreateTaskModal";
-import { updateTask, updateTaskStatus } from "../api";
+import { updateTask, updateTaskStatus, fetchTaskHistory } from "../api";
+
+// Helper for robust date parsing (force UTC if naked ISO)
+const normalizeToUTC = (d: string | Date | undefined): Date => {
+  if (!d) return new Date();
+  if (d instanceof Date) return d;
+  const s = String(d);
+  // Simpler, more aggressive check: if no Z and no +, assume it's a naked UTC string
+  const safeDate = s.endsWith('Z') || s.includes('+') ? s : s + 'Z';
+  return new Date(safeDate);
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES
@@ -143,6 +153,12 @@ function EditableText({
   );
 }
 
+
+// Helper for "All" tab sorting
+type TimelineItem =
+  | { type: "history"; data: import("../types").TaskHistory; date: Date }
+  | { type: "comment"; date: Date }; // Placeholder for comment type until real comments exist
+
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
@@ -163,9 +179,53 @@ export function TaskDetailModal({
   const [proofLink, setProofLink] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
 
+  // History State
+  const [history, setHistory] = useState<import("../types").TaskHistory[]>([]);
+  const [comments, setComments] = useState<import("../types").TaskComment[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+
   useEffect(() => {
     setTask(initialTask);
   }, [initialTask]);
+
+  // Load History & Comments when tab changes
+  useEffect(() => {
+    if (task) {
+        if (activeTab === 'history' || activeTab === 'all') {
+            setLoadingHistory(true);
+            fetchTaskHistory(task.id)
+                .then(setHistory)
+                .catch(console.error)
+                .finally(() => setLoadingHistory(false));
+        }
+        if (activeTab === 'comments' || activeTab === 'all') {
+            import("../api").then(api => {
+                api.fetchTaskComments(task.id)
+                    .then(setComments)
+                    .catch(console.error);
+            });
+        }
+    }
+  }, [activeTab, task?.id]);
+
+  // Combine and Sort for "All" Tab
+  const getAllTimelineItems = (): TimelineItem[] => {
+      const historyItems: TimelineItem[] = history.map(h => ({
+          type: 'history', 
+          data: h, 
+          date: normalizeToUTC(h.createdAt)
+      }));
+      
+      const commentItems: TimelineItem[] = comments.map(c => ({
+          type: 'comment', 
+          data: c, 
+          date: normalizeToUTC(c.createdAt)
+      }));
+
+      return [...historyItems, ...commentItems].sort((a, b) => b.date.getTime() - a.date.getTime());
+  };
+
+  const timelineItems = getAllTimelineItems();
 
   if (!isOpen || !task) return null;
 
@@ -320,27 +380,149 @@ export function TaskDetailModal({
                      <button onClick={() => setActiveTab("comments")} className={cn("pb-2 text-sm font-medium border-b-2 transition-colors", activeTab === "comments" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700")}>Comments</button>
                      <button onClick={() => setActiveTab("history")} className={cn("pb-2 text-sm font-medium border-b-2 transition-colors", activeTab === "history" ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700")}>History</button>
                  </div>
-                 
+              </div>
+              
+              {/* TAB CONTENT */}
+              <div className="min-h-[200px]">
+                  {/* ALL TAB (Merged View) */}
+                  {activeTab === 'all' && (
+                     <div className="space-y-4">
+                         {loadingHistory ? (
+                             <div className="flex justify-center py-4"><Loader2 className="animate-spin text-gray-400" /></div>
+                         ) : timelineItems.length === 0 ? (
+                             <p className="text-sm text-gray-500 text-center py-4">No recent activity.</p>
+                         ) : (
+                             timelineItems.map((item, idx) => {
+                                 if (item.type === 'history') {
+                                     const record = item.data;
+                                     return (
+                                         <div key={`hist-${record.id}`} className="flex gap-3 text-sm">
+                                             <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                                  {record.actor?.avatarUrl ? (
+                                                      <img src={record.actor.avatarUrl} className="w-full h-full rounded-full" />
+                                                  ) : (
+                                                      <User className="w-4 h-4 text-gray-500" />
+                                                  )}
+                                             </div>
+                                             <div>
+                                                 <div className="text-gray-900">
+                                                     <span className="font-semibold">{record.actor?.fullName || "System"}</span>
+                                                     <span className="text-gray-500 mx-1">updated</span>
+                                                     <span className="font-medium text-gray-700">{record.fieldChanged}</span>
+                                                 </div>
+                                                 <div className="flex items-center gap-2 text-xs mt-1">
+                                                      {record.oldValue && <span className="text-red-500 line-through bg-red-50 px-1 rounded">{record.oldValue}</span>}
+                                                      {record.oldValue && <span className="text-gray-400">→</span>}
+                                                      <span className="text-green-600 bg-green-50 px-1 rounded font-medium">{record.newValue}</span>
+                                                 </div>
+                                                 <p className="text-xs text-gray-400 mt-1" title={item.date.toLocaleString()}>
+                                                     {formatDistanceToNow(item.date, { addSuffix: true })}
+                                                 </p>
+                                             </div>
+                                         </div>
+                                     );
+                                 }
+                                 // Handle comments here in future
+                                 return null;
+                             })
+                         )}
+                     </div>
+                  )}
+
+                  {activeTab === 'comments' && (
                  <div className="flex gap-4">
                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 text-xs font-bold">
                          You
                      </div>
                      <div className="flex-1">
-                         <div className="border border-gray-200 rounded-md shadow-sm">
+                         <div className="border border-gray-200 rounded-md shadow-sm mb-4">
                              <textarea 
                                 placeholder="Add a comment..."
                                 className="w-full p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-t-md resize-none min-h-[60px]"
+                                id="new-comment-textarea"
                              ></textarea>
                              <div className="bg-gray-50 px-3 py-2 border-t border-gray-200 flex justify-end gap-2 rounded-b-md">
-                                 <button className="text-xs text-gray-600 font-medium px-3 py-1.5 hover:bg-gray-200 rounded">Cancel</button>
-                                 <button className="text-xs bg-blue-600 text-white font-medium px-3 py-1.5 rounded hover:bg-blue-700 shadow-sm">Save</button>
+                                 <button 
+                                    className="text-xs bg-blue-600 text-white font-medium px-3 py-1.5 rounded hover:bg-blue-700 shadow-sm"
+                                    onClick={() => {
+                                        const area = document.getElementById('new-comment-textarea') as HTMLTextAreaElement;
+                                        if (area && area.value.trim()) {
+                                            import("../api").then(api => {
+                                                api.createComment(task.id, area.value).then(newComment => {
+                                                    setComments([newComment, ...comments]);
+                                                    area.value = '';
+                                                });
+                                            });
+                                        }
+                                    }}
+                                 >
+                                     Save
+                                 </button>
                              </div>
+                         </div>
+
+                         {/* Comment List */}
+                         <div className="space-y-4">
+                            {comments.map(comment => (
+                                <div key={comment.id} className="flex gap-3 text-sm group">
+                                     <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                          {comment.actor?.avatarUrl ? <img src={comment.actor.avatarUrl} className="w-full h-full rounded-full" /> : <User className="w-4 h-4 text-gray-500" />}
+                                     </div>
+                                     <div>
+                                         <div className="flex items-center gap-2">
+                                             <span className="font-semibold text-gray-900">{comment.actor?.fullName || "System"}</span>
+                                             <span className="text-xs text-gray-400">
+                                                 {formatDistanceToNow(normalizeToUTC(comment.createdAt), { addSuffix: true })}
+                                             </span>
+                                         </div>
+                                         <p className="text-gray-700 mt-1">{comment.content}</p>
+                                     </div>
+                                </div>
+                            ))}
                          </div>
                      </div>
                  </div>
+                 )}
+
+                  {activeTab === 'history' && (
+                      <div className="space-y-4">
+                           {loadingHistory ? (
+                               <div className="flex justify-center py-4"><Loader2 className="animate-spin text-gray-400" /></div>
+                           ) : history.length === 0 ? (
+                               <p className="text-sm text-gray-500 text-center py-4">No recent activity.</p>
+                           ) : (
+                               history.map((record) => (
+                                   <div key={record.id} className="flex gap-3 text-sm">
+                                       <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+                                            {record.actor?.avatarUrl ? (
+                                                <img src={record.actor.avatarUrl} className="w-full h-full rounded-full" />
+                                            ) : (
+                                                <User className="w-4 h-4 text-gray-500" />
+                                            )}
+                                       </div>
+                                       <div>
+                                           <div className="text-gray-900">
+                                               <span className="font-semibold">{record.actor?.fullName || "System"}</span>
+                                               <span className="text-gray-500 mx-1">updated</span>
+                                               <span className="font-medium text-gray-700">{record.fieldChanged}</span>
+                                           </div>
+                                           <div className="flex items-center gap-2 text-xs mt-1">
+                                                {record.oldValue && <span className="text-red-500 line-through bg-red-50 px-1 rounded">{record.oldValue}</span>}
+                                                {record.oldValue && <span className="text-gray-400">→</span>}
+                                                <span className="text-green-600 bg-green-50 px-1 rounded font-medium">{record.newValue}</span>
+                                           </div>
+                                           <p className="text-xs text-gray-400 mt-1" title={normalizeToUTC(record.createdAt).toLocaleString()}>
+                                               {formatDistanceToNow(normalizeToUTC(record.createdAt), { addSuffix: true })}
+                                           </p>
+                                       </div>
+                                   </div>
+                               ))
+                           )}
+                      </div>
+                  )}
               </div>
 
-            </div>
+              </div>
 
             {/* RIGHT COLUMN: SIDEBAR (4 cols) */}
             <div className="md:col-span-4 p-6 space-y-6 bg-gray-50/50">
@@ -398,12 +580,23 @@ export function TaskDetailModal({
                   {/* Priority */}
                   <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600 font-medium">Priority</span>
-                      <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded">
-                           <Flag className={cn("w-3.5 h-3.5", PRIORITY_CONFIG[task.priority || "MEDIUM"].color)} />
-                           <span className={cn("text-sm font-medium", PRIORITY_CONFIG[task.priority || "MEDIUM"].color)}>
-                               {task.priority || "MEDIUM"}
-                           </span>
-                           <ChevronDown className="w-3 h-3 text-gray-400" />
+                      <div className="relative group">
+                           <select
+                              value={task.priority || "MEDIUM"}
+                              onChange={(e) => handleUpdate({ priority: e.target.value as TaskPriority })}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                           >
+                               {Object.keys(PRIORITY_CONFIG).map(p => (
+                                   <option key={p} value={p}>{p}</option>
+                               ))}
+                           </select>
+                           <div className="flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 pr-2 rounded transition-colors border border-transparent hover:border-gray-200">
+                               <Flag className={cn("w-3.5 h-3.5", PRIORITY_CONFIG[task.priority || "MEDIUM"].color)} />
+                               <span className={cn("text-sm font-medium", PRIORITY_CONFIG[task.priority || "MEDIUM"].color)}>
+                                   {task.priority || "MEDIUM"}
+                               </span>
+                               <ChevronDown className="w-3 h-3 text-gray-400" />
+                           </div>
                       </div>
                   </div>
 
