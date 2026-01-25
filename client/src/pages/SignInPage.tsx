@@ -68,13 +68,13 @@ export function SignInPage({
       });
 
       // Save tokens based on remember-me choice
-      console.log('Login response:', response);
-      
+
+
       // Backend returns {message, data: {accessToken, refreshToken, user}}
       const loginData = (response as any).data || response;
-      console.log('Access token:', loginData.accessToken);
-      console.log('User:', loginData.user);
-      
+
+
+
       setStoredItem(
         STORAGE_KEYS.ACCESS_TOKEN,
         loginData.accessToken,
@@ -104,11 +104,10 @@ export function SignInPage({
 
         if (userRole === "ADMIN") {
           navigate(ROUTES.ADMIN_DASHBOARD);
-        } else if (userRole === "CLIENT" || userRole === "SME") {
+        } else if (userRole === "CLIENT" || userRole === "SME" || userRole === "CLIENT_SME") {
           navigate(ROUTES.CLIENT_DASHBOARD);
         } else if (userRole === "FREELANCER") {
           navigate(ROUTES.FREELANCER_DASHBOARD);
-        } else if (userRole === "BROKER") {
         } else if (userRole === "BROKER") {
           navigate(ROUTES.BROKER_DASHBOARD);
         } else if (userRole === "STAFF") {

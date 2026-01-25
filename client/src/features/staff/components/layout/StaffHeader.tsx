@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import { Bell } from "lucide-react";
+import { useNavigate, Link } from "react-router-dom";
+import { Bell, ChevronDown, User, Settings, LogOut } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { UserNav } from "../../../../shared/components/custom/UserNav";
+import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +29,59 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+
+  // Get user from storage
+  const getInitialUser = () => {
+    return getStoredJson<{
+      fullName?: string;
+      role?: string;
+      avatarUrl?: string;
+    }>(STORAGE_KEYS.USER) || {};
+  };
+
+  const [user, setUser] = useState<{
+    fullName?: string;
+    role?: string;
+    avatarUrl?: string;
+  }>(getInitialUser);
+
+  useEffect(() => {
+    // Listen for user data updates
+    const handleUserUpdate = () => {
+      const updatedUser = getStoredJson<{
+        fullName?: string;
+        role?: string;
+        avatarUrl?: string;
+      }>(STORAGE_KEYS.USER);
+      if (updatedUser) setUser(updatedUser);
+    };
+
+    window.addEventListener("userDataUpdated", handleUserUpdate);
+    return () =>
+      window.removeEventListener("userDataUpdated", handleUserUpdate);
+  }, []);
+
+  const userName = user.fullName || "Staff User";
+  const userRole = user.role || "STAFF";
+  const userAvatar = user.avatarUrl;
+
+  const handleLogout = () => {
+    removeStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
+    removeStoredItem(STORAGE_KEYS.REFRESH_TOKEN);
+    removeStoredItem(STORAGE_KEYS.USER);
+    navigate("/login");
+  };
+
+  const getInitials = (name: string) => {
+    if (!name) return "S";
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
+  };
 
   const unreadCount = useMemo(
     () => notifications.filter((item) => !item.isRead).length,
@@ -178,12 +232,92 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
 
           <div className="h-8 w-px bg-gray-200 mx-1"></div>
 
-          <div className="flex items-center gap-3 cursor-pointer hover:bg-gray-50 p-1.5 rounded-lg transition-colors">
-            <UserNav />
-            <div className="hidden md:block text-sm text-left">
-              <p className="font-medium text-slate-900">Staff Admin</p>
-              <p className="text-xs text-gray-500">Tier 1 Moderator</p>
-            </div>
+          {/* User Profile Dropdown - Client Style */}
+          <div className="relative">
+            <button
+              onClick={() => setIsProfileMenuOpen(!isProfileMenuOpen)}
+              className="flex items-center gap-2.5 p-1.5 hover:bg-gray-100 rounded-md transition-colors"
+              aria-label="User menu"
+            >
+              {/* Avatar */}
+              {userAvatar ? (
+                <img
+                  src={userAvatar}
+                  alt={userName}
+                  className="w-8 h-8 rounded-full object-cover"
+                />
+              ) : (
+                <div className="w-8 h-8 bg-teal-500 rounded-full flex items-center justify-center">
+                  <span className="text-white text-xs font-bold">
+                    {getInitials(userName)}
+                  </span>
+                </div>
+              )}
+
+              {/* User Info */}
+              <div className="hidden md:block text-left">
+                <div className="text-sm text-gray-900 leading-tight">
+                  {userName}
+                </div>
+                <div className="text-xs text-gray-500">{userRole}</div>
+              </div>
+
+              <ChevronDown
+                className={`w-4 h-4 text-gray-500 transition-transform hidden md:block ${isProfileMenuOpen ? "rotate-180" : ""
+                  }`}
+              />
+            </button>
+
+            {/* Dropdown Menu */}
+            {isProfileMenuOpen && (
+              <>
+                {/* Backdrop */}
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setIsProfileMenuOpen(false)}
+                />
+
+                {/* Menu */}
+                <div className="absolute right-0 mt-2 w-60 bg-white rounded-md shadow-lg border border-gray-200 py-1.5 z-20">
+                  {/* User Info */}
+                  <div className="px-3 py-2.5 border-b border-gray-200">
+                    <div className="text-sm text-gray-900">{userName}</div>
+                    <div className="text-xs text-gray-500">{userRole}</div>
+                  </div>
+
+                  {/* Menu Items */}
+                  <div className="py-1">
+                    <Link
+                      to="/staff/profile"
+                      className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      onClick={() => setIsProfileMenuOpen(false)}
+                    >
+                      <User className="w-4 h-4" />
+                      My Profile
+                    </Link>
+                    <Link
+                      to="/settings"
+                      className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
+                      onClick={() => setIsProfileMenuOpen(false)}
+                    >
+                      <Settings className="w-4 h-4" />
+                      Settings
+                    </Link>
+                  </div>
+
+                  {/* Logout */}
+                  <div className="border-t border-gray-200 pt-1">
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center gap-3 w-full px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Logout
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
