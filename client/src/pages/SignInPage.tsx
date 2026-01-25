@@ -119,6 +119,19 @@ export function SignInPage({
       }
     } catch (error: any) {
       console.error("Sign in error:", error);
+
+      // Check if error is due to unverified email
+      if (error.response?.data?.error === 'EMAIL_NOT_VERIFIED') {
+        const email = error.response?.data?.email || formData.email;
+        toast.error("Email not verified. Redirecting to verification page...");
+
+        // Redirect to verify email page with email as query param
+        setTimeout(() => {
+          navigate(`${ROUTES.VERIFY_EMAIL}?email=${encodeURIComponent(email)}`);
+        }, 1500);
+        return;
+      }
+
       const errorMessage =
         error.response?.data?.message || "Invalid email or password";
       setErrors({ password: errorMessage });

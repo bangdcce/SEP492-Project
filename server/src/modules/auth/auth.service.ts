@@ -41,7 +41,7 @@ export class AuthService {
     private emailService: EmailService,
     private emailVerificationService: EmailVerificationService,
     private auditLogsService: AuditLogsService, // Inject AuditLogsService
-  ) {}
+  ) { }
 
   async register(
     registerDto: RegisterDto,
@@ -176,9 +176,11 @@ export class AuthService {
 
     // Check if email is verified
     if (!user.emailVerifiedAt) {
-      throw new UnauthorizedException(
-        'Vui lòng xác thực email của bạn trước khi đăng nhập. Kiểm tra hộp thư của bạn.',
-      );
+      throw new UnauthorizedException({
+        message: 'Please verify your email before logging in. Check your inbox.',
+        error: 'EMAIL_NOT_VERIFIED',
+        email: user.email,
+      });
     }
 
     // Tạo JWT tokens

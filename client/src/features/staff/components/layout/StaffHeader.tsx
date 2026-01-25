@@ -288,7 +288,13 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
                   {/* Menu Items */}
                   <div className="py-1">
                     <Link
-                      to="/staff/profile"
+                      to={
+                        userRole === "ADMIN" ? "/admin/profile" :
+                          userRole === "BROKER" ? "/broker/profile" :
+                            userRole === "FREELANCER" ? "/freelancer/profile" :
+                              userRole === "STAFF" ? "/staff/profile" :
+                                "/client/profile"
+                      }
                       className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       onClick={() => setIsProfileMenuOpen(false)}
                     >
