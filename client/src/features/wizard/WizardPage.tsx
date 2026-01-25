@@ -12,6 +12,7 @@ import type { WizardQuestion, CreateProjectRequestDto } from "./services/wizardS
 import { ROUTES, API_CONFIG } from "@/constants";
 import { ArrowLeft, ArrowRight, Check, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { getStoredItem } from "@/shared/utils/storage";
 
 export default function WizardPage() {
   const navigate = useNavigate();
@@ -52,7 +53,7 @@ export default function WizardPage() {
       try {
         const response = await fetch(`${API_CONFIG.BASE_URL}/kyc/me`, {
           headers: {
-            'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
+            'Authorization': `Bearer ${getStoredItem('access_token')}`,
           },
         });
         const data = await response.json();
@@ -79,11 +80,11 @@ export default function WizardPage() {
 
   const handleSubmit = async (mode: 'draft' | 'marketplace' | 'invite') => {
      try {
-        const isDraft = mode === 'draft';
+        const isDraftMode = mode === 'draft';
         setSubmitting(true);
 
         // Check KYC before submitting project (if not draft)
-        if (!isDraft && kycStatus !== 'APPROVED') {
+        if (!isDraftMode && kycStatus !== 'APPROVED') {
           if (kycStatus === 'NOT_STARTED' || kycStatus === 'REJECTED') {
             toast.error('KYC verification required', {
               description: 'Please complete KYC verification before posting a project.',
@@ -104,11 +105,11 @@ export default function WizardPage() {
         
         // Map questions to answers
         const payload: CreateProjectRequestDto = {
-            title: title || (isDraft ? "Draft Project Request" : "New Project Request"),
+            title: title || (isDraftMode ? "Draft Project Request" : "New Project Request"),
             description: description + (fileUrl ? `\n\nAttachments: ${fileUrl}` : ""),
             budgetRange: budget,
             intendedTimeline: timeline,
-            isDraft: isDraft,
+            isDraft: isDraftMode,
             answers: []
         };
         // Find IDs for questions

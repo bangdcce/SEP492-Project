@@ -1,7 +1,8 @@
 import { useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { ROUTES } from "@/constants";
+import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { toast } from "sonner";
+import { setStoredItem } from "@/shared/utils/storage";
 
 export function GoogleSuccessPage() {
   const [searchParams] = useSearchParams();
@@ -12,9 +13,9 @@ export function GoogleSuccessPage() {
     const refreshToken = searchParams.get("refreshToken");
 
     if (accessToken && refreshToken) {
-      // Save tokens
-      localStorage.setItem("accessToken", accessToken);
-      localStorage.setItem("refreshToken", refreshToken);
+      // Save tokens (OAuth defaults to remember)
+      setStoredItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken, true);
+      setStoredItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken, true);
 
       toast.success("Welcome back!");
       navigate(ROUTES.DASHBOARD);

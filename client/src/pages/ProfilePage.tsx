@@ -6,6 +6,7 @@ import { getProfile, updateProfile } from "@/features/auth/api";
 import { STORAGE_KEYS } from "@/constants";
 import { TrustScoreCard } from "@/features/trust-profile/components";
 import type { BadgeType } from "@/features/trust-profile/types";
+import { getStoredJson, setStoredJsonAuto } from "@/shared/utils/storage";
 
 interface UserProfile {
   id: string;
@@ -61,6 +62,15 @@ export default function ProfilePage() {
         bio: userData.bio || "",
       });
       setAvatarPreview(userData.avatarUrl || "");
+
+      // Keep header avatar/name in sync with latest profile
+      const user = getStoredJson<any>(STORAGE_KEYS.USER);
+      if (user) {
+        user.fullName = userData.fullName || user.fullName;
+        user.avatarUrl = userData.avatarUrl || "";
+        setStoredJsonAuto(STORAGE_KEYS.USER, user);
+        window.dispatchEvent(new Event("userDataUpdated"));
+      }
     } catch (error: any) {
       console.error("Failed to load profile:", error);
       toast.error("Failed to load profile information");
@@ -117,13 +127,12 @@ export default function ProfilePage() {
       setIsEditing(false);
       await loadProfile();
 
-      // Update user data in localStorage to sync with Header
-      const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-      if (userStr) {
-        const user = JSON.parse(userStr);
+      // Update user data in storage to sync with Header
+      const user = getStoredJson<any>(STORAGE_KEYS.USER);
+      if (user) {
         user.fullName = formData.fullName;
         user.avatarUrl = avatarUrl;
-        localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
+        setStoredJsonAuto(STORAGE_KEYS.USER, user);
 
         // Dispatch custom event to notify Header of the change
         window.dispatchEvent(new Event("userDataUpdated"));

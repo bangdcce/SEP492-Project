@@ -9,14 +9,16 @@ import {
   Logger,
   InternalServerErrorException,
   Req,
+  UseGuards,
 } from '@nestjs/common';
+import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import {
   TasksService,
   BoardWithMilestones,
   KanbanStatus,
   TaskStatusUpdateResult,
 } from './tasks.service';
-import { TaskStatus } from '../../database/entities/task.entity';
+import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { SubmitTaskDto } from './dto/submit-task.dto';
 
 // Interface for authenticated request with user context
@@ -29,6 +31,7 @@ interface AuthenticatedRequest {
 }
 
 @Controller('tasks')
+@UseGuards(JwtAuthGuard)
 export class TasksController {
   private readonly logger = new Logger(TasksController.name);
 
@@ -45,18 +48,46 @@ export class TasksController {
     }
   }
 
+  @Get(':id/history')
+  getTaskHistory(@Param('id') id: string) {
+    return this.tasksService.getTaskHistory(id);
+  }
+
+  @Get(':id/comments')
+  getTaskComments(@Param('id') id: string) {
+    return this.tasksService.getTaskComments(id);
+  }
+
+  @Post(':id/comments')
+  addComment(
+      @Param('id') id: string,
+      @Body('content') content: string,
+      @Req() req: AuthenticatedRequest
+  ) {
+      if (!content) throw new BadRequestException('Content is required');
+      // JwtAuthGuard ensures user exists, but TS needs reassurance or fallback
+      return this.tasksService.addComment(id, content, req.user?.id || 'SYSTEM');
+  }
+
   @Patch(':id/status')
   async updateStatus(
     @Param('id') id: string,
     @Body('status') status: string,
+    @Req() req: AuthenticatedRequest,
   ): Promise<TaskStatusUpdateResult> {
-    const allowed: TaskStatus[] = [TaskStatus.TODO, TaskStatus.IN_PROGRESS, TaskStatus.DONE];
+    const allowed: TaskStatus[] = [
+      TaskStatus.TODO,
+      TaskStatus.IN_PROGRESS,
+      TaskStatus.IN_REVIEW,
+      TaskStatus.REVISIONS_REQUIRED,
+      TaskStatus.DONE,
+    ];
 
     if (!allowed.includes(status as TaskStatus)) {
       throw new BadRequestException('Invalid status');
     }
 
-    return this.tasksService.updateStatus(id, status as KanbanStatus);
+    return this.tasksService.updateStatus(id, status as KanbanStatus, req.user?.id);
   }
 
   /**
@@ -89,6 +120,16 @@ export class TasksController {
     return await this.tasksService.submitTask(id, dto, actorId, reqContext);
   }
 
+  @Patch(':id')
+  async updateTask(
+    @Param('id') id: string,
+    @Body() body: Partial<TaskEntity>,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    this.logger.log(`Update Task ${id} requested by user: ${req.user?.id || 'ANONYMOUS'}`);
+    return this.tasksService.updateTask(id, body, req.user?.id);
+  }
+
   @Post()
   async createTask(
     @Body()
@@ -100,11 +141,18 @@ export class TasksController {
       specFeatureId?: string;
       startDate?: string;
       dueDate?: string;
+      priority?: TaskPriority;
+      storyPoints?: number;
+      labels?: string[];
+      reporterId?: string;
     },
+    @Req() req: AuthenticatedRequest,
   ) {
     if (!body?.title || !body?.projectId || !body?.milestoneId) {
       throw new BadRequestException('title, projectId and milestoneId are required');
     }
+
+    const reporterId = body.reporterId || req.user?.id;
 
     this.logger.log(`Creating task: ${body.title} for project ${body.projectId}`);
 
@@ -116,6 +164,10 @@ export class TasksController {
       specFeatureId: body.specFeatureId,
       startDate: body.startDate,
       dueDate: body.dueDate,
+      priority: body.priority,
+      storyPoints: body.storyPoints,
+      labels: body.labels,
+      reporterId,
     });
   }
 }

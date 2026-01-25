@@ -94,6 +94,13 @@ export class StaffPerformanceEntity {
   @Column({ default: 0, comment: 'Số phiên bị reschedule (do Staff)' })
   totalHearingsRescheduled: number;
 
+  // === PENDING APPEAL TRACKING (Giải quyết "Kháng Cáo Treo" edge case) ===
+  @Column({ default: 0, comment: 'Số case đang IN_APPEAL chưa đóng (loại khỏi calculation)' })
+  pendingAppealCases: number;
+
+  @Column({ default: 0, comment: 'Số case đã finalized (used for accurate calculation)' })
+  totalCasesFinalized: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

@@ -32,6 +32,72 @@ CREATE TABLE public.auth_sessions (
   CONSTRAINT FK_925b24d7fc2f9324ce972aee025 FOREIGN KEY (userId) REFERENCES public.users(id),
   CONSTRAINT FK_6e11140db54eefb6f4991a40df0 FOREIGN KEY (replacedBySessionId) REFERENCES public.auth_sessions(id)
 );
+CREATE TABLE public.auto_schedule_rules (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  description text,
+  eventType USER-DEFINED NOT NULL,
+  strategy USER-DEFINED NOT NULL DEFAULT 'BALANCED'::auto_schedule_rules_strategy_enum,
+  defaultDurationMinutes integer NOT NULL DEFAULT 60,
+  bufferMinutes integer NOT NULL DEFAULT 15,
+  maxStaffUtilizationRate integer NOT NULL DEFAULT 80,
+  maxEventsPerStaffPerDay integer NOT NULL DEFAULT 5,
+  workingHoursStart time without time zone NOT NULL DEFAULT '08:00:00'::time without time zone,
+  workingHoursEnd time without time zone NOT NULL DEFAULT '18:00:00'::time without time zone,
+  workingDays jsonb NOT NULL DEFAULT '[1, 2, 3, 4, 5]'::jsonb,
+  respectUserPreferredSlots boolean NOT NULL DEFAULT true,
+  avoidLunchHours boolean NOT NULL DEFAULT true,
+  lunchStartTime time without time zone DEFAULT '11:30:00'::time without time zone,
+  lunchEndTime time without time zone DEFAULT '13:00:00'::time without time zone,
+  maxRescheduleCount integer NOT NULL DEFAULT 2,
+  minRescheduleNoticeHours integer NOT NULL DEFAULT 24,
+  autoAssignStaff boolean NOT NULL DEFAULT true,
+  isActive boolean NOT NULL DEFAULT true,
+  isDefault boolean NOT NULL DEFAULT false,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT auto_schedule_rules_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.broker_proposals (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  requestId uuid NOT NULL,
+  brokerId uuid NOT NULL,
+  coverLetter text,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::broker_proposals_status_enum,
+  CONSTRAINT broker_proposals_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_e47dedae186b41203c8614a98e0 FOREIGN KEY (requestId) REFERENCES public.project_requests(id),
+  CONSTRAINT FK_cdfb328ffe79fb43e6b965076cd FOREIGN KEY (brokerId) REFERENCES public.users(id)
+);
+CREATE TABLE public.calendar_events (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  type USER-DEFINED NOT NULL,
+  title character varying NOT NULL,
+  description text,
+  priority USER-DEFINED NOT NULL DEFAULT 'MEDIUM'::calendar_events_priority_enum,
+  status USER-DEFINED NOT NULL DEFAULT 'DRAFT'::calendar_events_status_enum,
+  startTime timestamp without time zone NOT NULL,
+  endTime timestamp without time zone NOT NULL,
+  durationMinutes integer NOT NULL,
+  organizerId uuid NOT NULL,
+  referenceType character varying,
+  referenceId character varying,
+  isAutoScheduled boolean NOT NULL DEFAULT false,
+  autoScheduleRuleId character varying,
+  rescheduleCount integer NOT NULL DEFAULT 0,
+  previousEventId uuid,
+  lastRescheduledAt timestamp without time zone,
+  location character varying,
+  externalMeetingLink character varying,
+  reminderMinutes jsonb,
+  notes text,
+  metadata jsonb,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT calendar_events_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_a007ca3d443825b41461d9da45c FOREIGN KEY (organizerId) REFERENCES public.users(id),
+  CONSTRAINT FK_16e7e7cc00e7fdc1ae7a4762a4e FOREIGN KEY (previousEventId) REFERENCES public.calendar_events(id)
+);
 CREATE TABLE public.contracts (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   projectId uuid NOT NULL,
@@ -70,6 +136,78 @@ CREATE TABLE public.dispute_activities (
   CONSTRAINT FK_6e8e8ceb8825dc4b0f9f53ac650 FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
   CONSTRAINT FK_5cacac4c36fa75db2ecac2d6d2d FOREIGN KEY (actorId) REFERENCES public.users(id)
 );
+CREATE TABLE public.dispute_evidences (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  disputeId uuid NOT NULL,
+  uploaderId uuid NOT NULL,
+  uploaderRole character varying NOT NULL,
+  storagePath character varying NOT NULL,
+  fileName character varying NOT NULL,
+  fileSize integer NOT NULL,
+  mimeType character varying NOT NULL,
+  description text,
+  fileHash character varying,
+  isFlagged boolean NOT NULL DEFAULT false,
+  flagReason text,
+  flaggedById uuid,
+  flaggedAt timestamp without time zone,
+  uploadedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT dispute_evidences_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_66cc1a5a31819855cf1aff32d56 FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
+  CONSTRAINT FK_85e8296ddc6ac2f0bb1aa054348 FOREIGN KEY (uploaderId) REFERENCES public.users(id),
+  CONSTRAINT FK_e99822e169b518e548bf4b72ad0 FOREIGN KEY (flaggedById) REFERENCES public.users(id)
+);
+CREATE TABLE public.dispute_hearings (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  disputeId uuid NOT NULL,
+  status USER-DEFINED NOT NULL DEFAULT 'SCHEDULED'::dispute_hearings_status_enum,
+  scheduledAt timestamp without time zone NOT NULL,
+  startedAt timestamp without time zone,
+  endedAt timestamp without time zone,
+  agenda text,
+  requiredDocuments jsonb,
+  moderatorId uuid NOT NULL,
+  summary text,
+  findings text,
+  pendingActions jsonb,
+  hearingNumber integer NOT NULL DEFAULT 1,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  externalMeetingLink character varying,
+  currentSpeakerRole USER-DEFINED NOT NULL DEFAULT 'MUTED_ALL'::dispute_hearings_currentspeakerrole_enum,
+  tier USER-DEFINED NOT NULL DEFAULT 'TIER_1'::dispute_hearings_tier_enum,
+  isChatRoomActive boolean NOT NULL DEFAULT false,
+  estimatedDurationMinutes integer NOT NULL DEFAULT 60,
+  rescheduleCount integer NOT NULL DEFAULT 0,
+  previousHearingId character varying,
+  lastRescheduledAt timestamp without time zone,
+  CONSTRAINT dispute_hearings_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_890bb8c2c38b9d08fa1073f7d11 FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
+  CONSTRAINT FK_7affb78273ec41d28d86a728829 FOREIGN KEY (moderatorId) REFERENCES public.users(id)
+);
+CREATE TABLE public.dispute_messages (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  disputeId uuid NOT NULL,
+  senderId uuid,
+  senderRole character varying NOT NULL,
+  type USER-DEFINED NOT NULL DEFAULT 'TEXT'::dispute_messages_type_enum,
+  content text,
+  replyToMessageId uuid,
+  relatedEvidenceId uuid,
+  hearingId uuid,
+  metadata jsonb,
+  isHidden boolean NOT NULL DEFAULT false,
+  hiddenReason text,
+  hiddenById character varying,
+  hiddenAt timestamp without time zone,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT dispute_messages_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_288e9a3fe13cfe14abe9824e9ce FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
+  CONSTRAINT FK_e154dd9c8d78610a275b5c72536 FOREIGN KEY (senderId) REFERENCES public.users(id),
+  CONSTRAINT FK_587f533d1927b5ec42342b19edb FOREIGN KEY (replyToMessageId) REFERENCES public.dispute_messages(id),
+  CONSTRAINT FK_dc82f55f2a951d0ef0582c9e030 FOREIGN KEY (relatedEvidenceId) REFERENCES public.dispute_evidences(id),
+  CONSTRAINT FK_c663721f6b7170bd81b6df60fcc FOREIGN KEY (hearingId) REFERENCES public.dispute_hearings(id)
+);
 CREATE TABLE public.dispute_notes (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   disputeId uuid NOT NULL,
@@ -85,6 +223,86 @@ CREATE TABLE public.dispute_notes (
   CONSTRAINT dispute_notes_pkey PRIMARY KEY (id),
   CONSTRAINT FK_3282d2ccb98a92b5ecbf66adf76 FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
   CONSTRAINT FK_8e5bf63d7e5d911cc06d2a6e05d FOREIGN KEY (authorId) REFERENCES public.users(id)
+);
+CREATE TABLE public.dispute_resolution_feedbacks (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  disputeId uuid NOT NULL,
+  staffId uuid NOT NULL,
+  userId uuid NOT NULL,
+  userRole character varying NOT NULL,
+  rating integer NOT NULL,
+  comment text,
+  fairnessRating integer,
+  responsivenessRating integer,
+  professionalismRating integer,
+  clarityRating integer,
+  isSatisfied boolean NOT NULL DEFAULT false,
+  isReported boolean NOT NULL DEFAULT false,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT dispute_resolution_feedbacks_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_ae1b9e4e007b9c33141e8b5fb44 FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
+  CONSTRAINT FK_ae7c221c89bb137ee857f8a61d6 FOREIGN KEY (staffId) REFERENCES public.users(id),
+  CONSTRAINT FK_15ec954127ddaf6a2ccf2ed3736 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.dispute_settlements (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  disputeId uuid NOT NULL,
+  proposerId uuid NOT NULL,
+  proposerRole character varying NOT NULL,
+  amountToFreelancer numeric NOT NULL,
+  amountToClient numeric NOT NULL,
+  platformFee numeric NOT NULL DEFAULT '0'::numeric,
+  terms text,
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::dispute_settlements_status_enum,
+  responderId uuid,
+  respondedAt timestamp without time zone,
+  rejectedReason text,
+  expiresAt timestamp without time zone,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT dispute_settlements_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_55edb94d39d55c06ec6d791e609 FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
+  CONSTRAINT FK_b18d40f213ca9be50bdba26a391 FOREIGN KEY (proposerId) REFERENCES public.users(id),
+  CONSTRAINT FK_4f739e97f1d4001972b83f55d92 FOREIGN KEY (responderId) REFERENCES public.users(id)
+);
+CREATE TABLE public.dispute_skill_requirements (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  disputeId uuid NOT NULL,
+  skillId uuid NOT NULL,
+  source USER-DEFINED NOT NULL DEFAULT 'AUTO_DETECTED'::dispute_skill_requirements_source_enum,
+  requiredLevel integer NOT NULL DEFAULT 1,
+  isMandatory boolean NOT NULL DEFAULT true,
+  addedById uuid,
+  notes text,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT dispute_skill_requirements_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_7f932413b0fcf2a2113c60fdb7b FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
+  CONSTRAINT FK_724c0d98a342b4c1b800987b6da FOREIGN KEY (skillId) REFERENCES public.skills(id),
+  CONSTRAINT FK_07db9a3bc01a0ae9fb9a74aa54e FOREIGN KEY (addedById) REFERENCES public.users(id)
+);
+CREATE TABLE public.dispute_verdicts (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  disputeId uuid NOT NULL UNIQUE,
+  adjudicatorId uuid NOT NULL,
+  adjudicatorRole character varying NOT NULL,
+  faultType USER-DEFINED NOT NULL,
+  faultyParty character varying NOT NULL,
+  amountToFreelancer numeric NOT NULL,
+  amountToClient numeric NOT NULL,
+  platformFee numeric NOT NULL DEFAULT '0'::numeric,
+  trustScorePenalty integer NOT NULL DEFAULT 0,
+  isBanTriggered boolean NOT NULL DEFAULT false,
+  banDurationDays integer NOT NULL DEFAULT 0,
+  warningMessage text,
+  tier integer NOT NULL DEFAULT 1,
+  isAppealVerdict boolean NOT NULL DEFAULT false,
+  overridesVerdictId uuid,
+  issuedAt timestamp without time zone NOT NULL DEFAULT now(),
+  reasoning jsonb NOT NULL,
+  CONSTRAINT dispute_verdicts_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_a027522850799c0ff026bceb1cd FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
+  CONSTRAINT FK_c76130cead6c14ef502b45ebf87 FOREIGN KEY (adjudicatorId) REFERENCES public.users(id),
+  CONSTRAINT FK_878605b8bb3318d5bf1032bb161 FOREIGN KEY (overridesVerdictId) REFERENCES public.dispute_verdicts(id)
 );
 CREATE TABLE public.disputes (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -122,13 +340,25 @@ CREATE TABLE public.disputes (
   messages text,
   groupId character varying,
   appealResolvedById character varying,
+  assignedStaffId uuid,
+  assignedAt timestamp without time zone,
+  currentTier integer NOT NULL DEFAULT 1,
+  escalatedToAdminId uuid,
+  escalatedAt timestamp without time zone,
+  escalationReason text,
+  acceptedSettlementId character varying,
+  isAutoResolved boolean NOT NULL DEFAULT false,
+  settlementAttempts integer NOT NULL DEFAULT 0,
+  appealDeadline timestamp without time zone,
   CONSTRAINT disputes_pkey PRIMARY KEY (id),
   CONSTRAINT FK_9a4ad337edc45133e24c8bcaf4d FOREIGN KEY (projectId) REFERENCES public.projects(id),
   CONSTRAINT FK_8880a40e54bc9b4675323ca102e FOREIGN KEY (raisedById) REFERENCES public.users(id),
   CONSTRAINT FK_bcfa408d5738fa2c2550bc2c073 FOREIGN KEY (defendantId) REFERENCES public.users(id),
   CONSTRAINT FK_00ac6d80806ccdd62cf9c159785 FOREIGN KEY (resolvedById) REFERENCES public.users(id),
   CONSTRAINT FK_7aebab8b5f52cd36df7211844b9 FOREIGN KEY (milestoneId) REFERENCES public.milestones(id),
-  CONSTRAINT FK_095c0da1ca820448832b8644d48 FOREIGN KEY (parentDisputeId) REFERENCES public.disputes(id)
+  CONSTRAINT FK_095c0da1ca820448832b8644d48 FOREIGN KEY (parentDisputeId) REFERENCES public.disputes(id),
+  CONSTRAINT FK_d3d83cc3eaaafdd439787146ed4 FOREIGN KEY (assignedStaffId) REFERENCES public.users(id),
+  CONSTRAINT FK_e823d628afa329e33896cbffd01 FOREIGN KEY (escalatedToAdminId) REFERENCES public.users(id)
 );
 CREATE TABLE public.documents (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -157,7 +387,7 @@ CREATE TABLE public.escrows (
   developerPercentage numeric NOT NULL DEFAULT '85'::numeric,
   brokerPercentage numeric NOT NULL DEFAULT '10'::numeric,
   platformPercentage numeric NOT NULL DEFAULT '5'::numeric,
-  currency character varying NOT NULL DEFAULT 'VND'::character varying,
+  currency character varying NOT NULL DEFAULT 'USD'::character varying,
   status USER-DEFINED NOT NULL DEFAULT 'PENDING'::escrows_status_enum,
   fundedAt timestamp without time zone,
   releasedAt timestamp without time zone,
@@ -179,6 +409,47 @@ CREATE TABLE public.escrows (
   CONSTRAINT FK_54b1af06e01e858558a708d47cb FOREIGN KEY (milestoneId) REFERENCES public.milestones(id),
   CONSTRAINT FK_08723ed58ba58a217b8713f531d FOREIGN KEY (disputeId) REFERENCES public.disputes(id)
 );
+CREATE TABLE public.event_participants (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  eventId uuid NOT NULL,
+  userId uuid NOT NULL,
+  role USER-DEFINED NOT NULL,
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::event_participants_status_enum,
+  responseDeadline timestamp without time zone,
+  respondedAt timestamp without time zone,
+  responseNote text,
+  attendanceStatus USER-DEFINED NOT NULL DEFAULT 'NOT_STARTED'::event_participants_attendancestatus_enum,
+  joinedAt timestamp without time zone,
+  leftAt timestamp without time zone,
+  isOnline boolean NOT NULL DEFAULT false,
+  lateMinutes integer,
+  excuseReason text,
+  excuseApproved boolean NOT NULL DEFAULT false,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT event_participants_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_4907f15416577c3bbbcd604d121 FOREIGN KEY (eventId) REFERENCES public.calendar_events(id),
+  CONSTRAINT FK_d1b1a40ec360951071605b0f7a0 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.event_reschedule_requests (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  eventId uuid NOT NULL,
+  requesterId uuid NOT NULL,
+  reason text NOT NULL,
+  proposedTimeSlots jsonb,
+  useAutoSchedule boolean NOT NULL DEFAULT false,
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING'::event_reschedule_requests_status_enum,
+  processedById uuid,
+  processedAt timestamp without time zone,
+  processNote text,
+  newEventId uuid,
+  selectedNewStartTime timestamp without time zone,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT event_reschedule_requests_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_0ac7c3e37b89c3175104a8fb6c1 FOREIGN KEY (eventId) REFERENCES public.calendar_events(id),
+  CONSTRAINT FK_5804d5a5bf7b121d5bbf17b1381 FOREIGN KEY (requesterId) REFERENCES public.users(id),
+  CONSTRAINT FK_efd9b7049628373061b4c17db01 FOREIGN KEY (processedById) REFERENCES public.users(id),
+  CONSTRAINT FK_f7d69babb32833a937c01c9dfcf FOREIGN KEY (newEventId) REFERENCES public.calendar_events(id)
+);
 CREATE TABLE public.fee_configs (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   feeType USER-DEFINED NOT NULL,
@@ -194,6 +465,59 @@ CREATE TABLE public.fee_configs (
   updatedAt timestamp without time zone NOT NULL DEFAULT now(),
   CONSTRAINT fee_configs_pkey PRIMARY KEY (id),
   CONSTRAINT FK_42214cd963e2591ef028f0ebdd9 FOREIGN KEY (updatedBy) REFERENCES public.users(id)
+);
+CREATE TABLE public.hearing_participants (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  hearingId uuid NOT NULL,
+  userId uuid NOT NULL,
+  role USER-DEFINED NOT NULL,
+  invitedAt timestamp without time zone,
+  confirmedAt timestamp without time zone,
+  joinedAt timestamp without time zone,
+  leftAt timestamp without time zone,
+  isOnline boolean NOT NULL DEFAULT false,
+  hasSubmittedStatement boolean NOT NULL DEFAULT false,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  isRequired boolean NOT NULL DEFAULT false,
+  responseDeadline timestamp without time zone,
+  declineReason text,
+  CONSTRAINT hearing_participants_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_b042a3349ecc4a9249d630813e2 FOREIGN KEY (hearingId) REFERENCES public.dispute_hearings(id),
+  CONSTRAINT FK_1f896e5790ddfc051f02ad2b385 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.hearing_questions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  hearingId uuid NOT NULL,
+  askedById uuid NOT NULL,
+  targetUserId uuid NOT NULL,
+  question text NOT NULL,
+  answer text,
+  answeredAt timestamp without time zone,
+  deadline timestamp without time zone,
+  isRequired boolean NOT NULL DEFAULT false,
+  orderIndex integer NOT NULL DEFAULT 0,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT hearing_questions_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_fa6f17995c98740ae434dc7432d FOREIGN KEY (hearingId) REFERENCES public.dispute_hearings(id),
+  CONSTRAINT FK_5e8108abe09d1b27fdfa4921450 FOREIGN KEY (askedById) REFERENCES public.users(id),
+  CONSTRAINT FK_7e40541c0cd7707c53d9c3d176b FOREIGN KEY (targetUserId) REFERENCES public.users(id)
+);
+CREATE TABLE public.hearing_statements (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  hearingId uuid NOT NULL,
+  participantId uuid NOT NULL,
+  type USER-DEFINED NOT NULL,
+  content text NOT NULL,
+  attachments jsonb,
+  replyToStatementId uuid,
+  orderIndex integer NOT NULL DEFAULT 0,
+  isRedacted boolean NOT NULL DEFAULT false,
+  redactedReason text,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT hearing_statements_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_d2a9328c62241eaf82a83939db9 FOREIGN KEY (hearingId) REFERENCES public.dispute_hearings(id),
+  CONSTRAINT FK_edda350924cebff8659732193e1 FOREIGN KEY (participantId) REFERENCES public.hearing_participants(id),
+  CONSTRAINT FK_7784614ca12bdeca446e7e5166c FOREIGN KEY (replyToStatementId) REFERENCES public.hearing_statements(id)
 );
 CREATE TABLE public.kyc_verifications (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -216,6 +540,24 @@ CREATE TABLE public.kyc_verifications (
   CONSTRAINT FK_f71e34495dae27087b5773b35b4 FOREIGN KEY (userId) REFERENCES public.users(id),
   CONSTRAINT FK_a62a22506fed8625d73996501b3 FOREIGN KEY (reviewedBy) REFERENCES public.users(id)
 );
+CREATE TABLE public.legal_signatures (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  disputeId uuid NOT NULL,
+  signerId uuid NOT NULL,
+  signerRole character varying NOT NULL,
+  actionType USER-DEFINED NOT NULL,
+  termsContentSnapshot text NOT NULL,
+  termsVersion character varying NOT NULL,
+  referenceType character varying,
+  referenceId character varying,
+  ipAddress character varying NOT NULL,
+  userAgent text NOT NULL,
+  deviceFingerprint character varying,
+  signedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT legal_signatures_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_3cc89eed44ba0a39380c6a08f16 FOREIGN KEY (disputeId) REFERENCES public.disputes(id),
+  CONSTRAINT FK_78dbf28b52549311a8b9ceee32f FOREIGN KEY (signerId) REFERENCES public.users(id)
+);
 CREATE TABLE public.migrations (
   id integer NOT NULL DEFAULT nextval('migrations_id_seq'::regclass),
   timestamp bigint NOT NULL,
@@ -234,7 +576,7 @@ CREATE TABLE public.milestone_payments (
 );
 CREATE TABLE public.milestones (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  projectId uuid NOT NULL,
+  projectId uuid,
   title character varying NOT NULL,
   description text,
   amount numeric NOT NULL,
@@ -245,8 +587,10 @@ CREATE TABLE public.milestones (
   feedback text,
   sortOrder integer,
   createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  projectSpecId uuid,
   CONSTRAINT milestones_pkey PRIMARY KEY (id),
-  CONSTRAINT FK_662a1f9d865fe49768fa369fd0f FOREIGN KEY (projectId) REFERENCES public.projects(id)
+  CONSTRAINT FK_662a1f9d865fe49768fa369fd0f FOREIGN KEY (projectId) REFERENCES public.projects(id),
+  CONSTRAINT FK_927a9184a0da350a677aa7e6269 FOREIGN KEY (projectSpecId) REFERENCES public.project_specs(id)
 );
 CREATE TABLE public.notifications (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -322,7 +666,9 @@ CREATE TABLE public.profiles (
   skills ARRAY,
   portfolioLinks jsonb,
   bankInfo jsonb,
-  avatarUrl character varying,
+  avatarUrl text,
+  linkedinUrl text,
+  cvUrl text,
   CONSTRAINT profiles_pkey PRIMARY KEY (id),
   CONSTRAINT FK_315ecd98bd1a42dcf2ec4e2e985 FOREIGN KEY (userId) REFERENCES public.users(id)
 );
@@ -380,6 +726,17 @@ CREATE TABLE public.project_requests (
   CONSTRAINT project_requests_pkey PRIMARY KEY (id),
   CONSTRAINT FK_e207c2a029bb73b35ad1453426a FOREIGN KEY (clientId) REFERENCES public.users(id),
   CONSTRAINT FK_ba91413ed0daddd79814a09ef4d FOREIGN KEY (brokerId) REFERENCES public.users(id)
+);
+CREATE TABLE public.project_specs (
+  id uuid NOT NULL DEFAULT gen_random_uuid(),
+  requestId uuid NOT NULL UNIQUE,
+  title character varying NOT NULL,
+  description text NOT NULL,
+  totalBudget numeric NOT NULL,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  status USER-DEFINED NOT NULL DEFAULT 'PENDING_APPROVAL'::project_specs_status_enum,
+  CONSTRAINT project_specs_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_97ee9024805b4f2abe68ed78623 FOREIGN KEY (requestId) REFERENCES public.project_requests(id)
 );
 CREATE TABLE public.projects (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -446,6 +803,53 @@ CREATE TABLE public.saved_freelancers (
   CONSTRAINT FK_66a3a09dc240f9edd007d8294b1 FOREIGN KEY (clientId) REFERENCES public.users(id),
   CONSTRAINT FK_32d1522472855a34af369949ad9 FOREIGN KEY (freelancerId) REFERENCES public.users(id)
 );
+CREATE TABLE public.skill_domains (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name character varying NOT NULL,
+  slug character varying NOT NULL UNIQUE,
+  description text,
+  icon character varying,
+  wizardMapping jsonb,
+  matchingWeight integer NOT NULL DEFAULT 30,
+  isActive boolean NOT NULL DEFAULT true,
+  sortOrder integer NOT NULL DEFAULT 0,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT skill_domains_pkey PRIMARY KEY (id)
+);
+CREATE TABLE public.skill_mapping_rules (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  entityType character varying NOT NULL,
+  entityValue character varying NOT NULL,
+  skillId uuid NOT NULL,
+  requiredLevel integer NOT NULL DEFAULT 1,
+  isMandatory boolean NOT NULL DEFAULT true,
+  isActive boolean NOT NULL DEFAULT true,
+  priority integer NOT NULL DEFAULT 0,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT skill_mapping_rules_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_be9c9478a57973b539501713319 FOREIGN KEY (skillId) REFERENCES public.skills(id)
+);
+CREATE TABLE public.skills (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  domainId uuid,
+  name character varying NOT NULL,
+  slug character varying NOT NULL UNIQUE,
+  description text,
+  icon character varying,
+  category USER-DEFINED NOT NULL DEFAULT 'OTHER'::skills_category_enum,
+  aliases text,
+  forFreelancer boolean NOT NULL DEFAULT true,
+  forBroker boolean NOT NULL DEFAULT false,
+  forStaff boolean NOT NULL DEFAULT false,
+  matchingWeight integer NOT NULL DEFAULT 70,
+  isActive boolean NOT NULL DEFAULT true,
+  sortOrder integer NOT NULL DEFAULT 0,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT skills_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_9efef6747eca479da5e43ef38d1 FOREIGN KEY (domainId) REFERENCES public.skill_domains(id)
+);
 CREATE TABLE public.social_accounts (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   userId uuid NOT NULL,
@@ -457,6 +861,59 @@ CREATE TABLE public.social_accounts (
   createdAt timestamp without time zone NOT NULL DEFAULT now(),
   CONSTRAINT social_accounts_pkey PRIMARY KEY (id),
   CONSTRAINT FK_7de933c3670ec71c68aca0afd56 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.staff_expertise (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  staffId uuid NOT NULL,
+  skillId uuid NOT NULL,
+  expertiseLevel integer NOT NULL DEFAULT 1,
+  certificationName character varying,
+  certificationExpiry date,
+  disputesHandled integer NOT NULL DEFAULT 0,
+  successRate numeric NOT NULL DEFAULT '0'::numeric,
+  isActive boolean NOT NULL DEFAULT true,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT staff_expertise_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_fd18fc4e1930d961ced296f6e40 FOREIGN KEY (staffId) REFERENCES public.users(id),
+  CONSTRAINT FK_98e7bfa27a5dc3f1ea6854491f0 FOREIGN KEY (skillId) REFERENCES public.skills(id)
+);
+CREATE TABLE public.staff_performances (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  staffId uuid NOT NULL,
+  period character varying NOT NULL,
+  totalDisputesAssigned integer NOT NULL DEFAULT 0,
+  totalDisputesResolved integer NOT NULL DEFAULT 0,
+  totalDisputesPending integer NOT NULL DEFAULT 0,
+  totalAppealed integer NOT NULL DEFAULT 0,
+  totalOverturnedByAdmin integer NOT NULL DEFAULT 0,
+  appealRate numeric NOT NULL DEFAULT '0'::numeric,
+  overturnRate numeric NOT NULL DEFAULT '0'::numeric,
+  avgResolutionTimeHours numeric NOT NULL DEFAULT '0'::numeric,
+  avgUserRating numeric,
+  totalUserRatings integer NOT NULL DEFAULT 0,
+  totalHearingsConducted integer NOT NULL DEFAULT 0,
+  totalHearingsRescheduled integer NOT NULL DEFAULT 0,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT staff_performances_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_feb22f7363173d1b0ef31b66018 FOREIGN KEY (staffId) REFERENCES public.users(id)
+);
+CREATE TABLE public.staff_workloads (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  staffId uuid NOT NULL,
+  date date NOT NULL,
+  totalEventsScheduled integer NOT NULL DEFAULT 0,
+  totalDisputesPending integer NOT NULL DEFAULT 0,
+  scheduledMinutes integer NOT NULL DEFAULT 0,
+  dailyCapacityMinutes integer NOT NULL DEFAULT 480,
+  utilizationRate numeric NOT NULL DEFAULT '0'::numeric,
+  isOverloaded boolean NOT NULL DEFAULT false,
+  canAcceptNewEvent boolean NOT NULL DEFAULT true,
+  isOnLeave boolean NOT NULL DEFAULT false,
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT staff_workloads_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_f74d45b106d825f29cc2e5b99cd FOREIGN KEY (staffId) REFERENCES public.users(id)
 );
 CREATE TABLE public.tasks (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -483,7 +940,7 @@ CREATE TABLE public.transactions (
   createdAt timestamp without time zone NOT NULL DEFAULT now(),
   fee numeric NOT NULL DEFAULT '0'::numeric,
   netAmount numeric,
-  currency character varying NOT NULL DEFAULT 'VND'::character varying,
+  currency character varying NOT NULL DEFAULT 'USD'::character varying,
   paymentMethod character varying,
   externalTransactionId character varying,
   metadata jsonb,
@@ -510,6 +967,27 @@ CREATE TABLE public.trust_score_history (
   calculatedAt timestamp without time zone NOT NULL DEFAULT now(),
   CONSTRAINT trust_score_history_pkey PRIMARY KEY (id),
   CONSTRAINT FK_6d46e08df04dfeb9f4311df2378 FOREIGN KEY (userId) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_availabilities (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  startTime timestamp without time zone,
+  endTime timestamp without time zone,
+  type USER-DEFINED NOT NULL,
+  isRecurring boolean NOT NULL DEFAULT false,
+  dayOfWeek integer,
+  recurringStartTime time without time zone,
+  recurringEndTime time without time zone,
+  recurringStartDate date,
+  recurringEndDate date,
+  isAutoGenerated boolean NOT NULL DEFAULT false,
+  linkedEventId uuid,
+  note text,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT user_availabilities_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_867c57e48ca1d079aca44fca934 FOREIGN KEY (userId) REFERENCES public.users(id),
+  CONSTRAINT FK_6ae26565ff5f86a6a7c39681ca8 FOREIGN KEY (linkedEventId) REFERENCES public.calendar_events(id)
 );
 CREATE TABLE public.user_flags (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -539,6 +1017,23 @@ CREATE TABLE public.user_flags (
   CONSTRAINT FK_8947514bed8a3f78d16d6ac3f7e FOREIGN KEY (createdById) REFERENCES public.users(id),
   CONSTRAINT FK_6a27efdb19b62bdd218c689108a FOREIGN KEY (resolvedById) REFERENCES public.users(id),
   CONSTRAINT FK_ba9ed3cec568084e68b8cb382a8 FOREIGN KEY (appealResolvedById) REFERENCES public.users(id)
+);
+CREATE TABLE public.user_skills (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  userId uuid NOT NULL,
+  skillId uuid NOT NULL,
+  priority USER-DEFINED NOT NULL DEFAULT 'SECONDARY'::user_skills_priority_enum,
+  verificationStatus USER-DEFINED NOT NULL DEFAULT 'SELF_DECLARED'::user_skills_verificationstatus_enum,
+  portfolioUrl text,
+  completedProjectsCount integer NOT NULL DEFAULT 0,
+  lastUsedAt timestamp without time zone,
+  proficiencyLevel integer,
+  yearsOfExperience integer,
+  createdAt timestamp without time zone NOT NULL DEFAULT now(),
+  updatedAt timestamp without time zone NOT NULL DEFAULT now(),
+  CONSTRAINT user_skills_pkey PRIMARY KEY (id),
+  CONSTRAINT FK_60177dd93dcdc055e4eaa93bade FOREIGN KEY (userId) REFERENCES public.users(id),
+  CONSTRAINT FK_b19f190afaada3852e0f56566bc FOREIGN KEY (skillId) REFERENCES public.skills(id)
 );
 CREATE TABLE public.user_tokens (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -574,6 +1069,10 @@ CREATE TABLE public.users (
   totalLateProjects integer NOT NULL DEFAULT 0,
   resetpasswordotp character varying,
   resetpasswordotpexpires timestamp without time zone,
+  isBanned boolean NOT NULL DEFAULT false,
+  banReason text,
+  bannedAt timestamp without time zone,
+  bannedBy uuid,
   CONSTRAINT users_pkey PRIMARY KEY (id)
 );
 CREATE TABLE public.verification_documents (
@@ -603,7 +1102,7 @@ CREATE TABLE public.wallets (
   totalSpent numeric NOT NULL DEFAULT '0'::numeric,
   status USER-DEFINED NOT NULL DEFAULT 'ACTIVE'::wallets_status_enum,
   updatedAt timestamp without time zone NOT NULL DEFAULT now(),
-  currency character varying NOT NULL DEFAULT 'VND'::character varying,
+  currency character varying NOT NULL DEFAULT 'USD'::character varying,
   CONSTRAINT wallets_pkey PRIMARY KEY (id),
   CONSTRAINT FK_2ecdb33f23e9a6fc392025c0b97 FOREIGN KEY (userId) REFERENCES public.users(id)
 );

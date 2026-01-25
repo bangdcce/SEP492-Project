@@ -113,6 +113,38 @@ export class KycController {
   }
 
   /**
+   * Admin: Get KYC by ID with watermark (for viewing encrypted images)
+   */
+  @Get('admin/:id/watermark')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: '[Admin] Get KYC verification details with watermark' })
+  async getKycByIdWithWatermark(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: any,
+    @Req() req: any,
+    @Query('reason') reason?: string,
+    @Query('reasonDetails') reasonDetails?: string,
+  ) {
+    const ipAddress = req.ip || req.connection?.remoteAddress || 'Unknown IP';
+    const userAgent = req.headers['user-agent'] || 'Unknown Device';
+    const sessionId = req.headers['x-request-id']?.toString() || `${user.id}-${Date.now()}`;
+
+    return await this.kycService.getKycByIdWithWatermark(
+      id,
+      user.id,
+      user.email,
+      user.role,
+      ipAddress,
+      sessionId,
+      userAgent,
+      reason,
+      reasonDetails,
+    );
+  }
+
+  /**
    * Admin: Approve KYC
    */
   @Patch('admin/:id/approve')

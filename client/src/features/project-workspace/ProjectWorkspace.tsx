@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
-import { useParams } from "react-router-dom";
-import { LayoutGrid, Calendar as CalendarIcon } from "lucide-react";
+import { LayoutGrid, Calendar as CalendarIcon, BarChart2, Search, XCircle, FileSignature } from "lucide-react";
+import { useNavigate, useParams } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
 import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 import {
   fetchBoard,
   updateTaskStatus,
@@ -12,6 +13,8 @@ import {
   createMilestone,
   submitTask,
   approveMilestone,
+  fetchProject,
+  type WorkspaceProject,
 } from "./api";
 import type { KanbanBoard, KanbanColumnKey, Task, Milestone } from "./types";
 import { KanbanColumn } from "./components/KanbanColumn";
@@ -20,29 +23,25 @@ import { TaskDetailModal } from "./components/TaskDetailModal";
 import { MilestoneTabs } from "./components/MilestoneTabs";
 import { CalendarView } from "./components/CalendarView";
 import { MilestoneApprovalCard } from "./components/MilestoneApprovalCard";
+import { ProjectOverview } from "./components/ProjectOverview";
 import { calculateProgress } from "./utils";
 
 const initialBoard: KanbanBoard = {
   TODO: [],
   IN_PROGRESS: [],
+  IN_REVIEW: [],
   DONE: [],
 };
 
-// Helper to get current user from localStorage
+// Helper to get current user from storage (session/local)
 const getCurrentUser = (): { id: string; role?: string } | null => {
-  try {
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      return JSON.parse(userStr);
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return null;
+  return getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
 };
 
 export function ProjectWorkspace() {
+  const navigate = useNavigate();
   const [board, setBoard] = useState<KanbanBoard>(initialBoard);
+  const [project, setProject] = useState<WorkspaceProject | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -56,7 +55,12 @@ export function ProjectWorkspace() {
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
     null
   );
-  const [viewMode, setViewMode] = useState<"board" | "calendar">("board");
+  const [viewMode, setViewMode] = useState<"summary" | "board" | "calendar">("summary");
+
+  // Filter State
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<string | null>(null);
+  const [isMyTasksFilter, setIsMyTasksFilter] = useState(false);
   
   // Task Detail Modal state
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -88,18 +92,21 @@ export function ProjectWorkspace() {
       try {
         setLoading(true);
         setError(null);
-        const [milestoneData, boardData] = await Promise.all([
+        const [milestoneData, boardData, projectData] = await Promise.all([
           fetchMilestones(projectId),
           fetchBoard(projectId),
+          fetchProject(projectId),
         ]);
-        console.log("API Data:", { milestoneData, boardData });
+        console.log("API Data:", { milestoneData, boardData, projectData });
         setMilestones(milestoneData || []);
+        setProject(projectData);
         setSelectedMilestoneId(
           milestoneData && milestoneData.length > 0 ? milestoneData[0].id : null
         );
         setBoard({
           TODO: boardData?.TODO || [],
           IN_PROGRESS: boardData?.IN_PROGRESS || [],
+          IN_REVIEW: boardData?.IN_REVIEW || [],
           DONE: boardData?.DONE || [],
         });
       } catch (err: any) {
@@ -118,13 +125,18 @@ export function ProjectWorkspace() {
     () => [
       {
         key: "TODO",
-        title: "Todo",
-        description: "Tasks in backlog for this milestone",
+        title: "To Do",
+        description: "Tasks in backlog",
       },
       {
         key: "IN_PROGRESS",
         title: "In Progress",
-        description: "Currently being worked on",
+        description: "Being worked on",
+      },
+      {
+        key: "IN_REVIEW",
+        title: "In Review",
+        description: "Waiting for review",
       },
       {
         key: "DONE",
@@ -167,13 +179,14 @@ export function ProjectWorkspace() {
     return {
       TODO: filterByMilestone(board.TODO),
       IN_PROGRESS: filterByMilestone(board.IN_PROGRESS),
+      IN_REVIEW: filterByMilestone(board.IN_REVIEW),
       DONE: filterByMilestone(board.DONE),
     };
   }, [board, selectedMilestoneId]);
 
   const tasksByMilestone = useMemo(() => {
     const map: Record<string, Task[]> = {};
-    ["TODO", "IN_PROGRESS", "DONE"].forEach((col) => {
+    ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"].forEach((col) => {
       board[col as KanbanColumnKey].forEach((t) => {
         if (!t.milestoneId) return;
         if (!map[t.milestoneId]) map[t.milestoneId] = [];
@@ -194,11 +207,66 @@ export function ProjectWorkspace() {
   // Get all tasks in a flat array for calendar view
   const allTasks = useMemo(() => {
     const tasks: Task[] = [];
-    ["TODO", "IN_PROGRESS", "DONE"].forEach((col) => {
+    ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"].forEach((col) => {
       tasks.push(...board[col as KanbanColumnKey]);
     });
     return tasks;
   }, [board]);
+
+  // Derive unique assignees for filter
+  const uniqueAssignees = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; avatar?: string }>();
+    allTasks.forEach((t) => {
+      if (t.assignee && t.assignee.id) {
+        map.set(t.assignee.id, {
+          id: t.assignee.id,
+          name: t.assignee.fullName || "Unknown",
+          avatar: t.assignee.avatarUrl,
+        });
+      }
+    });
+    return Array.from(map.values());
+  }, [allTasks]);
+
+  // Filter Logic: processedBoard applies Search & Text filters on top of Milestone filter
+  const processedBoard = useMemo(() => {
+    let result = { ...filteredBoard }; // Start with milestone-filtered board
+
+    // 1. Text Search
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = {
+        TODO: result.TODO.filter((t) => t.title.toLowerCase().includes(query)),
+        IN_PROGRESS: result.IN_PROGRESS.filter((t) => t.title.toLowerCase().includes(query)),
+        IN_REVIEW: result.IN_REVIEW.filter((t) => t.title.toLowerCase().includes(query)),
+        DONE: result.DONE.filter((t) => t.title.toLowerCase().includes(query)),
+      };
+    }
+
+    // 2. Assignee Filter
+    if (selectedAssigneeId) {
+      const filterByAssignee = (list: Task[]) =>
+        list.filter((t) => t.assignee?.id === selectedAssigneeId);
+      result = {
+        TODO: filterByAssignee(result.TODO),
+        IN_PROGRESS: filterByAssignee(result.IN_PROGRESS),
+        IN_REVIEW: filterByAssignee(result.IN_REVIEW),
+        DONE: filterByAssignee(result.DONE),
+      };
+    } else if (isMyTasksFilter && currentUser?.id) {
+       // "Only My Issues" filter
+       const filterByMe = (list: Task[]) =>
+        list.filter((t) => t.assignee?.id === currentUser.id);
+       result = {
+        TODO: filterByMe(result.TODO),
+        IN_PROGRESS: filterByMe(result.IN_PROGRESS),
+        IN_REVIEW: filterByMe(result.IN_REVIEW),
+        DONE: filterByMe(result.DONE),
+      };
+    }
+
+    return result;
+  }, [filteredBoard, searchQuery, selectedAssigneeId, isMyTasksFilter, currentUser]);
 
   // Handle viewing task details (from Calendar or Kanban)
   const handleViewTaskDetails = (taskId: string) => {
@@ -215,11 +283,42 @@ export function ProjectWorkspace() {
     setSelectedTask(null);
   };
 
-  // Handle edit task (placeholder for future implementation)
-  const handleEditTask = (task: Task) => {
-    console.log("Edit task:", task.id);
-    // TODO: Open edit modal or navigate to edit page
-    handleCloseTaskDetail();
+  // Handle task update from modal
+  const handleTaskUpdate = (updatedTask: Task) => {
+    // Update local state for the modal
+    setSelectedTask(updatedTask);
+    
+    // Update board state
+    setBoard((prevBoard) => {
+      const newBoard = { ...prevBoard };
+      
+      // Find and replace the task in the board columns
+      Object.keys(newBoard).forEach((key) => {
+        const colKey = key as KanbanColumnKey;
+        newBoard[colKey] = newBoard[colKey].map((t) => 
+          t.id === updatedTask.id ? updatedTask : t
+        );
+        
+        // Handle status change if column doesn't match
+        if (updatedTask.status !== colKey) {
+             // If task is in this column but status changed, logic is complex
+             // For simplicity, we might reload board or carefully move it
+             // But existing drag-drop logic handles status changes well.
+             // If status changed via modal dropdown:
+             if(newBoard[colKey].find(t => t.id === updatedTask.id)) {
+                 // Remove from old column
+                 newBoard[colKey] = newBoard[colKey].filter(t => t.id !== updatedTask.id);
+             }
+        }
+      });
+
+      // If status changed, ensure it's in the new column
+      if (!newBoard[updatedTask.status].find(t => t.id === updatedTask.id)) {
+          newBoard[updatedTask.status].push(updatedTask);
+      }
+      
+      return newBoard;
+    });
   };
 
   // Handle milestone approval (Client/Broker only)
@@ -274,7 +373,7 @@ export function ProjectWorkspace() {
         const newBoard = { ...prev };
 
         // Remove task from its current column
-        for (const column of ["TODO", "IN_PROGRESS", "DONE"] as KanbanColumnKey[]) {
+        for (const column of ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"] as KanbanColumnKey[]) {
           newBoard[column] = newBoard[column].filter((t) => t.id !== taskId);
         }
 
@@ -330,7 +429,7 @@ export function ProjectWorkspace() {
 
     // Save previous state for rollback
     const prevBoard: KanbanBoard = (
-      ["TODO", "IN_PROGRESS", "DONE"] as KanbanColumnKey[]
+      ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"] as KanbanColumnKey[]
     ).reduce(
       (acc, key) => ({
         ...acc,
@@ -446,8 +545,35 @@ export function ProjectWorkspace() {
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {/* View Contract Button */}
+          {project && project.contracts && project.contracts.length > 0 && (
+            <button
+              onClick={() => {
+                 const contractId = project?.contracts?.[0].id;
+                 if (!contractId) return;
+                 const role = currentUser?.role?.toLowerCase();
+                 navigate(`/${role}/contracts/${contractId}`);
+              }}
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors border border-blue-200"
+            >
+              <FileSignature className="h-4 w-4" />
+              Contract
+            </button>
+          )}
+
           {/* View Switcher */}
           <div className="flex items-center bg-gray-100 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode("summary")}
+              className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                viewMode === "summary"
+                  ? "bg-white text-teal-700 shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              <BarChart2 className="h-4 w-4" />
+              Summary
+            </button>
             <button
               onClick={() => setViewMode("board")}
               className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
@@ -563,19 +689,118 @@ export function ProjectWorkspace() {
           )}
 
           {/* Conditional View Rendering */}
-          {viewMode === "board" ? (
+          {viewMode === "summary" ? (
+             <ProjectOverview milestones={milestones} tasks={allTasks} />
+          ) : viewMode === "board" ? (
             <DragDropContext onDragEnd={handleDragEnd}>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {/* JIRA STYLE TOOLBAR */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6 bg-white p-2 rounded-lg border border-slate-200 shadow-sm">
+                
+                {/* LEFT: SEARCH & QUICK FILTERS */}
+                <div className="flex items-center gap-4 w-full sm:w-auto">
+                  {/* Search Input (Integrated look) */}
+                  <div className="relative group w-full sm:w-64">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 group-focus-within:text-teal-600 transition-colors" />
+                    <input
+                      type="text"
+                      placeholder="Search tasks..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      className="w-full pl-9 pr-8 py-2 bg-slate-50 border border-transparent hover:bg-slate-100 focus:bg-white focus:border-teal-500 rounded-md text-sm transition-all outline-none"
+                    />
+                    {searchQuery && (
+                      <button 
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 hover:bg-slate-200 rounded-full text-slate-400"
+                      >
+                        <XCircle className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Divider */}
+                  <div className="h-6 w-px bg-slate-200 hidden sm:block" />
+
+                  {/* "Only My Issues" Button */}
+                  {!isReadOnly && (
+                    <button
+                      onClick={() => {
+                        const newState = !isMyTasksFilter;
+                        setIsMyTasksFilter(newState);
+                        if (newState) setSelectedAssigneeId(null); // Clear specific assignee if selecting "Mine"
+                      }}
+                      className={`flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-all ${
+                        isMyTasksFilter
+                          ? "bg-teal-50 text-teal-700 ring-1 ring-teal-200"
+                          : "text-slate-600 hover:bg-slate-100"
+                      }`}
+                    >
+                      <span className="relative flex h-2 w-2">
+                         <span className={`animate-ping absolute inline-flex h-full w-full rounded-full bg-teal-400 opacity-75 ${isMyTasksFilter ? 'block' : 'hidden'}`}></span>
+                         <span className={`relative inline-flex rounded-full h-2 w-2 ${isMyTasksFilter ? 'bg-teal-500' : 'bg-slate-400'}`}></span>
+                      </span>
+                      My Issues
+                    </button>
+                  )}
+                </div>
+
+                {/* RIGHT: ASSIGNEES & CLEAR */}
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                  <div className="flex items-center -space-x-2 overflow-hidden py-1 pl-1">
+                    {uniqueAssignees.map((assignee) => {
+                      const isSelected = selectedAssigneeId === assignee.id;
+                      return (
+                        <button
+                          key={assignee.id}
+                          onClick={() => {
+                            setSelectedAssigneeId(isSelected ? null : assignee.id);
+                            setIsMyTasksFilter(false); // Disable "My Issues" if picking specific person
+                          }}
+                          className={`relative transition-transform hover:z-10 hover:scale-110 focus:outline-none ${isSelected ? 'z-20 scale-110' : ''}`}
+                          title={assignee.name}
+                        >
+                          <div className={`h-8 w-8 rounded-full border-2 border-white ${isSelected ? 'ring-2 ring-teal-500 ring-offset-2' : ''}`}>
+                             <img 
+                               src={assignee.avatar || `https://ui-avatars.com/api/?name=${assignee.name}&background=random`} 
+                               alt={assignee.name}
+                               className="h-full w-full rounded-full object-cover bg-slate-200" 
+                             />
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Clear All Button (Only show if filters active) */}
+                  {(searchQuery || selectedAssigneeId || isMyTasksFilter) && (
+                    <button
+                      onClick={() => {
+                        setSearchQuery("");
+                        setSelectedAssigneeId(null);
+                        setIsMyTasksFilter(false);
+                      }}
+                      className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex xl:grid xl:grid-cols-4 gap-4 overflow-x-auto xl:overflow-visible pb-4 h-full items-start">
                 {columns.map((col) => (
-                  <KanbanColumn
-                    key={col.key}
-                    columnId={col.key}
-                    title={col.title}
-                    description={col.description}
-                    tasks={filteredBoard[col.key]}
-                    onAddTask={openCreateModal}
-                    isReadOnly={isReadOnly}
-                  />
+                  <div key={col.key} className="min-w-[280px] xl:min-w-0 xl:w-auto flex-shrink-0">
+                    <KanbanColumn
+                      key={col.key}
+                      columnId={col.key}
+                      title={col.title}
+                      description={col.description}
+                      tasks={processedBoard[col.key]}
+                      onAddTask={openCreateModal}
+                      onTaskClick={handleViewTaskDetails}
+                      isReadOnly={isReadOnly}
+                    />
+                  </div>
                 ))}
               </div>
             </DragDropContext>
@@ -611,7 +836,7 @@ export function ProjectWorkspace() {
         isOpen={isTaskDetailOpen}
         task={selectedTask}
         onClose={handleCloseTaskDetail}
-        onEdit={handleEditTask}
+        onUpdate={handleTaskUpdate}
         onSubmitTask={handleSubmitTask}
       />
 

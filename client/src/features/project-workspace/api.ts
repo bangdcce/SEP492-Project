@@ -11,6 +11,17 @@ interface BoardWithMilestones {
   milestones: Milestone[];
 }
 
+export interface WorkspaceProject {
+  id: string;
+  contracts?: { id: string; status: string }[];
+  brokerId: string;
+  clientId: string;
+}
+
+export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {
+  return apiClient.get<WorkspaceProject>(`/projects/${projectId}`);
+};
+
 export const fetchBoard = async (projectId: string): Promise<KanbanBoard> => {
   console.log("[API] Fetching board for project:", projectId);
 
@@ -42,6 +53,19 @@ export const updateTaskStatus = async (
   return result;
 };
 
+export const fetchTaskHistory = async (taskId: string): Promise<import("./types").TaskHistory[]> => {
+  const result = await apiClient.get<import("./types").TaskHistory[]>(`/tasks/${taskId}/history`);
+  return result;
+};
+
+export const fetchTaskComments = async (taskId: string): Promise<import("./types").TaskComment[]> => {
+  return apiClient.get<import("./types").TaskComment[]>(`/tasks/${taskId}/comments`);
+};
+
+export const createComment = async (taskId: string, content: string): Promise<import("./types").TaskComment> => {
+  return apiClient.post<import("./types").TaskComment>(`/tasks/${taskId}/comments`, { content });
+};
+
 /**
  * Submit task with proof of work
  * Marks task as DONE with evidence (required for dispute resolution)
@@ -61,6 +85,19 @@ export const submitTask = async (
     completed: `${result.completedTasks}/${result.totalTasks}`,
   });
 
+  return result;
+};
+
+// Update General Task Details
+export const updateTask = async (
+  taskId: string,
+  payload: Partial<Task>
+): Promise<Task> => {
+  console.log("[API] Updating task details:", { taskId, payload });
+
+  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, payload);
+
+  console.log("[API] Task updated:", result);
   return result;
 };
 
@@ -143,3 +180,5 @@ export const approveMilestone = async (
   console.log("[API] Milestone approved:", result);
   return result;
 };
+
+

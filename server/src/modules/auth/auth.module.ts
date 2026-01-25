@@ -5,8 +5,10 @@ import { JwtModule, JwtModuleOptions } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 
 import { AuthController } from './auth.controller';
+import { PublicSkillsController } from './public-skills.controller';
 import { AuthService } from './auth.service';
 import { EmailService } from './email.service';
+import { EmailVerificationService } from './email-verification.service';
 import { CaptchaService } from './captcha.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 // import { GoogleStrategy } from './strategies/google.strategy';
@@ -15,11 +17,13 @@ import { CaptchaGuard } from '../../common/guards/captcha.guard';
 import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
+import { SkillDomainEntity } from '../../database/entities/skill-domain.entity';
+import { SkillEntity } from '../../database/entities/skill.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity, AuthSessionEntity, ProfileEntity]),
+    TypeOrmModule.forFeature([UserEntity, AuthSessionEntity, ProfileEntity, SkillDomainEntity, SkillEntity]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     AuditLogsModule, // Import để dùng AuditLogsService
     JwtModule.registerAsync({
@@ -44,10 +48,11 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, PublicSkillsController],
   providers: [
     AuthService,
     EmailService,
+    EmailVerificationService,
     CaptchaService,
     JwtStrategy,
     /* GoogleStrategy, */ JwtAuthGuard,
