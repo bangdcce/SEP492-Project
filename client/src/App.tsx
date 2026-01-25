@@ -190,7 +190,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_DASHBOARD}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <ClientDashboard />
               </ClientDashboardLayout>
@@ -200,7 +200,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_WIZARD}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <WizardPage />
               </ClientDashboardLayout>
@@ -210,7 +210,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_MY_REQUESTS}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <MyRequestsPage />
               </ClientDashboardLayout>
@@ -220,7 +220,7 @@ function App() {
         <Route
           path="/client/requests/:id"
           element={
-            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <RequestDetailPage />
               </ClientDashboardLayout>
@@ -230,7 +230,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_PROFILE}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <ProfilePage />
               </ClientDashboardLayout>
@@ -240,7 +240,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_PROJECTS}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <ProjectListPage />
               </ClientDashboardLayout>
@@ -250,7 +250,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_WORKSPACE}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <ProjectWorkspacePage />
               </ClientDashboardLayout>
@@ -260,7 +260,7 @@ function App() {
         <Route
           path="/client/contracts/:id"
           element={
-            <RoleGuard allowedRoles={["CLIENT", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <ContractPage />
               </ClientDashboardLayout>
@@ -450,6 +450,7 @@ function App() {
           <Route path="caseload" element={<StaffCaseloadPage />} />
           <Route path="calendar" element={<StaffCalendarPage />} />
           <Route path="workload" element={<StaffWorkloadPage />} />
+          <Route path="profile" element={<ProfilePage />} />
           {/* Fallback */}
           <Route index element={<Navigate to="dashboard" replace />} />
         </Route>

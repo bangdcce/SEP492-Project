@@ -1,5 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
 import { STORAGE_KEYS, ROUTES } from "@/constants";
+import { getStoredItem } from "@/shared/utils/storage";
 
 interface RoleGuardProps {
   children: React.ReactNode;
@@ -9,8 +10,8 @@ interface RoleGuardProps {
 export const RoleGuard: React.FC<RoleGuardProps> = ({ children, allowedRoles }) => {
   const location = useLocation();
 
-  // Get user from local storage
-  const userJson = localStorage.getItem(STORAGE_KEYS.USER);
+  // Get user from local storage or session storage
+  const userJson = getStoredItem(STORAGE_KEYS.USER);
   const user = userJson ? JSON.parse(userJson) : null;
 
   // Check if user exists

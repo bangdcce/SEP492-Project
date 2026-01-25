@@ -4,13 +4,14 @@ import { toast } from "sonner";
 import { StaffSidebar } from "./StaffSidebar";
 import { StaffHeader } from "./StaffHeader";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
+import { getStoredItem } from "@/shared/utils/storage";
 
 export const StaffLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const userJson = localStorage.getItem(STORAGE_KEYS.USER);
+    const userJson = getStoredItem(STORAGE_KEYS.USER);
     if (!userJson) {
       navigate(ROUTES.LOGIN);
       return;

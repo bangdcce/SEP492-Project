@@ -6,6 +6,7 @@ import {
   Briefcase,
   Calendar,
   Activity,
+  User,
   Settings,
   LogOut,
   ChevronLeft,
@@ -25,6 +26,7 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
     { label: "My Caseload", icon: Briefcase, path: "/staff/caseload" },
     { label: "Calendar", icon: Calendar, path: "/staff/calendar" },
     { label: "Workload", icon: Activity, path: "/staff/workload" },
+    { label: "Profile", icon: User, path: "/staff/profile" },
   ];
 
   return (
@@ -58,20 +60,18 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
             to={item.path}
             className={({ isActive }) => `
               flex items-center px-4 py-3 rounded-xl transition-all duration-200 group font-medium
-              ${
-                isActive
-                  ? "bg-teal-50 text-teal-700 shadow-sm"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-slate-900"
+              ${isActive
+                ? "bg-teal-50 text-teal-700 shadow-sm"
+                : "text-gray-600 hover:bg-gray-50 hover:text-slate-900"
               }
             `}
           >
             <item.icon
-              className={`w-5 h-5 transition-colors ${
-                collapsed ? "mx-auto" : "mr-3"
-              } ${
+              className={`w-5 h-5 transition-colors ${collapsed ? "mx-auto" : "mr-3"
+                } ${
                 /* Active icon color is handled by parent text color, but we can enforce if needed */
                 ""
-              }`}
+                }`}
             />
 
             {!collapsed && <span className="">{item.label}</span>}
