@@ -26,6 +26,8 @@ import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
 import { CommentsSection } from "./components/CommentsSection";
 import { RequestStatus } from "./types";
+import { InviteModal } from "../discovery/InviteModal";
+import { UserRole } from "@/shared/types/user.types";
 
 // Helper for safe date formatting
 const safeFormatDate = (dateStr: any, fmt: string) => {
@@ -57,6 +59,10 @@ export default function RequestDetailPage() {
   const [viewMode, setViewMode] = useState("workflow");
   const [activeTab, setActiveTab] = useState("phase1");
   const [showDraftAlert, setShowDraftAlert] = useState(false);
+
+  // Invite Modal State
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [inviteModalData, setInviteModalData] = useState<{ id: string, name: string, role: "BROKER" | "FREELANCER" } | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -155,18 +161,17 @@ export default function RequestDetailPage() {
       }
   };
 
+  const handleOpenInviteModal = (partnerId: string, partnerName: string, role: "BROKER" | "FREELANCER") => {
+      setInviteModalData({
+        id: partnerId,
+        name: partnerName,
+        role: role
+      });
+      setIsInviteModalOpen(true);
+  };
+
   const handleInvite = async (brokerId: string, brokerName: string) => {
-    try {
-        await wizardService.inviteBroker(request.id, brokerId);
-        toast.success("Invitation Sent", {
-            description: `Invitation sent to ${brokerName}`,
-        });
-        setMatches(prev => prev.filter(m => m.broker.id !== brokerId));
-    } catch (error: any) {
-        toast.error("Invitation Failed", {
-             description: error.response?.data?.message || "Could not invite broker."
-        });
-    }
+    handleOpenInviteModal(brokerId, brokerName, "BROKER");
   };
 
   // Determine current phase
@@ -465,9 +470,14 @@ export default function RequestDetailPage() {
                                             <h3 className="font-semibold text-lg flex items-center gap-2">
                                                 <UserPlus className="w-5 h-5" /> Find & Invite Brokers
                                             </h3>
-                                            <span className="text-xs text-muted-foreground">
-                                                {matches?.length || 0} Available
-                                            </span>
+                                            <div className="flex gap-2 items-center">
+                                                <span className="text-xs text-muted-foreground mr-2">
+                                                    {matches?.length || 0} Top Matches
+                                                </span>
+                                                <Button size="sm" variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.BROKER}`)}>
+                                                    Search Marketplace
+                                                </Button>
+                                            </div>
                                         </div>
                                         {(!matches || matches.length === 0) ? (
                                             <p className="text-muted-foreground text-center py-8">
@@ -600,6 +610,15 @@ export default function RequestDetailPage() {
                                 
                                 {/* Mock Freelancer List */}
                                 <div className="space-y-4">
+                                    <div className="flex justify-between items-center bg-muted/20 p-4 rounded-lg">
+                                        <div>
+                                            <h4 className="font-semibold">Find Freelancers</h4>
+                                            <p className="text-sm text-muted-foreground">Search and invite freelancers to the project.</p>
+                                        </div>
+                                        <Button onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>
+                                            Search Candidates
+                                        </Button>
+                                    </div>
                                     {[1, 2].map((i) => (
                                         <div key={i} className="flex items-center justify-between p-4 border rounded-lg bg-background">
                                             <div className="flex items-center gap-4">
@@ -783,6 +802,17 @@ export default function RequestDetailPage() {
           </div>
         </div>
       </div>
+
+      {inviteModalData && (
+        <InviteModal 
+            isOpen={isInviteModalOpen}
+            onClose={() => setIsInviteModalOpen(false)}
+            partnerId={inviteModalData.id}
+            partnerName={inviteModalData.name}
+            partnerRole={inviteModalData.role}
+            defaultRequestId={request?.id}
+        />
+      )}
     </div>
   );
 }

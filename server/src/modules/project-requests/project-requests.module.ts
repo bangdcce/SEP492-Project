@@ -8,6 +8,8 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { AuthModule } from '../auth/auth.module';
 
 import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+
 
 @Module({
   imports: [
@@ -15,6 +17,7 @@ import { BrokerProposalEntity } from '../../database/entities/broker-proposal.en
       ProjectRequestEntity,
       ProjectRequestAnswerEntity,
       BrokerProposalEntity,
+      ProjectRequestProposalEntity,
     ]),
     AuditLogsModule,
     AuthModule,

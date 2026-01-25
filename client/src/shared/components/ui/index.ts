@@ -13,6 +13,7 @@ export * from "./tooltip";
 export * from "./avatar";
 export * from "./skeleton";
 export * from "./scroll-area";
+export * from "./textarea";
 
 // Spinner component (commonly used for loading states)
 export { default as Spinner } from "./spinner";

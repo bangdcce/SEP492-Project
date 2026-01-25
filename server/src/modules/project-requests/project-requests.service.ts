@@ -13,6 +13,8 @@ import {
   BrokerProposalEntity,
   ProposalStatus,
 } from '../../database/entities/broker-proposal.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+
 
 @Injectable()
 export class ProjectRequestsService {
@@ -23,6 +25,8 @@ export class ProjectRequestsService {
     private readonly answerRepo: Repository<ProjectRequestAnswerEntity>,
     @InjectRepository(BrokerProposalEntity)
     private readonly brokerProposalRepo: Repository<BrokerProposalEntity>,
+    @InjectRepository(ProjectRequestProposalEntity)
+    private readonly freelancerProposalRepo: Repository<ProjectRequestProposalEntity>,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -218,14 +222,77 @@ export class ProjectRequestsService {
     return brokers.filter((b) => !involvedBrokerIds.has(b.id));
   }
 
-  async inviteBroker(requestId: string, brokerId: string) {
+  async inviteBroker(requestId: string, brokerId: string, message?: string) {
+    // 1. Check if request exists
+    const request = await this.findOne(requestId);
+    if (!request) throw new Error('Request not found');
+
+    // 2. Check if already has a broker
+    if (request.brokerId) throw new Error('Request already has a broker assigned');
+
+    // 3. Check if already invited or applied
+    const existing = await this.brokerProposalRepo.findOne({
+      where: { requestId, brokerId },
+    });
+
+    if (existing) {
+      if (existing.status === ProposalStatus.INVITED) {
+         throw new Error('Broker already invited');
+      }
+      if (existing.status === ProposalStatus.PENDING) {
+         throw new Error('Broker has already applied');
+      }
+      // If rejected/accepted, maybe allow re-invite? For now assume strict uniqueness.
+      throw new Error(`Broker already has proposal status: ${existing.status}`);
+    }
+
     const proposal = this.brokerProposalRepo.create({
       requestId,
       brokerId,
       status: ProposalStatus.INVITED,
+      coverLetter: message, // saving message in coverLetter for invites
     });
     return this.brokerProposalRepo.save(proposal);
   }
+
+  async inviteFreelancer(requestId: string, freelancerId: string, message?: string) {
+    const request = await this.findOne(requestId);
+    if (!request) throw new Error('Request not found');
+
+    const existing = await this.freelancerProposalRepo.findOne({
+       where: { requestId, freelancerId },
+    });
+
+    if (existing) {
+       throw new Error(`Freelancer already associated with this request (Status: ${existing.status})`);
+    }
+
+    const proposal = this.freelancerProposalRepo.create({
+      requestId,
+      freelancerId,
+      status: 'INVITED',
+      coverLetter: message,
+    });
+    return this.freelancerProposalRepo.save(proposal);
+  }
+
+  async getInvitationsForUser(userId: string, role: UserRole) {
+    if (role === UserRole.BROKER) {
+      return this.brokerProposalRepo.find({
+        where: { brokerId: userId, status: ProposalStatus.INVITED },
+        relations: ['request', 'request.client'],
+        order: { createdAt: 'DESC' },
+      });
+    } else if (role === UserRole.FREELANCER) {
+      return this.freelancerProposalRepo.find({
+        where: { freelancerId: userId, status: 'INVITED' },
+        relations: ['request', 'request.client'],
+        order: { createdAt: 'DESC' },
+      });
+    }
+    return [];
+  }
+
 
   async applyToRequest(requestId: string, brokerId: string, coverLetter: string) {
     const proposal = this.brokerProposalRepo.create({

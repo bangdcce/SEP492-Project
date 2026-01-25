@@ -24,6 +24,8 @@ const MyRequestsPage = lazy(() =>
 const RequestDetailPage = lazy(
   () => import("@/features/requests/RequestDetailPage")
 );
+const DiscoveryPage = lazy(() => import("@/features/discovery/DiscoveryPage").then(module => ({ default: module.DiscoveryPage })));
+const PartnerProfilePage = lazy(() => import("@/features/discovery/PartnerProfilePage").then(module => ({ default: module.PartnerProfilePage })));
 
 // ========== PROJECT PAGES ==========
 const ProjectListPage = lazy(
@@ -164,6 +166,22 @@ function App() {
           element={
             <ClientDashboardLayout>
               <ProjectListPage />
+            </ClientDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_DISCOVERY}
+          element={
+            <ClientDashboardLayout>
+              <DiscoveryPage />
+            </ClientDashboardLayout>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_DISCOVERY_PROFILE}
+          element={
+            <ClientDashboardLayout>
+              <PartnerProfilePage />
             </ClientDashboardLayout>
           }
         />
