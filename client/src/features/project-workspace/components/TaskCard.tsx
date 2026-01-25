@@ -1,5 +1,5 @@
 import { Draggable } from "@hello-pangea/dnd";
-import { GripVertical, Clock } from "lucide-react";
+import { GripVertical, Clock, Flag, Layout } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Task } from "../types";
 
@@ -26,6 +26,13 @@ const getAssigneeVisuals = (task: Task) => {
   const colorClass = colors[hash % colors.length];
 
   return { name, initials, colorClass };
+};
+
+const PRIORITY_STYLES: Record<string, { color: string; bg: string }> = {
+  LOW: { color: "text-blue-600", bg: "bg-blue-50" },
+  MEDIUM: { color: "text-amber-600", bg: "bg-amber-50" },
+  HIGH: { color: "text-orange-600", bg: "bg-orange-50" },
+  URGENT: { color: "text-red-600", bg: "bg-red-50" },
 };
 
 type TaskCardProps = {
@@ -68,7 +75,7 @@ export function TaskCard({ task, index, onClick }: TaskCardProps) {
                 </div>
               </div>
 
-              <div className="flex items-center justify-between pt-1">
+              <div className="flex items-center justify-between pt-2 border-t border-gray-100 mt-2">
                 <div className="flex items-center gap-2">
                   {(() => {
                     const { name, initials, colorClass } =
@@ -77,24 +84,49 @@ export function TaskCard({ task, index, onClick }: TaskCardProps) {
                       <>
                         <div
                           className={cn(
-                            "h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-bold border border-white shadow-sm",
+                            "h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold border border-white shadow-sm ring-1 ring-gray-100",
                             colorClass
                           )}
+                          title={name}
                         >
                           {initials}
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="text-xs text-gray-500 group-hover:text-slate-800 transition-colors">{name}</span>
                         </div>
                       </>
                     );
                   })()}
+
+                  {/* Priority Badge */}
+                  {task.priority && (
+                    <div
+                      className={cn(
+                        "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border",
+                        PRIORITY_STYLES[task.priority]?.bg || "bg-gray-50",
+                        PRIORITY_STYLES[task.priority]?.color || "text-gray-600",
+                        "border-transparent" 
+                      )}
+                      title={`Priority: ${task.priority}`}
+                    >
+                      <Flag className="h-3 w-3" />
+                      <span className="hidden xl:inline">{task.priority}</span>
+                    </div>
+                  )}
+
+                  {/* Story Points */}
+                  {task.storyPoints !== undefined && task.storyPoints !== null && (
+                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200" title="Story Points">
+                      <Layout className="h-3 w-3" />
+                      <span>{task.storyPoints}</span>
+                    </div>
+                  )}
                 </div>
 
                 {task.dueDate && (
-                  <div className="flex items-center gap-1 text-xs text-gray-500 bg-gray-100 rounded-full px-3 py-1">
-                    <Clock className="h-4 w-4" />
-                    <span>{new Date(task.dueDate).toLocaleDateString()}</span>
+                  <div className={cn(
+                    "flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border",
+                    new Date(task.dueDate) < new Date() ? "bg-red-50 text-red-600 border-red-100" : "bg-gray-50 text-gray-500 border-gray-200"
+                  )}>
+                    <Clock className="h-3 w-3" />
+                    <span>{new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
                   </div>
                 )}
               </div>

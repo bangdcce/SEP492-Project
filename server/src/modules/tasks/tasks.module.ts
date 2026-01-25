@@ -3,13 +3,21 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { TaskEntity } from '../../database/entities/task.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import { CalendarEventEntity } from '../../database/entities/calendar-event.entity';
+import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
+import { TaskCommentEntity } from '../../database/entities/task-comment.entity';
 import { TasksService } from './tasks.service';
 import { TasksController } from './tasks.controller';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([TaskEntity, MilestoneEntity, CalendarEventEntity]),
+    TypeOrmModule.forFeature([
+      TaskEntity,
+      MilestoneEntity,
+      CalendarEventEntity,
+      TaskHistoryEntity,
+      TaskCommentEntity,
+    ]),
     AuditLogsModule, // For audit logging task submissions
   ],
   providers: [TasksService],
