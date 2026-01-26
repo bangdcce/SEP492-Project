@@ -36,7 +36,7 @@ export const getEvents = async (
 
   const response = await apiClient.get(`${BASE_URL}/events?${params.toString()}`);
   const payload = response as { data?: CalendarEventsResponse } | CalendarEventsResponse;
-  return (payload.data ?? payload) as CalendarEventsResponse;
+  return ((payload as any).data ?? payload) as CalendarEventsResponse;
 };
 
 export const getRescheduleRequests = async (
@@ -51,7 +51,7 @@ export const getRescheduleRequests = async (
 
   const response = await apiClient.get(`/calendar/reschedule-requests?${params.toString()}`);
   const payload = response as { data?: RescheduleRequestsResponse } | RescheduleRequestsResponse;
-  return (payload.data ?? payload) as RescheduleRequestsResponse;
+  return ((payload as any).data ?? payload) as RescheduleRequestsResponse;
 };
 
 export const processRescheduleRequest = async (input: {

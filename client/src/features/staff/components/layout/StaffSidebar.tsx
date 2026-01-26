@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
@@ -7,8 +6,6 @@ import {
   Calendar,
   Activity,
   User,
-  Settings,
-  LogOut,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";

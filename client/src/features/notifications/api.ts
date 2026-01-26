@@ -15,7 +15,7 @@ export const getNotifications = async (input?: {
     `/notifications?${params.toString()}`,
   );
   const payload = response as { data?: NotificationsResponse } | NotificationsResponse;
-  return (payload.data ?? payload) as NotificationsResponse;
+  return ((payload as any).data ?? payload) as NotificationsResponse;
 };
 
 export const markNotificationRead = async (notificationId: string) => {
