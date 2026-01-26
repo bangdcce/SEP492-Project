@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { CheckCircle, XCircle, Mail, Loader2, ArrowRight } from 'lucide-react';
@@ -102,7 +102,7 @@ export function VerifyEmailPage() {
   }, [token, pendingEmail]);
 
   return (
-    <AuthLayout>
+    <AuthLayout title="Xác thực Email">
       <div className="flex items-center justify-center min-h-screen py-12 px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

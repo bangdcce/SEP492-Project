@@ -186,12 +186,7 @@ export class ProjectRequestsService {
       ],
     });
     
-    for (const p of otherProposals) {
-        if (p.brokerId !== brokerId) {
-            p.status = ProposalStatus.REJECTED;
-            await this.brokerProposalRepo.save(p);
-        }
-    }
+
 
     if (!request) return null;
 
