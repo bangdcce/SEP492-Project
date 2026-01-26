@@ -15,6 +15,7 @@ import {
   DisputeCategory,
   DisputePriority,
   DisputeStatus,
+  UserRole,
 } from "../../../staff/types/staff.types";
 import {
   escalateDispute,
@@ -37,32 +38,59 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { useStaffDashboardRealtime } from "@/features/staff/hooks/useStaffDashboardRealtime";
+import { STORAGE_KEYS } from "@/constants";
 
-export const StaffDisputeBoard = () => {
+interface StaffDisputeBoardProps {
+  mode?: "queue" | "caseload";
+}
+
+export const StaffDisputeBoard = ({
+  mode = "queue",
+}: StaffDisputeBoardProps) => {
   const navigate = useNavigate();
+  const currentUser = useMemo(() => {
+    const raw = localStorage.getItem(STORAGE_KEYS.USER);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as { id?: string; role?: UserRole };
+    } catch {
+      return null;
+    }
+  }, []);
+  const isStaffUser = currentUser?.role === UserRole.STAFF;
   const [disputes, setDisputes] = useState<DisputeSummary[]>([]);
   const [meta, setMeta] = useState<PaginatedDisputesResponse["meta"] | null>(
     null,
   );
-  const [stats, setStats] =
-    useState<PaginatedDisputesResponse["stats"] | null>(null);
+  const [stats, setStats] = useState<PaginatedDisputesResponse["stats"] | null>(
+    null,
+  );
   const [loading, setLoading] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<DisputeStatus | "ALL">(
-    DisputeStatus.PENDING_REVIEW,
+  const [viewFilter, setViewFilter] = useState<
+    "ACTIVE" | "APPEALS" | "RESOLVED" | "ALL"
+  >(mode === "queue" ? "ACTIVE" : "ACTIVE");
+  const [priorityFilter, setPriorityFilter] = useState<DisputePriority | "ALL">(
+    "ALL",
   );
-  const [priorityFilter, setPriorityFilter] = useState<
-    DisputePriority | "ALL"
-  >("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<DisputeCategory | "ALL">(
+    "ALL",
+  );
+  const [weekFilter, setWeekFilter] = useState<
+    "ANY" | "THIS_WEEK" | "NEXT_WEEK" | "OVERDUE"
+  >("ANY");
   const [page, setPage] = useState(1);
   const [complexityById, setComplexityById] = useState<
     Record<string, DisputeComplexity>
   >({});
+  const [complexityFilter, setComplexityFilter] = useState<
+    DisputeComplexity["level"] | "ALL"
+  >("ALL");
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [dialogType, setDialogType] = useState<"reject" | "request-info" | null>(
-    null,
-  );
+  const [dialogType, setDialogType] = useState<
+    "reject" | "request-info" | null
+  >(null);
   const [dialogReason, setDialogReason] = useState("");
   const [dialogTarget, setDialogTarget] = useState<DisputeSummary | null>(null);
   const [dialogLoading, setDialogLoading] = useState(false);
@@ -70,17 +98,78 @@ export const StaffDisputeBoard = () => {
     null,
   );
 
+  const statusIn = useMemo(() => {
+    switch (viewFilter) {
+      case "ACTIVE":
+        if (mode === "caseload") {
+          return [DisputeStatus.IN_MEDIATION];
+        }
+        return [
+          DisputeStatus.OPEN,
+          DisputeStatus.PENDING_REVIEW,
+          DisputeStatus.INFO_REQUESTED,
+        ];
+      case "APPEALS":
+        return [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED];
+      case "RESOLVED":
+        return [DisputeStatus.RESOLVED, DisputeStatus.REJECTED];
+      default:
+        return undefined;
+    }
+  }, [viewFilter, mode]);
+
+  const deadlineRange = useMemo(() => {
+    if (weekFilter === "OVERDUE") {
+      return { overdueOnly: true };
+    }
+
+    if (weekFilter === "THIS_WEEK" || weekFilter === "NEXT_WEEK") {
+      const today = new Date();
+      const startOfWeek = new Date(today);
+      const dayIndex = (startOfWeek.getDay() + 6) % 7;
+      startOfWeek.setDate(startOfWeek.getDate() - dayIndex);
+      startOfWeek.setHours(0, 0, 0, 0);
+
+      if (weekFilter === "NEXT_WEEK") {
+        startOfWeek.setDate(startOfWeek.getDate() + 7);
+      }
+
+      const endOfWeek = new Date(startOfWeek);
+      endOfWeek.setDate(endOfWeek.getDate() + 6);
+      endOfWeek.setHours(23, 59, 59, 999);
+
+      return {
+        deadlineFrom: startOfWeek.toISOString(),
+        deadlineTo: endOfWeek.toISOString(),
+      };
+    }
+
+    return {};
+  }, [weekFilter]);
+
   const queryFilters = useMemo(
     () => ({
       page,
       limit: 20,
       sortBy: "urgency",
-      sortOrder: "DESC" as const,
-      status: statusFilter === "ALL" ? undefined : statusFilter,
+      sortOrder: "DESC",
+      statusIn,
       priority: priorityFilter === "ALL" ? undefined : priorityFilter,
+      category: categoryFilter === "ALL" ? undefined : categoryFilter,
       search: debouncedSearch ? debouncedSearch : undefined,
+      assignedStaffId: isStaffUser ? currentUser?.id : undefined,
+      ...deadlineRange,
     }),
-    [page, statusFilter, priorityFilter, debouncedSearch],
+    [
+      page,
+      statusIn,
+      priorityFilter,
+      categoryFilter,
+      debouncedSearch,
+      isStaffUser,
+      currentUser?.id,
+      deadlineRange,
+    ],
   );
 
   useEffect(() => {
@@ -92,7 +181,7 @@ export const StaffDisputeBoard = () => {
 
   useEffect(() => {
     setPage(1);
-  }, [statusFilter, priorityFilter, debouncedSearch]);
+  }, [viewFilter, priorityFilter, categoryFilter, weekFilter, debouncedSearch]);
 
   const fetchDisputes = useCallback(async () => {
     try {
@@ -151,7 +240,10 @@ export const StaffDisputeBoard = () => {
     };
   }, [disputes, complexityById]);
 
-  const openDialog = (type: "reject" | "request-info", target: DisputeSummary) => {
+  const openDialog = (
+    type: "reject" | "request-info",
+    target: DisputeSummary,
+  ) => {
     setDialogType(type);
     setDialogTarget(target);
     setDialogReason("");
@@ -235,18 +327,33 @@ export const StaffDisputeBoard = () => {
     return "bg-slate-100 text-slate-700 border-slate-200";
   };
 
-  const emptyState = !loading && disputes.length === 0;
+  const visibleDisputes = useMemo(() => {
+    if (complexityFilter === "ALL") return disputes;
+    return disputes.filter(
+      (dispute) => complexityById[dispute.id]?.level === complexityFilter,
+    );
+  }, [disputes, complexityById, complexityFilter]);
+
+  const totalLabel =
+    complexityFilter === "ALL"
+      ? (meta?.total ?? disputes.length)
+      : `${visibleDisputes.length}/${meta?.total ?? disputes.length}`;
+
+  const emptyState = !loading && visibleDisputes.length === 0;
+
+  const boardTitle =
+    mode === "caseload" ? "My Caseload" : "Dispute Queue (Triage)";
+
+  const canModerate = mode === "queue";
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full">
       {/* Toolbar */}
       <div className="p-4 border-b border-gray-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="font-semibold text-slate-900">
-            Dispute Queue (Triage)
-          </h3>
+          <h3 className="font-semibold text-slate-900">{boardTitle}</h3>
           <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
-            {meta?.total ?? disputes.length}
+            {totalLabel}
           </span>
           {stats?.urgent ? (
             <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded-full text-xs font-medium">
@@ -270,18 +377,65 @@ export const StaffDisputeBoard = () => {
             <Filter className="w-4 h-4" />
           </button>
           <select
-            value={statusFilter}
+            value={viewFilter}
             onChange={(event) =>
-              setStatusFilter(event.target.value as DisputeStatus | "ALL")
+              setViewFilter(
+                event.target.value as "ACTIVE" | "APPEALS" | "RESOLVED" | "ALL",
+              )
             }
             className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-600"
           >
-            <option value="ALL">All statuses</option>
-            {Object.values(DisputeStatus).map((status) => (
-              <option key={status} value={status}>
-                {status.replace("_", " ")}
+            <option value="ACTIVE">Active</option>
+            <option value="APPEALS">Appeals</option>
+            <option value="RESOLVED">Resolved/Rejected</option>
+            <option value="ALL">All</option>
+          </select>
+          <select
+            value={weekFilter}
+            onChange={(event) =>
+              setWeekFilter(
+                event.target.value as
+                  | "ANY"
+                  | "THIS_WEEK"
+                  | "NEXT_WEEK"
+                  | "OVERDUE",
+              )
+            }
+            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-600"
+          >
+            <option value="ANY">Any deadline</option>
+            <option value="THIS_WEEK">This week</option>
+            <option value="NEXT_WEEK">Next week</option>
+            <option value="OVERDUE">Overdue</option>
+          </select>
+          <select
+            value={categoryFilter}
+            onChange={(event) =>
+              setCategoryFilter(event.target.value as DisputeCategory | "ALL")
+            }
+            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-600"
+          >
+            <option value="ALL">All categories</option>
+            {Object.values(DisputeCategory).map((category) => (
+              <option key={category} value={category}>
+                {category.replace("_", " ")}
               </option>
             ))}
+          </select>
+          <select
+            value={complexityFilter}
+            onChange={(event) =>
+              setComplexityFilter(
+                event.target.value as DisputeComplexity["level"] | "ALL",
+              )
+            }
+            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-600"
+          >
+            <option value="ALL">All complexity</option>
+            <option value="LOW">Low</option>
+            <option value="MEDIUM">Medium</option>
+            <option value="HIGH">High</option>
+            <option value="CRITICAL">Critical</option>
           </select>
           <select
             value={priorityFilter}
@@ -318,10 +472,12 @@ export const StaffDisputeBoard = () => {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {disputes.map((dispute) => {
+            {visibleDisputes.map((dispute) => {
               const complexity = complexityById[dispute.id];
               const projectTitle =
-                dispute.project?.title || dispute.projectId || "Unknown project";
+                dispute.project?.title ||
+                dispute.projectId ||
+                "Unknown project";
               const raiserLabel =
                 dispute.raiser?.fullName ||
                 dispute.raiser?.email ||
@@ -329,92 +485,113 @@ export const StaffDisputeBoard = () => {
               const amountLabel = dispute.disputedAmount
                 ? currencyFormatter.format(dispute.disputedAmount)
                 : "N/A";
+              const canReview = [
+                DisputeStatus.OPEN,
+                DisputeStatus.PENDING_REVIEW,
+                DisputeStatus.INFO_REQUESTED,
+              ].includes(dispute.status);
+              const canRequestInfo =
+                dispute.status === DisputeStatus.PENDING_REVIEW;
 
               return (
-              <tr
-                key={dispute.id}
-                className="hover:bg-gray-50 group transition-colors"
-              >
-                <td className="px-4 py-3">
-                  <div className="font-medium text-slate-900">{dispute.id}</div>
-                  <div className="text-xs text-gray-500 truncate max-w-[200px]">
-                    {projectTitle}
-                  </div>
-                  <span
-                    className={`inline-flex mt-2 px-2 py-0.5 rounded text-xs font-medium border ${statusPill(
-                      dispute.status,
-                    )}`}
-                  >
-                    {dispute.status.replace("_", " ")}
-                  </span>
-                </td>
-                <td className="px-4 py-3 text-slate-700">
-                  {raiserLabel}
-                  <div className="text-xs text-slate-400">
-                    {amountLabel} in Escrow
-                  </div>
-                </td>
-                <td className="px-4 py-3">
-                  <span
-                    className={`inline-flex px-2 py-0.5 rounded text-xs font-medium border
+                <tr
+                  key={dispute.id}
+                  className="hover:bg-gray-50 group transition-colors"
+                >
+                  <td className="px-4 py-3">
+                    <div className="font-medium text-slate-900">
+                      {dispute.id}
+                    </div>
+                    <div className="text-xs text-gray-500 truncate max-w-[200px]">
+                      {projectTitle}
+                    </div>
+                    <span
+                      className={`inline-flex mt-2 px-2 py-0.5 rounded text-xs font-medium border ${statusPill(
+                        dispute.status,
+                      )}`}
+                    >
+                      {dispute.status.replace("_", " ")}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-slate-700">
+                    {raiserLabel}
+                    <div className="text-xs text-slate-400">
+                      {amountLabel} in Escrow
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span
+                      className={`inline-flex px-2 py-0.5 rounded text-xs font-medium border
                                         ${categoryPill(dispute.category)}
                                     `}
-                  >
-                    {dispute.category}
-                  </span>
-                </td>
-                <td className="px-4 py-3">
-                  {complexity ? (
-                    <DisputeComplexityBadge
-                      level={complexity.level}
-                      estMinutes={complexity.timeEstimation.recommendedMinutes}
-                      confidence={complexity.confidence}
-                    />
-                  ) : (
-                    <span className="text-xs text-gray-400">Estimating...</span>
-                  )}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button
-                      className="p-1.5 text-teal-600 hover:bg-teal-50 rounded-md"
-                      title="Quick Look"
-                      onClick={() =>
-                        navigate(`/staff/caseload?disputeId=${dispute.id}`, {
-                          state: { dispute },
-                        })
-                      }
                     >
-                      <Eye className="w-4 h-4" />
-                    </button>
-                    <button
-                      className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"
-                      title="Reject as Invalid"
-                      onClick={() => openDialog("reject", dispute)}
-                    >
-                      <Ban className="w-4 h-4" />
-                    </button>
-                    <button
-                      className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"
-                      title="Accept to Caseload"
-                      onClick={() => handleEscalate(dispute)}
-                      disabled={rowActionLoadingId === dispute.id}
-                    >
-                      {rowActionLoadingId === dispute.id ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <CheckCircle className="w-4 h-4" />
-                      )}
-                    </button>
-                    <button
-                      className="px-2 py-1 text-xs text-slate-600 border border-gray-200 rounded-md hover:bg-gray-50"
-                      onClick={() => openDialog("request-info", dispute)}
-                    >
-                      Request Info
-                    </button>
-                  </div>
-                </td>
-              </tr>
+                      {dispute.category}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">
+                    {complexity ? (
+                      <DisputeComplexityBadge
+                        level={complexity.level}
+                        estMinutes={
+                          complexity.timeEstimation.recommendedMinutes
+                        }
+                        confidence={complexity.confidence}
+                      />
+                    ) : (
+                      <span className="text-xs text-gray-400">
+                        Estimating...
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button
+                        className="p-1.5 text-teal-600 hover:bg-teal-50 rounded-md"
+                        title="Quick Look"
+                        onClick={() =>
+                          navigate(`/staff/caseload?disputeId=${dispute.id}`, {
+                            state: { dispute },
+                          })
+                        }
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      {canModerate && canReview ? (
+                        <>
+                          <button
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"
+                            title="Reject as Invalid"
+                            onClick={() => openDialog("reject", dispute)}
+                          >
+                            <Ban className="w-4 h-4" />
+                          </button>
+                          <button
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"
+                            title="Accept to Caseload"
+                            onClick={() => handleEscalate(dispute)}
+                            disabled={rowActionLoadingId === dispute.id}
+                          >
+                            {rowActionLoadingId === dispute.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <CheckCircle className="w-4 h-4" />
+                            )}
+                          </button>
+                          {canRequestInfo ? (
+                            <button
+                              className="px-2 py-1 text-xs text-slate-600 border border-gray-200 rounded-md hover:bg-gray-50"
+                              onClick={() =>
+                                openDialog("request-info", dispute)
+                              }
+                            >
+                              Request Info
+                            </button>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                  </td>
+                </tr>
               );
             })}
             {emptyState && (

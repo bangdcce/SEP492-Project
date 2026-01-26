@@ -4,7 +4,7 @@ import {
   Inbox,
   Briefcase,
   Calendar,
-  Activity,
+  Video,
   User,
   ChevronLeft,
   ChevronRight,
@@ -22,7 +22,7 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
     { label: "Dispute Queue", icon: Inbox, path: "/staff/queue" },
     { label: "My Caseload", icon: Briefcase, path: "/staff/caseload" },
     { label: "Calendar", icon: Calendar, path: "/staff/calendar" },
-    { label: "Workload", icon: Activity, path: "/staff/workload" },
+    { label: "Hearings", icon: Video, path: "/staff/hearings" },
     { label: "Profile", icon: User, path: "/staff/profile" },
   ];
 

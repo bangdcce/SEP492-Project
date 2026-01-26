@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, In, LessThan, MoreThan, Repository } from 'typeorm';
 
-import { CalendarEventEntity, EventStatus, EventType } from 'src/database/entities';
+import { CalendarEventEntity, EventStatus, EventType, UserEntity } from 'src/database/entities';
 import { EventParticipantEntity } from 'src/database/entities/event-participant.entity';
 import {
   AvailabilityType,
@@ -59,6 +59,8 @@ export class CalendarService {
     private readonly calendarRepository: Repository<CalendarEventEntity>,
     @InjectRepository(EventParticipantEntity)
     private readonly participantRepository: Repository<EventParticipantEntity>,
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
   ) {}
 
   estimateEventDuration(eventType: EventType, complexity?: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL') {
@@ -112,6 +114,8 @@ export class CalendarService {
     };
 
     const requiredMinutes = durationMinutes + Math.max(0, constraints.bufferMinutes || 0);
+
+    const resolvedTimezones = await this.resolveUserTimezones(userIds, userTimezones);
 
     const availabilityEntries = await this.availabilityRepository
       .createQueryBuilder('availability')
@@ -182,7 +186,7 @@ export class CalendarService {
 
     for (const entry of availabilityEntries) {
       const ranges = entry.isRecurring
-        ? this.expandRecurringAvailability(entry, dateRange, userTimezones[entry.userId])
+        ? this.expandRecurringAvailability(entry, dateRange, resolvedTimezones[entry.userId])
         : entry.startTime && entry.endTime
           ? [{ start: entry.startTime, end: entry.endTime, type: entry.type }]
           : [];
@@ -242,7 +246,7 @@ export class CalendarService {
           preferredForAll = false;
         }
 
-        const timeZone = userTimezones[userId] || 'UTC';
+        const timeZone = resolvedTimezones[userId] || 'UTC';
         const localStart = this.getLocalTimeInfo(slotStart, timeZone);
         const localEnd = this.getLocalTimeInfo(slotEnd, timeZone);
         const workStartMinutes = this.parseTimeToMinutes(constraints.workingHoursStart);
@@ -331,6 +335,35 @@ export class CalendarService {
       constraints,
       noSlotsReason,
     };
+  }
+
+  private async resolveUserTimezones(
+    userIds: string[],
+    provided: Record<string, string>,
+  ): Promise<Record<string, string>> {
+    const resolved: Record<string, string> = { ...provided };
+    const missing = userIds.filter((id) => !resolved[id]);
+    if (missing.length === 0) {
+      return resolved;
+    }
+
+    const users = await this.userRepository.find({
+      where: { id: In(missing) },
+      select: ['id', 'timeZone'],
+    });
+    for (const user of users) {
+      if (user.timeZone) {
+        resolved[user.id] = user.timeZone;
+      }
+    }
+
+    for (const id of missing) {
+      if (!resolved[id]) {
+        resolved[id] = 'UTC';
+      }
+    }
+
+    return resolved;
   }
 
   private alignToStep(date: Date, stepMinutes: number): Date {

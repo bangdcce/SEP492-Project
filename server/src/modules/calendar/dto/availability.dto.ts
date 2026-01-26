@@ -93,6 +93,10 @@ export class SetAvailabilityDto {
   @IsBoolean()
   @IsOptional()
   allowConflicts?: boolean;
+
+  @IsString()
+  @IsOptional()
+  timeZone?: string;
 }
 
 /**

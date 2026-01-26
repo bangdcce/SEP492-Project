@@ -152,6 +152,7 @@ export class AuthService {
     loginDto: LoginDto,
     userAgent?: string,
     ipAddress?: string,
+    timeZone?: string,
   ): Promise<LoginResponseDto> {
     const { email, password } = loginDto;
 
@@ -181,6 +182,11 @@ export class AuthService {
         error: 'EMAIL_NOT_VERIFIED',
         email: user.email,
       });
+    }
+
+    if (timeZone && user.timeZone !== timeZone) {
+      await this.userRepository.update({ id: user.id }, { timeZone });
+      user.timeZone = timeZone;
     }
 
     // Tạo JWT tokens
@@ -645,6 +651,7 @@ export class AuthService {
     const updateUserData: Partial<UserEntity> = {};
     if (updateProfileDto.fullName) updateUserData.fullName = updateProfileDto.fullName;
     if (updateProfileDto.phoneNumber) updateUserData.phoneNumber = updateProfileDto.phoneNumber;
+    if (updateProfileDto.timeZone) updateUserData.timeZone = updateProfileDto.timeZone;
 
     if (Object.keys(updateUserData).length > 0) {
       await this.userRepository.update({ id: userId }, updateUserData);
@@ -698,6 +705,7 @@ export class AuthService {
       email: user.email,
       fullName: user.fullName,
       phoneNumber: user.phoneNumber,
+      timeZone: user.timeZone,
       avatarUrl: user.profile?.avatarUrl,
       bio: user.profile?.bio,
       skills: user.profile?.skills,

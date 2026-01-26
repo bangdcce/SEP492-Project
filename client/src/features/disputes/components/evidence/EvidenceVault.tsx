@@ -19,6 +19,7 @@ import {
 import type { DisputeEvidence, DisputeEvidenceQuota } from "../../types/dispute.types";
 import { STORAGE_KEYS } from "@/constants";
 import { UserRole } from "../../../staff/types/staff.types";
+import { getStoredJson } from "@/shared/utils/storage";
 import {
   Dialog,
   DialogContent,
@@ -45,18 +46,14 @@ export const EvidenceVault = ({ disputeId, refreshToken }: EvidenceVaultProps) =
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const currentUserRole = useMemo(() => {
-    const raw = localStorage.getItem(STORAGE_KEYS.USER);
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw) as { role?: UserRole };
-      return parsed.role ?? null;
-    } catch {
-      return null;
-    }
+    const parsed = getStoredJson<{ role?: UserRole }>(STORAGE_KEYS.USER);
+    return parsed?.role ?? null;
   }, []);
 
   const canFlag =
     currentUserRole === UserRole.STAFF || currentUserRole === UserRole.ADMIN;
+  const canUpload =
+    currentUserRole !== UserRole.STAFF && currentUserRole !== UserRole.ADMIN;
 
   const loadEvidence = useCallback(async () => {
     try {
@@ -142,17 +139,19 @@ export const EvidenceVault = ({ disputeId, refreshToken }: EvidenceVaultProps) =
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium text-slate-900">Evidence Vault</h3>
-        <div className="flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1.5 rounded-full border border-gray-200">
-          <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-teal-500"
-              style={{ width: `${(quotaUsed / quotaTotal) * 100}%` }}
-            />
+        {canUpload ? (
+          <div className="flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1.5 rounded-full border border-gray-200">
+            <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-teal-500"
+                style={{ width: `${(quotaUsed / quotaTotal) * 100}%` }}
+              />
+            </div>
+            <span>
+              {quotaUsed}/{quotaTotal} files used
+            </span>
           </div>
-          <span>
-            {quotaUsed}/{quotaTotal} files used
-          </span>
-        </div>
+        ) : null}
       </div>
 
       {loading ? (
@@ -239,30 +238,38 @@ export const EvidenceVault = ({ disputeId, refreshToken }: EvidenceVaultProps) =
             </div>
           ))}
 
-          <button
-            onClick={handlePickFile}
-            disabled={uploading}
-            className="border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-gray-400 hover:border-teal-500 hover:text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
-          >
-            {uploading ? (
-              <Loader2 className="w-8 h-8 mb-2 animate-spin" />
-            ) : (
-              <UploadCloud className="w-8 h-8 mb-2" />
-            )}
-            <span className="font-medium text-sm">
-              {uploading ? "Uploading..." : "Upload New Evidence"}
-            </span>
-            <span className="text-xs mt-1">Max 50MB</span>
-          </button>
+          {canUpload ? (
+            <button
+              onClick={handlePickFile}
+              disabled={uploading}
+              className="border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-gray-400 hover:border-teal-500 hover:text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
+            >
+              {uploading ? (
+                <Loader2 className="w-8 h-8 mb-2 animate-spin" />
+              ) : (
+                <UploadCloud className="w-8 h-8 mb-2" />
+              )}
+              <span className="font-medium text-sm">
+                {uploading ? "Uploading..." : "Upload New Evidence"}
+              </span>
+              <span className="text-xs mt-1">Max 50MB</span>
+            </button>
+          ) : (
+            <div className="border border-gray-200 rounded-xl flex items-center justify-center p-6 text-sm text-gray-500 bg-gray-50">
+              Evidence uploads are limited to dispute participants.
+            </div>
+          )}
         </div>
       )}
 
-      <input
-        ref={fileInputRef}
-        type="file"
-        className="hidden"
-        onChange={handleFileChange}
-      />
+      {canUpload ? (
+        <input
+          ref={fileInputRef}
+          type="file"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+      ) : null}
 
       <Dialog open={flagDialogOpen} onOpenChange={setFlagDialogOpen}>
         <DialogContent className="sm:max-w-md">

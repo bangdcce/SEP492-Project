@@ -20,6 +20,7 @@ import { VerdictWizard } from "../wizard/VerdictWizard";
 import { DisputeHearingPanel } from "../hearings/DisputeHearingPanel";
 import { useDisputeRealtime } from "@/features/disputes/hooks/useDisputeRealtime";
 import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 import {
   getDisputeActivities,
   getDisputeComplexity,
@@ -30,11 +31,12 @@ import type {
   DisputeComplexity,
   DisputeSummary,
 } from "../../types/dispute.types";
-import { DisputeStatus, UserRole } from "../../../staff/types/staff.types";
+import { DisputePhase, DisputeStatus, UserRole } from "../../../staff/types/staff.types";
 
 interface DisputeDetailHubProps {
   disputeId?: string;
   initialDispute?: DisputeSummary;
+  initialTab?: string;
 }
 
 const TimelineRoute = ({
@@ -103,9 +105,26 @@ const TimelineRoute = ({
 export const DisputeDetailHub = ({
   disputeId,
   initialDispute,
+  initialTab,
 }: DisputeDetailHubProps) => {
   const navigate = useNavigate();
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const normalizedTab = initialTab?.toLowerCase();
+  const tabIndexMap: Record<string, number> = {
+    timeline: 0,
+    hearings: 1,
+    hearing: 1,
+    evidence: 2,
+    "evidence-vault": 2,
+    discussion: 3,
+    chat: 3,
+    resolution: 4,
+    verdict: 4,
+  };
+  const initialIndex =
+    normalizedTab && tabIndexMap[normalizedTab] !== undefined
+      ? tabIndexMap[normalizedTab]
+      : 0;
+  const [selectedIndex, setSelectedIndex] = useState(initialIndex);
   const [dispute, setDispute] = useState<DisputeSummary | null>(
     initialDispute ?? null,
   );
@@ -116,13 +135,7 @@ export const DisputeDetailHub = ({
   const [refreshToken, setRefreshToken] = useState(0);
 
   const currentUser = useMemo(() => {
-    const raw = localStorage.getItem(STORAGE_KEYS.USER);
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as { role?: UserRole };
-    } catch {
-      return null;
-    }
+    return getStoredJson<{ role?: UserRole }>(STORAGE_KEYS.USER);
   }, []);
 
   const canViewInternal = useMemo(() => {
@@ -189,6 +202,10 @@ export const DisputeDetailHub = ({
     fetchComplexity();
     setRefreshToken((prev) => prev + 1);
   }, [fetchDetail, fetchActivities, fetchComplexity]);
+
+  const handlePhaseUpdated = useCallback((phase: DisputePhase) => {
+    setDispute((prev) => (prev ? { ...prev, phase } : prev));
+  }, []);
 
   useDisputeRealtime(disputeId, {
     onEvidenceUploaded: handleRealtimeRefresh,
@@ -274,7 +291,13 @@ export const DisputeDetailHub = ({
     {
       name: "Discussion",
       icon: MessageSquare,
-      component: disputeId ? <DiscussionPanel disputeId={disputeId} /> : null,
+      component: disputeId ? (
+        <DiscussionPanel
+          disputeId={disputeId}
+          dispute={dispute}
+          onPhaseUpdated={handlePhaseUpdated}
+        />
+      ) : null,
     },
     {
       name: "Resolution",

@@ -37,6 +37,7 @@ export type Task = {
 export type Milestone = {
   id: string;
   projectId: string;
+  projectSpecId?: string | null;
   title: string;
   description?: string;
   amount: number;

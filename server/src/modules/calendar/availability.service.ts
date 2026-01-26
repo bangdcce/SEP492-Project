@@ -8,6 +8,7 @@ import {
   EventStatus,
   EventRescheduleRequestEntity,
   RescheduleRequestStatus,
+  UserEntity,
 } from 'src/database/entities';
 import { EventParticipantEntity } from 'src/database/entities/event-participant.entity';
 import {
@@ -16,6 +17,7 @@ import {
 } from 'src/database/entities/user-availability.entity';
 import { CreateAvailabilityDto, CreateRecurringAvailabilityDto } from './dto/availability.dto';
 import { AutoScheduleService } from './auto-schedule.service';
+import { buildUtcDateFromLocalTime } from './calendar.utils';
 
 const ACTIVE_EVENT_STATUSES = [
   EventStatus.SCHEDULED,
@@ -35,6 +37,7 @@ export interface SetAvailabilityInput {
   slots?: CreateAvailabilityDto[];
   recurring?: CreateRecurringAvailabilityDto;
   allowConflicts?: boolean;
+  timeZone?: string;
 }
 
 export interface SetAvailabilityResult {
@@ -56,6 +59,8 @@ export class AvailabilityService {
     private readonly participantRepository: Repository<EventParticipantEntity>,
     @InjectRepository(EventRescheduleRequestEntity)
     private readonly rescheduleRepository: Repository<EventRescheduleRequestEntity>,
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
     private readonly dataSource: DataSource,
     @Optional() private readonly autoScheduleService?: AutoScheduleService,
     @Optional() private readonly eventEmitter?: EventEmitter2,
@@ -66,15 +71,31 @@ export class AvailabilityService {
       throw new BadRequestException('slots or recurring availability is required');
     }
 
+    const user = await this.userRepository.findOne({
+      where: { id: input.userId },
+      select: ['id', 'timeZone'],
+    });
+    const userTimeZone = input.timeZone || user?.timeZone || 'UTC';
+
+    if (input.timeZone && user && user.timeZone !== input.timeZone) {
+      await this.userRepository.update({ id: input.userId }, { timeZone: input.timeZone });
+    }
+
     const createdEntries: UserAvailabilityEntity[] = [];
     const conflictRanges: Array<{ start: Date; end: Date }> = [];
 
     if (input.slots?.length) {
       const normalizedSlots = input.slots.map((slot) => {
-        const start = new Date(slot.startTime);
-        const end = new Date(slot.endTime);
+        const start = this.parseDateTime(slot.startTime, userTimeZone);
+        const end = this.parseDateTime(slot.endTime, userTimeZone);
         if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start >= end) {
           throw new BadRequestException('Invalid availability time slot');
+        }
+        if (
+          slot.type === AvailabilityType.OUT_OF_OFFICE &&
+          end.getTime() - start.getTime() > 24 * 60 * 60 * 1000
+        ) {
+          throw new BadRequestException('Out of office longer than 1 day requires admin approval');
         }
         return { ...slot, startTime: start, endTime: end };
       });
@@ -107,8 +128,12 @@ export class AvailabilityService {
         throw new BadRequestException('Recurring slots are required');
       }
 
-      const recurringStart = input.recurring.startDate ? new Date(input.recurring.startDate) : null;
-      const recurringEnd = input.recurring.endDate ? new Date(input.recurring.endDate) : null;
+      const recurringStart = input.recurring.startDate
+        ? this.parseLocalDateOnly(input.recurring.startDate, userTimeZone)
+        : null;
+      const recurringEnd = input.recurring.endDate
+        ? this.parseLocalDateOnly(input.recurring.endDate, userTimeZone)
+        : null;
       if (
         (recurringStart && Number.isNaN(recurringStart.getTime())) ||
         (recurringEnd && Number.isNaN(recurringEnd.getTime()))
@@ -551,5 +576,39 @@ export class AvailabilityService {
         }
       }
     }
+  }
+
+  private parseDateTime(value: string, timeZone: string): Date {
+    if (!value) {
+      return new Date(NaN);
+    }
+    const hasOffset = /[zZ]|[+-]\d{2}:?\d{2}$/.test(value);
+    if (hasOffset) {
+      return new Date(value);
+    }
+
+    const [datePart, timePartRaw] = value.split('T');
+    if (!datePart || !timePartRaw) {
+      return new Date(value);
+    }
+    const [year, month, day] = datePart.split('-').map((part) => Number(part));
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      return new Date(value);
+    }
+    const timePart = timePartRaw.length === 5 ? `${timePartRaw}:00` : timePartRaw;
+    const baseDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+    return buildUtcDateFromLocalTime(baseDate, timePart, timeZone);
+  }
+
+  private parseLocalDateOnly(value: string, timeZone: string): Date {
+    if (!value) {
+      return new Date(NaN);
+    }
+    const [year, month, day] = value.split('-').map((part) => Number(part));
+    if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) {
+      return new Date(value);
+    }
+    const baseDate = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+    return buildUtcDateFromLocalTime(baseDate, '00:00:00', timeZone);
   }
 }

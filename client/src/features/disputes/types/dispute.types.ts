@@ -4,6 +4,7 @@ import type {
   DisputeStatus,
   DisputeType,
   DisputeResult,
+  DisputePhase,
   UserRole,
 } from "../../staff/types/staff.types";
 
@@ -35,6 +36,7 @@ export interface DisputeSummary {
   evidence?: string[];
   status: DisputeStatus;
   result: DisputeResult;
+  phase?: DisputePhase;
   responseDeadline?: string;
   resolutionDeadline?: string;
   assignedStaffId?: string;
@@ -72,15 +74,21 @@ export interface DisputeFilters {
   sortBy?: string;
   sortOrder?: "ASC" | "DESC";
   status?: DisputeStatus;
+  statusIn?: DisputeStatus[];
   category?: DisputeCategory;
   priority?: DisputePriority;
   disputeType?: DisputeType;
   projectId?: string;
   raisedById?: string;
   defendantId?: string;
+  assignedStaffId?: string;
   createdFrom?: string;
   createdTo?: string;
   deadlineBefore?: string;
+  deadlineFrom?: string;
+  deadlineTo?: string;
+  minDisputedAmount?: number;
+  maxDisputedAmount?: number;
   overdueOnly?: boolean;
   urgentOnly?: boolean;
   appealed?: boolean;
@@ -116,6 +124,23 @@ export interface DisputeNote {
   createdAt: string;
   updatedAt: string;
   author?: DisputeUserSummary;
+}
+
+export interface DisputeMessage {
+  id: string;
+  disputeId: string;
+  hearingId?: string | null;
+  senderId?: string | null;
+  senderRole?: UserRole | string;
+  type?: string;
+  content?: string | null;
+  replyToMessageId?: string | null;
+  relatedEvidenceId?: string | null;
+  metadata?: Record<string, any> | null;
+  isHidden?: boolean;
+  hiddenReason?: string | null;
+  createdAt: string;
+  sender?: DisputeUserSummary;
 }
 
 export interface DisputeEvidence {
