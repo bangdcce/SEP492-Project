@@ -1,0 +1,98 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-83 View Account Detail</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">An</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">23/01/2026</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Admin</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">System</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">Admin selects a specific user from the User Management List.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allows the Admin to view comprehensive details of a specific user account. This includes personal info, KYC status/documents, Trust Score history, role distribution (Client/Broker/Freelancer), and current account status (Active/Banned/Restricted).</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> Admin is logged in.<br>
+      <b>PRE2:</b> The user account exists.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> All detailed information is displayed securely.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. View User Details</b>
+      <ol>
+        <li>Admin clicks on a specific row in the User List.</li>
+        <li>System loads the User Profile from the database.</li>
+        <li>System displays sections:
+          <ul>
+            <li>Basic Info (Name, Email, Phone, Created At)</li>
+            <li>KYC (ID Card Image, Status)</li>
+            <li>Roles & Permissions</li>
+            <li>Trust Score Metrics (Projects Completed, Disputes Lost)</li>
+            <li>Status Information (Active, Banned)</li>
+          </ul>
+        </li>
+      </ol>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A3. View Related Activity</b>
+      <ul>
+        <li>At step 3, Admin clicks "View Activity Log" from this page.</li>
+        <li>System redirects to System Log filtered by this User ID (UC-85).</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>EXC-01:</b> User Not Found
+      <ul>
+        <li>Data integrity error.</li>
+        <li>System displays 404 error.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">BR-50 (Admin Access Only), BR-39 (Privacy laws - Admin can view private data but must be logged).</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>

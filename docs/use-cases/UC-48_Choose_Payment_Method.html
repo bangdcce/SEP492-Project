@@ -1,0 +1,98 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-48 Choose Payment Method</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">An</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">23/01/2026</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Client, Freelancer, Broker</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Payment Gateway</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">User enters the checkout flow or accesses "Payment Methods" in settings.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allows the user to select or add a payment method (Credit Card, PayPal, Bank Transfer) to pay for subscriptions or fund Escrow milestones. The system securely stores tokenized payment details for future use.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user is logged into the system.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> A valid payment method is selected and linked to the transaction or account.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Select Existing Method</b>
+      <ol>
+        <li>System displays a list of previously saved payment methods (e.g., Visa ending in 1234).</li>
+        <li>User selects one from the list.</li>
+        <li>System confirms the selection.</li>
+      </ol>
+      <b>B. Add New Method</b>
+      <ol>
+        <li>User selects "Add New Payment Method".</li>
+        <li>System prompts for card details or redirects to PayPal/Bank login.</li>
+        <li>User inputs details and authorizes the method.</li>
+        <li>Payment Gateway validates the information (e.g., $0/1 verification charge).</li>
+        <li>On success, System saves the payment token (not the card number) and selects it for use.</li>
+      </ol>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A1. Delete Method</b>
+      <ul>
+        <li>At step 1, User manages payment methods in Settings.</li>
+        <li>User removes an old card.</li>
+        <li>System deletes the token (unless active subscriptions depend on it).</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>EXC-01:</b> Verification Failed
+      <ul>
+        <li>Payment Gateway rejects the card (invalid number, expired).</li>
+        <li>System informs the user and requests different details.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">System must not store raw credit card numbers (PCI Compliance).</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>

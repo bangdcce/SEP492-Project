@@ -1,0 +1,97 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-42 View List Of Active Dispute</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">An</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">23/01/2026</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Client, Freelancer, Broker</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">System</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">User navigates to the "My Disputes" or "Resolution Center" section.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allows the user to view a list of ongoing disputes they are involved in, either as the person who raised the dispute or the defendant. This serves as the central hub for tracking the progress of resolution, viewing status updates, and accessing detailed dispute information.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user is logged into the system.<br>
+      <b>PRE2:</b> The user is involved in at least one active or past dispute.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> A list of the user's disputes is displayed.<br>
+      <b>POS2:</b> The current status (e.g., Pending Evidence, Under Review) is clearly visible.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. View Dispute List</b>
+      <ol>
+        <li>User accesses the Resolution Center from the main menu.</li>
+        <li>System retrieves all disputes linked to the User ID (either as Plaintiff or Defendant).</li>
+        <li>System displays the list of disputes.</li>
+        <li>For each item, the system shows: Related Project, Dispute Reason, Opposing Party Name, Amount in Dispute, and Current Status.</li>
+        <li>User selects a specific dispute to view more details (extensions to UC-44).</li>
+      </ol>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A2. No Disputes</b>
+      <ul>
+        <li>At step 2, if the user has no dispute history, the system displays an empty state message "No active disputes found".</li>
+      </ul>
+      <b>A3. Filter by Status</b>
+      <ul>
+        <li>At step 3, User clicks on "Resolved" tab to view closed cases.</li>
+        <li>System filters the list to show only resolved disputes history.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>EXC-01:</b> System Error
+      <ul>
+        <li>Failed to fetch data.</li>
+        <li>System displays "Temporary error loading disputes".</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Low (Only when issues arise)</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">Users can strictly only view disputes they are a party to (No IDOR).</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">This use case extends to "Create Dispute" (UC-43) and "View Dispute Information" (UC-44).</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>

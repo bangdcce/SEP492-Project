@@ -1,0 +1,108 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-35 Payment</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">An</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">24/01/2026</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Client</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Payment Gateway, System</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">User decides to fund a Milestone or Deposit money into their Wallet.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allows the Client to transfer funds to the system. This is primarily used to secure funds in Escrow for a project milestone before the Freelancer begins work. The user reviews the amount, selects a payment method (if not already selected), and authorizes the transaction.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user is logged in.<br>
+      <b>PRE2:</b> There is a pending financial obligation (e.g., Unfunded Milestone) or the user wishes to top up.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> Funds are deducted from the user's external account or wallet.<br>
+      <b>POS2:</b> Funds are recorded in the System (as Locked/Escrow or Available).<br>
+      <b>POS3:</b> The related entity (Milestone) is marked as "Funded".
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Fund Milestone via External Payment</b>
+      <ol>
+        <li>User views Project/Milestone details.</li>
+        <li>User clicks "Fund Milestone".</li>
+        <li>System displays the payment summary (Amount + Service Fee).</li>
+        <li>System prompts to Select Payment Method (UC-48).</li>
+        <li>User confirms selection and clicks "Pay Now".</li>
+        <li>System redirects to Payment Gateway (or uses saved token).</li>
+        <li>Gateway processes the charge.</li>
+        <li>System receives success confirmation.</li>
+        <li>System creates a Transaction record (Type: DEPOSIT/ESCROW_HOLD).</li>
+        <li>System updates Milestone status to "IN_PROGRESS" or "FUNDED".</li>
+        <li>System notifies Freelancer that work can begin.</li>
+      </ol>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A4. Pay with Wallet Balance</b>
+      <ul>
+        <li>At step 4, User selects "Internal Wallet" (if balance is sufficient).</li>
+        <li>System skips Gateway redistribution and directly deducts from Available Balance.</li>
+      </ul>
+      <b>A7. Payment Failed</b>
+      <ul>
+        <li>At step 7, Gateway declines the transaction.</li>
+        <li>System shows error message and asks User to try another method.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>EXC-01:</b> Timeout
+      <ul>
+        <li>Gateway does not respond.</li>
+        <li>System marks transaction as PENDING and polls for status later.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">High (Every project milestone)</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      BR-25 (Escrow Mandatory): All fixed-price milestones must be funded before work starts.<br>
+      BR-99 (Transaction Fees): System charges x% fee on top of milestone value.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>

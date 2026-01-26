@@ -1,0 +1,97 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-41 Cancel Subscription</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">An</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">23/01/2026</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">User (Client, Broker, Freelancer)</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Payment Gateway</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">User clicks "Cancel Subscription" in their billing settings.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allows the user to stop the auto-renewal of their paid subscription. The subscription benefits typically remain active until the end of the current billing cycle.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user is logged in.<br>
+      <b>PRE2:</b> The user has an active paid subscription.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> The subscription status is set to "Canceled" (or "Pending Cancellation").<br>
+      <b>POS2:</b> No future charges will be attempted.<br>
+      <b>POS3:</b> User receives a confirmation email.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Cancel Subscription Successfully</b>
+      <ol>
+        <li>User navigates to "Settings" > "Billing & Subscription".</li>
+        <li>User views current plan details.</li>
+        <li>User clicks "Cancel Subscription".</li>
+        <li>System displays a confirmation modal (possibly asking for feedback).</li>
+        <li>User confirms the cancellation.</li>
+        <li>System requests the Payment Gateway to cancel the recurring billing profile.</li>
+        <li>System updates the internal subscription record to expire at the end of the current period.</li>
+        <li>System displays success message confirming the end date.</li>
+      </ol>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A5. User Aborts</b>
+      <ul>
+        <li>At step 5, User clicks "Keep my subscription" in the confirmation modal.</li>
+        <li>System closes the modal and takes no action.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>EXC-01:</b> Gateway Error
+      <ul>
+        <li>Unable to communicate with Payment Gateway.</li>
+        <li>System marks request as "Pending Manual Review" and notifies Admin.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Low</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">Subscription benefits continue until the paid period expires. No partial refunds (unless per policy).</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>

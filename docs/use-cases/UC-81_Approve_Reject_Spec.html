@@ -1,0 +1,105 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-81 Approve/Reject Spec</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">An</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">25/01/2026</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Client</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">System, Broker</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">Client receives a notification that a new Project Specification is ready for review.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allows the Client to review the detailed Project Specification submitted by the Broker. The Client can approve the spec to proceed with the project creation or reject it with comments if adjustments are needed.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The Client is logged in.<br>
+      <b>PRE2:</b> A Project Spec exists in "PENDING_APPROVAL" status.<br>
+      <b>PRE3:</b> The Client is the owner of the associated Project Request.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> Spec status updates to "APPROVED" or "REJECTED".<br>
+      <b>POS2:</b> The Project Request status updates accordingly.<br>
+      <b>POS3:</b> The Broker receives a notification of the decision.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Approve Spec</b>
+      <ol>
+        <li>Client views the Project Request details.</li>
+        <li>Client clicks on the "Review Specification" button.</li>
+        <li>System displays the Spec details: Milestones, Budget, Tech Stack, and Features.</li>
+        <li>Client reviews the content and clicks "Approve Spec".</li>
+        <li>System prompts for confirmation "Are you sure you want to approve this budget and plan?".</li>
+        <li>Client confirms.</li>
+        <li>System updates Spec status to APPROVED.</li>
+        <li>System updates Project Request status to SPEC_APPROVED.</li>
+        <li>System logs the approval action.</li>
+      </ol>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A4. Reject Spec</b>
+      <ul>
+        <li>At step 4, Client clicks "Reject Spec".</li>
+        <li>System prompts Client to enter a Rejection Reason (mandatory).</li>
+        <li>Client enters reason (e.g., "Budget too high", "Missing features") and submits.</li>
+        <li>System updates Spec status to REJECTED.</li>
+        <li>System notifies Broker to revise the spec.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>EXC-01:</b> Status Mismatch
+      <ul>
+        <li>Spec was already approved/rejected by another session/admin.</li>
+        <li>System displays error "Spec is no longer pending approval" and refreshes data.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      BR-20 (Governance): Total milestone budget must match agreed project budget.<br>
+      BR-21 (Approval Lock): Once approved, spec cannot be modified without a formal Change Request.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>

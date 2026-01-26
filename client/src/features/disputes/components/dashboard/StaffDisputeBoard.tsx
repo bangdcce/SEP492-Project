@@ -75,7 +75,7 @@ export const StaffDisputeBoard = () => {
       page,
       limit: 20,
       sortBy: "urgency",
-      sortOrder: "DESC",
+      sortOrder: "DESC" as const,
       status: statusFilter === "ALL" ? undefined : statusFilter,
       priority: priorityFilter === "ALL" ? undefined : priorityFilter,
       search: debouncedSearch ? debouncedSearch : undefined,

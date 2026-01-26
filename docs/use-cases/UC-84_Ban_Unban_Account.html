@@ -1,0 +1,106 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-84 Ban/Unban Account</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">An</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">23/01/2026</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Admin</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">System</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">Admin decides to penalize a user or restore access.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allows the Admin to Ban a user (suspending their access to the system) or Unban a user (restoring access). Banning is usually a result of Dispute loss, fraud, or violations of Terms of Service.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> Admin is logged in.<br>
+      <b>PRE2:</b> The target user account is active (for Ban) or banned (for Unban).
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> The "isBanned" flag in the user table is updated.<br>
+      <b>POS2:</b> The user is logged out (if online).<br>
+      <b>POS3:</b> An email notification is sent to the user explaining the action.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Ban User</b>
+      <ol>
+        <li>Admin views User Detail (UC-83).</li>
+        <li>Admin clicks the "Ban Account" button.</li>
+        <li>System displays a modal asking for confirmation and Reason (e.g., "Violated Policy").</li>
+        <li>Admin enters reason and confirms.</li>
+        <li>System updates status to Banned.</li>
+        <li>System triggers BR-35 (Hide Public Requests).</li>
+      </ol>
+      <b>B. Unban User</b>
+      <ol>
+        <li>Admin views a Banned User.</li>
+        <li>Admin clicks "Unban Account".</li>
+        <li>System asks validation "Are you sure?".</li>
+        <li>Admin confirms.</li>
+        <li>System restores access.</li>
+      </ol>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A4. Temporary Ban</b>
+      <ul>
+        <li>At step 4, Admin selects a duration (e.g., 7 days) instead of permanent.</li>
+        <li>System schedules an automatic Unban job.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>EXC-01:</b> Cannot Ban Admin
+      <ul>
+        <li>Admin tries to ban another Super Admin.</li>
+        <li>System denies permission to prevent lockout.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">Medium</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Low</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      BR-35 (Banned user artifacts hidden, projects in review).<br>
+      BR-36 (Banned users excluded from search).
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">Ban actions are strictly logged in Audit Logs.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>

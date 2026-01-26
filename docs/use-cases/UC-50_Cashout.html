@@ -1,0 +1,102 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-50 Cashout</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Created By:</td>
+    <td style="width: 30%; padding: 8px;">An</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;">Date Created:</td>
+    <td style="width: 30%; padding: 8px;">23/01/2026</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Primary Actor:</td>
+    <td style="padding: 8px;">Freelancer, Broker</td>
+    <td style="padding: 8px; font-weight: bold;">Secondary Actors:</td>
+    <td style="padding: 8px;">Admin, Bank/Payment System</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">User clicks "Withdraw Money" in their Wallet.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allows the user to request a withdrawal of their available balance to an external bank account or payment method. The system deducts the amount from the internal wallet and creates a payout request for Admin processing or automated transfer.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>PRE1:</b> The user has a positive "Available Balance" (money not locked in Escrow).<br>
+      <b>PRE2:</b> The user has a linked and verified withdrawal method (Bank/PayPal).<br>
+      <b>PRE3:</b> The withdrawal amount exceeds the minimum threshold.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>POS1:</b> Internal wallet balance is reduced by the withdrawal amount + fee.<br>
+      <b>POS2:</b> A Payout Request is created with status "PENDING".<br>
+      <b>POS3:</b> User receives a notification.
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A. Request Cashout</b>
+      <ol>
+        <li>User clicks "Withdraw" on Wallet page.</li>
+        <li>System prompts for Amount and Destination Account.</li>
+        <li>User enters amount and selects account.</li>
+        <li>System calculates fees and estimates arrival time.</li>
+        <li>User reviews and clicks "Confirm Withdraw".</li>
+        <li>System validates balance sufficient.</li>
+        <li>System creates the Payout Request record (UC-49).</li>
+        <li>System locks the funds.</li>
+        <li>System displays "Withdrawal Requested Successfully".</li>
+      </ol>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>A6. Insufficient Funds</b>
+      <ul>
+        <li>At step 6, User requests more than available balance.</li>
+        <li>System shows error: "Insufficient funds".</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;">
+      <b>EXC-01:</b> Account Suspended
+      <ul>
+        <li>User is banned or restricted.</li>
+        <li>System denies withdrawal and directs to support.</li>
+      </ul>
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">Low (Monthly)</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">
+      BR-29 (Funds in Escrow cannot be withdrawn).<br>
+      BR-31 (Split payouts logic applies to projects, but this UC is for the resulting balance).
+    </td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">Withdrawals typically take 1-3 business days.</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>
