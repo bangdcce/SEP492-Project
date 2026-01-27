@@ -1,7 +1,7 @@
 import { Draggable } from "@hello-pangea/dnd";
 import { GripVertical, Clock, Flag, Layout } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Task } from "../types";
+import type { Task } from "../../types";
 
 const getAssigneeVisuals = (task: Task) => {
   const name = task.assignee?.fullName || task.assignee?.email || "Unassigned";

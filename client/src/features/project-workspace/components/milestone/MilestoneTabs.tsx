@@ -1,7 +1,7 @@
 import { Plus, Flag } from "lucide-react";
-import type { Milestone, Task } from "../types";
+import type { Milestone, Task } from "../../types";
 import { cn } from "@/lib/utils";
-import { calculateProgress } from "../utils";
+import { calculateProgress } from "../../utils";
 
 type MilestoneTabsProps = {
   milestones: Milestone[];
