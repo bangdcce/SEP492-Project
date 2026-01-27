@@ -103,6 +103,7 @@ export const updateProfile = async (data: {
   companyName?: string;
   linkedinUrl?: string;
   cvUrl?: string;
+  timeZone?: string;
 }) => {
   return await apiClient.put('/auth/profile', data);
 };

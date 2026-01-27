@@ -41,10 +41,10 @@ export class UserAvailabilityEntity {
   userId: string;
 
   // === TIME SLOT ===
-  @Column({ type: 'timestamp', nullable: true, comment: 'Thời gian bắt đầu (cho one-time)' })
+  @Column({ type: 'timestamptz', nullable: true, comment: 'Thời gian bắt đầu (cho one-time)' })
   startTime: Date;
 
-  @Column({ type: 'timestamp', nullable: true, comment: 'Thời gian kết thúc (cho one-time)' })
+  @Column({ type: 'timestamptz', nullable: true, comment: 'Thời gian kết thúc (cho one-time)' })
   endTime: Date;
 
   @Column({ type: 'enum', enum: AvailabilityType })

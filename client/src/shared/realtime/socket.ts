@@ -1,5 +1,6 @@
 import { io, type Socket } from "socket.io-client";
 import { API_CONFIG, STORAGE_KEYS } from "@/constants";
+import { getStoredItem } from "@/shared/utils/storage";
 
 let socket: Socket | null = null;
 
@@ -15,7 +16,7 @@ export const getSocket = () => {
 
 export const connectSocket = () => {
   const instance = getSocket();
-  const token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+  const token = getStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
   instance.auth = { token };
 
   if (!instance.connected) {

@@ -8,7 +8,15 @@ import type {
   DisputeSummary,
   PaginatedDisputesResponse,
   DisputeComplexity,
+  DisputeMessage,
 } from "./types/dispute.types";
+import type { DisputePhase } from "../staff/types/staff.types";
+import type { KanbanBoard, Milestone } from "@/features/project-workspace/types";
+
+export interface ProjectBoard {
+  tasks: KanbanBoard;
+  milestones: Milestone[];
+}
 
 const buildQueryParams = (filters?: DisputeFilters) => {
   const params = new URLSearchParams();
@@ -35,6 +43,14 @@ export const getDisputeDetail = async (
   disputeId: string,
 ): Promise<DisputeSummary> => {
   return await apiClient.get<DisputeSummary>(`/disputes/${disputeId}`);
+};
+
+export const getProjectBoard = async (projectId: string): Promise<ProjectBoard> => {
+  return await apiClient.get<ProjectBoard>(`/tasks/board/${projectId}`);
+};
+
+export const updateDisputePhase = async (disputeId: string, phase: DisputePhase) => {
+  return await apiClient.patch(`/disputes/${disputeId}/phase`, { phase });
 };
 
 export const getDisputeActivities = async (
@@ -155,6 +171,22 @@ export const sendDisputeMessage = async (
     hearingId: input.hearingId,
     metadata: input.metadata,
   });
+};
+
+export const getDisputeMessages = async (
+  disputeId: string,
+  params?: { hearingId?: string; limit?: number; includeHidden?: boolean },
+): Promise<DisputeMessage[]> => {
+  const query = new URLSearchParams();
+  if (params?.hearingId) query.append("hearingId", params.hearingId);
+  if (params?.limit) query.append("limit", String(params.limit));
+  if (params?.includeHidden) query.append("includeHidden", "true");
+
+  const response = await apiClient.get(
+    `/disputes/${disputeId}/messages?${query.toString()}`,
+  );
+  const payload = (response as { data?: DisputeMessage[] }).data ?? response;
+  return Array.isArray(payload) ? payload : [];
 };
 
 export const resolveDispute = async (

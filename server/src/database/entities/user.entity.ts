@@ -52,6 +52,9 @@ export class UserEntity {
   @Column({ type: 'varchar', length: 20, nullable: true })
   phoneNumber: string;
 
+  @Column({ type: 'varchar', length: 64, default: 'UTC' })
+  timeZone: string;
+
   @Column({ type: 'boolean', default: false })
   isVerified: boolean;
 

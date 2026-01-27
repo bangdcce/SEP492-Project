@@ -29,6 +29,12 @@ class ApiClient {
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
         }
+        if (typeof Intl !== "undefined") {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          if (tz) {
+            (config.headers as any)["X-Timezone"] = tz;
+          }
+        }
         return config;
       },
       (error) => {

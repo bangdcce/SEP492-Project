@@ -1,5 +1,6 @@
 export * from './create-dispute.dto';
 export * from './update-disputes.dto';
+export * from './update-dispute-phase.dto';
 export * from './resolve-dispute.dto';
 export * from './add-note.dto';
 export * from './defendant-response.dto';

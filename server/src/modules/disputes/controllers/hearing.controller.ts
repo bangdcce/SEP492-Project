@@ -11,6 +11,7 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   UseGuards,
   ParseUUIDPipe,
   HttpStatus,
@@ -23,6 +24,7 @@ import { RolesGuard } from '../../auth/guards/roles.guard';
 import { Roles } from '../../auth/decorators/roles.decorator';
 import { GetUser } from '../../auth/decorators/get-user.decorator';
 import { UserEntity, UserRole } from '../../../database/entities/user.entity';
+import { HearingStatus } from '../../../database/entities/dispute-hearing.entity';
 
 // Service
 import { HearingService } from '../services/hearing.service';
@@ -49,7 +51,7 @@ export class HearingController {
   // ===========================================================================
 
   @Post('schedule')
-  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Schedule a new hearing',
     description: `
@@ -77,11 +79,210 @@ export class HearingController {
   }
 
   // ===========================================================================
+  // LIST HEARINGS BY DISPUTE
+  // ===========================================================================
+
+  @Get('dispute/:disputeId')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.STAFF,
+    UserRole.CLIENT,
+    UserRole.CLIENT_SME,
+    UserRole.FREELANCER,
+    UserRole.BROKER,
+  )
+  @ApiOperation({
+    summary: 'List hearings for a dispute',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'disputeId', type: 'string', format: 'uuid' })
+  async listHearingsForDispute(
+    @Param('disputeId', ParseUUIDPipe) disputeId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingService.getHearingsForDispute(disputeId, user);
+    return { success: true, data };
+  }
+
+  // ===========================================================================
+  // LIST MY HEARINGS (STAFF/ADMIN)
+  // ===========================================================================
+
+  @Get('mine')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'List hearings for the current staff/admin user',
+  })
+  @HttpCode(HttpStatus.OK)
+  async listMyHearings(
+    @GetUser() user: UserEntity,
+    @Query('status') statusRaw?: string,
+    @Query('from') fromRaw?: string,
+    @Query('to') toRaw?: string,
+  ) {
+    const statuses = statusRaw
+      ? statusRaw
+          .split(',')
+          .map((value) => value.trim())
+          .filter((value) => Object.values(HearingStatus).includes(value as HearingStatus))
+      : [];
+
+    if (statusRaw && statuses.length === 0) {
+      throw new BadRequestException('Invalid status filter');
+    }
+
+    const from = fromRaw ? new Date(fromRaw) : undefined;
+    if (fromRaw && Number.isNaN(from?.getTime())) {
+      throw new BadRequestException('Invalid from date');
+    }
+
+    const to = toRaw ? new Date(toRaw) : undefined;
+    if (toRaw && Number.isNaN(to?.getTime())) {
+      throw new BadRequestException('Invalid to date');
+    }
+
+    const data = await this.hearingService.getHearingsForUser(user, {
+      statuses: statuses.length > 0 ? (statuses as HearingStatus[]) : undefined,
+      from,
+      to,
+    });
+
+    return { success: true, data };
+  }
+
+  // ===========================================================================
+  // GET HEARING BY ID
+  // ===========================================================================
+
+  @Get(':hearingId')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.STAFF,
+    UserRole.CLIENT,
+    UserRole.CLIENT_SME,
+    UserRole.FREELANCER,
+    UserRole.BROKER,
+  )
+  @ApiOperation({
+    summary: 'Get hearing details',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async getHearingById(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingService.getHearingById(hearingId, user);
+    return { success: true, data };
+  }
+
+  // ===========================================================================
+  // HEARING STATEMENTS
+  // ===========================================================================
+
+  @Get(':hearingId/statements')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.STAFF,
+    UserRole.CLIENT,
+    UserRole.CLIENT_SME,
+    UserRole.FREELANCER,
+    UserRole.BROKER,
+  )
+  @ApiOperation({
+    summary: 'List hearing statements',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async listHearingStatements(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @Query('includeDrafts') includeDraftsRaw: string | undefined,
+    @GetUser() user: UserEntity,
+  ) {
+    const includeDrafts = includeDraftsRaw === 'true';
+    const data = await this.hearingService.getHearingStatements(hearingId, user, {
+      includeDrafts,
+    });
+    return { success: true, data };
+  }
+
+  // ===========================================================================
+  // HEARING QUESTIONS
+  // ===========================================================================
+
+  @Get(':hearingId/questions')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.STAFF,
+    UserRole.CLIENT,
+    UserRole.CLIENT_SME,
+    UserRole.FREELANCER,
+    UserRole.BROKER,
+  )
+  @ApiOperation({
+    summary: 'List hearing questions',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async listHearingQuestions(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingService.getHearingQuestions(hearingId, user);
+    return { success: true, data };
+  }
+
+  // ===========================================================================
+  // HEARING TIMELINE
+  // ===========================================================================
+
+  @Get(':hearingId/timeline')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.STAFF,
+    UserRole.CLIENT,
+    UserRole.CLIENT_SME,
+    UserRole.FREELANCER,
+    UserRole.BROKER,
+  )
+  @ApiOperation({
+    summary: 'Get hearing timeline details',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async getHearingTimeline(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingService.getHearingTimeline(hearingId, user);
+    return { success: true, data };
+  }
+
+  // ===========================================================================
+  // HEARING ATTENDANCE ANALYTICS
+  // ===========================================================================
+
+  @Get(':hearingId/attendance')
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @ApiOperation({
+    summary: 'Get hearing attendance and no-show analytics',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async getHearingAttendance(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingService.getHearingAttendance(hearingId, user);
+    return { success: true, data };
+  }
+
+  // ===========================================================================
   // PARTICIPANT CHECK
   // ===========================================================================
 
   @Get('validate-schedule')
-  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Validate hearing schedule',
     description: 'Checks for conflicts and rule violations before scheduling.',

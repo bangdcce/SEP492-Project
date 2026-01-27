@@ -13,6 +13,7 @@ import {
   Query,
   Body,
   UseGuards,
+  Headers,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -609,12 +610,17 @@ export class CalendarController {
   @Post('availability')
   @ApiOperation({ summary: 'Set user availability' })
   @HttpCode(HttpStatus.OK)
-  async setAvailability(@Body() dto: SetAvailabilityDto, @GetUser() user: UserEntity) {
+  async setAvailability(
+    @Body() dto: SetAvailabilityDto,
+    @GetUser() user: UserEntity,
+    @Headers('x-timezone') headerTimeZone?: string,
+  ) {
     const result = await this.availabilityService.setUserAvailability({
       userId: user.id,
       slots: dto.slots,
       recurring: dto.recurring,
       allowConflicts: dto.allowConflicts,
+      timeZone: dto.timeZone || headerTimeZone,
     });
 
     return {
@@ -695,11 +701,11 @@ export class CalendarController {
           .filter((value) => value.length > 0)
       : [];
 
-    const staffQuery = this.userRepository.createQueryBuilder('user').where('user.role = :role', {
-      role: UserRole.STAFF,
-    });
+    const staffQuery = this.userRepository.createQueryBuilder('user');
     if (staffIds.length > 0) {
-      staffQuery.andWhere('user.id IN (:...staffIds)', { staffIds });
+      staffQuery.where('user.id IN (:...staffIds)', { staffIds });
+    } else {
+      staffQuery.where('user.role = :role', { role: UserRole.STAFF });
     }
     const staff = await staffQuery.getMany();
     const targetStaffIds = staff.map((item) => item.id);

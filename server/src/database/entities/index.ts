@@ -40,6 +40,7 @@ export {
   DisputeCategory,
   DisputePriority,
   DisputeType,
+  DisputePhase,
 } from './dispute.entity';
 export { DisputeNoteEntity } from './dispute-note.entity';
 export { DisputeActivityEntity, DisputeAction } from './dispute-activity.entity';

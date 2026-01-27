@@ -74,10 +74,10 @@ export class CalendarEventEntity {
   status: EventStatus;
 
   // === TIMING ===
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   startTime: Date;
 
-  @Column({ type: 'timestamp' })
+  @Column({ type: 'timestamptz' })
   endTime: Date;
 
   @Column({ type: 'int', comment: 'Thời lượng (phút)' })

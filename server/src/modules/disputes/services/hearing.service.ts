@@ -603,6 +603,635 @@ export class HearingService {
   }
 
   // ===========================================================================
+  // LIST HEARINGS
+  // ===========================================================================
+
+  private async ensureDisputeAccessForHearings(
+    disputeId: string,
+    user: UserEntity,
+  ): Promise<DisputeEntity> {
+    const dispute = await this.disputeRepository.findOne({
+      where: { id: disputeId },
+      select: ['id', 'raisedById', 'defendantId', 'assignedStaffId', 'escalatedToAdminId'],
+    });
+
+    if (!dispute) {
+      throw new NotFoundException(`Dispute ${disputeId} not found`);
+    }
+
+    if (user.role === UserRole.ADMIN) {
+      return dispute;
+    }
+
+    const isParty = user.id === dispute.raisedById || user.id === dispute.defendantId;
+    const isAssignedStaff = user.role === UserRole.STAFF && user.id === dispute.assignedStaffId;
+    const isEscalatedAdmin = user.id === dispute.escalatedToAdminId;
+
+    if (isParty || isAssignedStaff || isEscalatedAdmin) {
+      return dispute;
+    }
+
+    const participant = await this.participantRepository
+      .createQueryBuilder('participant')
+      .innerJoin('participant.hearing', 'hearing')
+      .where('hearing.disputeId = :disputeId', { disputeId })
+      .andWhere('participant.userId = :userId', { userId: user.id })
+      .getOne();
+
+    if (!participant) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    return dispute;
+  }
+
+  private mapParticipantSummary(participant: HearingParticipantEntity) {
+    return {
+      id: participant.id,
+      userId: participant.userId,
+      role: participant.role,
+      isRequired: participant.isRequired,
+      isOnline: participant.isOnline,
+      confirmedAt: participant.confirmedAt,
+      joinedAt: participant.joinedAt,
+      leftAt: participant.leftAt,
+      totalOnlineMinutes: participant.totalOnlineMinutes,
+      responseDeadline: participant.responseDeadline,
+      user: participant.user
+        ? {
+            id: participant.user.id,
+            fullName: participant.user.fullName,
+            email: participant.user.email,
+            role: participant.user.role,
+          }
+        : undefined,
+    };
+  }
+
+  private mapStatementSummary(statement: HearingStatementEntity) {
+    return {
+      id: statement.id,
+      hearingId: statement.hearingId,
+      participantId: statement.participantId,
+      type: statement.type,
+      title: statement.title,
+      content: statement.content,
+      status: statement.status,
+      attachments: statement.attachments,
+      replyToStatementId: statement.replyToStatementId,
+      retractionOfStatementId: statement.retractionOfStatementId,
+      orderIndex: statement.orderIndex,
+      isRedacted: statement.isRedacted,
+      redactedReason: statement.redactedReason,
+      createdAt: statement.createdAt,
+      participant: statement.participant
+        ? {
+            id: statement.participant.id,
+            userId: statement.participant.userId,
+            role: statement.participant.role,
+            user: statement.participant.user
+              ? {
+                  id: statement.participant.user.id,
+                  fullName: statement.participant.user.fullName,
+                  email: statement.participant.user.email,
+                  role: statement.participant.user.role,
+                }
+              : undefined,
+          }
+        : undefined,
+    };
+  }
+
+  private mapQuestionSummary(question: HearingQuestionEntity) {
+    return {
+      id: question.id,
+      hearingId: question.hearingId,
+      askedById: question.askedById,
+      targetUserId: question.targetUserId,
+      question: question.question,
+      answer: question.answer,
+      status: question.status,
+      answeredAt: question.answeredAt,
+      deadline: question.deadline,
+      cancelledAt: question.cancelledAt,
+      cancelledById: question.cancelledById,
+      isRequired: question.isRequired,
+      orderIndex: question.orderIndex,
+      createdAt: question.createdAt,
+      askedBy: question.askedBy
+        ? {
+            id: question.askedBy.id,
+            fullName: question.askedBy.fullName,
+            email: question.askedBy.email,
+            role: question.askedBy.role,
+          }
+        : undefined,
+      targetUser: question.targetUser
+        ? {
+            id: question.targetUser.id,
+            fullName: question.targetUser.fullName,
+            email: question.targetUser.email,
+            role: question.targetUser.role,
+          }
+        : undefined,
+      cancelledBy: question.cancelledBy
+        ? {
+            id: question.cancelledBy.id,
+            fullName: question.cancelledBy.fullName,
+            email: question.cancelledBy.email,
+            role: question.cancelledBy.role,
+          }
+        : undefined,
+    };
+  }
+
+  private mapHearingSummary(hearing: DisputeHearingEntity) {
+    return {
+      id: hearing.id,
+      disputeId: hearing.disputeId,
+      status: hearing.status,
+      scheduledAt: hearing.scheduledAt,
+      startedAt: hearing.startedAt,
+      endedAt: hearing.endedAt,
+      agenda: hearing.agenda,
+      requiredDocuments: hearing.requiredDocuments,
+      externalMeetingLink: hearing.externalMeetingLink,
+      moderatorId: hearing.moderatorId,
+      currentSpeakerRole: hearing.currentSpeakerRole,
+      isChatRoomActive: hearing.isChatRoomActive,
+      estimatedDurationMinutes: hearing.estimatedDurationMinutes,
+      rescheduleCount: hearing.rescheduleCount,
+      previousHearingId: hearing.previousHearingId,
+      lastRescheduledAt: hearing.lastRescheduledAt,
+      hearingNumber: hearing.hearingNumber,
+      tier: hearing.tier,
+      participants: (hearing.participants || []).map((participant) =>
+        this.mapParticipantSummary(participant),
+      ),
+      dispute: hearing.dispute
+        ? {
+            id: hearing.dispute.id,
+            status: hearing.dispute.status,
+            phase: hearing.dispute.phase,
+            priority: hearing.dispute.priority,
+            assignedStaffId: hearing.dispute.assignedStaffId,
+          }
+        : undefined,
+    };
+  }
+
+  async getHearingsForDispute(disputeId: string, user: UserEntity) {
+    await this.ensureDisputeAccessForHearings(disputeId, user);
+
+    const hearings = await this.hearingRepository.find({
+      where: { disputeId },
+      relations: ['participants', 'participants.user'],
+      order: { hearingNumber: 'ASC', scheduledAt: 'ASC' },
+    });
+
+    return hearings.map((hearing) => this.mapHearingSummary(hearing));
+  }
+
+  async getHearingsForUser(
+    user: UserEntity,
+    options: { statuses?: HearingStatus[]; from?: Date; to?: Date } = {},
+  ) {
+    const qb = this.hearingRepository
+      .createQueryBuilder('hearing')
+      .leftJoinAndSelect('hearing.participants', 'participant')
+      .leftJoinAndSelect('participant.user', 'participantUser')
+      .leftJoinAndSelect('hearing.dispute', 'dispute')
+      .where('hearing.moderatorId = :userId OR participant.userId = :userId', {
+        userId: user.id,
+      })
+      .distinct(true);
+
+    if (options.statuses && options.statuses.length > 0) {
+      qb.andWhere('hearing.status IN (:...statuses)', { statuses: options.statuses });
+    }
+
+    if (options.from && options.to) {
+      qb.andWhere('hearing.scheduledAt BETWEEN :from AND :to', {
+        from: options.from,
+        to: options.to,
+      });
+    } else if (options.from) {
+      qb.andWhere('hearing.scheduledAt >= :from', { from: options.from });
+    } else if (options.to) {
+      qb.andWhere('hearing.scheduledAt <= :to', { to: options.to });
+    }
+
+    qb.orderBy('hearing.scheduledAt', 'ASC');
+
+    const hearings = await qb.getMany();
+    return hearings.map((hearing) => this.mapHearingSummary(hearing));
+  }
+
+  private async ensureHearingAccess(
+    hearingId: string,
+    user: UserEntity,
+  ): Promise<DisputeHearingEntity> {
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: hearingId },
+      relations: ['participants', 'participants.user', 'dispute'],
+    });
+
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${hearingId} not found`);
+    }
+
+    if (user.role === UserRole.ADMIN) {
+      return hearing;
+    }
+
+    const isModerator = hearing.moderatorId === user.id;
+    const isParticipant = (hearing.participants || []).some(
+      (participant) => participant.userId === user.id,
+    );
+    const dispute = hearing.dispute;
+    const isParty =
+      dispute &&
+      (user.id === dispute.raisedById || user.id === dispute.defendantId);
+    const isAssignedStaff =
+      user.role === UserRole.STAFF && dispute?.assignedStaffId === user.id;
+    const isEscalatedAdmin = dispute?.escalatedToAdminId === user.id;
+
+    if (!isModerator && !isParticipant && !isParty && !isAssignedStaff && !isEscalatedAdmin) {
+      throw new ForbiddenException('Access denied');
+    }
+
+    return hearing;
+  }
+
+  async getHearingById(hearingId: string, user: UserEntity) {
+    const hearing = await this.ensureHearingAccess(hearingId, user);
+    return this.mapHearingSummary(hearing);
+  }
+
+  async getHearingStatements(
+    hearingId: string,
+    user: UserEntity,
+    options: { includeDrafts?: boolean } = {},
+  ) {
+    const hearing = await this.ensureHearingAccess(hearingId, user);
+
+    const qb = this.statementRepository
+      .createQueryBuilder('statement')
+      .leftJoinAndSelect('statement.participant', 'participant')
+      .leftJoinAndSelect('participant.user', 'participantUser')
+      .where('statement.hearingId = :hearingId', { hearingId });
+
+    const canViewDrafts =
+      user.role === UserRole.ADMIN ||
+      user.role === UserRole.STAFF ||
+      hearing.moderatorId === user.id;
+
+    if (options.includeDrafts && !canViewDrafts) {
+      const participant = await this.participantRepository.findOne({
+        where: { hearingId, userId: user.id },
+      });
+      if (participant) {
+        qb.andWhere(
+          '(statement.status = :submitted OR statement.participantId = :participantId)',
+          {
+            submitted: HearingStatementStatus.SUBMITTED,
+            participantId: participant.id,
+          },
+        );
+      } else {
+        qb.andWhere('statement.status = :submitted', {
+          submitted: HearingStatementStatus.SUBMITTED,
+        });
+      }
+    } else if (!options.includeDrafts) {
+      qb.andWhere('statement.status = :submitted', {
+        submitted: HearingStatementStatus.SUBMITTED,
+      });
+    }
+
+    qb.orderBy('statement.orderIndex', 'ASC').addOrderBy('statement.createdAt', 'ASC');
+
+    const statements = await qb.getMany();
+    return statements.map((statement) => this.mapStatementSummary(statement));
+  }
+
+  async getHearingQuestions(hearingId: string, user: UserEntity) {
+    await this.ensureHearingAccess(hearingId, user);
+
+    const questions = await this.questionRepository.find({
+      where: { hearingId },
+      relations: ['askedBy', 'targetUser', 'cancelledBy'],
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+    });
+
+    return questions.map((question) => this.mapQuestionSummary(question));
+  }
+
+  async getHearingTimeline(hearingId: string, user: UserEntity) {
+    const hearing = await this.ensureHearingAccess(hearingId, user);
+
+    const timeline: Array<{
+      id: string;
+      type: string;
+      occurredAt: Date;
+      title: string;
+      description?: string;
+      actor?: { id: string; fullName?: string; email?: string; role?: string };
+      relatedId?: string;
+    }> = [];
+
+    const formatUserLabel = (userEntity?: UserEntity | null) =>
+      userEntity?.fullName || userEntity?.email || userEntity?.id;
+
+    timeline.push({
+      id: `hearing-scheduled-${hearing.id}`,
+      type: 'HEARING_SCHEDULED',
+      occurredAt: hearing.createdAt,
+      title: 'Hearing scheduled',
+      description: hearing.scheduledAt
+        ? `Scheduled for ${hearing.scheduledAt.toISOString()}`
+        : undefined,
+      relatedId: hearing.id,
+    });
+
+    if (hearing.startedAt) {
+      timeline.push({
+        id: `hearing-started-${hearing.id}`,
+        type: 'HEARING_STARTED',
+        occurredAt: hearing.startedAt,
+        title: 'Hearing started',
+        relatedId: hearing.id,
+      });
+    }
+
+    if (hearing.endedAt) {
+      timeline.push({
+        id: `hearing-ended-${hearing.id}`,
+        type: 'HEARING_ENDED',
+        occurredAt: hearing.endedAt,
+        title: 'Hearing ended',
+        relatedId: hearing.id,
+      });
+    }
+
+    (hearing.participants || []).forEach((participant) => {
+      const actor = participant.user
+        ? {
+            id: participant.user.id,
+            fullName: participant.user.fullName,
+            email: participant.user.email,
+            role: participant.user.role,
+          }
+        : undefined;
+
+      if (participant.joinedAt) {
+        timeline.push({
+          id: `participant-joined-${participant.id}`,
+          type: 'PARTICIPANT_JOINED',
+          occurredAt: participant.joinedAt,
+          title: `${formatUserLabel(participant.user)} joined`,
+          actor,
+          relatedId: participant.userId,
+        });
+      }
+
+      if (participant.leftAt) {
+        timeline.push({
+          id: `participant-left-${participant.id}`,
+          type: 'PARTICIPANT_LEFT',
+          occurredAt: participant.leftAt,
+          title: `${formatUserLabel(participant.user)} left`,
+          actor,
+          relatedId: participant.userId,
+        });
+      }
+    });
+
+    const statements = await this.statementRepository.find({
+      where: { hearingId, status: HearingStatementStatus.SUBMITTED },
+      relations: ['participant', 'participant.user'],
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+    });
+
+    statements.forEach((statement) => {
+      const actor = statement.participant?.user
+        ? {
+            id: statement.participant.user.id,
+            fullName: statement.participant.user.fullName,
+            email: statement.participant.user.email,
+            role: statement.participant.user.role,
+          }
+        : undefined;
+      const actorLabel = statement.participant?.user
+        ? formatUserLabel(statement.participant.user)
+        : 'Participant';
+
+      timeline.push({
+        id: `statement-${statement.id}`,
+        type: 'STATEMENT_SUBMITTED',
+        occurredAt: statement.createdAt,
+        title: `${actorLabel} submitted ${statement.type.toLowerCase()} statement`,
+        description: statement.title || statement.content?.slice(0, 140),
+        actor,
+        relatedId: statement.id,
+      });
+    });
+
+    const questions = await this.questionRepository.find({
+      where: { hearingId },
+      relations: ['askedBy', 'targetUser', 'cancelledBy'],
+      order: { orderIndex: 'ASC', createdAt: 'ASC' },
+    });
+
+    questions.forEach((question) => {
+      const askedByLabel = formatUserLabel(question.askedBy);
+      const targetLabel = formatUserLabel(question.targetUser);
+
+      timeline.push({
+        id: `question-asked-${question.id}`,
+        type: 'QUESTION_ASKED',
+        occurredAt: question.createdAt,
+        title: `${askedByLabel} asked ${targetLabel}`,
+        description: question.question,
+        actor: question.askedBy
+          ? {
+              id: question.askedBy.id,
+              fullName: question.askedBy.fullName,
+              email: question.askedBy.email,
+              role: question.askedBy.role,
+            }
+          : undefined,
+        relatedId: question.id,
+      });
+
+      if (question.answeredAt) {
+        timeline.push({
+          id: `question-answered-${question.id}`,
+          type: 'QUESTION_ANSWERED',
+          occurredAt: question.answeredAt,
+          title: `${targetLabel} answered`,
+          description: question.answer || undefined,
+          actor: question.targetUser
+            ? {
+                id: question.targetUser.id,
+                fullName: question.targetUser.fullName,
+                email: question.targetUser.email,
+                role: question.targetUser.role,
+              }
+            : undefined,
+          relatedId: question.id,
+        });
+      }
+
+      if (question.cancelledAt) {
+        timeline.push({
+          id: `question-cancelled-${question.id}`,
+          type: 'QUESTION_CANCELLED',
+          occurredAt: question.cancelledAt,
+          title: 'Question cancelled',
+          description: question.question,
+          actor: question.cancelledBy
+            ? {
+                id: question.cancelledBy.id,
+                fullName: question.cancelledBy.fullName,
+                email: question.cancelledBy.email,
+                role: question.cancelledBy.role,
+              }
+            : undefined,
+          relatedId: question.id,
+        });
+      }
+    });
+
+    return timeline.sort(
+      (a, b) => new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime(),
+    );
+  }
+
+  async getHearingAttendance(hearingId: string, user: UserEntity) {
+    const hearing = await this.ensureHearingAccess(hearingId, user);
+
+    const now = new Date();
+    const effectiveEnd = hearing.endedAt ?? now;
+    const requiredMinutes = this.getMinimumAttendanceMinutes(hearing.estimatedDurationMinutes);
+
+    const calendarEvent = await this.calendarRepository.findOne({
+      where: { referenceType: 'DisputeHearing', referenceId: hearingId },
+      relations: ['participants', 'participants.user'],
+    });
+
+    const eventParticipants = calendarEvent?.participants ?? [];
+    const eventByUser = new Map(
+      eventParticipants.map((participant) => [participant.userId, participant]),
+    );
+
+    const participants = (hearing.participants || []).map((participant) => {
+      const eventParticipant = eventByUser.get(participant.userId);
+      const attendanceMinutes = Math.floor(
+        this.getParticipantOnlineMinutes(participant, effectiveEnd),
+      );
+      const lateMinutesRaw = participant.joinedAt
+        ? Math.max(
+            0,
+            (participant.joinedAt.getTime() - hearing.scheduledAt.getTime()) / (1000 * 60),
+          )
+        : 0;
+      const computedLateMinutes = Math.floor(lateMinutesRaw);
+
+      let attendanceStatus = eventParticipant?.attendanceStatus ?? AttendanceStatus.NOT_STARTED;
+
+      if (hearing.status !== HearingStatus.SCHEDULED) {
+        if (!participant.joinedAt) {
+          attendanceStatus =
+            hearing.status === HearingStatus.COMPLETED
+              ? AttendanceStatus.NO_SHOW
+              : AttendanceStatus.NOT_STARTED;
+        } else if (!eventParticipant) {
+          if (computedLateMinutes === 0) {
+            attendanceStatus = AttendanceStatus.ON_TIME;
+          } else if (computedLateMinutes <= 15) {
+            attendanceStatus = AttendanceStatus.LATE;
+          } else {
+            attendanceStatus = AttendanceStatus.VERY_LATE;
+          }
+        }
+      }
+
+      const isNoShow =
+        attendanceStatus === AttendanceStatus.NO_SHOW ||
+        (hearing.status === HearingStatus.COMPLETED && attendanceMinutes < requiredMinutes);
+
+      const userSummary = participant.user
+        ? {
+            id: participant.user.id,
+            fullName: participant.user.fullName,
+            email: participant.user.email,
+            role: participant.user.role,
+          }
+        : undefined;
+
+      return {
+        participantId: participant.id,
+        userId: participant.userId,
+        role: participant.role,
+        isRequired: participant.isRequired,
+        confirmedAt: participant.confirmedAt,
+        joinedAt: participant.joinedAt,
+        leftAt: participant.leftAt,
+        isOnline: participant.isOnline,
+        totalOnlineMinutes: participant.totalOnlineMinutes,
+        attendanceMinutes,
+        lateMinutes: eventParticipant?.lateMinutes ?? computedLateMinutes,
+        responseStatus: eventParticipant?.status,
+        attendanceStatus,
+        isNoShow,
+        user: userSummary,
+      };
+    });
+
+    const totalParticipants = participants.length;
+    const requiredParticipants = participants.filter((p) => p.isRequired).length;
+    const presentCount = participants.filter((p) => p.joinedAt).length;
+    const noShowCount = participants.filter((p) => p.isNoShow).length;
+    const onTimeCount = participants.filter(
+      (p) => p.attendanceStatus === AttendanceStatus.ON_TIME,
+    ).length;
+    const lateCount = participants.filter(
+      (p) => p.attendanceStatus === AttendanceStatus.LATE,
+    ).length;
+    const veryLateCount = participants.filter(
+      (p) => p.attendanceStatus === AttendanceStatus.VERY_LATE,
+    ).length;
+
+    const totalAttendanceMinutes = participants.reduce(
+      (sum, p) => sum + (p.attendanceMinutes || 0),
+      0,
+    );
+    const averageAttendanceMinutes =
+      participants.length > 0 ? Math.round(totalAttendanceMinutes / participants.length) : 0;
+
+    return {
+      hearingId: hearing.id,
+      scheduledAt: hearing.scheduledAt,
+      startedAt: hearing.startedAt,
+      endedAt: hearing.endedAt,
+      estimatedDurationMinutes: hearing.estimatedDurationMinutes,
+      requiredAttendanceMinutes: requiredMinutes,
+      totals: {
+        totalParticipants,
+        requiredParticipants,
+        presentCount,
+        noShowCount,
+        onTimeCount,
+        lateCount,
+        veryLateCount,
+        averageAttendanceMinutes,
+      },
+      participants,
+    };
+  }
+
+  // ===========================================================================
   // PRESENCE TRACKING (Call from WebSocket gateway)
   // ===========================================================================
 

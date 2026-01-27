@@ -50,6 +50,7 @@ export class EvidenceController {
   // POST /disputes/:disputeId/evidence - Upload Evidence
   // ===========================================================================
   @Post(':disputeId/evidence')
+  @Roles(UserRole.CLIENT, UserRole.CLIENT_SME, UserRole.FREELANCER, UserRole.BROKER)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -60,7 +61,7 @@ export class EvidenceController {
   @ApiOperation({
     summary: 'Upload evidence for a dispute',
     description:
-      'Upload a file as evidence for a dispute. Only participants (raiser/defendant) and staff/admin can upload. Max 20 files per user per dispute.',
+      'Upload a file as evidence for a dispute. Only participants (raiser/defendant) can upload. Max 20 files per user per dispute.',
   })
   @ApiConsumes('multipart/form-data')
   @ApiParam({ name: 'disputeId', type: 'string', format: 'uuid' })

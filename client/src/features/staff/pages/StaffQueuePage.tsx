@@ -9,7 +9,7 @@ export const StaffQueuePage = () => {
           <p className="text-gray-500">Triage incoming reports effectively.</p>
         </div>
       </div>
-      <StaffDisputeBoard />
+      <StaffDisputeBoard mode="queue" />
     </div>
   );
 };
