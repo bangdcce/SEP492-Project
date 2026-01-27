@@ -1,4 +1,14 @@
-import { Body, Controller, Post, UseGuards, Req, Param, BadRequestException, Get } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Post,
+  UseGuards,
+  Req,
+  Param,
+  BadRequestException,
+  Get,
+  ParseUUIDPipe,
+} from '@nestjs/common';
 import { ProjectSpecsService } from './project-specs.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RolesGuard } from '../auth/guards/roles.guard';
@@ -19,6 +29,11 @@ export class ProjectSpecsController {
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   async getPendingSpecs(@GetUser() user: UserEntity) {
     return this.projectSpecsService.findPendingSpecs();
+  }
+
+  @Get(':id')
+  async getSpec(@Param('id', ParseUUIDPipe) id: string) {
+    return this.projectSpecsService.findOne(id);
   }
 
   @Post()

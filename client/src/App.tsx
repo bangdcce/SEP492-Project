@@ -106,9 +106,14 @@ const StaffCalendarPage = lazy(() =>
     default: m.StaffCalendarPage,
   })),
 );
-const StaffWorkloadPage = lazy(() =>
-  import("@/features/staff/pages/StaffWorkloadPage").then((m) => ({
-    default: m.StaffWorkloadPage,
+const StaffHearingsPage = lazy(() =>
+  import("@/features/staff/pages/StaffHearingsPage").then((m) => ({
+    default: m.StaffHearingsPage,
+  })),
+);
+const StaffHearingRoomPage = lazy(() =>
+  import("@/features/staff/pages/StaffHearingRoomPage").then((m) => ({
+    default: m.StaffHearingRoomPage,
   })),
 );
 
@@ -449,7 +454,8 @@ function App() {
           <Route path="queue" element={<StaffQueuePage />} />
           <Route path="caseload" element={<StaffCaseloadPage />} />
           <Route path="calendar" element={<StaffCalendarPage />} />
-          <Route path="workload" element={<StaffWorkloadPage />} />
+          <Route path="hearings" element={<StaffHearingsPage />} />
+          <Route path="hearings/:hearingId" element={<StaffHearingRoomPage />} />
           <Route path="profile" element={<ProfilePage />} />
           {/* Fallback */}
           <Route index element={<Navigate to="dashboard" replace />} />

@@ -1,5 +1,4 @@
-import { useState, useEffect } from "react";
-import { Mic, MicOff, Users, Clock } from "lucide-react";
+import { Mic, MicOff, Clock } from "lucide-react";
 
 export const HearingRoomStatus = () => {
   // Mock Participant Data
@@ -30,7 +29,7 @@ export const HearingRoomStatus = () => {
     },
   ];
 
-  const [timeLeft, setTimeLeft] = useState(45 * 60); // 45 mins left
+
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

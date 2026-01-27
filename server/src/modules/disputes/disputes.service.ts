@@ -11,6 +11,7 @@ import {
   DisputeEntity,
   DisputeResult,
   DisputeStatus,
+  DisputePhase,
   DisputeCategory,
   DisputePriority,
   DisputeType,
@@ -167,6 +168,41 @@ export class DisputesService {
     }
   >();
 
+  private async buildMessageEventPayload(message: DisputeMessageEntity) {
+    let senderSummary: { id: string; fullName?: string; email?: string; role?: UserRole } | undefined;
+    if (message.senderId) {
+      const sender = await this.userRepo.findOne({
+        where: { id: message.senderId },
+        select: ['id', 'fullName', 'email', 'role'],
+      });
+      if (sender) {
+        senderSummary = {
+          id: sender.id,
+          fullName: sender.fullName,
+          email: sender.email,
+          role: sender.role,
+        };
+      }
+    }
+
+    return {
+      messageId: message.id,
+      disputeId: message.disputeId,
+      hearingId: message.hearingId,
+      senderId: message.senderId || undefined,
+      senderRole: message.senderRole,
+      type: message.type,
+      content: message.content,
+      metadata: message.metadata,
+      replyToMessageId: message.replyToMessageId,
+      relatedEvidenceId: message.relatedEvidenceId,
+      isHidden: message.isHidden,
+      hiddenReason: message.hiddenReason,
+      createdAt: message.createdAt,
+      sender: senderSummary,
+    };
+  }
+
   async create(raisedBy: string, dto: CreateDisputeDto) {
     const {
       projectId,
@@ -316,7 +352,7 @@ export class DisputesService {
       const disputeType = this.determineDisputeType(raiserRole, defendantRole);
 
       const amount = disputedAmount || Number(escrow.totalAmount);
-      const priority = this.calculatePriority(amount, category);
+      const priority = this.calculatePriority(amount, category, project.currency);
 
       const responseDeadline = new Date(
         now.getTime() + DEFAULT_RESPONSE_DEADLINE_DAYS * 24 * 60 * 60 * 1000,
@@ -338,6 +374,7 @@ export class DisputesService {
         disputedAmount: amount,
         reason,
         evidence,
+        phase: DisputePhase.PRESENTATION,
         status: DisputeStatus.PENDING_REVIEW,
         responseDeadline,
         resolutionDeadline,
@@ -435,15 +472,21 @@ export class DisputesService {
       sortBy = DisputeSortBy.URGENCY,
       sortOrder = SortOrder.DESC,
       status,
+      statusIn,
       category,
       priority,
       disputeType,
       projectId,
       raisedById,
       defendantId,
+      assignedStaffId,
       createdFrom,
       createdTo,
       deadlineBefore,
+      deadlineFrom,
+      deadlineTo,
+      minDisputedAmount,
+      maxDisputedAmount,
       overdueOnly,
       urgentOnly,
       appealed,
@@ -457,7 +500,9 @@ export class DisputesService {
       .leftJoinAndSelect('dispute.project', 'project');
 
     // === FILTERS ===
-    if (status) {
+    if (statusIn && statusIn.length > 0) {
+      qb.andWhere('dispute.status IN (:...statusIn)', { statusIn });
+    } else if (status) {
       qb.andWhere('dispute.status = :status', { status });
     }
 
@@ -485,6 +530,10 @@ export class DisputesService {
       qb.andWhere('dispute.defendantId = :defendantId', { defendantId });
     }
 
+    if (assignedStaffId) {
+      qb.andWhere('dispute.assignedStaffId = :assignedStaffId', { assignedStaffId });
+    }
+
     // Date filters
     if (createdFrom) {
       qb.andWhere('dispute.createdAt >= :createdFrom', { createdFrom: new Date(createdFrom) });
@@ -498,6 +547,26 @@ export class DisputesService {
       qb.andWhere('dispute.resolutionDeadline <= :deadlineBefore', {
         deadlineBefore: new Date(deadlineBefore),
       });
+    }
+
+    if (deadlineFrom) {
+      qb.andWhere('dispute.resolutionDeadline >= :deadlineFrom', {
+        deadlineFrom: new Date(deadlineFrom),
+      });
+    }
+
+    if (deadlineTo) {
+      qb.andWhere('dispute.resolutionDeadline <= :deadlineTo', {
+        deadlineTo: new Date(deadlineTo),
+      });
+    }
+
+    if (minDisputedAmount !== undefined) {
+      qb.andWhere('dispute.disputedAmount >= :minDisputedAmount', { minDisputedAmount });
+    }
+
+    if (maxDisputedAmount !== undefined) {
+      qb.andWhere('dispute.disputedAmount <= :maxDisputedAmount', { maxDisputedAmount });
     }
 
     // Special filters
@@ -539,30 +608,29 @@ export class DisputesService {
     if (sortBy === DisputeSortBy.URGENCY) {
       // Custom urgency scoring: priority + deadline proximity
       // Disputes CRITICAL + sắp hết hạn lên đầu
-      qb.addSelect(
-        `CASE 
+      const priorityScoreSql = `CASE 
           WHEN dispute.priority = 'CRITICAL' THEN 4
           WHEN dispute.priority = 'HIGH' THEN 3
           WHEN dispute.priority = 'MEDIUM' THEN 2
           ELSE 1
-        END`,
-        'priorityScore',
-      );
+        END`;
 
-      qb.addSelect(
-        `CASE 
+      const deadlineScoreSql = `CASE 
           WHEN dispute.resolutionDeadline < NOW() THEN 100
           WHEN dispute.resolutionDeadline < NOW() + INTERVAL '24 hours' THEN 50
           WHEN dispute.resolutionDeadline < NOW() + INTERVAL '48 hours' THEN 25
           WHEN dispute.resolutionDeadline < NOW() + INTERVAL '7 days' THEN 10
           ELSE 0
-        END`,
-        'deadlineScore',
-      );
+        END`;
+
+      const urgencyScoreSql = `(${priorityScoreSql}) + (${deadlineScoreSql})`;
+      const urgencyScoreAlias = 'urgencyscore';
+
+      qb.addSelect(urgencyScoreSql, urgencyScoreAlias);
 
       // Sort by combined urgency (higher = more urgent)
       qb.orderBy('dispute.status', 'ASC') // OPEN, IN_MEDIATION first
-        .addOrderBy('priorityScore + deadlineScore', 'DESC')
+        .addOrderBy(urgencyScoreAlias, 'DESC')
         .addOrderBy('dispute.createdAt', 'DESC');
     } else {
       // Standard sorting
@@ -749,13 +817,56 @@ export class DisputesService {
       sortBy = DisputeSortBy.URGENCY,
       sortOrder = SortOrder.DESC,
       status,
+      statusIn,
       category,
       priority,
+      assignedStaffId,
+      createdFrom,
+      createdTo,
+      deadlineBefore,
+      deadlineFrom,
+      deadlineTo,
+      minDisputedAmount,
+      maxDisputedAmount,
     } = filters;
 
-    if (status) qb.andWhere('dispute.status = :status', { status });
+    if (statusIn && statusIn.length > 0) {
+      qb.andWhere('dispute.status IN (:...statusIn)', { statusIn });
+    } else if (status) {
+      qb.andWhere('dispute.status = :status', { status });
+    }
     if (category) qb.andWhere('dispute.category = :category', { category });
     if (priority) qb.andWhere('dispute.priority = :priority', { priority });
+    if (assignedStaffId) {
+      qb.andWhere('dispute.assignedStaffId = :assignedStaffId', { assignedStaffId });
+    }
+    if (createdFrom) {
+      qb.andWhere('dispute.createdAt >= :createdFrom', { createdFrom: new Date(createdFrom) });
+    }
+    if (createdTo) {
+      qb.andWhere('dispute.createdAt <= :createdTo', { createdTo: new Date(createdTo) });
+    }
+    if (deadlineBefore) {
+      qb.andWhere('dispute.resolutionDeadline <= :deadlineBefore', {
+        deadlineBefore: new Date(deadlineBefore),
+      });
+    }
+    if (deadlineFrom) {
+      qb.andWhere('dispute.resolutionDeadline >= :deadlineFrom', {
+        deadlineFrom: new Date(deadlineFrom),
+      });
+    }
+    if (deadlineTo) {
+      qb.andWhere('dispute.resolutionDeadline <= :deadlineTo', {
+        deadlineTo: new Date(deadlineTo),
+      });
+    }
+    if (minDisputedAmount !== undefined) {
+      qb.andWhere('dispute.disputedAmount >= :minDisputedAmount', { minDisputedAmount });
+    }
+    if (maxDisputedAmount !== undefined) {
+      qb.andWhere('dispute.disputedAmount <= :maxDisputedAmount', { maxDisputedAmount });
+    }
 
     // Sorting
     if (sortBy === DisputeSortBy.URGENCY) {
@@ -932,6 +1043,80 @@ export class DisputesService {
     return { allowed: true };
   }
 
+  private getPhaseLabel(phase: DisputePhase): string {
+    switch (phase) {
+      case DisputePhase.PRESENTATION:
+        return 'Presentation';
+      case DisputePhase.CROSS_EXAMINATION:
+        return 'Cross-examination';
+      case DisputePhase.INTERROGATION:
+        return 'Interrogation';
+      case DisputePhase.DELIBERATION:
+        return 'Deliberation';
+      default:
+        return 'Presentation';
+    }
+  }
+
+  private getPhaseAccess(
+    phase: DisputePhase,
+    senderId: string,
+    dispute: DisputeEntity,
+  ): { allowed: boolean; reason?: string } {
+    const isRaiser = dispute.raisedById === senderId;
+    const isDefendant = dispute.defendantId === senderId;
+
+    switch (phase) {
+      case DisputePhase.PRESENTATION:
+        return isRaiser
+          ? { allowed: true }
+          : { allowed: false, reason: 'Only the raiser can speak in the presentation phase.' };
+      case DisputePhase.CROSS_EXAMINATION:
+        return isDefendant
+          ? { allowed: true }
+          : {
+              allowed: false,
+              reason: 'Only the defendant can speak in the cross-examination phase.',
+            };
+      case DisputePhase.INTERROGATION:
+        return {
+          allowed: false,
+          reason: 'Only staff or admin can speak in the interrogation phase.',
+        };
+      case DisputePhase.DELIBERATION:
+        return {
+          allowed: false,
+          reason: 'Chat is locked during deliberation.',
+        };
+      default:
+        return { allowed: true };
+    }
+  }
+
+  private async logSystemMessage(
+    disputeId: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<DisputeMessageEntity> {
+    const message = this.messageRepo.create({
+      disputeId,
+      senderId: null,
+      senderRole: 'SYSTEM',
+      type: MessageType.SYSTEM_LOG,
+      content,
+      metadata,
+    });
+
+    const savedMessage = await this.messageRepo.save(message);
+
+    this.eventEmitter.emit(
+      DISPUTE_EVENTS.MESSAGE_SENT,
+      await this.buildMessageEventPayload(savedMessage),
+    );
+
+    return savedMessage;
+  }
+
   async sendDisputeMessage(
     dto: SendDisputeMessageDto,
     senderId: string,
@@ -947,6 +1132,14 @@ export class DisputesService {
 
     if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
       throw new BadRequestException('Cannot send messages to a closed dispute');
+    }
+
+    const phase = dispute.phase ?? DisputePhase.PRESENTATION;
+    const isSystemType = [MessageType.SYSTEM_LOG, MessageType.ADMIN_ANNOUNCEMENT].includes(
+      dto.type,
+    );
+    if (phase === DisputePhase.DELIBERATION && !isSystemType) {
+      throw new ForbiddenException('Chat is locked during deliberation.');
     }
 
     const isStaffOrAdmin = [UserRole.STAFF, UserRole.ADMIN].includes(senderRole);
@@ -976,6 +1169,11 @@ export class DisputesService {
     }
 
     if (!isStaffOrAdmin) {
+      const access = this.getPhaseAccess(phase, senderId, dispute);
+      if (!access.allowed) {
+        throw new ForbiddenException(access.reason || 'You cannot send messages in this phase.');
+      }
+
       const lockStatus = await this.settlementService.checkChatLockStatus(dispute.id, senderId);
       if (lockStatus.isLocked) {
         throw new ForbiddenException(lockStatus.reason || 'Chat is locked');
@@ -1041,17 +1239,105 @@ export class DisputesService {
 
     const savedMessage = await this.messageRepo.save(message);
 
-    this.eventEmitter.emit(DISPUTE_EVENTS.MESSAGE_SENT, {
-      messageId: savedMessage.id,
-      disputeId: savedMessage.disputeId,
-      hearingId: savedMessage.hearingId,
-      senderId: savedMessage.senderId,
-      senderRole: savedMessage.senderRole,
-      type: savedMessage.type,
-      createdAt: savedMessage.createdAt,
-    });
+    this.eventEmitter.emit(
+      DISPUTE_EVENTS.MESSAGE_SENT,
+      await this.buildMessageEventPayload(savedMessage),
+    );
 
     return savedMessage;
+  }
+
+  async getDisputeMessages(
+    disputeId: string,
+    userId: string,
+    userRole: UserRole,
+    options: { hearingId?: string; limit?: number; includeHidden?: boolean } = {},
+  ): Promise<DisputeMessageEntity[]> {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+      select: ['id', 'raisedById', 'defendantId', 'assignedStaffId', 'escalatedToAdminId'],
+    });
+
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    const isStaffOrAdmin = [UserRole.STAFF, UserRole.ADMIN].includes(userRole);
+    const isParty = userId === dispute.raisedById || userId === dispute.defendantId;
+    const isAssignedStaff = userRole === UserRole.STAFF && userId === dispute.assignedStaffId;
+    const isEscalatedAdmin = userId === dispute.escalatedToAdminId;
+
+    if (!isStaffOrAdmin && !isParty && !isAssignedStaff && !isEscalatedAdmin) {
+      throw new ForbiddenException('You are not allowed to view messages for this dispute');
+    }
+
+    if (options.hearingId) {
+      const hearing = await this.hearingRepo.findOne({
+        where: { id: options.hearingId },
+        select: ['id', 'disputeId'],
+      });
+      if (!hearing || hearing.disputeId !== dispute.id) {
+        throw new BadRequestException('Hearing does not belong to this dispute');
+      }
+    }
+
+    const limit = options.limit && options.limit > 0 ? Math.min(options.limit, 200) : 50;
+
+    const qb = this.messageRepo
+      .createQueryBuilder('message')
+      .leftJoinAndSelect('message.sender', 'sender')
+      .where('message.disputeId = :disputeId', { disputeId })
+      .orderBy('message.createdAt', 'ASC')
+      .take(limit);
+
+    if (options.hearingId) {
+      qb.andWhere('message.hearingId = :hearingId', { hearingId: options.hearingId });
+    }
+
+    if (!isStaffOrAdmin || !options.includeHidden) {
+      qb.andWhere('message.isHidden = :isHidden', { isHidden: false });
+    }
+
+    return await qb.getMany();
+  }
+
+  async updatePhase(
+    disputeId: string,
+    phase: DisputePhase,
+    actorId: string,
+    actorRole: UserRole,
+  ): Promise<DisputeEntity> {
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(actorRole)) {
+      throw new ForbiddenException('Only staff or admin can update dispute phase');
+    }
+
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+    });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
+      throw new BadRequestException('Cannot change phase for a closed dispute');
+    }
+
+    const previousPhase = dispute.phase ?? DisputePhase.PRESENTATION;
+    if (previousPhase === phase) {
+      return dispute;
+    }
+
+    dispute.phase = phase;
+    const updated = await this.disputeRepo.save(dispute);
+
+    await this.logSystemMessage(dispute.id, `Phase changed to ${this.getPhaseLabel(phase)}.`, {
+      previousPhase,
+      newPhase: phase,
+      updatedById: actorId,
+      updatedByRole: actorRole,
+    });
+
+    return updated;
   }
 
   async hideMessage(
@@ -1834,10 +2120,21 @@ export class DisputesService {
       throw new NotFoundException(`User "${adminId}" not found`);
     }
 
+    const now = new Date();
+    const shouldAssign =
+      !dispute.assignedStaffId && reviewer.role === UserRole.STAFF && reviewer.id;
+    if (shouldAssign) {
+      dispute.assignedStaffId = reviewer.id;
+      dispute.assignedAt = now;
+    }
+
     const previousStatus = dispute.status;
     dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.IN_MEDIATION);
     const saved = await this.disputeRepo.save(dispute);
-    const now = new Date();
+
+    if (shouldAssign) {
+      await this.staffAssignmentService.incrementPendingDisputes(reviewer.id, disputeId);
+    }
 
     const isReviewAcceptance = [
       DisputeStatus.OPEN,
@@ -2998,17 +3295,28 @@ export class DisputesService {
   /**
    * Tính priority dựa trên số tiền và category
    */
-  private calculatePriority(amount: number, category?: DisputeCategory): DisputePriority {
+  private calculatePriority(
+    amount: number,
+    category?: DisputeCategory,
+    currency: string = 'VND',
+  ): DisputePriority {
     // FRAUD luôn là CRITICAL
     if (category === DisputeCategory.FRAUD) {
       return DisputePriority.CRITICAL;
     }
 
-    // Dựa trên số tiền (USD)
-    if (amount < 100) return DisputePriority.LOW; // < $100
-    if (amount < 1000) return DisputePriority.MEDIUM; // $100 - $1,000
-    if (amount < 5000) return DisputePriority.HIGH; // $1,000 - $5,000
-    return DisputePriority.CRITICAL; // > $5,000
+    const safeAmount = Number.isFinite(amount) ? amount : 0;
+    const normalizedCurrency = (currency || 'VND').toUpperCase();
+
+    const thresholds =
+      normalizedCurrency === 'VND'
+        ? { low: 1_000_000, medium: 10_000_000, high: 50_000_000 }
+        : { low: 100, medium: 1000, high: 5000 };
+
+    if (safeAmount < thresholds.low) return DisputePriority.LOW;
+    if (safeAmount < thresholds.medium) return DisputePriority.MEDIUM;
+    if (safeAmount < thresholds.high) return DisputePriority.HIGH;
+    return DisputePriority.CRITICAL;
   }
 
   /**

@@ -112,6 +112,15 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   cvUrl?: string;
+
+  @ApiProperty({
+    description: 'Múi giờ IANA (ví dụ: Asia/Ho_Chi_Minh)',
+    example: 'Asia/Ho_Chi_Minh',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  timeZone?: string;
 }
 
 import { AuthResponseDto } from './auth-response.dto';

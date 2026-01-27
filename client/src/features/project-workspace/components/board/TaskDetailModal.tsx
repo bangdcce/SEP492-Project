@@ -6,7 +6,6 @@ import {
   User,
   Link2,
   CheckCircle2,
-  Send,
   ExternalLink,
   Loader2,
   MoreHorizontal,
@@ -258,7 +257,7 @@ export function TaskDetailModal({
   const handleStatusChange = async (newStatus: KanbanColumnKey) => {
     if (!task) return;
     try {
-      const result = await updateTaskStatus(task.id, newStatus);
+      await updateTaskStatus(task.id, newStatus);
       setTask({ ...task, status: newStatus });
       onUpdate?.({ ...task, status: newStatus }); // Notify parent
     } catch (error) {
@@ -426,7 +425,7 @@ export function TaskDetailModal({
                          ) : timelineItems.length === 0 ? (
                              <p className="text-sm text-gray-500 text-center py-4">No recent activity.</p>
                          ) : (
-                             timelineItems.map((item, idx) => {
+                             timelineItems.map((item) => {
                                  if (item.type === 'history') {
                                      const record = item.data;
                                      return (

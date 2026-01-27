@@ -17,6 +17,7 @@ import { DisputesService } from './disputes.service';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { JwtAuthGuard, Roles, RolesGuard, GetUser } from '../auth';
 import { UpdateDisputeDto } from './dto/update-disputes.dto';
+import { UpdateDisputePhaseDto } from './dto/update-dispute-phase.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { DefendantResponseDto } from './dto/defendant-response.dto';
@@ -49,9 +50,15 @@ export class DisputesController {
    *
    * Smart sorting: Disputes gần hết hạn + priority cao sẽ được đẩy lên đầu
    */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
   @Get()
-  async getListDisputes(@Query() filters: DisputeFilterDto) {
-    return await this.disputesService.getAll(filters);
+  async getListDisputes(@GetUser() user: UserEntity, @Query() filters: DisputeFilterDto) {
+    const effectiveFilters: DisputeFilterDto = { ...filters };
+    if (user.role === UserRole.STAFF) {
+      effectiveFilters.assignedStaffId = user.id;
+    }
+    return await this.disputesService.getAll(effectiveFilters);
   }
 
   /**
@@ -115,6 +122,34 @@ export class DisputesController {
       success: true,
       message: 'Message sent',
       data: result,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':disputeId/messages')
+  async listDisputeMessages(
+    @Param('disputeId', ParseUUIDPipe) disputeId: string,
+    @Query('hearingId') hearingId: string | undefined,
+    @Query('limit') limitRaw: string | undefined,
+    @Query('includeHidden') includeHiddenRaw: string | undefined,
+    @GetUser() user: UserEntity,
+  ) {
+    const limit = limitRaw ? Number(limitRaw) : undefined;
+    if (limitRaw && (!Number.isFinite(limit) || limit <= 0)) {
+      throw new BadRequestException('Invalid limit');
+    }
+
+    const includeHidden = includeHiddenRaw === 'true';
+
+    const data = await this.disputesService.getDisputeMessages(disputeId, user.id, user.role, {
+      hearingId,
+      limit,
+      includeHidden,
+    });
+
+    return {
+      success: true,
+      data,
     };
   }
 
@@ -300,6 +335,21 @@ export class DisputesController {
   // ADMIN ENDPOINTS
   // =============================================================================
 
+  /**
+   * Update dispute moderation phase
+   * PATCH /disputes/:id/phase
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch(':id/phase')
+  async updateDisputePhase(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateDisputePhaseDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.updatePhase(id, dto.phase, user.id, user.role);
+  }
+
 
   /**
    * Staff/Admin request additional info before preliminary review
@@ -358,7 +408,13 @@ export class DisputesController {
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @Patch(':id/escalate')
   async escalateDispute(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
-    return await this.disputesService.escalateToMediation(user.id, id);
+    const dispute = await this.disputesService.escalateToMediation(user.id, id);
+    try {
+      await this.disputesService.escalateToHearing(id, user.id);
+    } catch (error) {
+      // Accept dispute even if auto-scheduling fails; log handled inside service/logger.
+    }
+    return dispute;
   }
 
   /**
