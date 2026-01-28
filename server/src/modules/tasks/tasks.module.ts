@@ -5,6 +5,7 @@ import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import { CalendarEventEntity } from '../../database/entities/calendar-event.entity';
 import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
 import { TaskCommentEntity } from '../../database/entities/task-comment.entity';
+import { TaskAttachmentEntity } from './entities/task-attachment.entity';
 import { TasksService } from './tasks.service';
 import { TasksController } from './tasks.controller';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
@@ -17,6 +18,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
       CalendarEventEntity,
       TaskHistoryEntity,
       TaskCommentEntity,
+      TaskAttachmentEntity,
     ]),
     AuditLogsModule, // For audit logging task submissions
   ],

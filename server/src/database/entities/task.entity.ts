@@ -4,6 +4,7 @@ import {
   PrimaryGeneratedColumn,
   CreateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
 } from 'typeorm';
 
@@ -106,4 +107,7 @@ export class TaskEntity {
 
   @Column({ type: 'simple-array', nullable: true })
   labels: string[];
+
+  @OneToMany('TaskAttachmentEntity', 'task')
+  attachments: any[];
 }

@@ -8,7 +8,7 @@ import {
   Loader2,
   ShieldAlert,
 } from "lucide-react";
-import type { Milestone, Task } from "../types";
+import type { Milestone, Task } from "../../types";
 
 interface MilestoneApprovalCardProps {
   milestone: Milestone;
