@@ -5,6 +5,7 @@ import type {
   CreateEventRequest,
   RescheduleRequest,
   RescheduleRequestFilter,
+  AvailabilityType,
 } from "./types";
 
 export interface CalendarEventsResponse {
@@ -19,6 +20,19 @@ export interface RescheduleRequestsResponse {
   total: number;
   page?: number;
   limit?: number;
+}
+
+export interface AvailabilitySlotInput {
+  startTime: string;
+  endTime: string;
+  type: AvailabilityType;
+  note?: string;
+}
+
+export interface SetAvailabilityRequest {
+  slots: AvailabilitySlotInput[];
+  allowConflicts?: boolean;
+  timeZone?: string;
 }
 
 const BASE_URL = "/calendar";
@@ -36,7 +50,7 @@ export const getEvents = async (
 
   const response = await apiClient.get(`${BASE_URL}/events?${params.toString()}`);
   const payload = response as { data?: CalendarEventsResponse } | CalendarEventsResponse;
-  return (payload.data ?? payload) as CalendarEventsResponse;
+  return ((payload as any).data ?? payload) as CalendarEventsResponse;
 };
 
 export const getRescheduleRequests = async (
@@ -51,7 +65,7 @@ export const getRescheduleRequests = async (
 
   const response = await apiClient.get(`/calendar/reschedule-requests?${params.toString()}`);
   const payload = response as { data?: RescheduleRequestsResponse } | RescheduleRequestsResponse;
-  return (payload.data ?? payload) as RescheduleRequestsResponse;
+  return ((payload as any).data ?? payload) as RescheduleRequestsResponse;
 };
 
 export const processRescheduleRequest = async (input: {
@@ -67,11 +81,18 @@ export const createEvent = async (data: CreateEventRequest) => {
   return await apiClient.post(`${BASE_URL}/events`, data);
 };
 
+export const setAvailability = async (input: SetAvailabilityRequest) => {
+  return await apiClient.post(`${BASE_URL}/availability`, input);
+};
+
 export const getStaffAvailability = async (
   startDate: string,
   endDate: string,
+  staffIds?: string[],
 ) => {
-  return await apiClient.get(`${BASE_URL}/availability/staff`, {
-    params: { startDate, endDate },
-  });
+  const params: Record<string, string> = { startDate, endDate };
+  if (staffIds && staffIds.length > 0) {
+    params.staffIds = staffIds.join(",");
+  }
+  return await apiClient.get(`${BASE_URL}/availability/staff`, { params });
 };

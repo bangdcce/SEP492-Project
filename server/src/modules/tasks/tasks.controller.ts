@@ -10,7 +10,10 @@ import {
   InternalServerErrorException,
   Req,
   UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import {
   TasksService,
@@ -56,6 +59,22 @@ export class TasksController {
   @Get(':id/comments')
   getTaskComments(@Param('id') id: string) {
     return this.tasksService.getTaskComments(id);
+  }
+
+  @Post('upload-attachment')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB max
+      },
+    }),
+  )
+  async uploadAttachment(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    return this.tasksService.uploadFile(file);
   }
 
   @Post(':id/comments')

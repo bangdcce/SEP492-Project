@@ -4,7 +4,7 @@ import { format, addMonths, subMonths } from "date-fns";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 
 import { cn } from "@/lib/utils";
-import type { Task } from "../types";
+import type { Task } from "../../types";
 
 // Import modular calendar components
 import {
@@ -16,7 +16,7 @@ import {
   tasksToCalendarEvents,
   type CalendarViewType,
   type CalendarEvent,
-} from "./calendar";
+} from "./index";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES

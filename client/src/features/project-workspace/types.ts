@@ -9,6 +9,16 @@ export type Assignee = {
 
 export type TaskPriority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 
+export type TaskAttachment = {
+  id: string;
+  taskId: string;
+  uploaderId: string;
+  url: string;
+  fileName: string;
+  fileType: string;
+  createdAt: string;
+};
+
 export type Task = {
   id: string;
   title: string;
@@ -32,11 +42,13 @@ export type Task = {
   submissionNote?: string | null;
   proofLink?: string | null;
   submittedAt?: string | null;
+  attachments?: TaskAttachment[];
 };
 
 export type Milestone = {
   id: string;
   projectId: string;
+  projectSpecId?: string | null;
   title: string;
   description?: string;
   amount: number;

@@ -59,6 +59,13 @@ export enum DisputeType {
   BROKER_VS_FREELANCER = 'BROKER_VS_FREELANCER',
 }
 
+export enum DisputePhase {
+  PRESENTATION = 'PRESENTATION', // Raiser presents claims and evidence
+  CROSS_EXAMINATION = 'CROSS_EXAMINATION', // Defendant responds
+  INTERROGATION = 'INTERROGATION', // Staff/Admin questions
+  DELIBERATION = 'DELIBERATION', // Read-only while reviewing
+}
+
 // =============================================================================
 // ENTITY
 // =============================================================================
@@ -146,6 +153,10 @@ export class DisputeEntity {
 
   @Column({ type: 'timestamp', nullable: true })
   dismissalHoldUntil: Date;
+
+  // === MODERATION PHASE ===
+  @Column({ type: 'enum', enum: DisputePhase, default: DisputePhase.PRESENTATION })
+  phase: DisputePhase;
 
   // === STATUS & RESULT ===
   @Column({

@@ -254,13 +254,7 @@ function addVisualProtection() {
  * 7. Monitor suspicious activity
  */
 function monitorSuspiciousActivity() {
-  // Track rapid screenshot attempts
-  let screenshotAttempts = 0;
-  const resetInterval = 60000; // Reset every minute
 
-  setInterval(() => {
-    screenshotAttempts = 0;
-  }, resetInterval);
 
   // Monitor clipboard
   document.addEventListener('copy', (e) => {

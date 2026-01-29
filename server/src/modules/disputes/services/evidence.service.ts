@@ -624,6 +624,15 @@ export class EvidenceService {
       return { success: false, error: 'Cannot upload evidence to a resolved dispute' };
     }
 
+    if (uploaderRole === UserRole.STAFF || uploaderRole === UserRole.ADMIN) {
+      return { success: false, error: 'Staff cannot upload evidence for disputes' };
+    }
+
+    const isParticipant = dispute.raisedById === uploaderId || dispute.defendantId === uploaderId;
+    if (!isParticipant) {
+      return { success: false, error: 'Only dispute participants can upload evidence' };
+    }
+
     // 2. Validate file
     const validation = this.validateFileUpload(fileName, fileSize, mimeType);
     if (!validation.isValid) {

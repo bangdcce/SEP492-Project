@@ -6,7 +6,6 @@ import {
   User,
   Link2,
   CheckCircle2,
-  Send,
   ExternalLink,
   Loader2,
   MoreHorizontal,
@@ -15,9 +14,12 @@ import {
   Flag,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Task, TaskPriority, KanbanColumnKey } from "../types";
+import RichTextEditor from "../editor/RichTextEditor";
+import AttachmentGallery from "./AttachmentGallery";
+import "highlight.js/styles/github.css";
+import type { Task, TaskPriority, KanbanColumnKey } from "../../types";
 import { MOCK_SPEC_FEATURES } from "./CreateTaskModal";
-import { updateTask, updateTaskStatus, fetchTaskHistory } from "../api";
+import { updateTask, updateTaskStatus, fetchTaskHistory } from "../../api";
 
 // Helper for robust date parsing (force UTC if naked ISO)
 const normalizeToUTC = (d: string | Date | undefined): Date => {
@@ -156,7 +158,7 @@ function EditableText({
 
 // Helper for "All" tab sorting
 type TimelineItem =
-  | { type: "history"; data: import("../types").TaskHistory; date: Date }
+  | { type: "history"; data: import("../../types").TaskHistory; date: Date }
   | { type: "comment"; date: Date }; // Placeholder for comment type until real comments exist
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -180,13 +182,20 @@ export function TaskDetailModal({
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   // History State
-  const [history, setHistory] = useState<import("../types").TaskHistory[]>([]);
-  const [comments, setComments] = useState<import("../types").TaskComment[]>([]);
+  const [history, setHistory] = useState<import("../../types").TaskHistory[]>([]);
+  const [comments, setComments] = useState<import("../../types").TaskComment[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [isSavingComment, setIsSavingComment] = useState(false);
+  const [visibleHistoryCount, setVisibleHistoryCount] = useState(5);
 
   useEffect(() => {
     setTask(initialTask);
   }, [initialTask]);
+
+  useEffect(() => {
+    setVisibleHistoryCount(5);
+  }, [task?.id, activeTab]);
 
   // Load History & Comments when tab changes
   useEffect(() => {
@@ -199,7 +208,7 @@ export function TaskDetailModal({
                 .finally(() => setLoadingHistory(false));
         }
         if (activeTab === 'comments' || activeTab === 'all') {
-            import("../api").then(api => {
+            import("../../api").then(api => {
                 api.fetchTaskComments(task.id)
                     .then(setComments)
                     .catch(console.error);
@@ -248,7 +257,7 @@ export function TaskDetailModal({
   const handleStatusChange = async (newStatus: KanbanColumnKey) => {
     if (!task) return;
     try {
-      const result = await updateTaskStatus(task.id, newStatus);
+      await updateTaskStatus(task.id, newStatus);
       setTask({ ...task, status: newStatus });
       onUpdate?.({ ...task, status: newStatus }); // Notify parent
     } catch (error) {
@@ -279,6 +288,28 @@ export function TaskDetailModal({
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSaveComment = async (content: string) => {
+    if (!task) return;
+    const html = content?.trim() ? content : commentDraft;
+    if (!html.trim()) return;
+
+    setIsSavingComment(true);
+    try {
+      const api = await import("../../api");
+      const newComment = await api.createComment(task.id, html);
+      setComments((prev) => [newComment, ...prev]);
+      setCommentDraft("");
+    } catch (error) {
+      console.error("Failed to save comment:", error);
+    } finally {
+      setIsSavingComment(false);
+    }
+  };
+
+  const handleCancelComment = () => {
+    setCommentDraft("");
   };
 
   return (
@@ -373,6 +404,8 @@ export function TaskDetailModal({
                   </div>
               )}
 
+              <AttachmentGallery attachments={task.attachments || []} />
+
               {/* ACTIVITY TABS */}
               <div className="mt-8">
                  <div className="flex items-center gap-6 border-b border-gray-200 mb-4">
@@ -392,7 +425,7 @@ export function TaskDetailModal({
                          ) : timelineItems.length === 0 ? (
                              <p className="text-sm text-gray-500 text-center py-4">No recent activity.</p>
                          ) : (
-                             timelineItems.map((item, idx) => {
+                             timelineItems.map((item) => {
                                  if (item.type === 'history') {
                                      const record = item.data;
                                      return (
@@ -435,31 +468,13 @@ export function TaskDetailModal({
                          You
                      </div>
                      <div className="flex-1">
-                         <div className="border border-gray-200 rounded-md shadow-sm mb-4">
-                             <textarea 
-                                placeholder="Add a comment..."
-                                className="w-full p-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 rounded-t-md resize-none min-h-[60px]"
-                                id="new-comment-textarea"
-                             ></textarea>
-                             <div className="bg-gray-50 px-3 py-2 border-t border-gray-200 flex justify-end gap-2 rounded-b-md">
-                                 <button 
-                                    className="text-xs bg-blue-600 text-white font-medium px-3 py-1.5 rounded hover:bg-blue-700 shadow-sm"
-                                    onClick={() => {
-                                        const area = document.getElementById('new-comment-textarea') as HTMLTextAreaElement;
-                                        if (area && area.value.trim()) {
-                                            import("../api").then(api => {
-                                                api.createComment(task.id, area.value).then(newComment => {
-                                                    setComments([newComment, ...comments]);
-                                                    area.value = '';
-                                                });
-                                            });
-                                        }
-                                    }}
-                                 >
-                                     Save
-                                 </button>
-                             </div>
-                         </div>
+                         <RichTextEditor
+                            className="mb-4"
+                            onChange={setCommentDraft}
+                            onSave={handleSaveComment}
+                            onCancel={handleCancelComment}
+                            isSaving={isSavingComment}
+                         />
 
                          {/* Comment List */}
                          <div className="space-y-4">
@@ -475,7 +490,24 @@ export function TaskDetailModal({
                                                  {formatDistanceToNow(normalizeToUTC(comment.createdAt), { addSuffix: true })}
                                              </span>
                                          </div>
-                                         <p className="text-gray-700 mt-1">{comment.content}</p>
+                                         <div
+                                           className={cn(
+                                             "mt-1 text-sm text-gray-700",
+                                             "[&_p]:mb-2 [&_p]:leading-relaxed",
+                                             "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5",
+                                             "[&_li]:my-1 [&_a]:text-blue-600 [&_a]:underline",
+                                             "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-gray-100 [&_pre]:p-3 [&_pre]:border [&_pre]:border-gray-200",
+                                             "[&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px]",
+                                             "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded [&_img]:border [&_img]:border-gray-200",
+                                             "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse",
+                                             "[&_th]:border [&_th]:border-gray-200 [&_th]:bg-gray-50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:text-xs [&_th]:font-semibold",
+                                             "[&_td]:border [&_td]:border-gray-200 [&_td]:px-2 [&_td]:py-1 [&_td]:text-xs",
+                                             "[&_[data-type=taskList]]:my-2 [&_[data-type=taskList]]:list-none [&_[data-type=taskList]]:pl-2",
+                                             "[&_[data-type=taskItem]]:flex [&_[data-type=taskItem]]:items-start [&_[data-type=taskItem]]:gap-2",
+                                             "[&_[data-type=taskItem]_input]:mt-1 [&_[data-type=taskItem]_input]:accent-blue-600"
+                                           )}
+                                           dangerouslySetInnerHTML={{ __html: comment.content }}
+                                         />
                                      </div>
                                 </div>
                             ))}
@@ -491,7 +523,7 @@ export function TaskDetailModal({
                            ) : history.length === 0 ? (
                                <p className="text-sm text-gray-500 text-center py-4">No recent activity.</p>
                            ) : (
-                               history.map((record) => (
+                               history.slice(0, visibleHistoryCount).map((record) => (
                                    <div key={record.id} className="flex gap-3 text-sm">
                                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
                                             {record.actor?.avatarUrl ? (
@@ -517,6 +549,17 @@ export function TaskDetailModal({
                                        </div>
                                    </div>
                                ))
+                           )}
+                           {!loadingHistory && visibleHistoryCount < history.length && (
+                             <div className="flex justify-center pt-2">
+                               <button
+                                 type="button"
+                                 onClick={() => setVisibleHistoryCount((prev) => prev + 5)}
+                                 className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-600 shadow-sm hover:bg-gray-50"
+                               >
+                                 Load more
+                               </button>
+                             </div>
                            )}
                       </div>
                   )}
