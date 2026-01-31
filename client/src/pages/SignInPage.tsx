@@ -4,10 +4,11 @@ import { AuthLayout } from "../shared/components/layouts/AuthLayout";
 import { Input } from "../shared/components/custom/input";
 import { Button } from "../shared/components/custom/Button";
 // import { GoogleButton } from '../shared/components/auth/GoogleButton';
-import { Eye, EyeOff } from "lucide-react";
-import { toast } from "sonner";
-import { ROUTES, STORAGE_KEYS } from "@/constants";
-import { signIn } from "@/features/auth";
+import { Eye, EyeOff } from 'lucide-react';
+import { toast } from 'sonner';
+import { ROUTES, STORAGE_KEYS } from '@/constants';
+import { signIn } from '@/features/auth';
+import { setStoredItem } from '@/shared/utils/storage';
 
 export interface SignInPageProps {
   onNavigateToSignUp?: () => void;
@@ -66,17 +67,29 @@ export function SignInPage({
         password: formData.password,
       });
 
-      // Save tokens to localStorage
-      console.log("Login response:", response);
+      // Save tokens based on remember-me choice
+
 
       // Backend returns {message, data: {accessToken, refreshToken, user}}
       const loginData = (response as any).data || response;
-      console.log("Access token:", loginData.accessToken);
-      console.log("User:", loginData.user);
 
-      localStorage.setItem(STORAGE_KEYS.ACCESS_TOKEN, loginData.accessToken);
-      localStorage.setItem(STORAGE_KEYS.REFRESH_TOKEN, loginData.refreshToken);
-      localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(loginData.user));
+
+
+      setStoredItem(
+        STORAGE_KEYS.ACCESS_TOKEN,
+        loginData.accessToken,
+        formData.rememberMe
+      );
+      setStoredItem(
+        STORAGE_KEYS.REFRESH_TOKEN,
+        loginData.refreshToken,
+        formData.rememberMe
+      );
+      setStoredItem(
+        STORAGE_KEYS.USER,
+        JSON.stringify(loginData.user),
+        formData.rememberMe
+      );
 
       // Dispatch event to notify Header component of user data update
       window.dispatchEvent(new Event("userDataUpdated"));
@@ -91,11 +104,10 @@ export function SignInPage({
 
         if (userRole === "ADMIN") {
           navigate(ROUTES.ADMIN_DASHBOARD);
-        } else if (userRole === "CLIENT" || userRole === "SME") {
+        } else if (userRole === "CLIENT" || userRole === "SME" || userRole === "CLIENT_SME") {
           navigate(ROUTES.CLIENT_DASHBOARD);
         } else if (userRole === "FREELANCER") {
           navigate(ROUTES.FREELANCER_DASHBOARD);
-        } else if (userRole === "BROKER") {
         } else if (userRole === "BROKER") {
           navigate(ROUTES.BROKER_DASHBOARD);
         } else if (userRole === "STAFF") {
@@ -107,6 +119,19 @@ export function SignInPage({
       }
     } catch (error: any) {
       console.error("Sign in error:", error);
+
+      // Check if error is due to unverified email
+      if (error.response?.data?.error === 'EMAIL_NOT_VERIFIED') {
+        const email = error.response?.data?.email || formData.email;
+        toast.error("Email not verified. Redirecting to verification page...");
+
+        // Redirect to verify email page with email as query param
+        setTimeout(() => {
+          navigate(`${ROUTES.VERIFY_EMAIL}?email=${encodeURIComponent(email)}`);
+        }, 1500);
+        return;
+      }
+
       const errorMessage =
         error.response?.data?.message || "Invalid email or password";
       setErrors({ password: errorMessage });

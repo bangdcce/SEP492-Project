@@ -8,6 +8,14 @@ export enum EventType {
   OTHER = "OTHER",
 }
 
+export enum AvailabilityType {
+  AVAILABLE = "AVAILABLE",
+  BUSY = "BUSY",
+  OUT_OF_OFFICE = "OUT_OF_OFFICE",
+  PREFERRED = "PREFERRED",
+  DO_NOT_DISTURB = "DO_NOT_DISTURB",
+}
+
 export enum EventStatus {
   DRAFT = "DRAFT",
   SCHEDULED = "SCHEDULED",

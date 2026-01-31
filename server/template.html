@@ -1,0 +1,98 @@
+<table border="1" style="border-collapse: collapse; width: 100%; font-family: Arial, sans-serif; font-size: 11pt;">
+  <tr>
+    <td style="width: 20%; padding: 8px; font-weight: bold;  ">UC ID and Name:</td>
+    <td colspan="3" style="padding: 8px; font-weight: bold;">UC-02 View Public Landing Page</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Created By:</td>
+    <td style="width: 30%; padding: 8px;">SonNT</td>
+    <td style="width: 20%; padding: 8px; font-weight: bold;  ">Date Created:</td>
+    <td style="width: 30%; padding: 8px;"></td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Primary Actor:</td>
+    <td style="padding: 8px;">Guest</td>
+    <td style="padding: 8px; font-weight: bold;  ">Secondary Actors:</td>
+    <td style="padding: 8px;"></td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Trigger:</td>
+    <td colspan="3" style="padding: 8px;">The guest enters the website domain URL or navigates to the root address.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Description:</td>
+    <td colspan="3" style="padding: 8px;">Allow the guest to view the main landing page containing general platform information, featured services, and navigation options (like Login/Register) without authentication.</td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Preconditions:</td>
+    <td colspan="3" style="padding: 8px;">
+        <b>PRE1:</b> The internet connection is available on the guest's device.<br>
+        <b>PRE2:</b> The web server is online and reachable.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Post-conditions:</td>
+    <td colspan="3" style="padding: 8px;">
+        <b>POS1:</b> The landing page UI is fully rendered with correct information.<br>
+        <b>POS2:</b> Navigation links (Register, Login, About Us) are active and clickable.
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Normal Flow:</td>
+    <td colspan="3" style="padding: 8px;">
+        <b>A. View Page Successfully</b>
+        <ol>
+            <li>The guest enters the website URL in the browser.</li>
+            <li>The system receives the request and retrieves public content (banners, text, public listings).</li>
+            <li>The system loads the UI components (Header, Footer, Hero Section).</li>
+            <li>The system displays the Landing Page to the guest.</li>
+            <li>The guest scrolls or interacts with public information elements.</li>
+        </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Alternative Flows:</td>
+    <td colspan="3" style="padding: 8px;">
+        <b>A5. Slow Network / Timeout</b>
+        <ol>
+            <li>The system takes too long to fetch assets.</li>
+            <li>The system displays a skeleton loader or a "Loading..." state.</li>
+            <li>Once loaded, resume at Normal Flow step 4.</li>
+        </ol>
+    </td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Exceptions:</td>
+    <td colspan="3" style="padding: 8px;"></td>
+  </tr>
+
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Priority:</td>
+    <td colspan="3" style="padding: 8px;">High</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Frequency of Use:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Business Rules:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Other Information:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+  <tr>
+    <td style="padding: 8px; font-weight: bold;  ">Assumptions:</td>
+    <td colspan="3" style="padding: 8px;">N/A</td>
+  </tr>
+</table>

@@ -1,5 +1,6 @@
 /**
  * Application Constants
+ * 
  */
 
 // API Configuration
@@ -14,7 +15,8 @@ export const ROUTES = {
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
-
+  VERIFY_EMAIL: "/verify-email",
+  
   // Client Routes
   CLIENT_AUDIT_LOGS: "/audit-logs",
 

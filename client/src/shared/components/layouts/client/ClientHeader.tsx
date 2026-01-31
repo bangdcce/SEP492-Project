@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { Logo } from "../../custom/Logo";
+import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
 
 interface ClientHeaderProps {
   userName?: string;
@@ -37,17 +38,13 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
 
-  // Get user from localStorage (sync initial read)
+  // Get user from storage (session/local)
   const getInitialUser = () => {
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      try {
-        return JSON.parse(userStr);
-      } catch {
-        return {};
-      }
-    }
-    return {};
+    return getStoredJson<{
+      fullName?: string;
+      role?: string;
+      avatarUrl?: string;
+    }>(STORAGE_KEYS.USER) || {};
   };
 
   const [user, setUser] = useState<{
@@ -59,14 +56,12 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   useEffect(() => {
     // Listen for user data updates
     const handleUserUpdate = () => {
-      const updatedUserStr = localStorage.getItem(STORAGE_KEYS.USER);
-      if (updatedUserStr) {
-        try {
-          setUser(JSON.parse(updatedUserStr));
-        } catch {
-          // ignore
-        }
-      }
+      const updatedUser = getStoredJson<{
+        fullName?: string;
+        role?: string;
+        avatarUrl?: string;
+      }>(STORAGE_KEYS.USER);
+      if (updatedUser) setUser(updatedUser);
     };
 
     window.addEventListener("userDataUpdated", handleUserUpdate);
@@ -79,14 +74,20 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   const userAvatar = propUserAvatar || user.avatarUrl;
 
   const handleLogout = () => {
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.USER);
+    removeStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
+    removeStoredItem(STORAGE_KEYS.REFRESH_TOKEN);
+    removeStoredItem(STORAGE_KEYS.USER);
     navigate(ROUTES.LOGIN);
   };
 
-  const getInitial = (name: string) => {
-    return name.charAt(0).toUpperCase();
+  const getInitials = (name: string) => {
+    if (!name) return "U";
+    return name
+      .split(" ")
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2);
   };
 
   return (
@@ -168,12 +169,12 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                   <img
                     src={userAvatar}
                     alt={userName}
-                    className="w-8 h-8 rounded-md object-cover"
+                    className="w-8 h-8 rounded-full object-cover"
                   />
                 ) : (
-                  <div className="w-8 h-8 bg-gradient-to-br from-teal-500 to-teal-600 rounded-md flex items-center justify-center">
-                    <span className="text-white text-sm font-semibold">
-                      {getInitial(userName)}
+                  <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center">
+                    <span className="text-white text-xs font-bold">
+                      {getInitials(userName)}
                     </span>
                   </div>
                 )}
@@ -187,9 +188,8 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                 </div>
 
                 <ChevronDown
-                  className={`w-4 h-4 text-gray-500 transition-transform hidden lg:block ${
-                    isProfileMenuOpen ? "rotate-180" : ""
-                  }`}
+                  className={`w-4 h-4 text-gray-500 transition-transform hidden lg:block ${isProfileMenuOpen ? "rotate-180" : ""
+                    }`}
                 />
               </button>
 
@@ -213,7 +213,12 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                     {/* Menu Items */}
                     <div className="py-1">
                       <Link
-                        to={ROUTES.CLIENT_PROFILE}
+                        to={
+                          userRole === "ADMIN" ? ROUTES.ADMIN_PROFILE :
+                            userRole === "BROKER" ? ROUTES.BROKER_PROFILE :
+                              userRole === "FREELANCER" ? ROUTES.FREELANCER_PROFILE :
+                                ROUTES.CLIENT_PROFILE
+                        }
                         className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                         onClick={() => setIsProfileMenuOpen(false)}
                       >
@@ -262,6 +267,6 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
           </div>
         )}
       </div>
-    </header>
+    </header >
   );
 };

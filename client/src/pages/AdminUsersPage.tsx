@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Ban, UserCheck, Key, Shield, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { getStoredItem } from '@/shared/utils/storage';
 
 interface User {
   id: string;
@@ -50,7 +51,7 @@ export default function AdminUsersPage() {
   const [sendEmail, setSendEmail] = useState(true);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const token = localStorage.getItem('access_token');
+  const token = getStoredItem('access_token');
 
   // Fetch users
   useEffect(() => {

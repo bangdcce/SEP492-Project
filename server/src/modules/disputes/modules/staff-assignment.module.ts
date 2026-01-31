@@ -16,6 +16,7 @@ import { CalendarEventEntity } from '../../../database/entities/calendar-event.e
 import { UserAvailabilityEntity } from '../../../database/entities/user-availability.entity';
 import { AutoScheduleRuleEntity } from '../../../database/entities/auto-schedule-rule.entity';
 import { DisputeEvidenceEntity } from '../../../database/entities/dispute-evidence.entity';
+import { ProjectEntity } from '../../../database/entities/project.entity';
 
 // Tagging System Entities
 import { StaffExpertiseEntity } from '../../../database/entities/user-skill.entity';
@@ -34,6 +35,7 @@ import { StaffAssignmentService } from '../services/staff-assignment.service';
     TypeOrmModule.forFeature([
       // Core Entities
       DisputeEntity,
+      ProjectEntity,
       UserEntity,
       StaffWorkloadEntity,
       CalendarEventEntity,

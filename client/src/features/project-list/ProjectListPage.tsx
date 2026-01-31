@@ -7,18 +7,11 @@ import { ProjectCard } from "./components/ProjectCard";
 import { Spinner } from "@/shared/components/ui";
 import { STORAGE_KEYS, ROUTES } from "@/constants";
 import type { User } from "@/features/auth/types";
+import { getStoredJson } from "@/shared/utils/storage";
 
-// Helper to get current user from localStorage
+// Helper to get current user from storage (session/local)
 const getCurrentUser = (): User | null => {
-  try {
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      return JSON.parse(userStr);
-    }
-  } catch {
-    // Invalid JSON in localStorage
-  }
-  return null;
+  return getStoredJson<User>(STORAGE_KEYS.USER);
 };
 
 export default function ProjectListPage() {

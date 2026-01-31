@@ -1,13 +1,11 @@
-import { useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   Inbox,
   Briefcase,
   Calendar,
-  Activity,
-  Settings,
-  LogOut,
+  Video,
+  User,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -24,7 +22,8 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
     { label: "Dispute Queue", icon: Inbox, path: "/staff/queue" },
     { label: "My Caseload", icon: Briefcase, path: "/staff/caseload" },
     { label: "Calendar", icon: Calendar, path: "/staff/calendar" },
-    { label: "Workload", icon: Activity, path: "/staff/workload" },
+    { label: "Hearings", icon: Video, path: "/staff/hearings" },
+    { label: "Profile", icon: User, path: "/staff/profile" },
   ];
 
   return (
@@ -58,20 +57,18 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
             to={item.path}
             className={({ isActive }) => `
               flex items-center px-4 py-3 rounded-xl transition-all duration-200 group font-medium
-              ${
-                isActive
-                  ? "bg-teal-50 text-teal-700 shadow-sm"
-                  : "text-gray-600 hover:bg-gray-50 hover:text-slate-900"
+              ${isActive
+                ? "bg-teal-50 text-teal-700 shadow-sm"
+                : "text-gray-600 hover:bg-gray-50 hover:text-slate-900"
               }
             `}
           >
             <item.icon
-              className={`w-5 h-5 transition-colors ${
-                collapsed ? "mx-auto" : "mr-3"
-              } ${
+              className={`w-5 h-5 transition-colors ${collapsed ? "mx-auto" : "mr-3"
+                } ${
                 /* Active icon color is handled by parent text color, but we can enforce if needed */
                 ""
-              }`}
+                }`}
             />
 
             {!collapsed && <span className="">{item.label}</span>}

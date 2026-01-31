@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, Matches } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ApproveKycDto {
@@ -17,5 +17,6 @@ export class RejectKycDto {
   })
   @IsString()
   @IsNotEmpty()
+  @Matches(/\S/, { message: 'rejectionReason must not be empty' })
   rejectionReason: string;
 }

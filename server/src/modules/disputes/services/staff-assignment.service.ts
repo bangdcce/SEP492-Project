@@ -23,6 +23,7 @@ import {
   DisputeStatus,
   DisputeCategory,
 } from '../../../database/entities/dispute.entity';
+import { ProjectEntity, PricingModel } from '../../../database/entities/project.entity';
 import { UserEntity, UserRole } from '../../../database/entities/user.entity';
 import { StaffWorkloadEntity } from '../../../database/entities/staff-workload.entity';
 import {
@@ -114,14 +115,14 @@ const ASSIGNMENT_CONFIG = {
 
   // Category weights for complexity (using DisputeCategory)
   CATEGORY_WEIGHTS: {
-    [DisputeCategory.CONTRACT]: 30,
-    [DisputeCategory.PAYMENT]: 25,
-    [DisputeCategory.QUALITY]: 20,
-    [DisputeCategory.DEADLINE]: 15,
-    [DisputeCategory.COMMUNICATION]: 10,
-    [DisputeCategory.SCOPE_CHANGE]: 20,
-    [DisputeCategory.FRAUD]: 40,
-    [DisputeCategory.OTHER]: 15,
+    [DisputeCategory.FRAUD]: 100,
+    [DisputeCategory.CONTRACT]: 85,
+    [DisputeCategory.PAYMENT]: 80,
+    [DisputeCategory.SCOPE_CHANGE]: 70,
+    [DisputeCategory.QUALITY]: 60,
+    [DisputeCategory.DEADLINE]: 55,
+    [DisputeCategory.COMMUNICATION]: 40,
+    [DisputeCategory.OTHER]: 45,
   } as Record<string, number>,
 
   // Buffer configuration
@@ -163,6 +164,8 @@ export class StaffAssignmentService {
   constructor(
     @InjectRepository(DisputeEntity)
     private readonly disputeRepository: Repository<DisputeEntity>,
+    @InjectRepository(ProjectEntity)
+    private readonly projectRepository: Repository<ProjectEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(StaffWorkloadEntity)
@@ -199,7 +202,7 @@ export class StaffAssignmentService {
    * UNIT FUNCTION: Calculate base complexity from dispute category
    */
   private getCategoryComplexityWeight(category: DisputeCategory): number {
-    return ASSIGNMENT_CONFIG.CATEGORY_WEIGHTS[category] || 15;
+    return ASSIGNMENT_CONFIG.CATEGORY_WEIGHTS[category] || 45;
   }
 
   /**
@@ -207,9 +210,8 @@ export class StaffAssignmentService {
    * More evidence = more time needed to review
    */
   private getEvidenceComplexityWeight(evidenceCount: number): number {
-    // +10 minutes per evidence, max +60
-    const weight = Math.min(evidenceCount * 10, 60);
-    return weight;
+    if (evidenceCount <= 0) return 10;
+    return Math.min(evidenceCount * 12, 100);
   }
 
   /**
@@ -217,18 +219,73 @@ export class StaffAssignmentService {
    * Longer descriptions often indicate more complex issues
    */
   private getDescriptionComplexityWeight(descriptionLength: number): number {
-    if (descriptionLength > 2000) return 30;
-    if (descriptionLength > 1000) return 15;
-    return 0;
+    if (descriptionLength > 2000) return 90;
+    if (descriptionLength > 1200) return 70;
+    if (descriptionLength > 600) return 55;
+    if (descriptionLength > 300) return 40;
+    if (descriptionLength > 0) return 25;
+    return 10;
+  }
+
+  /**
+   * UNIT FUNCTION: Calculate complexity from disputed amount (currency-aware)
+   */
+  private getAmountComplexityScore(
+    amount: number,
+    currency: string,
+    totalBudget?: number,
+  ): number {
+    const safeAmount = Number.isFinite(amount) ? amount : 0;
+    const normalizedCurrency = (currency || 'VND').toUpperCase();
+
+    const thresholds =
+      normalizedCurrency === 'VND'
+        ? { low: 1_000_000, medium: 10_000_000, high: 50_000_000 }
+        : { low: 100, medium: 1000, high: 5000 };
+
+    let score = 10;
+    if (safeAmount >= thresholds.high) score = 90;
+    else if (safeAmount >= thresholds.medium) score = 60;
+    else if (safeAmount >= thresholds.low) score = 35;
+
+    if (totalBudget && totalBudget > 0) {
+      const ratio = safeAmount / totalBudget;
+      if (ratio >= 0.8) score = Math.min(100, score + 20);
+      else if (ratio >= 0.5) score = Math.min(100, score + 10);
+    }
+
+    return score;
+  }
+
+  /**
+   * UNIT FUNCTION: Additional process complexity (multi-party, pricing model, repeats)
+   */
+  private getProcessComplexityScore(
+    dispute: DisputeEntity,
+    project?: ProjectEntity | null,
+  ): number {
+    let score = 20;
+    const involvesBroker =
+      dispute.disputeType?.includes('BROKER') || Boolean(project?.brokerId);
+    if (involvesBroker) {
+      score += 30;
+    }
+    if (project?.pricingModel === PricingModel.TIME_MATERIALS) {
+      score += 20;
+    }
+    if (dispute.parentDisputeId) {
+      score += 15;
+    }
+    return Math.min(100, score);
   }
 
   /**
    * UNIT FUNCTION: Determine complexity level from total score
    */
   private determineComplexityLevel(totalScore: number): ComplexityLevel {
-    if (totalScore >= 100) return 'CRITICAL';
-    if (totalScore >= 70) return 'HIGH';
-    if (totalScore >= 40) return 'MEDIUM';
+    if (totalScore >= 80) return 'CRITICAL';
+    if (totalScore >= 60) return 'HIGH';
+    if (totalScore >= 35) return 'MEDIUM';
     return 'LOW';
   }
 
@@ -257,55 +314,82 @@ export class StaffAssignmentService {
       throw new NotFoundException('Dispute not found');
     }
 
-    // Count evidence
     const evidenceCount = await this.evidenceRepository.count({
       where: { disputeId },
     });
 
-    // Calculate individual factors
+    const project = await this.projectRepository.findOne({
+      where: { id: dispute.projectId },
+      select: ['id', 'currency', 'totalBudget', 'pricingModel', 'brokerId'],
+    });
+    const currency = project?.currency || 'VND';
+
+    // Calculate individual factors (0-100) with explicit weights
     const factors: ComplexityFactor[] = [];
+    const weights = {
+      category: 0.3,
+      amount: 0.25,
+      evidence: 0.2,
+      description: 0.15,
+      process: 0.1,
+    };
 
     // Factor 1: Dispute Category
-    const categoryWeight = this.getCategoryComplexityWeight(dispute.category);
+    const categoryScore = this.getCategoryComplexityWeight(dispute.category);
     factors.push({
       name: 'Dispute Category',
-      weight: 0.4,
-      value: categoryWeight,
-      contribution: categoryWeight * 0.4,
-      description: `${dispute.category} disputes typically require ${categoryWeight > 20 ? 'more' : 'less'} time`,
+      weight: weights.category,
+      value: categoryScore,
+      contribution: categoryScore * weights.category,
+      description: `${dispute.category} cases tend to be ${
+        categoryScore >= 70 ? 'high' : 'moderate'
+      } effort`,
     });
 
-    // Factor 2: Evidence Count
-    const evidenceWeight = this.getEvidenceComplexityWeight(evidenceCount);
-    factors.push({
-      name: 'Evidence Volume',
-      weight: 0.3,
-      value: evidenceWeight,
-      contribution: evidenceWeight * 0.3,
-      description: `${evidenceCount} evidence items to review`,
-    });
-
-    // Factor 3: Reason Length (longer reasons often indicate more complex issues)
-    const reasonLength = dispute.reason?.length || 0;
-    const descWeight = this.getDescriptionComplexityWeight(reasonLength);
-    factors.push({
-      name: 'Issue Complexity',
-      weight: 0.2,
-      value: descWeight,
-      contribution: descWeight * 0.2,
-      description:
-        reasonLength > 1000 ? 'Detailed issue description' : 'Standard issue description',
-    });
-
-    // Factor 4: Dispute Amount (higher amounts = more scrutiny)
+    // Factor 2: Dispute Amount (currency-aware, relative to budget)
     const amount = dispute.disputedAmount || 0;
-    const amountWeight = amount > 5000 ? 30 : amount > 1000 ? 20 : 10;
+    const amountScore = this.getAmountComplexityScore(amount, currency, project?.totalBudget);
     factors.push({
       name: 'Dispute Value',
-      weight: 0.1,
-      value: amountWeight,
-      contribution: amountWeight * 0.1,
-      description: `$${amount} at stake`,
+      weight: weights.amount,
+      value: amountScore,
+      contribution: amountScore * weights.amount,
+      description: `${currency} ${amount} disputed`,
+    });
+
+    // Factor 3: Evidence Count
+    const evidenceScore = this.getEvidenceComplexityWeight(evidenceCount);
+    factors.push({
+      name: 'Evidence Volume',
+      weight: weights.evidence,
+      value: evidenceScore,
+      contribution: evidenceScore * weights.evidence,
+      description: `${evidenceCount} evidence item${evidenceCount === 1 ? '' : 's'}`,
+    });
+
+    // Factor 4: Reason Length
+    const reasonLength = dispute.reason?.length || 0;
+    const descScore = this.getDescriptionComplexityWeight(reasonLength);
+    factors.push({
+      name: 'Issue Detail',
+      weight: weights.description,
+      value: descScore,
+      contribution: descScore * weights.description,
+      description:
+        reasonLength > 600 ? 'Detailed issue narrative' : 'Concise issue summary',
+    });
+
+    // Factor 5: Process Complexity (broker involvement, pricing model, repeat)
+    const processScore = this.getProcessComplexityScore(dispute, project);
+    factors.push({
+      name: 'Process Complexity',
+      weight: weights.process,
+      value: processScore,
+      contribution: processScore * weights.process,
+      description:
+        processScore >= 60
+          ? 'Multi-party coordination or complex pricing model'
+          : 'Standard mediation flow',
     });
 
     // Calculate total score
@@ -316,15 +400,27 @@ export class StaffAssignmentService {
     const timeEstimation = this.getTimeEstimationForLevel(level);
 
     // Adjust time based on specific factors
-    if (evidenceCount > 10) {
+    if (evidenceCount > 8) {
       timeEstimation.recommendedMinutes += 15;
       timeEstimation.maxMinutes += 30;
+    }
+    if (amountScore >= 80) {
+      timeEstimation.recommendedMinutes += 10;
+      timeEstimation.maxMinutes += 20;
+    }
+    if (processScore >= 70) {
+      timeEstimation.recommendedMinutes += 10;
+      timeEstimation.maxMinutes += 15;
     }
 
     // Calculate confidence (lower if we have less data)
     const confidence = Math.min(
       100,
-      50 + evidenceCount * 5 + (reasonLength > 500 ? 20 : 0) + (amount > 0 ? 10 : 0),
+      40 +
+        Math.min(30, evidenceCount * 4) +
+        (reasonLength > 500 ? 15 : 0) +
+        (amount > 0 ? 10 : 0) +
+        (project ? 5 : 0),
     );
 
     this.logger.log(

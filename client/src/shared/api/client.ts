@@ -1,6 +1,7 @@
 import axios from "axios";
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
 import { API_CONFIG, STORAGE_KEYS } from "@/constants";
+import { getStoredItem } from "@/shared/utils/storage";
 
 /**
  * API Client - Centralized Axios instance with interceptors
@@ -24,9 +25,15 @@ class ApiClient {
     // Request interceptor - add token to headers
     this.client.interceptors.request.use(
       (config) => {
-        const token = localStorage.getItem(STORAGE_KEYS.ACCESS_TOKEN);
+        const token = getStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
         if (token) {
           config.headers.Authorization = `Bearer ${token}`;
+        }
+        if (typeof Intl !== "undefined") {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          if (tz) {
+            (config.headers as any)["X-Timezone"] = tz;
+          }
         }
         return config;
       },

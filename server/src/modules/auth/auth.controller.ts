@@ -11,6 +11,7 @@ import {
   Put,
   ValidationPipe,
   Ip,
+  Query,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
@@ -23,11 +24,13 @@ import {
   ApiBadRequestResponse,
   ApiConflictResponse,
   ApiOkResponse,
+  ApiQuery,
 } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
+import { EmailVerificationService } from './email-verification.service';
 import { CaptchaGuard } from '../../common/guards/captcha.guard';
 import { JwtAuthGuard } from './guards';
 import {
@@ -66,7 +69,10 @@ interface AuthRequest extends Request {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly emailVerificationService: EmailVerificationService,
+  ) {}
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
@@ -94,16 +100,61 @@ export class AuthController {
   async register(
     @Body(ValidationPipe) registerDto: RegisterDto,
     @Ip() ip: string,
+    @Req() req: Request,
   ): Promise<{
     message: string;
     data: AuthResponseDto;
   }> {
-    const user = await this.authService.register(registerDto);
+    const userAgent = req.headers['user-agent'] || 'Unknown Device';
+    const user = await this.authService.register(registerDto, ip, userAgent);
 
     return {
-      message: 'Đăng ký thành công',
+      message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.',
       data: user,
     };
+  }
+
+  @Get('verify-email')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Xác thực email',
+    description: 'Xác thực địa chỉ email bằng token được gửi qua email',
+  })
+  @ApiQuery({ name: 'token', description: 'Email verification token', required: true })
+  @ApiOkResponse({
+    description: 'Email đã được xác thực thành công',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Email verified successfully' },
+        email: { type: 'string', example: 'user@example.com' },
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
+  async verifyEmail(@Query('token') token: string) {
+    return this.emailVerificationService.verifyEmail(token);
+  }
+
+  @Post('resend-verification')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 2, ttl: 300000 } }) // 2 requests per 5 minutes
+  @ApiOperation({
+    summary: 'Gửi lại email xác thực',
+    description: 'Gửi lại email xác thực cho người dùng chưa xác thực email',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', format: 'email', example: 'user@example.com' },
+      },
+    },
+  })
+  @ApiOkResponse({ description: 'Email xác thực đã được gửi lại' })
+  @ApiBadRequestResponse({ description: 'Email đã được xác thực hoặc yêu cầu quá nhanh' })
+  async resendVerification(@Body('email') email: string) {
+    return this.emailVerificationService.resendVerificationEmail(email);
   }
 
   @Post('login')
@@ -138,7 +189,9 @@ export class AuthController {
     const userAgent = req.headers['user-agent'] || 'Unknown Device';
     const ipAddress = req.ip || req.connection?.remoteAddress || 'Unknown IP';
 
-    const result = await this.authService.login(loginDto, userAgent, ipAddress);
+    const timeZone =
+      typeof req.headers['x-timezone'] === 'string' ? req.headers['x-timezone'] : undefined;
+    const result = await this.authService.login(loginDto, userAgent, ipAddress, timeZone);
 
     // Set refresh token as httpOnly cookie
     response.cookie('refreshToken', result.refreshToken, {
@@ -234,6 +287,7 @@ export class AuthController {
       email: req.user.email,
       fullName: req.user.fullName,
       phoneNumber: req.user.phoneNumber,
+      timeZone: req.user.timeZone,
       avatarUrl: userWithProfile?.profile?.avatarUrl,
       bio: userWithProfile?.profile?.bio,
       companyName: userWithProfile?.profile?.companyName,

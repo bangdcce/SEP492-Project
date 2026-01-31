@@ -43,7 +43,7 @@ export class DisputeMessageEntity {
 
   // === NGƯỜI GỬI ===
   @Column({ nullable: true, comment: 'User ID (null = System message)' })
-  senderId: string;
+  senderId: string | null;
 
   @Column({ comment: 'Role lúc gửi: CLIENT/FREELANCER/BROKER/STAFF/ADMIN/SYSTEM' })
   senderRole: string;

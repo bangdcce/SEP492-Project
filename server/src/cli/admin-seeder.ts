@@ -115,12 +115,14 @@ async function seedAdmin() {
     const passwordHash = await bcrypt.hash(plainPassword, BCRYPT_SALT_ROUNDS);
 
     // 5. Insert admin user
+    const now = new Date();
     const adminUser = {
       email: ADMIN_EMAIL,
       passwordHash: passwordHash,
       fullName: 'System Administrator',
       role: 'ADMIN',
       isVerified: true,
+      emailVerifiedAt: now,
       currentTrustScore: 5.0,
       totalProjectsFinished: 0,
       totalProjectsCancelled: 0,

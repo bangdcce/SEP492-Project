@@ -1,6 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  BadRequestException,
+  Logger,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
+import sanitizeHtml from 'sanitize-html';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import * as path from 'path';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import {
@@ -11,10 +20,14 @@ import {
 } from '../../database/entities/calendar-event.entity';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { SubmitTaskDto } from './dto/submit-task.dto';
+import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
+import { TaskCommentEntity } from '../../database/entities/task-comment.entity';
+import { TaskAttachmentEntity } from './entities/task-attachment.entity';
 
 export interface KanbanBoard {
   TODO: TaskEntity[];
   IN_PROGRESS: TaskEntity[];
+  IN_REVIEW: TaskEntity[];
   DONE: TaskEntity[];
 }
 
@@ -23,7 +36,7 @@ export interface BoardWithMilestones {
   milestones: MilestoneEntity[];
 }
 
-export type KanbanStatus = TaskStatus.TODO | TaskStatus.IN_PROGRESS | TaskStatus.DONE;
+export type KanbanStatus = TaskStatus.TODO | TaskStatus.IN_PROGRESS | TaskStatus.IN_REVIEW | TaskStatus.DONE;
 
 /**
  * Response type for task status update
@@ -37,9 +50,84 @@ export interface TaskStatusUpdateResult {
   completedTasks: number;
 }
 
+const COMMENT_SANITIZE_OPTIONS = {
+  allowedTags: [
+    'p',
+    'br',
+    'div',
+    'label',
+    'input',
+    'strong',
+    'em',
+    's',
+    'u',
+    'blockquote',
+    'ul',
+    'ol',
+    'li',
+    'a',
+    'img',
+    'code',
+    'pre',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+  ],
+  allowedAttributes: {
+    '*': ['data-type', 'data-checked'],
+    a: ['href', 'target', 'rel'],
+    img: ['src', 'alt', 'title'],
+    code: ['class'],
+    pre: ['class'],
+    input: ['type', 'checked', 'disabled'],
+    th: ['colspan', 'rowspan'],
+    td: ['colspan', 'rowspan'],
+  },
+  allowedSchemes: ['http', 'https', 'mailto'],
+  allowedSchemesByTag: {
+    img: ['http', 'https'],
+  },
+  transformTags: {
+    a: (tagName: string, attribs: Record<string, string>) => ({
+      tagName,
+      attribs: {
+        ...attribs,
+        rel: 'noopener noreferrer',
+        target: '_blank',
+      },
+    }),
+    input: (tagName: string, attribs: Record<string, string>) => {
+      const isChecked =
+        attribs.checked === 'checked' ||
+        attribs.checked === 'true' ||
+        attribs.checked === '';
+
+      return {
+        tagName,
+        attribs: {
+          type: 'checkbox',
+          checked: isChecked ? 'checked' : undefined,
+          disabled: 'true',
+        },
+      };
+    },
+  },
+};
+
+const ATTACHMENT_BUCKET =
+  process.env.SUPABASE_ATTACHMENTS_BUCKET || process.env.SUPABASE_BUCKET || 'task-attachments';
+
 @Injectable()
 export class TasksService {
   private readonly logger = new Logger(TasksService.name);
+  private supabase: SupabaseClient | null = null;
 
   constructor(
     @InjectRepository(TaskEntity)
@@ -48,14 +136,244 @@ export class TasksService {
     private readonly milestoneRepository: Repository<MilestoneEntity>,
     @InjectRepository(CalendarEventEntity)
     private readonly calendarEventRepository: Repository<CalendarEventEntity>,
+    @InjectRepository(TaskHistoryEntity)
+    private readonly historyRepository: Repository<TaskHistoryEntity>,
+    @InjectRepository(TaskCommentEntity)
+    private readonly commentRepository: Repository<TaskCommentEntity>,
+    @InjectRepository(TaskAttachmentEntity)
+    private readonly attachmentRepository: Repository<TaskAttachmentEntity>,
     private readonly auditLogsService: AuditLogsService,
   ) {}
+
+  private getSupabaseClient(): SupabaseClient {
+    if (this.supabase) {
+      return this.supabase;
+    }
+
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey =
+      process.env.SUPABASE_KEY ||
+      process.env.SUPABASE_SERVICE_KEY ||
+      process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    if (!supabaseUrl || !supabaseKey) {
+      throw new InternalServerErrorException('Supabase configuration missing');
+    }
+
+    this.supabase = createClient(supabaseUrl, supabaseKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    return this.supabase;
+  }
+
+  private buildAttachmentPath(fileName: string): string {
+    const ext = path.extname(fileName || '').toLowerCase();
+    const unique = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+    return `comments/${unique}${ext}`;
+  }
+
+  async uploadFile(file: Express.Multer.File): Promise<{ url: string }> {
+    if (!file?.buffer) {
+      throw new BadRequestException('File is required');
+    }
+
+    const supabase = this.getSupabaseClient();
+    const bucketName = ATTACHMENT_BUCKET;
+    this.logger.log(`Uploading to bucket: ${bucketName}`);
+    const storagePath = this.buildAttachmentPath(file.originalname || 'attachment');
+
+    const { error } = await supabase.storage.from(bucketName).upload(storagePath, file.buffer, {
+      contentType: file.mimetype || 'application/octet-stream',
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+    if (error) {
+      this.logger.error(`Supabase upload failed: ${error.message}`);
+      throw new InternalServerErrorException('Failed to upload attachment');
+    }
+
+    const { data } = supabase.storage.from(bucketName).getPublicUrl(storagePath);
+
+    if (!data?.publicUrl) {
+      throw new InternalServerErrorException('Upload succeeded, but public URL is missing');
+    }
+
+    return { url: data.publicUrl };
+  }
+
+  async getTaskHistory(taskId: string): Promise<TaskHistoryEntity[]> {
+    return this.historyRepository.find({
+      where: { taskId },
+      relations: ['actor'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getTaskComments(taskId: string): Promise<TaskCommentEntity[]> {
+    const comments = await this.commentRepository.find({
+      where: { taskId },
+      relations: ['actor'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return comments.map((comment) => ({
+      ...comment,
+      content: sanitizeHtml(comment.content, COMMENT_SANITIZE_OPTIONS).trim(),
+    }));
+  }
+
+  async addComment(taskId: string, content: string, actorId: string): Promise<TaskCommentEntity> {
+    const sanitizedContent = sanitizeHtml(content, COMMENT_SANITIZE_OPTIONS).trim();
+    if (!sanitizedContent) {
+      throw new BadRequestException('Content is required');
+    }
+
+    const comment = this.commentRepository.create({
+      taskId,
+      content: sanitizedContent,
+      actorId,
+      createdAt: new Date(), // Force Node.js UTC time
+    });
+    
+    this.logger.log(`[Adding Comment] Saving at UTC: ${comment.createdAt.toISOString()}`);
+    const saved = await this.commentRepository.save(comment);
+    
+    // Return with actor relation
+    // Return with actor relation
+    const fullComment = await this.commentRepository.findOne({
+        where: { id: saved.id },
+        relations: ['actor'],
+    });
+    
+    if (!fullComment) {
+        throw new NotFoundException('Comment not found after creation');
+    }
+
+    try {
+      await this.createAttachmentsFromComment(taskId, actorId, sanitizedContent);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Failed to extract task attachments: ${message}`);
+    }
+    
+    return fullComment;
+  }
+
+  private extractImageUrls(html: string): string[] {
+    const urls = new Set<string>();
+    const regex = /<img[^>]*src=["']([^"']+)["'][^>]*>/gi;
+    for (const match of html.matchAll(regex)) {
+      const src = match[1]?.trim();
+      if (!src) continue;
+      if (src.startsWith('data:')) continue;
+      urls.add(src);
+    }
+    return Array.from(urls);
+  }
+
+  private getFileNameFromUrl(url: string): string {
+    try {
+      const parsed = new URL(url);
+      const name = path.basename(parsed.pathname);
+      return name || 'attachment';
+    } catch {
+      const cleaned = url.split('?')[0]?.split('#')[0] || '';
+      const name = path.basename(cleaned);
+      return name || 'attachment';
+    }
+  }
+
+  private async createAttachmentsFromComment(
+    taskId: string,
+    uploaderId: string,
+    html: string,
+  ): Promise<void> {
+    const urls = this.extractImageUrls(html);
+    if (urls.length === 0) {
+      return;
+    }
+
+    const existing = await this.attachmentRepository.find({
+      where: {
+        taskId,
+        url: In(urls),
+      },
+    });
+
+    const existingUrls = new Set(existing.map((item) => item.url));
+    const newUrls = urls.filter((url) => !existingUrls.has(url));
+
+    if (newUrls.length === 0) {
+      return;
+    }
+
+    const attachments = newUrls.map((url) =>
+      this.attachmentRepository.create({
+        taskId,
+        uploaderId,
+        url,
+        fileName: this.getFileNameFromUrl(url),
+        fileType: 'image',
+      }),
+    );
+
+    await this.attachmentRepository.save(attachments);
+  }
+
+  private async createHistory(
+    taskId: string,
+    field: string,
+    oldValue: any,
+    newValue: any,
+    actorId?: string,
+  ) {
+    if (oldValue === newValue) return;
+
+    // Helper to format values
+    const formatValue = (val: any) => {
+        if (val === null || val === undefined) return '';
+        if (typeof val === 'object') return JSON.stringify(val);
+        return String(val);
+    };
+
+    const history = this.historyRepository.create({
+      taskId,
+      actorId,
+      fieldChanged: field,
+      oldValue: formatValue(oldValue),
+      newValue: formatValue(newValue),
+      createdAt: new Date(), // Force Node.js UTC time
+    });
+
+    // this.logger.log(`[TaskHistory] Saving history at UTC: ${history.createdAt.toISOString()}`);
+    await this.historyRepository.save(history);
+  }
+
+  private sortAttachments(task: TaskEntity | null): TaskEntity | null {
+    if (!task?.attachments) {
+      return task;
+    }
+
+    task.attachments = [...task.attachments].sort((a: any, b: any) => {
+      const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return bTime - aTime;
+    });
+
+    return task;
+  }
 
   async getKanbanBoard(projectId: string): Promise<BoardWithMilestones> {
     // Fetch all tasks for the project
     const tasks = await this.taskRepository.find({
       where: { projectId },
-      relations: ['assignee', 'reporter'],
+      relations: ['assignee', 'reporter', 'attachments'],
       order: { sortOrder: 'ASC', createdAt: 'DESC' },
     });
 
@@ -69,14 +387,18 @@ export class TasksService {
     const board: KanbanBoard = {
       TODO: [],
       IN_PROGRESS: [],
+      IN_REVIEW: [],
       DONE: [],
     };
 
     for (const task of tasks) {
+      this.sortAttachments(task);
       if (task.status === TaskStatus.TODO) {
         board.TODO.push(task);
       } else if (task.status === TaskStatus.IN_PROGRESS) {
         board.IN_PROGRESS.push(task);
+      } else if (task.status === TaskStatus.IN_REVIEW) {
+        board.IN_REVIEW.push(task);
       } else if (task.status === TaskStatus.DONE) {
         board.DONE.push(task);
       }
@@ -89,10 +411,9 @@ export class TasksService {
   }
 
   /**
-   * Update task status and recalculate milestone progress
    * Returns both the updated task AND the new milestone progress for real-time UI updates
    */
-  async updateStatus(id: string, status: KanbanStatus): Promise<TaskStatusUpdateResult> {
+  async updateStatus(id: string, status: KanbanStatus, actorId?: string): Promise<TaskStatusUpdateResult> {
     // Step 1: Get the task to find its milestoneId
     const task = await this.taskRepository.findOne({
       where: { id },
@@ -106,18 +427,26 @@ export class TasksService {
     const previousStatus = task.status;
     const milestoneId = task.milestoneId;
 
+    // [HISTORY] Record status change
+    if (previousStatus !== status) {
+        // ideally updateStatus should accept actorId optional param
+        await this.createHistory(id, 'status', previousStatus, status, actorId); 
+    }
+
     // Step 2: Update the task status
     await this.taskRepository.update(id, { status });
 
     // Step 3: Refetch the updated task
     const updatedTask = await this.taskRepository.findOne({
       where: { id },
-      relations: ['assignee'],
+      relations: ['assignee', 'attachments'],
     });
 
     if (!updatedTask) {
       throw new NotFoundException('Task not found after update');
     }
+
+    this.sortAttachments(updatedTask);
 
     this.logger.log(
       `Task ${id} status changed: ${previousStatus} → ${status} (Milestone: ${milestoneId})`,
@@ -195,12 +524,14 @@ export class TasksService {
     // Step 4: Refetch the updated task
     const updatedTask = await this.taskRepository.findOne({
       where: { id },
-      relations: ['assignee'],
+      relations: ['assignee', 'attachments'],
     });
 
     if (!updatedTask) {
       throw new NotFoundException('Task not found after submission');
     }
+
+    this.sortAttachments(updatedTask);
 
     // Step 5: Prepare new data for audit log
     const newData = {
@@ -300,32 +631,62 @@ export class TasksService {
 
     const created = await this.taskRepository.findOne({
       where: { id: saved.id },
-      relations: ['assignee', 'reporter'],
+      relations: ['assignee', 'reporter', 'attachments'],
     });
 
     if (!created) {
       throw new NotFoundException('Task not found after creation');
     }
 
+    this.sortAttachments(created);
+
     return created;
   }
 
-  async updateTask(id: string, data: Partial<TaskEntity>): Promise<TaskEntity> {
+  async updateTask(id: string, data: Partial<TaskEntity>, actorId?: string): Promise<TaskEntity> {
+    this.logger.log(`Updating task ${id} with actor: ${actorId || 'SYSTEM'}`);
     const task = await this.taskRepository.findOne({ where: { id } });
     if (!task) {
       throw new NotFoundException('Task not found');
+    }
+
+    // [HISTORY] Check for changes
+    if (data.title && data.title !== task.title) {
+        await this.createHistory(id, 'title', task.title, data.title, actorId);
+    }
+    if (data.priority && data.priority !== task.priority) {
+        await this.createHistory(id, 'priority', task.priority, data.priority, actorId);
+    }
+    if (data.storyPoints !== undefined && data.storyPoints !== task.storyPoints) {
+        await this.createHistory(id, 'story points', task.storyPoints, data.storyPoints, actorId);
+    }
+    if (data.description && data.description !== task.description) {
+         // Don't log full description, just that it changed
+         await this.createHistory(id, 'description', '...', 'Updated', actorId);
+    }
+    if (data.assignedTo && data.assignedTo !== task.assignedTo) {
+         await this.createHistory(id, 'assignee', task.assignedTo || 'Unassigned', data.assignedTo, actorId);
+    }
+    if (data.labels) {
+        const oldLabels = JSON.stringify(task.labels || []);
+        const newLabels = JSON.stringify(data.labels || []);
+        if (oldLabels !== newLabels) {
+             await this.createHistory(id, 'labels', task.labels?.join(', ') || '', data.labels.join(', '), actorId);
+        }
     }
 
     await this.taskRepository.update(id, data);
 
     const updated = await this.taskRepository.findOne({
       where: { id },
-      relations: ['assignee', 'reporter'],
+      relations: ['assignee', 'reporter', 'attachments'],
     });
 
     if (!updated) {
       throw new NotFoundException('Task not found after update');
     }
+
+    this.sortAttachments(updated);
 
     return updated;
   }

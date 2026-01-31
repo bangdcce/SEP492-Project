@@ -73,7 +73,7 @@ export class ProjectRequestsService {
         );
       }
     } catch (error) {
-      console.error('Audit log failed', error);
+        console.error('Audit log failed', error);
     }
 
     return fullRequest;
@@ -185,6 +185,8 @@ export class ProjectRequestsService {
         'spec.milestones',
       ],
     });
+    
+
 
     if (!request) return null;
 

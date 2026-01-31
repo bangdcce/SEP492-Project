@@ -7,9 +7,12 @@ import {
   Matches,
   MaxLength,
   IsOptional,
+  IsArray,
+  IsBoolean,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { UserRole } from '../../../database/entities/user.entity';
+import { IsNotDisposableEmail } from '../../../common/validators/disposable-email.validator';
 
 /**
  * Allowed user roles for self-registration
@@ -41,12 +44,13 @@ export class RegisterDto {
   })
   @IsEmail({}, { message: 'Email không hợp lệ' })
   @IsNotEmpty({ message: 'Email không được để trống' })
+  @IsNotDisposableEmail({ message: 'Không chấp nhận email tạm thời. Vui lòng sử dụng email thường xuyên.' })
   email: string;
 
   @ApiProperty({
     description:
-      'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ hoa, chữ thường, số và ký tự đặc biệt)',
-    example: 'SecurePass123!',
+      'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ thường, số và ký tự đặc biệt)',
+    example: 'securepass123!',
     minLength: 8,
   })
   @IsString({ message: 'Mật khẩu phải là chuỗi ký tự' })
@@ -98,11 +102,42 @@ export class RegisterDto {
     example: 'recaptcha_response_token',
   })
   @IsOptional()
-  @ApiPropertyOptional({
-    description: 'Google reCAPTCHA token từ frontend',
-    example: 'recaptcha_response_token',
-  })
-  @IsOptional()
   @IsString({ message: 'reCAPTCHA token phải là chuỗi ký tự' })
   recaptchaToken?: string;
+
+  @ApiPropertyOptional({
+    description: 'Domain IDs (UUIDs) cho BROKER và FREELANCER',
+    example: ['uuid-1', 'uuid-2'],
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray({ message: 'Domain IDs phải là mảng' })
+  @IsString({ each: true, message: 'Mỗi domain ID phải là chuỗi UUID' })
+  domainIds?: string[];
+
+  @ApiPropertyOptional({
+    description: 'Skill IDs (UUIDs) cho BROKER và FREELANCER',
+    example: ['uuid-1', 'uuid-2', 'uuid-3'],
+    type: [String],
+  })
+  @IsOptional()
+  @IsArray({ message: 'Skill IDs phải là mảng' })
+  @IsString({ each: true, message: 'Mỗi skill ID phải là chuỗi UUID' })
+  skillIds?: string[];
+
+  @ApiProperty({
+    description: 'Xác nhận chấp nhận Điều khoản Dịch vụ',
+    example: true,
+  })
+  @IsBoolean({ message: 'acceptTerms phải là boolean' })
+  @IsNotEmpty({ message: 'Bạn phải chấp nhận Điều khoản Dịch vụ' })
+  acceptTerms: boolean;
+
+  @ApiProperty({
+    description: 'Xác nhận chấp nhận Chính sách Bảo mật',
+    example: true,
+  })
+  @IsBoolean({ message: 'acceptPrivacy phải là boolean' })
+  @IsNotEmpty({ message: 'Bạn phải chấp nhận Chính sách Bảo mật' })
+  acceptPrivacy: boolean;
 }

@@ -4,6 +4,7 @@ import { LayoutGrid, Calendar as CalendarIcon, BarChart2, Search, XCircle, FileS
 import { useNavigate, useParams } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
 import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 import {
   fetchBoard,
   updateTaskStatus,
@@ -12,18 +13,17 @@ import {
   createMilestone,
   submitTask,
   approveMilestone,
-  createDispute,
   fetchProject,
   type WorkspaceProject,
 } from "./api";
 import type { KanbanBoard, KanbanColumnKey, Task, Milestone } from "./types";
-import { KanbanColumn } from "./components/KanbanColumn";
-import { CreateTaskModal } from "./components/CreateTaskModal";
-import { TaskDetailModal } from "./components/TaskDetailModal";
-import { MilestoneTabs } from "./components/MilestoneTabs";
-import { CalendarView } from "./components/CalendarView";
-import { MilestoneApprovalCard } from "./components/MilestoneApprovalCard";
-import { ProjectOverview } from "./components/ProjectOverview";
+import { KanbanColumn } from "./components/board/KanbanColumn";
+import { CreateTaskModal } from "./components/board/CreateTaskModal";
+import { TaskDetailModal } from "./components/board/TaskDetailModal";
+import { MilestoneTabs } from "./components/milestone/MilestoneTabs";
+import { CalendarView } from "./components/calendar/CalendarView";
+import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
+import { ProjectOverview } from "./components/overview/ProjectOverview";
 import { calculateProgress } from "./utils";
 
 const initialBoard: KanbanBoard = {
@@ -33,17 +33,9 @@ const initialBoard: KanbanBoard = {
   DONE: [],
 };
 
-// Helper to get current user from localStorage
+// Helper to get current user from storage (session/local)
 const getCurrentUser = (): { id: string; role?: string } | null => {
-  try {
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      return JSON.parse(userStr);
-    }
-  } catch {
-    // ignore parse errors
-  }
-  return null;
+  return getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
 };
 
 export function ProjectWorkspace() {

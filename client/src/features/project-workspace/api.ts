@@ -1,5 +1,5 @@
 import { apiClient } from "@/shared/api/client";
-import type { KanbanBoard, KanbanColumnKey, Task, Milestone, TaskStatusUpdateResult, TaskPriority } from "./types";
+import type { KanbanBoard, KanbanColumnKey, Task, Milestone, TaskStatusUpdateResult } from "./types";
 
 // ============================================
 // REAL API - Database Integration
@@ -51,6 +51,19 @@ export const updateTaskStatus = async (
   });
 
   return result;
+};
+
+export const fetchTaskHistory = async (taskId: string): Promise<import("./types").TaskHistory[]> => {
+  const result = await apiClient.get<import("./types").TaskHistory[]>(`/tasks/${taskId}/history`);
+  return result;
+};
+
+export const fetchTaskComments = async (taskId: string): Promise<import("./types").TaskComment[]> => {
+  return apiClient.get<import("./types").TaskComment[]>(`/tasks/${taskId}/comments`);
+};
+
+export const createComment = async (taskId: string, content: string): Promise<import("./types").TaskComment> => {
+  return apiClient.post<import("./types").TaskComment>(`/tasks/${taskId}/comments`, { content });
 };
 
 /**
@@ -167,3 +180,5 @@ export const approveMilestone = async (
   console.log("[API] Milestone approved:", result);
   return result;
 };
+
+

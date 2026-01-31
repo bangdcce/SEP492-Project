@@ -9,7 +9,12 @@ import {
   Logger,
   InternalServerErrorException,
   Req,
+  UseGuards,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { JwtAuthGuard } from '../../modules/auth/guards/jwt-auth.guard';
 import {
   TasksService,
   BoardWithMilestones,
@@ -29,6 +34,7 @@ interface AuthenticatedRequest {
 }
 
 @Controller('tasks')
+@UseGuards(JwtAuthGuard)
 export class TasksController {
   private readonly logger = new Logger(TasksController.name);
 
@@ -45,10 +51,48 @@ export class TasksController {
     }
   }
 
+  @Get(':id/history')
+  getTaskHistory(@Param('id') id: string) {
+    return this.tasksService.getTaskHistory(id);
+  }
+
+  @Get(':id/comments')
+  getTaskComments(@Param('id') id: string) {
+    return this.tasksService.getTaskComments(id);
+  }
+
+  @Post('upload-attachment')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: {
+        fileSize: 10 * 1024 * 1024, // 10MB max
+      },
+    }),
+  )
+  async uploadAttachment(@UploadedFile() file: Express.Multer.File) {
+    if (!file) {
+      throw new BadRequestException('File is required');
+    }
+
+    return this.tasksService.uploadFile(file);
+  }
+
+  @Post(':id/comments')
+  addComment(
+      @Param('id') id: string,
+      @Body('content') content: string,
+      @Req() req: AuthenticatedRequest
+  ) {
+      if (!content) throw new BadRequestException('Content is required');
+      // JwtAuthGuard ensures user exists, but TS needs reassurance or fallback
+      return this.tasksService.addComment(id, content, req.user?.id || 'SYSTEM');
+  }
+
   @Patch(':id/status')
   async updateStatus(
     @Param('id') id: string,
     @Body('status') status: string,
+    @Req() req: AuthenticatedRequest,
   ): Promise<TaskStatusUpdateResult> {
     const allowed: TaskStatus[] = [
       TaskStatus.TODO,
@@ -62,7 +106,7 @@ export class TasksController {
       throw new BadRequestException('Invalid status');
     }
 
-    return this.tasksService.updateStatus(id, status as KanbanStatus);
+    return this.tasksService.updateStatus(id, status as KanbanStatus, req.user?.id);
   }
 
   /**
@@ -99,8 +143,10 @@ export class TasksController {
   async updateTask(
     @Param('id') id: string,
     @Body() body: Partial<TaskEntity>,
+    @Req() req: AuthenticatedRequest,
   ) {
-    return this.tasksService.updateTask(id, body);
+    this.logger.log(`Update Task ${id} requested by user: ${req.user?.id || 'ANONYMOUS'}`);
+    return this.tasksService.updateTask(id, body, req.user?.id);
   }
 
   @Post()
