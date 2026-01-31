@@ -17,13 +17,13 @@ import {
   type WorkspaceProject,
 } from "./api";
 import type { KanbanBoard, KanbanColumnKey, Task, Milestone } from "./types";
-import { KanbanColumn } from "./components/KanbanColumn";
-import { CreateTaskModal } from "./components/CreateTaskModal";
-import { TaskDetailModal } from "./components/TaskDetailModal";
-import { MilestoneTabs } from "./components/MilestoneTabs";
-import { CalendarView } from "./components/CalendarView";
-import { MilestoneApprovalCard } from "./components/MilestoneApprovalCard";
-import { ProjectOverview } from "./components/ProjectOverview";
+import { KanbanColumn } from "./components/board/KanbanColumn";
+import { CreateTaskModal } from "./components/board/CreateTaskModal";
+import { TaskDetailModal } from "./components/board/TaskDetailModal";
+import { MilestoneTabs } from "./components/milestone/MilestoneTabs";
+import { CalendarView } from "./components/calendar/CalendarView";
+import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
+import { ProjectOverview } from "./components/overview/ProjectOverview";
 import { calculateProgress } from "./utils";
 
 const initialBoard: KanbanBoard = {

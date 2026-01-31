@@ -1,6 +1,6 @@
 import { Droppable } from "@hello-pangea/dnd";
 import { Plus } from "lucide-react";
-import type { Task } from "../types";
+import type { Task } from "../../types";
 import { TaskCard } from "./TaskCard";
 
 type KanbanColumnProps = {
