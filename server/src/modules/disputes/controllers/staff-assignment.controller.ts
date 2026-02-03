@@ -16,6 +16,7 @@ import {
   ParseUUIDPipe,
   HttpStatus,
   HttpCode,
+  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -42,6 +43,7 @@ import {
   EmergencyReassignDto,
   ScheduleHearingDto,
   ReassignDisputeDto,
+  BatchDisputeComplexityDto,
 } from '../dto/staff-assignment.dto';
 
 @ApiTags('Staff Assignment')
@@ -93,6 +95,64 @@ export class StaffAssignmentController {
           note: 'Use recommended duration unless you have specific reasons to adjust',
         },
       },
+    };
+  }
+
+  @Post('disputes/complexity/batch')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Estimate dispute complexity in batch',
+    description: `
+      Estimates complexity for multiple disputes in one request.
+      
+      **Returns:**
+      - Map of disputeId => complexity estimation
+      - Errors map for disputes that failed estimation
+    `,
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Batch complexity estimation returned',
+  })
+  async estimateComplexityBatch(@Body() dto: BatchDisputeComplexityDto) {
+    const uniqueIds = Array.from(new Set(dto.disputeIds));
+    if (uniqueIds.length > 50) {
+      throw new BadRequestException('Too many disputeIds. Maximum is 50 per request.');
+    }
+
+    const results = await Promise.allSettled(
+      uniqueIds.map((disputeId) =>
+        this.staffAssignmentService.estimateDisputeComplexity(disputeId),
+      ),
+    );
+
+    const data: Record<string, any> = {};
+    const errors: Record<string, string> = {};
+
+    results.forEach((result, index) => {
+      const disputeId = uniqueIds[index];
+      if (result.status === 'fulfilled') {
+        const estimation = result.value;
+        data[disputeId] = {
+          ...estimation,
+          scheduling: {
+            minimumMinutes: estimation.timeEstimation.minMinutes,
+            recommendedMinutes: estimation.timeEstimation.recommendedMinutes,
+            maximumMinutes: estimation.timeEstimation.maxMinutes,
+            note: 'Use recommended duration unless you have specific reasons to adjust',
+          },
+        };
+      } else {
+        const message =
+          result.reason instanceof Error ? result.reason.message : 'Failed to estimate complexity';
+        errors[disputeId] = message;
+      }
+    });
+
+    return {
+      success: Object.keys(errors).length === 0,
+      data,
+      errors: Object.keys(errors).length ? errors : undefined,
     };
   }
 

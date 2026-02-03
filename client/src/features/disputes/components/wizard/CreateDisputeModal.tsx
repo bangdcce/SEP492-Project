@@ -7,6 +7,7 @@ interface CreateDisputeModalProps {
   milestoneId: string;
   projectId: string;
   milestoneTitle: string;
+  milestoneStatus: string;
   projectTitle: string;
   currentUserId: string;
   projectMembers: Array<{
@@ -23,6 +24,7 @@ export const CreateDisputeModal = ({
   milestoneId,
   projectId,
   milestoneTitle,
+  milestoneStatus,
   currentUserId,
   projectMembers,
 }: CreateDisputeModalProps) => {
@@ -71,6 +73,7 @@ export const CreateDisputeModal = ({
                 onClose={onClose}
                 milestoneId={milestoneId}
                 projectId={projectId}
+                milestoneStatus={milestoneStatus}
                 currentUserId={currentUserId}
                 projectMembers={projectMembers}
               />

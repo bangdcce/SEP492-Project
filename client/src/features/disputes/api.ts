@@ -1,4 +1,10 @@
 import { apiClient } from "@/shared/api/client";
+import {
+  cachedFetch,
+  getCachedValue,
+  invalidateCacheByPrefix,
+  setCachedValue,
+} from "@/shared/utils/requestCache";
 import type {
   DisputeActivity,
   DisputeEvidence,
@@ -10,6 +16,7 @@ import type {
   DisputeComplexity,
   DisputeMessage,
 } from "./types/dispute.types";
+import type { CreateDisputeDto } from "./types/dispute.dto";
 import type { DisputePhase } from "../staff/types/staff.types";
 import type { KanbanBoard, Milestone } from "@/features/project-workspace/types";
 
@@ -17,6 +24,16 @@ export interface ProjectBoard {
   tasks: KanbanBoard;
   milestones: Milestone[];
 }
+
+type CacheOptions = {
+  preferCache?: boolean;
+  ttlMs?: number;
+};
+
+const DISPUTES_LIST_TTL_MS = 30_000;
+const DISPUTE_DETAIL_TTL_MS = 60_000;
+const DISPUTE_ACTIVITY_TTL_MS = 30_000;
+const DISPUTE_COMPLEXITY_TTL_MS = 5 * 60_000;
 
 const buildQueryParams = (filters?: DisputeFilters) => {
   const params = new URLSearchParams();
@@ -32,17 +49,40 @@ const buildQueryParams = (filters?: DisputeFilters) => {
 
 export const getDisputes = async (
   filters?: DisputeFilters,
+  options?: CacheOptions,
 ): Promise<PaginatedDisputesResponse> => {
   const params = buildQueryParams(filters);
-  return await apiClient.get<PaginatedDisputesResponse>(
-    `/disputes?${params.toString()}`,
+  const key = `disputes:list:${params.toString() || "all"}`;
+  const fetcher = () =>
+    apiClient.get<PaginatedDisputesResponse>(`/disputes?${params.toString()}`);
+  if (options?.preferCache === false) {
+    return await fetcher();
+  }
+  return await cachedFetch(
+    key,
+    fetcher,
+    options?.ttlMs ?? DISPUTES_LIST_TTL_MS,
   );
 };
 
 export const getDisputeDetail = async (
   disputeId: string,
+  options?: CacheOptions,
 ): Promise<DisputeSummary> => {
-  return await apiClient.get<DisputeSummary>(`/disputes/${disputeId}`);
+  const key = `disputes:detail:${disputeId}`;
+  const fetcher = () => apiClient.get<DisputeSummary>(`/disputes/${disputeId}`);
+  if (options?.preferCache === false) {
+    return await fetcher();
+  }
+  return await cachedFetch(
+    key,
+    fetcher,
+    options?.ttlMs ?? DISPUTE_DETAIL_TTL_MS,
+  );
+};
+
+export const createDispute = async (input: CreateDisputeDto): Promise<DisputeSummary> => {
+  return await apiClient.post<DisputeSummary>("/disputes", input);
 };
 
 export const getProjectBoard = async (projectId: string): Promise<ProjectBoard> => {
@@ -56,11 +96,22 @@ export const updateDisputePhase = async (disputeId: string, phase: DisputePhase)
 export const getDisputeActivities = async (
   disputeId: string,
   includeInternal?: boolean,
+  options?: CacheOptions,
 ): Promise<DisputeActivity[]> => {
   const params = new URLSearchParams();
   if (includeInternal) params.append("includeInternal", "true");
-  return await apiClient.get<DisputeActivity[]>(
-    `/disputes/${disputeId}/activities?${params.toString()}`,
+  const key = `disputes:activities:${disputeId}:${params.toString()}`;
+  const fetcher = () =>
+    apiClient.get<DisputeActivity[]>(
+      `/disputes/${disputeId}/activities?${params.toString()}`,
+    );
+  if (options?.preferCache === false) {
+    return await fetcher();
+  }
+  return await cachedFetch(
+    key,
+    fetcher,
+    options?.ttlMs ?? DISPUTE_ACTIVITY_TTL_MS,
   );
 };
 
@@ -102,10 +153,83 @@ export const escalateDispute = async (disputeId: string) => {
 
 export const getDisputeComplexity = async (
   disputeId: string,
+  options?: CacheOptions,
 ): Promise<{ data: DisputeComplexity }> => {
-  return await apiClient.get<{ data: DisputeComplexity }>(
-    `/staff/disputes/${disputeId}/complexity`,
+  const key = `disputes:complexity:${disputeId}`;
+  const fetcher = () =>
+    apiClient.get<{ data: DisputeComplexity }>(
+      `/staff/disputes/${disputeId}/complexity`,
+    );
+  if (options?.preferCache === false) {
+    return await fetcher();
+  }
+  return await cachedFetch(
+    key,
+    fetcher,
+    options?.ttlMs ?? DISPUTE_COMPLEXITY_TTL_MS,
   );
+};
+
+export const getDisputeComplexities = async (
+  disputeIds: string[],
+  options?: CacheOptions,
+): Promise<Record<string, DisputeComplexity>> => {
+  const uniqueIds = Array.from(new Set(disputeIds)).filter(Boolean);
+  if (!uniqueIds.length) return {};
+
+  const preferCache = options?.preferCache !== false;
+  const cached: Record<string, DisputeComplexity> = {};
+  const missing: string[] = [];
+
+  uniqueIds.forEach((id) => {
+    if (preferCache) {
+      const cachedValue = getCachedValue<DisputeComplexity>(`disputes:complexity:${id}`);
+      if (cachedValue) {
+        cached[id] = cachedValue;
+        return;
+      }
+    }
+    missing.push(id);
+  });
+
+  if (!missing.length) {
+    return cached;
+  }
+
+  const response = await apiClient.post<{
+    success: boolean;
+    data: Record<string, DisputeComplexity>;
+    errors?: Record<string, string>;
+  }>(`/staff/disputes/complexity/batch`, { disputeIds: missing });
+
+  const dataMap = (response?.data ?? {}) as Record<string, DisputeComplexity>;
+  Object.entries(dataMap).forEach(([id, value]) => {
+    if (value) {
+      setCachedValue(
+        `disputes:complexity:${id}`,
+        value,
+        options?.ttlMs ?? DISPUTE_COMPLEXITY_TTL_MS,
+      );
+    }
+  });
+
+  return { ...cached, ...dataMap };
+};
+
+export const invalidateDisputesCache = () => {
+  invalidateCacheByPrefix("disputes:list:");
+};
+
+export const invalidateDisputeDetailCache = (disputeId?: string) => {
+  if (disputeId) {
+    invalidateCacheByPrefix(`disputes:detail:${disputeId}`);
+    invalidateCacheByPrefix(`disputes:activities:${disputeId}`);
+    invalidateCacheByPrefix(`disputes:complexity:${disputeId}`);
+    return;
+  }
+  invalidateCacheByPrefix("disputes:detail:");
+  invalidateCacheByPrefix("disputes:activities:");
+  invalidateCacheByPrefix("disputes:complexity:");
 };
 
 export const getDisputeEvidence = async (

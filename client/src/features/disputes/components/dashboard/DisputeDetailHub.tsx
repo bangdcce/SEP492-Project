@@ -142,11 +142,11 @@ export const DisputeDetailHub = ({
     return currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.STAFF;
   }, [currentUser]);
 
-  const fetchDetail = useCallback(async () => {
+  const fetchDetail = useCallback(async (preferCache: boolean = true) => {
     if (!disputeId) return;
     try {
       setLoading(true);
-      const detail = await getDisputeDetail(disputeId);
+      const detail = await getDisputeDetail(disputeId, { preferCache });
       setDispute((prev) => ({ ...(prev ?? ({} as DisputeSummary)), ...detail }));
     } catch (error) {
       console.error("Failed to load dispute detail:", error);
@@ -156,11 +156,13 @@ export const DisputeDetailHub = ({
     }
   }, [disputeId]);
 
-  const fetchActivities = useCallback(async () => {
+  const fetchActivities = useCallback(async (preferCache: boolean = true) => {
     if (!disputeId) return;
     try {
       setActivityLoading(true);
-      const data = await getDisputeActivities(disputeId, canViewInternal);
+      const data = await getDisputeActivities(disputeId, canViewInternal, {
+        preferCache,
+      });
       setActivities(data ?? []);
     } catch (error) {
       console.error("Failed to load dispute activities:", error);
@@ -169,10 +171,10 @@ export const DisputeDetailHub = ({
     }
   }, [disputeId, canViewInternal]);
 
-  const fetchComplexity = useCallback(async () => {
+  const fetchComplexity = useCallback(async (preferCache: boolean = true) => {
     if (!disputeId) return;
     try {
-      const data = await getDisputeComplexity(disputeId);
+      const data = await getDisputeComplexity(disputeId, { preferCache });
       setComplexity(data.data);
     } catch (error) {
       console.error("Failed to load dispute complexity:", error);
@@ -191,15 +193,15 @@ export const DisputeDetailHub = ({
       return;
     }
 
-    fetchDetail();
-    fetchActivities();
-    fetchComplexity();
+    fetchDetail(true);
+    fetchActivities(true);
+    fetchComplexity(true);
   }, [disputeId, initialDispute, fetchDetail, fetchActivities, fetchComplexity]);
 
   const handleRealtimeRefresh = useCallback(() => {
-    fetchDetail();
-    fetchActivities();
-    fetchComplexity();
+    fetchDetail(false);
+    fetchActivities(false);
+    fetchComplexity(false);
     setRefreshToken((prev) => prev + 1);
   }, [fetchDetail, fetchActivities, fetchComplexity]);
 
@@ -209,7 +211,6 @@ export const DisputeDetailHub = ({
 
   useDisputeRealtime(disputeId, {
     onEvidenceUploaded: handleRealtimeRefresh,
-    onMessageSent: handleRealtimeRefresh,
     onVerdictIssued: handleRealtimeRefresh,
     onHearingEnded: handleRealtimeRefresh,
   });

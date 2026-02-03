@@ -88,6 +88,9 @@ export class MilestoneEntity {
   })
   status: MilestoneStatus;
 
+  @Column({ type: 'timestamp', nullable: true })
+  submittedAt: Date;
+
   @Column({ type: 'varchar', nullable: true })
   proofOfWork: string;
 

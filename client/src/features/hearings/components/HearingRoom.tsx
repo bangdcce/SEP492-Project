@@ -31,7 +31,11 @@ import type {
   SpeakerRole,
 } from "@/features/hearings/types";
 import { useHearingRealtime } from "@/features/hearings/hooks/useHearingRealtime";
-import { getDisputeMessages, sendDisputeMessage } from "@/features/disputes/api";
+import {
+  getDisputeMessages,
+  sendDisputeMessage,
+} from "@/features/disputes/api";
+import { sendDisputeMessageRealtime } from "@/features/disputes/realtime";
 import type { DisputeMessage } from "@/features/disputes/types/dispute.types";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
@@ -41,11 +45,31 @@ interface HearingRoomProps {
   hearingId: string;
 }
 
-const speakerOptions: Array<{ role: SpeakerRole; label: string; helper: string }> = [
+type LocalMessage = DisputeMessage & {
+  status?: "sending" | "sent" | "delivered" | "error";
+};
+
+const speakerOptions: Array<{
+  role: SpeakerRole;
+  label: string;
+  helper: string;
+}> = [
   { role: "ALL", label: "Open floor", helper: "Everyone can speak" },
-  { role: "MODERATOR_ONLY", label: "Moderator only", helper: "Only moderator can speak" },
-  { role: "RAISER_ONLY", label: "Raiser only", helper: "Only raiser can speak" },
-  { role: "DEFENDANT_ONLY", label: "Defendant only", helper: "Only defendant can speak" },
+  {
+    role: "MODERATOR_ONLY",
+    label: "Moderator only",
+    helper: "Only moderator can speak",
+  },
+  {
+    role: "RAISER_ONLY",
+    label: "Raiser only",
+    helper: "Only raiser can speak",
+  },
+  {
+    role: "DEFENDANT_ONLY",
+    label: "Defendant only",
+    helper: "Only defendant can speak",
+  },
   { role: "MUTED_ALL", label: "Mute all", helper: "Chat paused" },
 ];
 
@@ -117,7 +141,10 @@ const questionBadgeClass = (status?: string | null) => {
   }
 };
 
-const speakerAllows = (speakerRole?: SpeakerRole | null, participantRole?: HearingParticipantRole) => {
+const speakerAllows = (
+  speakerRole?: SpeakerRole | null,
+  participantRole?: HearingParticipantRole,
+) => {
   if (!speakerRole || !participantRole) return false;
   switch (speakerRole) {
     case "ALL":
@@ -137,17 +164,21 @@ const speakerAllows = (speakerRole?: SpeakerRole | null, participantRole?: Heari
 
 export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   const [hearing, setHearing] = useState<DisputeHearingSummary | null>(null);
-  const [messages, setMessages] = useState<DisputeMessage[]>([]);
+  const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messageInput, setMessageInput] = useState("");
   const [sending, setSending] = useState(false);
   const [speakerUpdating, setSpeakerUpdating] = useState(false);
-  const [speakerGraceUntil, setSpeakerGraceUntil] = useState<string | null>(null);
+  const [speakerGraceUntil, setSpeakerGraceUntil] = useState<string | null>(
+    null,
+  );
   const [statements, setStatements] = useState<HearingStatementSummary[]>([]);
   const [questions, setQuestions] = useState<HearingQuestionSummary[]>([]);
   const [timeline, setTimeline] = useState<HearingTimelineEvent[]>([]);
-  const [attendance, setAttendance] = useState<HearingAttendanceSummary | null>(null);
+  const [attendance, setAttendance] = useState<HearingAttendanceSummary | null>(
+    null,
+  );
   const [statementsLoading, setStatementsLoading] = useState(false);
   const [questionsLoading, setQuestionsLoading] = useState(false);
   const [timelineLoading, setTimelineLoading] = useState(false);
@@ -156,7 +187,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   const [questionText, setQuestionText] = useState("");
   const [questionDeadlineMinutes, setQuestionDeadlineMinutes] = useState("");
   const [questionSubmitting, setQuestionSubmitting] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+  const isNearBottomRef = useRef(true);
+  const isInitialMessagesLoadRef = useRef(true);
+  const prevMessageCountRef = useRef(0);
 
   const currentUser = useMemo(
     () => getStoredJson<{ id?: string; role?: UserRole }>(STORAGE_KEYS.USER),
@@ -186,7 +220,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         hearingId: hearing.id,
         limit: 100,
       });
-      setMessages(data ?? []);
+      setMessages((data ?? []).map((message) => ({ ...message, status: "sent" })));
     } catch (error) {
       console.error("Failed to load hearing messages:", error);
       toast.error("Could not load hearing messages");
@@ -199,7 +233,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     try {
       setStatementsLoading(true);
       const includeDrafts =
-        currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF;
+        currentUserRole === UserRole.ADMIN ||
+        currentUserRole === UserRole.STAFF;
       const data = await getHearingStatements(hearingId, { includeDrafts });
       setStatements(data ?? []);
     } catch (error) {
@@ -237,7 +272,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   }, [hearingId]);
 
   const loadAttendance = useCallback(async () => {
-    if (currentUserRole !== UserRole.ADMIN && currentUserRole !== UserRole.STAFF) {
+    if (
+      currentUserRole !== UserRole.ADMIN &&
+      currentUserRole !== UserRole.STAFF
+    ) {
       return;
     }
     try {
@@ -276,16 +314,38 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     loadAttendance();
   }, [loadAttendance]);
 
-  useEffect(() => {
-    if (!messagesEndRef.current) return;
-    messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  const handleMessagesScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+    const distanceFromBottom =
+      container.scrollHeight - container.scrollTop - container.clientHeight;
+    isNearBottomRef.current = distanceFromBottom < 120;
+  }, []);
 
-  useHearingRealtime(hearingId, {
-    onSpeakerControlChanged: (payload) => {
-      if (payload?.newRole && hearing) {
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    if (isInitialMessagesLoadRef.current && messages.length > 0) {
+      isInitialMessagesLoadRef.current = false;
+      prevMessageCountRef.current = messages.length;
+      container.scrollTop = container.scrollHeight;
+      return;
+    }
+
+    if (messages.length > prevMessageCountRef.current && isNearBottomRef.current) {
+      requestAnimationFrame(() => {
+        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
+      });
+    }
+    prevMessageCountRef.current = messages.length;
+  }, [messages.length]);
+
+  const handleRealtimeSpeakerChanged = useCallback(
+    (payload: { newRole?: string; gracePeriodUntil?: string }) => {
+      if (payload?.newRole) {
         setHearing((prev) =>
-          prev ? { ...prev, currentSpeakerRole: payload.newRole } : prev,
+          prev ? { ...prev, currentSpeakerRole: payload.newRole as any } : prev,
         );
       }
       if (payload?.gracePeriodUntil) {
@@ -294,12 +354,81 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         setSpeakerGraceUntil(null);
       }
     },
-    onMessageSent: (payload) => {
+    [],
+  );
+
+  const handleRealtimeMessageSent = useCallback(
+    (payload: {
+      messageId?: string;
+      hearingId?: string;
+      disputeId?: string;
+      senderId?: string;
+      senderRole?: string;
+      type?: string;
+      content?: string;
+      metadata?: Record<string, unknown>;
+      replyToMessageId?: string;
+      relatedEvidenceId?: string;
+      isHidden?: boolean;
+      hiddenReason?: string;
+      createdAt?: string;
+      sender?: { id: string; fullName?: string; email?: string };
+    }) => {
       if (!payload?.messageId || payload.hearingId !== hearingId) return;
+      const metadata = payload.metadata;
+      const clientMessageId =
+        metadata && typeof metadata === "object" && "clientMessageId" in metadata
+          ? typeof metadata.clientMessageId === "string"
+            ? metadata.clientMessageId
+            : undefined
+          : undefined;
       setMessages((prev) => {
-        if (prev.some((item) => item.id === payload.messageId)) {
-          return prev;
+        const existing = prev.find((item) => item.id === payload.messageId);
+        if (existing) {
+          return prev.map((item) =>
+            item.id === payload.messageId
+              ? {
+                  ...item,
+                  status:
+                    item.senderId && item.senderId === currentUserId
+                      ? "delivered"
+                      : item.status,
+                }
+              : item,
+          );
         }
+
+        if (clientMessageId) {
+          const optimistic = prev.find((item) => item.id === clientMessageId);
+          if (optimistic) {
+            return prev.map((item) =>
+              item.id === clientMessageId
+                ? {
+                    ...(item as DisputeMessage),
+                    id: payload.messageId,
+                    disputeId: payload.disputeId,
+                    hearingId: payload.hearingId,
+                    senderId: payload.senderId,
+                    senderRole: payload.senderRole,
+                    type: payload.type,
+                    content: payload.content,
+                    metadata: payload.metadata,
+                    replyToMessageId: payload.replyToMessageId,
+                    relatedEvidenceId: payload.relatedEvidenceId,
+                    isHidden: payload.isHidden,
+                    hiddenReason: payload.hiddenReason,
+                    createdAt: payload.createdAt ?? new Date().toISOString(),
+                    sender: payload.sender,
+                    status:
+                      payload.senderId && payload.senderId === currentUserId
+                        ? "delivered"
+                        : undefined,
+                  }
+                : item,
+            );
+          }
+        }
+
         return [
           ...prev,
           {
@@ -317,11 +446,19 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
             hiddenReason: payload.hiddenReason,
             createdAt: payload.createdAt ?? new Date().toISOString(),
             sender: payload.sender,
+            status:
+              payload.senderId && payload.senderId === currentUserId
+                ? "delivered"
+                : undefined,
           } as DisputeMessage,
         ];
       });
     },
-    onMessageHidden: (payload) => {
+    [hearingId, currentUserId],
+  );
+
+  const handleRealtimeMessageHidden = useCallback(
+    (payload: { messageId?: string; hiddenReason?: string }) => {
       if (!payload?.messageId) return;
       setMessages((prev) =>
         prev.map((message) =>
@@ -335,11 +472,20 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         ),
       );
     },
+    [],
+  );
+
+  useHearingRealtime(hearingId, {
+    onSpeakerControlChanged: handleRealtimeSpeakerChanged,
+    onMessageSent: handleRealtimeMessageSent,
+    onMessageHidden: handleRealtimeMessageHidden,
   });
 
   const currentParticipant = useMemo(() => {
     if (!currentUserId || !hearing?.participants) return null;
-    return hearing.participants.find((participant) => participant.userId === currentUserId);
+    return hearing.participants.find(
+      (participant) => participant.userId === currentUserId,
+    );
   }, [currentUserId, hearing?.participants]);
 
   const questionTargets = useMemo(() => {
@@ -350,8 +496,11 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   }, [hearing?.participants]);
 
   const canControlSpeaker =
-    Boolean(hearing?.moderatorId && currentUserId && hearing.moderatorId === currentUserId) ||
-    currentUserRole === UserRole.ADMIN;
+    Boolean(
+      hearing?.moderatorId &&
+      currentUserId &&
+      hearing.moderatorId === currentUserId,
+    ) || currentUserRole === UserRole.ADMIN;
   const canAskQuestions =
     currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF;
 
@@ -378,16 +527,68 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     if (!hearing || !hearing.disputeId) return;
     if (!messageInput.trim()) return;
 
+    const content = messageInput.trim();
+    const clientMessageId = `client-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const optimisticMessage: LocalMessage = {
+      id: clientMessageId,
+      disputeId: hearing.disputeId,
+      hearingId: hearing.id,
+      senderId: currentUserId ?? undefined,
+      senderRole: currentUserRole ?? undefined,
+      type: "TEXT",
+      content,
+      metadata: { clientMessageId },
+      createdAt: new Date().toISOString(),
+      status: "sending",
+    };
+    setMessages((prev) => [...prev, optimisticMessage]);
+    setMessageInput("");
+
     try {
       setSending(true);
-      await sendDisputeMessage(hearing.disputeId, {
-        content: messageInput.trim(),
+      const ack = await sendDisputeMessageRealtime({
+        disputeId: hearing.disputeId,
         hearingId: hearing.id,
+        content,
+        metadata: { clientMessageId },
       });
-      setMessageInput("");
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === clientMessageId
+            ? {
+                ...message,
+                id: ack.messageId,
+                createdAt: ack.createdAt,
+                status: "sent",
+              }
+            : message,
+        ),
+      );
     } catch (error) {
       console.error("Failed to send hearing message:", error);
-      toast.error("Could not send message");
+      try {
+        await sendDisputeMessage(hearing.disputeId, {
+          content: messageInput.trim(),
+          hearingId: hearing.id,
+        });
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === clientMessageId
+              ? { ...message, status: "sent" }
+              : message,
+          ),
+        );
+      } catch (fallbackError) {
+        console.error("Fallback send failed:", fallbackError);
+        setMessages((prev) =>
+          prev.map((message) =>
+            message.id === clientMessageId
+              ? { ...message, status: "error" }
+              : message,
+          ),
+        );
+        toast.error("Could not send message");
+      }
     } finally {
       setSending(false);
     }
@@ -398,7 +599,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     try {
       setSpeakerUpdating(true);
       await updateSpeakerControl(hearing.id, role);
-      setHearing((prev) => (prev ? { ...prev, currentSpeakerRole: role } : prev));
+      setHearing((prev) =>
+        prev ? { ...prev, currentSpeakerRole: role } : prev,
+      );
       toast.success(`Speaker role set to ${speakerLabel(role)}.`);
     } catch (error) {
       console.error("Failed to update speaker control:", error);
@@ -479,7 +682,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         <div className="space-y-6">
           <div className="bg-white border border-gray-200 rounded-xl p-4">
             {loading || !hearing ? (
-              <p className="text-sm text-gray-500">Loading hearing details...</p>
+              <p className="text-sm text-gray-500">
+                Loading hearing details...
+              </p>
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
@@ -506,10 +711,22 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-500">
-                  <div>Started: {hearing.startedAt ? format(new Date(hearing.startedAt), "MMM d, h:mm a") : "N/A"}</div>
-                  <div>Ended: {hearing.endedAt ? format(new Date(hearing.endedAt), "MMM d, h:mm a") : "N/A"}</div>
+                  <div>
+                    Started:{" "}
+                    {hearing.startedAt
+                      ? format(new Date(hearing.startedAt), "MMM d, h:mm a")
+                      : "N/A"}
+                  </div>
+                  <div>
+                    Ended:{" "}
+                    {hearing.endedAt
+                      ? format(new Date(hearing.endedAt), "MMM d, h:mm a")
+                      : "N/A"}
+                  </div>
                   <div>Speaker: {speakerLabel(hearing.currentSpeakerRole)}</div>
-                  <div>Chat: {hearing.isChatRoomActive ? "Active" : "Inactive"}</div>
+                  <div>
+                    Chat: {hearing.isChatRoomActive ? "Active" : "Inactive"}
+                  </div>
                 </div>
 
                 {speakerGraceUntil ? (
@@ -521,7 +738,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
 
                 {hearing.agenda ? (
                   <p className="text-xs text-gray-600">
-                    <span className="font-semibold">Agenda:</span> {hearing.agenda}
+                    <span className="font-semibold">Agenda:</span>{" "}
+                    {hearing.agenda}
                   </p>
                 ) : null}
               </div>
@@ -539,7 +757,11 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               ) : null}
             </div>
 
-            <div className="mt-4 h-[320px] overflow-y-auto bg-gray-50 border border-gray-100 rounded-lg p-3 space-y-3">
+            <div
+              ref={messagesContainerRef}
+              onScroll={handleMessagesScroll}
+              className="mt-4 h-[320px] overflow-y-auto bg-gray-50 border border-gray-100 rounded-lg p-3 space-y-3"
+            >
               {messages.length === 0 ? (
                 <p className="text-sm text-gray-500">No messages yet.</p>
               ) : (
@@ -549,6 +771,16 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                     message.sender?.email ||
                     message.senderId ||
                     "System";
+                  const isOwn = message.senderId === currentUserId;
+                  const statusLabel = message.status
+                    ? message.status === "sending"
+                      ? "Sending"
+                      : message.status === "delivered"
+                        ? "Delivered"
+                        : message.status === "sent"
+                          ? "Sent"
+                          : "Failed"
+                    : "Sent";
                   return (
                     <div key={message.id} className="text-sm text-gray-700">
                       <div className="flex items-center gap-2 text-xs text-gray-400">
@@ -558,6 +790,17 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                         <span>
                           {format(new Date(message.createdAt), "h:mm a")}
                         </span>
+                        {isOwn ? (
+                          <span
+                            className={`text-[11px] font-medium ${
+                              message.status === "error"
+                                ? "text-red-500"
+                                : "text-gray-400"
+                            }`}
+                          >
+                            {statusLabel}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-1">
                         {message.isHidden ? (
@@ -572,12 +815,17 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                   );
                 })
               )}
-              <div ref={messagesEndRef} />
             </div>
 
             <div className="mt-3">
               {canSendMessage ? (
-                <div className="flex gap-2">
+                <form
+                  className="flex gap-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    handleSendMessage();
+                  }}
+                >
                   <input
                     value={messageInput}
                     onChange={(event) => setMessageInput(event.target.value)}
@@ -585,13 +833,13 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                     className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
                   />
                   <button
-                    onClick={handleSendMessage}
+                    type="submit"
                     disabled={sending || !messageInput.trim()}
                     className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm hover:bg-teal-700 disabled:opacity-50"
                   >
                     {sending ? "Sending..." : "Send"}
                   </button>
-                </div>
+                </form>
               ) : (
                 <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
                   {chatDisabledReason}
@@ -627,7 +875,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                     <div className="text-right">
                       <span
                         className={`text-xs font-medium ${
-                          participant.isOnline ? "text-emerald-600" : "text-gray-400"
+                          participant.isOnline
+                            ? "text-emerald-600"
+                            : "text-gray-400"
                         }`}
                       >
                         {participant.isOnline ? "Online" : "Offline"}
@@ -656,7 +906,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                   <button
                     key={option.role}
                     onClick={() => handleSpeakerChange(option.role)}
-                    disabled={speakerUpdating || hearing?.status !== "IN_PROGRESS"}
+                    disabled={
+                      speakerUpdating || hearing?.status !== "IN_PROGRESS"
+                    }
                     className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
                       hearing?.currentSpeakerRole === option.role
                         ? "border-teal-500 bg-teal-50 text-teal-700"
@@ -716,7 +968,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                           </p>
                           <p className="text-xs text-gray-500">
                             {author} ·{" "}
-                            {format(new Date(statement.createdAt), "MMM d, h:mm a")}
+                            {format(
+                              new Date(statement.createdAt),
+                              "MMM d, h:mm a",
+                            )}
                           </p>
                         </div>
                         <span
@@ -730,11 +985,14 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                         </span>
                       </div>
                       {contentPreview ? (
-                        <p className="text-xs text-gray-600">{contentPreview}</p>
+                        <p className="text-xs text-gray-600">
+                          {contentPreview}
+                        </p>
                       ) : null}
                       {statement.isRedacted ? (
                         <p className="text-xs text-red-500">
-                          Redacted: {statement.redactedReason || "No reason provided"}
+                          Redacted:{" "}
+                          {statement.redactedReason || "No reason provided"}
                         </p>
                       ) : null}
                     </div>
@@ -777,7 +1035,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                               {askedBy} → {target}
                             </p>
                             <p className="text-xs text-gray-500">
-                              {format(new Date(question.createdAt), "MMM d, h:mm a")}
+                              {format(
+                                new Date(question.createdAt),
+                                "MMM d, h:mm a",
+                              )}
                             </p>
                           </div>
                           <span
@@ -788,7 +1049,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                             {formatEnumLabel(question.status)}
                           </span>
                         </div>
-                        <p className="text-xs text-gray-600">{question.question}</p>
+                        <p className="text-xs text-gray-600">
+                          {question.question}
+                        </p>
                         {question.answer ? (
                           <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md p-2">
                             Answer: {question.answer}
@@ -797,7 +1060,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                         {question.deadline ? (
                           <p className="text-[11px] text-gray-400">
                             Deadline:{" "}
-                            {format(new Date(question.deadline), "MMM d, h:mm a")}
+                            {format(
+                              new Date(question.deadline),
+                              "MMM d, h:mm a",
+                            )}
                           </p>
                         ) : null}
                       </div>
@@ -808,11 +1074,15 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
 
               {canAskQuestions ? (
                 <div className="mt-4 border border-dashed border-gray-200 rounded-lg p-3 space-y-2">
-                  <p className="text-xs font-medium text-gray-600">Ask a question</p>
+                  <p className="text-xs font-medium text-gray-600">
+                    Ask a question
+                  </p>
                   <div className="grid gap-2">
                     <select
                       value={questionTargetId}
-                      onChange={(event) => setQuestionTargetId(event.target.value)}
+                      onChange={(event) =>
+                        setQuestionTargetId(event.target.value)
+                      }
                       className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
                     >
                       <option value="">Select target</option>
@@ -822,7 +1092,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                           participant.user?.email ||
                           participant.userId;
                         return (
-                          <option key={participant.id} value={participant.userId}>
+                          <option
+                            key={participant.id}
+                            value={participant.userId}
+                          >
                             {label} ({formatEnumLabel(participant.role)})
                           </option>
                         );
@@ -841,7 +1114,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                         min={1}
                         max={60}
                         value={questionDeadlineMinutes}
-                        onChange={(event) => setQuestionDeadlineMinutes(event.target.value)}
+                        onChange={(event) =>
+                          setQuestionDeadlineMinutes(event.target.value)
+                        }
                         className="border border-gray-200 rounded-lg px-2 py-1 text-xs w-24"
                         placeholder="Minutes"
                       />
@@ -859,7 +1134,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                     </button>
                     {hearing?.status !== "IN_PROGRESS" ? (
                       <p className="text-[11px] text-amber-600">
-                        Questions can be asked only while the hearing is in progress.
+                        Questions can be asked only while the hearing is in
+                        progress.
                       </p>
                     ) : null}
                   </div>
@@ -893,9 +1169,13 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                       {format(new Date(event.occurredAt), "MMM d, h:mm a")}
                     </div>
                     <div>
-                      <p className="font-medium text-slate-900">{event.title}</p>
+                      <p className="font-medium text-slate-900">
+                        {event.title}
+                      </p>
                       {event.description ? (
-                        <p className="text-xs text-gray-500">{event.description}</p>
+                        <p className="text-xs text-gray-500">
+                          {event.description}
+                        </p>
                       ) : null}
                     </div>
                   </div>
@@ -975,7 +1255,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                             {formatEnumLabel(participant.attendanceStatus)}
                           </span>
                           {participant.isNoShow ? (
-                            <p className="text-[10px] text-red-500 mt-1">No-show</p>
+                            <p className="text-[10px] text-red-500 mt-1">
+                              No-show
+                            </p>
                           ) : null}
                         </div>
                       </div>

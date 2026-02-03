@@ -101,6 +101,16 @@ export class StaffPerformanceEntity {
   @Column({ default: 0, comment: 'Số case đã finalized (used for accurate calculation)' })
   totalCasesFinalized: number;
 
+  // === LEAVE METRICS ===
+  @Column({ default: 0, comment: 'Tổng số phút nghỉ phép trong kỳ (giờ làm việc)' })
+  totalLeaveMinutes: number;
+
+  @Column({ default: 0, comment: 'Số lượt nghỉ phép trong kỳ' })
+  leaveRequestCount: number;
+
+  @Column({ default: 0, comment: 'Số phút nghỉ vượt quota trong kỳ' })
+  leaveOverageMinutes: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

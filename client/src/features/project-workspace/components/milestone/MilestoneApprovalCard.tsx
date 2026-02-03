@@ -8,6 +8,7 @@ import {
   Loader2,
   ShieldAlert,
 } from "lucide-react";
+import { formatCurrency } from "@/shared/utils/formatters";
 import type { Milestone, Task } from "../../types";
 
 interface MilestoneApprovalCardProps {
@@ -16,6 +17,8 @@ interface MilestoneApprovalCardProps {
   progress: number;
   onApprove: (milestoneId: string, feedback?: string) => Promise<void>;
   onRaiseDispute?: (milestoneId: string) => void;
+  canApprove?: boolean;
+  currency?: string;
 }
 
 export function MilestoneApprovalCard({
@@ -24,6 +27,8 @@ export function MilestoneApprovalCard({
   progress,
   onApprove,
   onRaiseDispute,
+  canApprove = true,
+  currency,
 }: MilestoneApprovalCardProps) {
   const [isApproving, setIsApproving] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
@@ -64,12 +69,7 @@ export function MilestoneApprovalCard({
     onRaiseDispute?.(milestone.id);
   };
 
-  const formatAmount = (amount: number) => {
-    return new Intl.NumberFormat("vi-VN", {
-      style: "currency",
-      currency: "VND",
-    }).format(amount);
-  };
+  const formattedAmount = formatCurrency(milestone.amount, currency ?? "USD");
 
   return (
     <>
@@ -117,7 +117,7 @@ export function MilestoneApprovalCard({
               <div className="text-right">
                 <p className="text-sm text-slate-500">Amount</p>
                 <p className="text-xl font-bold text-emerald-600">
-                  {formatAmount(milestone.amount)}
+                  {formattedAmount}
                 </p>
               </div>
             </div>
@@ -164,14 +164,20 @@ export function MilestoneApprovalCard({
           )}
 
           {/* Action Buttons */}
-          <div className="flex items-center gap-3">
-            <button
-              onClick={handleApproveClick}
-              className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-3 font-semibold text-white shadow-lg shadow-emerald-500/30 transition-all hover:from-emerald-600 hover:to-teal-600 hover:shadow-xl hover:shadow-emerald-500/40 active:scale-[0.98]"
-            >
-              <CheckCircle className="h-5 w-5" />
-              Approve & Release Funds
-            </button>
+          <div className="flex flex-wrap items-center gap-3">
+            {canApprove ? (
+              <button
+                onClick={handleApproveClick}
+                className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 px-6 py-3 font-semibold text-white shadow-lg shadow-emerald-500/30 transition-all hover:from-emerald-600 hover:to-teal-600 hover:shadow-xl hover:shadow-emerald-500/40 active:scale-[0.98]"
+              >
+                <CheckCircle className="h-5 w-5" />
+                Approve & Release Funds
+              </button>
+            ) : (
+              <div className="flex-1 rounded-xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-600">
+                Only the client or broker can approve this milestone.
+              </div>
+            )}
             <button
               onClick={handleRaiseDispute}
               className="flex items-center gap-2 rounded-xl border-2 border-red-200 bg-red-50 px-5 py-3 font-semibold text-red-700 transition-colors hover:border-red-300 hover:bg-red-100"
@@ -211,7 +217,7 @@ export function MilestoneApprovalCard({
               <div className="mt-2 flex items-center justify-between">
                 <span className="text-slate-600">Amount to Release:</span>
                 <span className="text-lg font-bold text-emerald-600">
-                  {formatAmount(milestone.amount)}
+                  {formattedAmount}
                 </span>
               </div>
             </div>

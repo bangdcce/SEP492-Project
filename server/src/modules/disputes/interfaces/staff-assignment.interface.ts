@@ -70,6 +70,10 @@ export interface StaffScoreBreakdown {
   avgUserRating: number;
   overturnRate: number;
   monthlyDisputeCount: number;
+  leaveMinutes?: number;
+  leaveRequestCount?: number;
+  leaveOverageMinutes?: number;
+  leavePenalty?: number;
 
   // Flags
   isAvailable: boolean;

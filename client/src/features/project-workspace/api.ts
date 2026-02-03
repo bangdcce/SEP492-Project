@@ -13,9 +13,12 @@ interface BoardWithMilestones {
 
 export interface WorkspaceProject {
   id: string;
+  title?: string;
   contracts?: { id: string; status: string }[];
   brokerId: string;
   clientId: string;
+  freelancerId?: string | null;
+  currency?: string;
 }
 
 export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {
