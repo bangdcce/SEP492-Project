@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useCallback, useMemo, useState } from "react";
+import axios from "axios";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -6,12 +7,16 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { toast } from "sonner";
+import { createDispute, uploadDisputeEvidence } from "../../api";
 import { DisputeCategory } from "../../../staff/types/staff.types";
+import type { CreateDisputeDto } from "../../types/dispute.dto";
 
 interface CreateDisputeWizardProps {
   onClose: () => void;
   milestoneId: string;
   projectId: string;
+  milestoneStatus: string;
   currentUserId: string;
   projectMembers: Array<{ id: string; name: string; role: string }>;
 }
@@ -51,6 +56,9 @@ const REPORT_REASONS = [
 
 export const CreateDisputeWizard = ({
   onClose,
+  milestoneId,
+  projectId,
+  milestoneStatus,
   currentUserId,
   projectMembers,
 }: CreateDisputeWizardProps) => {
@@ -62,26 +70,185 @@ export const CreateDisputeWizard = ({
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Filter out current user from defendant list
-  const availableDefendants = projectMembers.filter(
-    (m) => m.id !== currentUserId,
+  const normalizedStatus = useMemo(
+    () => milestoneStatus?.toUpperCase() ?? "UNKNOWN",
+    [milestoneStatus],
   );
 
-  const handleSubmit = async () => {
-    setIsSubmitting(true);
-    // Simulate API call
-    console.log({
-      category: selectedCategory,
-      reason: customReason, // Backend expects mapped reason
-      defendantId: selectedDefendant,
-      files,
-    });
+  const allowedCategories = useMemo(() => {
+    switch (normalizedStatus) {
+      case "SUBMITTED":
+        return [
+          DisputeCategory.QUALITY,
+          DisputeCategory.DEADLINE,
+          DisputeCategory.COMMUNICATION,
+          DisputeCategory.PAYMENT,
+          DisputeCategory.OTHER,
+        ];
+      case "REVISIONS_REQUIRED":
+        return [
+          DisputeCategory.QUALITY,
+          DisputeCategory.DEADLINE,
+          DisputeCategory.COMMUNICATION,
+          DisputeCategory.PAYMENT,
+          DisputeCategory.OTHER,
+        ];
+      case "IN_PROGRESS":
+        return [
+          DisputeCategory.DEADLINE,
+          DisputeCategory.COMMUNICATION,
+          DisputeCategory.PAYMENT,
+          DisputeCategory.OTHER,
+        ];
+      default:
+        return [];
+    }
+  }, [normalizedStatus]);
 
-    setTimeout(() => {
-      setIsSubmitting(false);
+  const statusLabel = useMemo(() => {
+    switch (normalizedStatus) {
+      case "IN_PROGRESS":
+        return "In progress";
+      case "SUBMITTED":
+        return "Submitted (awaiting approval)";
+      case "REVISIONS_REQUIRED":
+        return "Revisions required";
+      case "COMPLETED":
+        return "Completed (approved)";
+      case "PAID":
+        return "Paid";
+      case "LOCKED":
+        return "Locked (in dispute)";
+      default:
+        return milestoneStatus || "Unknown";
+    }
+  }, [normalizedStatus, milestoneStatus]);
+
+  const isDisputeAllowed = allowedCategories.length > 0;
+
+  const blockedCategories = useMemo(
+    () => new Set<DisputeCategory>([DisputeCategory.SCOPE_CHANGE]),
+    [],
+  );
+
+  const isCategoryAllowed = useCallback(
+    (category: DisputeCategory) =>
+      allowedCategories.includes(category) && !blockedCategories.has(category),
+    [allowedCategories, blockedCategories],
+  );
+
+  const getCategoryHint = useCallback((category: DisputeCategory) => {
+    if (blockedCategories.has(category)) {
+      return "Use a Change Request for scope changes. Dispute is for serious issues only.";
+    }
+    if (category === DisputeCategory.QUALITY) {
+      return "Requires submitted proof (Submitted/Revisions).";
+    }
+    return "Available while milestone is in progress or awaiting approval.";
+  }, [blockedCategories]);
+
+  // Filter out current user from defendant list
+  const availableDefendants = useMemo(
+    () => projectMembers.filter((m) => m.id !== currentUserId),
+    [projectMembers, currentUserId],
+  );
+
+  const resetForm = useCallback(() => {
+    setStep(1);
+    setSelectedCategory(null);
+    setCustomReason("");
+    setSelectedDefendant("");
+    setFiles([]);
+  }, []);
+
+  const getErrorMessage = (error: unknown) => {
+    if (axios.isAxiosError(error)) {
+      const data = error.response?.data as
+        | { message?: string | string[]; error?: string }
+        | undefined;
+      const message = data?.message;
+      if (Array.isArray(message) && message.length > 0) {
+        return message.join(", ");
+      }
+      if (typeof message === "string" && message.trim().length > 0) {
+        return message;
+      }
+      if (typeof data?.error === "string" && data.error.trim().length > 0) {
+        return data.error;
+      }
+    }
+    if (error instanceof Error) return error.message;
+    if (typeof error === "string") return error;
+    if (typeof error === "object" && error) {
+      const message = (error as { message?: unknown }).message;
+      if (typeof message === "string") return message;
+    }
+    return "Failed to submit dispute.";
+  };
+
+  const handleSubmit = async () => {
+    if (!isDisputeAllowed) {
+      toast.error(
+        "Dispute is only available while the milestone is in progress or awaiting approval.",
+      );
+      return;
+    }
+    if (!selectedCategory || !selectedDefendant) {
+      toast.error("Please select a category and defendant.");
+      return;
+    }
+    if (!isCategoryAllowed(selectedCategory)) {
+      toast.error("Selected dispute category is not allowed for this milestone status.");
+      return;
+    }
+
+    const reasonText = customReason.trim();
+    if (reasonText.length < 20) {
+      toast.error("Please provide more detail (at least 20 characters).");
+      return;
+    }
+    if (!projectId || !milestoneId) {
+      toast.error("Missing project or milestone context.");
+      return;
+    }
+
+    const evidenceLabels =
+      files.length > 0
+        ? files.map((file) => file.name)
+        : [reasonText.slice(0, 120)];
+
+    const payload: CreateDisputeDto = {
+      milestoneId,
+      projectId,
+      reason: reasonText,
+      category: selectedCategory,
+      defendantId: selectedDefendant,
+      evidence: evidenceLabels,
+    };
+
+    try {
+      setIsSubmitting(true);
+      const created = await createDispute(payload);
+      const disputeId = created?.id;
+      if (!disputeId) {
+        throw new Error("Dispute created but missing ID.");
+      }
+
+      if (files.length > 0) {
+        await Promise.all(
+          files.map((file) => uploadDisputeEvidence(disputeId, file)),
+        );
+      }
+
+      toast.success("Dispute submitted successfully.");
+      resetForm();
       onClose();
-      // Trigger toast success here
-    }, 1500);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error);
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -111,24 +278,39 @@ export const CreateDisputeWizard = ({
 
       {step === 1 && (
         <div className="space-y-4">
+          <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <span className="font-medium text-slate-900">Milestone status:</span>{" "}
+            {statusLabel}
+            {!isDisputeAllowed && (
+              <div className="mt-2 text-xs text-slate-500">
+                Disputes are only available while funds are held in escrow
+                (In progress / Submitted).
+              </div>
+            )}
+          </div>
           <h4 className="text-base font-medium text-slate-900">
             Why do you want to open a dispute?
           </h4>
           <div role="radiogroup" className="space-y-3">
             {REPORT_REASONS.map((reason) => {
               const checked = selectedCategory === reason.id;
+              const allowed = isCategoryAllowed(reason.id);
               return (
                 <button
                   key={reason.id}
                   type="button"
                   role="radio"
                   aria-checked={checked}
-                  onClick={() => setSelectedCategory(reason.id)}
-                  className={`relative flex w-full cursor-pointer rounded-lg border p-4 shadow-sm focus:outline-none ${
+                  aria-disabled={!allowed}
+                  onClick={() => {
+                    if (!allowed) return;
+                    setSelectedCategory(reason.id);
+                  }}
+                  className={`relative flex w-full rounded-lg border p-4 shadow-sm focus:outline-none ${
                     checked
                       ? "border-teal-600 ring-1 ring-teal-600 bg-teal-50"
-                      : "border-gray-200 hover:bg-gray-50"
-                  }`}
+                      : "border-gray-200"
+                  } ${allowed ? "cursor-pointer hover:bg-gray-50" : "cursor-not-allowed opacity-60"}`}
                 >
                   <div className="flex w-full items-center justify-between">
                     <div className="text-sm text-left">
@@ -142,6 +324,11 @@ export const CreateDisputeWizard = ({
                       >
                         {reason.desc}
                       </span>
+                      {!allowed && (
+                        <p className="mt-1 text-xs text-slate-500">
+                          {getCategoryHint(reason.id)}
+                        </p>
+                      )}
                     </div>
                     {checked && (
                       <div className="shrink-0 text-teal-600">
@@ -177,7 +364,12 @@ export const CreateDisputeWizard = ({
 
           <div className="flex justify-end pt-4">
             <button
-              disabled={!selectedCategory || !selectedDefendant}
+              disabled={
+                !isDisputeAllowed ||
+                !selectedCategory ||
+                !selectedDefendant ||
+                !isCategoryAllowed(selectedCategory)
+              }
               onClick={() => setStep(2)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 transition-colors"
             >
@@ -266,7 +458,12 @@ export const CreateDisputeWizard = ({
               Back
             </button>
             <button
-              disabled={customReason.length < 20}
+              disabled={
+                !isDisputeAllowed ||
+                customReason.trim().length < 20 ||
+                !selectedCategory ||
+                !isCategoryAllowed(selectedCategory)
+              }
               onClick={() => setStep(3)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg disabled:opacity-50 hover:bg-slate-800 transition-colors"
             >

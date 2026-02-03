@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Controller,
   ForbiddenException,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -626,6 +627,25 @@ export class CalendarController {
     return {
       success: true,
       message: 'Availability updated',
+      data: result,
+    };
+  }
+
+  @Delete('availability/:id')
+  @ApiOperation({ summary: 'Delete availability slot' })
+  @HttpCode(HttpStatus.OK)
+  async deleteAvailability(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const result = await this.availabilityService.deleteUserAvailability({
+      userId: user.id,
+      availabilityId: id,
+    });
+
+    return {
+      success: true,
+      message: 'Availability removed',
       data: result,
     };
   }

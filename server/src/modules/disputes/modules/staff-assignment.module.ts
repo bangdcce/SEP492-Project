@@ -26,9 +26,11 @@ import {
 } from '../../../database/entities/dispute-skill.entity';
 import { SkillEntity } from '../../../database/entities/skill.entity';
 import { StaffPerformanceEntity } from '../../../database/entities/staff-performance.entity';
+import { LeaveModule } from '../../leave/leave.module';
 
 // Services
 import { StaffAssignmentService } from '../services/staff-assignment.service';
+import { StaffAssignmentController } from '../controllers/staff-assignment.controller';
 
 @Module({
   imports: [
@@ -50,7 +52,9 @@ import { StaffAssignmentService } from '../services/staff-assignment.service';
       // Performance Tracking
       StaffPerformanceEntity,
     ]),
+    LeaveModule,
   ],
+  controllers: [StaffAssignmentController],
   providers: [StaffAssignmentService],
   exports: [StaffAssignmentService],
 })

@@ -19,7 +19,17 @@ export const useDisputeRealtime = (
     if (!disputeId) return;
 
     const socket = connectSocket();
-    socket.emit("joinDispute", { disputeId });
+
+    // Join room only after socket is connected
+    const joinRoom = () => {
+      socket.emit("joinDispute", { disputeId });
+    };
+
+    if (socket.connected) {
+      joinRoom();
+    } else {
+      socket.once("connect", joinRoom);
+    }
 
     if (handlers?.onEvidenceUploaded) {
       socket.on("EVIDENCE_UPLOADED", handlers.onEvidenceUploaded);
@@ -44,6 +54,7 @@ export const useDisputeRealtime = (
     }
 
     return () => {
+      socket.off("connect", joinRoom);
       socket.emit("leaveDispute", { disputeId });
       if (handlers?.onEvidenceUploaded) {
         socket.off("EVIDENCE_UPLOADED", handlers.onEvidenceUploaded);

@@ -38,9 +38,9 @@ INSERT INTO "project_categories" ("id", "name", "slug", "createdAt") VALUES
 -- 4. WALLETS (User wallets)
 -- ==========================================
 INSERT INTO "wallets" ("id", "userId", "balance", "currency", "createdAt") VALUES
-(uuid_generate_v4(), 'd4e5f6a7-b8c9-0123-defa-234567890123', 50000000, 'VND', NOW() - INTERVAL '15 days'),
-(uuid_generate_v4(), 'e5f6a7b8-c9d0-1234-efab-345678901234', 25000000, 'VND', NOW() - INTERVAL '10 days'),
-(uuid_generate_v4(), 'f6a7b8c9-d0e1-2345-fabc-456789012345', 10000000, 'VND', NOW() - INTERVAL '5 days');
+(uuid_generate_v4(), 'd4e5f6a7-b8c9-0123-defa-234567890123', 50000000, 'USD', NOW() - INTERVAL '15 days'),
+(uuid_generate_v4(), 'e5f6a7b8-c9d0-1234-efab-345678901234', 25000000, 'USD', NOW() - INTERVAL '10 days'),
+(uuid_generate_v4(), 'f6a7b8c9-d0e1-2345-fabc-456789012345', 10000000, 'USD', NOW() - INTERVAL '5 days');
 
 -- ==========================================
 -- DONE! (Audit logs removed due to FK constraints)

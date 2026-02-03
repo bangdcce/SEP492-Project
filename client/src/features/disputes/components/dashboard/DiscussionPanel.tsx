@@ -1,21 +1,42 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from "react";
-import { Send, Lock, StickyNote, Link2, FileText, ListChecks, X } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from "react";
+import {
+  Send,
+  Lock,
+  StickyNote,
+  Link2,
+  FileText,
+  ListChecks,
+  X,
+} from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import {
   addDisputeNote,
+  getDisputeMessages,
   getDisputeNotes,
   getProjectBoard,
   sendDisputeMessage,
   updateDisputePhase,
 } from "../../api";
-import type { DisputeNote, DisputeSummary } from "../../types/dispute.types";
+import type {
+  DisputeMessage,
+  DisputeNote,
+  DisputeSummary,
+} from "../../types/dispute.types";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { DisputePhase, UserRole } from "../../../staff/types/staff.types";
 import { projectSpecsApi } from "@/features/project-specs/api";
 import type { ProjectSpec } from "@/features/project-specs/types";
 import type { Milestone, Task } from "@/features/project-workspace/types";
+import { useDisputeRealtime } from "../../hooks/useDisputeRealtime";
 
 type EvidenceReferenceType = "TASK" | "MILESTONE" | "SPEC";
 
@@ -25,12 +46,13 @@ interface EvidenceReference {
   label: string;
 }
 
-interface LocalMessage {
-  id: string;
-  content: string;
-  createdAt: string;
+type LocalMessage = Pick<
+  DisputeMessage,
+  "id" | "content" | "createdAt" | "senderId" | "senderRole" | "sender"
+> & {
   references?: EvidenceReference[];
-}
+  status?: "pending" | "sent" | "error";
+};
 
 interface DiscussionPanelProps {
   disputeId: string;
@@ -51,6 +73,7 @@ export const DiscussionPanel = ({
   const [sendingMessage, setSendingMessage] = useState(false);
   const [phaseUpdating, setPhaseUpdating] = useState(false);
   const [localMessages, setLocalMessages] = useState<LocalMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
   const [projectTasks, setProjectTasks] = useState<Task[]>([]);
   const [projectMilestones, setProjectMilestones] = useState<Milestone[]>([]);
   const [projectSpec, setProjectSpec] = useState<ProjectSpec | null>(null);
@@ -59,26 +82,208 @@ export const DiscussionPanel = ({
   const [referenceType, setReferenceType] =
     useState<EvidenceReferenceType>("TASK");
   const [referenceId, setReferenceId] = useState("");
-  const [draftReferences, setDraftReferences] = useState<EvidenceReference[]>([]);
-  const [activeReference, setActiveReference] = useState<EvidenceReference | null>(
-    null,
+  const [draftReferences, setDraftReferences] = useState<EvidenceReference[]>(
+    [],
   );
+  const [activeReference, setActiveReference] =
+    useState<EvidenceReference | null>(null);
 
   const currentUser = useMemo(() => {
-    return getStoredJson<{ id?: string; role?: UserRole }>(STORAGE_KEYS.USER);
+    return getStoredJson<{ id?: string; role?: UserRole; timeZone?: string }>(
+      STORAGE_KEYS.USER,
+    );
   }, []);
 
   const currentUserRole = currentUser?.role ?? null;
   const currentUserId = currentUser?.id ?? null;
+  const resolvedTimeZone = useMemo(() => {
+    if (currentUser?.timeZone) {
+      return currentUser.timeZone;
+    }
+    if (typeof Intl !== "undefined") {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+    }
+    return "UTC";
+  }, [currentUser?.timeZone]);
+  const messageTimeFormatter = useMemo(
+    () =>
+      new Intl.DateTimeFormat("en-US", {
+        timeZone: resolvedTimeZone,
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }),
+    [resolvedTimeZone],
+  );
+  const formatMessageTime = useCallback(
+    (value?: string | null) => {
+      if (!value) return "";
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return "";
+      return messageTimeFormatter.format(parsed);
+    },
+    [messageTimeFormatter],
+  );
 
   const canViewInternal =
     currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF;
 
+  // Load messages from API on mount
+  useEffect(() => {
+    if (!disputeId) return;
+    let cancelled = false;
+
+    const loadMessages = async () => {
+      try {
+        setMessagesLoading(true);
+        const data = await getDisputeMessages(disputeId, {
+          includeHidden: canViewInternal,
+        });
+        if (cancelled) return;
+        const mapped: LocalMessage[] = data.map((msg) => ({
+          id: msg.id,
+          content: msg.content,
+          createdAt: msg.createdAt,
+          senderId: msg.senderId,
+          senderRole: msg.senderRole,
+          sender: msg.sender,
+          references: (msg.metadata as { references?: EvidenceReference[] })
+            ?.references,
+        }));
+        setLocalMessages(mapped);
+      } catch (error) {
+        console.error("Failed to load messages:", error);
+      } finally {
+        if (!cancelled) {
+          setMessagesLoading(false);
+        }
+      }
+    };
+
+    loadMessages();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [disputeId, canViewInternal]);
+
+  // Ref for the messages container to control scroll
+  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
+
+  // Track whether initial load is complete
+  const isInitialLoadRef = useRef(true);
+  const prevMessagesLengthRef = useRef(0);
+
+  // Auto-scroll to bottom when new messages arrive (only for new messages, not initial load)
+  useEffect(() => {
+    const container = messagesContainerRef.current;
+
+    // Skip scroll on initial message load
+    if (isInitialLoadRef.current && localMessages.length > 0) {
+      isInitialLoadRef.current = false;
+      prevMessagesLengthRef.current = localMessages.length;
+      // Scroll to bottom on initial load without animation
+      if (container) {
+        container.scrollTop = container.scrollHeight;
+      }
+      return;
+    }
+
+    // Only scroll if a new message was added
+    if (container && localMessages.length > prevMessagesLengthRef.current) {
+      requestAnimationFrame(() => {
+        container.scrollTo({
+          top: container.scrollHeight,
+          behavior: "smooth",
+        });
+      });
+    }
+    prevMessagesLengthRef.current = localMessages.length;
+  }, [localMessages.length]);
+
+  // WebSocket handler for real-time message updates
+  const handleRealtimeMessageSent = useCallback(
+    (payload: {
+      messageId?: string;
+      disputeId?: string;
+      senderId?: string;
+      senderRole?: string;
+      content?: string;
+      createdAt?: string;
+      sender?: { id: string; fullName?: string; email?: string };
+      metadata?: Record<string, unknown>;
+    }) => {
+      const msgId = payload?.messageId;
+      if (!msgId || payload.disputeId !== disputeId) return;
+      const metadata = payload.metadata;
+      const clientMessageId =
+        metadata && typeof metadata === "object" && "clientMessageId" in metadata
+          ? typeof metadata.clientMessageId === "string"
+            ? metadata.clientMessageId
+            : undefined
+          : undefined;
+
+      const newMessage: LocalMessage = {
+        id: msgId,
+        content: payload.content ?? "",
+        createdAt: payload.createdAt ?? new Date().toISOString(),
+        senderId: payload.senderId,
+        senderRole: payload.senderRole,
+        sender: payload.sender,
+        references: (payload.metadata as { references?: EvidenceReference[] })
+          ?.references,
+      };
+
+      setLocalMessages((prev) => {
+        // Deduplicate: check if message already exists
+        const existsReal = prev.some((msg) => msg.id === msgId);
+        if (existsReal) {
+          return prev.map((msg) =>
+            msg.id === msgId ? { ...msg, status: "sent" } : msg,
+          );
+        }
+
+        if (clientMessageId) {
+          const hasOptimistic = prev.some((msg) => msg.id === clientMessageId);
+          if (hasOptimistic) {
+            return prev.map((msg) =>
+              msg.id === clientMessageId ? { ...newMessage, status: "sent" } : msg,
+            );
+          }
+        }
+
+        // Add as new message
+        return [...prev, newMessage];
+      });
+    },
+    [disputeId],
+  );
+
+  const handleRealtimeMessageHidden = useCallback(
+    (payload: { messageId?: string; hiddenReason?: string }) => {
+      if (!payload?.messageId) return;
+      setLocalMessages((prev) =>
+        prev.filter((msg) => msg.id !== payload.messageId),
+      );
+    },
+    [],
+  );
+
+  // Connect to WebSocket for real-time updates
+  useDisputeRealtime(disputeId, {
+    onMessageSent: handleRealtimeMessageSent,
+    onMessageHidden: handleRealtimeMessageHidden,
+  });
+
   const currentPhase = dispute?.phase ?? DisputePhase.PRESENTATION;
   const isStaffOrAdmin =
     currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF;
-  const isRaiser = Boolean(currentUserId && dispute?.raisedById === currentUserId);
-  const isDefendant = Boolean(currentUserId && dispute?.defendantId === currentUserId);
+  const isRaiser = Boolean(
+    currentUserId && dispute?.raisedById === currentUserId,
+  );
+  const isDefendant = Boolean(
+    currentUserId && dispute?.defendantId === currentUserId,
+  );
 
   const phaseOptions = useMemo(
     () => [
@@ -87,11 +292,12 @@ export const DiscussionPanel = ({
       { value: DisputePhase.INTERROGATION, label: "Interrogation" },
       { value: DisputePhase.DELIBERATION, label: "Deliberation" },
     ],
-    []
+    [],
   );
 
   const currentPhaseLabel =
-    phaseOptions.find((item) => item.value === currentPhase)?.label ?? "Presentation";
+    phaseOptions.find((item) => item.value === currentPhase)?.label ??
+    "Presentation";
 
   const phaseAccess = useMemo(() => {
     if (!dispute) {
@@ -107,13 +313,22 @@ export const DiscussionPanel = ({
       case DisputePhase.PRESENTATION:
         return isRaiser
           ? { allowed: true }
-          : { allowed: false, reason: "Only the raiser can speak in this phase." };
+          : {
+              allowed: false,
+              reason: "Only the raiser can speak in this phase.",
+            };
       case DisputePhase.CROSS_EXAMINATION:
         return isDefendant
           ? { allowed: true }
-          : { allowed: false, reason: "Only the defendant can speak in this phase." };
+          : {
+              allowed: false,
+              reason: "Only the defendant can speak in this phase.",
+            };
       case DisputePhase.INTERROGATION:
-        return { allowed: false, reason: "Only staff or admin can speak in this phase." };
+        return {
+          allowed: false,
+          reason: "Only staff or admin can speak in this phase.",
+        };
       default:
         return { allowed: true };
     }
@@ -122,7 +337,10 @@ export const DiscussionPanel = ({
   const isLocked = !phaseAccess.allowed;
 
   const milestoneForDispute = useMemo(
-    () => projectMilestones.find((milestone) => milestone.id === dispute?.milestoneId),
+    () =>
+      projectMilestones.find(
+        (milestone) => milestone.id === dispute?.milestoneId,
+      ),
     [projectMilestones, dispute?.milestoneId],
   );
 
@@ -208,7 +426,8 @@ export const DiscussionPanel = ({
   );
 
   const specOptions = useMemo(
-    () => (projectSpec ? [{ id: projectSpec.id, label: projectSpec.title }] : []),
+    () =>
+      projectSpec ? [{ id: projectSpec.id, label: projectSpec.title }] : [],
     [projectSpec],
   );
 
@@ -235,7 +454,8 @@ export const DiscussionPanel = ({
   );
 
   const milestonesById = useMemo(
-    () => new Map(projectMilestones.map((milestone) => [milestone.id, milestone])),
+    () =>
+      new Map(projectMilestones.map((milestone) => [milestone.id, milestone])),
     [projectMilestones],
   );
 
@@ -346,12 +566,16 @@ export const DiscussionPanel = ({
             <ListChecks className="w-4 h-4" />
             Task Reference
           </div>
-          <h4 className="text-base font-semibold text-slate-900">{task.title}</h4>
+          <h4 className="text-base font-semibold text-slate-900">
+            {task.title}
+          </h4>
           {task.description && <p className="text-sm">{task.description}</p>}
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
               <span className="text-slate-500">Status</span>
-              <div className="font-medium">{task.status.replace(/_/g, " ")}</div>
+              <div className="font-medium">
+                {task.status.replace(/_/g, " ")}
+              </div>
             </div>
             <div>
               <span className="text-slate-500">Priority</span>
@@ -387,7 +611,9 @@ export const DiscussionPanel = ({
     if (activeReference.type === "MILESTONE") {
       const milestone = milestonesById.get(activeReference.id);
       if (!milestone) {
-        return <div className="text-sm text-gray-500">Milestone not found.</div>;
+        return (
+          <div className="text-sm text-gray-500">Milestone not found.</div>
+        );
       }
       return (
         <div className="space-y-2 text-sm text-slate-700">
@@ -395,8 +621,12 @@ export const DiscussionPanel = ({
             <FileText className="w-4 h-4" />
             Milestone Reference
           </div>
-          <h4 className="text-base font-semibold text-slate-900">{milestone.title}</h4>
-          {milestone.description && <p className="text-sm">{milestone.description}</p>}
+          <h4 className="text-base font-semibold text-slate-900">
+            {milestone.title}
+          </h4>
+          {milestone.description && (
+            <p className="text-sm">{milestone.description}</p>
+          )}
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
               <span className="text-slate-500">Status</span>
@@ -404,11 +634,15 @@ export const DiscussionPanel = ({
             </div>
             <div>
               <span className="text-slate-500">Amount</span>
-              <div className="font-medium">${Number(milestone.amount).toLocaleString()}</div>
+              <div className="font-medium">
+                ${Number(milestone.amount).toLocaleString()}
+              </div>
             </div>
             <div>
               <span className="text-slate-500">Start</span>
-              <div className="font-medium">{formatDate(milestone.startDate)}</div>
+              <div className="font-medium">
+                {formatDate(milestone.startDate)}
+              </div>
             </div>
             <div>
               <span className="text-slate-500">Due</span>
@@ -431,7 +665,9 @@ export const DiscussionPanel = ({
             <FileText className="w-4 h-4" />
             Spec Reference
           </div>
-          <h4 className="text-base font-semibold text-slate-900">{projectSpec.title}</h4>
+          <h4 className="text-base font-semibold text-slate-900">
+            {projectSpec.title}
+          </h4>
           <p className="text-sm">{projectSpec.description}</p>
           <div className="grid grid-cols-2 gap-2 text-xs">
             <div>
@@ -478,7 +714,8 @@ export const DiscussionPanel = ({
       await updateDisputePhase(dispute.id, nextPhase);
       onPhaseUpdated?.(nextPhase);
       const label =
-        phaseOptions.find((item) => item.value === nextPhase)?.label ?? "new phase";
+        phaseOptions.find((item) => item.value === nextPhase)?.label ??
+        "new phase";
       toast.success(`Phase updated to ${label}.`);
     } catch (error) {
       console.error("Failed to update phase:", error);
@@ -522,28 +759,47 @@ export const DiscussionPanel = ({
       return;
     }
 
+    const content = messageInput.trim();
+    const clientMessageId = `client-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const referencesPayload =
+      draftReferences.length > 0 ? { references: draftReferences } : undefined;
+
+    // Optimistic update: add message immediately with "pending" status
+    const optimisticMessage: LocalMessage = {
+      id: clientMessageId,
+      content,
+      createdAt: new Date().toISOString(),
+      senderId: currentUserId ?? undefined,
+      senderRole: currentUserRole ?? undefined,
+      sender: { id: currentUserId ?? "", fullName: "You" },
+      references: draftReferences.length > 0 ? [...draftReferences] : undefined,
+      status: "pending",
+    };
+
+    setLocalMessages((prev) => [...prev, optimisticMessage]);
+    setMessageInput("");
+    setDraftReferences([]);
+
     try {
       setSendingMessage(true);
-      const referencesPayload =
-        draftReferences.length > 0 ? { references: draftReferences } : undefined;
       await sendDisputeMessage(disputeId, {
-        content: messageInput.trim(),
-        metadata: referencesPayload,
+        content,
+        metadata: { clientMessageId, ...(referencesPayload ?? {}) },
       });
-      setLocalMessages((prev) => [
-        {
-          id: `local-${Date.now()}`,
-          content: messageInput.trim(),
-          createdAt: new Date().toISOString(),
-          references: draftReferences.length > 0 ? [...draftReferences] : undefined,
-        },
-        ...prev,
-      ]);
-      setMessageInput("");
-      setDraftReferences([]);
-      toast.success("Message sent.");
+      // Update from "pending" to "sent" status
+      setLocalMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === clientMessageId ? { ...msg, status: "sent" } : msg,
+        ),
+      );
     } catch (error) {
       console.error("Failed to send message:", error);
+      // Update to "error" status
+      setLocalMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === clientMessageId ? { ...msg, status: "error" } : msg,
+        ),
+      );
       toast.error("Could not send message.");
     } finally {
       setSendingMessage(false);
@@ -589,7 +845,8 @@ export const DiscussionPanel = ({
         </div>
         {isLocked && (
           <p className="text-xs text-amber-700 mt-3">
-            {phaseAccess.reason ?? "Chat is locked for your role in this phase."}
+            {phaseAccess.reason ??
+              "Chat is locked for your role in this phase."}
           </p>
         )}
       </div>
@@ -676,7 +933,9 @@ export const DiscussionPanel = ({
                 <select
                   value={referenceType}
                   onChange={(event) =>
-                    setReferenceType(event.target.value as EvidenceReferenceType)
+                    setReferenceType(
+                      event.target.value as EvidenceReferenceType,
+                    )
                   }
                   className="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-teal-500 focus:border-teal-500"
                 >
@@ -762,39 +1021,95 @@ export const DiscussionPanel = ({
       </div>
 
       <div className="flex flex-col h-[520px] bg-white border border-gray-200 rounded-xl overflow-hidden">
-        <div className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50">
-          {localMessages.length === 0 ? (
+        <div
+          ref={messagesContainerRef}
+          className="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50"
+        >
+          {messagesLoading ? (
             <div className="flex items-center justify-center h-full text-sm text-gray-500">
-              Message history is available via realtime events.
+              Loading messages...
+            </div>
+          ) : localMessages.length === 0 ? (
+            <div className="flex items-center justify-center h-full text-sm text-gray-500">
+              No messages yet. Start the conversation.
             </div>
           ) : (
-            localMessages.map((message) => (
-              <div key={message.id} className="flex gap-3 flex-row-reverse">
-                <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-700 text-xs font-bold shrink-0">
-                  Y
-                </div>
-                <div className="bg-teal-50 p-3 rounded-2xl rounded-tr-none shadow-sm max-w-[80%] border border-teal-100">
-                  <p className="text-sm text-gray-800">{message.content}</p>
-                  {message.references && message.references.length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {message.references.map((reference) => (
-                        <button
-                          key={`${message.id}-${reference.type}-${reference.id}`}
-                          type="button"
-                          onClick={() => setActiveReference(reference)}
-                          className="px-2 py-1 rounded-full text-xs bg-white border border-teal-200 text-teal-700 hover:bg-teal-50"
-                        >
-                          {referenceTypeLabels[reference.type]}: {reference.label}
-                        </button>
-                      ))}
+            localMessages.map((message) => {
+              const isOwn = message.senderId === currentUserId;
+              const senderName =
+                message.sender?.fullName ?? message.senderRole ?? "Unknown";
+              const senderInitial = senderName.charAt(0).toUpperCase();
+              const isPending = message.status === "pending";
+              const isError = message.status === "error";
+              return (
+                <div
+                  key={message.id}
+                  className={`flex gap-3 ${isOwn ? "flex-row-reverse" : "flex-row"}`}
+                >
+                  <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-700 text-xs font-bold shrink-0">
+                    {senderInitial}
+                  </div>
+                  <div
+                    className={`p-3 rounded-2xl shadow-sm max-w-[80%] border ${
+                      isOwn
+                        ? `${isPending ? "bg-teal-50/60 border-teal-100/60" : isError ? "bg-red-50 border-red-200" : "bg-teal-50 border-teal-100"} rounded-tr-none`
+                        : "bg-white rounded-tl-none border-gray-200"
+                    }`}
+                  >
+                    <div className="text-xs text-gray-500 mb-1">
+                      {senderName}
                     </div>
-                  )}
-                  <span className="text-xs text-teal-600/60 mt-1 block">
-                    {format(new Date(message.createdAt), "h:mm a")}
-                  </span>
+                    <p
+                      className={`text-sm ${isError ? "text-red-700" : "text-gray-800"}`}
+                    >
+                      {message.content}
+                    </p>
+                    {message.references && message.references.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {message.references.map((reference) => (
+                          <button
+                            key={`${message.id}-${reference.type}-${reference.id}`}
+                            type="button"
+                            onClick={() => setActiveReference(reference)}
+                            className="px-2 py-1 rounded-full text-xs bg-white border border-teal-200 text-teal-700 hover:bg-teal-50"
+                          >
+                            {referenceTypeLabels[reference.type]}:{" "}
+                            {reference.label}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <span className="text-xs text-gray-400">
+                        {formatMessageTime(message.createdAt)}
+                      </span>
+                      {/* Status indicator for own messages */}
+                      {isOwn && (
+                        <span className="inline-flex items-center">
+                          {isPending ? (
+                            <span className="text-xs text-gray-400">●</span>
+                          ) : isError ? (
+                            <span
+                              className="text-xs text-red-500"
+                              title="Failed to send"
+                            >
+                              ✕
+                            </span>
+                          ) : (
+                            <span
+                              className="text-xs text-teal-500"
+                              title="Sent"
+                            >
+                              ✓
+                            </span>
+                          )}
+                        </span>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
 
@@ -812,7 +1127,9 @@ export const DiscussionPanel = ({
             <input
               type="text"
               placeholder={
-                isLocked ? phaseAccess.reason ?? "Chat is locked." : "Type your message..."
+                isLocked
+                  ? (phaseAccess.reason ?? "Chat is locked.")
+                  : "Type your message..."
               }
               value={messageInput}
               onChange={(event) => setMessageInput(event.target.value)}

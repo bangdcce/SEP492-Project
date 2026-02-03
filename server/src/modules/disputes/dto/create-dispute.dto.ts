@@ -44,7 +44,7 @@ export class CreateDisputeDto {
   category?: DisputeCategory;
 
   /**
-   * Số tiền tranh chấp (VND)
+   * Số tiền tranh chấp (USD)
    */
   @IsOptional()
   @IsNumber()

@@ -23,6 +23,7 @@ import { UsersModule } from './modules/users/users.module';
 import { ContractsModule } from './modules/contracts/contracts.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { LeaveModule } from './modules/leave/leave.module';
 
 @Module({
   imports: [
@@ -97,6 +98,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
     SeedingModule,
     DisputesModule,
     CalendarModule,
+    LeaveModule,
     NotificationsModule,
     UserWarningModule,
     KycModule,

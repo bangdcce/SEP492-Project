@@ -11,7 +11,7 @@ import sanitizeHtml from 'sanitize-html';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as path from 'path';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
-import { MilestoneEntity } from '../../database/entities/milestone.entity';
+import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
 import {
   CalendarEventEntity,
   EventType,
@@ -460,6 +460,8 @@ export class TasksService {
       `Milestone ${milestoneId} progress: ${completedTasks}/${totalTasks} = ${progress}%`,
     );
 
+    await this.syncMilestoneStatus(milestoneId, progress);
+
     return {
       task: updatedTask,
       milestoneId,
@@ -554,6 +556,8 @@ export class TasksService {
       `Milestone ${milestoneId} progress after submission: ${completedTasks}/${totalTasks} = ${progress}%`,
     );
 
+    await this.syncMilestoneStatus(milestoneId, progress, submittedAt);
+
     return {
       task: updatedTask,
       milestoneId,
@@ -590,6 +594,40 @@ export class TasksService {
     const progress = Math.round((completedTasks / totalTasks) * 100);
 
     return { progress, totalTasks, completedTasks };
+  }
+
+  private async syncMilestoneStatus(
+    milestoneId: string,
+    progress: number,
+    submittedAt?: Date,
+  ): Promise<void> {
+    const milestone = await this.milestoneRepository.findOne({ where: { id: milestoneId } });
+    if (!milestone) {
+      return;
+    }
+
+    const nonUpdatableStatuses = [
+      MilestoneStatus.COMPLETED,
+      MilestoneStatus.PAID,
+      MilestoneStatus.LOCKED,
+    ];
+    if (nonUpdatableStatuses.includes(milestone.status)) {
+      return;
+    }
+
+    if (progress >= 100) {
+      if (milestone.status !== MilestoneStatus.SUBMITTED) {
+        milestone.status = MilestoneStatus.SUBMITTED;
+        milestone.submittedAt = submittedAt ?? milestone.submittedAt ?? new Date();
+        await this.milestoneRepository.save(milestone);
+      }
+      return;
+    }
+
+    if (milestone.status === MilestoneStatus.SUBMITTED) {
+      milestone.status = MilestoneStatus.IN_PROGRESS;
+      await this.milestoneRepository.save(milestone);
+    }
   }
 
   async createTask(data: {

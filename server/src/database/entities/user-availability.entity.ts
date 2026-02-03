@@ -8,6 +8,7 @@ import {
   JoinColumn,
   Index,
 } from 'typeorm';
+import { StaffLeaveRequestEntity } from './staff-leave-request.entity';
 
 // =============================================================================
 // ENUMS
@@ -16,8 +17,8 @@ import {
 export enum AvailabilityType {
   AVAILABLE = 'AVAILABLE', // Rảnh
   BUSY = 'BUSY', // Bận (có event khác)
-  OUT_OF_OFFICE = 'OUT_OF_OFFICE', // Nghỉ phép
-  PREFERRED = 'PREFERRED', // Khung giờ ưu tiên (thích nhất)
+  OUT_OF_OFFICE = 'OUT_OF_OFFICE', // NghềEphép
+  PREFERRED = 'PREFERRED', // Khung giềEưu tiên (thích nhất)
   DO_NOT_DISTURB = 'DO_NOT_DISTURB', // Không được book
 }
 
@@ -28,7 +29,7 @@ export enum AvailabilityType {
 /**
  * Lưu trữ lịch rảnh/bận của User.
  * Dùng cho: Staff (xử lý dispute), Freelancer/Client (họp dự án)
- * Hỗ trợ cả one-time và recurring.
+ * HềEtrợ cả one-time và recurring.
  */
 @Entity('user_availabilities')
 @Index(['userId', 'startTime', 'endTime'])
@@ -50,23 +51,23 @@ export class UserAvailabilityEntity {
   @Column({ type: 'enum', enum: AvailabilityType })
   type: AvailabilityType;
 
-  // === RECURRING (Cho giờ làm việc cố định hàng tuần) ===
+  // === RECURRING (Cho giềElàm việc cềEđịnh hàng tuần) ===
   @Column({ default: false })
   isRecurring: boolean;
 
   @Column({ type: 'int', nullable: true, comment: 'Ngày trong tuần (0=CN, 1=T2, 2=T3...)' })
   dayOfWeek: number;
 
-  @Column({ type: 'time', nullable: true, comment: 'Giờ bắt đầu recurring (08:00)' })
+  @Column({ type: 'time', nullable: true, comment: 'GiềEbắt đầu recurring (08:00)' })
   recurringStartTime: string;
 
-  @Column({ type: 'time', nullable: true, comment: 'Giờ kết thúc recurring (17:00)' })
+  @Column({ type: 'time', nullable: true, comment: 'GiềEkết thúc recurring (17:00)' })
   recurringEndTime: string;
 
   @Column({ type: 'date', nullable: true, comment: 'Ngày bắt đầu hiệu lực của recurring' })
   recurringStartDate: Date;
 
-  @Column({ type: 'date', nullable: true, comment: 'Ngày kết thúc hiệu lực (null = vĩnh viễn)' })
+  @Column({ type: 'date', nullable: true, comment: 'Ngày kết thúc hiệu lực (null = vĩnh viềE)' })
   recurringEndDate: Date;
 
   // === AUTO-GENERATED (Khi có event, tự động tạo BUSY) ===
@@ -76,8 +77,11 @@ export class UserAvailabilityEntity {
   @Column({ nullable: true, comment: 'CalendarEvent đã tạo availability này' })
   linkedEventId: string;
 
+  @Column({ type: 'uuid', nullable: true, comment: 'LeaveRequest created this availability' })
+  linkedLeaveRequestId?: string;
+
   // === NOTE ===
-  @Column({ type: 'text', nullable: true, comment: 'Ghi chú (Họp nội bộ, Nghỉ phép...)' })
+  @Column({ type: 'text', nullable: true, comment: 'Ghi chú (Họp nội bềE NghềEphép...)' })
   note: string;
 
   @CreateDateColumn()
@@ -94,4 +98,9 @@ export class UserAvailabilityEntity {
   @ManyToOne('CalendarEventEntity', { nullable: true, onDelete: 'CASCADE' })
   @JoinColumn({ name: 'linkedEventId' })
   linkedEvent: any;
+
+  @ManyToOne(() => StaffLeaveRequestEntity, { nullable: true, onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'linkedLeaveRequestId' })
+  leaveRequest?: StaffLeaveRequestEntity | null;
 }
+

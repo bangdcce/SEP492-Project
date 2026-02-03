@@ -8,7 +8,7 @@ import {
   WebSocketServer,
   WsException,
 } from '@nestjs/websockets';
-import { Logger } from '@nestjs/common';
+import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -21,6 +21,8 @@ import {
   HearingParticipantEntity,
 } from 'src/database/entities';
 import { HearingService } from '../services/hearing.service';
+import { DisputesService } from '../disputes.service';
+import { SendDisputeMessageDto } from '../dto/message.dto';
 
 type WsUser = {
   id: string;
@@ -51,6 +53,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
   constructor(
     private readonly jwtService: JwtService,
     private readonly hearingService: HearingService,
+    private readonly disputesService: DisputesService,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
     @InjectRepository(DisputeEntity)
@@ -184,6 +187,35 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     const room = this.staffDashboardRoom();
     client.join(room);
     return { joined: true, room };
+  }
+
+  @UsePipes(new ValidationPipe({ whitelist: true, transform: true }))
+  @SubscribeMessage('sendDisputeMessage')
+  async sendDisputeMessage(
+    @MessageBody() dto: SendDisputeMessageDto,
+    @ConnectedSocket() client: Socket,
+  ): Promise<{
+    success: boolean;
+    messageId: string;
+    disputeId: string;
+    hearingId?: string | null;
+    createdAt: string;
+  }> {
+    const user = this.getUser(client);
+    await this.ensureDisputeAccess(dto.disputeId, user);
+    if (dto.hearingId) {
+      await this.ensureHearingAccess(dto.hearingId, user);
+    }
+
+    const saved = await this.disputesService.sendDisputeMessage(dto, user.id, user.role);
+
+    return {
+      success: true,
+      messageId: saved.id,
+      disputeId: saved.disputeId,
+      hearingId: saved.hearingId,
+      createdAt: saved.createdAt.toISOString(),
+    };
   }
 
   @SubscribeMessage('leaveStaffDashboard')
