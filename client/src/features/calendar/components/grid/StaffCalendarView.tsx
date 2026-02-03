@@ -11,12 +11,30 @@ import {
   addMonths,
   subMonths,
 } from "date-fns";
-import { ChevronLeft, ChevronRight, Clock, PlusCircle } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  Clock,
+  PlusCircle,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
-import { getStaffAvailability, setAvailability } from "../../api";
+import {
+  deleteAvailability,
+  getStaffAvailability,
+  setAvailability,
+} from "../../api";
 import { AvailabilityType, type CalendarEvent } from "../../types";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
 
 type AvailabilityEntry = {
   id: string;
@@ -48,7 +66,97 @@ type CalendarSlot = {
   endTime: Date;
   availabilityType?: AvailabilityType;
   note?: string;
+  availabilityId?: string;
+  isRecurring?: boolean;
 };
+
+type CalendarSlotMeta = CalendarSlot & {
+  badge: { label: string; className: string };
+  style: string;
+  timeRange: string;
+};
+
+const CALENDAR_HOURS = Array.from({ length: 11 }).map((_, i) => i + 8); // 8 AM to 6 PM
+const WORKING_HOURS_START_MINUTES = 8 * 60;
+const WORKING_HOURS_END_MINUTES = 18 * 60;
+const VISIBLE_AVAILABILITY_TYPES = new Set([
+  AvailabilityType.BUSY,
+  AvailabilityType.OUT_OF_OFFICE,
+  AvailabilityType.DO_NOT_DISTURB,
+  AvailabilityType.AVAILABLE,
+  AvailabilityType.PREFERRED,
+]);
+
+const getSlotStyles = (slot: CalendarSlot) => {
+  if (slot.kind === "event") {
+    return "bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100";
+  }
+  switch (slot.availabilityType) {
+    case AvailabilityType.PREFERRED:
+      return "bg-teal-50 border border-teal-200 text-teal-700 hover:bg-teal-100";
+    case AvailabilityType.AVAILABLE:
+      return "bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100";
+    case AvailabilityType.OUT_OF_OFFICE:
+      return "bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100";
+    case AvailabilityType.DO_NOT_DISTURB:
+      return "bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100";
+    default:
+      return "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200";
+  }
+};
+
+const getSlotBadge = (slot: CalendarSlot) => {
+  if (slot.kind === "event") {
+    return { label: "Event", className: "bg-indigo-100 text-indigo-700" };
+  }
+  switch (slot.availabilityType) {
+    case AvailabilityType.PREFERRED:
+      return { label: "Preferred", className: "bg-teal-100 text-teal-700" };
+    case AvailabilityType.AVAILABLE:
+      return {
+        label: "Available",
+        className: "bg-emerald-100 text-emerald-700",
+      };
+    case AvailabilityType.OUT_OF_OFFICE:
+      return {
+        label: "Out of office",
+        className: "bg-amber-100 text-amber-700",
+      };
+    case AvailabilityType.DO_NOT_DISTURB:
+      return {
+        label: "Do not disturb",
+        className: "bg-rose-100 text-rose-700",
+      };
+    default:
+      return { label: "Busy", className: "bg-slate-200 text-slate-700" };
+  }
+};
+
+const toMinutesOfDay = (date: Date) =>
+  date.getHours() * 60 + date.getMinutes() + date.getSeconds() / 60;
+
+const isWithinWorkingHours = (start: Date, end: Date) => {
+  if (
+    start.getFullYear() !== end.getFullYear() ||
+    start.getMonth() !== end.getMonth() ||
+    start.getDate() !== end.getDate()
+  ) {
+    return false;
+  }
+  const startMinutes = toMinutesOfDay(start);
+  const endMinutes = toMinutesOfDay(end);
+  return (
+    startMinutes >= WORKING_HOURS_START_MINUTES &&
+    endMinutes <= WORKING_HOURS_END_MINUTES
+  );
+};
+
+const isWithinWorkingHoursMinutes = (
+  startMinutes: number,
+  endMinutes: number,
+) =>
+  startMinutes >= WORKING_HOURS_START_MINUTES &&
+  endMinutes <= WORKING_HOURS_END_MINUTES;
 
 export const StaffCalendarView = () => {
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -64,6 +172,14 @@ export const StaffCalendarView = () => {
   const [availabilityAllowConflicts, setAvailabilityAllowConflicts] =
     useState(false);
   const [availabilitySaving, setAvailabilitySaving] = useState(false);
+  const [availabilityDeletingId, setAvailabilityDeletingId] = useState<
+    string | null
+  >(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [pendingDeleteSlot, setPendingDeleteSlot] =
+    useState<CalendarSlotMeta | null>(null);
+  const [detailDialogOpen, setDetailDialogOpen] = useState(false);
+  const [detailSlot, setDetailSlot] = useState<CalendarSlotMeta | null>(null);
 
   const currentUser = useMemo(
     () => getStoredJson<{ id?: string }>(STORAGE_KEYS.USER),
@@ -103,11 +219,7 @@ export const StaffCalendarView = () => {
     const hours = Number(hourRaw);
     const minutes = Number(minuteRaw ?? "0");
     const seconds = Number(secondRaw ?? "0");
-    if (
-      Number.isNaN(hours) ||
-      Number.isNaN(minutes) ||
-      Number.isNaN(seconds)
-    ) {
+    if (Number.isNaN(hours) || Number.isNaN(minutes) || Number.isNaN(seconds)) {
       return null;
     }
     return { hours, minutes, seconds };
@@ -115,22 +227,17 @@ export const StaffCalendarView = () => {
 
   const expandAvailabilityEntry = useCallback(
     (entry: AvailabilityEntry): CalendarSlot[] => {
-      const visibleTypes = new Set([
-        AvailabilityType.BUSY,
-        AvailabilityType.OUT_OF_OFFICE,
-        AvailabilityType.DO_NOT_DISTURB,
-        AvailabilityType.AVAILABLE,
-        AvailabilityType.PREFERRED,
-      ]);
-      if (!visibleTypes.has(entry.type)) return [];
+      if (!VISIBLE_AVAILABILITY_TYPES.has(entry.type)) return [];
       if (entry.isAutoGenerated) return [];
 
       if (!entry.isRecurring) {
         if (!entry.startTime || !entry.endTime) return [];
         const start = new Date(entry.startTime);
         const end = new Date(entry.endTime);
-        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return [];
+        if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()))
+          return [];
         if (end <= start) return [];
+        if (!isWithinWorkingHours(start, end)) return [];
         return [
           {
             id: `availability-${entry.id}`,
@@ -142,6 +249,8 @@ export const StaffCalendarView = () => {
             endTime: end,
             availabilityType: entry.type,
             note: entry.note,
+            availabilityId: entry.id,
+            isRecurring: false,
           },
         ];
       }
@@ -150,6 +259,15 @@ export const StaffCalendarView = () => {
       const endTimeParts = parseRecurringTime(entry.recurringEndTime);
       if (!startTimeParts || !endTimeParts) return [];
       if (typeof entry.dayOfWeek !== "number") return [];
+      const startMinutes =
+        startTimeParts.hours * 60 +
+        startTimeParts.minutes +
+        startTimeParts.seconds / 60;
+      const endMinutes =
+        endTimeParts.hours * 60 +
+        endTimeParts.minutes +
+        endTimeParts.seconds / 60;
+      if (!isWithinWorkingHoursMinutes(startMinutes, endMinutes)) return [];
 
       const recurringStartDate = entry.recurringStartDate
         ? new Date(entry.recurringStartDate)
@@ -190,6 +308,8 @@ export const StaffCalendarView = () => {
               endTime: end,
               availabilityType: entry.type,
               note: entry.note,
+              availabilityId: entry.id,
+              isRecurring: true,
             },
           ];
         });
@@ -197,143 +317,223 @@ export const StaffCalendarView = () => {
     [weekDays],
   );
 
-  const fetchSchedule = useCallback(async () => {
-    if (!staffId) {
-      setSlots([]);
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const rangeStart =
-        viewMode === "month" ? monthStartDate : weekStartDate;
-      const rangeEnd =
-        viewMode === "month" ? addDays(monthEndDate, 1) : addDays(weekStartDate, 7);
-      const startStr = rangeStart.toISOString();
-      const endStr = rangeEnd.toISOString();
-      const response = await getStaffAvailability(startStr, endStr, [staffId]);
-      const payload = (response as { data?: StaffAvailabilityPayload[] }).data ?? response;
-      const staffEntries = Array.isArray(payload) ? payload : [];
-      const staffEntry =
-        staffEntries.find((entry) => entry.staffId === staffId) ?? staffEntries[0];
-      const events = staffEntry?.events ?? [];
-      const availability = staffEntry?.availability ?? [];
-
-      if (import.meta.env.DEV) {
-        console.debug("[Calendar] Staff availability response", {
-          staffId,
-          rangeStart: startStr,
-          rangeEnd: endStr,
-          staffCount: staffEntries.length,
-          events: events.length,
-          availability: availability.length,
-        });
+  const fetchSchedule = useCallback(
+    async (options?: { preferCache?: boolean }) => {
+      if (!staffId) {
+        setSlots([]);
+        return;
       }
 
-      const eventSlots: CalendarSlot[] = events.map((event) => ({
-        id: `event-${event.id}`,
-        kind: "event",
-        title: event.title || event.type,
-        startTime: new Date(event.startTime),
-        endTime: new Date(event.endTime),
-      }));
+      try {
+        setLoading(true);
+        const rangeStart =
+          viewMode === "month" ? monthStartDate : weekStartDate;
+        const rangeEnd =
+          viewMode === "month"
+            ? addDays(monthEndDate, 1)
+            : addDays(weekStartDate, 7);
+        const startStr = rangeStart.toISOString();
+        const endStr = rangeEnd.toISOString();
+        const response = await getStaffAvailability(
+          startStr,
+          endStr,
+          [staffId],
+          {
+            preferCache: options?.preferCache,
+            ttlMs: 30_000,
+          },
+        );
+        const payload =
+          (response as { data?: StaffAvailabilityPayload[] }).data ?? response;
+        const staffEntries = Array.isArray(payload) ? payload : [];
+        const staffEntry =
+          staffEntries.find((entry) => entry.staffId === staffId) ??
+          staffEntries[0];
+        const events = staffEntry?.events ?? [];
+        const availability = staffEntry?.availability ?? [];
 
-      const availabilitySlots = availability.flatMap(expandAvailabilityEntry);
+        if (import.meta.env.DEV) {
+          console.debug("[Calendar] Staff availability response", {
+            staffId,
+            rangeStart: startStr,
+            rangeEnd: endStr,
+            staffCount: staffEntries.length,
+            events: events.length,
+            availability: availability.length,
+          });
+        }
 
-      const mergedSlots = [...eventSlots, ...availabilitySlots];
-      setSlots(mergedSlots);
-      if (import.meta.env.DEV) {
-        console.debug("[Calendar] Render slots", {
-          total: mergedSlots.length,
-          events: eventSlots.length,
-          availability: availabilitySlots.length,
-        });
+        const eventSlots: CalendarSlot[] = events.map((event) => ({
+          id: `event-${event.id}`,
+          kind: "event",
+          title: event.title || event.type,
+          startTime: new Date(event.startTime),
+          endTime: new Date(event.endTime),
+        }));
+
+        const availabilitySlots = availability.flatMap(expandAvailabilityEntry);
+
+        const mergedSlots = [...eventSlots, ...availabilitySlots];
+        setSlots(mergedSlots);
+        if (import.meta.env.DEV) {
+          console.debug("[Calendar] Render slots", {
+            total: mergedSlots.length,
+            events: eventSlots.length,
+            availability: availabilitySlots.length,
+          });
+        }
+      } catch (error) {
+        console.error("Failed to load staff availability:", error);
+        toast.error("Could not load calendar availability");
+        setSlots([]);
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error("Failed to load staff availability:", error);
-      toast.error("Could not load calendar availability");
-      setSlots([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [staffId, viewMode, weekStartDate, monthStartDate, monthEndDate, expandAvailabilityEntry]);
-
-  useEffect(() => {
-    fetchSchedule();
-  }, [fetchSchedule]);
-
-  const hours = Array.from({ length: 11 }).map(
-    (_, i) => i + 8, // 8 AM to 6 PM
+    },
+    [
+      staffId,
+      viewMode,
+      weekStartDate,
+      monthStartDate,
+      monthEndDate,
+      expandAvailabilityEntry,
+    ],
   );
 
-  const getSlotsForCell = (day: Date, hour: number) => {
-    const cellStart = new Date(day);
-    cellStart.setHours(hour, 0, 0, 0);
-    const cellEnd = new Date(day);
-    cellEnd.setHours(hour + 1, 0, 0, 0);
+  useEffect(() => {
+    fetchSchedule({ preferCache: true });
+  }, [fetchSchedule]);
 
-    return slots.filter(
-      (slot) => slot.startTime < cellEnd && slot.endTime > cellStart,
-    );
-  };
+  const hourLabels = useMemo(
+    () =>
+      CALENDAR_HOURS.map((hour) =>
+        format(new Date(2020, 0, 1, hour, 0, 0), "h a"),
+      ),
+    [],
+  );
+  const minDateTime = useMemo(() => {
+    const now = new Date();
+    now.setSeconds(0, 0);
+    const localIso = new Date(
+      now.getTime() - now.getTimezoneOffset() * 60 * 1000,
+    )
+      .toISOString()
+      .slice(0, 16);
+    return localIso;
+  }, []);
 
-  const getSlotStyles = (slot: CalendarSlot) => {
-    if (slot.kind === "event") {
-      return "bg-indigo-50 border border-indigo-100 text-indigo-700 hover:bg-indigo-100";
-    }
-    switch (slot.availabilityType) {
-      case AvailabilityType.PREFERRED:
-        return "bg-teal-50 border border-teal-200 text-teal-700 hover:bg-teal-100";
-      case AvailabilityType.AVAILABLE:
-        return "bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100";
-      case AvailabilityType.OUT_OF_OFFICE:
-        return "bg-amber-50 border border-amber-200 text-amber-700 hover:bg-amber-100";
-      case AvailabilityType.DO_NOT_DISTURB:
-        return "bg-rose-50 border border-rose-200 text-rose-700 hover:bg-rose-100";
-      default:
-        return "bg-slate-100 border border-slate-200 text-slate-700 hover:bg-slate-200";
-    }
-  };
+  const slotsWithMeta = useMemo<CalendarSlotMeta[]>(
+    () =>
+      slots.map((slot) => ({
+        ...slot,
+        badge: getSlotBadge(slot),
+        style: getSlotStyles(slot),
+        timeRange: `${format(slot.startTime, "h:mm")} - ${format(
+          slot.endTime,
+          "h:mm a",
+        )}`,
+      })),
+    [slots],
+  );
 
-  const getSlotBadge = (slot: CalendarSlot) => {
-    if (slot.kind === "event") {
-      return { label: "Event", className: "bg-indigo-100 text-indigo-700" };
-    }
-    switch (slot.availabilityType) {
-      case AvailabilityType.PREFERRED:
-        return { label: "Preferred", className: "bg-teal-100 text-teal-700" };
-      case AvailabilityType.AVAILABLE:
-        return { label: "Available", className: "bg-emerald-100 text-emerald-700" };
-      case AvailabilityType.OUT_OF_OFFICE:
-        return { label: "Out of office", className: "bg-amber-100 text-amber-700" };
-      case AvailabilityType.DO_NOT_DISTURB:
-        return { label: "Do not disturb", className: "bg-rose-100 text-rose-700" };
-      default:
-        return { label: "Busy", className: "bg-slate-200 text-slate-700" };
-    }
-  };
+  const weekDayKeys = useMemo(() => {
+    const map = new Map<number, string>();
+    weekDays.forEach((day) => {
+      map.set(day.getTime(), format(day, "yyyy-MM-dd"));
+    });
+    return map;
+  }, [weekDays]);
 
-  const formatSlotTime = (slot: CalendarSlot) =>
-    `${format(slot.startTime, "h:mm a")} - ${format(slot.endTime, "h:mm a")}`;
+  const monthDayKeys = useMemo(() => {
+    const map = new Map<number, string>();
+    monthDays.forEach((day) => {
+      map.set(day.getTime(), format(day, "yyyy-MM-dd"));
+    });
+    return map;
+  }, [monthDays]);
 
-  const getDayIndicators = (day: Date) => {
-    const start = new Date(day);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(day);
-    end.setHours(23, 59, 59, 999);
+  const weekCellRanges = useMemo(
+    () =>
+      weekDays.flatMap((day) =>
+        CALENDAR_HOURS.map((hour) => {
+          const cellStart = new Date(day);
+          cellStart.setHours(hour, 0, 0, 0);
+          const cellEnd = new Date(day);
+          cellEnd.setHours(hour + 1, 0, 0, 0);
+          const dayKey = weekDayKeys.get(day.getTime()) ?? day.toISOString();
+          return {
+            key: `${dayKey}|${hour}`,
+            cellStart,
+            cellEnd,
+          };
+        }),
+      ),
+    [weekDays, weekDayKeys],
+  );
 
-    const indicators = new Set<string>();
-    slots.forEach((slot) => {
-      if (slot.startTime < end && slot.endTime > start) {
-        if (slot.kind === "event") {
-          indicators.add("event");
-        } else {
-          indicators.add(slot.availabilityType || "busy");
+  const slotIndex = useMemo(() => {
+    const map = new Map<string, CalendarSlotMeta[]>();
+    if (viewMode !== "week") return map;
+
+    weekCellRanges.forEach(({ key, cellStart, cellEnd }) => {
+      slotsWithMeta.forEach((slot) => {
+        if (slot.startTime < cellEnd && slot.endTime > cellStart) {
+          const existing = map.get(key);
+          if (existing) {
+            existing.push(slot);
+          } else {
+            map.set(key, [slot]);
+          }
         }
+      });
+    });
+
+    return map;
+  }, [slotsWithMeta, weekCellRanges, viewMode]);
+
+  const dayIndicatorsMap = useMemo(() => {
+    if (viewMode !== "month") {
+      return new Map<string, string[]>();
+    }
+    const map = new Map<string, string[]>();
+    monthDays.forEach((day) => {
+      const start = new Date(day);
+      start.setHours(0, 0, 0, 0);
+      const end = new Date(day);
+      end.setHours(23, 59, 59, 999);
+      const indicators = new Set<string>();
+      slotsWithMeta.forEach((slot) => {
+        if (slot.startTime < end && slot.endTime > start) {
+          if (slot.kind === "event") {
+            indicators.add("event");
+          } else {
+            indicators.add(slot.availabilityType || "busy");
+          }
+        }
+      });
+      if (indicators.size) {
+        const key = monthDayKeys.get(day.getTime()) ?? day.toISOString();
+        map.set(key, Array.from(indicators));
       }
     });
-    return Array.from(indicators);
-  };
+    return map;
+  }, [monthDays, monthDayKeys, slotsWithMeta, viewMode]);
+
+  const getSlotsForCell = useCallback(
+    (day: Date, hour: number) => {
+      const dayKey = weekDayKeys.get(day.getTime()) ?? day.toISOString();
+      return slotIndex.get(`${dayKey}|${hour}`) ?? [];
+    },
+    [slotIndex, weekDayKeys],
+  );
+
+  const getDayIndicators = useCallback(
+    (day: Date) => {
+      const key = monthDayKeys.get(day.getTime()) ?? day.toISOString();
+      return dayIndicatorsMap.get(key) ?? [];
+    },
+    [dayIndicatorsMap, monthDayKeys],
+  );
 
   const handleAddAvailability = async () => {
     if (!availabilityStart || !availabilityEnd) {
@@ -347,8 +547,17 @@ export const StaffCalendarView = () => {
       toast.error("Invalid date/time.");
       return;
     }
+    const now = new Date();
+    if (start < now) {
+      toast.error("Cannot add availability in the past.");
+      return;
+    }
     if (start >= end) {
       toast.error("End time must be after start time.");
+      return;
+    }
+    if (!isWithinWorkingHours(start, end)) {
+      toast.error("Availability must be within working hours (08:00-18:00).");
       return;
     }
     const durationMs = end.getTime() - start.getTime();
@@ -356,7 +565,9 @@ export const StaffCalendarView = () => {
       availabilityType === AvailabilityType.OUT_OF_OFFICE &&
       durationMs > 24 * 60 * 60 * 1000
     ) {
-      toast.error("Leave longer than 1 day requires admin approval.");
+      toast.error(
+        "Leave longer than 1 day requires an admin-approved leave request.",
+      );
       return;
     }
 
@@ -381,7 +592,7 @@ export const StaffCalendarView = () => {
       setAvailabilityStart("");
       setAvailabilityEnd("");
       setAvailabilityNote("");
-      await fetchSchedule();
+      await fetchSchedule({ preferCache: false });
     } catch (error) {
       const responseData = (error as any)?.response?.data;
       const payloadMessage = responseData?.message;
@@ -413,8 +624,56 @@ export const StaffCalendarView = () => {
     }
   };
 
+  const openDeleteDialog = (slot: CalendarSlotMeta) => {
+    setPendingDeleteSlot(slot);
+    setDeleteDialogOpen(true);
+  };
+
+  const openDetailDialog = (slot: CalendarSlotMeta) => {
+    setDetailSlot(slot);
+    setDetailDialogOpen(true);
+  };
+
+  const confirmDeleteAvailability = async () => {
+    if (!pendingDeleteSlot || pendingDeleteSlot.kind !== "availability") return;
+    if (pendingDeleteSlot.isRecurring) {
+      toast.error(
+        "Recurring availability must be managed from schedule settings.",
+      );
+      setDeleteDialogOpen(false);
+      setPendingDeleteSlot(null);
+      return;
+    }
+    if (pendingDeleteSlot.startTime <= new Date()) {
+      toast.error("Only future availability can be removed.");
+      setDeleteDialogOpen(false);
+      setPendingDeleteSlot(null);
+      return;
+    }
+    if (!pendingDeleteSlot.availabilityId) {
+      setDeleteDialogOpen(false);
+      setPendingDeleteSlot(null);
+      return;
+    }
+    try {
+      setAvailabilityDeletingId(pendingDeleteSlot.availabilityId);
+      await deleteAvailability(pendingDeleteSlot.availabilityId);
+      toast.success("Availability removed.");
+      await fetchSchedule({ preferCache: false });
+    } catch (error) {
+      console.error("Failed to delete availability:", error);
+      toast.error("Could not remove availability.");
+    } finally {
+      setAvailabilityDeletingId(null);
+      setDeleteDialogOpen(false);
+      setPendingDeleteSlot(null);
+    }
+  };
+
+  const now = new Date();
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 w-full">
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -422,7 +681,8 @@ export const StaffCalendarView = () => {
               Mark availability / blocks
             </h3>
             <p className="text-xs text-gray-500 mt-1">
-              Set preferred/available time for auto-scheduling or block time from hearings.
+              Set preferred/available time for auto-scheduling or block time
+              from hearings.
             </p>
           </div>
           <button
@@ -452,8 +712,12 @@ export const StaffCalendarView = () => {
                 Preferred (auto-assign)
               </option>
               <option value={AvailabilityType.BUSY}>Busy</option>
-              <option value={AvailabilityType.OUT_OF_OFFICE}>Out of office</option>
-              <option value={AvailabilityType.DO_NOT_DISTURB}>Do not disturb</option>
+              <option value={AvailabilityType.OUT_OF_OFFICE}>
+                Out of office
+              </option>
+              <option value={AvailabilityType.DO_NOT_DISTURB}>
+                Do not disturb
+              </option>
             </select>
           </div>
           <div>
@@ -462,6 +726,7 @@ export const StaffCalendarView = () => {
               type="datetime-local"
               value={availabilityStart}
               onChange={(event) => setAvailabilityStart(event.target.value)}
+              min={minDateTime}
               max={availabilityEnd || undefined}
               className="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-teal-500 focus:border-teal-500"
             />
@@ -472,7 +737,7 @@ export const StaffCalendarView = () => {
               type="datetime-local"
               value={availabilityEnd}
               onChange={(event) => setAvailabilityEnd(event.target.value)}
-              min={availabilityStart || undefined}
+              min={availabilityStart || minDateTime}
               className="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-teal-500 focus:border-teal-500"
             />
           </div>
@@ -492,14 +757,16 @@ export const StaffCalendarView = () => {
           <input
             type="checkbox"
             checked={availabilityAllowConflicts}
-            onChange={(event) => setAvailabilityAllowConflicts(event.target.checked)}
+            onChange={(event) =>
+              setAvailabilityAllowConflicts(event.target.checked)
+            }
             className="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
           />
           Allow conflicts with existing events
         </label>
       </div>
 
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-[600px] relative">
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm flex flex-col h-[650px] relative w-full">
         {loading && (
           <div className="absolute inset-0 bg-white/50 z-10 flex items-center justify-center">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-600"></div>
@@ -507,11 +774,11 @@ export const StaffCalendarView = () => {
         )}
 
         {/* Header */}
-        <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="p-4 border-b border-gray-200 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <h3 className="font-semibold text-slate-900">
             {format(currentDate, "MMMM yyyy")}
           </h3>
-          <div className="hidden md:flex items-center gap-2 text-xs text-gray-500">
+          <div className="hidden lg:flex flex-wrap items-center gap-2 text-xs text-gray-500">
             <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
               Event
             </span>
@@ -531,7 +798,7 @@ export const StaffCalendarView = () => {
               Do not disturb
             </span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <div className="hidden md:flex items-center gap-1 rounded-full border border-gray-200 p-1 text-xs">
               <button
                 onClick={() => setViewMode("week")}
@@ -588,18 +855,20 @@ export const StaffCalendarView = () => {
         </div>
 
         {/* Grid */}
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden">
           {viewMode === "month" ? (
-            <div className="min-w-[800px]">
+            <div className="w-full min-w-0">
               <div className="grid grid-cols-7 border-b border-gray-200 text-xs text-gray-500">
-                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
-                  <div
-                    key={label}
-                    className="p-3 text-center border-r border-gray-100 font-medium"
-                  >
-                    {label}
-                  </div>
-                ))}
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map(
+                  (label) => (
+                    <div
+                      key={label}
+                      className="p-3 text-center border-r border-gray-100 font-medium"
+                    >
+                      {label}
+                    </div>
+                  ),
+                )}
               </div>
               <div className="grid grid-cols-7">
                 {monthDays.map((day) => {
@@ -612,11 +881,13 @@ export const StaffCalendarView = () => {
                         setCurrentDate(day);
                         setViewMode("week");
                       }}
-                      className={`h-28 border-r border-b border-gray-100 p-2 text-left transition-colors ${
+                      className={`min-h-[120px] border-r border-b border-gray-100 p-2.5 text-left transition-colors ${
                         isCurrentMonth ? "bg-white" : "bg-gray-50 text-gray-400"
                       } hover:bg-teal-50`}
                     >
-                      <div className="text-sm font-semibold">{format(day, "d")}</div>
+                      <div className="text-sm font-semibold">
+                        {format(day, "d")}
+                      </div>
                       <div className="mt-2 flex flex-wrap gap-1">
                         {indicators.includes("event") && (
                           <span className="h-2 w-2 rounded-full bg-indigo-400" />
@@ -630,10 +901,14 @@ export const StaffCalendarView = () => {
                         {indicators.includes(AvailabilityType.BUSY) && (
                           <span className="h-2 w-2 rounded-full bg-slate-400" />
                         )}
-                        {indicators.includes(AvailabilityType.OUT_OF_OFFICE) && (
+                        {indicators.includes(
+                          AvailabilityType.OUT_OF_OFFICE,
+                        ) && (
                           <span className="h-2 w-2 rounded-full bg-amber-400" />
                         )}
-                        {indicators.includes(AvailabilityType.DO_NOT_DISTURB) && (
+                        {indicators.includes(
+                          AvailabilityType.DO_NOT_DISTURB,
+                        ) && (
                           <span className="h-2 w-2 rounded-full bg-rose-400" />
                         )}
                       </div>
@@ -643,92 +918,212 @@ export const StaffCalendarView = () => {
               </div>
             </div>
           ) : (
-            <div className="min-w-[800px]">
-            {/* Days Header */}
-            <div className="grid grid-cols-8 border-b border-gray-200">
-              <div className="p-3 text-xs font-medium text-gray-400 border-r border-gray-100">
-                GMT+7
-              </div>
-              {weekDays.map((day) => (
-                <div
-                  key={day.toString()}
-                  className={`p-3 text-center border-r border-gray-100 ${
-                    isSameDay(day, new Date()) ? "bg-teal-50" : ""
-                  }`}
-                >
-                  <p className="text-xs font-medium text-gray-500">
-                    {format(day, "EEE")}
-                  </p>
-                  <p
-                    className={`text-sm font-semibold ${
-                      isSameDay(day, new Date())
-                        ? "text-teal-600"
-                        : "text-slate-900"
+            <div className="w-full min-w-0">
+              {/* Days Header */}
+              <div className="grid grid-cols-[64px_repeat(7,minmax(0,1fr))] xl:grid-cols-[72px_repeat(7,minmax(100px,1fr))] 2xl:grid-cols-[72px_repeat(7,minmax(120px,1fr))] border-b border-gray-200">
+                <div className="p-3 text-xs font-medium text-gray-400 border-r border-gray-100">
+                  GMT+7
+                </div>
+                {weekDays.map((day) => (
+                  <div
+                    key={day.toString()}
+                    className={`p-3 text-center border-r border-gray-100 ${
+                      isSameDay(day, new Date()) ? "bg-teal-50" : ""
                     }`}
                   >
-                    {format(day, "d")}
-                  </p>
+                    <p className="text-xs font-medium text-gray-500">
+                      {format(day, "EEE")}
+                    </p>
+                    <p
+                      className={`text-sm font-semibold ${
+                        isSameDay(day, new Date())
+                          ? "text-teal-600"
+                          : "text-slate-900"
+                      }`}
+                    >
+                      {format(day, "d")}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Time Slots */}
+              {CALENDAR_HOURS.map((hour, hourIndex) => (
+                <div
+                  key={hour}
+                  className="grid grid-cols-[64px_repeat(7,minmax(0,1fr))] xl:grid-cols-[72px_repeat(7,minmax(100px,1fr))] 2xl:grid-cols-[72px_repeat(7,minmax(120px,1fr))] border-b border-gray-100"
+                >
+                  {/* Time Label */}
+                  <div className="p-3 text-xs text-gray-500 text-right font-medium border-r border-gray-100">
+                    {hourLabels[hourIndex]}
+                  </div>
+
+                  {/* Day Cells */}
+                  {weekDays.map((day) => {
+                    const slots = getSlotsForCell(day, hour);
+                    return (
+                      <div
+                        key={`${day}-${hour}`}
+                        className="border-r border-gray-100 p-2.5 min-h-[120px] hover:bg-gray-50 transition-colors relative"
+                      >
+                        {slots.map((slot) => {
+                          const displayTitle =
+                            slot.kind === "availability"
+                              ? slot.badge.label
+                              : slot.title;
+                          return (
+                            <div
+                              key={`${slot.id}-${hour}`}
+                              className={`p-2.5 rounded text-[12px] mb-1 cursor-pointer ${slot.style}`}
+                              title={`${displayTitle} - ${slot.timeRange}`}
+                              onClick={() => openDetailDialog(slot)}
+                            >
+                              <div className="flex items-center justify-between gap-2">
+                                <div className="min-w-0">
+                                  <div className="text-sm font-semibold leading-snug line-clamp-2 break-words">
+                                    {displayTitle}
+                                  </div>
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${slot.badge.className}`}
+                                  >
+                                    {slot.badge.label}
+                                  </span>
+                                  {slot.kind === "availability" &&
+                                  slot.availabilityId &&
+                                  !slot.isRecurring &&
+                                  slot.startTime > now ? (
+                                    <button
+                                      type="button"
+                                      onClick={(event) => {
+                                        event.stopPropagation();
+                                        openDeleteDialog(slot);
+                                      }}
+                                      disabled={
+                                        availabilityDeletingId ===
+                                        slot.availabilityId
+                                      }
+                                      className="p-1 rounded hover:bg-white/70 text-rose-600 disabled:opacity-50"
+                                      title="Remove availability"
+                                    >
+                                      <Trash2 className="w-3 h-3" />
+                                    </button>
+                                  ) : null}
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-1 mt-1 opacity-75">
+                                <Clock className="w-3 h-3" />
+                                <span>{slot.timeRange}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
             </div>
-
-            {/* Time Slots */}
-            {hours.map((hour) => (
-              <div
-                key={hour}
-                className="grid grid-cols-8 border-b border-gray-100"
-              >
-                {/* Time Label */}
-                <div className="p-3 text-xs text-gray-500 text-right font-medium border-r border-gray-100">
-                  {format(new Date().setHours(hour), "h a")}
-                </div>
-
-                {/* Day Cells */}
-                {weekDays.map((day) => {
-                  const slots = getSlotsForCell(day, hour);
-                  return (
-                    <div
-                      key={`${day}-${hour}`}
-                      className="border-r border-gray-100 p-1 min-h-[80px] hover:bg-gray-50 transition-colors relative"
-                    >
-                      {slots.map((slot) => (
-                        <div
-                          key={`${slot.id}-${hour}`}
-                          className={`p-2 rounded text-xs mb-1 cursor-pointer ${getSlotStyles(
-                            slot,
-                          )}`}
-                          title={`${slot.title} - ${formatSlotTime(slot)}`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="font-semibold truncate">
-                              {slot.title}
-                            </div>
-                            <span
-                              className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${getSlotBadge(
-                                slot,
-                              ).className}`}
-                            >
-                              {getSlotBadge(slot).label}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1 mt-1 opacity-75">
-                            <Clock className="w-3 h-3" />
-                            <span>
-                              {format(new Date(slot.startTime), "h:mm")} -{" "}
-                              {format(new Date(slot.endTime), "h:mm a")}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })}
-              </div>
-            ))}
-          </div>
           )}
         </div>
       </div>
+
+      <Dialog
+        open={deleteDialogOpen}
+        onOpenChange={(open) => {
+          setDeleteDialogOpen(open);
+          if (!open) {
+            setPendingDeleteSlot(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove availability?</DialogTitle>
+            <DialogDescription>
+              This will remove the selected availability slot.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <button
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+              onClick={() => setDeleteDialogOpen(false)}
+              disabled={availabilityDeletingId !== null}
+            >
+              Cancel
+            </button>
+            <button
+              className="px-4 py-2 rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+              onClick={confirmDeleteAvailability}
+              disabled={availabilityDeletingId !== null}
+            >
+              {availabilityDeletingId ? "Removing..." : "Remove"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={detailDialogOpen}
+        onOpenChange={(open) => {
+          setDetailDialogOpen(open);
+          if (!open) {
+            setDetailSlot(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {detailSlot?.kind === "event"
+                ? "Event details"
+                : "Availability details"}
+            </DialogTitle>
+            <DialogDescription>
+              {detailSlot
+                ? format(detailSlot.startTime, "MMM d, yyyy")
+                : "Details"}
+            </DialogDescription>
+          </DialogHeader>
+          {detailSlot ? (
+            <div className="space-y-3 text-sm text-gray-600">
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-400">
+                  Type
+                </p>
+                <p className="font-medium text-slate-900">
+                  {detailSlot.badge.label}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-400">
+                  Time
+                </p>
+                <p className="font-medium text-slate-900">
+                  {detailSlot.timeRange}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs uppercase tracking-wide text-gray-400">
+                  Reason
+                </p>
+                <p className="font-medium text-slate-900">
+                  {detailSlot.note?.trim() || "No reason provided."}
+                </p>
+              </div>
+            </div>
+          ) : null}
+          <DialogFooter>
+            <button
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+              onClick={() => setDetailDialogOpen(false)}
+            >
+              Close
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

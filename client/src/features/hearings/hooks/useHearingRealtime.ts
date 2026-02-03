@@ -15,7 +15,17 @@ export const useHearingRealtime = (
     if (!hearingId) return;
 
     const socket = connectSocket();
-    socket.emit("joinHearing", { hearingId });
+
+    // Join room only after socket is connected
+    const joinRoom = () => {
+      socket.emit("joinHearing", { hearingId });
+    };
+
+    if (socket.connected) {
+      joinRoom();
+    } else {
+      socket.once("connect", joinRoom);
+    }
 
     if (handlers?.onMessageSent) {
       socket.on("MESSAGE_SENT", handlers.onMessageSent);
@@ -28,6 +38,7 @@ export const useHearingRealtime = (
     }
 
     return () => {
+      socket.off("connect", joinRoom);
       socket.emit("leaveHearing", { hearingId });
       if (handlers?.onMessageSent) {
         socket.off("MESSAGE_SENT", handlers.onMessageSent);

@@ -22,6 +22,7 @@ import {
   DisputeAction,
   DisputeHearingEntity,
   HearingTier,
+  HearingStatus,
   DisputeVerdictEntity,
   EscrowEntity,
   EscrowStatus,
@@ -91,6 +92,7 @@ const DEFAULT_RESOLUTION_DEADLINE_DAYS = 14;
 const URGENT_THRESHOLD_HOURS = 48; // Dispute được coi là urgent nếu còn < 48h
 const DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS = 7;
 const DEFAULT_HEARING_DURATION_MINUTES = 60;
+const DEFAULT_HEARING_MIN_NOTICE_HOURS = 24;
 const DEFAULT_SETTLEMENT_WINDOW_HOURS = 24;
 const DEADLINE_SETTLEMENT_WINDOW_HOURS = 48;
 const REJECTION_APPEAL_WINDOW_HOURS = 24;
@@ -108,6 +110,16 @@ const MESSAGE_RATE_LIMIT = {
 @Injectable()
 export class DisputesService {
   private readonly logger = new Logger(DisputesService.name);
+  private disputeStatsCache?: {
+    value: {
+      byStatus: Record<string, number>;
+      byPriority: Record<string, number>;
+      overdue: number;
+      urgent: number;
+    };
+    expiresAt: number;
+  };
+  private readonly disputeStatsTtlMs = 60 * 1000;
 
   constructor(
     @InjectRepository(MilestoneEntity)
@@ -214,6 +226,12 @@ export class DisputesService {
       disputedAmount,
       parentDisputeId,
     } = dto;
+    const disputeCategory = category || DisputeCategory.OTHER;
+    if (disputeCategory === DisputeCategory.SCOPE_CHANGE) {
+      throw new BadRequestException(
+        'Scope changes must be handled via Change Request, not dispute.',
+      );
+    }
 
     const now = new Date();
     const queryRunner = this.dataSource.createQueryRunner();
@@ -260,9 +278,12 @@ export class DisputesService {
       }
       const allowedMilestoneStatuses = parentDisputeId
         ? [MilestoneStatus.COMPLETED, MilestoneStatus.LOCKED]
-        : [MilestoneStatus.COMPLETED];
+        : this.getAllowedMilestoneStatusesForDispute(disputeCategory);
       if (!allowedMilestoneStatuses.includes(milestone.status)) {
-        throw new BadRequestException('Milestone is not eligible for dispute');
+        throw new BadRequestException(
+          `Milestone status "${milestone.status}" does not allow ${disputeCategory} disputes. ` +
+            `Allowed statuses: ${allowedMilestoneStatuses.join(', ')}`,
+        );
       }
 
       escrow = await queryRunner.manager.findOne(EscrowEntity, {
@@ -352,7 +373,7 @@ export class DisputesService {
       const disputeType = this.determineDisputeType(raiserRole, defendantRole);
 
       const amount = disputedAmount || Number(escrow.totalAmount);
-      const priority = this.calculatePriority(amount, category, project.currency);
+      const priority = this.calculatePriority(amount, disputeCategory, project.currency);
 
       const responseDeadline = new Date(
         now.getTime() + DEFAULT_RESPONSE_DEADLINE_DAYS * 24 * 60 * 60 * 1000,
@@ -369,7 +390,7 @@ export class DisputesService {
         defendantId,
         defendantRole,
         disputeType,
-        category: category || DisputeCategory.OTHER,
+        category: disputeCategory,
         priority,
         disputedAmount: amount,
         reason,
@@ -423,7 +444,12 @@ export class DisputesService {
         raiserRole,
         DisputeAction.CREATED,
         `Dispute created: ${raiserRole} vs ${defendantRole}`,
-        { reason, category, disputedAmount: amount, parentDisputeId: parentDisputeId || null },
+        {
+          reason,
+          category: disputeCategory,
+          disputedAmount: amount,
+          parentDisputeId: parentDisputeId || null,
+        },
       );
 
       await queryRunner.commitTransaction();
@@ -435,12 +461,21 @@ export class DisputesService {
     }
 
     const assignment = await this.autoAssignStaff(savedDispute.id);
-    const availability = await this.checkInitialAvailability(
-      savedDispute,
-      project,
-      assignment?.staffId || '',
-      assignment?.complexity?.timeEstimation?.recommendedMinutes,
-    );
+    let availability: Awaited<ReturnType<typeof this.checkInitialAvailability>> | null = null;
+    try {
+      availability = await this.checkInitialAvailability(
+        savedDispute,
+        project,
+        assignment?.staffId || '',
+        assignment?.complexity?.timeEstimation?.recommendedMinutes,
+      );
+    } catch (error) {
+      this.logger.warn(
+        `Initial availability check failed for dispute ${savedDispute.id}: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+    }
 
     this.eventEmitter.emit(DISPUTE_EVENTS.CREATED, {
       disputeId: savedDispute.id,
@@ -480,6 +515,7 @@ export class DisputesService {
       raisedById,
       defendantId,
       assignedStaffId,
+      unassignedOnly,
       createdFrom,
       createdTo,
       deadlineBefore,
@@ -495,9 +531,19 @@ export class DisputesService {
 
     const qb = this.disputeRepo
       .createQueryBuilder('dispute')
-      .leftJoinAndSelect('dispute.raiser', 'raiser')
-      .leftJoinAndSelect('dispute.defendant', 'defendant')
-      .leftJoinAndSelect('dispute.project', 'project');
+      .leftJoin('dispute.raiser', 'raiser')
+      .leftJoin('dispute.defendant', 'defendant')
+      .leftJoin('dispute.project', 'project')
+      .addSelect([
+        'raiser.id',
+        'raiser.fullName',
+        'raiser.email',
+        'defendant.id',
+        'defendant.fullName',
+        'defendant.email',
+        'project.id',
+        'project.title',
+      ]);
 
     // === FILTERS ===
     if (statusIn && statusIn.length > 0) {
@@ -532,6 +578,8 @@ export class DisputesService {
 
     if (assignedStaffId) {
       qb.andWhere('dispute.assignedStaffId = :assignedStaffId', { assignedStaffId });
+    } else if (unassignedOnly) {
+      qb.andWhere('dispute.assignedStaffId IS NULL');
     }
 
     // Date filters
@@ -715,9 +763,19 @@ export class DisputesService {
 
     const qb = this.disputeRepo
       .createQueryBuilder('dispute')
-      .leftJoinAndSelect('dispute.raiser', 'raiser')
-      .leftJoinAndSelect('dispute.defendant', 'defendant')
-      .leftJoinAndSelect('dispute.project', 'project');
+      .leftJoin('dispute.raiser', 'raiser')
+      .leftJoin('dispute.defendant', 'defendant')
+      .leftJoin('dispute.project', 'project')
+      .addSelect([
+        'raiser.id',
+        'raiser.fullName',
+        'raiser.email',
+        'defendant.id',
+        'defendant.fullName',
+        'defendant.email',
+        'project.id',
+        'project.title',
+      ]);
 
     // Build WHERE clause based on user's role in disputes
     qb.andWhere(
@@ -750,6 +808,12 @@ export class DisputesService {
     overdue: number;
     urgent: number;
   }> {
+    const cached = this.disputeStatsCache;
+    const nowMs = Date.now();
+    if (cached && cached.expiresAt > nowMs) {
+      return cached.value;
+    }
+
     const now = new Date();
     const urgentThreshold = new Date(now.getTime() + URGENT_THRESHOLD_HOURS * 60 * 60 * 1000);
 
@@ -790,7 +854,7 @@ export class DisputesService {
       }),
     ]);
 
-    return {
+    const stats = {
       byStatus: (byStatus as Array<{ status: string; count: string }>).reduce(
         (acc, { status, count }) => ({ ...acc, [status]: Number(count) }),
         {} as Record<string, number>,
@@ -802,6 +866,13 @@ export class DisputesService {
       overdue,
       urgent,
     };
+
+    this.disputeStatsCache = {
+      value: stats,
+      expiresAt: nowMs + this.disputeStatsTtlMs,
+    };
+
+    return stats;
   }
 
   /**
@@ -821,6 +892,7 @@ export class DisputesService {
       category,
       priority,
       assignedStaffId,
+      unassignedOnly,
       createdFrom,
       createdTo,
       deadlineBefore,
@@ -839,6 +911,8 @@ export class DisputesService {
     if (priority) qb.andWhere('dispute.priority = :priority', { priority });
     if (assignedStaffId) {
       qb.andWhere('dispute.assignedStaffId = :assignedStaffId', { assignedStaffId });
+    } else if (unassignedOnly) {
+      qb.andWhere('dispute.assignedStaffId IS NULL');
     }
     if (createdFrom) {
       qb.andWhere('dispute.createdAt >= :createdFrom', { createdFrom: new Date(createdFrom) });
@@ -913,6 +987,199 @@ export class DisputesService {
       throw new NotFoundException(`Dispute with ID: ${disputeId} not found`);
     }
     return dispute;
+  }
+
+  async escalateToMediation(staffId: string, disputeId: string): Promise<DisputeEntity> {
+    const staff = await this.userRepo.findOne({
+      where: { id: staffId },
+      select: ['id', 'role'],
+    });
+    if (!staff) {
+      throw new NotFoundException('User not found');
+    }
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(staff.role)) {
+      throw new ForbiddenException('Only staff or admin can accept disputes');
+    }
+
+    return await this.dataSource.transaction(async (manager) => {
+      const disputeRepo = manager.getRepository(DisputeEntity);
+      const activityRepo = manager.getRepository(DisputeActivityEntity);
+
+      const dispute = await disputeRepo.findOne({
+        where: { id: disputeId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!dispute) {
+        throw new NotFoundException('Dispute not found');
+      }
+
+      if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
+        throw new BadRequestException(`Cannot accept dispute in status ${dispute.status}`);
+      }
+
+      const previousStatus = dispute.status;
+      const wasAssigned = Boolean(dispute.assignedStaffId);
+      if (dispute.assignedStaffId && dispute.assignedStaffId !== staffId && staff.role !== UserRole.ADMIN) {
+        throw new ForbiddenException('Dispute is already assigned to another staff member');
+      }
+
+      const now = new Date();
+      if (!dispute.assignedStaffId) {
+        dispute.assignedStaffId = staffId;
+        dispute.assignedAt = now;
+      }
+
+      dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.IN_MEDIATION);
+      const updated = await disputeRepo.save(dispute);
+
+      await activityRepo.save(
+        activityRepo.create({
+          disputeId: dispute.id,
+          actorId: staff.id,
+          actorRole: staff.role,
+          action: DisputeAction.REVIEW_ACCEPTED,
+          description: 'Dispute accepted for mediation',
+          metadata: {
+            previousStatus,
+            assignedStaffId: dispute.assignedStaffId,
+          },
+        }),
+      );
+
+      if (!wasAssigned && dispute.assignedStaffId) {
+        this.eventEmitter.emit(DISPUTE_EVENTS.ASSIGNED, {
+          disputeId: dispute.id,
+          staffId: dispute.assignedStaffId,
+          assignedAt: now,
+        });
+      }
+
+      this.eventEmitter.emit(DISPUTE_EVENTS.ESCALATED, {
+        disputeId: dispute.id,
+        adminId: staff.id,
+      });
+
+      this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
+        disputeId: dispute.id,
+        previousStatus,
+        newStatus: updated.status,
+      });
+
+      return updated;
+    });
+  }
+
+  async escalateToHearing(
+    disputeId: string,
+    triggeredById: string,
+  ): Promise<{
+    manualRequired: boolean;
+    reason?: string;
+    hearingId?: string;
+    scheduledAt?: Date;
+  }> {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+      select: ['id', 'status', 'assignedStaffId', 'raisedById'],
+    });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
+      return { manualRequired: true, reason: 'Dispute already closed' };
+    }
+
+    const existing = await this.hearingRepo.findOne({
+      where: {
+        disputeId: dispute.id,
+        status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS]),
+      },
+      select: ['id', 'scheduledAt'],
+    });
+    if (existing) {
+      return {
+        manualRequired: false,
+        hearingId: existing.id,
+        scheduledAt: existing.scheduledAt,
+      };
+    }
+
+    let moderatorId = dispute.assignedStaffId;
+    if (!moderatorId) {
+      const assignment = await this.autoAssignStaff(dispute.id);
+      if (assignment?.staffId) {
+        moderatorId = assignment.staffId;
+      }
+    }
+
+    if (!moderatorId) {
+      const triggeredUser = await this.userRepo.findOne({
+        where: { id: triggeredById },
+        select: ['id', 'role'],
+      });
+      if (triggeredUser && [UserRole.STAFF, UserRole.ADMIN].includes(triggeredUser.role)) {
+        moderatorId = triggeredUser.id;
+      }
+    }
+
+    if (!moderatorId) {
+      return { manualRequired: true, reason: 'No staff available to moderate hearing' };
+    }
+
+    const participantsResult = await this.hearingService.determineRequiredParticipants(
+      dispute.id,
+      HearingTier.TIER_1,
+      moderatorId,
+    );
+    const participantIds = participantsResult.participants.map((p) => p.userId);
+
+    if (participantIds.length === 0) {
+      return { manualRequired: true, reason: 'No participants available for hearing' };
+    }
+
+    const complexity = await this.staffAssignmentService
+      .estimateDisputeComplexity(dispute.id)
+      .catch(() => null);
+    const durationMinutes =
+      complexity?.timeEstimation?.recommendedMinutes ?? DEFAULT_HEARING_DURATION_MINUTES;
+
+    const rangeStart = new Date(
+      Date.now() + DEFAULT_HEARING_MIN_NOTICE_HOURS * 60 * 60 * 1000,
+    );
+    const rangeEnd = this.addDays(rangeStart, DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS);
+
+    const userTimezones = await this.resolveUserTimezones(participantIds);
+    const slotsResult = await this.calendarService.findAvailableSlots({
+      userIds: participantIds,
+      durationMinutes,
+      dateRange: { start: rangeStart, end: rangeEnd },
+      userTimezones,
+    });
+
+    if (!slotsResult.slots.length) {
+      this.logger.warn(
+        `Auto-schedule failed for dispute ${dispute.id}: ${slotsResult.noSlotsReason || 'no slots'}`,
+      );
+      return { manualRequired: true, reason: slotsResult.noSlotsReason };
+    }
+
+    const selected = slotsResult.slots[0];
+    const hearing = await this.hearingService.scheduleHearing(
+      {
+        disputeId: dispute.id,
+        scheduledAt: selected.start.toISOString(),
+        estimatedDurationMinutes: durationMinutes,
+        tier: HearingTier.TIER_1,
+      },
+      moderatorId,
+    );
+
+    return {
+      manualRequired: false,
+      hearingId: hearing.hearing.id,
+      scheduledAt: hearing.hearing.scheduledAt,
+    };
   }
 
   async updateDisputes(userId: string, disputeId: string, dto: UpdateDisputeDto) {
@@ -1985,1288 +2252,30 @@ export class DisputesService {
   }
 
   /**
-   * Xác định Escrow status dựa trên verdict
+   * Log activity vào database (trong transaction)
    */
-  private getEscrowStatusFromVerdict(verdict: DisputeResult): EscrowStatus {
-    switch (verdict) {
-      case DisputeResult.WIN_CLIENT:
-        return EscrowStatus.REFUNDED;
-      case DisputeResult.WIN_FREELANCER:
-        return EscrowStatus.RELEASED;
-      case DisputeResult.SPLIT:
-        // Có thể thêm status RESOLVED cho Escrow nếu cần
-        return EscrowStatus.RELEASED; // Hoặc tạo mới: EscrowStatus.RESOLVED
+  private getAllowedMilestoneStatusesForDispute(
+    category: DisputeCategory,
+  ): MilestoneStatus[] {
+    const inProgressLike = [MilestoneStatus.IN_PROGRESS, MilestoneStatus.REVISIONS_REQUIRED];
+
+    switch (category) {
+      case DisputeCategory.QUALITY:
+        return [MilestoneStatus.SUBMITTED, MilestoneStatus.REVISIONS_REQUIRED];
+      case DisputeCategory.DEADLINE:
+      case DisputeCategory.COMMUNICATION:
+      case DisputeCategory.PAYMENT:
+      case DisputeCategory.SCOPE_CHANGE:
+      case DisputeCategory.CONTRACT:
+      case DisputeCategory.FRAUD:
+      case DisputeCategory.OTHER:
       default:
-        return EscrowStatus.DISPUTED;
+        return [MilestoneStatus.SUBMITTED, ...inProgressLike];
     }
   }
 
   /**
-   * 🔥 CRITICAL: Xác định ai nhận tiền dựa trên dispute type
-   *
-   * Trong dispute, có 2 "sides":
-   * - Client Side: Người đứng về phía "client" (có thể là client, hoặc broker trong BROKER_VS_FREELANCER)
-   * - Freelancer Side: Người đứng về phía "freelancer"
-   *
-   * WIN_CLIENT → Client Side nhận tiền
-   * WIN_FREELANCER → Freelancer Side nhận tiền
-   */
-  private determineTransferRecipients(
-    disputeType: DisputeType,
-    project: ProjectEntity,
-  ): { clientSideRecipient: string; freelancerSideRecipient: string } {
-    switch (disputeType) {
-      // Client là "client side", Freelancer là "freelancer side" - STANDARD
-      case DisputeType.CLIENT_VS_FREELANCER:
-      case DisputeType.FREELANCER_VS_CLIENT:
-        return {
-          clientSideRecipient: project.clientId,
-          freelancerSideRecipient: project.freelancerId,
-        };
-
-      // Client là "client side", Broker là "freelancer side"
-      case DisputeType.CLIENT_VS_BROKER:
-      case DisputeType.BROKER_VS_CLIENT:
-        return {
-          clientSideRecipient: project.clientId,
-          freelancerSideRecipient: project.brokerId, // Broker nhận phần "freelancer"
-        };
-
-      // Freelancer là "client side" (bên kiện), Broker là "freelancer side" (bị kiện)
-      case DisputeType.FREELANCER_VS_BROKER:
-        return {
-          clientSideRecipient: project.freelancerId, // Freelancer đóng vai "client side"
-          freelancerSideRecipient: project.brokerId,
-        };
-
-      // Broker là "client side" (bên kiện), Freelancer là "freelancer side" (bị kiện)
-      case DisputeType.BROKER_VS_FREELANCER:
-        return {
-          clientSideRecipient: project.brokerId, // Broker đóng vai "client side"
-          freelancerSideRecipient: project.freelancerId,
-        };
-
-      // Default: Standard client vs freelancer
-      default:
-        return {
-          clientSideRecipient: project.clientId,
-          freelancerSideRecipient: project.freelancerId,
-        };
-    }
-  }
-
-  /**
-   * Xác định Project/Milestone status dựa trên verdict
-   */
-  private getProjectMilestoneStatus(verdict: DisputeResult): {
-    newProjectStatus: ProjectStatus;
-    newMilestoneStatus: MilestoneStatus;
-  } {
-    switch (verdict) {
-      case DisputeResult.WIN_CLIENT:
-        // Client thắng = Hủy dự án
-        return {
-          newProjectStatus: ProjectStatus.CANCELED,
-          newMilestoneStatus: MilestoneStatus.PENDING, // Hoặc tạo status CANCELLED
-        };
-
-      case DisputeResult.WIN_FREELANCER:
-        // Freelancer thắng = Ép nhận hàng
-        return {
-          newProjectStatus: ProjectStatus.COMPLETED,
-          newMilestoneStatus: MilestoneStatus.PAID,
-        };
-
-      case DisputeResult.SPLIT:
-        // Hòa giải = Completed với điều khoản
-        return {
-          newProjectStatus: ProjectStatus.COMPLETED,
-          newMilestoneStatus: MilestoneStatus.PAID,
-        };
-
-      default:
-        throw new BadRequestException(`Invalid verdict: ${verdict}`);
-    }
-  }
-
-  // =============================================================================
-  // ESCALATE TO MEDIATION (Chuyển từ OPEN -> IN_MEDIATION)
-  // =============================================================================
-
-  async escalateToMediation(adminId: string, disputeId: string): Promise<DisputeEntity> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    if (dispute.status === DisputeStatus.REJECTION_APPEALED) {
-      throw new BadRequestException(
-        'Dismissal appeal must be resolved by admin before mediation.',
-      );
-    }
-
-    if (!DisputeStateMachine.canTransition(dispute.status, DisputeStatus.IN_MEDIATION)) {
-      throw new BadRequestException(
-        `Dispute is in "${dispute.status}" status and cannot be escalated`,
-      );
-    }
-
-    const reviewer = await this.userRepo.findOne({
-      where: { id: adminId },
-      select: ['id', 'role'],
-    });
-    if (!reviewer) {
-      throw new NotFoundException(`User "${adminId}" not found`);
-    }
-
-    const now = new Date();
-    const shouldAssign =
-      !dispute.assignedStaffId && reviewer.role === UserRole.STAFF && reviewer.id;
-    if (shouldAssign) {
-      dispute.assignedStaffId = reviewer.id;
-      dispute.assignedAt = now;
-    }
-
-    const previousStatus = dispute.status;
-    dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.IN_MEDIATION);
-    const saved = await this.disputeRepo.save(dispute);
-
-    if (shouldAssign) {
-      await this.staffAssignmentService.incrementPendingDisputes(reviewer.id, disputeId);
-    }
-
-    const isReviewAcceptance = [
-      DisputeStatus.OPEN,
-      DisputeStatus.PENDING_REVIEW,
-      DisputeStatus.INFO_REQUESTED,
-    ].includes(previousStatus);
-
-    if (isReviewAcceptance) {
-      await this.activityRepo.save(
-        this.activityRepo.create({
-          disputeId,
-          actorId: adminId,
-          actorRole: reviewer.role,
-          action: DisputeAction.REVIEW_ACCEPTED,
-          description:
-            previousStatus === DisputeStatus.INFO_REQUESTED
-              ? 'Additional info accepted for mediation'
-              : 'Preliminary review accepted',
-          metadata: { fromStatus: previousStatus },
-        }),
-      );
-    }
-
-    // Emit event
-    this.eventEmitter.emit(DISPUTE_EVENTS.ESCALATED, {
-      disputeId,
-      adminId,
-      fromStatus: previousStatus,
-      escalatedAt: now,
-    });
-
-    return saved;
-  }
-  // =============================================================================
-  // REQUEST ADDITIONAL INFO (Preliminary Review)
-  // =============================================================================
-
-  async requestAdditionalInfo(
-    adminId: string,
-    disputeId: string,
-    reason: string,
-  ): Promise<DisputeEntity> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    if (!DisputeStateMachine.canTransition(dispute.status, DisputeStatus.INFO_REQUESTED)) {
-      throw new BadRequestException(
-        `Dispute is in "${dispute.status}" status and cannot request info`,
-      );
-    }
-
-    if (!reason || reason.trim().length === 0) {
-      throw new BadRequestException('Reason for information request is required');
-    }
-
-    const reviewer = await this.userRepo.findOne({
-      where: { id: adminId },
-      select: ['id', 'role'],
-    });
-    if (!reviewer) {
-      throw new NotFoundException(`User "${adminId}" not found`);
-    }
-
-    const now = new Date();
-    dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.INFO_REQUESTED);
-    dispute.infoRequestReason = reason.trim();
-    dispute.infoRequestedById = adminId;
-    dispute.infoRequestedAt = now;
-    dispute.infoProvidedAt = null;
-
-    const saved = await this.disputeRepo.save(dispute);
-
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId,
-        actorId: adminId,
-        actorRole: reviewer.role,
-        action: DisputeAction.INFO_REQUESTED,
-        description: `Additional info requested: ${reason.trim().substring(0, 120)}`,
-        metadata: { reason: reason.trim() },
-      }),
-    );
-
-    this.eventEmitter.emit(DISPUTE_EVENTS.INFO_REQUESTED, {
-      disputeId,
-      adminId,
-      reason: reason.trim(),
-      requestedAt: now,
-    });
-
-    return saved;
-  }
-
-  // =============================================================================
-  // REJECT DISPUTE (Từ chối Dispute không hợp lệ)
-  // =============================================================================
-
-  async rejectDispute(adminId: string, disputeId: string, reason: string): Promise<DisputeEntity> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    if (!DisputeStateMachine.canTransition(dispute.status, DisputeStatus.REJECTED)) {
-      throw new BadRequestException(
-        `Dispute is in "${dispute.status}" status and cannot be rejected`,
-      );
-    }
-
-    if (!reason || reason.trim().length === 0) {
-      throw new BadRequestException("Reason for rejection is required");
-    }
-
-    const reviewer = await this.userRepo.findOne({ where: { id: adminId }, select: ['id', 'role'] });
-    if (!reviewer) {
-      throw new NotFoundException(`User "${adminId}" not found`);
-    }
-
-    const now = new Date();
-    const dismissalHoldUntil = new Date(
-      now.getTime() + DISMISSAL_HOLD_HOURS * 60 * 60 * 1000,
-    );
-
-    // Start transaction to ensure consistency
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    try {
-      dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.REJECTED);
-      dispute.adminComment = reason;
-      dispute.resolvedById = adminId;
-      dispute.resolvedAt = now;
-      dispute.dismissalHoldUntil = dismissalHoldUntil;
-
-      await queryRunner.manager.save(dispute);
-
-      // IMPORTANT: Restore project and milestone status since dispute was invalid
-      // Project goes back to IN_PROGRESS (was DISPUTED)
-      await queryRunner.manager.update(
-        ProjectEntity,
-        { id: dispute.projectId },
-        {
-          status: ProjectStatus.IN_PROGRESS,
-        },
-      );
-
-      // Milestone goes back to COMPLETED (was LOCKED during dispute)
-      await queryRunner.manager.update(
-        MilestoneEntity,
-        { id: dispute.milestoneId },
-        {
-          status: MilestoneStatus.COMPLETED,
-        },
-      );
-
-      // Escrow stays DISPUTED until dismissal hold expires (anti-collusion)
-      await queryRunner.manager.update(
-        EscrowEntity,
-        { milestoneId: dispute.milestoneId },
-        {
-          status: DISMISSAL_HOLD_HOURS > 0 ? EscrowStatus.DISPUTED : EscrowStatus.FUNDED,
-        },
-      );
-
-      await queryRunner.commitTransaction();
-
-      this.logger.log(
-        `[RejectDispute] Restored project/milestone and applied hold for Dispute ${disputeId}`,
-      );
-
-      // Log activity
-      await this.activityRepo.save(
-        this.activityRepo.create({
-          disputeId,
-          actorId: adminId,
-          actorRole: reviewer.role,
-          action: DisputeAction.REJECTED,
-          description: `Dispute rejected: ${reason}. Dismissal hold applied.`,
-          metadata: { reason, dismissalHoldUntil },
-        }),
-      );
-
-      // Emit event
-      this.eventEmitter.emit(DISPUTE_EVENTS.REJECTED, {
-        disputeId,
-        adminId,
-        reason,
-        rejectedAt: now,
-        dismissalHoldUntil,
-        statusRestored: true,
-      });
-
-      if (reviewer.role === UserRole.STAFF) {
-        await this.checkDismissalRateAndFlag(adminId);
-      }
-
-      if (Math.random() < DISMISSAL_AUDIT_SAMPLE_RATE) {
-        this.eventEmitter.emit(
-          'dispute.dismissal_audit_requested',
-          {
-            disputeId,
-            staffId: dispute.assignedStaffId,
-            rejectedById: adminId,
-            rejectedAt: now,
-          },
-        );
-      }
-
-      this.logger.log(`[RejectDispute] Dispute ${disputeId} rejected by ${reviewer.role} ${adminId}`);
-
-      return dispute;
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-  }
-// =============================================================================
-  // ADMIN NOTES (Ghi chú nội bộ / công khai)
-  // =============================================================================
-
-  /**
-   * Thêm ghi chú vào dispute
-   * @param isInternal - TRUE: Chỉ Admin/Staff thấy, FALSE: User cũng thấy
-   */
-  async addNote(
-    adminId: string,
-    adminRole: UserRole,
-    disputeId: string,
-    dto: AddNoteDto,
-  ): Promise<DisputeNoteEntity> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    const note = this.noteRepo.create({
-      disputeId,
-      authorId: adminId,
-      authorRole: adminRole,
-      content: dto.content,
-      isInternal: dto.isInternal ?? false,
-      isPinned: dto.isPinned ?? false,
-      noteType: dto.noteType || 'GENERAL',
-      attachments: dto.attachments,
-    });
-
-    const saved = await this.noteRepo.save(note);
-
-    // Log activity (internal)
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId,
-        actorId: adminId,
-        actorRole: adminRole,
-        action: DisputeAction.NOTE_ADDED,
-        description: dto.isInternal ? 'Internal note added' : 'Public note added',
-        metadata: { noteId: saved.id, noteType: dto.noteType },
-        isInternal: dto.isInternal,
-      }),
-    );
-
-    this.logger.log(`[AddNote] Note added to Dispute ${disputeId} by ${adminRole}`);
-
-    return saved;
-  }
-
-  /**
-   * Lấy danh sách ghi chú
-   * @param includeInternal - TRUE: Lấy cả ghi chú nội bộ (chỉ Admin)
-   */
-  async getNotes(
-    disputeId: string,
-    includeInternal: boolean = false,
-  ): Promise<DisputeNoteEntity[]> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    const where: { disputeId: string; isInternal?: boolean } = { disputeId };
-    if (!includeInternal) {
-      where.isInternal = false;
-    }
-
-    return this.noteRepo.find({
-      where,
-      relations: ['author'],
-      order: { isPinned: 'DESC', createdAt: 'DESC' },
-    });
-  }
-
-  /**
-   * Xóa ghi chú (chỉ author hoặc Admin)
-   */
-  async deleteNote(userId: string, noteId: string): Promise<void> {
-    const note = await this.noteRepo.findOne({ where: { id: noteId } });
-    if (!note) {
-      throw new NotFoundException(`Note "${noteId}" not found`);
-    }
-
-    if (note.authorId !== userId) {
-      throw new ForbiddenException('You can only delete your own notes');
-    }
-
-    await this.noteRepo.remove(note);
-    this.logger.log(`[DeleteNote] Note ${noteId} deleted`);
-  }
-
-  // =============================================================================
-  // DEFENDANT RESPONSE (Phản hồi của bị đơn)
-  // =============================================================================
-
-  /**
-   * Bị đơn gửi phản hồi và bằng chứng phản bác
-   */
-  async submitDefendantResponse(
-    defendantId: string,
-    disputeId: string,
-    dto: DefendantResponseDto,
-  ): Promise<DisputeEntity> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    // Verify caller is the defendant
-    if (dispute.defendantId !== defendantId) {
-      throw new ForbiddenException('Only the defendant can submit a response');
-    }
-
-    // Check if dispute is still open for response
-    if (!['OPEN', 'IN_MEDIATION'].includes(dispute.status)) {
-      throw new BadRequestException('Dispute is no longer open for response');
-    }
-
-    // Check deadline
-    if (dispute.responseDeadline && new Date() > dispute.responseDeadline) {
-      throw new BadRequestException('Response deadline has passed');
-    }
-
-    // Update defendant response
-    dispute.defendantResponse = dto.response;
-    dispute.defendantEvidence = dto.evidence || [];
-    dispute.defendantRespondedAt = new Date();
-
-    const saved = await this.disputeRepo.save(dispute);
-
-    // Log activity
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId,
-        actorId: defendantId,
-        actorRole: dispute.defendantRole,
-        action: DisputeAction.DEFENDANT_RESPONDED,
-        description: 'Defendant submitted response',
-        metadata: { hasEvidence: dto.evidence && dto.evidence.length > 0 },
-      }),
-    );
-
-    // Emit event for notification
-    this.eventEmitter.emit(DISPUTE_EVENTS.DEFENDANT_RESPONDED, {
-      disputeId,
-      defendantId,
-      respondedAt: dispute.defendantRespondedAt,
-    });
-
-    this.logger.log(`[DefendantResponse] Response submitted for Dispute ${disputeId}`);
-
-    return saved;
-  }
-
-  // =============================================================================
-  // DISMISSAL APPEAL (Rejection Review)
-  // =============================================================================
-
-  async appealRejection(
-    userId: string,
-    disputeId: string,
-    reason: string,
-  ): Promise<DisputeEntity> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    const isParty = userId === dispute.raisedById || userId === dispute.defendantId;
-    if (!isParty) {
-      throw new ForbiddenException('Only dispute participants can appeal a dismissal');
-    }
-
-    if (dispute.status !== DisputeStatus.REJECTED) {
-      throw new BadRequestException(
-        `Dispute is in "${dispute.status}" status and cannot be appealed`,
-      );
-    }
-
-    if (!dispute.resolvedAt) {
-      throw new BadRequestException('Dismissal time is missing');
-    }
-
-    if (!reason || reason.trim().length === 0) {
-      throw new BadRequestException('Appeal reason is required');
-    }
-
-    const now = new Date();
-    const appealDeadline = new Date(
-      dispute.resolvedAt.getTime() + REJECTION_APPEAL_WINDOW_HOURS * 60 * 60 * 1000,
-    );
-    if (now > appealDeadline) {
-      throw new BadRequestException('Dismissal appeal window has expired');
-    }
-
-    dispute.status = DisputeStateMachine.transition(
-      dispute.status,
-      DisputeStatus.REJECTION_APPEALED,
-    );
-    dispute.rejectionAppealReason = reason.trim();
-    dispute.rejectionAppealedAt = now;
-    dispute.currentTier = 2;
-    dispute.escalatedAt = now;
-    dispute.escalationReason = 'DISMISSAL_APPEAL';
-    dispute.escalatedToAdminId = null;
-
-    if (!dispute.dismissalHoldUntil || dispute.dismissalHoldUntil < appealDeadline) {
-      dispute.dismissalHoldUntil = appealDeadline;
-    }
-
-    const saved = await this.disputeRepo.save(dispute);
-
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId,
-        actorId: userId,
-        actorRole: userId === dispute.raisedById ? dispute.raiserRole : dispute.defendantRole,
-        action: DisputeAction.REJECTION_APPEALED,
-        description: `Dismissal appeal submitted: ${reason.trim().substring(0, 120)}`,
-        metadata: { reason: reason.trim(), appealDeadline },
-      }),
-    );
-
-    this.eventEmitter.emit(DISPUTE_EVENTS.REJECTION_APPEALED, {
-      disputeId,
-      userId,
-      appealedAt: now,
-      appealDeadline,
-    });
-
-    return saved;
-  }
-
-  async resolveRejectionAppeal(
-    adminId: string,
-    disputeId: string,
-    decision: 'UPHOLD' | 'OVERTURN',
-    resolution: string,
-  ): Promise<DisputeEntity> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    if (dispute.status !== DisputeStatus.REJECTION_APPEALED) {
-      throw new BadRequestException(
-        `Dispute is in "${dispute.status}" status and cannot resolve dismissal appeal`,
-      );
-    }
-
-    if (!resolution || resolution.trim().length === 0) {
-      throw new BadRequestException('Resolution note is required');
-    }
-
-    const reviewer = await this.userRepo.findOne({
-      where: { id: adminId },
-      select: ['id', 'role'],
-    });
-    if (!reviewer) {
-      throw new NotFoundException(`User "${adminId}" not found`);
-    }
-
-    const now = new Date();
-    const accepted = decision === 'OVERTURN';
-
-    if (accepted) {
-      dispute.status = DisputeStateMachine.transition(
-        dispute.status,
-        DisputeStatus.IN_MEDIATION,
-      );
-      dispute.currentTier = 2;
-      dispute.escalatedToAdminId = adminId;
-      dispute.escalatedAt = now;
-      dispute.escalationReason = 'DISMISSAL_APPEAL_OVERTURNED';
-      dispute.dismissalHoldUntil = null;
-    } else {
-      dispute.status = DisputeStateMachine.transition(
-        dispute.status,
-        DisputeStatus.REJECTED,
-      );
-    }
-
-    dispute.rejectionAppealResolvedById = adminId;
-    dispute.rejectionAppealResolution = resolution.trim();
-    dispute.rejectionAppealResolvedAt = now;
-
-    const saved = await this.disputeRepo.save(dispute);
-
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId,
-        actorId: adminId,
-        actorRole: reviewer.role,
-        action: DisputeAction.REJECTION_APPEAL_RESOLVED,
-        description: accepted
-          ? 'Dismissal appeal overturned; dispute reopened'
-          : 'Dismissal appeal upheld',
-        metadata: { accepted, decision, resolution: resolution.trim() },
-      }),
-    );
-
-    this.eventEmitter.emit(DISPUTE_EVENTS.REJECTION_APPEAL_RESOLVED, {
-      disputeId,
-      adminId,
-      accepted,
-      resolvedAt: now,
-    });
-
-    if (accepted) {
-      this.eventEmitter.emit(DISPUTE_EVENTS.ESCALATED, {
-        disputeId,
-        adminId,
-        fromStatus: DisputeStatus.REJECTION_APPEALED,
-        escalatedAt: now,
-      });
-    }
-
-    return saved;
-  }
-
-// =============================================================================
-  // APPEAL SYSTEM (Khiếu nại lại)
-  // =============================================================================
-
-  /**
-   * Gửi khiếu nại lại sau khi dispute đã được resolve
-   */
-  async submitAppeal(userId: string, disputeId: string, dto: AppealDto): Promise<DisputeEntity> {
-    const updated = await this.verdictService.appealVerdict(disputeId, userId, dto.reason);
-
-    if (dto.additionalEvidence && dto.additionalEvidence.length > 0) {
-      const existingEvidence = updated.evidence || [];
-      updated.evidence = [...new Set([...existingEvidence, ...dto.additionalEvidence])];
-      await this.disputeRepo.save(updated);
-    }
-
-    const hasAdditionalEvidence = (dto.additionalEvidence?.length ?? 0) > 0;
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId,
-        actorId: userId,
-        actorRole: userId === updated.raisedById ? updated.raiserRole : updated.defendantRole,
-        action: DisputeAction.APPEAL_SUBMITTED,
-        description: `Appeal submitted: ${dto.reason.substring(0, 100)}...`,
-        metadata: { reason: dto.reason, hasAdditionalEvidence },
-      }),
-    );
-
-    this.eventEmitter.emit(DISPUTE_EVENTS.APPEAL_SUBMITTED, {
-      disputeId,
-      userId,
-      appealedAt: updated.appealedAt,
-    });
-
-    this.logger.log(`[SubmitAppeal] Appeal submitted for Dispute ${disputeId}`);
-
-    return updated;
-  }
-
-  /**
-   * Admin xử lý khiếu nại
-   */
-  async resolveAppeal(
-    adminId: string,
-    disputeId: string,
-    dto: AppealVerdictDto,
-  ): Promise<DisputeEntity> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    const admin = await this.userRepo.findOne({ where: { id: adminId }, select: ['id', 'role'] });
-    if (!admin) {
-      throw new NotFoundException(`User "${adminId}" not found`);
-    }
-
-    dto.disputeId = disputeId;
-    const previousResult = dispute.result;
-
-    const verdictResult = await this.verdictService.issueAppealVerdict(dto, admin.id, admin.role);
-    const resolvedDispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!resolvedDispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    const accepted = previousResult !== dto.result;
-
-    // Log activity
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId,
-        actorId: adminId,
-        actorRole: UserRole.ADMIN,
-        action: DisputeAction.APPEAL_RESOLVED,
-        description: accepted
-          ? 'Appeal resolved - verdict updated'
-          : 'Appeal resolved - verdict upheld',
-        metadata: {
-          accepted,
-          resolution: dto.overrideReason,
-          verdictId: verdictResult.verdict.id,
-        },
-      }),
-    );
-
-    // Emit event
-    this.eventEmitter.emit(DISPUTE_EVENTS.APPEAL_RESOLVED, {
-      disputeId,
-      adminId,
-      accepted,
-      resolvedAt: resolvedDispute.appealResolvedAt,
-    });
-
-    this.logger.log(
-      `[ResolveAppeal] Appeal ${accepted ? 'resolved (updated)' : 'resolved (upheld)'} for Dispute ${disputeId}`,
-    );
-
-    return resolvedDispute;
-  }
-
-  // =============================================================================
-  // WORKFLOW ORCHESTRATION
-  // =============================================================================
-
-  /**
-   * Master flow controller for dispute lifecycle
-   */
-  async handleDisputeWorkflow(disputeId: string): Promise<{
-    dispute: DisputeEntity;
-    nextStep:
-      | 'NO_ACTION'
-      | 'SETTLEMENT'
-      | 'HEARING'
-      | 'APPEAL_REVIEW'
-      | 'DEFAULT_JUDGMENT'
-      | 'WAITING_STAFF'
-      | 'WAITING_REVIEW'
-      | 'WAITING_INFO'
-      | 'REJECTION_APPEAL_REVIEW';
-    details?: Record<string, any>;
-  }> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
-      return { dispute, nextStep: 'NO_ACTION' };
-    }
-
-    if (dispute.status === DisputeStatus.APPEALED) {
-      return { dispute, nextStep: 'APPEAL_REVIEW' };
-    }
-
-    if (dispute.status === DisputeStatus.REJECTION_APPEALED) {
-      return { dispute, nextStep: 'REJECTION_APPEAL_REVIEW' };
-    }
-
-    if (dispute.status === DisputeStatus.PENDING_REVIEW) {
-      return { dispute, nextStep: 'WAITING_REVIEW' };
-    }
-
-    if (dispute.status === DisputeStatus.INFO_REQUESTED) {
-      return {
-        dispute,
-        nextStep: 'WAITING_INFO',
-        details: {
-          infoRequestReason: dispute.infoRequestReason,
-          infoRequestedAt: dispute.infoRequestedAt,
-        },
-      };
-    }
-
-    const now = new Date();
-    if (
-      dispute.responseDeadline &&
-      now > dispute.responseDeadline &&
-      !dispute.defendantRespondedAt
-    ) {
-      if (dispute.status === DisputeStatus.OPEN) {
-        dispute.status = DisputeStatus.IN_MEDIATION;
-      }
-      dispute.isAutoResolved = true;
-      await this.disputeRepo.save(dispute);
-
-      await this.activityRepo.save(
-        this.activityRepo.create({
-          disputeId,
-          actorId: null,
-          actorRole: null,
-          action: DisputeAction.ESCALATED,
-          description: 'Defendant did not respond in time. Default judgment flow triggered.',
-          metadata: { responseDeadline: dispute.responseDeadline },
-          isInternal: true,
-        }),
-      );
-
-      this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
-        disputeId,
-        status: dispute.status,
-        reason: 'DEFAULT_JUDGMENT_READY',
-      });
-
-      return {
-        dispute,
-        nextStep: 'DEFAULT_JUDGMENT',
-        details: { responseDeadline: dispute.responseDeadline },
-      };
-    }
-
-    const settlement = await this.checkSettlementEligibility(disputeId, dispute.raisedById);
-    if (settlement.eligible) {
-      return {
-        dispute,
-        nextStep: 'SETTLEMENT',
-        details: settlement,
-      };
-    }
-
-    const moderatorId = dispute.assignedStaffId || dispute.escalatedToAdminId;
-    if (!moderatorId) {
-      return { dispute, nextStep: 'WAITING_STAFF' };
-    }
-
-    const hearingResult = await this.escalateToHearing(disputeId, moderatorId);
-
-    return {
-      dispute,
-      nextStep: 'HEARING',
-      details: hearingResult,
-    };
-  }
-
-  /**
-   * Decide whether settlement is allowed and the max settlement amount
-   */
-  async checkSettlementEligibility(
-    disputeId: string,
-    proposerId: string,
-  ): Promise<{
-    eligible: boolean;
-    reason?: string;
-    remainingAttempts?: number;
-    pendingSettlement?: unknown;
-    maxSettlementAmount?: number;
-    settlementWindowHours?: number;
-  }> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    if (dispute.category === DisputeCategory.FRAUD) {
-      return { eligible: false, reason: 'Fraud disputes require staff adjudication' };
-    }
-
-    const eligibility = await this.settlementService.checkSettlementEligibility(
-      disputeId,
-      proposerId,
-    );
-
-    if (!eligibility.eligible) {
-      return eligibility;
-    }
-
-    const escrow = await this.escrowRepo.findOne({
-      where: { milestoneId: dispute.milestoneId },
-    });
-    const maxSettlementAmount = escrow?.fundedAmount || escrow?.totalAmount || 0;
-    const settlementWindowHours =
-      dispute.category === DisputeCategory.DEADLINE
-        ? DEADLINE_SETTLEMENT_WINDOW_HOURS
-        : DEFAULT_SETTLEMENT_WINDOW_HOURS;
-
-    return {
-      ...eligibility,
-      maxSettlementAmount,
-      settlementWindowHours,
-    };
-  }
-
-  /**
-   * Escalate dispute to hearing with auto slot suggestion
-   */
-  async escalateToHearing(
-    disputeId: string,
-    triggeredById: string,
-  ): Promise<{
-    scheduled: boolean;
-    hearingId?: string;
-    suggestedSlots?: Array<{ start: Date; end: Date; score: number }>;
-    reason?: string;
-  }> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
-      throw new BadRequestException(`Cannot schedule hearing for dispute status ${dispute.status}`);
-    }
-
-    let moderatorId = dispute.assignedStaffId;
-    if (!moderatorId) {
-      const assignment = await this.autoAssignStaff(dispute.id);
-      moderatorId = assignment?.staffId || '';
-    }
-
-    if (!moderatorId) {
-      return { scheduled: false, reason: 'No staff available to schedule hearing' };
-    }
-
-    const moderator = await this.userRepo.findOne({
-      where: { id: moderatorId },
-      select: ['id', 'role'],
-    });
-    if (!moderator || ![UserRole.STAFF, UserRole.ADMIN].includes(moderator.role)) {
-      throw new BadRequestException('Assigned moderator is not staff/admin');
-    }
-
-    if (dispute.status === DisputeStatus.INFO_REQUESTED) {
-      throw new BadRequestException('Dispute is awaiting additional info');
-    }
-
-    if (dispute.status === DisputeStatus.REJECTION_APPEALED) {
-      throw new BadRequestException('Dispute is under dismissal appeal review');
-    }
-
-    if ([DisputeStatus.OPEN, DisputeStatus.PENDING_REVIEW].includes(dispute.status)) {
-      await this.escalateToMediation(triggeredById, disputeId);
-    }
-
-    const tier = dispute.currentTier >= 2 ? HearingTier.TIER_2 : HearingTier.TIER_1;
-    const participants = await this.hearingService.determineRequiredParticipants(
-      disputeId,
-      tier,
-      moderatorId,
-    );
-    const participantIds = participants.participants.map((participant) => participant.userId);
-
-    const complexity = await this.staffAssignmentService.estimateDisputeComplexity(disputeId);
-    const durationMinutes =
-      complexity?.timeEstimation?.recommendedMinutes || DEFAULT_HEARING_DURATION_MINUTES;
-
-    const rangeStart = new Date();
-    const rangeEnd = this.addDays(rangeStart, DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS);
-
-    const availability = await this.calendarService.findAvailableSlots({
-      userIds: participantIds,
-      durationMinutes,
-      dateRange: { start: rangeStart, end: rangeEnd },
-      maxSlots: 3,
-    });
-
-    if (availability.slots.length === 0) {
-      return {
-        scheduled: false,
-        reason: availability.noSlotsReason || 'No common availability slots found',
-      };
-    }
-
-    const selectedSlot = availability.slots[0];
-
-    const hearing = await this.hearingService.scheduleHearing(
-      {
-        disputeId,
-        scheduledAt: selectedSlot.start.toISOString(),
-        estimatedDurationMinutes: durationMinutes,
-      },
-      moderatorId,
-    );
-
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId,
-        actorId: moderatorId,
-        actorRole: moderator.role,
-        action: DisputeAction.ESCALATED,
-        description: 'Hearing scheduled after settlement failed',
-        metadata: {
-          hearingId: hearing.hearing.id,
-          scheduledAt: selectedSlot.start,
-        },
-      }),
-    );
-
-    return {
-      scheduled: true,
-      hearingId: hearing.hearing.id,
-      suggestedSlots: availability.slots.map((slot) => ({
-        start: slot.start,
-        end: slot.end,
-        score: slot.score,
-      })),
-    };
-  }
-
-  // =============================================================================
-  // ADMIN UPDATE DISPUTE (Cập nhật thông tin dispute)
-  // =============================================================================
-
-  /**
-   * Admin cập nhật category, priority, deadlines
-   */
-  async adminUpdateDispute(
-    adminId: string,
-    disputeId: string,
-    dto: AdminUpdateDisputeDto,
-  ): Promise<DisputeEntity> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    const changes: string[] = [];
-
-    if (dto.category && dto.category !== dispute.category) {
-      const oldCategory = dispute.category;
-      dispute.category = dto.category;
-      changes.push(`Category: ${oldCategory} → ${dto.category}`);
-    }
-
-    if (dto.priority && dto.priority !== dispute.priority) {
-      const oldPriority = dispute.priority;
-      dispute.priority = dto.priority;
-      changes.push(`Priority: ${oldPriority} → ${dto.priority}`);
-    }
-
-    if (dto.disputedAmount !== undefined) {
-      dispute.disputedAmount = dto.disputedAmount;
-      changes.push(`Disputed amount updated to ${dto.disputedAmount}`);
-    }
-
-    if (dto.extendResponseDeadlineDays) {
-      const newDeadline = new Date();
-      newDeadline.setDate(newDeadline.getDate() + dto.extendResponseDeadlineDays);
-      dispute.responseDeadline = newDeadline;
-      changes.push(`Response deadline extended by ${dto.extendResponseDeadlineDays} days`);
-    }
-
-    if (dto.extendResolutionDeadlineDays) {
-      const newDeadline = new Date();
-      newDeadline.setDate(newDeadline.getDate() + dto.extendResolutionDeadlineDays);
-      dispute.resolutionDeadline = newDeadline;
-      changes.push(`Resolution deadline extended by ${dto.extendResolutionDeadlineDays} days`);
-    }
-
-    if (changes.length === 0) {
-      return dispute;
-    }
-
-    const saved = await this.disputeRepo.save(dispute);
-
-    // Log activity
-    const action =
-      dto.extendResponseDeadlineDays || dto.extendResolutionDeadlineDays
-        ? DisputeAction.DEADLINE_EXTENDED
-        : dto.priority
-          ? DisputeAction.PRIORITY_CHANGED
-          : DisputeAction.CATEGORY_CHANGED;
-
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId,
-        actorId: adminId,
-        actorRole: UserRole.ADMIN,
-        action,
-        description: changes.join(', '),
-        metadata: dto,
-        isInternal: true,
-      }),
-    );
-
-    this.logger.log(`[AdminUpdate] Dispute ${disputeId} updated: ${changes.join(', ')}`);
-
-    return saved;
-  }
-
-  // =============================================================================
-  // ACTIVITY TIMELINE
-  // =============================================================================
-
-  /**
-   * Lấy timeline hoạt động của dispute
-   * @param includeInternal - TRUE: Lấy cả hoạt động nội bộ (chỉ Admin)
-   */
-  async getActivities(
-    disputeId: string,
-    includeInternal: boolean = false,
-  ): Promise<DisputeActivityEntity[]> {
-    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
-    if (!dispute) {
-      throw new NotFoundException(`Dispute "${disputeId}" not found`);
-    }
-
-    const where: { disputeId: string; isInternal?: boolean } = { disputeId };
-    if (!includeInternal) {
-      where.isInternal = false;
-    }
-
-    return this.activityRepo.find({
-      where,
-      relations: ['actor'],
-      order: { timestamp: 'DESC' },
-    });
-  }
-
-  // =============================================================================
-  // HELPER METHODS
-  // =============================================================================
-
-  private async autoAssignStaff(
-    disputeId: string,
-  ): Promise<{ staffId: string; success: boolean; complexity?: any } | null> {
-    try {
-      const assignment = await this.staffAssignmentService.autoAssignStaffToDispute(disputeId);
-
-      if (assignment.success && assignment.staffId) {
-        await this.activityRepo.save(
-          this.activityRepo.create({
-            disputeId,
-            actorId: assignment.staffId,
-            actorRole: UserRole.STAFF,
-            action: DisputeAction.ASSIGNED,
-            description: 'Auto-assigned staff to dispute',
-            metadata: { staffId: assignment.staffId, complexity: assignment.complexity?.level },
-            isInternal: true,
-          }),
-        );
-
-        this.eventEmitter.emit(DISPUTE_EVENTS.ASSIGNED, {
-          disputeId,
-          staffId: assignment.staffId,
-        });
-      } else {
-        await this.activityRepo.save(
-          this.activityRepo.create({
-            disputeId,
-            actorId: null,
-            actorRole: null,
-            action: DisputeAction.NOTIFICATION_SENT,
-            description: assignment.fallbackReason || 'Waiting for staff assignment',
-            metadata: { queued: true },
-            isInternal: true,
-          }),
-        );
-      }
-
-      return assignment;
-    } catch (error) {
-      this.logger.error(`[AutoAssign] Failed to assign staff for dispute ${disputeId}`, error);
-      return null;
-    }
-  }
-
-  private async checkInitialAvailability(
-    dispute: DisputeEntity,
-    project: ProjectEntity,
-    staffId: string,
-    durationMinutes?: number,
-  ) {
-    if (!staffId) {
-      return null;
-    }
-
-    const participantIds = new Set<string>(
-      [dispute.raisedById, dispute.defendantId, project.brokerId, staffId].filter(Boolean),
-    );
-
-    if (participantIds.size < 2) {
-      return null;
-    }
-
-    const rangeStart = new Date();
-    const rangeEnd = this.addDays(rangeStart, DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS);
-    const slotDuration = durationMinutes || DEFAULT_HEARING_DURATION_MINUTES;
-
-    const availability = await this.calendarService.findAvailableSlots({
-      userIds: Array.from(participantIds),
-      durationMinutes: slotDuration,
-      dateRange: { start: rangeStart, end: rangeEnd },
-      maxSlots: 3,
-    });
-
-    await this.activityRepo.save(
-      this.activityRepo.create({
-        disputeId: dispute.id,
-        actorId: staffId,
-        actorRole: UserRole.STAFF,
-        action: DisputeAction.NOTIFICATION_SENT,
-        description: 'Initial availability check completed',
-        metadata: {
-          slots: availability.slots.map((slot) => ({
-            start: slot.start,
-            end: slot.end,
-            score: slot.score,
-          })),
-        },
-        isInternal: true,
-      }),
-    );
-
-    return availability;
-  }
-
-  /**
-   * Xác định role của user trong project
+   * X?c ??nh role c?a user trong project
    */
   private determineUserRole(userId: string, project: ProjectEntity): UserRole {
     if (userId === project.clientId) return UserRole.CLIENT;
@@ -3276,7 +2285,7 @@ export class DisputesService {
   }
 
   /**
-   * Xác định loại dispute dựa trên roles
+   * X?c ??nh lo?i dispute d?a tr?n roles
    */
   private determineDisputeType(raiserRole: UserRole, defendantRole: UserRole): DisputeType {
     const typeMap: Record<string, DisputeType> = {
@@ -3293,35 +2302,99 @@ export class DisputesService {
   }
 
   /**
-   * Tính priority dựa trên số tiền và category
+   * T?nh priority d?a tr?n s? ti?n v? category
    */
   private calculatePriority(
     amount: number,
     category?: DisputeCategory,
-    currency: string = 'VND',
+    currency: string = 'USD',
   ): DisputePriority {
-    // FRAUD luôn là CRITICAL
     if (category === DisputeCategory.FRAUD) {
       return DisputePriority.CRITICAL;
     }
 
     const safeAmount = Number.isFinite(amount) ? amount : 0;
-    const normalizedCurrency = (currency || 'VND').toUpperCase();
+    const normalizedCurrency = (currency || 'USD').toUpperCase();
 
     const thresholds =
       normalizedCurrency === 'VND'
         ? { low: 1_000_000, medium: 10_000_000, high: 50_000_000 }
-        : { low: 100, medium: 1000, high: 5000 };
+        : { low: 50, medium: 500, high: 2_000 };
 
-    if (safeAmount < thresholds.low) return DisputePriority.LOW;
-    if (safeAmount < thresholds.medium) return DisputePriority.MEDIUM;
-    if (safeAmount < thresholds.high) return DisputePriority.HIGH;
+    if (safeAmount <= thresholds.low) return DisputePriority.LOW;
+    if (safeAmount <= thresholds.medium) return DisputePriority.MEDIUM;
+    if (safeAmount <= thresholds.high) return DisputePriority.HIGH;
     return DisputePriority.CRITICAL;
   }
 
-  /**
-   * Log activity vào database (trong transaction)
-   */
+  private async autoAssignStaff(disputeId: string) {
+    try {
+      return await this.staffAssignmentService.autoAssignStaffToDispute(disputeId);
+    } catch (error) {
+      this.logger.warn(
+        `Auto-assign staff failed for dispute ${disputeId}: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+      return null;
+    }
+  }
+
+  private async checkInitialAvailability(
+    dispute: DisputeEntity,
+    project: ProjectEntity,
+    staffId: string,
+    durationMinutes?: number,
+  ) {
+    if (!staffId) {
+      return null;
+    }
+
+    const participantIds = [dispute.raisedById, dispute.defendantId, staffId].filter(Boolean);
+    if (participantIds.length === 0) {
+      return null;
+    }
+
+    const rangeStart = new Date(
+      Date.now() + DEFAULT_HEARING_MIN_NOTICE_HOURS * 60 * 60 * 1000,
+    );
+    const rangeEnd = this.addDays(rangeStart, DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS);
+    const userTimezones = await this.resolveUserTimezones(participantIds);
+
+    return this.calendarService.findAvailableSlots({
+      userIds: participantIds,
+      durationMinutes: durationMinutes || DEFAULT_HEARING_DURATION_MINUTES,
+      dateRange: { start: rangeStart, end: rangeEnd },
+      userTimezones,
+    });
+  }
+
+  private async resolveUserTimezones(userIds: string[]): Promise<Record<string, string>> {
+    const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      return {};
+    }
+
+    const users = await this.userRepo.find({
+      where: { id: In(uniqueIds) },
+      select: ['id', 'timeZone'],
+    });
+
+    const map: Record<string, string> = {};
+    users.forEach((user) => {
+      map[user.id] = user.timeZone || 'UTC';
+    });
+
+    uniqueIds.forEach((id) => {
+      if (!map[id]) {
+        map[id] = 'UTC';
+      }
+    });
+
+    return map;
+  }
+
+
   private async logActivity(
     queryRunner: QueryRunner,
     disputeId: string,

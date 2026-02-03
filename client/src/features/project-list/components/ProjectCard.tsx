@@ -1,5 +1,6 @@
 import { AlertTriangle, ArrowRight, DollarSign, User } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatCurrency } from "@/shared/utils/formatters";
 import type { Project } from "../types";
 
 interface ProjectCardProps {
@@ -106,7 +107,7 @@ export function ProjectCard({ project, userRole, onNavigate }: ProjectCardProps)
           {/* Budget Badge */}
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 text-xs font-medium">
             <DollarSign className="h-3 w-3" />
-            {Number(project.totalBudget || 0).toLocaleString()} VND
+            {formatCurrency(Number(project.totalBudget || 0), project.currency ?? "USD")}
           </span>
         </div>
 

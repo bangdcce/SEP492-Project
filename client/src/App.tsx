@@ -68,6 +68,18 @@ const ContractListPage = lazy(
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
 
+// ========== HEARINGS (CLIENT/BROKER/FREELANCER) ==========
+const ParticipantHearingsPage = lazy(() =>
+  import("@/features/hearings/pages/ParticipantHearingsPage").then((module) => ({
+    default: module.ParticipantHearingsPage,
+  })),
+);
+const ParticipantHearingRoomPage = lazy(() =>
+  import("@/features/hearings/pages/ParticipantHearingRoomPage").then((module) => ({
+    default: module.ParticipantHearingRoomPage,
+  })),
+);
+
 // ========== FREELANCER PAGES ==========
 const FreelancerOnboardingPage = lazy(
   () => import("@/pages/FreelancerOnboardingPage"),
@@ -109,6 +121,11 @@ const StaffCalendarPage = lazy(() =>
 const StaffHearingsPage = lazy(() =>
   import("@/features/staff/pages/StaffHearingsPage").then((m) => ({
     default: m.StaffHearingsPage,
+  })),
+);
+const StaffLeavePage = lazy(() =>
+  import("@/features/staff/pages/StaffLeavePage").then((m) => ({
+    default: m.StaffLeavePage,
   })),
 );
 const StaffHearingRoomPage = lazy(() =>
@@ -166,6 +183,26 @@ function App() {
             <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <ProjectListPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/hearings"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ParticipantHearingsPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/hearings/:hearingId"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ParticipantHearingRoomPage />
               </FreelancerDashboardLayout>
             </RoleGuard>
           }
@@ -248,6 +285,26 @@ function App() {
             <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <ProjectListPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/client/hearings"
+          element={
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+              <ClientDashboardLayout>
+                <ParticipantHearingsPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/client/hearings/:hearingId"
+          element={
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+              <ClientDashboardLayout>
+                <ParticipantHearingRoomPage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -377,6 +434,26 @@ function App() {
           }
         />
         <Route
+          path="/broker/hearings"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <ParticipantHearingsPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/broker/hearings/:hearingId"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <ParticipantHearingRoomPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.BROKER_WORKSPACE}
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
@@ -454,6 +531,7 @@ function App() {
           <Route path="queue" element={<StaffQueuePage />} />
           <Route path="caseload" element={<StaffCaseloadPage />} />
           <Route path="calendar" element={<StaffCalendarPage />} />
+          <Route path="leave" element={<StaffLeavePage />} />
           <Route path="hearings" element={<StaffHearingsPage />} />
           <Route path="hearings/:hearingId" element={<StaffHearingRoomPage />} />
           <Route path="profile" element={<ProfilePage />} />

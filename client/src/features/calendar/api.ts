@@ -1,4 +1,5 @@
 import { apiClient } from "@/shared/api/client";
+import { cachedFetch, invalidateCacheByPrefix } from "@/shared/utils/requestCache";
 import type {
   CalendarEvent,
   CalendarEventFilter,
@@ -34,6 +35,13 @@ export interface SetAvailabilityRequest {
   allowConflicts?: boolean;
   timeZone?: string;
 }
+
+type CacheOptions = {
+  preferCache?: boolean;
+  ttlMs?: number;
+};
+
+const STAFF_AVAILABILITY_TTL_MS = 30_000;
 
 const BASE_URL = "/calendar";
 
@@ -82,17 +90,33 @@ export const createEvent = async (data: CreateEventRequest) => {
 };
 
 export const setAvailability = async (input: SetAvailabilityRequest) => {
+  invalidateCacheByPrefix("calendar:availability:");
   return await apiClient.post(`${BASE_URL}/availability`, input);
+};
+
+export const deleteAvailability = async (availabilityId: string) => {
+  invalidateCacheByPrefix("calendar:availability:");
+  return await apiClient.delete(`${BASE_URL}/availability/${availabilityId}`);
 };
 
 export const getStaffAvailability = async (
   startDate: string,
   endDate: string,
   staffIds?: string[],
+  options?: CacheOptions,
 ) => {
   const params: Record<string, string> = { startDate, endDate };
   if (staffIds && staffIds.length > 0) {
     params.staffIds = staffIds.join(",");
   }
-  return await apiClient.get(`${BASE_URL}/availability/staff`, { params });
+  const key = `calendar:availability:${startDate}:${endDate}:${params.staffIds ?? "all"}`;
+  const fetcher = () => apiClient.get(`${BASE_URL}/availability/staff`, { params });
+  if (options?.preferCache === false) {
+    return await fetcher();
+  }
+  return await cachedFetch(
+    key,
+    fetcher,
+    options?.ttlMs ?? STAFF_AVAILABILITY_TTL_MS,
+  );
 };

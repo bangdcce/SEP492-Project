@@ -6,7 +6,8 @@ export interface CreateDisputeDto {
   reason: string; // The "Other" text or selected radio value
   category: DisputeCategory;
   defendantId: string;
-  evidenceFiles?: File[]; // For upload
+  evidence: string[];
+  evidenceFiles?: File[]; // For upload (client-side only)
   disputedAmount?: number; // Optional override, usually defaults to escrow funded
 }
 

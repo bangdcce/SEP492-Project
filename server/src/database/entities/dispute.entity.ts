@@ -44,10 +44,10 @@ export enum DisputeCategory {
 }
 
 export enum DisputePriority {
-  LOW = 'LOW', // < 1 triệu VND
-  MEDIUM = 'MEDIUM', // 1-10 triệu VND
-  HIGH = 'HIGH', // 10-50 triệu VND
-  CRITICAL = 'CRITICAL', // > 50 triệu hoặc fraud
+  LOW = 'LOW', // < 50 USD
+  MEDIUM = 'MEDIUM', // 50-500 USD
+  HIGH = 'HIGH', // 500-2000 USD
+  CRITICAL = 'CRITICAL', // > 2000 USD or fraud
 }
 
 export enum DisputeType {

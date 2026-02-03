@@ -82,6 +82,7 @@ export interface DisputeFilters {
   raisedById?: string;
   defendantId?: string;
   assignedStaffId?: string;
+  unassignedOnly?: boolean;
   createdFrom?: string;
   createdTo?: string;
   deadlineBefore?: string;
