@@ -60,35 +60,35 @@ BEGIN
     
     -- Project 1: E-commerce Website (DISPUTED)
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_proj_1, v_client_id, v_freelancer_id, v_broker_id, 'Xây dựng website bán giày Sneaker', 'Cần làm website giống StockX với tính năng đấu giá realtime.', 'DISPUTED', 50000000, 'VND', v_now - INTERVAL '2 months', v_now + INTERVAL '1 month', v_now, v_now);
+    VALUES (v_proj_1, v_client_id, v_freelancer_id, v_broker_id, 'Xây dựng website bán giày Sneaker', 'Cần làm website giống StockX với tính năng đấu giá realtime.', 'DISPUTED', 50000000, 'USD', v_now - INTERVAL '2 months', v_now + INTERVAL '1 month', v_now, v_now);
 
     -- Project 2: Mobile App Booking (Active - NO DISPUTE)
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_proj_2, v_client_id, v_freelancer_id, v_broker_id, 'App Booking Lịch Cắt Tóc', 'Ứng dụng đặt lịch cho chuỗi sai salon, tích hợp SMS gateway.', 'IN_PROGRESS', 25000000, 'VND', v_now - INTERVAL '10 days', v_now + INTERVAL '20 days', v_now, v_now);
+    VALUES (v_proj_2, v_client_id, v_freelancer_id, v_broker_id, 'App Booking Lịch Cắt Tóc', 'Ứng dụng đặt lịch cho chuỗi sai salon, tích hợp SMS gateway.', 'IN_PROGRESS', 25000000, 'USD', v_now - INTERVAL '10 days', v_now + INTERVAL '20 days', v_now, v_now);
 
     -- Project 3: AI Model Training (DISPUTED)
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_proj_3, v_client_id, v_freelancer_id, v_broker_id, 'Huấn luyện Model AI nhận diện khuôn mặt', 'Yêu cầu độ chính xác 99% trên tập dữ liệu LFW.', 'DISPUTED', 120000000, 'VND', v_now - INTERVAL '3 months', v_now, v_now, v_now);
+    VALUES (v_proj_3, v_client_id, v_freelancer_id, v_broker_id, 'Huấn luyện Model AI nhận diện khuôn mặt', 'Yêu cầu độ chính xác 99% trên tập dữ liệu LFW.', 'DISPUTED', 120000000, 'USD', v_now - INTERVAL '3 months', v_now, v_now, v_now);
 
     -- Project 4: Blockchain Wallet (Completed - NO DISPUTE)
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_proj_4, v_client_id, v_freelancer_id, v_broker_id, 'Ví điện tử Crypto', 'Ví đa chuỗi hỗ trợ ERC20 và BEP20.', 'COMPLETED', 80000000, 'VND', v_now - INTERVAL '5 months', v_now - INTERVAL '1 month', v_now, v_now);
+    VALUES (v_proj_4, v_client_id, v_freelancer_id, v_broker_id, 'Ví điện tử Crypto', 'Ví đa chuỗi hỗ trợ ERC20 và BEP20.', 'COMPLETED', 80000000, 'USD', v_now - INTERVAL '5 months', v_now - INTERVAL '1 month', v_now, v_now);
 
     -- Project 5: Logistic ERP (DISPUTED)
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_proj_5, v_client_id, v_freelancer_id, v_broker_id, 'Hệ thống ERP quản lý kho vận', 'Module quản lý nhập xuất tồn, tracking đơn hàng.', 'DISPUTED', 200000000, 'VND', v_now - INTERVAL '1 month', v_now + INTERVAL '5 months', v_now, v_now);
+    VALUES (v_proj_5, v_client_id, v_freelancer_id, v_broker_id, 'Hệ thống ERP quản lý kho vận', 'Module quản lý nhập xuất tồn, tracking đơn hàng.', 'DISPUTED', 200000000, 'USD', v_now - INTERVAL '1 month', v_now + INTERVAL '5 months', v_now, v_now);
 
     -- Project 6: Marketing Campaign (Active - NO DISPUTE) - MỚI
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_proj_6, v_client_id, v_freelancer_id, v_broker_id, 'Chiến dịch Quảng cáo Facebook Ads', 'Setup và tối ưu ads cho shop thời trang trong 3 tháng.', 'IN_PROGRESS', 45000000, 'VND', v_now - INTERVAL '2 weeks', v_now + INTERVAL '2 months', v_now, v_now);
+    VALUES (v_proj_6, v_client_id, v_freelancer_id, v_broker_id, 'Chiến dịch Quảng cáo Facebook Ads', 'Setup và tối ưu ads cho shop thời trang trong 3 tháng.', 'IN_PROGRESS', 45000000, 'USD', v_now - INTERVAL '2 weeks', v_now + INTERVAL '2 months', v_now, v_now);
 
     -- Project 7: IoT Smart Home (Planning - NO DISPUTE) - MỚI
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_proj_7, v_client_id, v_freelancer_id, v_broker_id, 'Hệ thống IoT Smart Home Basic', 'Thiết kế mạch điều khiển đèn và rèm cửa qua WiFi.', 'PLANNING', 15000000, 'VND', v_now + INTERVAL '5 days', v_now + INTERVAL '1 month', v_now, v_now);
+    VALUES (v_proj_7, v_client_id, v_freelancer_id, v_broker_id, 'Hệ thống IoT Smart Home Basic', 'Thiết kế mạch điều khiển đèn và rèm cửa qua WiFi.', 'PLANNING', 15000000, 'USD', v_now + INTERVAL '5 days', v_now + INTERVAL '1 month', v_now, v_now);
 
     -- Project 8: CRM SaaS (Testing - NO DISPUTE) - MỚI
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_proj_8, v_client_id, v_freelancer_id, v_broker_id, 'CRM SaaS cho Bất động sản', 'Modul quản lý khách hàng tiềm năng và lịch hẹn.', 'TESTING', 90000000, 'VND', v_now - INTERVAL '2 months', v_now + INTERVAL '1 week', v_now, v_now);
+    VALUES (v_proj_8, v_client_id, v_freelancer_id, v_broker_id, 'CRM SaaS cho Bất động sản', 'Modul quản lý khách hàng tiềm năng và lịch hẹn.', 'TESTING', 90000000, 'USD', v_now - INTERVAL '2 months', v_now + INTERVAL '1 week', v_now, v_now);
 
 
     -- ================================================================

@@ -22,6 +22,7 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
     { label: "Dispute Queue", icon: Inbox, path: "/staff/queue" },
     { label: "My Caseload", icon: Briefcase, path: "/staff/caseload" },
     { label: "Calendar", icon: Calendar, path: "/staff/calendar" },
+    { label: "Leave", icon: Calendar, path: "/staff/leave" },
     { label: "Hearings", icon: Video, path: "/staff/hearings" },
     { label: "Profile", icon: User, path: "/staff/profile" },
   ];
@@ -33,42 +34,41 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
       `}
     >
       {/* Logo Area */}
-      <div className="flex items-center justify-between h-16 px-4 border-b border-gray-100">
+      <div className="flex items-center justify-between h-16 px-5 border-b border-gray-100">
         <div
           className={`flex items-center gap-3 ${collapsed ? "justify-center w-full" : ""}`}
         >
-          <img src={Logo} alt="Logo" className="w-8 h-8" />
+          <img src={Logo} alt="Logo" className="w-40 h-36 object-contain" />
           {!collapsed && (
-            <span className="text-xl font-bold text-slate-800 tracking-tight">
-              InterDev
-              <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-teal-100 text-teal-700 align-middle uppercase">
-                Staff
-              </span>
+            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-teal-100 text-teal-700 uppercase tracking-wide">
+              Staff
             </span>
           )}
         </div>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-4 py-6 space-y-2 overflow-y-auto">
+      <nav className="flex-1 px-3 py-5 space-y-1.5 overflow-y-auto">
         {menuItems.map((item) => (
           <NavLink
             key={item.path}
             to={item.path}
             className={({ isActive }) => `
-              flex items-center px-4 py-3 rounded-xl transition-all duration-200 group font-medium
-              ${isActive
-                ? "bg-teal-50 text-teal-700 shadow-sm"
-                : "text-gray-600 hover:bg-gray-50 hover:text-slate-900"
+              flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group font-medium
+              ${
+                isActive
+                  ? "bg-teal-50 text-teal-700 shadow-sm"
+                  : "text-gray-600 hover:bg-gray-50 hover:text-slate-900"
               }
             `}
           >
             <item.icon
-              className={`w-5 h-5 transition-colors ${collapsed ? "mx-auto" : "mr-3"
-                } ${
+              className={`w-5 h-5 transition-colors ${
+                collapsed ? "mx-auto" : ""
+              } ${
                 /* Active icon color is handled by parent text color, but we can enforce if needed */
                 ""
-                }`}
+              }`}
             />
 
             {!collapsed && <span className="">{item.label}</span>}

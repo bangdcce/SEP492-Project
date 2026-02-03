@@ -57,6 +57,7 @@ export type Milestone = {
   status: string;
   sortOrder?: number | null;
   createdAt: string;
+  submittedAt?: string | null;
   // Progress fields (optional - calculated from tasks)
   progress?: number; // 0-100 percentage
   totalTasks?: number;

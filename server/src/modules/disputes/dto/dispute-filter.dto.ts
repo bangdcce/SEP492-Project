@@ -103,6 +103,11 @@ export class DisputeFilterDto {
   @IsString()
   assignedStaffId?: string;
 
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  unassignedOnly?: boolean;
+
   // === DATE FILTERS ===
   @IsOptional()
   @IsDateString()

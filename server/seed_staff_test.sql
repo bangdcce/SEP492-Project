@@ -55,7 +55,7 @@ BEGIN
     -- 3. PROJECT
     -- ================================================================
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_project_id, v_client_id, v_freelancer_id, v_broker_id, 'Dự án Test Tranh Chấp', 'Dự án test đầy đủ các stakeholder.', 'DISPUTED', 15000000, 'VND', v_start_date, v_end_date, v_now, v_now);
+    VALUES (v_project_id, v_client_id, v_freelancer_id, v_broker_id, 'Dự án Test Tranh Chấp', 'Dự án test đầy đủ các stakeholder.', 'DISPUTED', 15000000, 'USD', v_start_date, v_end_date, v_now, v_now);
 
     -- ================================================================
     -- 4. MILESTONE (Required for Dispute)

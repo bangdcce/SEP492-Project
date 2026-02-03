@@ -57,7 +57,7 @@ export class PayoutRequestEntity {
   })
   netAmount: number; // amount - fee (số tiền user nhận được)
 
-  @Column({ type: 'varchar', length: 3, default: 'VND' })
+  @Column({ type: 'varchar', length: 3, default: 'USD' })
   currency: string;
 
   @Column({

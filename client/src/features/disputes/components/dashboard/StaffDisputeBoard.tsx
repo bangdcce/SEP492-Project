@@ -19,8 +19,9 @@ import {
 } from "../../../staff/types/staff.types";
 import {
   escalateDispute,
-  getDisputeComplexity,
+  getDisputeComplexities,
   getDisputes,
+  invalidateDisputesCache,
   rejectDispute,
   requestDisputeInfo,
 } from "../../api";
@@ -157,7 +158,9 @@ export const StaffDisputeBoard = ({
       priority: priorityFilter === "ALL" ? undefined : priorityFilter,
       category: categoryFilter === "ALL" ? undefined : categoryFilter,
       search: debouncedSearch ? debouncedSearch : undefined,
-      assignedStaffId: isStaffUser ? currentUser?.id : undefined,
+      assignedStaffId:
+        mode === "caseload" && isStaffUser ? currentUser?.id : undefined,
+      unassignedOnly: mode === "queue" ? true : undefined,
       ...deadlineRange,
     }),
     [
@@ -183,10 +186,14 @@ export const StaffDisputeBoard = ({
     setPage(1);
   }, [viewFilter, priorityFilter, categoryFilter, weekFilter, debouncedSearch]);
 
-  const fetchDisputes = useCallback(async () => {
+  const fetchDisputes = useCallback(
+    async (options?: { preferCache?: boolean }) => {
     try {
       setLoading(true);
-      const data = await getDisputes(queryFilters);
+      const data = await getDisputes(queryFilters, {
+        preferCache: options?.preferCache,
+        ttlMs: 30_000,
+      });
       setDisputes(data.data ?? []);
       setMeta(data.meta);
       setStats(data.stats ?? null);
@@ -199,11 +206,11 @@ export const StaffDisputeBoard = ({
   }, [queryFilters]);
 
   useEffect(() => {
-    fetchDisputes();
+    fetchDisputes({ preferCache: true });
   }, [fetchDisputes]);
 
   const handleRealtimeRefresh = useCallback(() => {
-    fetchDisputes();
+    fetchDisputes({ preferCache: false });
   }, [fetchDisputes]);
 
   useStaffDashboardRealtime({
@@ -220,20 +227,16 @@ export const StaffDisputeBoard = ({
     if (!missing.length) return;
 
     let cancelled = false;
-    Promise.allSettled(missing.map((id) => getDisputeComplexity(id))).then(
-      (results) => {
+    getDisputeComplexities(missing, { preferCache: true })
+      .then((resultMap) => {
         if (cancelled) return;
-        setComplexityById((prev) => {
-          const next = { ...prev };
-          results.forEach((result, index) => {
-            if (result.status === "fulfilled") {
-              next[missing[index]] = result.value.data;
-            }
-          });
-          return next;
-        });
-      },
-    );
+        setComplexityById((prev) => ({ ...prev, ...resultMap }));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          console.error("Failed to load dispute complexity batch:", error);
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -267,7 +270,8 @@ export const StaffDisputeBoard = ({
         toast.success("Info request sent.");
       }
       setDialogOpen(false);
-      await fetchDisputes();
+      invalidateDisputesCache();
+      await fetchDisputes({ preferCache: false });
     } catch (error) {
       console.error("Failed to process action:", error);
       toast.error("Action failed. Please try again.");
@@ -281,7 +285,8 @@ export const StaffDisputeBoard = ({
       setRowActionLoadingId(dispute.id);
       await escalateDispute(dispute.id);
       toast.success("Dispute accepted for mediation.");
-      await fetchDisputes();
+      invalidateDisputesCache();
+      await fetchDisputes({ preferCache: false });
     } catch (error) {
       console.error("Failed to escalate dispute:", error);
       toast.error("Could not accept dispute.");

@@ -3,6 +3,7 @@ import {
   BadRequestException,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -56,7 +57,12 @@ export class DisputesController {
   async getListDisputes(@GetUser() user: UserEntity, @Query() filters: DisputeFilterDto) {
     const effectiveFilters: DisputeFilterDto = { ...filters };
     if (user.role === UserRole.STAFF) {
-      effectiveFilters.assignedStaffId = user.id;
+      if (effectiveFilters.assignedStaffId && effectiveFilters.assignedStaffId !== user.id) {
+        throw new ForbiddenException('Staff can only view their own caseload.');
+      }
+      if (!effectiveFilters.assignedStaffId && !effectiveFilters.unassignedOnly) {
+        effectiveFilters.assignedStaffId = user.id;
+      }
     }
     return await this.disputesService.getAll(effectiveFilters);
   }

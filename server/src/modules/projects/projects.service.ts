@@ -23,6 +23,7 @@ export interface ProjectWithDisputeInfo {
   brokerId: string;
   freelancerId: string | null;
   totalBudget: number;
+  currency: string;
   createdAt: Date;
   // Dispute enrichment
   hasActiveDispute: boolean;
@@ -71,6 +72,7 @@ export class ProjectsService {
         'brokerId',
         'freelancerId',
         'totalBudget',
+        'currency',
         'createdAt',
       ],
       order: { createdAt: 'DESC' },
@@ -117,6 +119,7 @@ export class ProjectsService {
         brokerId: project.brokerId,
         freelancerId: project.freelancerId,
         totalBudget: Number(project.totalBudget),
+        currency: project.currency,
         createdAt: project.createdAt,
         hasActiveDispute: activeDisputeCount > 0,
         activeDisputeCount,
@@ -219,7 +222,9 @@ export class ProjectsService {
 
     // Step 7: Simulate fund release (in real system, this would call payment service)
     this.logger.log(
-      `💰 FUNDS RELEASED: Milestone "${milestone.title}" (${milestone.amount} VND) approved by user ${userId}`,
+      `💰 FUNDS RELEASED: Milestone "${milestone.title}" (${milestone.amount} ${
+        project.currency || 'USD'
+      }) approved by user ${userId}`,
     );
 
     // Step 8: Create audit log for milestone approval (Critical financial action)
