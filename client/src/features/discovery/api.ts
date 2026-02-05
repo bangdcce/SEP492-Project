@@ -66,5 +66,12 @@ export const discoveryApi = {
   getMyInvitations: async () => {
     const response = await api.get('/project-requests/invitations/my');
     return response.data;
+  },
+
+  respondToInvitation: async (invitationId: string, status: 'ACCEPTED' | 'REJECTED') => {
+    const response = await api.patch(`/project-requests/invitations/${invitationId}/respond`, {
+      status,
+    });
+    return response.data;
   }
 };

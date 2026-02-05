@@ -4,10 +4,10 @@ import * as z from 'zod';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { Button } from '@/shared/components/custom/Button';
+import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/ui/input';
 import { Textarea } from '@/shared/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/shared/components/ui/card';
 import {
   Form,
   FormControl,
@@ -342,7 +342,7 @@ export function CreateProjectSpecForm({ requestId, onSubmit, isSubmitting }: Cre
               {milestoneFields.map((field, index) => (
                  <div key={field.id} className="p-4 border rounded-lg bg-card text-card-foreground shadow-sm relative">
                     <div className="absolute top-4 right-4">
-                       <Button type="button" variant="ghost" size="icon" onClick={() => removeMilestone(index)} disabled={milestoneFields.length <= 1}>
+                       <Button type="button" variant="outline" size="icon" onClick={() => removeMilestone(index)} disabled={milestoneFields.length <= 1}>
                           <Trash2 className="w-4 h-4 text-muted-foreground hover:text-destructive" />
                        </Button>
                     </div>
@@ -458,7 +458,7 @@ function AcceptanceCriteriaList({ nestIndex, control }: { nestIndex: number, con
     <div className="space-y-3 pl-4 border-l-2 border-primary/20">
        <div className="flex justify-between items-center">
           <FormLabel className="text-xs uppercase tracking-wide text-muted-foreground">Acceptance Criteria (Checklist)</FormLabel>
-          <Button type="button" variant="ghost" size="sm" onClick={() => append({ value: '' })}><Plus className="w-3 h-3 mr-1" /> Add Criteria</Button>
+          <Button type="button" variant="outline" size="sm" onClick={() => append({ value: '' })}><Plus className="w-3 h-3 mr-1" /> Add Criteria</Button>
        </div>
        {fields.map((item, k) => (
           <div key={item.id} className="flex gap-2 items-center">
@@ -472,7 +472,7 @@ function AcceptanceCriteriaList({ nestIndex, control }: { nestIndex: number, con
                    </FormItem>
                 )}
              />
-             <Button type="button" variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => remove(k)} disabled={fields.length <= 1}>
+             <Button type="button" variant="outline" size="icon" className="h-8 w-8 text-muted-foreground" onClick={() => remove(k)} disabled={fields.length <= 1}>
                 {/* Prevent deleting last one to force at least 1 rule */}
                 <Trash2 className="w-4 h-4" />
              </Button>

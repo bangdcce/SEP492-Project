@@ -16,7 +16,7 @@ export * from "./scroll-area";
 export * from "./textarea";
 
 // Spinner component (commonly used for loading states)
-export { default as Spinner } from "./Spinner";
+export { default as Spinner } from "./spinner";
 
 // Form components
 export * from "./label";

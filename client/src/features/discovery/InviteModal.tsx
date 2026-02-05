@@ -15,9 +15,10 @@ interface InviteModalProps {
   partnerName: string;
   partnerRole: "BROKER" | "FREELANCER"; // Simplified role check
   defaultRequestId?: string;
+  onInviteSuccess?: () => void;
 }
 
-export const InviteModal = ({ isOpen, onClose, partnerId, partnerName, partnerRole, defaultRequestId }: InviteModalProps) => {
+export const InviteModal = ({ isOpen, onClose, partnerId, partnerName, partnerRole, defaultRequestId, onInviteSuccess }: InviteModalProps) => {
   const [selectedRequestId, setSelectedRequestId] = useState<string>(defaultRequestId || "");
   const [message, setMessage] = useState("");
 
@@ -48,6 +49,7 @@ export const InviteModal = ({ isOpen, onClose, partnerId, partnerName, partnerRo
             await discoveryApi.inviteFreelancer(selectedRequestId, partnerId, message);
         }
         toast.success(`Invitation sent to ${partnerName}`);
+        if (onInviteSuccess) onInviteSuccess();
         onClose();
         setMessage("");
         setSelectedRequestId("");

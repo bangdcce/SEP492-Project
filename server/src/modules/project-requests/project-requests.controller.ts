@@ -235,4 +235,15 @@ export class ProjectRequestsController {
   async convertToProject(@Param('id') id: string) {
     return this.projectRequestsService.convertToProject(id);
   }
+
+  @Patch('invitations/:id/respond')
+  @ApiOperation({ summary: 'Respond to an invitation (Accept/Reject)' })
+  @ApiResponse({ status: 200, description: 'Response recorded' })
+  async respondToInvitation(
+    @Param('id') id: string,
+    @GetUser() user: UserEntity,
+    @Body('status') status: 'ACCEPTED' | 'REJECTED',
+  ) {
+    return this.projectRequestsService.respondToInvitation(id, user.id, user.role, status);
+  }
 }

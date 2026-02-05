@@ -512,4 +512,67 @@ export class ProjectRequestsService {
 
     return requests;
   }
+
+  async respondToInvitation(
+    invitationId: string,
+    userId: string,
+    role: UserRole,
+    status: 'ACCEPTED' | 'REJECTED',
+  ) {
+    if (role === UserRole.BROKER) {
+      const proposal = await this.brokerProposalRepo.findOne({
+        where: { id: invitationId, brokerId: userId },
+        relations: ['request'],
+      });
+      if (!proposal) throw new Error('Invitation not found');
+      if (proposal.status !== ProposalStatus.INVITED) {
+        throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
+      }
+
+      proposal.status = status === 'ACCEPTED' ? ProposalStatus.ACCEPTED : ProposalStatus.REJECTED;
+      
+      // If ACCEPTED, logic might differ (e.g. they join discussion vs becomes the sole broker).
+      // For now, if they ACCEPT an invite, they become a CANDIDATE (PENDING) or if the invite was explicit, maybe they just join?
+      // Usually "Invite" means "Please Apply". If they accept, they become PENDING application?
+      // OR if it's a direct private invite, maybe they become ACCEPTED immediately if the client pre-approved?
+      // Let's assume: Client Invited -> Broker Accepts -> Broker becomes "PENDING" (Applied) or "ACCEPTED" (Hired).
+      // For safety, let's say they become PENDING (Applied) so Client can confirm? 
+      // OR if it was "Private Invite", maybe the Client already wants them.
+      // Let's stick to: Invite -> Accept = PROPOSAL SUBMITTED (PENDING).
+      // Wait, if it's "Private Project", the Client picked them. So Accept = Hired?
+      // Let's go with: Accept = PENDING (Candidate). Client must finalizing "Hiring".
+       
+      // actually, if status is ACCEPTED here, we map it to ProposalStatus.PENDING?
+      // "Accepting an invitation" usually means "I am interested, here is my bid" or just "I join".
+      // Let's map "ACCEPTED" response to ProposalStatus.PENDING (Applied).
+      if (status === 'ACCEPTED') {
+         // Keep as ACCEPTED to indicate "Ready to Hire"
+         proposal.status = ProposalStatus.ACCEPTED;
+      } else {
+         proposal.status = ProposalStatus.REJECTED; // Declined the invite
+      }
+
+      return this.brokerProposalRepo.save(proposal);
+
+    } else if (role === UserRole.FREELANCER) {
+      const proposal = await this.freelancerProposalRepo.findOne({
+        where: { id: invitationId, freelancerId: userId },
+        relations: ['request'],
+      });
+      if (!proposal) throw new Error('Invitation not found');
+      
+      if (proposal.status !== 'INVITED') {
+         throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
+      }
+      
+      if (status === 'ACCEPTED') {
+          proposal.status = 'PENDING';
+      } else {
+          proposal.status = 'REJECTED'; 
+      }
+      return this.freelancerProposalRepo.save(proposal);
+    }
+    
+    throw new Error('Invalid role');
+  }
 }

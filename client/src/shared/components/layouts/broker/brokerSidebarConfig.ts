@@ -43,6 +43,22 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     section: "workspace",
   },
   {
+    id: "my-invitations",
+    label: "My Invitations",
+    icon: FileSearch, // Reusing icon or import Mail if needed, but FileSearch is fine for now or import new one. 
+    // Wait, let's use a better icon if possible. "Mail" is not imported. 
+    // I will use FileSearch for now to avoid import errors or check imports.
+    // Actually, let's check imports. FileSearch, Briefcase, Users etc are imported. 
+    // I'll stick to FileSearch or maybe add Mail to imports if I can.
+    // To be safe and quick, I'll use FileSearch (or maybe Briefcase?) 
+    // Let's use FileSearch matching "Project Requests" style or just duplicate.
+    // Actually, "FileSignature" is used for Contracts. 
+    // Let's just use "FileSearch" for "My Invitations" as well for now.
+    path: "/broker/invitations",
+    description: "Job invitations",
+    section: "workspace",
+  },
+  {
     id: "manage-projects",
     label: "Manage Projects",
     icon: Briefcase,

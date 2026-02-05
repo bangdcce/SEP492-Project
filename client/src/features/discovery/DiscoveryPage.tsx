@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Search, Filter, Star, ShieldCheck } from "lucide-react";
-import { Button, Input, Badge, Card, CardContent, CardHeader, CardTitle, Avatar, AvatarImage, AvatarFallback, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/shared/components/ui";
+import { Search, Star, ShieldCheck } from "lucide-react";
+import { Button, Input, Badge, Card, CardContent, Avatar, AvatarImage, AvatarFallback, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/shared/components/ui";
 import { discoveryApi } from "./api";
 import type { UserSearchFilters } from "./api";
 import { UserRole } from "../../shared/types/user.types";
@@ -11,11 +11,20 @@ export const DiscoveryPage = () => {
   console.log("DiscoveryPage rendering");
   const [searchParams] = useSearchParams();
   const paramRole = searchParams.get("role");
-  const initialRole = (paramRole === UserRole.BROKER || paramRole === UserRole.FREELANCER) ? paramRole : "ALL";
+  // const initialRole = (paramRole === UserRole.BROKER || paramRole === UserRole.FREELANCER) ? paramRole : "ALL"; 
+  // Initial state isn't enough for nav updates.
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 500);
-  const [role, setRole] = useState<UserRole | "ALL">(initialRole);
+  const [role, setRole] = useState<UserRole | "ALL">("ALL");
+
+  useEffect(() => {
+     if (paramRole === UserRole.BROKER || paramRole === UserRole.FREELANCER) {
+         setRole(paramRole);
+     } else {
+         setRole("ALL");
+     }
+  }, [paramRole]);
 
   const [data, setData] = useState<{ data: any[] } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
