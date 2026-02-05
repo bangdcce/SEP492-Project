@@ -4,7 +4,7 @@
  */
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, ScrollText, Shield, UserCheck, Users, Search } from "lucide-react";
+import { LayoutDashboard, ScrollText, Shield, UserCheck, Users, Search, Briefcase } from "lucide-react";
 
 export interface SidebarMenuItem {
   id: string;
@@ -70,11 +70,25 @@ export const brokerMenuItems: SidebarMenuItem[] = [
   },
   {
     id: "project-requests",
-    label: "Find Requests",
+    label: "Marketplace",
     icon: Search,
-    path: "/project-requests",
+    path: "/broker/marketplace",
     description: "Browse and assign to project requests",
   },
+  {
+      id: "my-requests",
+      label: "My Requests",
+      icon: Briefcase,
+      path: "/broker/my-requests",
+      description: "Manage your assigned requests",
+  },
+  {
+      id: "my-projects",
+      label: "My Projects",
+      icon: LayoutDashboard,
+      path: "/broker/projects",
+      description: "Active projects in development",
+  }
 ];
 
 // Fallback/Default

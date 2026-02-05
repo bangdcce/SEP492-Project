@@ -8,6 +8,12 @@ export const RequestStatus = {
   CANCELLED: 'CANCELLED',
   SPEC_SUBMITTED: 'SPEC_SUBMITTED',
   SPEC_APPROVED: 'SPEC_APPROVED',
+  PUBLIC_DRAFT: 'PUBLIC_DRAFT',
+  PRIVATE_DRAFT: 'PRIVATE_DRAFT',
+  BROKER_ASSIGNED: 'BROKER_ASSIGNED',
+  CONTRACT_PENDING: 'CONTRACT_PENDING',
+  HIRING: 'HIRING',
+  CONVERTED_TO_PROJECT: 'CONVERTED_TO_PROJECT',
 } as const;
 
 export type RequestStatus = (typeof RequestStatus)[keyof typeof RequestStatus];
@@ -48,6 +54,7 @@ export interface ProjectRequest {
       status: string;
     }[];
   };
+  brokerProposals?: any[];
 }
 
 export interface GetRequestsParams {

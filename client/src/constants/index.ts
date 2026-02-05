@@ -41,6 +41,10 @@ export const ROUTES = {
   CLIENT_MY_REQUESTS: "/client/my-requests",
   CLIENT_WIZARD: "/client/wizard",
   CLIENT_PROFILE: "/client/profile",
+  CLIENT_DISCOVERY: "/client/discovery",
+  CLIENT_DISCOVERY_PROFILE: "/client/discovery/profile/:id",
+  
+
 
   // ========== PROJECT ROUTES ==========
   CLIENT_PROJECTS: "/client/projects",

@@ -1,0 +1,209 @@
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  table { border-collapse: collapse; width: 100%; margin-bottom: 20px; font-family: 'Segoe UI', Arial, sans-serif; }
+  th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+  th { background-color: #f4f4f4; width: 20%; font-weight: bold; }
+  tr:nth-child(even) { background-color: #fafafa; }
+  h1 { color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 10px; }
+  .uc-ref { color: #7f8c8d; font-size: 0.9em; }
+</style>
+</head>
+<body>
+
+<h1>Consolidated Business Rules (BR-01 to BR-186)</h1>
+
+<table>
+  <tr><th>ID</th><th>Description</th><th>Use Case Reference</th></tr>
+  <tr><td>BR-01</td><td>Password must be 8+ chars with symbols/numbers.</td><td class="uc-ref">UC-01</td></tr>
+  <tr><td>BR-02</td><td>Users can only have one active profile per email address.</td><td class="uc-ref">UC-01</td></tr>
+  <tr><td>BR-03</td><td>Role cannot be changed once the account is verified without admin approval.</td><td class="uc-ref">UC-01</td></tr>
+  <tr><td>BR-04</td><td>OTP expires exactly 5 minutes after generation.</td><td class="uc-ref">UC-02</td></tr>
+  <tr><td>BR-05</td><td>Verification is mandatory to use any marketplace features.</td><td class="uc-ref">UC-02</td></tr>
+  <tr><td>BR-06</td><td>Only 3 OTPs can be requested within a 15-minute window per IP.</td><td class="uc-ref">UC-02</td></tr>
+  <tr><td>BR-07</td><td>Password hashing must use industry-standard algorithms (Bcrypt/Argon2).</td><td class="uc-ref">UC-03</td></tr>
+  <tr><td>BR-08</td><td>Session must expire after 24 hours of inactivity.</td><td class="uc-ref">UC-03</td></tr>
+  <tr><td>BR-09</td><td>Concurrent logins from different geographical regions trigger security alerts.</td><td class="uc-ref">UC-03</td></tr>
+  <tr><td>BR-10</td><td>New passwords must not contain the user's name or known personal details.</td><td class="uc-ref">UC-04</td></tr>
+  <tr><td>BR-11</td><td>Account reset is locked if requested more than 5 times in 1 hour.</td><td class="uc-ref">UC-04</td></tr>
+  <tr><td>BR-12</td><td>Password reset tokens are one-time use and invalidated upon first use.</td><td class="uc-ref">UC-04</td></tr>
+  <tr><td>BR-13</td><td>Landing page must meet accessibility (WCAG) contrast standards.</td><td class="uc-ref">UC-05</td></tr>
+  <tr><td>BR-14</td><td>Content must be indexable by major search engines (SEO optimized).</td><td class="uc-ref">UC-05</td></tr>
+  <tr><td>BR-15</td><td>Sample projects shown must be marked as 'Public' by their owners.</td><td class="uc-ref">UC-05</td></tr>
+  <tr><td>BR-16</td><td>Display names cannot be changed more than twice in 30 days.</td><td class="uc-ref">UC-06</td></tr>
+  <tr><td>BR-17</td><td>Email address changes must be verified through the new address.</td><td class="uc-ref">UC-06</td></tr>
+  <tr><td>BR-18</td><td>Account roles (Client/Broker) cannot be swapped after initial verification.</td><td class="uc-ref">UC-06</td></tr>
+  <tr><td>BR-19</td><td>KYC submissions must be reviewed by staff within 2 business days.</td><td class="uc-ref">UC-07</td></tr>
+  <tr><td>BR-20</td><td>All identity images must be uploaded in PNG or JPEG format.</td><td class="uc-ref">UC-07</td></tr>
+  <tr><td>BR-21</td><td>Identity verification is mandatory for project budgets exceeding $1,000.</td><td class="uc-ref">UC-07</td></tr>
+  <tr><td>BR-22</td><td>Drafts must be autosaved every time a user proceeds to a next step.</td><td class="uc-ref">UC-08</td></tr>
+  <tr><td>BR-23</td><td>A minimum of 3 specific technical features must be selected.</td><td class="uc-ref">UC-08</td></tr>
+  <tr><td>BR-24</td><td>Project titles must be unique within the client's own history.</td><td class="uc-ref">UC-08</td></tr>
+  <tr><td>BR-25</td><td>Public requests are archived automatically after 30 days if no broker hired.</td><td class="uc-ref">UC-09</td></tr>
+  <tr><td>BR-26</td><td>Standard accounts are limited to 5 active marketplace listings.</td><td class="uc-ref">UC-09</td></tr>
+  <tr><td>BR-27</td><td>Descriptions must contain at least 200 characters to ensure clarity for brokers.</td><td class="uc-ref">UC-09</td></tr>
+  <tr><td>BR-28</td><td>Max invitations per project is capped to 15 to prevent spamming.</td><td class="uc-ref">UC-10</td></tr>
+  <tr><td>BR-29</td><td>Invitations expire automatically if not accepted within 48 hours.</td><td class="uc-ref">UC-10</td></tr>
+  <tr><td>BR-30</td><td>Direct invitation is required for any request marked as 'Private'.</td><td class="uc-ref">UC-10</td></tr>
+  <tr><td>BR-31</td><td>Only verified clients are allowed to post to the public marketplace.</td><td class="uc-ref">UC-11</td></tr>
+  <tr><td>BR-32</td><td>A project cannot be edit-locked until at least one proposal is received.</td><td class="uc-ref">UC-11</td></tr>
+  <tr><td>BR-33</td><td>Market listings are valid for 30 days before requiring renewal.</td><td class="uc-ref">UC-11</td></tr>
+  <tr><td>BR-34</td><td>Users must only see projects they created or have been shared with them.</td><td class="uc-ref">UC-12</td></tr>
+  <tr><td>BR-35</td><td>Completed projects are moved to the 'Archive' tab after 90 days.</td><td class="uc-ref">UC-12</td></tr>
+  <tr><td>BR-36</td><td>Real-time status updates are required for current active listings.</td><td class="uc-ref">UC-12</td></tr>
+  <tr><td>BR-37</td><td>Budget modifications exceeding 20% will invalidate all current broker bids.</td><td class="uc-ref">UC-13</td></tr>
+  <tr><td>BR-38</td><td>Cancellation is only allowed if no broker has been officially hired.</td><td class="uc-ref">UC-13</td></tr>
+  <tr><td>BR-39</td><td>Core technical stack tags cannot be removed if they are already in specs.</td><td class="uc-ref">UC-13</td></tr>
+  <tr><td>BR-40</td><td>Approved specs act as the technical annex to the project contract.</td><td class="uc-ref">UC-14</td></tr>
+  <tr><td>BR-41</td><td>Milestones must be clearly defined with at least 3 acceptance criteria each.</td><td class="uc-ref">UC-14</td></tr>
+  <tr><td>BR-42</td><td>Spec approval is a one-way transition; reverting requires admin reset.</td><td class="uc-ref">UC-14</td></tr>
+  <tr><td>BR-43</td><td>Progress is calculated as (Completed Milestones / Total Milestones) * 100.</td><td class="uc-ref">UC-15</td></tr>
+  <tr><td>BR-44</td><td>Any milestone more than 48h overdue triggers a Priority 1 email to the broker.</td><td class="uc-ref">UC-15</td></tr>
+  <tr><td>BR-45</td><td>Historical project logs must be visible to all current assigned stakeholders.</td><td class="uc-ref">UC-15</td></tr>
+  <tr><td>BR-46</td><td>Milestone approval is irreversible and immediately releases funds from escrow.</td><td class="uc-ref">UC-16</td></tr>
+  <tr><td>BR-47</td><td>Clients have a 7-day window to review work before auto-approval.</td><td class="uc-ref">UC-16</td></tr>
+  <tr><td>BR-48</td><td>Proof of Work links must remain active for the entire duration of the project.</td><td class="uc-ref">UC-16</td></tr>
+  <tr><td>BR-49</td><td>Platform charges a flat 5% fee on all deposits for escrow maintenance.</td><td class="uc-ref">UC-17</td></tr>
+  <tr><td>BR-50</td><td>Minimum transaction amount is $10.00 USD.</td><td class="uc-ref">UC-17</td></tr>
+  <tr><td>BR-51</td><td>All financial data must be encrypted and handled via PCI-DSS compliant providers.</td><td class="uc-ref">UC-17</td></tr>
+  <tr><td>BR-52</td><td>Only one Primary Owner is allowed per project at any given time.</td><td class="uc-ref">UC-18</td></tr>
+  <tr><td>BR-53</td><td>Invited managers can approve milestones but NOT delete projects.</td><td class="uc-ref">UC-18</td></tr>
+  <tr><td>BR-54</td><td>Invitations expire and become void 48 hours after being sent.</td><td class="uc-ref">UC-18</td></tr>
+  <tr><td>BR-55</td><td>Chat history is inadmissible for deletion to protect dispute evidence.</td><td class="uc-ref">UC-19</td></tr>
+  <tr><td>BR-56</td><td>Files shared in chat are automatically scanned for malware upon upload.</td><td class="uc-ref">UC-19</td></tr>
+  <tr><td>BR-57</td><td>Direct messaging between freelancer and client must happen within the platform.</td><td class="uc-ref">UC-19</td></tr>
+  <tr><td>BR-58</td><td>Ratings are 'Double-Blind' and hidden until both sides submit or time expires.</td><td class="uc-ref">UC-20</td></tr>
+  <tr><td>BR-59</td><td>Star ratings cannot be modified once they are officially published.</td><td class="uc-ref">UC-20</td></tr>
+  <tr><td>BR-60</td><td>High-impact reviews (>10k budget) are manually audited for authenticity.</td><td class="uc-ref">UC-20</td></tr>
+  <tr><td>BR-61</td><td>Plan downgrades take effect at the end of the current billing cycle.</td><td class="uc-ref">UC-21</td></tr>
+  <tr><td>BR-62</td><td>Upgrades are immediate and charged a pro-rated amount for the remaining days.</td><td class="uc-ref">UC-21</td></tr>
+  <tr><td>BR-63</td><td>Refunds for cancelled subscriptions are only granted within the first 24 hours of purchase.</td><td class="uc-ref">UC-21</td></tr>
+  <tr><td>BR-64</td><td>Clients must respond to mediator requests within 48 hours or risk default loss.</td><td class="uc-ref">UC-22</td></tr>
+  <tr><td>BR-65</td><td>Formal evidence once uploaded cannot be deleted from the audit trail.</td><td class="uc-ref">UC-22</td></tr>
+  <tr><td>BR-66</td><td>Disputes involving less than $50 are prioritized for automated split suggestions.</td><td class="uc-ref">UC-22</td></tr>
+  <tr><td>BR-67</td><td>Disputes automatically lock all associated project funds across all active milestones.</td><td class="uc-ref">UC-23</td></tr>
+  <tr><td>BR-68</td><td>Filing more than 2 invalid/frivolous disputes per month leads to account penalty.</td><td class="uc-ref">UC-23</td></tr>
+  <tr><td>BR-69</td><td>A filing fee (3% of escrow value) is held until the case outcome is decided.</td><td class="uc-ref">UC-23</td></tr>
+  <tr><td>BR-70</td><td>Internal admin notes are never visible to clients or defendants.</td><td class="uc-ref">UC-24</td></tr>
+  <tr><td>BR-71</td><td>Dispute information is retained for 7 years as per financial compliance laws.</td><td class="uc-ref">UC-24</td></tr>
+  <tr><td>BR-72</td><td>Real-time status sync is required for all active viewers of the case details.</td><td class="uc-ref">UC-24</td></tr>
+  <tr><td>BR-73</td><td>Invitations must be responded to (Accept/Decline) within 72 hours.</td><td class="uc-ref">UC-25</td></tr>
+  <tr><td>BR-74</td><td>Accepting an invitation grants temporary read-only access to private specs.</td><td class="uc-ref">UC-25</td></tr>
+  <tr><td>BR-75</td><td>Freelancers can only view invitations matching their primary skills.</td><td class="uc-ref">UC-25</td></tr>
+  <tr><td>BR-76</td><td>Real names of clients are hidden until the Broker/Freelancer is shortlisted.</td><td class="uc-ref">UC-26</td></tr>
+  <tr><td>BR-77</td><td>Detailed budget breakdowns are only visible to Verified accounts.</td><td class="uc-ref">UC-26</td></tr>
+  <tr><td>BR-78</td><td>External contact info in descriptions is automatically redacted.</td><td class="uc-ref">UC-26</td></tr>
+  <tr><td>BR-79</td><td>Projects must be sorted by 'Next Milestone Deadline' by default.</td><td class="uc-ref">UC-27</td></tr>
+  <tr><td>BR-80</td><td>Earnings displayed are the 'Net' amount after platform fee deduction.</td><td class="uc-ref">UC-27</td></tr>
+  <tr><td>BR-81</td><td>Status indicators must update within 5 seconds of any backend change.</td><td class="uc-ref">UC-27</td></tr>
+  <tr><td>BR-82</td><td>Milestone deliverables must be virus-scanned before becoming visible to clients.</td><td class="uc-ref">UC-28</td></tr>
+  <tr><td>BR-83</td><td>Only the 'Lead Freelancer' or 'Broker' can officially mark a milestone as Delivered.</td><td class="uc-ref">UC-28</td></tr>
+  <tr><td>BR-84</td><td>Revision requests from clients must be responded to within 48 hours.</td><td class="uc-ref">UC-28</td></tr>
+  <tr><td>BR-85</td><td>Any change to milestone costs requires explicit client re-confirmation.</td><td class="uc-ref">UC-30</td></tr>
+  <tr><td>BR-86</td><td>Technical specs must follow the platform's standard DRS schema.</td><td class="uc-ref">UC-30</td></tr>
+  <tr><td>BR-87</td><td>Draft specs are automatically deleted if the project is cancelled mid-negotiation.</td><td class="uc-ref">UC-30</td></tr>
+  <tr><td>BR-88</td><td>Milestone submission is only possible if all mandatory deliverables are attached.</td><td class="uc-ref">UC-31</td></tr>
+  <tr><td>BR-89</td><td>Only the assigned Broker can formally transition a milestone to 'Pending Review'.</td><td class="uc-ref">UC-31</td></tr>
+  <tr><td>BR-90</td><td>System must prevent deleting milestones once the project has started.</td><td class="uc-ref">UC-31</td></tr>
+  <tr><td>BR-91</td><td>All messages must be persisted in the database for at least 2 years.</td><td class="uc-ref">UC-32</td></tr>
+  <tr><td>BR-92</td><td>Chat rooms are automatically archived when a project is closed.</td><td class="uc-ref">UC-32</td></tr>
+  <tr><td>BR-93</td><td>Profanity filters are active on all public and project-level chat rooms.</td><td class="uc-ref">UC-32</td></tr>
+  <tr><td>BR-94</td><td>Every task must be linked to at least one active milestone.</td><td class="uc-ref">UC-33</td></tr>
+  <tr><td>BR-95</td><td>Only Brokers can create new columns (swimlanes) on the board.</td><td class="uc-ref">UC-33</td></tr>
+  <tr><td>BR-96</td><td>Moving a task to 'Done' does NOT automatically approve the milestone.</td><td class="uc-ref">UC-33</td></tr>
+  <tr><td>BR-97</td><td>Ratings are binary-blind: neither side sees the other's score until both are done.</td><td class="uc-ref">UC-34</td></tr>
+  <tr><td>BR-98</td><td>Reviews including personal contact info are automatically flagged for removal.</td><td class="uc-ref">UC-34</td></tr>
+  <tr><td>BR-99</td><td>Brokers can only rate their direct subordinates (excluding other brokers).</td><td class="uc-ref">UC-34</td></tr>
+  <tr><td>BR-100</td><td>Critical fields (Legal Name, Role) require admin approval to change after verification.</td><td class="uc-ref">UC-36</td></tr>
+  <tr><td>BR-101</td><td>All profile updates are logged for security auditing.</td><td class="uc-ref">UC-36</td></tr>
+  <tr><td>BR-102</td><td>Private profiles are hidden from the Marketplace search results.</td><td class="uc-ref">UC-36</td></tr>
+  <tr><td>BR-103</td><td>Profile 'Trust Score' is bonus-weighted for users with a verified CV.</td><td class="uc-ref">UC-37</td></tr>
+  <tr><td>BR-104</td><td>Contact info in uploaded CVs is automatically masked for the first 3 views.</td><td class="uc-ref">UC-37</td></tr>
+  <tr><td>BR-105</td><td>Users are notified if their CV remains un-updated for more than 6 months.</td><td class="uc-ref">UC-37</td></tr>
+  <tr><td>BR-106</td><td>Providers must respond to any dispute within 3 business days of notification.</td><td class="uc-ref">UC-38</td></tr>
+  <tr><td>BR-107</td><td>Failure to respond within the deadline results in automated loss of escrow funds.</td><td class="uc-ref">UC-38</td></tr>
+  <tr><td>BR-108</td><td>All disputed funds are frozen in escrow and cannot be released mid-process.</td><td class="uc-ref">UC-38</td></tr>
+  <tr><td>BR-109</td><td>Filing a dispute prevents the Provider from starting new projects with that specific Client.</td><td class="uc-ref">UC-39</td></tr>
+  <tr><td>BR-110</td><td>A processing fee of 1% is deducted if the Provider loses the dispute.</td><td class="uc-ref">UC-39</td></tr>
+  <tr><td>BR-111</td><td>Validating evidence must strictly match the agreed technical requirements (DRS).</td><td class="uc-ref">UC-39</td></tr>
+  <tr><td>BR-112</td><td>All dispute details are cryptographically sealed once a final verdict is issued.</td><td class="uc-ref">UC-40</td></tr>
+  <tr><td>BR-113</td><td>Providers cannot see comments left by Clients specifically for "Admin Only".</td><td class="uc-ref">UC-40</td></tr>
+  <tr><td>BR-114</td><td>Visibility of evidence is logged; "Read Receipts" are shared with the mediator.</td><td class="uc-ref">UC-40</td></tr>
+  <tr><td>BR-115</td><td>Premium subscriptions are non-refundable once the provider applies to a job using premium benefits.</td><td class="uc-ref">UC-41</td></tr>
+  <tr><td>BR-116</td><td>Visibility boost in 'Talent Search' is proportional to the subscription tier level.</td><td class="uc-ref">UC-41</td></tr>
+  <tr><td>BR-117</td><td>Agency plans allow adding up to 10 sub-accounts under one primary billing.</td><td class="uc-ref">UC-41</td></tr>
+  <tr><td>BR-118</td><td>Public projects are visible to all, but 'Apply' button is role-restricted.</td><td class="uc-ref">UC-42</td></tr>
+  <tr><td>BR-119</td><td>Matching percentage is calculated based on Profile Skills vs. Project Tags.</td><td class="uc-ref">UC-42</td></tr>
+  <tr><td>BR-120</td><td>Projects are automatically hidden from the list once the hiring limit is reached.</td><td class="uc-ref">UC-42</td></tr>
+  <tr><td>BR-121</td><td>Cover letters must be at least 150 characters long to discourage spam.</td><td class="uc-ref">UC-43</td></tr>
+  <tr><td>BR-122</td><td>Proposed bids cannot exceed the client's stated maximum budget by more than 50%.</td><td class="uc-ref">UC-43</td></tr>
+  <tr><td>BR-123</td><td>Proposals are hidden from other competing freelancers to maintain confidentiality.</td><td class="uc-ref">UC-43</td></tr>
+  <tr><td>BR-124</td><td>Freelancers cannot mark a milestone as 'Delivered' to the client directly; it must pass the Broker first.</td><td class="uc-ref">UC-44</td></tr>
+  <tr><td>BR-125</td><td>All code submissions must include a brief description of changes (Changelog).</td><td class="uc-ref">UC-44</td></tr>
+  <tr><td>BR-126</td><td>Milestone progress updates must be made at least once every 48 hours for active projects.</td><td class="uc-ref">UC-44</td></tr>
+  <tr><td>BR-127</td><td>Feedback for technical obstacles must be categorized as 'Blocker' or 'Info'.</td><td class="uc-ref">UC-45</td></tr>
+  <tr><td>BR-128</td><td>Brokers must acknowledge 'Blocker' feedback within 24 hours.</td><td class="uc-ref">UC-45</td></tr>
+  <tr><td>BR-129</td><td>All technical feedback is accessible to the client unless marked as 'Internal'.</td><td class="uc-ref">UC-45</td></tr>
+  <tr><td>BR-130</td><td>The 'Approved' spec is the only legally binding technical reference for disputes.</td><td class="uc-ref">UC-46</td></tr>
+  <tr><td>BR-131</td><td>Spec views by freelancers are tracked to ensure everyone is on the same version.</td><td class="uc-ref">UC-46</td></tr>
+  <tr><td>BR-132</td><td>Freelancers have Read-Only access to the official project specification.</td><td class="uc-ref">UC-46</td></tr>
+  <tr><td>BR-133</td><td>Freelancer feedback is advisory and must be approved by the Broker before updating the spec.</td><td class="uc-ref">UC-47</td></tr>
+  <tr><td>BR-134</td><td>Suggestions that change the project scope are automatically highlighted in RED.</td><td class="uc-ref">UC-47</td></tr>
+  <tr><td>BR-135</td><td>Feedback must be linked to a specific requirement ID (e.g., REQ-101).</td><td class="uc-ref">UC-47</td></tr>
+  <tr><td>BR-136</td><td>Ratings must satisfy a minimum word count of 30 for high-budget projects.</td><td class="uc-ref">UC-48</td></tr>
+  <tr><td>BR-137</td><td>Reviewers cannot change their star rating once submitted.</td><td class="uc-ref">UC-48</td></tr>
+  <tr><td>BR-138</td><td>Clients/Brokers cannot delete reviews autonomously (requires admin intervention).</td><td class="uc-ref">UC-48</td></tr>
+  <tr><td>BR-139</td><td>All 'Account Suspension' actions must be reversible for 30 days.</td><td class="uc-ref">UC-49</td></tr>
+  <tr><td>BR-140</td><td>Admins cannot view user passwords; they can only trigger resets.</td><td class="uc-ref">UC-49</td></tr>
+  <tr><td>BR-141</td><td>Every admin session is recorded via screen-logs for security compliance.</td><td class="uc-ref">UC-49</td></tr>
+  <tr><td>BR-142</td><td>Real-time financial data viewing is restricted to 'Finance Admin' role.</td><td class="uc-ref">UC-50</td></tr>
+  <tr><td>BR-143</td><td>Viewing PII triggers a special entry in the data privacy log.</td><td class="uc-ref">UC-50</td></tr>
+  <tr><td>BR-144</td><td>User history must be retained even if the account is 'Hard Deleted' for 36 months.</td><td class="uc-ref">UC-50</td></tr>
+  <tr><td>BR-145</td><td>Permanent bans require a second admin approval for high-tier accounts.</td><td class="uc-ref">UC-51</td></tr>
+  <tr><td>BR-146</td><td>All banned user data must be retained for legal compliance for 5 years.</td><td class="uc-ref">UC-51</td></tr>
+  <tr><td>BR-147</td><td>Banned users are automatically blacklisted from re-registering with the same bank/phone.</td><td class="uc-ref">UC-51</td></tr>
+  <tr><td>BR-148</td><td>Sensitive information (passwords, PI) must be masked in all displayed logs.</td><td class="uc-ref">UC-52</td></tr>
+  <tr><td>BR-149</td><td>Logs older than 90 days are automatically moved to cold storage.</td><td class="uc-ref">UC-52</td></tr>
+  <tr><td>BR-150</td><td>Log deletion is strictly forbidden; only rotation is allowed.</td><td class="uc-ref">UC-52</td></tr>
+  <tr><td>BR-151</td><td>Financial dashboard metrics must be updated at least every 15 minutes.</td><td class="uc-ref">UC-53</td></tr>
+  <tr><td>BR-152</td><td>Global revenue reports must include deductions for payment gateway fees.</td><td class="uc-ref">UC-53</td></tr>
+  <tr><td>BR-153</td><td>Only 'SuperAdmin' role can see the full profit/loss dashboard widgets.</td><td class="uc-ref">UC-53</td></tr>
+  <tr><td>BR-154</td><td>MRR calculations must exclude one-time fees like dispute processing.</td><td class="uc-ref">UC-54</td></tr>
+  <tr><td>BR-155</td><td>Subscription reports must be generated daily at 00:00 UTC.</td><td class="uc-ref">UC-54</td></tr>
+  <tr><td>BR-156</td><td>Inactive trial accounts must be grouped separately from paid subscriptions.</td><td class="uc-ref">UC-54</td></tr>
+  <tr><td>BR-157</td><td>Financial reports must be cryptographically signed to prevent tampering.</td><td class="uc-ref">UC-55</td></tr>
+  <tr><td>BR-158</td><td>All platform fees (e.g., 5% commission) must be clearly separated from escrow totals.</td><td class="uc-ref">UC-55</td></tr>
+  <tr><td>BR-159</td><td>Payout reports must highlight any transactions flagged by 'Anti-Money Laundering' (AML) checks.</td><td class="uc-ref">UC-55</td></tr>
+  <tr><td>BR-160</td><td>All user reports must be acknowledged within 24 hours.</td><td class="uc-ref">UC-56</td></tr>
+  <tr><td>BR-161</td><td>Reports involving 'Security Vulnerabilities' must be hidden from regular staff.</td><td class="uc-ref">UC-56</td></tr>
+  <tr><td>BR-162</td><td>Internal moderator notes are never visible to the reporter or reported user.</td><td class="uc-ref">UC-56</td></tr>
+  <tr><td>BR-163</td><td>Disputes are automatically prioritized based on project budget and participant trust scores.</td><td class="uc-ref">UC-57</td></tr>
+  <tr><td>BR-164</td><td>Disputes involving staff family/friends must be 'Hard Locked' from that staff member.</td><td class="uc-ref">UC-57</td></tr>
+  <tr><td>BR-165</td><td>List must highlight cases that are within 12 hours of their response deadline.</td><td class="uc-ref">UC-57</td></tr>
+  <tr><td>BR-166</td><td>All dispute evidence must be virus-scanned before admin preview.</td><td class="uc-ref">UC-58</td></tr>
+  <tr><td>BR-167</td><td>Viewing a dispute record is tracked via an 'Internal Access Log' including IP.</td><td class="uc-ref">UC-58</td></tr>
+  <tr><td>BR-168</td><td>Participants cannot see that an Admin is currently viewing their case details.</td><td class="uc-ref">UC-58</td></tr>
+  <tr><td>BR-169</td><td>Verdicts must always include a mandatory justification of at least 100 words.</td><td class="uc-ref">UC-59</td></tr>
+  <tr><td>BR-170</td><td>Once a verdict is executed, funds are transferred within 60 minutes.</td><td class="uc-ref">UC-59</td></tr>
+  <tr><td>BR-171</td><td>Decisions on cases >$5,000 require dual-admin confirmation.</td><td class="uc-ref">UC-59</td></tr>
+  <tr><td>BR-172</td><td>Provider applications must be processed within 5 business days.</td><td class="uc-ref">UC-60</td></tr>
+  <tr><td>BR-173</td><td>Rejections for 'Fraud' must not include specific details about detection methods.</td><td class="uc-ref">UC-60</td></tr>
+  <tr><td>BR-174</td><td>Brokers must pass a secondary background check or interview for Enterprise projects.</td><td class="uc-ref">UC-60</td></tr>
+  <tr><td>BR-175</td><td>Staff cannot edit project details; only 'Read' access is permitted for monitoring.</td><td class="uc-ref">UC-61</td></tr>
+  <tr><td>BR-176: Projects more than 15% behind schedule must be highlighted in ORANGE.</td><td class="uc-ref">UC-61</td></tr>
+  <tr><td>BR-177</td><td>Global project list access is restricted to the office IP range.</td><td class="uc-ref">UC-61</td></tr>
+  <tr><td>BR-178</td><td>All manual emails must include a mandatory 'Unsubscribe' or 'Manage Preferences' link.</td><td class="uc-ref">UC-62</td></tr>
+  <tr><td>BR-179</td><td>Broadcasts to over 10,000 users must be approved by the CTO.</td><td class="uc-ref">UC-62</td></tr>
+  <tr><td>BR-180</td><td>System-critical notifications (bans/disputes) bypass the user's opt-out settings.</td><td class="uc-ref">UC-62</td></tr>
+  <tr><td>BR-181</td><td>Reviews cannot be edited by staff; only hidden or deleted via 'Hard Policy'.</td><td class="uc-ref">UC-63</td></tr>
+  <tr><td>BR-182</td><td>Reviews for projects involving 'Disputes' are held for 14 days before publishing.</td><td class="uc-ref">UC-63</td></tr>
+  <tr><td>BR-183</td><td>Community trust scores are updated every 24 hours based on new feedback.</td><td class="uc-ref">UC-63</td></tr>
+  <tr><td>BR-184</td><td>Users are limited to 3 KYC submission attempts per 30 days.</td><td class="uc-ref">UC-64</td></tr>
+  <tr><td>BR-185</td><td>Being 'Verified' is mandatory for withdrawing funds >$500.</td><td class="uc-ref">UC-64</td></tr>
+  <tr><td>BR-186</td><td>KYC status is automatically downgraded if ID document expires.</td><td class="uc-ref">UC-64</td></tr>
+</table>
+
+</body>
+</html>
+
