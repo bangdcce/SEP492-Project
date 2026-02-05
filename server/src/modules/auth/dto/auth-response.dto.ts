@@ -35,6 +35,12 @@ export class AuthResponseDto {
   phoneNumber: string | null;
 
   @ApiProperty({
+    description: 'Múi giờ IANA (ví dụ: Asia/Ho_Chi_Minh)',
+    example: 'Asia/Ho_Chi_Minh',
+  })
+  timeZone: string;
+
+  @ApiProperty({
     description: 'URL ảnh đại diện',
     example: 'https://example.com/avatar.jpg',
     required: false,

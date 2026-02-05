@@ -77,6 +77,18 @@ const ContractListPage = lazy(
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
 
+// ========== HEARINGS (CLIENT/BROKER/FREELANCER) ==========
+const ParticipantHearingsPage = lazy(() =>
+  import("@/features/hearings/pages/ParticipantHearingsPage").then((module) => ({
+    default: module.ParticipantHearingsPage,
+  })),
+);
+const ParticipantHearingRoomPage = lazy(() =>
+  import("@/features/hearings/pages/ParticipantHearingRoomPage").then((module) => ({
+    default: module.ParticipantHearingRoomPage,
+  })),
+);
+
 // ========== FREELANCER PAGES ==========
 const FreelancerOnboardingPage = lazy(
   () => import("@/pages/FreelancerOnboardingPage"),
@@ -115,9 +127,19 @@ const StaffCalendarPage = lazy(() =>
     default: m.StaffCalendarPage,
   })),
 );
-const StaffWorkloadPage = lazy(() =>
-  import("@/features/staff/pages/StaffWorkloadPage").then((m) => ({
-    default: m.StaffWorkloadPage,
+const StaffHearingsPage = lazy(() =>
+  import("@/features/staff/pages/StaffHearingsPage").then((m) => ({
+    default: m.StaffHearingsPage,
+  })),
+);
+const StaffLeavePage = lazy(() =>
+  import("@/features/staff/pages/StaffLeavePage").then((m) => ({
+    default: m.StaffLeavePage,
+  })),
+);
+const StaffHearingRoomPage = lazy(() =>
+  import("@/features/staff/pages/StaffHearingRoomPage").then((m) => ({
+    default: m.StaffHearingRoomPage,
   })),
 );
 
@@ -170,6 +192,26 @@ function App() {
             <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <ProjectListPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/hearings"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ParticipantHearingsPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/hearings/:hearingId"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ParticipantHearingRoomPage />
               </FreelancerDashboardLayout>
             </RoleGuard>
           }
@@ -278,19 +320,23 @@ function App() {
           }
         />
         <Route
-          path={ROUTES.CLIENT_DISCOVERY}
+          path="/client/hearings"
           element={
-            <ClientDashboardLayout>
-              <DiscoveryPage />
-            </ClientDashboardLayout>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+              <ClientDashboardLayout>
+                <ParticipantHearingsPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
-          path={ROUTES.CLIENT_DISCOVERY_PROFILE}
+          path="/client/hearings/:hearingId"
           element={
-            <ClientDashboardLayout>
-              <PartnerProfilePage />
-            </ClientDashboardLayout>
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+              <ClientDashboardLayout>
+                <ParticipantHearingRoomPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
           }
         />
         <Route
@@ -418,6 +464,26 @@ function App() {
           }
         />
         <Route
+          path="/broker/hearings"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <ParticipantHearingsPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/broker/hearings/:hearingId"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <ParticipantHearingRoomPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.BROKER_WORKSPACE}
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
@@ -525,7 +591,9 @@ function App() {
           <Route path="queue" element={<StaffQueuePage />} />
           <Route path="caseload" element={<StaffCaseloadPage />} />
           <Route path="calendar" element={<StaffCalendarPage />} />
-          <Route path="workload" element={<StaffWorkloadPage />} />
+          <Route path="leave" element={<StaffLeavePage />} />
+          <Route path="hearings" element={<StaffHearingsPage />} />
+          <Route path="hearings/:hearingId" element={<StaffHearingRoomPage />} />
           <Route path="profile" element={<ProfilePage />} />
           {/* Fallback */}
           <Route index element={<Navigate to="dashboard" replace />} />

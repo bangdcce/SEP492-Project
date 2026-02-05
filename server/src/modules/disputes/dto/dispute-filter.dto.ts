@@ -7,6 +7,8 @@ import {
   IsString,
   IsBoolean,
   IsDateString,
+  IsArray,
+  IsNumber,
 } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
 import {
@@ -61,6 +63,19 @@ export class DisputeFilterDto {
   status?: DisputeStatus;
 
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') return undefined;
+    if (Array.isArray(value)) return value;
+    return String(value)
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+  })
+  @IsArray()
+  @IsEnum(DisputeStatus, { each: true })
+  statusIn?: DisputeStatus[];
+
+  @IsOptional()
   @IsEnum(DisputeCategory)
   category?: DisputeCategory;
 
@@ -84,6 +99,15 @@ export class DisputeFilterDto {
   @IsString()
   defendantId?: string;
 
+  @IsOptional()
+  @IsString()
+  assignedStaffId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  unassignedOnly?: boolean;
+
   // === DATE FILTERS ===
   @IsOptional()
   @IsDateString()
@@ -96,6 +120,25 @@ export class DisputeFilterDto {
   @IsOptional()
   @IsDateString()
   deadlineBefore?: string;
+
+  @IsOptional()
+  @IsDateString()
+  deadlineFrom?: string;
+
+  @IsOptional()
+  @IsDateString()
+  deadlineTo?: string;
+
+  // === AMOUNT FILTERS ===
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  minDisputedAmount?: number;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber()
+  maxDisputedAmount?: number;
 
   // === SPECIAL FILTERS ===
   @IsOptional()

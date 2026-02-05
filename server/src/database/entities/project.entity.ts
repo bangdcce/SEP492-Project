@@ -53,7 +53,7 @@ export class ProjectEntity {
   @Column({ type: 'decimal', precision: 15, scale: 2 })
   totalBudget: number;
 
-  @Column({ type: 'varchar', length: 10, default: 'VND' })
+  @Column({ type: 'varchar', length: 10, default: 'USD' })
   currency: string;
 
   @Column({

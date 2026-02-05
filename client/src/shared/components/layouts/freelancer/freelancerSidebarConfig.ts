@@ -11,6 +11,7 @@ import {
   CheckSquare,
   Briefcase,
   User,
+  Video,
 } from "lucide-react";
 
 export interface FreelancerSidebarMenuItem {
@@ -62,6 +63,14 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     icon: Briefcase,
     path: "/freelancer/projects",
     description: "Manage your projects",
+    section: "workspace",
+  },
+  {
+    id: "hearings",
+    label: "Hearings",
+    icon: Video,
+    path: "/freelancer/hearings",
+    description: "Upcoming dispute hearings",
     section: "workspace",
   },
   {

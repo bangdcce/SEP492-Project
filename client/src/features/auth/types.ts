@@ -9,6 +9,7 @@ export interface User {
   email: string;
   fullName: string;
   role: UserRole;
+  timeZone?: string;
   businessName?: string;
   profilePicture?: string;
   createdAt: string;

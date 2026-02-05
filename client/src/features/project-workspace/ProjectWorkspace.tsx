@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
 import { LayoutGrid, Calendar as CalendarIcon, BarChart2, Search, XCircle, FileSignature } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
+import { toast } from "sonner";
 import {
   fetchBoard,
   updateTaskStatus,
@@ -17,14 +18,15 @@ import {
   type WorkspaceProject,
 } from "./api";
 import type { KanbanBoard, KanbanColumnKey, Task, Milestone } from "./types";
-import { KanbanColumn } from "./components/KanbanColumn";
-import { CreateTaskModal } from "./components/CreateTaskModal";
-import { TaskDetailModal } from "./components/TaskDetailModal";
-import { MilestoneTabs } from "./components/MilestoneTabs";
-import { CalendarView } from "./components/CalendarView";
-import { MilestoneApprovalCard } from "./components/MilestoneApprovalCard";
-import { ProjectOverview } from "./components/ProjectOverview";
+import { KanbanColumn } from "./components/board/KanbanColumn";
+import { CreateTaskModal } from "./components/board/CreateTaskModal";
+import { TaskDetailModal } from "./components/board/TaskDetailModal";
+import { MilestoneTabs } from "./components/milestone/MilestoneTabs";
+import { CalendarView } from "./components/calendar/CalendarView";
+import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
+import { ProjectOverview } from "./components/overview/ProjectOverview";
 import { calculateProgress } from "./utils";
+import { CreateDisputeModal } from "@/features/disputes/components/wizard/CreateDisputeModal";
 
 const initialBoard: KanbanBoard = {
   TODO: [],
@@ -56,6 +58,8 @@ export function ProjectWorkspace() {
     null
   );
   const [viewMode, setViewMode] = useState<"summary" | "board" | "calendar">("summary");
+  const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
+  const [disputeMilestone, setDisputeMilestone] = useState<Milestone | null>(null);
 
   // Filter State
   const [searchQuery, setSearchQuery] = useState("");
@@ -81,6 +85,48 @@ export function ProjectWorkspace() {
     const role = currentUser?.role?.toUpperCase();
     return role === "CLIENT" || role === "BROKER";
   }, [currentUser]);
+
+  const projectMembers = useMemo(() => {
+    if (!project) return [];
+    const members = new Map<
+      string,
+      { id: string; name: string; role: string }
+    >();
+    const normalizeRole = (role: string) => {
+      switch (role.toUpperCase()) {
+        case "CLIENT":
+          return "Client";
+        case "CLIENT_SME":
+          return "Client SME";
+        case "BROKER":
+          return "Broker";
+        case "FREELANCER":
+          return "Freelancer";
+        default:
+          return role;
+      }
+    };
+    const addMember = (id: string | null | undefined, role: string) => {
+      if (!id) return;
+      if (members.has(id)) return;
+      const label = normalizeRole(role);
+      members.set(id, {
+        id,
+        name: `${label} (${id.slice(0, 6)})`,
+        role,
+      });
+    };
+    addMember(project.clientId, "CLIENT");
+    addMember(project.brokerId, "BROKER");
+    addMember(project.freelancerId ?? null, "FREELANCER");
+    return Array.from(members.values());
+  }, [project]);
+
+  const canRaiseDisputeForMilestone = useCallback((status?: string) => {
+    if (!status) return false;
+    const normalized = status.toUpperCase();
+    return ["IN_PROGRESS", "SUBMITTED", "REVISIONS_REQUIRED"].includes(normalized);
+  }, []);
 
   useEffect(() => {
     if (!projectId) {
@@ -355,8 +401,26 @@ export function ProjectWorkspace() {
 
   // Handle raising a dispute (UI only)
   const handleRaiseDispute = (milestoneId: string) => {
-    void milestoneId;
-    alert("Feature coming soon");
+    if (!project) {
+      toast.error("Project data is not loaded yet.");
+      return;
+    }
+    if (!currentUser?.id) {
+      toast.error("User session missing. Please sign in again.");
+      return;
+    }
+    const milestone = milestones.find((item) => item.id === milestoneId);
+    if (!milestone) {
+      toast.error("Milestone not found.");
+      return;
+    }
+    setDisputeMilestone(milestone);
+    setIsDisputeModalOpen(true);
+  };
+
+  const closeDisputeModal = () => {
+    setIsDisputeModalOpen(false);
+    setDisputeMilestone(null);
   };
 
   // Handle task submission with proof of work
@@ -643,14 +707,15 @@ export function ProjectWorkspace() {
           {activeMilestone &&
            activeProgress === 100 &&
            activeMilestone.status !== "COMPLETED" &&
-           activeMilestone.status !== "PAID" &&
-           canApproveMilestone && (
+           activeMilestone.status !== "PAID" && (
             <MilestoneApprovalCard
               milestone={activeMilestone}
               tasks={activeTasks}
               progress={activeProgress}
               onApprove={handleApproveMilestone}
               onRaiseDispute={handleRaiseDispute}
+              canApprove={canApproveMilestone}
+              currency={project?.currency ?? "USD"}
             />
           )}
 
@@ -670,6 +735,14 @@ export function ProjectWorkspace() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-700">
                   <span>{activeProgress}%</span>
+                  {canRaiseDisputeForMilestone(activeMilestone.status) && (
+                    <button
+                      onClick={() => handleRaiseDispute(activeMilestone.id)}
+                      className="ml-2 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-100"
+                    >
+                      Raise Dispute
+                    </button>
+                  )}
                 </div>
               </div>
               {activeMilestone.description ? (
@@ -839,6 +912,20 @@ export function ProjectWorkspace() {
         onUpdate={handleTaskUpdate}
         onSubmitTask={handleSubmitTask}
       />
+
+      {project && disputeMilestone && currentUser?.id && (
+        <CreateDisputeModal
+          isOpen={isDisputeModalOpen}
+          onClose={closeDisputeModal}
+          milestoneId={disputeMilestone.id}
+          projectId={project.id}
+          milestoneTitle={disputeMilestone.title}
+          milestoneStatus={disputeMilestone.status}
+          projectTitle={project.title ?? "Project"}
+          currentUserId={currentUser.id}
+          projectMembers={projectMembers}
+        />
+      )}
 
     </div>
   );

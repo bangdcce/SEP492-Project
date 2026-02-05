@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Controller,
   ForbiddenException,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -13,6 +14,7 @@ import {
   Query,
   Body,
   UseGuards,
+  Headers,
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
@@ -609,17 +611,41 @@ export class CalendarController {
   @Post('availability')
   @ApiOperation({ summary: 'Set user availability' })
   @HttpCode(HttpStatus.OK)
-  async setAvailability(@Body() dto: SetAvailabilityDto, @GetUser() user: UserEntity) {
+  async setAvailability(
+    @Body() dto: SetAvailabilityDto,
+    @GetUser() user: UserEntity,
+    @Headers('x-timezone') headerTimeZone?: string,
+  ) {
     const result = await this.availabilityService.setUserAvailability({
       userId: user.id,
       slots: dto.slots,
       recurring: dto.recurring,
       allowConflicts: dto.allowConflicts,
+      timeZone: dto.timeZone || headerTimeZone,
     });
 
     return {
       success: true,
       message: 'Availability updated',
+      data: result,
+    };
+  }
+
+  @Delete('availability/:id')
+  @ApiOperation({ summary: 'Delete availability slot' })
+  @HttpCode(HttpStatus.OK)
+  async deleteAvailability(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const result = await this.availabilityService.deleteUserAvailability({
+      userId: user.id,
+      availabilityId: id,
+    });
+
+    return {
+      success: true,
+      message: 'Availability removed',
       data: result,
     };
   }
@@ -695,11 +721,11 @@ export class CalendarController {
           .filter((value) => value.length > 0)
       : [];
 
-    const staffQuery = this.userRepository.createQueryBuilder('user').where('user.role = :role', {
-      role: UserRole.STAFF,
-    });
+    const staffQuery = this.userRepository.createQueryBuilder('user');
     if (staffIds.length > 0) {
-      staffQuery.andWhere('user.id IN (:...staffIds)', { staffIds });
+      staffQuery.where('user.id IN (:...staffIds)', { staffIds });
+    } else {
+      staffQuery.where('user.role = :role', { role: UserRole.STAFF });
     }
     const staff = await staffQuery.getMany();
     const targetStaffIds = staff.map((item) => item.id);

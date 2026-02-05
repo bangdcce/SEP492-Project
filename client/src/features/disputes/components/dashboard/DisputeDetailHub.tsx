@@ -20,6 +20,7 @@ import { VerdictWizard } from "../wizard/VerdictWizard";
 import { DisputeHearingPanel } from "../hearings/DisputeHearingPanel";
 import { useDisputeRealtime } from "@/features/disputes/hooks/useDisputeRealtime";
 import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 import {
   getDisputeActivities,
   getDisputeComplexity,
@@ -30,11 +31,12 @@ import type {
   DisputeComplexity,
   DisputeSummary,
 } from "../../types/dispute.types";
-import { DisputeStatus, UserRole } from "../../../staff/types/staff.types";
+import { DisputePhase, DisputeStatus, UserRole } from "../../../staff/types/staff.types";
 
 interface DisputeDetailHubProps {
   disputeId?: string;
   initialDispute?: DisputeSummary;
+  initialTab?: string;
 }
 
 const TimelineRoute = ({
@@ -103,9 +105,26 @@ const TimelineRoute = ({
 export const DisputeDetailHub = ({
   disputeId,
   initialDispute,
+  initialTab,
 }: DisputeDetailHubProps) => {
   const navigate = useNavigate();
-  const [selectedIndex, setSelectedIndex] = useState(0);
+  const normalizedTab = initialTab?.toLowerCase();
+  const tabIndexMap: Record<string, number> = {
+    timeline: 0,
+    hearings: 1,
+    hearing: 1,
+    evidence: 2,
+    "evidence-vault": 2,
+    discussion: 3,
+    chat: 3,
+    resolution: 4,
+    verdict: 4,
+  };
+  const initialIndex =
+    normalizedTab && tabIndexMap[normalizedTab] !== undefined
+      ? tabIndexMap[normalizedTab]
+      : 0;
+  const [selectedIndex, setSelectedIndex] = useState(initialIndex);
   const [dispute, setDispute] = useState<DisputeSummary | null>(
     initialDispute ?? null,
   );
@@ -116,24 +135,18 @@ export const DisputeDetailHub = ({
   const [refreshToken, setRefreshToken] = useState(0);
 
   const currentUser = useMemo(() => {
-    const raw = localStorage.getItem(STORAGE_KEYS.USER);
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as { role?: UserRole };
-    } catch {
-      return null;
-    }
+    return getStoredJson<{ role?: UserRole }>(STORAGE_KEYS.USER);
   }, []);
 
   const canViewInternal = useMemo(() => {
     return currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.STAFF;
   }, [currentUser]);
 
-  const fetchDetail = useCallback(async () => {
+  const fetchDetail = useCallback(async (preferCache: boolean = true) => {
     if (!disputeId) return;
     try {
       setLoading(true);
-      const detail = await getDisputeDetail(disputeId);
+      const detail = await getDisputeDetail(disputeId, { preferCache });
       setDispute((prev) => ({ ...(prev ?? ({} as DisputeSummary)), ...detail }));
     } catch (error) {
       console.error("Failed to load dispute detail:", error);
@@ -143,11 +156,13 @@ export const DisputeDetailHub = ({
     }
   }, [disputeId]);
 
-  const fetchActivities = useCallback(async () => {
+  const fetchActivities = useCallback(async (preferCache: boolean = true) => {
     if (!disputeId) return;
     try {
       setActivityLoading(true);
-      const data = await getDisputeActivities(disputeId, canViewInternal);
+      const data = await getDisputeActivities(disputeId, canViewInternal, {
+        preferCache,
+      });
       setActivities(data ?? []);
     } catch (error) {
       console.error("Failed to load dispute activities:", error);
@@ -156,10 +171,10 @@ export const DisputeDetailHub = ({
     }
   }, [disputeId, canViewInternal]);
 
-  const fetchComplexity = useCallback(async () => {
+  const fetchComplexity = useCallback(async (preferCache: boolean = true) => {
     if (!disputeId) return;
     try {
-      const data = await getDisputeComplexity(disputeId);
+      const data = await getDisputeComplexity(disputeId, { preferCache });
       setComplexity(data.data);
     } catch (error) {
       console.error("Failed to load dispute complexity:", error);
@@ -178,21 +193,24 @@ export const DisputeDetailHub = ({
       return;
     }
 
-    fetchDetail();
-    fetchActivities();
-    fetchComplexity();
+    fetchDetail(true);
+    fetchActivities(true);
+    fetchComplexity(true);
   }, [disputeId, initialDispute, fetchDetail, fetchActivities, fetchComplexity]);
 
   const handleRealtimeRefresh = useCallback(() => {
-    fetchDetail();
-    fetchActivities();
-    fetchComplexity();
+    fetchDetail(false);
+    fetchActivities(false);
+    fetchComplexity(false);
     setRefreshToken((prev) => prev + 1);
   }, [fetchDetail, fetchActivities, fetchComplexity]);
 
+  const handlePhaseUpdated = useCallback((phase: DisputePhase) => {
+    setDispute((prev) => (prev ? { ...prev, phase } : prev));
+  }, []);
+
   useDisputeRealtime(disputeId, {
     onEvidenceUploaded: handleRealtimeRefresh,
-    onMessageSent: handleRealtimeRefresh,
     onVerdictIssued: handleRealtimeRefresh,
     onHearingEnded: handleRealtimeRefresh,
   });
@@ -274,7 +292,13 @@ export const DisputeDetailHub = ({
     {
       name: "Discussion",
       icon: MessageSquare,
-      component: disputeId ? <DiscussionPanel disputeId={disputeId} /> : null,
+      component: disputeId ? (
+        <DiscussionPanel
+          disputeId={disputeId}
+          dispute={dispute}
+          onPhaseUpdated={handlePhaseUpdated}
+        />
+      ) : null,
     },
     {
       name: "Resolution",

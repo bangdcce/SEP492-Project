@@ -44,7 +44,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -70,15 +70,16 @@
       <tr>
         <td class="label-cell">Preconditions:</td>
         <td colspan="3">
-          PRE1: Project status is "Completed".<br />
-          PRE2: User has not already submitted a review for this project.
+          <b>PRE1:</b> Project status is "Completed".<br />
+          <b>PRE2:</b> User has not already submitted a review for this project.
         </td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
         <td colspan="3">
-          POS1: Review is saved and visible on profile.<br />
-          POS2: Trust Score is recalculated.
+          <b>POS1:</b> Review record is inserted into the database.<br />
+          <b>POS2:</b> Target user's Trust Score is updated via an atomic
+          transaction.
         </td>
       </tr>
       <tr>
@@ -95,10 +96,11 @@
             <li>User enters a text comment (Optional).</li>
             <li>User clicks "Submit Review".</li>
             <li>
-              System calculates the new average score for the target user.
+              System calculates the new <b>Weighted Trust Score</b> using the
+              exponential moving average (EMA) formula.
             </li>
-            <li>System updates the Trust Score (UC-80 logic).</li>
-            <li>System publishes the review on the target user's profile.</li>
+            <li>System commits the transaction to update the User Entity.</li>
+            <li>System publishes the review to the public profile view.</li>
           </ol>
         </td>
       </tr>
@@ -115,20 +117,12 @@
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-01: Lost connection to the server or the Internet</b>
-          <ul>
-            <li>
-              The system displays an error message and prompts the user to retry
-              action when connection is restored.
-            </li>
-          </ul>
-          <b>EXC-02: Database Transaction Error</b>
-          <ul>
-            <li>
-              If the Trust Score calculation fails, the system logs the error
-              and asks the user to try again later. Review is not saved.
-            </li>
-          </ul>
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to retry
+          action when connection is restored.<br /><br />
+          <b>EXC-02: Database Transaction Error</b><br />
+          - If the Trust Score calculation fails, the system logs the error and
+          asks the user to try again later. Review is not saved.
         </td>
       </tr>
       <tr>
@@ -163,7 +157,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -184,11 +178,11 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: User is authenticated as Staff/Admin.</td>
+        <td colspan="3"><b>PRE1:</b> User is authenticated as Staff/Admin.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
-        <td colspan="3">POS1: List is displayed sorted by priority.</td>
+        <td colspan="3"><b>POS1:</b> List is displayed sorted by priority.</td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
@@ -206,8 +200,8 @@
               Score" for each item.
             </li>
             <li>
-              The System displays the dispute cards sorted by Priority (Critical
-              first).
+              The System displays the dispute cards sorted by
+              <b>Risk Score (Descending)</b> and Creation Date (Ascending).
             </li>
           </ol>
         </td>
@@ -236,13 +230,9 @@
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-01: Lost connection to the server or the Internet</b>
-          <ul>
-            <li>
-              The system displays an error message and prompts the user to
-              refresh the page when connection is restored.
-            </li>
-          </ul>
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to refresh
+          the page when connection is restored.
         </td>
       </tr>
       <tr>
@@ -277,7 +267,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -296,15 +286,15 @@
       <tr>
         <td class="label-cell">Preconditions:</td>
         <td colspan="3">
-          PRE1: Milestone is active/founded.<br />
-          PRE2: No existing open dispute on this milestone.
+          <b>PRE1:</b> Milestone is active/founded.<br />
+          <b>PRE2:</b> No existing open dispute on this milestone.
         </td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
         <td colspan="3">
-          POS1: Funds frozen.<br />
-          POS2: Staff notified.
+          <b>POS1:</b> Funds frozen.<br />
+          <b>POS2:</b> Staff notified.
         </td>
       </tr>
       <tr>
@@ -327,13 +317,15 @@
               explaining the issue.
             </li>
             <li>
-              The User optionally uploads supporting evidence files
-              (Images/PDFs).
+              The User optionally uploads supporting evidence files. (See
+              <b>UC-45</b> for technical details on SHA-256 hashing and
+              Storage).
             </li>
             <li>The User clicks "Confirm Dispute".</li>
             <li>
-              The System saves the dispute, freezes the funds, and redirects the
-              user to the Dispute Detail page (UC-44).
+              The System executes a database transaction to: create the Dispute
+              entity, freeze the associated Escrow Milestones, and notify the
+              Staff via Event Bus.
             </li>
           </ol>
         </td>
@@ -354,32 +346,31 @@
             <li>User edits the text to be longer.</li>
             <li>System enables the "Confirm" button.</li>
           </ol>
+          <b>A.6 File Validation Failure</b>
+          <ol>
+            <li>
+              User uploads a file larger than 50MB or of a restricted type
+              (e.g., .exe).
+            </li>
+            <li>
+              System displays "File Upload Failed: Invalid format or size limit
+              exceeded".
+            </li>
+            <li>
+              System rejects the file and prompts User to select a valid file.
+            </li>
+          </ol>
         </td>
       </tr>
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-01: Lost connection to the server or the Internet</b>
-          <ul>
-            <li>
-              The system displays an error message and prompts the user to retry
-              action when connection is restored.
-            </li>
-          </ul>
-          <b>EXC-02: Invalid Input Data</b>
-          <ul>
-            <li>
-              If description is less than 20 characters, System highlights the
-              field in red and disables the Submit button.
-            </li>
-          </ul>
-          <b>EXC-03: File Upload Error</b>
-          <ul>
-            <li>
-              If evidence file exceeds 50MB (BR-61) or is an invalid type,
-              System displays "File Upload Failed" and rejects the file.
-            </li>
-          </ul>
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to retry
+          action when connection is restored.<br /><br />
+          <b>EXC-02: System Storage Error</b><br />
+          - If the system fails to initialize the upload stream due to server
+          error, System logs the incident and asks User to try again later.
         </td>
       </tr>
       <tr>
@@ -416,7 +407,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -436,13 +427,13 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: User has view permission.</td>
+        <td colspan="3"><b>PRE1:</b> User has view permission.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
         <td colspan="3">
-          POS1: Dispute details are displayed.<br />
-          POS2: Sub-features (Evidence, Chat) are accessible.
+          <b>POS1:</b> Dispute details are displayed.<br />
+          <b>POS2:</b> Sub-features (Evidence, Chat) are accessible.
         </td>
       </tr>
       <tr>
@@ -478,25 +469,24 @@
             <li>User clicks on "Evidence Vault" (UC-45).</li>
             <li>System switches view to display grid of uploaded files.</li>
           </ol>
+          <b>A.7 Unauthorized Access Attempt</b>
+          <ol>
+            <li>
+              User tries to access a dispute ID they are not associated with.
+            </li>
+            <li>
+              System denies access and redirects to Dashboard with "Access
+              Denied" error.
+            </li>
+          </ol>
         </td>
       </tr>
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-01: Lost connection to the server or the Internet</b>
-          <ul>
-            <li>
-              The system displays an error message and prompts the user to
-              refresh the page when connection is restored.
-            </li>
-          </ul>
-          <b>EXC-04: User Not Authorized</b>
-          <ul>
-            <li>
-              If a user tries to access a dispute ID they are not part of,
-              System redirects to Dashboard with "Access Denied" error.
-            </li>
-          </ul>
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to refresh
+          the page when connection is restored.
         </td>
       </tr>
       <tr>
@@ -531,7 +521,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -549,51 +539,91 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: Dispute is open.</td>
+        <td colspan="3"><b>PRE1:</b> Dispute is open.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
-        <td colspan="3">POS1: File stored.</td>
+        <td colspan="3">
+          <b>POS1:</b> The file binary is durably persisted in the
+          <b>Supabase Object Storage</b> ('disputes' bucket) under a unique,
+          collision-resistant path.<br />
+          <b>POS2:</b> A corresponding metadata record (containing storage path,
+          SHA-256 hash, MIME type, file size) is inserted into the
+          <b>PostgreSQL</b> <code>dispute_evidence</code> table for management
+          and retrieval.
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
         <td colspan="3">
-          <b>A. Upload Success</b>
+          <b>A. Secure Evidence Upload</b>
           <ol>
-            <li>The User selects files from their local device.</li>
-            <li>The System validates file size and type. (Refer BR-61)</li>
-            <li>The User adds a description/caption for the evidence.</li>
-            <li>The User clicks "Submit Evidence".</li>
-            <li>The System stores the file securely.</li>
-            <li>The System adds an entry to the Dispute Timeline.</li>
+            <li>The User selects files from their local device context.</li>
+            <li>
+              The System calculates a cryptographic hash (SHA-256) of the file
+              to ensure data integrity and detect duplicates.
+            </li>
+            <li>
+              The System validates the file signature (MIME type and Magic
+              Bytes) to prevent restricted file types.
+            </li>
+            <li>
+              The System generates a unique, collision-resistant identifier for
+              the file to ensure secure storage isolation.
+            </li>
+            <li>The System reserves a metadata record in the database.</li>
+            <li>
+              The System securely streams the file content to the
+              <b>Object Storage</b> (Disputes Vault).
+            </li>
+            <li>
+              The System performs an asynchronous malware scan via
+              <b>VirusTotal API</b>.
+            </li>
+            <li>
+              The System commits the transaction and triggers a notification
+              event to relevant parties.
+            </li>
           </ol>
         </td>
       </tr>
       <tr>
         <td class="label-cell">Alternative Flows:</td>
         <td colspan="3">
-          <b>A.2 Remove File Before Submit</b>
+          <b>A.2 Duplicate File Detected</b>
           <ol>
-            <li>User selects file.</li>
-            <li>User clicks the "X" button next to file name.</li>
-            <li>System removes file from the pending list.</li>
+            <li>
+              System detects that a file with the exact same content hash
+              already exists.
+            </li>
+            <li>
+              System rejects the new upload and references the existing file to
+              save storage.
+            </li>
+          </ol>
+          <b>A.3 Security Violation (Malware Detected)</b>
+          <ol>
+            <li>The VirusTotal scan returns a positive hit (>1 engine).</li>
+            <li>
+              The System immediately quarantines and purges the file from
+              Storage.
+            </li>
+            <li>The System hard-deletes the database record.</li>
+            <li>The User is flagged for security review.</li>
+            <li>System sends a critical alert to Admins.</li>
           </ol>
         </td>
       </tr>
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-01: Lost connection to the server or the Internet</b>
-          <ul>
-            <li>System displays error "Upload Failed" and allows retry.</li>
-          </ul>
-          <b>EXC-03: File Upload Error</b>
-          <ul>
-            <li>
-              If evidence file exceeds 50MB (BR-61) or is executable (.exe,
-              etc), System immediately rejects file and alerts "Invalid File".
-            </li>
-          </ul>
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to retry
+          action when connection is restored.<br /><br />
+          <b>EXC-02: Storage Service Unavailable</b><br />
+          - If the stream to the storage provider fails due to timeout or
+          outages, the System rolls back the database record to ensure data
+          consistency and alerts the user.
         </td>
       </tr>
       <tr>
@@ -610,11 +640,14 @@
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">
+          Files are stored in a private bucket with RLS policies restricting
+          access to participants only.
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Assumptions:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">VirusTotal API quota is available.</td>
       </tr>
     </table>
 
@@ -630,7 +663,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -654,28 +687,38 @@
       <tr>
         <td class="label-cell">Preconditions:</td>
         <td colspan="3">
-          PRE1: Dispute is assigned to Staff.<br />
-          PRE2: Staff justification is provided.
+          <b>PRE1:</b> Dispute is currently assigned to the Staff member.<br />
+          <b>PRE2:</b> Staff has provided a justification for why they cannot
+          resolve it.
         </td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
-        <td colspan="3">POS1: Dispute assigned to Admin.</td>
+        <td colspan="3">
+          <b>POS1:</b> Dispute tier is upgraded to Level 2 (Admin).<br />
+          <b>POS2:</b> Dispute is re-assigned to the Admin Queue.
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
         <td colspan="3">
           <b>A. Escalation Success</b>
           <ol>
-            <li>Staff clicks "Escalate".</li>
+            <li>Staff clicks "Escalate" button.</li>
             <li>System prompts for "Reason for Escalation".</li>
             <li>
-              Staff enters reason (e.g., "Conflict of Interest" or "Out of
+              Staff enters the reason (e.g., "Conflict of Interest" or "Out of
               Expertise").
             </li>
-            <li>System updates Dispute Status to "Escalated".</li>
-            <li>System re-routes the dispute to the Admin Queue.</li>
-            <li>System logs the escalation action.</li>
+            <li>
+              System upgrades the dispute to Tier 2 (Admin Level) while keeping
+              the status as "In Mediation".
+            </li>
+            <li>
+              System removes the assignment from the current Staff and routes it
+              to the Admin Queue.
+            </li>
+            <li>System logs the escalation action in the dispute history.</li>
           </ol>
         </td>
       </tr>
@@ -684,16 +727,18 @@
         <td colspan="3">
           <b>A.2 Cancel Escalation</b>
           <ol>
-            <li>Staff decides not to escalate.</li>
+            <li>Staff decides not to escalate during the prompt.</li>
             <li>Staff clicks "Cancel".</li>
-            <li>Dispute remains assigned to current Staff.</li>
+            <li>Dispute remains assigned to the current Staff at Tier 1.</li>
           </ol>
         </td>
       </tr>
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-01: Lost connection to the server or the Internet</b>
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to check
+          their connection and retry the escalation action.
         </td>
       </tr>
       <tr>
@@ -706,7 +751,7 @@
       </tr>
       <tr>
         <td class="label-cell">Business Rules:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">BR-64</td>
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
@@ -714,7 +759,7 @@
       </tr>
       <tr>
         <td class="label-cell">Assumptions:</td>
-        <td colspan="3">Admin is available to take over.</td>
+        <td colspan="3">Admin is available to take over the dispute.</td>
       </tr>
     </table>
 
@@ -728,7 +773,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -749,11 +794,11 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: Admin logged in.</td>
+        <td colspan="3"><b>PRE1:</b> Admin logged in.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
-        <td colspan="3">POS1: Feedback list is displayed.</td>
+        <td colspan="3"><b>POS1:</b> Feedback list is displayed.</td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
@@ -777,7 +822,9 @@
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-01: Lost connection to the server or the Internet</b>
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to refresh
+          the page when connection is restored.
         </td>
       </tr>
       <tr>
@@ -790,7 +837,7 @@
       </tr>
       <tr>
         <td class="label-cell">Business Rules:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">BR-65</td>
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
@@ -812,7 +859,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -833,11 +880,11 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: There are pending reports.</td>
+        <td colspan="3"><b>PRE1:</b> There are pending reports.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
-        <td colspan="3">POS1: Report queue is displayed.</td>
+        <td colspan="3"><b>POS1:</b> Report queue is displayed.</td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
@@ -866,7 +913,11 @@
       </tr>
       <tr>
         <td class="label-cell">Exceptions:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to refresh
+          the page when connection is restored.
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Priority:</td>
@@ -878,7 +929,7 @@
       </tr>
       <tr>
         <td class="label-cell">Business Rules:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">BR-66</td>
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
@@ -900,7 +951,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -921,11 +972,11 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: Review is selected from queue.</td>
+        <td colspan="3"><b>PRE1:</b> Review is selected from queue.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
-        <td colspan="3">POS1: Details modal/page is open.</td>
+        <td colspan="3"><b>POS1:</b> Details modal/page is open.</td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
@@ -946,7 +997,11 @@
       </tr>
       <tr>
         <td class="label-cell">Exceptions:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to refresh
+          the page when connection is restored.
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Priority:</td>
@@ -958,7 +1013,7 @@
       </tr>
       <tr>
         <td class="label-cell">Business Rules:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">BR-67</td>
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
@@ -980,7 +1035,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -1002,13 +1057,13 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: Review currently active.</td>
+        <td colspan="3"><b>PRE1:</b> Review currently active.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
         <td colspan="3">
-          POS1: Status changed to "Deleted".<br />
-          POS2: Trust Score recalculated.
+          <b>POS1:</b> Status changed to "Deleted".<br />
+          <b>POS2:</b> Trust Score recalculated.
         </td>
       </tr>
       <tr>
@@ -1023,8 +1078,14 @@
               Speech").
             </li>
             <li>Admin confirms.</li>
-            <li>System hides the review from the frontend.</li>
-            <li>System updates the Trust Score of the recipient.</li>
+            <li>
+              System performs a <b>Soft Delete</b> by setting the
+              <code>is_deleted</code> flag to TRUE in the feedback table.
+            </li>
+            <li>
+              System triggers a background job to recalculate the Trust Score
+              without the deleted review.
+            </li>
           </ol>
         </td>
       </tr>
@@ -1040,7 +1101,11 @@
       </tr>
       <tr>
         <td class="label-cell">Exceptions:</td>
-        <td colspan="3"><b>EXC-01: Database Error</b></td>
+        <td colspan="3">
+          <b>EXC-01: Database Error</b><br />
+          - The system logs the error and notifies the Tech Admin. User is
+          prompted to retry.
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Priority:</td>
@@ -1052,7 +1117,7 @@
       </tr>
       <tr>
         <td class="label-cell">Business Rules:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">BR-68</td>
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
@@ -1074,7 +1139,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -1095,13 +1160,13 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: Review is status "Deleted".</td>
+        <td colspan="3"><b>PRE1:</b> Review is status "Deleted".</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
         <td colspan="3">
-          POS1: Review is visible again.<br />
-          POS2: Trust Score recalculated.
+          <b>POS1:</b> Review is visible again.<br />
+          <b>POS2:</b> Trust Score recalculated.
         </td>
       </tr>
       <tr>
@@ -1124,7 +1189,11 @@
       </tr>
       <tr>
         <td class="label-cell">Exceptions:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to refresh
+          the page when connection is restored.
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Priority:</td>
@@ -1136,7 +1205,7 @@
       </tr>
       <tr>
         <td class="label-cell">Business Rules:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">BR-69</td>
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
@@ -1158,7 +1227,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -1179,7 +1248,14 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: Dispute In Progress.</td>
+        <td colspan="3"><b>PRE1:</b> Dispute In Progress.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Dispute status is RESOLVED.<br />
+          <b>POS2:</b> Funds are distributed according to verdict.
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
@@ -1193,7 +1269,14 @@
             <li>(If Split) Staff adjusts the percentage slider.</li>
             <li>Staff enters "Legal Analysis" text.</li>
             <li>Staff clicks "Submit Verdict".</li>
-            <li>System processes transaction.</li>
+            <li>
+              System executes an <b>Escrow Ledger Transaction</b>:
+              <ul>
+                <li>Releases X% of frozen funds to the Freelancer's Wallet.</li>
+                <li>Refunds Y% of frozen funds to the Client's Wallet.</li>
+                <li>Updates Dispute Status to <b>RESOLVED</b>.</li>
+              </ul>
+            </li>
           </ol>
         </td>
       </tr>
@@ -1212,8 +1295,11 @@
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
           <b>EXC-01: Lost connection to the server or the Internet</b><br />
-          <b>EXC-06: Payment Gateway Error</b> - Internal fund transfer failed.
-          System rolls back verdict status and alerts Staff to retry.
+          - The system alerts user to check connection. No financial transaction
+          is committed.<br /><br />
+          <b>EXC-06: Payment Gateway Error</b><br />
+          - Internal fund transfer failed. System rolls back verdict status and
+          alerts Staff to retry.
         </td>
       </tr>
       <tr>
@@ -1226,7 +1312,7 @@
       </tr>
       <tr>
         <td class="label-cell">Business Rules:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">BR-70</td>
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
@@ -1248,7 +1334,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -1269,11 +1355,13 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: User is logged in as Admin.</td>
+        <td colspan="3"><b>PRE1:</b> User is logged in as Admin.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
-        <td colspan="3">POS1: Logs are displayed in a paginated table.</td>
+        <td colspan="3">
+          <b>POS1:</b> Logs are displayed in a paginated table.
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
@@ -1283,11 +1371,12 @@
             <li>Admin accesses the Audit Log page.</li>
             <li>System retrieves the latest 20 log entries.</li>
             <li>
-              System displays summary stats (Total Logs, High Risk count).
+              System displays summary stats (Total Logs, High Risk count)
+              computed from the <b>Audit ElasticSearch/DB Index</b>.
             </li>
             <li>
               System displays the log table (Timestamp, Actor, Action, Entity,
-              IP Address).
+              IP Address) with <b>JSON-formatted metadata</b>.
             </li>
             <li>Admin clicks on a specific row to view JSON details.</li>
           </ol>
@@ -1308,7 +1397,9 @@
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-01: Lost connection to the server or the Internet</b>
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to refresh
+          the page when connection is restored.
         </td>
       </tr>
       <tr>
@@ -1343,7 +1434,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -1364,11 +1455,11 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: Logs are currently displayed/loaded.</td>
+        <td colspan="3"><b>PRE1:</b> Logs are currently displayed/loaded.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
-        <td colspan="3">POS1: File is downloaded to Admin's device.</td>
+        <td colspan="3"><b>POS1:</b> File is downloaded to Admin's device.</td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
@@ -1386,18 +1477,24 @@
       </tr>
       <tr>
         <td class="label-cell">Alternative Flows:</td>
-        <td colspan="3"><b>N/A</b> (Single action flow)</td>
+        <td colspan="3">
+          <b>A.2 Export Limit Exceeded</b>
+          <ol>
+            <li>System calculates the dataset size exceeds 10MB limit.</li>
+            <li>
+              System displays alert "Export too large, please reduce date
+              range".
+            </li>
+            <li>User adjusts filters to reduce result set.</li>
+          </ol>
+        </td>
       </tr>
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-03: System Error</b>
-          <ul>
-            <li>
-              If dataset is too large (>10MB), System alerts "Export too large,
-              please reduce date range".
-            </li>
-          </ul>
+          <b>EXC-03: System Error</b><br />
+          - If the export process fails due to memory overflow or timeout,
+          System logs the error and asks User to try again.
         </td>
       </tr>
       <tr>
@@ -1410,7 +1507,7 @@
       </tr>
       <tr>
         <td class="label-cell">Business Rules:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">BR-71</td>
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
@@ -1432,7 +1529,7 @@
         <td class="label-cell">Created By:</td>
         <td style="width: 30%">BangDC</td>
         <td class="label-cell">Date Created:</td>
-        <td style="width: 30%"></td>
+        <td style="width: 30%">28/01/2026</td>
       </tr>
       <tr>
         <td class="label-cell">Primary Actor:</td>
@@ -1453,21 +1550,27 @@
       </tr>
       <tr>
         <td class="label-cell">Preconditions:</td>
-        <td colspan="3">PRE1: Admin logged in.</td>
+        <td colspan="3"><b>PRE1:</b> Admin logged in.</td>
       </tr>
       <tr>
         <td class="label-cell">Post-conditions:</td>
-        <td colspan="3">POS1: Dashboard widgets loaded.</td>
+        <td colspan="3"><b>POS1:</b> Dashboard widgets loaded.</td>
       </tr>
       <tr>
         <td class="label-cell">Normal Flow:</td>
         <td colspan="3">
           <b>A. View Dashboard Widgets</b>
           <ol>
-            <li>System loads the "System Overview" card.</li>
-            <li>System checks "Total Users" count.</li>
-            <li>System checks "Active Projects" count.</li>
-            <li>System displays "Revenue Month-to-Date" chart.</li>
+            <li>
+              System loads the "System Overview" card from the
+              <b>Redis Statistics Cache</b>.
+            </li>
+            <li>System retrieves "Total Users" count (Cached).</li>
+            <li>System retrieves "Active Projects" count (Cached).</li>
+            <li>
+              System displays "Revenue Month-to-Date" chart based on aggregated
+              transaction logs.
+            </li>
             <li>Admin views the visual indicators (Graphs/Charts).</li>
           </ol>
         </td>
@@ -1485,7 +1588,9 @@
       <tr>
         <td class="label-cell">Exceptions:</td>
         <td colspan="3">
-          <b>EXC-01: Lost connection to the server or the Internet</b>
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - The system displays an error message and prompts the user to refresh
+          the page when connection is restored.
         </td>
       </tr>
       <tr>
@@ -1498,7 +1603,7 @@
       </tr>
       <tr>
         <td class="label-cell">Business Rules:</td>
-        <td colspan="3">N/A</td>
+        <td colspan="3">BR-72</td>
       </tr>
       <tr>
         <td class="label-cell">Other Information:</td>
@@ -1507,6 +1612,147 @@
       <tr>
         <td class="label-cell">Assumptions:</td>
         <td colspan="3">Stats are calculated nightly or cached.</td>
+      </tr>
+    </table>
+
+    <!-- UC-56: View List Assigned Project -->
+    <table>
+      <tr>
+        <td class="label-cell">UC ID and Name:</td>
+        <td colspan="3" class="uc-title">UC-56 View List Assigned Project</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Created By:</td>
+        <td style="width: 30%">BangDC</td>
+        <td class="label-cell">Date Created:</td>
+        <td style="width: 30%">28/01/2026</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Primary Actor:</td>
+        <td>Client, Freelancer, Broker</td>
+        <td class="label-cell">Secondary Actors:</td>
+        <td>System</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Trigger:</td>
+        <td colspan="3">User logs in and navigates to "My Projects" page.</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Description:</td>
+        <td colspan="3">
+          Allows users to view a list of all projects they are assigned to,
+          showing basic project information, their role in each project, and
+          current project status including active dispute indicators.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Preconditions:</td>
+        <td colspan="3">
+          <b>PRE1:</b> User is authenticated.<br />
+          <b>PRE2:</b> User has at least one project assigned (as Client,
+          Freelancer, or Broker).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Post-conditions:</td>
+        <td colspan="3">
+          <b>POS1:</b> Project list is displayed with relevant information.<br />
+          <b>POS2:</b> User can navigate to any project's workspace.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Normal Flow:</td>
+        <td colspan="3">
+          <b>A. View Assigned Projects</b>
+          <ol>
+            <li>User accesses the "My Projects" page.</li>
+            <li>
+              System retrieves all projects where the user is assigned as
+              Client, Freelancer, or Broker.
+            </li>
+            <li>
+              System enriches the project data with active dispute count and
+              status.
+            </li>
+            <li>
+              System displays project cards sorted by creation date (newest
+              first), showing:
+              <ul>
+                <li>Project title and description</li>
+                <li>Project status (Active, Completed, etc.)</li>
+                <li>User's role in the project (Client, Freelancer, Broker)</li>
+                <li>Active dispute indicator (if applicable)</li>
+                <li>Total budget amount</li>
+              </ul>
+            </li>
+            <li>
+              System displays a summary alert if there are projects with active
+              disputes.
+            </li>
+            <li>
+              User clicks on a project card to navigate to the project
+              workspace.
+            </li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Alternative Flows:</td>
+        <td colspan="3">
+          <b>A.2 No Projects Found</b>
+          <ol>
+            <li>System detects that user has no assigned projects.</li>
+            <li>
+              System displays an empty state message: "No projects found.
+              Projects you're involved in will appear here."
+            </li>
+          </ol>
+          <b>A.4 Navigate to Project Workspace</b>
+          <ol>
+            <li>User clicks on a specific project card.</li>
+            <li>
+              System determines the appropriate workspace path based on user's
+              role.
+            </li>
+            <li>
+              System redirects to the corresponding workspace (Client, Broker,
+              or Freelancer workspace).
+            </li>
+          </ol>
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Exceptions:</td>
+        <td colspan="3">
+          <b>EXC-01: Lost connection to the server or the Internet</b><br />
+          - System displays an error message and allows the user to retry
+          loading the project list.<br /><br />
+          <b>EXC-02: Authentication Expired</b><br />
+          - If user session is invalid, System redirects to the Login page.
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Priority:</td>
+        <td colspan="3">High</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Frequency of Use:</td>
+        <td colspan="3">High (Daily)</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Business Rules:</td>
+        <td colspan="3">N/A</td>
+      </tr>
+      <tr>
+        <td class="label-cell">Other Information:</td>
+        <td colspan="3">
+          Projects are displayed as cards in a responsive grid layout (1-3
+          columns depending on screen size).
+        </td>
+      </tr>
+      <tr>
+        <td class="label-cell">Assumptions:</td>
+        <td colspan="3">User has valid authentication token stored locally.</td>
       </tr>
     </table>
   </body>

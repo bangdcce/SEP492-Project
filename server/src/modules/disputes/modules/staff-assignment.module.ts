@@ -16,6 +16,7 @@ import { CalendarEventEntity } from '../../../database/entities/calendar-event.e
 import { UserAvailabilityEntity } from '../../../database/entities/user-availability.entity';
 import { AutoScheduleRuleEntity } from '../../../database/entities/auto-schedule-rule.entity';
 import { DisputeEvidenceEntity } from '../../../database/entities/dispute-evidence.entity';
+import { ProjectEntity } from '../../../database/entities/project.entity';
 
 // Tagging System Entities
 import { StaffExpertiseEntity } from '../../../database/entities/user-skill.entity';
@@ -25,15 +26,18 @@ import {
 } from '../../../database/entities/dispute-skill.entity';
 import { SkillEntity } from '../../../database/entities/skill.entity';
 import { StaffPerformanceEntity } from '../../../database/entities/staff-performance.entity';
+import { LeaveModule } from '../../leave/leave.module';
 
 // Services
 import { StaffAssignmentService } from '../services/staff-assignment.service';
+import { StaffAssignmentController } from '../controllers/staff-assignment.controller';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([
       // Core Entities
       DisputeEntity,
+      ProjectEntity,
       UserEntity,
       StaffWorkloadEntity,
       CalendarEventEntity,
@@ -48,7 +52,9 @@ import { StaffAssignmentService } from '../services/staff-assignment.service';
       // Performance Tracking
       StaffPerformanceEntity,
     ]),
+    LeaveModule,
   ],
+  controllers: [StaffAssignmentController],
   providers: [StaffAssignmentService],
   exports: [StaffAssignmentService],
 })

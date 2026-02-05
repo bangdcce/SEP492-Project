@@ -7,6 +7,7 @@ export type Project = {
   brokerId?: string;
   freelancerId?: string;
   totalBudget: number;
+  currency?: string;
   createdAt: string;
   // Dispute-related fields (enriched by backend)
   hasActiveDispute?: boolean;

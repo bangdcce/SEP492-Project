@@ -1,7 +1,7 @@
-// ============================================================================
+﻿// ============================================================================
 // STAFF ASSIGNMENT SERVICE - Auto-Assignment & Workload Management
 // ============================================================================
-// Pattern: Unit Functions → Compose Functions
+// Pattern: Unit Functions -> Compose Functions
 // Addresses Edge Cases:
 // - Dead Time & Phantom Overload (Time Range estimation)
 // - Zombie Session (Idle Check)
@@ -15,6 +15,7 @@ import { Injectable, NotFoundException, BadRequestException, Logger } from '@nes
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource, Between, LessThan, MoreThan, In, IsNull } from 'typeorm';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
+import { LeaveService } from '../../leave/leave.service';
 import { DISPUTE_EVENTS } from '../events/dispute.events';
 
 // Entities
@@ -23,6 +24,7 @@ import {
   DisputeStatus,
   DisputeCategory,
 } from '../../../database/entities/dispute.entity';
+import { ProjectEntity, PricingModel } from '../../../database/entities/project.entity';
 import { UserEntity, UserRole } from '../../../database/entities/user.entity';
 import { StaffWorkloadEntity } from '../../../database/entities/staff-workload.entity';
 import {
@@ -114,14 +116,14 @@ const ASSIGNMENT_CONFIG = {
 
   // Category weights for complexity (using DisputeCategory)
   CATEGORY_WEIGHTS: {
-    [DisputeCategory.CONTRACT]: 30,
-    [DisputeCategory.PAYMENT]: 25,
-    [DisputeCategory.QUALITY]: 20,
-    [DisputeCategory.DEADLINE]: 15,
-    [DisputeCategory.COMMUNICATION]: 10,
-    [DisputeCategory.SCOPE_CHANGE]: 20,
-    [DisputeCategory.FRAUD]: 40,
-    [DisputeCategory.OTHER]: 15,
+    [DisputeCategory.FRAUD]: 100,
+    [DisputeCategory.CONTRACT]: 85,
+    [DisputeCategory.PAYMENT]: 80,
+    [DisputeCategory.SCOPE_CHANGE]: 70,
+    [DisputeCategory.QUALITY]: 60,
+    [DisputeCategory.DEADLINE]: 55,
+    [DisputeCategory.COMMUNICATION]: 40,
+    [DisputeCategory.OTHER]: 45,
   } as Record<string, number>,
 
   // Buffer configuration
@@ -150,6 +152,14 @@ const ASSIGNMENT_CONFIG = {
     LATE_AFTERNOON: 0, // 4-6pm
     OUTSIDE_HOURS: -100,
   },
+
+  // Leave penalty (applied inside performance score)
+  LEAVE_PENALTY: {
+    perRequest: 2,
+    perLeaveHour: 1,
+    perOverageHour: 4,
+    maxPenalty: 30,
+  },
 } as const;
 
 // =============================================================================
@@ -163,6 +173,8 @@ export class StaffAssignmentService {
   constructor(
     @InjectRepository(DisputeEntity)
     private readonly disputeRepository: Repository<DisputeEntity>,
+    @InjectRepository(ProjectEntity)
+    private readonly projectRepository: Repository<ProjectEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(StaffWorkloadEntity)
@@ -189,6 +201,7 @@ export class StaffAssignmentService {
     private readonly performanceRepository: Repository<StaffPerformanceEntity>,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
+    private readonly leaveService: LeaveService,
   ) {}
 
   // ===========================================================================
@@ -199,7 +212,7 @@ export class StaffAssignmentService {
    * UNIT FUNCTION: Calculate base complexity from dispute category
    */
   private getCategoryComplexityWeight(category: DisputeCategory): number {
-    return ASSIGNMENT_CONFIG.CATEGORY_WEIGHTS[category] || 15;
+    return ASSIGNMENT_CONFIG.CATEGORY_WEIGHTS[category] || 45;
   }
 
   /**
@@ -207,9 +220,8 @@ export class StaffAssignmentService {
    * More evidence = more time needed to review
    */
   private getEvidenceComplexityWeight(evidenceCount: number): number {
-    // +10 minutes per evidence, max +60
-    const weight = Math.min(evidenceCount * 10, 60);
-    return weight;
+    if (evidenceCount <= 0) return 10;
+    return Math.min(evidenceCount * 12, 100);
   }
 
   /**
@@ -217,18 +229,73 @@ export class StaffAssignmentService {
    * Longer descriptions often indicate more complex issues
    */
   private getDescriptionComplexityWeight(descriptionLength: number): number {
-    if (descriptionLength > 2000) return 30;
-    if (descriptionLength > 1000) return 15;
-    return 0;
+    if (descriptionLength > 2000) return 90;
+    if (descriptionLength > 1200) return 70;
+    if (descriptionLength > 600) return 55;
+    if (descriptionLength > 300) return 40;
+    if (descriptionLength > 0) return 25;
+    return 10;
+  }
+
+  /**
+   * UNIT FUNCTION: Calculate complexity from disputed amount (currency-aware)
+   */
+  private getAmountComplexityScore(
+    amount: number,
+    currency: string,
+    totalBudget?: number,
+  ): number {
+    const safeAmount = Number.isFinite(amount) ? amount : 0;
+    const normalizedCurrency = (currency || 'USD').toUpperCase();
+
+    const thresholds =
+      normalizedCurrency === 'VND'
+        ? { low: 1_000_000, medium: 10_000_000, high: 50_000_000 }
+        : { low: 100, medium: 1000, high: 5000 };
+
+    let score = 10;
+    if (safeAmount >= thresholds.high) score = 90;
+    else if (safeAmount >= thresholds.medium) score = 60;
+    else if (safeAmount >= thresholds.low) score = 35;
+
+    if (totalBudget && totalBudget > 0) {
+      const ratio = safeAmount / totalBudget;
+      if (ratio >= 0.8) score = Math.min(100, score + 20);
+      else if (ratio >= 0.5) score = Math.min(100, score + 10);
+    }
+
+    return score;
+  }
+
+  /**
+   * UNIT FUNCTION: Additional process complexity (multi-party, pricing model, repeats)
+   */
+  private getProcessComplexityScore(
+    dispute: DisputeEntity,
+    project?: ProjectEntity | null,
+  ): number {
+    let score = 20;
+    const involvesBroker =
+      dispute.disputeType?.includes('BROKER') || Boolean(project?.brokerId);
+    if (involvesBroker) {
+      score += 30;
+    }
+    if (project?.pricingModel === PricingModel.TIME_MATERIALS) {
+      score += 20;
+    }
+    if (dispute.parentDisputeId) {
+      score += 15;
+    }
+    return Math.min(100, score);
   }
 
   /**
    * UNIT FUNCTION: Determine complexity level from total score
    */
   private determineComplexityLevel(totalScore: number): ComplexityLevel {
-    if (totalScore >= 100) return 'CRITICAL';
-    if (totalScore >= 70) return 'HIGH';
-    if (totalScore >= 40) return 'MEDIUM';
+    if (totalScore >= 80) return 'CRITICAL';
+    if (totalScore >= 60) return 'HIGH';
+    if (totalScore >= 35) return 'MEDIUM';
     return 'LOW';
   }
 
@@ -257,55 +324,82 @@ export class StaffAssignmentService {
       throw new NotFoundException('Dispute not found');
     }
 
-    // Count evidence
     const evidenceCount = await this.evidenceRepository.count({
       where: { disputeId },
     });
 
-    // Calculate individual factors
+    const project = await this.projectRepository.findOne({
+      where: { id: dispute.projectId },
+      select: ['id', 'currency', 'totalBudget', 'pricingModel', 'brokerId'],
+    });
+    const currency = project?.currency || 'USD';
+
+    // Calculate individual factors (0-100) with explicit weights
     const factors: ComplexityFactor[] = [];
+    const weights = {
+      category: 0.3,
+      amount: 0.25,
+      evidence: 0.2,
+      description: 0.15,
+      process: 0.1,
+    };
 
     // Factor 1: Dispute Category
-    const categoryWeight = this.getCategoryComplexityWeight(dispute.category);
+    const categoryScore = this.getCategoryComplexityWeight(dispute.category);
     factors.push({
       name: 'Dispute Category',
-      weight: 0.4,
-      value: categoryWeight,
-      contribution: categoryWeight * 0.4,
-      description: `${dispute.category} disputes typically require ${categoryWeight > 20 ? 'more' : 'less'} time`,
+      weight: weights.category,
+      value: categoryScore,
+      contribution: categoryScore * weights.category,
+      description: `${dispute.category} cases tend to be ${
+        categoryScore >= 70 ? 'high' : 'moderate'
+      } effort`,
     });
 
-    // Factor 2: Evidence Count
-    const evidenceWeight = this.getEvidenceComplexityWeight(evidenceCount);
-    factors.push({
-      name: 'Evidence Volume',
-      weight: 0.3,
-      value: evidenceWeight,
-      contribution: evidenceWeight * 0.3,
-      description: `${evidenceCount} evidence items to review`,
-    });
-
-    // Factor 3: Reason Length (longer reasons often indicate more complex issues)
-    const reasonLength = dispute.reason?.length || 0;
-    const descWeight = this.getDescriptionComplexityWeight(reasonLength);
-    factors.push({
-      name: 'Issue Complexity',
-      weight: 0.2,
-      value: descWeight,
-      contribution: descWeight * 0.2,
-      description:
-        reasonLength > 1000 ? 'Detailed issue description' : 'Standard issue description',
-    });
-
-    // Factor 4: Dispute Amount (higher amounts = more scrutiny)
+    // Factor 2: Dispute Amount (currency-aware, relative to budget)
     const amount = dispute.disputedAmount || 0;
-    const amountWeight = amount > 5000 ? 30 : amount > 1000 ? 20 : 10;
+    const amountScore = this.getAmountComplexityScore(amount, currency, project?.totalBudget);
     factors.push({
       name: 'Dispute Value',
-      weight: 0.1,
-      value: amountWeight,
-      contribution: amountWeight * 0.1,
-      description: `$${amount} at stake`,
+      weight: weights.amount,
+      value: amountScore,
+      contribution: amountScore * weights.amount,
+      description: `${currency} ${amount} disputed`,
+    });
+
+    // Factor 3: Evidence Count
+    const evidenceScore = this.getEvidenceComplexityWeight(evidenceCount);
+    factors.push({
+      name: 'Evidence Volume',
+      weight: weights.evidence,
+      value: evidenceScore,
+      contribution: evidenceScore * weights.evidence,
+      description: `${evidenceCount} evidence item${evidenceCount === 1 ? '' : 's'}`,
+    });
+
+    // Factor 4: Reason Length
+    const reasonLength = dispute.reason?.length || 0;
+    const descScore = this.getDescriptionComplexityWeight(reasonLength);
+    factors.push({
+      name: 'Issue Detail',
+      weight: weights.description,
+      value: descScore,
+      contribution: descScore * weights.description,
+      description:
+        reasonLength > 600 ? 'Detailed issue narrative' : 'Concise issue summary',
+    });
+
+    // Factor 5: Process Complexity (broker involvement, pricing model, repeat)
+    const processScore = this.getProcessComplexityScore(dispute, project);
+    factors.push({
+      name: 'Process Complexity',
+      weight: weights.process,
+      value: processScore,
+      contribution: processScore * weights.process,
+      description:
+        processScore >= 60
+          ? 'Multi-party coordination or complex pricing model'
+          : 'Standard mediation flow',
     });
 
     // Calculate total score
@@ -316,15 +410,27 @@ export class StaffAssignmentService {
     const timeEstimation = this.getTimeEstimationForLevel(level);
 
     // Adjust time based on specific factors
-    if (evidenceCount > 10) {
+    if (evidenceCount > 8) {
       timeEstimation.recommendedMinutes += 15;
       timeEstimation.maxMinutes += 30;
+    }
+    if (amountScore >= 80) {
+      timeEstimation.recommendedMinutes += 10;
+      timeEstimation.maxMinutes += 20;
+    }
+    if (processScore >= 70) {
+      timeEstimation.recommendedMinutes += 10;
+      timeEstimation.maxMinutes += 15;
     }
 
     // Calculate confidence (lower if we have less data)
     const confidence = Math.min(
       100,
-      50 + evidenceCount * 5 + (reasonLength > 500 ? 20 : 0) + (amount > 0 ? 10 : 0),
+      40 +
+        Math.min(30, evidenceCount * 4) +
+        (reasonLength > 500 ? 15 : 0) +
+        (amount > 0 ? 10 : 0) +
+        (project ? 5 : 0),
     );
 
     this.logger.log(
@@ -565,20 +671,36 @@ export class StaffAssignmentService {
    * UNIT FUNCTION: Calculate performance score (40% weight)
    * Based on user rating and overturn rate
    */
-  private calculatePerformanceScore(avgRating: number, overturnRate: number): number {
-    // Rating: 1-5 stars → 0-100 points (5 stars = 100)
+  private calculatePerformanceScore(
+    avgRating: number,
+    overturnRate: number,
+    leavePenalty: number,
+  ): number {
+    // Rating: 1-5 stars -> 0-100 points (5 stars = 100)
     const ratingScore = (avgRating / 5) * 100;
 
     // Overturn penalty: Each % of overturn reduces score
     const overturnPenalty = overturnRate * 0.5;
 
-    return Math.max(0, ratingScore - overturnPenalty);
+    const penalty = overturnPenalty + Math.max(0, leavePenalty || 0);
+
+    return Math.max(0, ratingScore - penalty);
   }
 
-  /**
-   * UNIT FUNCTION: Calculate fairness score (20% weight)
-   * Staff with fewer disputes this month get higher score (round-robin effect)
-   */
+  private calculateLeavePenalty(
+    leaveMinutes: number,
+    leaveOverageMinutes: number,
+    leaveRequestCount: number,
+  ): number {
+    const leaveHours = Math.max(0, leaveMinutes) / 60;
+    const overageHours = Math.max(0, leaveOverageMinutes) / 60;
+    const penalty =
+      leaveRequestCount * ASSIGNMENT_CONFIG.LEAVE_PENALTY.perRequest +
+      leaveHours * ASSIGNMENT_CONFIG.LEAVE_PENALTY.perLeaveHour +
+      overageHours * ASSIGNMENT_CONFIG.LEAVE_PENALTY.perOverageHour;
+    return Math.min(ASSIGNMENT_CONFIG.LEAVE_PENALTY.maxPenalty, Math.max(0, penalty));
+  }
+
   private calculateFairnessScore(monthlyDisputeCount: number, avgMonthlyDisputes: number): number {
     if (avgMonthlyDisputes === 0) return 50;
 
@@ -665,7 +787,14 @@ export class StaffAssignmentService {
           ) / monthlyStats.length
         : 0;
 
-    // 4. Score each staff
+    // 4. Load performance metrics for this period
+    const period = `${targetDate.getFullYear()}-${String(targetDate.getMonth() + 1).padStart(2, '0')}`;
+    const performanceRows = await this.performanceRepository.find({
+      where: { staffId: In(allStaff.map((staff) => staff.id)), period },
+    });
+    const performanceMap = new Map(performanceRows.map((row) => [row.staffId, row]));
+
+    // 5. Score each staff
     const scoredStaff: StaffScoreBreakdown[] = [];
 
     for (const staff of allStaff) {
@@ -677,13 +806,25 @@ export class StaffAssignmentService {
       const isOnLeave = workload?.isOnLeave || false;
       const canAccept = workload?.canAcceptNewEvent ?? true;
 
-      // TODO: Get actual performance metrics from staff_performance table
-      const avgUserRating = 4.0; // Placeholder
-      const overturnRate = 5; // Placeholder
+      const performance = performanceMap.get(staff.id);
+      const avgUserRating = Number(performance?.avgUserRating ?? 4);
+      const overturnRate = Number(performance?.overturnRate ?? 0);
+      const leaveMinutes = Number(performance?.totalLeaveMinutes ?? 0);
+      const leaveRequestCount = Number(performance?.leaveRequestCount ?? 0);
+      const leaveOverageMinutes = Number(performance?.leaveOverageMinutes ?? 0);
+      const leavePenalty = this.calculateLeavePenalty(
+        leaveMinutes,
+        leaveOverageMinutes,
+        leaveRequestCount,
+      );
 
       // Calculate scores
       const workloadScore = this.calculateWorkloadScore(utilizationRate);
-      const performanceScore = this.calculatePerformanceScore(avgUserRating, overturnRate);
+      const performanceScore = this.calculatePerformanceScore(
+        avgUserRating,
+        overturnRate,
+        leavePenalty,
+      );
       const fairnessScore = this.calculateFairnessScore(monthlyCount, avgMonthly);
       const totalScore = this.calculateTotalStaffScore(
         workloadScore,
@@ -716,6 +857,10 @@ export class StaffAssignmentService {
         avgUserRating,
         overturnRate,
         monthlyDisputeCount: monthlyCount,
+        leaveMinutes,
+        leaveRequestCount,
+        leaveOverageMinutes,
+        leavePenalty: Math.round(leavePenalty * 100) / 100,
         isAvailable,
         isOnLeave,
         canAcceptNewEvent: canAccept,
@@ -848,16 +993,16 @@ export class StaffAssignmentService {
     } else if (remaining > 0) {
       status = 'WARNING';
       suggestedAction = 'WRAP_UP';
-      warningMessage = `⚠️ ${remaining} minutes remaining. Please wrap up the discussion.`;
+      warningMessage = `Warning: ${remaining} minutes remaining. Please wrap up the discussion.`;
     } else if (overtime.inBuffer) {
       status = 'OVERTIME';
       suggestedAction = nextEventAffected ? 'NOTIFY_NEXT' : 'WRAP_UP';
-      warningMessage = `🔴 Session has exceeded scheduled time by ${overtime.overtimeMinutes} minutes. Using buffer time.`;
+      warningMessage = `Session has exceeded scheduled time by ${overtime.overtimeMinutes} minutes. Using buffer time.`;
     } else {
       status = 'CRITICAL_OVERRUN';
       suggestedAction = 'ADJOURN';
       warningMessage =
-        `🚨 CRITICAL: Buffer time exhausted. ` +
+        `CRITICAL: Buffer time exhausted. ` +
         `Session must be adjourned to avoid affecting next appointment.`;
     }
 
@@ -910,11 +1055,11 @@ export class StaffAssignmentService {
     let warningMessage: string | undefined;
     if (shouldAutoClose) {
       warningMessage =
-        `🔔 Session inactive for ${idleMinutes} minutes. ` +
+        `Session inactive for ${idleMinutes} minutes. ` +
         `Session will be auto-closed. Click "Keep Active" to continue.`;
     } else if (shouldWarn) {
       warningMessage =
-        `🔔 No activity for ${idleMinutes} minutes. ` +
+        `No activity for ${idleMinutes} minutes. ` +
         `Is the session still ongoing? Click "End Session" if finished.`;
     }
 
@@ -1191,14 +1336,14 @@ export class StaffAssignmentService {
   }
 
   // ===========================================================================
-  // EVENT-DRIVEN WORKLOAD UPDATES (Giải quyết "Stale Workload" edge case)
+  // EVENT-DRIVEN WORKLOAD UPDATES (Giﾃ｡ﾂｺﾂ｣i quyﾃ｡ﾂｺﾂｿt "Stale Workload" edge case)
   // ===========================================================================
 
   /**
-   * UNIT: Increment pending disputes khi có dispute mới được assign
+   * UNIT: Increment pending disputes khi cﾃδｳ dispute mﾃ｡ﾂｻﾂ嬖 ﾃ・妥・ｰﾃ｡ﾂｻﾂ｣c assign
    *
-   * Trigger: Sau khi assign dispute (cả auto và manual)
-   * Purpose: Realtime update thay vì đợi cronjob 00:00
+   * Trigger: Sau khi assign dispute (cﾃ｡ﾂｺﾂ｣ auto vﾃδ manual)
+   * Purpose: Realtime update thay vﾃδｬ ﾃ・妥｡ﾂｻﾂ｣i cronjob 00:00
    */
   async incrementPendingDisputes(staffId: string, disputeId: string): Promise<void> {
     const dateStr = new Date().toISOString().split('T')[0];
@@ -1252,8 +1397,8 @@ export class StaffAssignmentService {
   /**
    * UNIT: Decrement pending disputes khi dispute resolved/closed
    *
-   * Trigger: Sau khi resolve hoặc close dispute
-   * Purpose: Realtime update để staff có thể nhận việc mới ngay
+   * Trigger: Sau khi resolve hoﾃ｡ﾂｺﾂｷc close dispute
+   * Purpose: Realtime update ﾃ・妥｡ﾂｻﾂ・staff cﾃδｳ thﾃ｡ﾂｻﾂ・nhﾃ｡ﾂｺﾂｭn viﾃ｡ﾂｻﾂ㌘ mﾃ｡ﾂｻﾂ嬖 ngay
    */
   async decrementPendingDisputes(staffId: string, disputeId: string): Promise<void> {
     const dateStr = new Date().toISOString().split('T')[0];
@@ -1272,7 +1417,7 @@ export class StaffAssignmentService {
     // Decrement but don't go below 0
     existingWorkload.totalDisputesPending = Math.max(0, existingWorkload.totalDisputesPending - 1);
 
-    // Recalculate flags - staff có thể nhận việc mới ngay
+    // Recalculate flags - staff cﾃδｳ thﾃ｡ﾂｻﾂ・nhﾃ｡ﾂｺﾂｭn viﾃ｡ﾂｻﾂ㌘ mﾃ｡ﾂｻﾂ嬖 ngay
     existingWorkload.canAcceptNewEvent =
       existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
     existingWorkload.isOverloaded =
@@ -1297,23 +1442,23 @@ export class StaffAssignmentService {
   // ===========================================================================
 
   /**
-   * COMPOSE: Gợi ý staff thay thế cho dispute
+   * COMPOSE: Gﾃ｡ﾂｻﾂ｣i ﾃδｽ staff thay thﾃ｡ﾂｺﾂｿ cho dispute
    *
    * Algorithm:
-   * 1. Lọc Staff đủ skill (skillMatchScore >= 50)
-   * 2. Check availability tại scheduledTime (nếu có hearing)
-   * 3. Sắp xếp theo: isAvailable DESC, workload ASC, skillMatch DESC
+   * 1. Lﾃ｡ﾂｻﾂ皇 Staff ﾃ・妥｡ﾂｻﾂｧ skill (skillMatchScore >= 50)
+   * 2. Check availability tﾃ｡ﾂｺﾂ｡i scheduledTime (nﾃ｡ﾂｺﾂｿu cﾃδｳ hearing)
+   * 3. Sﾃ｡ﾂｺﾂｯp xﾃ｡ﾂｺﾂｿp theo: isAvailable DESC, workload ASC, skillMatch DESC
    *
-   * UI sẽ hiển thị:
-   * - 🟢 Green = RECOMMENDED (rảnh, skill match cao)
-   * - 🟡 Yellow = AVAILABLE (bận vừa hoặc skill trung bình)
-   * - 🔴 Red = CONFLICT (trùng lịch hoặc quá tải)
+   * UI sﾃ｡ﾂｺﾂｽ hiﾃ｡ﾂｻﾂハ thﾃ｡ﾂｻﾂ・
+   * - [GREEN] RECOMMENDED (ráº£nh, skill match cao)
+   * - [YELLOW] AVAILABLE (báº­n vá»«a hoáº·c skill trung bÃ¬nh)
+   * - [RED] CONFLICT (trÃ¹ng lá»‹ch hoáº·c quÃ¡ táº£i)
    */
   async suggestReplacementStaff(
     disputeId: string,
     scheduledTime?: Date,
   ): Promise<StaffSuggestionResult> {
-    // 1. Load dispute để lấy info
+    // 1. Load dispute ﾃ・妥｡ﾂｻﾂ・lﾃ｡ﾂｺﾂ･y info
     const dispute = await this.disputeRepository.findOne({
       where: { id: disputeId },
       relations: ['assignedStaff'],
@@ -1394,27 +1539,27 @@ export class StaffAssignmentService {
       if (hasConflict) {
         suggestion = 'CONFLICT';
         displayColor = 'red';
-        reason = `Trùng lịch với "${conflict.eventTitle}"`;
+        reason = `Trﾃδｹng lﾃ｡ﾂｻﾂ議h vﾃ｡ﾂｻﾂ嬖 "${conflict.eventTitle}"`;
       } else if (!staff.isAvailable) {
         suggestion = 'BUSY';
         displayColor = 'red';
-        reason = staff.unavailableReason || 'Không khả dụng';
+        reason = staff.unavailableReason || 'Khﾃδｴng khﾃ｡ﾂｺﾂ｣ dﾃ｡ﾂｻﾂ･ng';
       } else if (staff.utilizationRate >= 70) {
         suggestion = 'BUSY';
         displayColor = 'yellow';
-        reason = `Đang bận (${staff.monthlyDisputeCount} vụ trong tháng)`;
+        reason = `ﾃ・紳ng bﾃ｡ﾂｺﾂｭn (${staff.monthlyDisputeCount} vﾃ｡ﾂｻﾂ･ trong thﾃδ｡ng)`;
       } else if (skillScore >= 70 && staff.utilizationRate < 50) {
         suggestion = 'RECOMMENDED';
         displayColor = 'green';
-        reason = `Gợi ý tốt nhất: Rảnh và skill phù hợp (${skillScore}%)`;
+        reason = `Gﾃ｡ﾂｻﾂ｣i ﾃδｽ tﾃ｡ﾂｻﾂ奏 nhﾃ｡ﾂｺﾂ･t: Rﾃ｡ﾂｺﾂ｣nh vﾃδ skill phﾃδｹ hﾃ｡ﾂｻﾂ｣p (${skillScore}%)`;
       } else if (skillScore >= 50) {
         suggestion = 'AVAILABLE';
         displayColor = 'green';
-        reason = `Phù hợp: ${staff.monthlyDisputeCount} vụ đang xử lý`;
+        reason = `Phﾃδｹ hﾃ｡ﾂｻﾂ｣p: ${staff.monthlyDisputeCount} vﾃ｡ﾂｻﾂ･ ﾃ・疎ng xﾃ｡ﾂｻﾂｭ lﾃδｽ`;
       } else {
         suggestion = 'AVAILABLE';
         displayColor = 'yellow';
-        reason = `Skill match thấp (${skillScore}%)`;
+        reason = `Skill match thﾃ｡ﾂｺﾂ･p (${skillScore}%)`;
       }
 
       suggestions.push({
@@ -1533,15 +1678,15 @@ export class StaffAssignmentService {
   /**
    * COMPOSE FUNCTION: Manual reassign dispute to different staff
    *
-   * Purpose: Admin thủ công reassign dispute cho staff khác
+   * Purpose: Admin thﾃ｡ﾂｻﾂｧ cﾃδｴng reassign dispute cho staff khﾃδ｡c
    * Use cases:
-   * - Staff quá tải, cần rebalance
-   * - Staff xin nghỉ dài hạn
-   * - Admin muốn gán cho chuyên gia cụ thể
+   * - Staff quﾃδ｡ tﾃ｡ﾂｺﾂ｣i, cﾃ｡ﾂｺﾂｧn rebalance
+   * - Staff xin nghﾃ｡ﾂｻﾂ・dﾃδi hﾃ｡ﾂｺﾂ｡n
+   * - Admin muﾃ｡ﾂｻﾂ創 gﾃδ｡n cho chuyﾃδｪn gia cﾃ｡ﾂｻﾂ･ thﾃ｡ﾂｻﾂ・
    *
    * Flow:
    * 1. Load dispute + validate old staff
-   * 2. Validate new staff exists và isActive
+   * 2. Validate new staff exists vﾃδ isActive
    * 3. Update dispute.assignedStaffId
    * 4. Decrement old staff workload
    * 5. Increment new staff workload
@@ -1569,7 +1714,7 @@ export class StaffAssignmentService {
       throw new NotFoundException(`Dispute ${disputeId} not found`);
     }
 
-    // 2. Validate dispute status - không reassign dispute đã đóng
+    // 2. Validate dispute status - khﾃδｴng reassign dispute ﾃ・妥δ｣ ﾃ・妥δｳng
     if (dispute.status === DisputeStatus.RESOLVED || dispute.status === DisputeStatus.REJECTED) {
       throw new BadRequestException(`Cannot reassign dispute with status ${dispute.status}`);
     }
@@ -1739,19 +1884,19 @@ export class StaffAssignmentService {
   }
 
   // ===========================================================================
-  // PENDING APPEAL HANDLING (Giải quyết "Kháng Cáo Treo" edge case)
+  // PENDING APPEAL HANDLING (Giﾃ｡ﾂｺﾂ｣i quyﾃ｡ﾂｺﾂｿt "Khﾃδ｡ng Cﾃδ｡o Treo" edge case)
   // ===========================================================================
 
   /**
    * UNIT FUNCTION: Get only finalized cases for performance calculation
    *
    * Finalized cases are:
-   * - Status = RESOLVED (không còn IN_APPEAL)
-   * - Status = REJECTED hoặc CLOSED
-   * - Appeal deadline đã qua (nếu có)
+   * - Status = RESOLVED (khﾃδｴng cﾃδｲn IN_APPEAL)
+   * - Status = REJECTED hoﾃ｡ﾂｺﾂｷc CLOSED
+   * - Appeal deadline ﾃ・妥δ｣ qua (nﾃ｡ﾂｺﾂｿu cﾃδｳ)
    *
    * Exclude:
-   * - Cases đang IN_APPEAL (chưa có kết quả cuối cùng từ Admin)
+   * - Cases ﾃ・疎ng IN_APPEAL (chﾃ・ｰa cﾃδｳ kﾃ｡ﾂｺﾂｿt quﾃ｡ﾂｺﾂ｣ cuﾃ｡ﾂｻﾂ訴 cﾃδｹng tﾃ｡ﾂｻﾂｫ Admin)
    */
   async getFinalizedCasesForPeriod(
     staffId: string,
@@ -1760,14 +1905,14 @@ export class StaffAssignmentService {
   ): Promise<DisputeEntity[]> {
     return this.disputeRepository.find({
       where: [
-        // Cases đã resolved và không bị appeal
+        // Cases ﾃ・妥δ｣ resolved vﾃδ khﾃδｴng bﾃ｡ﾂｻﾂ・appeal
         {
           assignedStaffId: staffId,
           resolvedAt: Between(periodStart, periodEnd),
           status: DisputeStatus.RESOLVED,
           isAppealed: false,
         },
-        // Cases bị appeal nhưng Admin đã xử xong (không còn IN_APPEAL)
+        // Cases bﾃ｡ﾂｻﾂ・appeal nhﾃ・ｰng Admin ﾃ・妥δ｣ xﾃ｡ﾂｻﾂｭ xong (khﾃδｴng cﾃδｲn IN_APPEAL)
         {
           assignedStaffId: staffId,
           resolvedAt: Between(periodStart, periodEnd),
@@ -1780,12 +1925,12 @@ export class StaffAssignmentService {
   }
 
   /**
-   * COMPOSE FUNCTION: Update staff performance với pending appeal exclusion
+   * COMPOSE FUNCTION: Update staff performance vﾃ｡ﾂｻﾂ嬖 pending appeal exclusion
    *
-   * EDGE CASE ADDRESSED: "Kháng Cáo Treo"
-   * - Chỉ tính điểm cho cases đã FINALIZED
-   * - Cases đang IN_APPEAL sẽ được track riêng
-   * - Không tính vào overturnRate cho đến khi Admin xử xong
+   * EDGE CASE ADDRESSED: "Khﾃδ｡ng Cﾃδ｡o Treo"
+   * - Chﾃ｡ﾂｻﾂ・tﾃδｭnh ﾃ・訴ﾃ｡ﾂｻﾂノ cho cases ﾃ・妥δ｣ FINALIZED
+   * - Cases ﾃ・疎ng IN_APPEAL sﾃ｡ﾂｺﾂｽ ﾃ・妥・ｰﾃ｡ﾂｻﾂ｣c track riﾃδｪng
+   * - Khﾃδｴng tﾃδｭnh vﾃδo overturnRate cho ﾃ・妥｡ﾂｺﾂｿn khi Admin xﾃ｡ﾂｻﾂｭ xong
    */
   async updateStaffPerformanceWithAppealExclusion(
     staffId: string,
@@ -1799,7 +1944,7 @@ export class StaffAssignmentService {
     // Get finalized cases only (exclude IN_APPEAL)
     const finalizedCases = await this.getFinalizedCasesForPeriod(staffId, periodStart, periodEnd);
 
-    // Count pending appeal cases (status = APPEALED, chưa có appealResolvedAt)
+    // Count pending appeal cases (status = APPEALED, chﾃ・ｰa cﾃδｳ appealResolvedAt)
     const pendingAppealCases = await this.disputeRepository.count({
       where: {
         assignedStaffId: staffId,
@@ -1856,6 +2001,8 @@ export class StaffAssignmentService {
       },
     });
 
+    const leaveMetrics = await this.leaveService.getLeaveMetricsForPeriod(staffId, period);
+
     // Upsert into staff_performances table
     await this.performanceRepository.upsert(
       {
@@ -1871,6 +2018,9 @@ export class StaffAssignmentService {
         avgResolutionTimeHours: Math.round(avgResolutionHours * 100) / 100,
         pendingAppealCases,
         totalCasesFinalized: totalFinalized,
+        totalLeaveMinutes: leaveMetrics.totalLeaveMinutes,
+        leaveRequestCount: leaveMetrics.leaveRequestCount,
+        leaveOverageMinutes: leaveMetrics.leaveOverageMinutes,
       },
       ['staffId', 'period'],
     );
@@ -1884,6 +2034,9 @@ export class StaffAssignmentService {
       appealRate: Math.round(appealRate * 100) / 100,
       overturnRate: Math.round(overturnRate * 100) / 100,
       avgResolutionTimeHours: Math.round(avgResolutionHours * 100) / 100,
+      totalLeaveMinutes: leaveMetrics.totalLeaveMinutes,
+      leaveRequestCount: leaveMetrics.leaveRequestCount,
+      leaveOverageMinutes: leaveMetrics.leaveOverageMinutes,
     });
 
     this.logger.log(
@@ -1971,18 +2124,18 @@ export class StaffAssignmentService {
   }
 
   // ===========================================================================
-  // EVENT LISTENERS (Giải quyết "Stale Workload" bằng Event-Driven)
+  // EVENT LISTENERS (Giﾃ｡ﾂｺﾂ｣i quyﾃ｡ﾂｺﾂｿt "Stale Workload" bﾃ｡ﾂｺﾂｱng Event-Driven)
   // ===========================================================================
 
   /**
-   * EVENT LISTENER: Khi dispute được resolve, tự động giảm workload của staff
+   * EVENT LISTENER: Khi dispute ﾃ・妥・ｰﾃ｡ﾂｻﾂ｣c resolve, tﾃ｡ﾂｻﾂｱ ﾃ・妥｡ﾂｻﾂ冢g giﾃ｡ﾂｺﾂ｣m workload cﾃ｡ﾂｻﾂｧa staff
    */
   @OnEvent(DISPUTE_EVENTS.RESOLVED)
   async handleDisputeResolved(payload: { disputeId: string; adminId?: string }): Promise<void> {
     this.logger.log(`[Event] ${DISPUTE_EVENTS.RESOLVED}: ${payload.disputeId}`);
 
     try {
-      // Get dispute để lấy assignedStaffId
+      // Get dispute ﾃ・妥｡ﾂｻﾂ・lﾃ｡ﾂｺﾂ･y assignedStaffId
       const dispute = await this.disputeRepository.findOne({
         where: { id: payload.disputeId },
         select: ['id', 'assignedStaffId'],
@@ -2002,7 +2155,7 @@ export class StaffAssignmentService {
   }
 
   /**
-   * EVENT LISTENER: Khi dispute bị đóng (closed), tự động giảm workload
+   * EVENT LISTENER: Khi dispute bﾃ｡ﾂｻﾂ・ﾃ・妥δｳng (closed), tﾃ｡ﾂｻﾂｱ ﾃ・妥｡ﾂｻﾂ冢g giﾃ｡ﾂｺﾂ｣m workload
    */
   @OnEvent(DISPUTE_EVENTS.CLOSED)
   async handleDisputeClosed(payload: { disputeId: string; reason?: string }): Promise<void> {
@@ -2027,3 +2180,15 @@ export class StaffAssignmentService {
     }
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+

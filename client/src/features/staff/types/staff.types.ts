@@ -60,6 +60,13 @@ export enum DisputeType {
   BROKER_VS_FREELANCER = "BROKER_VS_FREELANCER",
 }
 
+export enum DisputePhase {
+  PRESENTATION = "PRESENTATION",
+  CROSS_EXAMINATION = "CROSS_EXAMINATION",
+  INTERROGATION = "INTERROGATION",
+  DELIBERATION = "DELIBERATION",
+}
+
 // Minimal User Interface for Frontend
 export interface User {
   id: string;
@@ -69,6 +76,7 @@ export interface User {
   isVerified: boolean;
   avatarUrl?: string; // Optional for UI
   badge?: BadgeType;
+  timeZone?: string;
 }
 
 // Frontend Interface for Dispute Entity
@@ -95,6 +103,7 @@ export interface Dispute {
 
   status: DisputeStatus;
   result: DisputeResult;
+  phase?: DisputePhase;
 
   assignedStaffId?: string;
   currentTier: number;

@@ -11,6 +11,7 @@ import {
   Users,
   User,
   FileSignature,
+  Video,
 } from "lucide-react";
 
 export interface BrokerSidebarMenuItem {
@@ -64,6 +65,14 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: Briefcase,
     path: "/broker/projects",
     description: "Your active projects",
+    section: "workspace",
+  },
+  {
+    id: "hearings",
+    label: "Hearings",
+    icon: Video,
+    path: "/broker/hearings",
+    description: "Upcoming dispute hearings",
     section: "workspace",
   },
   {

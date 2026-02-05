@@ -11,6 +11,7 @@ import {
   IsEnum,
   IsNumber,
   IsArray,
+  ArrayNotEmpty,
   Min,
   Max,
   MinLength,
@@ -37,6 +38,25 @@ export class EarlyReleaseDto {
   @IsString()
   @MinLength(10)
   reason?: string;
+}
+
+// =============================================================================
+// DISPUTE COMPLEXITY (Batch)
+// =============================================================================
+
+export class BatchDisputeComplexityDto {
+  @ApiProperty({
+    description: 'List of dispute IDs to estimate complexity',
+    type: [String],
+    example: [
+      'c3d4e5f6-a7b8-9012-cdef-123456789012',
+      'd4e5f6a7-b8c9-0123-def0-234567890123',
+    ],
+  })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('4', { each: true })
+  disputeIds: string[];
 }
 
 // =============================================================================

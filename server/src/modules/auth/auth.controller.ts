@@ -189,7 +189,9 @@ export class AuthController {
     const userAgent = req.headers['user-agent'] || 'Unknown Device';
     const ipAddress = req.ip || req.connection?.remoteAddress || 'Unknown IP';
 
-    const result = await this.authService.login(loginDto, userAgent, ipAddress);
+    const timeZone =
+      typeof req.headers['x-timezone'] === 'string' ? req.headers['x-timezone'] : undefined;
+    const result = await this.authService.login(loginDto, userAgent, ipAddress, timeZone);
 
     // Set refresh token as httpOnly cookie
     response.cookie('refreshToken', result.refreshToken, {
@@ -285,6 +287,7 @@ export class AuthController {
       email: req.user.email,
       fullName: req.user.fullName,
       phoneNumber: req.user.phoneNumber,
+      timeZone: req.user.timeZone,
       avatarUrl: userWithProfile?.profile?.avatarUrl,
       bio: userWithProfile?.profile?.bio,
       companyName: userWithProfile?.profile?.companyName,

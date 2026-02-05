@@ -44,10 +44,10 @@ export enum DisputeCategory {
 }
 
 export enum DisputePriority {
-  LOW = 'LOW', // < 1 triệu VND
-  MEDIUM = 'MEDIUM', // 1-10 triệu VND
-  HIGH = 'HIGH', // 10-50 triệu VND
-  CRITICAL = 'CRITICAL', // > 50 triệu hoặc fraud
+  LOW = 'LOW', // < 50 USD
+  MEDIUM = 'MEDIUM', // 50-500 USD
+  HIGH = 'HIGH', // 500-2000 USD
+  CRITICAL = 'CRITICAL', // > 2000 USD or fraud
 }
 
 export enum DisputeType {
@@ -57,6 +57,13 @@ export enum DisputeType {
   FREELANCER_VS_BROKER = 'FREELANCER_VS_BROKER',
   BROKER_VS_CLIENT = 'BROKER_VS_CLIENT',
   BROKER_VS_FREELANCER = 'BROKER_VS_FREELANCER',
+}
+
+export enum DisputePhase {
+  PRESENTATION = 'PRESENTATION', // Raiser presents claims and evidence
+  CROSS_EXAMINATION = 'CROSS_EXAMINATION', // Defendant responds
+  INTERROGATION = 'INTERROGATION', // Staff/Admin questions
+  DELIBERATION = 'DELIBERATION', // Read-only while reviewing
 }
 
 // =============================================================================
@@ -146,6 +153,10 @@ export class DisputeEntity {
 
   @Column({ type: 'timestamp', nullable: true })
   dismissalHoldUntil: Date;
+
+  // === MODERATION PHASE ===
+  @Column({ type: 'enum', enum: DisputePhase, default: DisputePhase.PRESENTATION })
+  phase: DisputePhase;
 
   // === STATUS & RESULT ===
   @Column({

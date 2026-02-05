@@ -40,6 +40,7 @@ export {
   DisputeCategory,
   DisputePriority,
   DisputeType,
+  DisputePhase,
 } from './dispute.entity';
 export { DisputeNoteEntity } from './dispute-note.entity';
 export { DisputeActivityEntity, DisputeAction } from './dispute-activity.entity';
@@ -60,6 +61,8 @@ export { DisputeSettlementEntity, SettlementStatus } from './dispute-settlement.
 export { DisputeVerdictEntity, FaultType } from './dispute-verdict.entity';
 export { LegalSignatureEntity, LegalActionType } from './legal-signature.entity';
 export { StaffPerformanceEntity } from './staff-performance.entity';
+export { StaffLeavePolicyEntity } from './staff-leave-policy.entity';
+export { StaffLeaveRequestEntity, LeaveStatus, LeaveType } from './staff-leave-request.entity';
 export { DisputeResolutionFeedbackEntity } from './dispute-resolution-feedback.entity';
 
 // Skill & Tagging Entities (Master Taxonomy System)

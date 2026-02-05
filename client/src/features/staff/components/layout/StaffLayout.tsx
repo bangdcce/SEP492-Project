@@ -49,7 +49,7 @@ export const StaffLayout = () => {
 
         {/* Page Content */}
         <main className="flex-1 p-6 mt-16 overflow-x-hidden">
-          <div className="max-w-7xl mx-auto">
+          <div className="w-full max-w-[1440px] mx-auto">
             <Outlet />
           </div>
         </main>
