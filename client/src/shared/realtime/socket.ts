@@ -1,6 +1,5 @@
 import { io, type Socket } from "socket.io-client";
-import { API_CONFIG, STORAGE_KEYS } from "@/constants";
-import { getStoredItem } from "@/shared/utils/storage";
+import { API_CONFIG } from "@/constants";
 
 let socket: Socket | null = null;
 
@@ -9,6 +8,7 @@ export const getSocket = () => {
     socket = io(`${API_CONFIG.BASE_URL}/ws`, {
       autoConnect: false,
       transports: ["websocket"],
+      withCredentials: true, // Enable sending cookies with socket connection
     });
   }
   return socket;
@@ -16,8 +16,8 @@ export const getSocket = () => {
 
 export const connectSocket = () => {
   const instance = getSocket();
-  const token = getStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
-  instance.auth = { token };
+  // Token is now sent automatically via httpOnly cookie
+  // No need to manually set auth token
 
   if (!instance.connected) {
     instance.connect();

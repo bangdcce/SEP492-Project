@@ -143,6 +143,9 @@ const StaffHearingRoomPage = lazy(() =>
   })),
 );
 
+// ========== LANDING PAGE ==========
+const LandingPage = lazy(() => import("@/pages/LandingPage"));
+
 // ========== AUTH PAGES ==========
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
 const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
@@ -162,6 +165,9 @@ function App() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
+        {/* ========== LANDING PAGE ========== */}
+        <Route path={ROUTES.LANDING} element={<LandingPage />} />
+
         {/* ========== AUTH ROUTES - No Layout ========== */}
         <Route path={ROUTES.LOGIN} element={<SignInPage />} />
         <Route path={ROUTES.REGISTER} element={<SignUpPage />} />

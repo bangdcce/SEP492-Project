@@ -58,12 +58,20 @@ export const Header: React.FC<HeaderProps> = ({ breadcrumbs }) => {
     navigate(ROUTES.ADMIN_PROFILE);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setShowDropdown(false);
 
-    // Clear storage (session/local)
-    removeStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
-    removeStoredItem(STORAGE_KEYS.REFRESH_TOKEN);
+    try {
+      // Call backend logout to clear httpOnly cookies
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include', // Send cookies
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+
+    // Clear user info from storage (tokens are in httpOnly cookies)
     removeStoredItem(STORAGE_KEYS.USER);
 
     // Redirect to login
