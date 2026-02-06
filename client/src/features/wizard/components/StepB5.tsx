@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Input } from "@/shared/components/ui/Input";
+import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { wizardService } from "../services/wizardService";

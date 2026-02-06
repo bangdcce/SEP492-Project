@@ -18,4 +18,11 @@ export const projectRequestsApi = {
       `/project-requests/${id}/assign`
     );
   },
+
+  applyToRequest: (id: string, coverLetter: string) => {
+    return apiClient.post(
+      `/project-requests/${id}/apply`,
+      { coverLetter }
+    );
+  },
 };

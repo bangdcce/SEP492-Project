@@ -1,0 +1,272 @@
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  table { border-collapse: collapse; width: 100%; margin-bottom: 20px; font-family: Arial, sans-serif; }
+  th, td { border: 1px solid #000; padding: 8px; text-align: left; vertical-align: top; }
+  th { background-color: #f2f2f2; width: 30%; }
+</style>
+</head>
+<body>
+
+<!-- UC-01 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-01 — Register Account</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Guest</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Allow a guest to register a new account as a Client, Broker, or Freelancer to access the platform functionalities.</td></tr>
+  <tr><th>Trigger:</th><td>The guest selects "Sign Up" from the landing page.</td></tr>
+  <tr><th>Preconditions:</th><td>PRE1: The user is not currently signed in.</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: A new user account is created in the system.<br>POST2: The user is redirected to the verification page or login page.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The guest accesses the registration page.<br>
+    2. The guest enters valid personal information (Email, Full Name, Password, Phone Number).<br>
+    3. The guest selects the desired role (Client, Broker, or Freelancer).<br>
+    4. The guest completes the CAPTCHA verification.<br>
+    5. The guest clicks the "Register" button.<br>
+    6. The system validates the input data and uniqueness of the email/phone.<br>
+    7. The system creates the account with status "Pending Verification".<br>
+    8. The system sends an OTP to the registered phone number/email.<br>
+    9. The system redirects the user to the OTP verification screen.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>AF1: Role selection change<br>3.1 Guest changes role before submission. System updates available fields if necessary.</td></tr>
+  <tr><th>Exceptions:</th><td>E1: Email or Phone already exists. System displays an error message asking to login.<br>E2: Invalid CAPTCHA. System requests retry.</td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: Password must meet security complexity requirements.<br>BR2: Only one account allowed per email address.</td></tr>
+</table>
+
+<!-- UC-02 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-02 — Verify Email</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Guest</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Verify the user's ownership of the registered email/phone number via a One-Time Password (OTP) or link.</td></tr>
+  <tr><th>Trigger:</th><td>Automatic redirection after registration or manual request to verify account.</td></tr>
+  <tr><th>Preconditions:</th><td>PRE1: An unverified account exists.<br>PRE2: Users have received an OTP/Link.</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: User account status is updated to "Active/Verified".<br>POST2: User can access secured features.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The user lands on the Verification page.<br>
+    2. The user checks their email/phone for the OTP code.<br>
+    3. The user enters the 6-digit OTP code into the system.<br>
+    4. The user clicks "Verify".<br>
+    5. The system validates the OTP against the stored code.<br>
+    6. The system updates user status to Verified.<br>
+    7. The system redirects the user to the Login or Dashboard page.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>AF1: Resend OTP<br>2.1 User requests "Resend Code".<br>2.2 System generates a new OTP and sends it.</td></tr>
+  <tr><th>Exceptions:</th><td>E1: OTP Expired. System prompts user to request a new code.<br>E2: Incorrect OTP. System shows error and allows retry.</td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: OTP expires after 5 minutes.<br>BR2: Account must be verified before posting requests or bidding.</td></tr>
+</table>
+
+<!-- UC-03 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-03 — Login</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>All Users</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Allow users to authenticate into the system using their credentials to access their dashboard.</td></tr>
+  <tr><th>Trigger:</th><td>User accesses the Login page.</td></tr>
+  <tr><th>Preconditions:</th><td>PRE1: User has a registered account.</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: User is authenticated and a session token is issued.<br>POST2: User is redirected to their role-specific landing page.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The user opens the Login page.<br>
+    2. The user enters Email and Password.<br>
+    3. The user clicks "Login".<br>
+    4. The system validates the credentials.<br>
+    5. The system retrieves user profile and role.<br>
+    6. The system generates an Access Token and Refresh Token.<br>
+    7. The system stores cookies and redirects the user to the Dashboard.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>N/A</td></tr>
+  <tr><th>Exceptions:</th><td>E1: Invalid Credentials. Show "Incorrect email or password".<br>E2: Account Locked/Banned. Show contact support message.</td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: Session timeout requires re-login or token refresh (auto-handled).</td></tr>
+</table>
+
+<!-- UC-04 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-04 — Forgot Password</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Guest</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Allow users to reset their password if they have forgotten it, using an OTP verification method.</td></tr>
+  <tr><th>Trigger:</th><td>User clicks "Forgot Password" on the Login screen.</td></tr>
+  <tr><th>Preconditions:</th><td>PRE1: User has a valid registered account.</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: User password is updated to the new value.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The user navigates to the Forgot Password page.<br>
+    2. The user enters their registered phone number.<br>
+    3. The user clicks "Send Code".<br>
+    4. The system verifies the user exists and sends an OTP.<br>
+    5. The user enters the received OTP and the new password.<br>
+    6. The system verifies the OTP and updates the password.<br>
+    7. The system displays a success message and redirects to Login.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>N/A</td></tr>
+  <tr><th>Exceptions:</th><td>E1: User not found. System displays generic message or error.</td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: New password cannot be the same as the last 3 passwords.</td></tr>
+</table>
+
+<!-- UC-05 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-05 — View Public Landing Page</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Guest</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Display the public landing page with platform information, features, and marketing content to visitors.</td></tr>
+  <tr><th>Trigger:</th><td>User accesses the root domain URL.</td></tr>
+  <tr><th>Preconditions:</th><td>N/A</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: User views platform information.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The guest enters the website URL.<br>
+    2. The system loads the Landing Page components (Hero section, Features, Testimonials).<br>
+    3. The system displays call-to-action buttons (Login, Sign Up).<br>
+    4. The guest browses the content.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>N/A</td></tr>
+  <tr><th>Exceptions:</th><td>E1: Server down. Browser shows 500/404 error.</td></tr>
+  <tr><th>Priority:</th><td>Low</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: Page must be responsive and SEO optimized.</td></tr>
+</table>
+
+<!-- UC-06 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-06 — Manage Account</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client, Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Allow authenticated users to view and update their profile information.</td></tr>
+  <tr><th>Trigger:</th><td>User selects "Profile" from the user menu.</td></tr>
+  <tr><th>Preconditions:</th><td>PRE1: User is logged in.</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: Profile information is updated in the database.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The user navigates to the Profile settings page.<br>
+    2. The system displays current information (Avatar, Name, Phone, Stats).<br>
+    3. The user edits modifiable fields (e.g., Avatar, Display Name).<br>
+    4. The user clicks "Save Changes".<br>
+    5. The system validates the input.<br>
+    6. The system updates the user record and confirms success.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>AF1: Cancel changes<br>3.1 User navigates away or clicks Cancel. No changes saved.</td></tr>
+  <tr><th>Exceptions:</th><td>E1: Upload invalid image format. Error displayed.</td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: Certain fields like Email may be read-only or require special verification to change.</td></tr>
+</table>
+
+<!-- UC-07 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-07 — Register KYC</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client, Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>Admin</td></tr>
+  <tr><th>Description:</th><td>Submit identity documents to verify the trustworthiness of the user account (Know Your Customer).</td></tr>
+  <tr><th>Trigger:</th><td>User accesses the Trust Profile / Verification section.</td></tr>
+  <tr><th>Preconditions:</th><td>PRE1: User is logged in.</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: KYC record created with status "Pending".<br>POST2: Admin is notified for review.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The user opens the Trust Profile or Verification page.<br>
+    2. The system outlines required documents (ID Card/Passport, Selfie).<br>
+    3. The user uploads the front and back images of the ID document.<br>
+    4. The user uploads a selfie image.<br>
+    5. The user clicks "Submit for Verification".<br>
+    6. The system uploads files securely and creates a verification request.<br>
+    7. The system updates user trust status to "Pending Review".
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>N/A</td></tr>
+  <tr><th>Exceptions:</th><td>E1: File size too large. System rejects upload.</td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: Users must pass KYC to increase Trust Score and transaction limits.</td></tr>
+</table>
+
+<!-- UC-08 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-08 — Do Request Wizard</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Guide the client through a multi-step form to define the requirements of a new software project.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "New Project" or "Create Request" on the dashboard.</td></tr>
+  <tr><th>Preconditions:</th><td>PRE1: Client is logged in.</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: A project request draft is fully or partially populated in memory or temporary storage.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The client starts the wizard. System displays Step 1: Product Type.<br>
+    2. The client selects a product type (e.g., Mobile App, Web App) and clicks Next.<br>
+    3. System displays Step 2: Industry. client selects an industry, clicks Next.<br>
+    4. System displays Step 3: Budget & Timeline. Client inputs estimates, clicks Next.<br>
+    5. System displays Step 4: Key Features. Client selects features from a list, clicks Next.<br>
+    6. System displays Step 5: Project Details. Client enters Title, Description, and attachments.<br>
+    7. The client reviews the information entered.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>AF1: Back navigation.<br>2.1 Client clicks Back to return to the previous step and modify selection.<br>AF2: Save as Draft mid-flow.<br>2.1 Client clicks "Save Draft" at any step. System saves current progress and exits wizard.</td></tr>
+  <tr><th>Exceptions:</th><td>N/A</td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: At least Title and Description are required to save a final request.</td></tr>
+</table>
+
+<!-- UC-09 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-09 — Create Request</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Broker</td></tr>
+  <tr><th>Description:</th><td>Finalize the wizard draft and publish the project request to the marketplace or preparation stage.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "Post to Marketplace" or "Find & Invite" at the end of the Wizard.</td></tr>
+  <tr><th>Preconditions:</th><td>PRE1: All mandatory wizard steps (UC-08) are completed.</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: Request status becomes "Public" or "Private".<br>POST2: Matching algorithms run to find suitable brokers.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The client completes the wizard and clicks "Post to Market".<br>
+    2. The system verifies all required fields are valid.<br>
+    3. The system saves the request record with status "Public Draft" (or Private).<br>
+    4. The system analyzes request keywords and attributes.<br>
+    5. The system searches for Brokers matching the criteria (Skills, Trust Score).<br>
+    6. The system associates potential matches with the request.<br>
+    7. The system redirects the client to the Request Detail page.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>AF1: Post as Private<br>1.1 Client selects "Private/Invite Only".<br>1.2 System saves with status "Private Draft". No public broadcasting.</td></tr>
+  <tr><th>Exceptions:</th><td>E1: Submission failure. Show error and retain draft.</td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: Public requests are visible to all Brokers. Private requests require manual invitation (UC-10).</td></tr>
+</table>
+
+<!-- UC-10 -->
+<table>
+  <tr><th>ID and Name:</th><td><b>UC-10 — Invite Broker Directly</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Broker</td></tr>
+  <tr><th>Description:</th><td>Allow the client to explicitly invite a specific broker to view and bid on their project request.</td></tr>
+  <tr><th>Trigger:</th><td>Client views the "Recruitment" or "Find Brokers" tab of a request.</td></tr>
+  <tr><th>Preconditions:</th><td>PRE1: Request exists (Public or Private).<br>PRE2: Broker list is available/visible.</td></tr>
+  <tr><th>Postconditions:</th><td>POST1: Invitation notification sent to the Broker.<br>POST2: Broker is added to the "Invited" list for the request.</td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. The client opens the Request Detail page.<br>
+    2. The client interacts with the "Find & Invite" section or list of matches.<br>
+    3. The system displays a list of recommended brokers based on project criteria.<br>
+    4. The client selects a specific broker to view their profile or match score.<br>
+    5. The client clicks the "Invite" button for that broker.<br>
+    6. The system records the invitation.<br>
+    7. The system sends a notification to the Broker.<br>
+    8. The system updates the UI to show "Invited".
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>N/A</td></tr>
+  <tr><th>Exceptions:</th><td>E1: Broker already invited. Button disabled or shows "Already Invited".</td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>BR1: Clients can invite multiple brokers.<br>BR2: Invited brokers get priority access to Private requests.</td></tr>
+</table>
+
+</body>
+</html>

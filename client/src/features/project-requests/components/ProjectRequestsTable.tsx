@@ -16,13 +16,17 @@ import { format } from 'date-fns';
 interface ProjectRequestsTableProps {
   requests: ProjectRequest[];
   onAssign: (id: string) => void;
+  onApply?: (id: string, coverLetter: string) => void;
   assigningId: string | null;
+  currentUserId?: string;
 }
 
 export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
   requests,
   onAssign,
+  onApply,
   assigningId,
+  currentUserId,
 }) => {
   return (
     <div className="rounded-md border">
@@ -41,7 +45,7 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
           {requests.map((request) => (
             <TableRow key={request.id}>
               <TableCell className="font-medium">
-                <Link to={`/project-requests/${request.id}`} className="text-teal-600 hover:underline">
+                <Link to={`/broker/project-requests/${request.id}`} className="text-teal-600 hover:underline">
                   {request.title}
                 </Link>
               </TableCell>
@@ -74,6 +78,41 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
                     {assigningId === request.id ? 'Assigning...' : 'Assign'}
                   </Button>
                 )}
+                
+                
+                {/* Apply Button for Brokers */}
+                {request.status === RequestStatus.PUBLIC_DRAFT && onApply && (
+                     (() => {
+                        const hasApplied = request.brokerProposals?.some((p: any) => p.brokerId === currentUserId);
+                        
+                        if (hasApplied) {
+                             return <Button variant="outline" className="h-8 px-3 text-xs bg-muted text-muted-foreground" disabled>Applied</Button>;
+                        }
+
+                        return (
+                             <Button
+                                variant="outline"
+                                className="h-8 px-3 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                onClick={() => {
+                                    const letter = prompt("Enter a brief cover letter for your application:");
+                                    if (letter !== null) {
+                                        onApply(request.id, letter);
+                                    }
+                                }}
+                             >
+                                Apply
+                             </Button>
+                        );
+                     })()
+                )}
+
+                <Link to={`/broker/project-requests/${request.id}`}>
+                    <Button variant="outline" className="h-8 w-8 p-0 ml-1">
+                        <span className="sr-only">View Details</span>
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                    </Button>
+                </Link>
+
                 {request.status === RequestStatus.PROCESSING && (
                   <span className="text-xs text-gray-500 italic">
                     Assigned to {request.brokerId?.slice(0, 8)}...

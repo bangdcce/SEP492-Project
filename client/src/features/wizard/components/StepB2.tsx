@@ -3,6 +3,8 @@ import type { WizardQuestion } from "../services/wizardService";
 import { Label } from "@/shared/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/shared/components/ui/radio-group";
 
+import { Utensils, Shirt, Store, Home, GraduationCap, Hospital, Truck, Wrench } from "lucide-react";
+
 interface StepB2Props {
   question: WizardQuestion;
   value: string;
@@ -25,15 +27,15 @@ export function StepB2({ question, value, onChange }: StepB2Props) {
               htmlFor={option.id}
                className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-6 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary transition-all h-32 cursor-pointer"
             >
-              <div className="mb-2 text-2xl">
-                 {option.value === 'FNB' && '🍔'}
-                 {option.value === 'FASHION' && '👗'}
-                 {option.value === 'RETAIL' && '🏪'}
-                 {option.value === 'REAL_ESTATE' && '🏠'}
-                 {option.value === 'EDUCATION' && '🎓'}
-                 {option.value === 'HEALTHCARE' && '🏥'}
-                 {option.value === 'LOGISTICS' && '🚚'}
-                 {option.value === 'SERVICE' && '🔧'}
+              <div className="mb-2 text-primary">
+                 {option.value === 'FNB' && <Utensils className="w-8 h-8" />}
+                 {option.value === 'FASHION' && <Shirt className="w-8 h-8" />}
+                 {option.value === 'RETAIL' && <Store className="w-8 h-8" />}
+                 {option.value === 'REAL_ESTATE' && <Home className="w-8 h-8" />}
+                 {option.value === 'EDUCATION' && <GraduationCap className="w-8 h-8" />}
+                 {option.value === 'HEALTHCARE' && <Hospital className="w-8 h-8" />}
+                 {option.value === 'LOGISTICS' && <Truck className="w-8 h-8" />}
+                 {option.value === 'SERVICE' && <Wrench className="w-8 h-8" />}
               </div>
               <span className="font-medium">{option.label}</span>
             </Label>

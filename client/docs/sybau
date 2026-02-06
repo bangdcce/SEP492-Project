@@ -1,0 +1,2675 @@
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  table { border-collapse: collapse; width: 100%; margin-bottom: 30px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; font-size: 14px; }
+  th, td { border: 1px solid #444; padding: 10px; text-align: left; vertical-align: top; }
+  th { background-color: #f8f9fa; width: 25%; font-weight: bold; color: #333; }
+  td { background-color: #ffffff; }
+  .header-cell { background-color: #e9ecef; font-size: 16px; }
+  b { color: #000; }
+</style>
+</head>
+<body>
+
+<!-- UC-01 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-01 — Register Account</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Guest</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Email Service</td></tr>
+  <tr><th>Description:</th><td>Allow a guest to register a new account to access platform features.</td></tr>
+  <tr><th>Trigger:</th><td>The guest selects "Sign Up" from the landing page.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: The user is not currently signed in.<br>
+    PRE2: The registration service is online and reachable.<br>
+    PRE3: The guest provides a unique email address.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: A new user record is created in the database.<br>
+    POST2: A verification OTP is generated and sent to the user.<br>
+    POST3: User state is set to "PENDING_VERIFICATION".
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Guest opens the Sign Up page.<br>
+    2. Guest fills in Email, Full Name, Password, and Role.<br>
+    3. Guest completes the CAPTCHA.<br>
+    4. Guest clicks "Register".<br>
+    5. System validates data uniqueness.<br>
+    6. System creates the account.<br>
+    7. System sends OTP via email/SMS.<br>
+    8. System redirects to Verification page.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Social Sign-up (Google): Guest uses Google OAuth to register.<br>
+    AF2: Cancel Registration: Guest returns to landing page without saving.<br>
+    AF3: Role Info: Guest clicks "Info" icon to see differences between Client/Broker roles.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Email Already Exists: System shows "Email in use" and suggests login.<br>
+    E2: CAPTCHA Failure: System forces a refresh of the security challenge.<br>
+    E3: Weak Password: System rejects submission until complexity met.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-01: Password must be 8+ chars with symbols/numbers.<br>
+    BR-02: Users can only have one active profile per email address.<br>
+    BR-03: Role cannot be changed once the account is verified without admin approval.
+  </td></tr>
+</table>
+
+<!-- UC-02 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-02 — Verify Email</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Guest</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Verify account ownership via OTP code.</td></tr>
+  <tr><th>Trigger:</th><td>User lands on verification screen after signup or login.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: An unverified account exists in the database.<br>
+    PRE2: An active verification code has been sent.<br>
+    PRE3: The user is currently on the verification page.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: User status is updated to "VERIFIED/ACTIVE".<br>
+    POST2: Verification code is invalidated/deleted.<br>
+    POST3: User is granted a persistent session token.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. User checks email for OTP.<br>
+    2. User enters 6-digit code.<br>
+    3. User clicks "Verify".<br>
+    4. System matches code.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Resend Code: User clicks "Resend" after 60 seconds wait.<br>
+    AF2: Incorrect Phone/Email: User goes back to edit registration info.<br>
+    AF3: Manual Link: User clicks a link in the email instead of entering OTP.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Expired OTP: System prompts user to request a fresh code.<br>
+    E2: Maximum Retries: System locks verification for 30 minutes after 5 fails.<br>
+    E3: Invalid Input: System prevents non-numeric characters in OTP field.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-04: OTP expires exactly 5 minutes after generation.<br>
+    BR-05: Verification is mandatory to use any marketplace features.<br>
+    BR-06: Only 3 OTPs can be requested within a 15-minute window per IP.
+  </td></tr>
+</table>
+
+<!-- UC-03 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-03 — Login</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>All Users</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Security Manager</td></tr>
+  <tr><th>Description:</th><td>Authenticate user credentials to grant access.</td></tr>
+  <tr><th>Trigger:</th><td>User accesses the Login page.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User has a registered account.<br>
+    PRE2: Account is not currently banned or suspended.<br>
+    PRE3: User has internet connectivity.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Access and Refresh tokens are issued.<br>
+    POST2: Login timestamp and IP are recorded in audit logs.<br>
+    POST3: User is navigated to their specific dashboard.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. User enters Email/Password.<br>
+    2. System verifies credentials.<br>
+    3. System checks account status.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Remember Me: User checks box to extend session duration.<br>
+    AF2: Social Login: User logs in via Google/Facebook login.<br>
+    AF3: Switch Account: User logs out and returns to login screen.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Invalid Credentials: Error "Email or password incorrect".<br>
+    E2: Unverified Account: System redirects to UC-02 (Verification).<br>
+    E3: Brute Force: System triggers CAPTCHA after 3 failed attempts.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-07: Password hashing must use industry-standard algorithms (Bcrypt/Argon2).<br>
+    BR-08: Session must expire after 24 hours of inactivity.<br>
+    BR-09: Concurrent logins from different geographical regions trigger security alerts.
+  </td></tr>
+</table>
+
+<!-- UC-04 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-04 — Forgot Password</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Guest</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, SMS/Email Gateway</td></tr>
+  <tr><th>Description:</th><td>Reset password for users who lost access.</td></tr>
+  <tr><th>Trigger:</th><td>User clicks "Forgot Password" on login screen.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: A registered account matching the email exists.<br>
+    PRE2: User is not logged in.<br>
+    PRE3: Account is in Active status.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Password is successfully updated.<br>
+    POST2: All existing session tokens are invalidated.<br>
+    POST3: Confirmation email of password change is sent.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. User enters Email.<br>
+    2. System sends Reset OTP.<br>
+    3. User verifies OTP.<br>
+    4. User enters New Password.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Cancel Reset: User returns to login page midway.<br>
+    AF2: Contact Support: User chooses to talk to admin if email is lost.<br>
+    AF3: Recovery Link: User uses a unique URL from email instead of OTP.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Account Not Found: System shows generic success message for security.<br>
+    E2: OTP Expired: Link/Code becomes invalid after 15 minutes.<br>
+    E3: Same Password: System prevents using the current password as the new one.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-10: New passwords must not contain the user's name or known personal details.<br>
+    BR-11: Account reset is locked if requested more than 5 times in 1 hour.<br>
+    BR-12: Password reset tokens are one-time use and invalidated upon first use.
+  </td></tr>
+</table>
+
+<!-- UC-05 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-05 — View Public Landing Page</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Guest</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Display marketing and platform overview.</td></tr>
+  <tr><th>Trigger:</th><td>User visits root URL.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Web server is operational and reachable.<br>
+    PRE2: Browser supports modern web standards.<br>
+    PRE3: Static assets are cached or available on the network.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Marketing Landing Page is rendered correctly.<br>
+    POST2: Anonymous guest tracking session is initialized.<br>
+    POST3: Action buttons (Login/Sign Up) are accessible.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. User enters URL.<br>
+    2. System loads landing components.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Language Switch: User changes site language via footer.<br>
+    AF2: Dark Mode: User toggles UI theme preference.<br>
+    AF3: Featured Projects: User scrolls to see public marketplace samples.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Asset Timeout: System shows placeholder colors if images fail.<br>
+    E2: Script Error: Navigation remains functional via standard HTML links.<br>
+    E3: Unsupported Browser: System shows a recommendation banner to update.
+  </td></tr>
+  <tr><th>Priority:</th><td>Low</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-13: Landing page must meet accessibility (WCAG) contrast standards.<br>
+    BR-14: Content must be indexable by major search engines (SEO optimized).<br>
+    BR-15: Sample projects shown must be marked as 'Public' by their owners.
+  </td></tr>
+</table>
+
+<!-- UC-06 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-06 — Manage Account</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client, Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Storage Bucket</td></tr>
+  <tr><th>Description:</th><td>Update profile information and settings.</td></tr>
+  <tr><th>Trigger:</th><td>User clicks "Profile Settings".</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User has an active, authenticated session.<br>
+    PRE2: User profile record exists and is fetched.<br>
+    PRE3: User has appropriate permissions to modify their own data.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Updated profile data is persisted in the database.<br>
+    POST2: Changes are reflected immediately in the UI headers.<br>
+    POST3: System logs the specific fields changed for auditing.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. User edits Name/Avatar.<br>
+    2. User clicks "Save".<br>
+    3. System validates input.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Security Tab: User changes password or enables 2FA.<br>
+    AF2: Deactivation: User requests to hide their profile from marketplace.<br>
+    AF3: Preferences: User updates timezone or date format settings.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Storage Failure: Image upload fails, system reverts to old avatar.<br>
+    E2: Validation Error: System highlights fields not meeting length requirements.<br>
+    E3: Session Expired: System prompts for login before allowing the save.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-16: Display names cannot be changed more than twice in 30 days.<br>
+    BR-17: Email address changes must be verified through the new address.<br>
+    BR-18: Account roles (Client/Broker) cannot be swapped after initial verification.
+  </td></tr>
+</table>
+
+<!-- UC-07 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-07 — Register KYC</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client, Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Admin Reviewer</td></tr>
+  <tr><th>Description:</th><td>Submit identity verification documents for trust building.</td></tr>
+  <tr><th>Trigger:</th><td>User selects "Verify Identity" from trust profile.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Basic profile (UC-06) is completed.<br>
+    PRE2: User is legally an adult (18+).<br>
+    PRE3: User has high-resolution document scans ready.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: KYC status is updated to "PENDING_REVIEW".<br>
+    POST2: Document files are moved to secure, encrypted storage.<br>
+    POST3: Verification request is queued for administrative approval.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. User uploads ID documents.<br>
+    2. User uploads verification selfie.<br>
+    3. User clicks "Submit".
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Document Type: User switches between Citizen ID and Passport.<br>
+    AF2: Retake Photo: User replaces doc images before final submission.<br>
+    AF3: In-person Verify: User chooses to bring documents to a physical office (if available).
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Quality Filter: System rejects images with obscured text automatically.<br>
+    E2: Data Mismatch: Name on ID differs from profile name significantly.<br>
+    E3: Blacklisted: System flags document ID matching a banned user.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-19: KYC submissions must be reviewed by staff within 2 business days.<br>
+    BR-20: All identity images must be uploaded in PNG or JPEG format.<br>
+    BR-21: Identity verification is mandatory for project budgets exceeding $1,000.
+  </td></tr>
+</table>
+
+<!-- UC-08 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-08 — Do Request Wizard</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Recommendation AI</td></tr>
+  <tr><th>Description:</th><td>Guided multi-step questionnaire to define project requirements.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "Create Request" button.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Client is logged in and verified.<br>
+    PRE2: System wizard metadata is loaded from backend.<br>
+    PRE3: Client has not reached the concurrent request limit.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: A project draft is created and saved in the user's workspace.<br>
+    POST2: Selected features and industry tags are categorized.<br>
+    POST3: Client is moved to the final review/publish screen.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select project type.<br>
+    2. Select industry.<br>
+    3. Set budget/timeline.<br>
+    4. Select tech features.<br>
+    5. Summarize project.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Use Draft: Client resumes a partially completed wizard session.<br>
+    AF2: Import Specs: Client uploads a document to auto-fill wizard fields.<br>
+    AF3: Consult AI: Client asks for suggestions for budget based on industry.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Step Validation: Client tries to skip mandatory industry selection.<br>
+    E2: Range Overflow: Budget value exceeds platform maximum supported.<br>
+    E3: Backend Timeout: System saves progress locally and retries sync.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-22: Drafts must be autosaved every time a user proceeds to a next step.<br>
+    BR-23: A minimum of 3 specific technical features must be selected.<br>
+    BR-24: Project titles must be unique within the client's own history.
+  </td></tr>
+</table>
+
+<!-- UC-09 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-09 — Create Request</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Broker Matching Engine</td></tr>
+  <tr><th>Description:</th><td>Finalize project definition and open it for bidding.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "Post to Marketplace" button.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Wizard steps (UC-08) are fully completed.<br>
+    PRE2: Client account trust score is above the minimum threshold.<br>
+    PRE3: Request title and description are validated for policy.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Request status is set to "PUBLIC_HIRING".<br>
+    POST2: Marketplace search engine is updated with new request data.<br>
+    POST3: Automated matching notifications are sent to relevant brokers.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Review summary.<br>
+    2. Confirm publication.<br>
+    3. System publishes.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Private Posting: Request is hidden from public list and is invite-only.<br>
+    AF2: Priority Listing: Client pays to feature the request in marketplace.<br>
+    AF3: Save as Private Draft: Client finishes definitions but does not publish.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Forbidden Content: System flags request for containing contact info.<br>
+    E2: Credit Check: User's fee payment (if applicable) is declined.<br>
+    E3: Duplicate Post: System prevents posting identical requests within 5 mins.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-25: Public requests are archived automatically after 30 days if no broker hired.<br>
+    BR-26: Standard accounts are limited to 5 active marketplace listings.<br>
+    BR-27: Descriptions must contain at least 200 characters to ensure clarity for brokers.
+  </td></tr>
+</table>
+
+<!-- UC-10 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-10 — Invite Broker Directly</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>Broker, Notification Engine</td></tr>
+  <tr><th>Description:</th><td>Request a specific broker to view and bid on a project.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "Invite" on a broker's profile card.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Client has at least one active request (Public or Private).<br>
+    PRE2: Target Broker has a "Verified" status or high trust score.<br>
+    PRE3: Broker's notification settings allow direct invites.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Invitation record is created in the recruitment subsystem.<br>
+    POST2: Broker receives an instant notification with project link.<br>
+    POST3: The project is added to the Broker's "Invited Jobs" board.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Browse Brokers.<br>
+    2. Select Request.<br>
+    3. Click "Send Invite".
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Bulk Invite: Client invites multiple top-rated brokers from a list.<br>
+    AF2: Withdraw Invite: Client cancels the request before the broker responds.<br>
+    AF3: Broker Suggestions: Client invites from a system-generated match list.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Already Invited: System prevents duplicate invites for the same project.<br>
+    E2: Busy Status: Broker marked as "Not Available" for new invitations.<br>
+    E3: Blocked User: Broker has previously blocked the client's account.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-28: Max invitations per project is capped to 15 to prevent spamming.<br>
+    BR-29: Invitations expire automatically if not accepted within 48 hours.<br>
+    BR-30: Direct invitation is required for any request marked as 'Private'.
+  </td></tr>
+</table>
+
+<!-- UC-11 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-11 — Post Project To Marketplace</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Broker Community</td></tr>
+  <tr><th>Description:</th><td>Move a project definition from draft status to active market listing.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "Publish" on an existing project draft.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Draft contains all required technical specifications.<br>
+    PRE2: Project is not already live or cancelled.<br>
+    PRE3: User is currently logged into a valid Client account.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Project status is updated to "PUBLIC_HIRING".<br>
+    POST2: Visibility timestamp is set for expiration tracking.<br>
+    POST3: Project is now searchable by all registered brokers.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select draft.<br>
+    2. Confirm fees.<br>
+    3. Activate listing.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Featured Post: Client pays for enhanced visibility on the home page.<br>
+    AF2: Limited Visibility: Listing visible only to "Top Rated" brokers.<br>
+    AF3: Scheduled Live: Set a future date for the project to go public.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Missing Files: Draft requires mandatory spec files to be published.<br>
+    E2: Fee Decline: Transaction for listing fee fails to process.<br>
+    E3: Duplicate Title: System detects another active listing with same name.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-31: Only verified clients are allowed to post to the public marketplace.<br>
+    BR-32: A project cannot be edit-locked until at least one proposal is received.<br>
+    BR-33: Market listings are valid for 30 days before requiring renewal.
+  </td></tr>
+</table>
+
+<!-- UC-12 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-12 — View List Request</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Review current status and details of all user-owned project requests.</td></tr>
+  <tr><th>Trigger:</th><td>Client accesses "My Requests" page from navigation.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User is authenticated.<br>
+    PRE2: User is the primary owner or manager of the requests.<br>
+    PRE3: Dashboard service is operational.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: A comprehensive list of requests is displayed for the user.<br>
+    POST2: Aggregated status counts (Total, Active, Draft) are shown.<br>
+    POST3: User can trigger follow-up actions (Edit/Invite) from list.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Open dashboard.<br>
+    2. Browse requests.<br>
+    3. Apply filters.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Export Activity: Download project listing as an Excel document.<br>
+    AF2: Search Keywords: Filter list by specific title or tech stack tags.<br>
+    AF3: View Archive: Toggle to see closed/cancelled project history.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Empty State: User has no projects, system shows onboarding tips.<br>
+    E2: Refresh Fail: System shows cached data with a "Sync Error" badge.<br>
+    E3: Forbidden: Attempting to access list via shared link without login.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-34: Users must only see projects they created or have been shared with them.<br>
+    BR-35: Completed projects are moved to the 'Archive' tab after 90 days.<br>
+    BR-36: Real-time status updates are required for current active listings.
+  </td></tr>
+</table>
+
+<!-- UC-13 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-13 — Manage Request</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Broker (if participating)</td></tr>
+  <tr><th>Description:</th><td>Update project details or terminate a project request.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "Edit Project" on request detail page.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Request is not in "COMPLETED" or "CONTRACTED" status.<br>
+    PRE2: Client has ownership level permissions.<br>
+    PRE3: Project is not currently locked for technical review.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Changes are updated in the central project repository.<br>
+    POST2: All active broker bidders are notified of specific modifications.<br>
+    POST3: Revision history is logged for legal and audit purposes.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Edit Fields.<br>
+    2. Click Save.<br>
+    3. System verifies changes.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Close Posting: Stop accepting new bids while keeping the request active.<br>
+    AF2: Deadline Extension: Move the hiring date by up to 7 days.<br>
+    AF3: Version Reset: Rollback project description to a previous saved state.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Modification Locked: System prevents editing once a contract is signed.<br>
+    E2: Negative Budget: System rejects any budget update below $0.<br>
+    E3: Conflict: Broker submits a proposal while client is editing title.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-37: Budget modifications exceeding 20% will invalidate all current broker bids.<br>
+    BR-38: Cancellation is only allowed if no broker has been officially hired.<br>
+    BR-39: Core technical stack tags cannot be removed if they are already in specs.
+  </td></tr>
+</table>
+
+<!-- UC-14 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-14 — Manage Broker's Specs</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>Broker, Technical Advisor</td></tr>
+  <tr><th>Description:</th><td>Review technical documentation and scope defined by the broker.</td></tr>
+  <tr><th>Trigger:</th><td>Broker uploads a 'Scope of Work' or DRS document.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: A broker has been assigned to the requirement.<br>
+    PRE2: Project is in "Negotiation / Specs Phase".<br>
+    PRE3: Spec submission is marked as "Ready for Review".
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Specifications are "Approved" and locked for development.<br>
+    POST2: Project phase moves to "Freelancer Recruitment".<br>
+    POST3: Technical baseline is established for milestone verification.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Open Spec document.<br>
+    2. Review milestones.<br>
+    3. Click "Approve Content".
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Reject & Feedback: Point out errors in tech stack or timeline.<br>
+    AF2: Third-Party Audit: Request system admin to verify spec viability.<br>
+    AF3: Collaborative Edit: Live discussion on specific scope items.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Malicious File: System sandbox detects viruses in uploaded spec.<br>
+    E2: Scope Gap: Milestones total less than the project budget.<br>
+    E3: Review Timeout: Broker pulls back the spec while being reviewed.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-40: Approved specs act as the technical annex to the project contract.<br>
+    BR-41: Milestones must be clearly defined with at least 3 acceptance criteria each.<br>
+    BR-42: Spec approval is a one-way transition; reverting requires admin reset.
+  </td></tr>
+</table>
+
+<!-- UC-15 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-15 — View List Current Project</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>Broker, Freelancers, System</td></tr>
+  <tr><th>Description:</th><td>Monitor delivery progress of all live projects.</td></tr>
+  <tr><th>Trigger:</th><td>Client selects "Active Projects" from menu.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Project has an active, signed contract.<br>
+    PRE2: Work phase has officially commenced.<br>
+    PRE3: Tracking module is enabled for these projects.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Visual dashboard showing progress bars is rendered.<br>
+    POST2: List of upcoming deadlines and milestones is displayed.<br>
+    POST3: Health status (On-Track/At-Risk) is calculated per project.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select "Projects".<br>
+    2. Review progress.<br>
+    3. Check team activity.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Timeline View: See project overlaps on a Gnatt-style chart.<br>
+    AF2: Team Contact: Quickly jump to chat with the lead broker.<br>
+    AF3: Resource View: View links to dev servers and staging environments.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Stale Data: Project management API is down, showing "Offline" notice.<br>
+    E2: Hidden Project: Project marked as "Paused" is excluded from first view.<br>
+    E3: Auth Error: Token expires while browsing project details.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-43: Progress is calculated as (Completed Milestones / Total Milestones) * 100.<br>
+    BR-44: Any milestone more than 48h overdue triggers a Priority 1 email to the broker.<br>
+    BR-45: Historical project logs must be visible to all current assigned stakeholders.
+  </td></tr>
+</table>
+
+<!-- UC-16 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-16 — Review Milestone</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>Broker, Freelancer, Escrow System</td></tr>
+  <tr><th>Description:</th><td>Evaluate completed milestone work and authorize fund release.</td></tr>
+  <tr><th>Trigger:</th><td>Freelancer marks a milestone as "Delivered".</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Milestone is in "Review" state.<br>
+    PRE2: Proof of work assets (Git link, Files) are present.<br>
+    PRE3: Total project funds are held in system escrow.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Funds for that milestone are released to the freelancer balance.<br>
+    POST2: Milestone status is updated to "PAID".<br>
+    POST3: Overall project progress % is recalculated and updated.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Inspect work.<br>
+    2. Verify criteria.<br>
+    3. Approve release.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Partial Rework: Approve part of the milestone, hold back 10% for fixes.<br>
+    AF2: Dispute Submission: Formally reject the work due to scope mismatch.<br>
+    AF3: Technical Audit: Ask the Broker to verify the quality before client clicks pay.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Invalid Proof: Sandbox detects empty or irrelevant files uploaded.<br>
+    E2: Escrow Lock: System funds are temporarily frozen by admin for audit.<br>
+    E3: Review Gap: Client fails to review, triggering auto-escalation.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-46: Milestone approval is irreversible and immediately releases funds from escrow.<br>
+    BR-47: Clients have a 7-day window to review work before auto-approval (if not disputed).<br>
+    BR-48: Proof of Work links must remain active for the entire duration of the project.
+  </td></tr>
+</table>
+
+<!-- UC-17 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-17 — Checkout</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client, Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>Stripe Gateway, Internal Ledger</td></tr>
+  <tr><th>Description:</th><td>Securely process financial transactions for services.</td></tr>
+  <tr><th>Trigger:</th><td>User clicks "Add Funds" or "Pay Contract".</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User has valid payment details attached to account.<br>
+    PRE2: Transaction amount is within system limits.<br>
+    PRE3: User identity check (KYC) is successful for large amounts.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: External transaction is successfully polled from gateway.<br>
+    POST2: Internal system credits/ledger are updated accurately.<br>
+    POST3: Tax-compliant invoice is generated and emailed to user.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select amount.<br>
+    2. Confirm method.<br>
+    3. Perform 3D Secure.<br>
+    4. Receipt display.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Credit Balance: Use existing platform wallet credits for payment.<br>
+    AF2: Installment Plan: Set up recurring payments for long-term projects.<br>
+    AF3: Promo Application: Deduct platform service fees using a valid coupon.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Bank Decline: User's bank rejects transaction for "Insufficient Funds".<br>
+    E2: Timeout: Gateway takes too long to respond, system queues the verify.<br>
+    E3: Invalid Currency: Attempting to pay in a non-supported local currency.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-49: Platform charges a flat 5% fee on all deposits for escrow maintenance.<br>
+    BR-50: Minimum transaction amount is $10.00 USD.<br>
+    BR-51: All financial data must be encrypted and handled via PCI-DSS compliant providers.
+  </td></tr>
+</table>
+
+<!-- UC-18 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-18 — Invite Another Account To Project</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Email Gateway</td></tr>
+  <tr><th>Description:</th><td>Add stakeholders to collaborate on project management.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "Add Team Member" button.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Project is not in ARCHIVED status.<br>
+    PRE2: Inviting user is the Primary Client (Owner).<br>
+    PRE3: Project workspace is initialized.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Unique invitation token is generated.<br>
+    POST2: Confirmation email is dispatched to the invited party.<br>
+    POST3: Stakeholder access record is created in recruitment database.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Enter target email.<br>
+    2. Assign Permission.<br>
+    3. Notify user.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Role Upgrade: Change an existing 'Viewer' to 'Manager'.<br>
+    AF2: Ownership Transfer: Pass primary responsibility to another user.<br>
+    AF3: Public View: Create a temporary link for external board reviews.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: User Not Found: Invitee doesn't have an account, prompt for signup.<br>
+    E2: Max Collaborators: Client exceeds seat limit for current plan.<br>
+    E3: Domain Block: System prevents invitations to specific blacklisted domains.
+  </td></tr>
+  <tr><th>Priority:</th><td>Low</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-52: Only one Primary Owner is allowed per project at any given time.<br>
+    BR-53: Invited managers have the right to approve milestones but NOT to delete project.<br>
+    BR-54: Invitations expire and become void 48 hours after being sent.
+  </td></tr>
+</table>
+
+<!-- UC-19 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-19 — Join Chat Room</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>All Participants</td></tr>
+  <tr><th>Secondary Actors:</th><td>Socket Server, DB Log</td></tr>
+  <tr><th>Description:</th><td>Access real-time project-specific messaging.</td></tr>
+  <tr><th>Trigger:</th><td>User clicks "Chat" icon on a project or bid.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User is a verified member of the project team.<br>
+    PRE2: Chat server is online and active.<br>
+    PRE3: User has passed authorization check for the room ID.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: WebSocket connection is successfully upgraded.<br>
+    POST2: Message history backlog is fetched and rendered.<br>
+    POST3: User's online status is broadcasted to other participants.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Load Chat UI.<br>
+    2. Sync History.<br>
+    3. Send Messages.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: File Share: Upload logs or UI mockups directly into the thread.<br>
+    AF2: Mention (@): Notify a specific participant within the group chat.<br>
+    AF3: Search History: Locate specific agreed terms from past messages.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Auth Kick: Session expires, system disconnects from chat room.<br>
+    E2: Socket Error: Firewall blocks persistent connection, fallback to polling.<br>
+    E3: Attachment Filter: System blocks potential executable file uploads.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-55: Chat history is inadmissible for deletion to protect dispute evidence.<br>
+    BR-56: Files shared in chat are automatically scanned for malware upon upload.<br>
+    BR-57: Direct messaging between freelancer and client must happen within the platform.
+  </td></tr>
+</table>
+
+<!-- UC-20 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-20 — Rate Freelancer/Broker</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Algorithm Engine</td></tr>
+  <tr><th>Description:</th><td>Provide performance feedback for a completed project.</td></tr>
+  <tr><th>Trigger:</th><td>Project moves to "COMPLETED" status.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Final milestone payment has been released (UC-16).<br>
+    PRE2: Project is officially closed and archived.<br>
+    PRE3: User has not previously rated this specific project.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Rating and text feedback are stored on target's public profile.<br>
+    POST2: Global Trust Score for the broker/freelancer is recalculated.<br>
+    POST3: Review response notification is sent to the rated party.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Rate Quality.<br>
+    2. Rate Timeliness.<br>
+    3. Leave Comment.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Report Issue: Use the review box to flag a ethics violation to admins.<br>
+    AF2: Private Praise: Send a non-public "kudos" message to the team.<br>
+    AF3: Milestone Review: Rate performance per individual milestone (if enabled).
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Validation Fail: Rating must have at least 1 star and brief comment.<br>
+    E2: Deadline Pass: Review window of 14 days has elapsed.<br>
+    E3: Retaliation Block: System detects a review filed after a lost dispute.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-58: Ratings are 'Double-Blind' and hidden until both sides submit or time expires.<br>
+    BR-59: Star ratings cannot be modified once they are officially published.<br>
+    BR-60: High-impact reviews (>10k budget) are manually audited for authenticity.
+  </td></tr>
+</table>
+
+<!-- UC-21 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-21 — Manage Subscription</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>Stripe Gateway, System</td></tr>
+  <tr><th>Description:</th><td>Allows clients to upgrade, downgrade, or cancel their platform subscription plans.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "Plans & Billing" in account settings.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Client is logged in and authenticated.<br>
+    PRE2: A valid payment method is linked to the account.<br>
+    PRE3: Client does not have any pending overdue invoices.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Subscription tier is updated in the user profile.<br>
+    POST2: New usage limits (e.g., max concurrent projects) are applied immediately.<br>
+    POST3: A confirmation receipt of the plan change is sent to the client's email.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Client views current plan details.<br>
+    2. Client selects a new subscription tier.<br>
+    3. Client confirms the pro-rated payment amount.<br>
+    4. System processes the transaction via Stripe.<br>
+    5. System updates the account features.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Switch to Annual: Client changes from monthly to yearly billing for a discount.<br>
+    AF2: Manage Payment Method: Client updates the credit card used for the subscription.<br>
+    AF3: View Invoices: Client downloads historical billing PDF documents.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Payment Failure: Stripe declines the card, plan remains on the current tier.<br>
+    E2: Downgrade Blocked: Client has more active projects than allowed in the lower tier.<br>
+    E3: Region Restriction: Selected plan is not available in the client's registered country.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-61: Plan downgrades take effect at the end of the current billing cycle.<br>
+    BR-62: Upgrades are immediate and charged a pro-rated amount for the remaining days.<br>
+    BR-63: Refunds for cancelled subscriptions are only granted within the first 24 hours of purchase.
+  </td></tr>
+</table>
+
+<!-- UC-22 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-22 — Manage Dispute (Client side)</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Admin Mediator</td></tr>
+  <tr><th>Description:</th><td>Review and handle ongoing disputes raised against or by the client.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks on "Dispute Center" from the dashboard.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: At least one dispute record is linked to the client's ID.<br>
+    PRE2: Client has an active session.<br>
+    PRE3: Dispute status is either 'OPEN' or 'IN_MEDIATION'.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Dispute activity log is updated with user's viewing session.<br>
+    POST2: Client's response or additional evidence is saved to the case file.<br>
+    POST3: Case status moves to the next phase if a required action is completed.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Client filters list by 'Active' disputes.<br>
+    2. Client selects a specific case to manage.<br>
+    3. Client reviews the latest updates from the mediator.<br>
+    4. Client performs a required action (e.g., accept split).
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Add Note: Client leaves a private clarification for the admin mediator.<br>
+    AF2: Withdraw Case: Client decides to drop the dispute and release funds.<br>
+    AF3: Message Defendant: Client uses the case-specific chat to resolve issues privately.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Decision Finalized: Client tries to edit a case that has already been resolved.<br>
+    E2: Deadline Missed: Action buttons are disabled because the response window closed.<br>
+    E3: Attachment Limit: Client tries to upload evidence exceeding 50MB in total.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-64: Clients must respond to mediator requests within 48 hours or risk default loss.<br>
+    BR-65: Formal evidence once uploaded cannot be deleted from the audit trail.<br>
+    BR-66: Disputes involving less than $50 are prioritized for automated split suggestions.
+  </td></tr>
+</table>
+
+<!-- UC-23 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-23 — Create Dispute (Client side)</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Freelancer/Broker (Defendant)</td></tr>
+  <tr><th>Description:</th><td>Formally report a problem with a project or milestone to trigger arbitration.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks "File a Dispute" on a project or milestone page.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: The project/milestone must be in an 'In-Progress' or 'Review' status.<br>
+    PRE2: Client has attempted to contact the defendant via chat first.<br>
+    PRE3: Funds for the specific milestone are currently held in escrow.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Milestone funds are locked and cannot be released until resolution.<br>
+    POST2: Dispute ticket is generated and assigned a unique case ID.<br>
+    POST3: Notification is sent to the defendant and the platform admin team.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select project and milestone.<br>
+    2. Choose dispute category (Quality, Deadline, Communication).<br>
+    3. Describe the issue in detail.<br>
+    4. Upload supporting screenshots/files.<br>
+    5. Submit the case.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Request Partial Refund: Client proposes a specific % split to avoid full arbitration.<br>
+    AF2: Draft Dispute: Save the form progress to submit later.<br>
+    AF3: Link Chat Logs: System auto-attaches relevant project chat history to the case.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Milestone Paid: System prevents disputing work that has already been approved.<br>
+    E2: Insufficient Data: Submission rejected for having a description shorter than 50 chars.<br>
+    E3: Cool-down Period: Disputes cannot be filed within 24 hours of project start.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-67: Disputes automatically lock all associated project funds across all active milestones.<br>
+    BR-68: Filing more than 2 invalid/frivolous disputes per month leads to account penalty.<br>
+    BR-69: A filing fee (3% of escrow value) is held until the case outcome is decided.
+  </td></tr>
+</table>
+
+<!-- UC-24 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-24 — View Dispute Information (Client side)</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Read the current status, timeline, and documents of a specific dispute.</td></tr>
+  <tr><th>Trigger:</th><td>Client clicks a dispute notification or list item.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Dispute case exists and matches the user's role.<br>
+    PRE2: User is logged in.<br>
+    PRE3: Browser supports document preview features.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: All parties' arguments and evidence are displayed to the client.<br>
+    POST2: Timeline of all previous mediator actions is visible.<br>
+    POST3: Next steps and expected resolution dates are highlighted.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Open Dispute Summary.<br>
+    2. View raiser's claim and defendant's response.<br>
+    3. Check evidence attachments.<br>
+    4. Read mediator's preliminary findings.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Export Case: Download a PDF summary of the entire dispute history.<br>
+    AF2: Evidence Filter: Categorize viewable files by 'My Evidence' vs 'Other side'.<br>
+    AF3: Timeline Toggle: Switch between 'Compact' and 'Full Detail' event views.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Forbidden Access: Attempting to view a dispute for a project the user doesn't own.<br>
+    E2: Loading Error: Encrypted evidence files fail to decrypt for preview.<br>
+    E3: Deleted Item: Admin has removed a specific comment for violating community guidelines.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-70: Internal admin notes are never visible to clients or defendants.<br>
+    BR-71: Dispute information is retained for 7 years as per financial compliance laws.<br>
+    BR-72: Real-time status sync is required for all active viewers of the case details.
+  </td></tr>
+</table>
+
+<!-- UC-25 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-25 — View Request Invitation</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Review private invitations sent by clients to join their project requests.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "Invitations" from their dashboard notification.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Actor has at least one pending invitation.<br>
+    PRE2: Actor's profile is set to 'Available' or 'Public'.<br>
+    PRE3: Account is in 'Verified' status.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Invitation status is set to 'VIEWED' if not already marked.<br>
+    POST2: System unlocks a preview of the project brief for the actor.<br>
+    POST3: Tracking log records the actor's interest/interaction level.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Actor opens Invitation List.<br>
+    2. Actor clicks on a specific invite.<br>
+    3. Actor reads the personal message from the client.<br>
+    4. Actor views the basic project parameters.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Direct Accept: Skip full detail view and join the request immediately.<br>
+    AF2: Decline with Reason: Reject the invite and provide feedback (e.g., 'Too busy').<br>
+    AF3: Propose Counter: Ask a pre-acceptance question to the client.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Expired Invite: Link shows "This invitation is no longer valid".<br>
+    E2: Project Cancelled: Client deleted the project before the actor could view.<br>
+    E3: Limit Reached: Actor cannot view more invites until they resolve pending ones.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-73: Invitations must be responded to (Accept/Decline) within 72 hours.<br>
+    BR-74: Accepting an invitation grants temporary read-only access to private specs.<br>
+    BR-75: Freelancers can only view invitations matching their primary skills.
+  </td></tr>
+</table>
+
+<!-- UC-26 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-26 — View Request Detail</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Content Moderator</td></tr>
+  <tr><th>Description:</th><td>Examine full project requirements, budget, and files to decide on bidding.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks a project card in the Marketplace or Invitation list.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Project is in 'PUBLIC_HIRING' or Actor has been invited.<br>
+    PRE2: Actor is logged in.<br>
+    PRE3: Account has passed the minimum trust score requirement for that project.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Detailed specification documents are made available for download.<br>
+    POST2: The project is added to the actor's 'Recently Viewed' list.<br>
+    POST3: System calculates and shows the actor's 'Match Percentage' with the job.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Read full description.<br>
+    2. Review tech stack.<br>
+    3. Check client payment verification status.<br>
+    4. View attached images/videos.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Share Link: Copy the public project URL to refer a colleague.<br>
+    AF2: Save for Later: Bookmark the request without submitting a bid.<br>
+    AF3: Ask Question: Use the public Q&A section to clarify requirements.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Access Denied: Trying to view a private request without an invitation.<br>
+    E2: Banned Client: Request is hidden because the owner's account was flagged.<br>
+    E3: Region Locked: Job is only open to freelancers in specific time zones.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-76: Real names of clients are hidden until the Broker/Freelancer is shortlisted.<br>
+    BR-77: Detailed budget breakdowns are only visible to Verified accounts.<br>
+    BR-78: External contact info in descriptions is automatically redacted.
+  </td></tr>
+</table>
+
+<!-- UC-27 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-27 — View List Current Project</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>View all active contracts and the status of deliverables for each.</td></tr>
+  <tr><th>Trigger:</th><td>Actor selects "My Work" from the sidebar navigation.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Actor has at least one signed active contract.<br>
+    PRE2: Project is in 'IN_PROGRESS' or 'UNDER_REVIEW' status.<br>
+    PRE3: Actor session is active.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: List of projects with next due milestones is displayed.<br>
+    POST2: Aggregated earnings overview for the current month is shown.<br>
+    POST3: Overdue warnings are highlighted in the UI.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Open Work board.<br>
+    2. Sort by 'Deadline'.<br>
+    3. Monitor milestone completion status.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Filter by Project: Focus view on a single large-scale project.<br>
+    AF2: View History: Switch to see 'Completed / Past' projects.<br>
+    AF3: Download Schedule: Export the next 30 days of tasks to calendar format.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Project Paused: Contract is temporarily halted by the client.<br>
+    E2: Sync Error: Connection to the tracking service is interrupted.<br>
+    E3: Terminated Contract: Project is removed from active list after sudden closure.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-79: Projects must be sorted by 'Next Milestone Deadline' by default.<br>
+    BR-80: Earnings displayed are the 'Net' amount after platform fee deduction.<br>
+    BR-81: Status indicators must update within 5 seconds of any backend change.
+  </td></tr>
+</table>
+
+<!-- UC-28 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-28 — Manage Project</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Client</td></tr>
+  <tr><th>Description:</th><td>Submit deliverables, manage tasks, and request milestone reviews.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "Manage" on an active project card.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Actor is assigned as a member of the project team.<br>
+    PRE2: Current milestone is 'OPEN' for submissions.<br>
+    PRE3: Project is within the agreed contract period.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Milestone status changes to 'PENDING_REVIEW' after submission.<br>
+    POST2: Client receives an automated notification to inspect work.<br>
+    POST3: Task Board is updated with the latest progress updates.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Upload work files.<br>
+    2. Write delivery notes.<br>
+    3. Set milestone to 'Delivered'.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Request Extension: Ask the client for 24-48 more hours for a task.<br>
+    AF2: Add Sub-task: Break down a large milestone into smaller internal todos.<br>
+    AF3: Update Repository: Sync the latest Git commit hash as proof of work.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Missing Deliverables: System prevents submission if required files are missing.<br>
+    E2: Contract Locked: Unable to submit because a dispute is currently active.<br>
+    E3: Storage Quota: Upload fails because the project storage limit is reached.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-82: Milestone deliverables must be virus-scanned before becoming visible to clients.<br>
+    BR-83: Only the 'Lead Freelancer' or 'Broker' can officially mark a milestone as Delivered.<br>
+    BR-84: Revision requests from clients must be responded to within 48 hours.
+  </td></tr>
+</table>
+
+<!-- UC-30 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-30 — Update Project Specs</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker</td></tr>
+  <tr><th>Secondary Actors:</th><td>Client, System</td></tr>
+  <tr><th>Description:</th><td>Modify technical requirements or milestones during the spec finalization phase.</td></tr>
+  <tr><th>Trigger:</th><td>Broker clicks "Edit Specs" during Phase 2 negotiation.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Project status is 'PENDING_SPECS' or similar.<br>
+    PRE2: Broker is officially assigned to the request.<br>
+    PRE3: Client hasn't clicked 'Approve Specs' yet.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Updated DRS (Detailed Requirement Spec) is saved as active version.<br>
+    POST2: System recalculates complexity vs. requested budget.<br>
+    POST3: Version history records the specific changes made by the broker.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Update feature list.<br>
+    2. Adjust milestone amount/dates.<br>
+    3. Attach new technical diagrams.<br>
+    4. Save changes.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Suggest Tech Stack: Recommend specific languages (e.g., Node.js vs Python).<br>
+    AF2: Import Template: Use a pre-defined spec template for rapid drafting.<br>
+    AF3: Live Edit: Collaborate on the spec document with the client in real-time.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Budget Conflict: Total milestone costs exceed the client's max budget.<br>
+    E2: Edit Lock: Client is currently viewing the spec, preventing concurrent edits.<br>
+    E3: Invalid Version: Attempting to save a spec based on an outdated draft.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-85: Any change to milestone costs requires explicit client re-confirmation.<br>
+    BR-86: Technical specs must follow the platform's standard DRS schema.<br>
+    BR-87: Draft specs are automatically deleted if the project is cancelled mid-negotiation.
+  </td></tr>
+</table>
+
+<!-- UC-31 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-31 — Manage Project Milestone</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Client</td></tr>
+  <tr><th>Description:</th><td>Allows Brokers to track, update, and submit milestones for client review on behalf of the project team.</td></tr>
+  <tr><th>Trigger:</th><td>Broker selects an active project from their dashboard.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Broker is assigned as the primary manager of the project.<br>
+    PRE2: Project is in 'IN_PROGRESS' status.<br>
+    PRE3: Milestone details were previously agreed upon in Phase 2.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Milestone completion percentage is updated in the project dashboard.<br>
+    POST2: Client receives an automated notification for milestone review.<br>
+    POST3: System logs the submission time and IP for audit purposes.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Broker navigates to the 'Milestones' tab.<br>
+    2. Broker selects a milestone to mark as 'Submitted'.<br>
+    3. Broker uploads final deliverables linked to this milestone.<br>
+    4. Broker adds a summary note for the client.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Update Deadline: Broker requests a deadline shift with justification.<br>
+    AF2: Re-order Milestones: Broker adjusts the execution sequence (if dependencies allow).<br>
+    AF3: Partial Submission: Broker uploads drafts for early feedback without closing the milestone.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Blocked by Dispute: Milestone updates are disabled if an active dispute exists.<br>
+    E2: Invalid File Type: Upload rejected for non-approved file extensions.<br>
+    E3: Overdue Limit: Broker cannot update status if the milestone is >30 days past due without admin override.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-88: Milestone submission is only possible if all mandatory deliverables are attached.<br>
+    BR-89: Only the assigned Broker can formally transition a milestone to 'Pending Review'.<br>
+    BR-90: System must prevent deleting milestones once the project has started.
+  </td></tr>
+</table>
+
+<!-- UC-32 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-32 — Join Chat Room</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Real-time Service (Socket.io)</td></tr>
+  <tr><th>Description:</th><td>Users enter project-specific communication channels to collaborate.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks the "Chat" icon on a project or request page.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Actor is a verified member of the project or has an active invitation.<br>
+    PRE2: Real-time messaging service is online.<br>
+    PRE3: User has not been silenced or banned from the specific channel.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: User's online status is broadcasted to other participants.<br>
+    POST2: Last 50 messages are loaded into the chat window.<br>
+    POST3: Push notifications are silenced for the active session.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. System verifies session token.<br>
+    2. System subscribes user to the project's WebSocket room.<br>
+    3. User synchronizes message history.<br>
+    4. User starts sending/receiving live messages.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Search History: Actor uses keyword search to find past discussions.<br>
+    AF2: View Participants: Actor sees a list of currently online team members.<br>
+    AF3: Mute Channel: Actor stays in the room but disables sound alerts.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Auth Failure: Session expired, user redirected to login.<br>
+    E2: Server Offline: System displays "Socket.io connection failed, retrying...".<br>
+    E3: Permission Revoked: User tries to enter a room for a cancelled project.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-91: All messages must be persisted in the database for at least 2 years.<br>
+    BR-92: Chat rooms are automatically archived when a project is closed.<br>
+    BR-93: Profanity filters are active on all public and project-level chat rooms.
+  </td></tr>
+</table>
+
+<!-- UC-33 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-33 — Manage Kanban Board</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Organize and track granular project tasks using a visual Kanban board.</td></tr>
+  <tr><th>Trigger:</th><td>Actor navigates to the 'Tasks' section of a project.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Project is in 'IN_PROGRESS' status.<br>
+    PRE2: Kanban board has been initialized for the project.<br>
+    PRE3: User has 'Developer' or 'Manager' permissions.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Task position and column status are saved in the database.<br>
+    POST2: Real-time update is sent to all other members viewing the board.<br>
+    POST3: Audit log records the task movement (from-to columns).
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Actor drags a task card from 'Todo' to 'In Progress'.<br>
+    2. Actor updates task description or assignee.<br>
+    3. Actor attaches evidence or code references to the card.<br>
+    4. Actor moves task to 'Done'.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Archive Completed: Move all 'Done' tasks to an archive list to clear the view.<br>
+    AF2: Filter by Member: View only tasks assigned to a specific freelancer.<br>
+    AF3: Priority Color-coding: Assign 'High/Medium/Low' labels to cards.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Forbidden Move: Moving a task to 'Done' without completing required sub-tasks.<br>
+    E2: Concurrency Conflict: Two users try to move the same card simultaneously.<br>
+    E3: Attachment Overload: Uploading more than 10 files to a single task card.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-94: Every task must be linked to at least one active milestone.<br>
+    BR-95: Only Brokers can create new columns (swimlanes) on the board.<br>
+    BR-96: Moving a task to 'Done' does NOT automatically approve the milestone.
+  </td></tr>
+</table>
+
+<!-- UC-34 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-34 — Rate Freelancer/Client</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Provide qualitative and quantitative feedback for team members or the client.</td></tr>
+  <tr><th>Trigger:</th><td>Broker completes a milestone or the entire project.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: The target actor (Freelancer or Client) was part of the same project.<br>
+    PRE2: Project status is 'COMPLETED' or 'CANCELLED'.<br>
+    PRE3: Broker has not already submitted a rating for this specific project.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Feedback score is added to the target's public profile.<br>
+    POST2: Trust score of the target is recalculated based on weights.<br>
+    POST3: Notification is sent to the target that they have received a review.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select project and member.<br>
+    2. Assign Star ratings for skills, communication, and punctuality.<br>
+    3. Write a detailed review comment.<br>
+    4. Submit review.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Private Feedback to Platform: Leave a note only visible to admins about the user.<br>
+    AF2: Skip Review: Intentionally choose not to leave a review.<br>
+    AF3: Update Review: Edit the text (but not stars) within a 24-hour window.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Timeout: Attempting to review after the 30-day review window has closed.<br>
+    E2: Retaliation Detection: System flags a review that seems to be in response to a dispute loss.<br>
+    E3: Character Limit: Comment is shorter than 20 characters.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-97: Ratings are binary-blind: neither side sees the other's score until both are done.<br>
+    BR-98: Reviews including personal contact info are automatically flagged for removal.<br>
+    BR-99: Brokers can only rate their direct subordinates (excluding other brokers).
+  </td></tr>
+</table>
+
+<!-- UC-36 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-36 — Edit Account Information</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Email Service</td></tr>
+  <tr><th>Description:</th><td>Update personal details, security settings, and professional preferences.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "Settings" in the profile menu.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User is logged in and authenticated.<br>
+    PRE2: Account is not in a 'Suspended' state.<br>
+    PRE3: KYC status is 'VERIFIED' (if changing name/identity).
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Updated record is saved in the 'users' and 'profiles' tables.<br>
+    POST2: Email verification is triggered if the email address changed.<br>
+    POST3: Active sessions on other devices are invalidated for security.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Update contact number or location.<br>
+    2. Change notification preferences (Email/Push).<br>
+    3. Update professional bio.<br>
+    4. Save changes.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Change Password: Actor updates credentials for security.<br>
+    AF2: Deactivate Account: Actor requests temporary account hiding.<br>
+    AF3: Link Social Media: Actor connects LinkedIn or GitHub for enhanced verification.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Duplicate Information: Attempting to use an email already registered to another user.<br>
+    E2: Weak Password: New password fails the complexity check (BR-01).<br>
+    E3: Modification Limit: Name change requested more than once in 180 days.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-100: Critical fields (Legal Name, Role) require admin approval to change after verification.<br>
+    BR-101: All profile updates are logged for security auditing.<br>
+    BR-102: Private profiles are hidden from the Marketplace search results.
+  </td></tr>
+</table>
+
+<!-- UC-37 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-37 — Manage CV</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Document Extractor</td></tr>
+  <tr><th>Description:</th><td>Maintain a professional resume on the platform to attract clients.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "Upload CV" on their profile page.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User has a professional account type.<br>
+    PRE2: Account profile is completed at least 50%.<br>
+    PRE3: Browsing session is active.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: CV file is securely stored in cloud storage.<br>
+    POST2: Relevant skills are automatically parsed and added to the profile tags.<br>
+    POST3: Profile visibility in 'Talent Search' is increased.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Actor selects PDF/Word file.<br>
+    2. System scans for malware.<br>
+    3. System extracts text for indexing.<br>
+    4. Actor confirms the parsed skill tags.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: CV URL: Link an external Portfolio/Drive instead of uploading a file.<br>
+    AF2: Replace CV: Overwrite old document with a newer version.<br>
+    AF3: Visibility Toggle: Make CV only viewable to projects the actor applies for.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Corrupt File: System cannot open or index the uploaded document.<br>
+    E2: Oversized File: CV exceeds the 10MB individual file limit.<br>
+    E3: Unsupported Format: Upload of non-PDF/Word documents (e.g., .exe).
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-103: Profile 'Trust Score' is bonus-weighted for users with a verified CV.<br>
+    BR-104: Contact info in uploaded CVs is automatically masked for the first 3 views.<br>
+    BR-105: Users are notified if their CV remains un-updated for more than 6 months.
+  </td></tr>
+</table>
+
+<!-- UC-38 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-38 — Manage Dispute (Provider side)</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Admin Mediator</td></tr>
+  <tr><th>Description:</th><td>Defend against or manage disputes raised by clients regarding work quality or delivery.</td></tr>
+  <tr><th>Trigger:</th><td>Actor receives a dispute notification or opens the Dispute Center.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: A dispute exists where the Actor is named as a defendant or plaintiff.<br>
+    PRE2: Case status is active (Open, Mediation).<br>
+    PRE3: Actor session is active.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Provider's defense statement is added to the case log.<br>
+    POST2: New evidence attachments are timestamped and shared with the mediator.<br>
+    POST3: Case timeline is updated with the latest action.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. View Details of the claim.<br>
+    2. Submit a counter-argument/response.<br>
+    3. Upload technical proof of delivery.<br>
+    4. Acknowledge mediator's request for info.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Offer Partial Refund: Provider suggests a split of escrow funds to settle quickly.<br>
+    AF2: Request Extension: Ask mediator for more time to gather logs/proof.<br>
+    AF3: Private Note: Leave confidential technical details only for the mediator.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Deadline Expiry: Unable to respond because the 72-hour defense window closed.<br>
+    E2: Decision Final: Attempting to edit response after mediator's verdict.<br>
+    E3: File Blocked: Evidence contains a virus or malicious macro.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-106: Providers must respond to any dispute within 3 business days of notification.<br>
+    BR-107: Failure to respond within the deadline results in automated loss of escrow funds.<br>
+    BR-108: All disputed funds are frozen in escrow and cannot be released mid-process.
+  </td></tr>
+</table>
+
+<!-- UC-39 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-39 — Create Dispute (Provider side)</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Client (Defendant)</td></tr>
+  <tr><th>Description:</th><td>Raise a formal claim against a client for non-payment or unreasonable scope changes.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "Dispute Payment" on a project page.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Work was submitted >7 days ago with no client response.<br>
+    PRE2: Funds for the milestone are currently held in escrow.<br>
+    PRE3: Negotiation via chat has reached an impasse.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Dispute record created and assigned to the next available mediator.<br>
+    POST2: Client's account is flagged for 'Active Dispute'.<br>
+    POST3: Escrow release for current milestone is locked.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select project and unpaid milestone.<br>
+    2. Choose category (Non-payment, Scope Creep).<br>
+    3. Provide evidence of work done vs requirements.<br>
+    4. Submit complaint.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Draft Dispute: Save the claim as a draft before final submission.<br>
+    AF2: Peer Witness: Link another project freelancer to verify the work completion.<br>
+    AF3: Auto-dispute: System suggests filing a dispute if client is 14 days overdue.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Milestone Approved: Cannot dispute a milestone that has already been paid out.<br>
+    E2: Insufficient Work: System rejects filing if no deliverables were uploaded.<br>
+    E3: Policy Violation: Filing a dispute for a project value <$20.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-109: Filing a dispute prevents the Provider from starting new projects with that specific Client.<br>
+    BR-110: A processing fee of 1% is deducted if the Provider loses the dispute.<br>
+    BR-111: Validating evidence must strictly match the agreed technical requirements (DRS).
+  </td></tr>
+</table>
+
+<!-- UC-40 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-40 — View Dispute Information (Provider side)</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Read status updates, evidence list, and mediation outcomes from the Provider's perspective.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks a dispute link in notification/history.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Dispute case involves the current User ID.<br>
+    PRE2: User session is authenticated.<br>
+    PRE3: Case ID is valid.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Full case history including client arguments is displayed.<br>
+    POST2: Deadline for next action is prominently shown.<br>
+    POST3: View session is logged in the audit trail.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Open Dispute Summary.<br>
+    2. Read client's primary complaint.<br>
+    3. Review previous evidence/notes from both sides.<br>
+    4. Check for mediator's initial verdict recommendation.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Download Evidence: Save all case attachments for legal record keeping.<br>
+    AF2: Share Case info: Provide account managers access to view the dispute.<br>
+    AF3: Real-time Event Log: View granular events like "Client viewed your evidence".
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Access Denied: Trying to view a case where the user is not a participant.<br>
+    E2: Data Sync Delay: New messages not showing due to cache; requires manual refresh.<br>
+    E3: Expired Detail: Detailed view archived after 1 year of final closure.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-112: All dispute details are cryptographically sealed once a final verdict is issued.<br>
+    BR-113: Providers cannot see comments left by Clients specifically for "Admin Only".<br>
+    BR-114: Visibility of evidence is logged; "Read Receipts" are shared with the mediator.
+  </td></tr>
+</table>
+
+<!-- UC-41 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-41 — Manage Subscription (Provider side)</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Payment Gateway</td></tr>
+  <tr><th>Description:</th><td>Allows service providers to manage their platform premium plans to increase visibility and job limits.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "Premium Plans" in their provider dashboard.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User is registered as a Broker or Freelancer.<br>
+    PRE2: Account status is 'Active'.<br>
+    PRE3: A payment method is configured in the billing section.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Provider's job application limit is updated based on the new plan.<br>
+    POST2: A 'Premium' badge is displayed on the user's public profile.<br>
+    POST3: System generates a PDF invoice for the transaction.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. View current plan benefits.<br>
+    2. Compare available upgrade options (Basic, Pro, Agency).<br>
+    3. Select payment frequency (Monthly/Annual).<br>
+    4. Confirm and process payment.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Use Credits: Pay for a 1-month upgrade using earned platform credits.<br>
+    AF2: Downgrade Plan: Select a lower tier for the next billing cycle.<br>
+    AF3: Cancel Auto-renew: Keep the current plan until it expires without further charging.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Transaction Declined: Bank or Gateway rejects the charge; plan remains unchanged.<br>
+    E2: Feature Conflict: Downgrade blocked if the provider has more active projects than the lower tier allows.<br>
+    E3: Region Limitation: Specific payment methods (e.g., local wallets) are unavailable.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-115: Premium subscriptions are non-refundable once the provider applies to a job using premium benefits.<br>
+    BR-116: Visibility boost in 'Talent Search' is proportional to the subscription tier level.<br>
+    BR-117: Agency plans allow adding up to 10 sub-accounts under one primary billing.
+  </td></tr>
+</table>
+
+<!-- UC-42 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-42 — View List Public Project</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Browse and search through all open project opportunities posted on the Marketplace.</td></tr>
+  <tr><th>Trigger:</th><td>Actor selects "Find Work" from the main navigation.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User session is active.<br>
+    PRE2: Account is verified (Email/KYC depending on project category).<br>
+    PRE3: Actor role allows project applications.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Filtered results are displayed with matching scores highlight.<br>
+    POST2: System records the search keywords for future 'Smart Suggestions'.<br>
+    POST3: User can see which projects they have already applied to.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Enter search keywords (e.g., "React", "Mobile").<br>
+    2. Filter by Budget Range, Tech Stack, and Client Rating.<br>
+    3. Sort results by 'Newest' or 'High Budget'.<br>
+    4. Browse the summary project cards.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Save Search: Create an alert for new projects matching these specific filters.<br>
+    AF2: View Recently Posted: Quick access to projects listed in the last 2 hours.<br>
+    AF3: Filter by Verified Clients: Only show jobs from clients with escrow funds deposited.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: No Results: Search yields zero matches; system suggests broader keywords.<br>
+    E2: Service Timeout: List fails to load due to high server load; show "Retry" button.<br>
+    E3: Access Restricted: Some enterprise projects are hidden from accounts with low trust scores.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-118: Public projects are visible to all, but 'Apply' button is role-restricted.<br>
+    BR-119: Matching percentage is calculated based on Profile Skills vs. Project Tags.<br>
+    BR-120: Projects are automatically hidden from the list once the hiring limit is reached.
+  </td></tr>
+</table>
+
+<!-- UC-43 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-43 — Request To Join Public Request</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Client</td></tr>
+  <tr><th>Description:</th><td>Submit a formal proposal and pitch to join a public project.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "Apply Now" or "Submit Proposal" on a project detail page.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User has sufficient 'Application Credits' or an active subscription.<br>
+    PRE2: Profile completion is above 80% (System requirement for high-level jobs).<br>
+    PRE3: Project is currently in 'Hiring' status.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Proposal record is linked to the project and visible to the client.<br>
+    POST2: Application credits are deducted from the user's balance.<br>
+    POST3: Client receives a real-time notification about the new applicant.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Write a compelling cover letter.<br>
+    2. Propose a bid amount and estimated duration.<br>
+    3. Attach relevant case studies or portfolio pieces.<br>
+    4. Submit and wait for client shortlisting.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Withdraw Proposal: Remove application before the client has viewed it.<br>
+    AF2: Edit Proposal: Update the bid or cover letter (if permitted by project settings).<br>
+    AF3: Boost Application: Spend extra credits to put the proposal at the top of the client's list.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Credit Shortage: User tries to apply with 0 credits and no premium plan.<br>
+    E2: Duplicate App: Attempting to apply twice to the same project.<br>
+    E3: Blacklisted: Client has explicitly blocked the provider from applying.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-121: Cover letters must be at least 150 characters long to discourage spam.<br>
+    BR-122: Proposed bids cannot exceed the client's stated maximum budget by more than 50%.<br>
+    BR-123: Proposals are hidden from other competing freelancers to maintain confidentiality.
+  </td></tr>
+</table>
+
+<!-- UC-44 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-44 — Manage Project Milestone (Freelancer)</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Lead Broker</td></tr>
+  <tr><th>Description:</th><td>Update progress on assigned technical milestones and submit deliverables for internal review.</td></tr>
+  <tr><th>Trigger:</th><td>Freelancer selects their current task from the 'Work' board.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Freelancer is assigned to a specific milestone by the Broker.<br>
+    PRE2: Project is 'IN_PROGRESS'.<br>
+    PRE3: Milestone is unlocked for work.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Milestone status changes to 'INTERNAL_REVIEW' or 'READY_FOR_CLIENT'.<br>
+    POST2: Broker is notified to verify the uploaded code/files.<br>
+    POST3: Progress metrics (velocity) are updated in the team analytics.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Update task completion percentage.<br>
+    2. Link to Git repository or upload zip file.<br>
+    3. Add technical notes about the implementation.<br>
+    4. Mark as 'Ready for Broker'.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Request Block Removal: Flag a milestone as 'Blocked' and notify the team.<br>
+    AF2: Split Task: Break a sub-task into smaller atomic units for better tracking.<br>
+    AF3: Postpone Task: Request a 1-2 day delay for a specific technical deliverable.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Permission Denied: Attempting to update a milestone assigned to another freelancer.<br>
+    E2: Repo Sync Error: System cannot pull from the linked external repository.<br>
+    E3: Required File Missing: marked 'Ready' without any attached deliverables.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-124: Freelancers cannot mark a milestone as 'Delivered' to the client directly; it must pass the Broker first.<br>
+    BR-125: All code submissions must include a brief description of changes (Changelog).<br>
+    BR-126: Milestone progress updates must be made at least once every 48 hours for active projects.
+  </td></tr>
+</table>
+
+<!-- UC-45 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-45 — Feedback Project Milestone</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>Broker, System</td></tr>
+  <tr><th>Description:</th><td>Provide technical input or request clarifications on milestone requirements.</td></tr>
+  <tr><th>Trigger:</th><td>Freelancer views a milestone detail card.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User is an active member of the project team.<br>
+    PRE2: Milestone status is not 'Completed'.<br>
+    PRE3: Chat or comment section is enabled for the project.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Feedback comment is saved and timestamped.<br>
+    POST2: Notification is sent to the assigned Broker/Manager.<br>
+    POST3: The feedback is archived in the milestone history for future reference.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select a milestone.<br>
+    2. Post a technical clarification or suggestion.<br>
+    3. Tag the relevant Broker for a response.<br>
+    4. View the thread of previous comments.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Resolve Feedback: Mark a previous question as closed once answered.<br>
+    AF2: Private Team Comment: Leave a technical note hidden from the client.<br>
+    AF3: Upvote Suggestion: Team members agree with a specific feedback item.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Locked Thread: No further comments allowed after milestone is finalized.<br>
+    E2: User Muted: Freelancer is blocked from posting due to previous community violations.<br>
+    E3: Attachment Fail: Trying to attach a code snippet that exceeds the line limit.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-127: Feedback for technical obstacles must be categorized as 'Blocker' or 'Info'.<br>
+    BR-128: Brokers must acknowledge 'Blocker' feedback within 24 hours.<br>
+    BR-129: All technical feedback is accessible to the client unless marked as 'Internal'.
+  </td></tr>
+</table>
+
+<!-- UC-46 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-46 — Check Current Specs</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Access and review the latest version of the Technical Requirements (DRS).</td></tr>
+  <tr><th>Trigger:</th><td>Freelancer clicks "Specs" in the project sidebar.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Freelancer is officially signed to the project contract.<br>
+    PRE2: Spec document is in 'Approved' or 'Under Negotiation' status.<br>
+    PRE3: Project has not been archived.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: User is presented with the full technical breakdown of the project.<br>
+    POST2: System checks if the user has viewed the latest spec version.<br>
+    POST3: Related design mockups (Figma/Images) are made available for view.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Open Spec Viewer.<br>
+    2. Review feature list and acceptance criteria.<br>
+    3. Check tech stack requirements (Node, React, etc.).<br>
+    4. Download technical PDF/Annex if available.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Version Comparison: Compare the current spec with a previous draft.<br>
+    AF2: Search Specs: Find a specific feature requirement by keyword.<br>
+    AF3: Mobile View: Access specs via the simplified mobile interface.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Forbidden: Trying to view a project spec without an active assignment.<br>
+    E2: Document Missing: The Broker has not yet uploaded or finalized the spec.<br>
+    E3: Rendering Error: Complex diagrams fail to load in the browser spec viewer.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-130: The 'Approved' spec is the only legally binding technical reference for disputes.<br>
+    BR-131: Spec views by freelancers are tracked to ensure everyone is on the same version.<br>
+    BR-132: Freelancers have Read-Only access to the official project specification.
+  </td></tr>
+</table>
+
+<!-- UC-47 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-47 — Feedback Project Specs</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>Broker, Client</td></tr>
+  <tr><th>Description:</th><td>Flag technical issues or propose improvements to the project requirements.</td></tr>
+  <tr><th>Trigger:</th><td>Freelancer highlights a section of the spec or clicks "Propose Change".</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Freelancer is a member of the project team.<br>
+    PRE2: Spec is in an 'Editable' phase (Phase 2 or early Phase 3).<br>
+    PRE3: User has found a technical inconsistency or efficiency improvement.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Feedback note is pinned to the specific requirement line/item.<br>
+    POST2: System alerts the Broker to a potential technical adjustment.<br>
+    POST3: Recommendation is logged for the final spec review meeting.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Highlight a specific requirement.<br>
+    2. Suggest a technical alternative or flag an impossibility.<br>
+    3. Provide reasoning/justification.<br>
+    4. Submit suggestion.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Retract Feedback: Remove a suggestion before it is reviewed by the Broker.<br>
+    AF2: Vote on Proposal: Team members support a specific technical change.<br>
+    AF3: Post Design Reference: Attach a screenshot to explain the feedback better.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Spec Frozen: Attempting to feedback on a document that is already frozen for billing.<br>
+    E2: Overlapping Suggestion: Another team member has already flagged the same issue.<br>
+    E3: Excessive Feedback: Limit of 50 feedback items per freelancer per spec version.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-133: Freelancer feedback is advisory and must be approved by the Broker before updating the spec.<br>
+    BR-134: Suggestions that change the project scope are automatically highlighted in RED.<br>
+    BR-135: Feedback must be linked to a specific requirement ID (e.g., REQ-101).
+  </td></tr>
+</table>
+
+<!-- UC-48 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-48 — Rate Client/Broker</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Evaluate the leadership and professionalism of the Client and Broker post-project.</td></tr>
+  <tr><th>Trigger:</th><td>Freelancer's final contract is closed or project is archived.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Milestone/Project is marked as 'Finished'.<br>
+    PRE2: Freelancer was paid at least for one milestone.<br>
+    PRE3: Rating window (14 days) is open.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Ratings are added to the Client's and Broker's aggregate scores.<br>
+    POST2: Detailed text review is saved for community viewing.<br>
+    POST3: Verification badge 'Worked With' is updated on the profile.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select project.<br>
+    2. Rate Client (Clarity, Payment speed).<br>
+    3. Rate Broker (Management, Tech Support).<br>
+    4. Submit final evaluation.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Anonymous Review: Submit feedback without showing the freelancer's name (internal only).<br>
+    AF2: Recommend to Others: Add a "Would work again" badge.<br>
+    AF3: Report violation: Convert a review into a formal report if severe issues occurred.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Rating Unavailable: Contract was terminated early without any work done.<br>
+    E2: Duplicate Submit: User tries to rate the same broker twice for one project.<br>
+    E3: System Glitch: Rating fails to save due to database lock.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-136: Ratings must satisfy a minimum word count of 30 for high-budget projects.<br>
+    BR-137: Reviewers cannot change their star rating once submitted.<br>
+    BR-138: Clients/Brokers cannot delete reviews autonomously (requires admin intervention).
+  </td></tr>
+</table>
+
+<!-- UC-49 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-49 — Manage User Accounts</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Support Team</td></tr>
+  <tr><th>Description:</th><td>Administer system users including verification, suspension, and role changes.</td></tr>
+  <tr><th>Trigger:</th><td>Admin logs into the Control Panel and navigates to 'User Management'.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User has 'SuperAdmin' or 'Moderator' role.<br>
+    PRE2: Multi-factor authentication (MFA) is active for the admin session.<br>
+    PRE3: Admin is on a secure, whitelisted IP.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: User status (Active/Suspended/Verified) is updated in the database.<br>
+    POST2: Target user receives a system notification about the account change.<br>
+    POST3: Admin action is recorded in the immutable system audit log.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Search for a user by Email or ID.<br>
+    2. Review user activity and flagged reports.<br>
+    3. Update user status or KYC verification state.<br>
+    4. Save changes with a reason note.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Ban by IP: Block all accounts associated with a specific malicious IP range.<br>
+    AF2: Reset MFA: Manually help a user who lost their 2FA device.<br>
+    AF3: Impersonat User: Log in as user (Read-only) to troubleshoot a bug.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Higher-Rank Block: Moderator cannot suspend a SuperAdmin account.<br>
+    E2: Missing Reason: System prevents saving changes without a mandatory 'Action Reason'.<br>
+    E3: Simultaneous Edit: Two admins trying to modify the same user record.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-139: All 'Account Suspension' actions must be reversible for 30 days.<br>
+    BR-140: Admins cannot view user passwords; they can only trigger resets.<br>
+    BR-141: Every admin session is recorded via screen-logs for security compliance.
+  </td></tr>
+</table>
+
+<!-- UC-50 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-50 — View Account Detail</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin</td></tr>
+  <tr><th>Secondary Actors:</th><td>System</td></tr>
+  <tr><th>Description:</th><td>Inspect full user history, financial transactions, and linked devices for auditing.</td></tr>
+  <tr><th>Trigger:</th><td>Admin clicks "Details" on a specific user record.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Admin session is authenticated and active.<br>
+    PRE2: Target User exists in the system.<br>
+    PRE3: Admin has 'View PII' (Personally Identifiable Information) permissions.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: All sensitive data for the user is decrypted for viewing.<br>
+    POST2: User's 'Risk Score' is calculated and displayed.<br>
+    POST3: List of all previously managed projects is rendered.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. View basic info (Name, Role, Location).<br>
+    2. Inspect Transaction history (Escrow, Payouts).<br>
+    3. Check security logs (Recent IPs, User Agents).<br>
+    4. Review Dispute history.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Export Audit Data: Generate a CSV of the user's entire financial history.<br>
+    AF2: View Linked Accounts: See other profiles sharing similar device fingerprints.<br>
+    AF3: Audit KYC Files: Inspect raw images submitted by the user for verification.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Encryption Error: Secure data shard is unreachable, partial info displayed.<br>
+    E2: Restricted Data: Certain financial fields hidden even from moderators.<br>
+    E3: Deleted Account: User profile is purged; only basic audit stats remain.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-142: Real-time financial data viewing is restricted to 'Finance Admin' role.<br>
+    BR-143: Viewing PII triggers a special entry in the data privacy log.<br>
+    BR-144: User history must be retained even if the account is 'Hard Deleted' for 36 months.
+  </td></tr>
+</table>
+
+<!-- UC-51 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-51 — Ban Account</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Target User</td></tr>
+  <tr><th>Description:</th><td>Permanently or temporarily disable a user's access to the platform due to severe policy violations.</td></tr>
+  <tr><th>Trigger:</th><td>Admin clicks "Ban Account" on a user detail page.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Target account exists and is not already permanently banned.<br>
+    PRE2: Admin has 'Manage Accounts' permission.<br>
+    PRE3: A justification/incident report is linked to the action.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Account status is updated to 'BANNED' or 'SUSPENDED' in the database.<br>
+    POST2: All active sessions for the user are immediately terminated.<br>
+    POST3: System sends a final notice email to the user explaining the ban.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select ban duration (Temporary/Permanent).<br>
+    2. Input specific violation category (Fraud, Harassment, etc.).<br>
+    3. Revoke any pending payouts (if applicable).<br>
+    4. Confirm ban action.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Shadow Ban: Restrict user visibility without notifying them (used for botting checks).<br>
+    AF2: IP Ban: Block the user's primary IP address from accessing the site.<br>
+    AF3: Ban with Appeal: Allow the user to submit one appeal within 14 days.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Forbidden Action: Trying to ban a fellow Admin or higher-ranked official.<br>
+    E2: Active Escrow: Ban blocked until active funds of the user are safely locked or refunded.<br>
+    E3: Database Error: Status update fails, user remains active temporarily.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-145: Permanent bans require a second admin approval for high-tier accounts.<br>
+    BR-146: All banned user data must be retained for legal compliance for 5 years.<br>
+    BR-147: Banned users are automatically blacklisted from re-registering with the same bank/phone.
+  </td></tr>
+</table>
+
+<!-- UC-52 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-52 — View System Log</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Logging Server</td></tr>
+  <tr><th>Description:</th><td>Review technical and security logs to monitor system health and detect anomalies.</td></tr>
+  <tr><th>Trigger:</th><td>Admin selects "System Logs" from the Admin Dashboard menu.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Admin has 'View Logs' permission.<br>
+    PRE2: Logging service is connected and responding.<br>
+    PRE3: Secure admin session is active.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Filtered log entries are displayed in a paginated list.<br>
+    POST2: Detailed view of a specific log entry (stack trace, payload) is available.<br>
+    POST3: Access to the logs is recorded in the admin audit history.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Filter logs by Severity (ERROR, INFO, WARNING).<br>
+    2. Search for specific keywords or User IDs.<br>
+    3. View log timestamp and origin service.<br>
+    4. Export logs for deeper analysis.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Real-time Streaming: Watch live logs as they are generated.<br>
+    AF2: Trend Visualization: View error rates over the last 24 hours on a graph.<br>
+    AF3: Alert Configuration: Set up automated notifications for specific error patterns.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Log Storage Full: System cannot display latest logs due to storage overflow.<br>
+    E2: Access Denied: Admin tries to view 'Security Audit' logs without sufficient clearance.<br>
+    E3: Query Timeout: Filtering across too many log files causes the UI to hang.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-148: Sensitive information (passwords, PI) must be masked in all displayed logs.<br>
+    BR-149: Logs older than 90 days are automatically moved to cold storage.<br>
+    BR-150: Log deletion is strictly forbidden; only rotation is allowed.
+  </td></tr>
+</table>
+
+<!-- UC-53 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-53 — View Statistic Admin Dashboard</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Analytics Engine</td></tr>
+  <tr><th>Description:</th><td>Get a high-level overview of platform performance, user growth, and active projects.</td></tr>
+  <tr><th>Trigger:</th><td>Admin logs into the Admin Portal.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Admin is successfully authenticated.<br>
+    PRE2: Analytics data has been pre-aggregated for the current period.<br>
+    PRE3: Project and user databases are accessible.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Summary cards for Key Performance Indicators (KPIs) are displayed.<br>
+    POST2: Interactive charts show growth trends.<br>
+    POST3: List of 'Urgent Notifications' (pending disputes/verifications) is shown.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. View 'Today at a Glance' (Signups, Revenue, Disputes).<br>
+    2. Toggle between Daily, Weekly, and Monthly charts.<br>
+    3. Click on a specific metric to see the detailed breakdown.<br>
+    4. Refresh data manually if real-time updates are needed.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Share Snapshot: Generate a PDF summary of the dashboard for stakeholders.<br>
+    AF2: Custom Widget: Admin rearranges dashboard components to prioritize specific metrics.<br>
+    AF3: Dark/Light Mode: Toggle dashboard theme for better visibility.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Data Out-of-sync: Cached stats don't match live data; shows warning icon.<br>
+    E2: Module Failure: Specific chart (e.g., Financials) fails to load due to API error.<br>
+    E3: Resolution Conflict: Dashboard doesn't render correctly on small screens.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-151: Financial dashboard metrics must be updated at least every 15 minutes.<br>
+    BR-152: Global revenue reports must include deductions for payment gateway fees.<br>
+    BR-153: Only 'SuperAdmin' role can see the full profit/loss dashboard widgets.
+  </td></tr>
+</table>
+
+<!-- UC-54 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-54 — View Subscription Report</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Billing Module</td></tr>
+  <tr><th>Description:</th><td>Analyze subscription metrics including churn rate, renewal trends, and plan popularity.</td></tr>
+  <tr><th>Trigger:</th><td>Admin selects "Subscription Reports" from the Analytics menu.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Billing database is synced with the reporting engine.<br>
+    PRE2: Admin has 'View Finance' or 'SuperAdmin' permissions.<br>
+    PRE3: At least one billing cycle has been completed.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Breakdown of active subscriptions by tier is displayed.<br>
+    POST2: Churn rate analysis for the last 3 months is visualized.<br>
+    POST3: Expected MRR (Monthly Recurring Revenue) is calculated and shown.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select reporting period (e.g., Q1 2026).<br>
+    2. View totals for 'New Subscriptions' vs 'Cancellations'.<br>
+    3. Check average subscription duration.<br>
+    4. Export detailed list of premium users.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Conversion Analysis: See how many free users upgraded to premium.<br>
+    AF2: Coupon Performance: Analyze the impact of promo codes on subscription growth.<br>
+    AF3: Regional Heatmap: View subscription density across different countries.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Data Inconsistency: Refunded subscriptions showing as active in the report.<br>
+    E2: No Data: Period selected where no subscriptions were active.<br>
+    E3: API Failure: Reporting engine cannot fetch data from the payment gateway.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-154: MRR calculations must exclude one-time fees like dispute processing.<br>
+    BR-155: Subscription reports must be generated daily at 00:00 UTC.<br>
+    BR-156: Inactive trial accounts must be grouped separately from paid subscriptions.
+  </td></tr>
+</table>
+
+<!-- UC-55 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-55 — View Financial Report</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Finance Module</td></tr>
+  <tr><th>Description:</th><td>Review comprehensive financial data including payouts, escrow holdings, and platform fees.</td></tr>
+  <tr><th>Trigger:</th><td>Admin navigates to "Financial Reporting" section.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Admin has 'Financial Controller' or 'SuperAdmin' role.<br>
+    PRE2: Transaction logs are current and reconciled.<br>
+    PRE3: Multi-factor authentication is active for this session.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Consolidated Profit & Loss statement for the platform is displayed.<br>
+    POST2: Escrow balance report showing 'Lively' vs 'Disputed' funds is rendered.<br>
+    POST3: Pending payout queue is summarized.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select Report Type (Revenue, Payouts, Escrow).<br>
+    2. Define Date Range.<br>
+    3. View total transaction volume vs net profit.<br>
+    4. Drill down into specific high-value project transactions.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Tax Export: Generate reports formatted for regional tax filing.<br>
+    AF2: Refund Audit: Review all refunds issued during the period.<br>
+    AF3: Currency Breakdown: View earnings in different supported currencies (USD, VND, etc.).
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Reconciliation Error: Platform fees don't match gateway logs; flag for manual audit.<br>
+    E2: Access Restricted: Moderate financial data hidden if IP whitelisting fails.<br>
+    E3: Missing Payout Info: Provider has not linked a bank, causing a report gap.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-157: Financial reports must be cryptographically signed to prevent tampering.<br>
+    BR-158: All platform fees (e.g., 5% commission) must be clearly separated from escrow totals.<br>
+    BR-159: Payout reports must highlight any transactions flagged by 'Anti-Money Laundering' (AML) checks.
+  </td></tr>
+</table>
+
+<!-- UC-56 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-56 — View List Report</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin, Staff</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Users</td></tr>
+  <tr><th>Description:</th><td>Review user-submitted reports regarding bugs, harassment, or project issues.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "User Reports" in the moderation panel.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Actor role is Staff or Admin.<br>
+    PRE2: Reporting module is active.<br>
+    PRE3: Session is authenticated.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: List of reports sorted by priority/urgency is displayed.<br>
+    POST2: Report status (New, Processing, Resolved) is updated.<br>
+    POST3: Internal notes added by previous moderators are visible.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Filter reports by type (Harassment, Technical, Billing).<br>
+    2. Sort by 'Date' or 'Severity'.<br>
+    3. Click on a report to see the full complaint and evidence.<br>
+    4. Mark report as 'Assigned' to self.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Bulk Resolve: Close multiple minor bug reports simultaneously.<br>
+    AF2: Fast-track: Escalate a critical security report directly to the lead Admin.<br>
+    AF3: Ban from Reporter: Block a user who is spamming fake reports.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Report Purged: Trying to view a report that was deleted by a higher Admin.<br>
+    E2: Media Load Fail: Screenshots attached to the report are corrupted.<br>
+    E3: Database Lock: Another staff member is currently editing the same report.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-160: All user reports must be acknowledged within 24 hours.<br>
+    BR-161: Reports involving 'Security Vulnerabilities' must be hidden from regular staff.<br>
+    BR-162: Internal moderator notes are never visible to the reporter or reported user.
+  </td></tr>
+</table>
+
+<!-- UC-57 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-57 — View List Dispute</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin, Staff</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Mediators</td></tr>
+  <tr><th>Description:</th><td>Monitor all active and closed dispute cases across the platform.</td></tr>
+  <tr><th>Trigger:</th><td>Actor navigates to "Dispute Center".</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Actor has access to the moderation/mediation tools.<br>
+    PRE2: System is in a stable state.<br>
+    PRE3: Disputes have been filed by users.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Overview of all disputes (Open, Under Review, Escalated) is rendered.<br>
+    POST2: Total disputed value is displayed in the dashboard header.<br>
+    POST3: Audit logs record the viewing session.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Search for disputes by Case ID, Project ID, or Participant Name.<br>
+    2. Filter by Status (Waiting for Provider, Waiting for Client, Staff Review).<br>
+    3. View upcoming response deadlines.<br>
+    4. Acknowledge new dispute notifications.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: High-Priority Filter: See only disputes over $1,000.<br>
+    AF2: View History: Research past disputes linked to a specific user to detect patterns.<br>
+    AF3: Export Summary: Generate a weekly productivity report for mediators.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Session Timeout: Auth expires mid-search.<br>
+    E2: Conflict of Interest: Staff member is barred from viewing a dispute where they know a participant.<br>
+    E3: Search Limit: Query returns too many results; required to narrow filters.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-163: Disputes are automatically prioritized based on project budget and participant trust scores.<br>
+    BR-164: Disputes involving staff family/friends must be 'Hard Locked' from that staff member.<br>
+    BR-165: List must highlight cases that are within 12 hours of their response deadline.
+  </td></tr>
+</table>
+
+<!-- UC-58 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-58 — View Dispute Specific Information</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin, Staff</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Plaintiff, Defendant</td></tr>
+  <tr><th>Description:</th><td>Deep-dive into a single dispute case to review evidence, chat history, and previous project specs.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks on a Dispute Case ID in the list.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Case ID is valid and exists.<br>
+    PRE2: Admin/Staff session is active.<br>
+    PRE3: Case is not 'Private/SuperAdmin Only'.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Unified timeline of all dispute activities is displayed.<br>
+    POST2: All uploaded evidence (PDFs, Images, Code) is available for preview.<br>
+    POST3: Full project chat history is decrypted for the mediator.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Review the Plaintiff's claim and requested refund amount.<br>
+    2. Read the Defendant's counter-argument.<br>
+    3. Inspect technical deliverables linked to the milestone.<br>
+    4. Compare claims against the original project Specs (UC-30).
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Download Evidence Bundle: Save all case files as a single zip for offline review.<br>
+    AF2: View Participant Stats: Check how many disputes each side has won/lost in the past.<br>
+    AF3: Activity Feed: See who else (other staff) has viewed this case.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Missing Evidence: Link to file is broken in storage; shows error icon.<br>
+    E2: Access Denied: Trying to view a 'Higher-tier' dispute (e.g., Enterprise) without permission.<br>
+    E3: Data Mismatch: Dispute balance doesn't match escrow held.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-166: All dispute evidence must be virus-scanned before admin preview.<br>
+    BR-167: Viewing a dispute record is tracked via an 'Internal Access Log' including IP.<br>
+    BR-168: Participants cannot see that an Admin is currently viewing their case details.
+  </td></tr>
+</table>
+
+<!-- UC-59 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-59 — Solve Dispute</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin, Staff</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Client, Provider</td></tr>
+  <tr><th>Description:</th><td>Issue a final verdict on a dispute case, distributing escrow funds according to the decision.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "Finalize Verdict" in the dispute dashboard.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: All evidence has been reviewed.<br>
+    PRE2: Both participants have had their 72-hour window to respond.<br>
+    PRE3: Actor has 'Verdict Execution' permission.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Decision is permanently recorded in the case log.<br>
+    POST2: Escrow funds are automatically released/refunded based on the split %.<br>
+    POST3: Trust scores of involved users are updated based on the outcome.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Input the refund/payment percentages (e.g., 50/50, 100/0).<br>
+    2. Write the formal Decision Rationale (visible to both sides).<br>
+    3. Select if any platform fees should be waived.<br>
+    4. Execute verdict.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Propose Settlement: Suggest a deal to the users and wait for their approval.<br>
+    AF2: Escalate to Senior: Send complex cases to high-level managers for the final word.<br>
+    AF3: Dismiss Case: Close the dispute with no payout/refund if evidence is insufficient.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Payout Failure: Error transferring funds from escrow to user wallets.<br>
+    E2: Edit Locked: Verdict cannot be changed once the 'Execute' button is pressed.<br>
+    E3: User Deleted: Participant closed their account mid-dispute; admin override required.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-169: Verdicts must always include a mandatory justification of at least 100 words.<br>
+    BR-170: Once a verdict is executed, funds are transferred within 60 minutes.<br>
+    BR-171: Decisions on cases >$5,000 require dual-admin confirmation.
+  </td></tr>
+</table>
+
+<!-- UC-60 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-60 — Manage Freelancer/Broker Registration</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Applicant</td></tr>
+  <tr><th>Description:</th><td>Verify and approve/reject applications for specialized provider roles (Broker, Freelancer).</td></tr>
+  <tr><th>Trigger:</th><td>Admin opens the "Provider Applications" queue.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: New applications have been submitted.<br>
+    PRE2: Admin session is active.<br>
+    PRE3: KYC data has been extracted from documents.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Account role is confirmed or restricted.<br>
+    POST2: Verification badge is applied to the user's profile.<br>
+    POST3: Welcome/Rejection email is triggered.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Review applicant's CV and portfolio.<br>
+    2. Compare KYC ID image against profile photo.<br>
+    3. Check for previous bans linked to the same identity.<br>
+    4. Set application status to 'Approved', 'Rejected', or 'Request More Info'.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Auto-verify: System approves users who match high-trust records from LinkedIn APIs.<br>
+    AF2: Probationary Approval: Approve with a low job limit for the first 30 days.<br>
+    AF3: Blacklist Applicant: Permanently block the identity if fraud is detected.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Unreadable Documents: Uploaded KYC files are too blurry; request new ones.<br>
+    E2: Duplicate ID: The same ID card is used across multiple accounts.<br>
+    E3: System Timeout: External verification API is down.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-172: Provider applications must be processed within 5 business days.<br>
+    BR-173: Rejections for 'Fraud' must not include specific details about detection methods.<br>
+    BR-174: Brokers must pass a secondary background check or interview for Enterprise projects.
+  </td></tr>
+</table>
+
+<!-- UC-61 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-61 — View List On-Going Project</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin, Staff</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Lead Brokers</td></tr>
+  <tr><th>Description:</th><td>Review all projects currently in execution to monitor timelines, risks, and health metrics.</td></tr>
+  <tr><th>Trigger:</th><td>Actor clicks "Active Projects" in the Admin Panel.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Actor has 'Project Oversight' permissions.<br>
+    PRE2: System database is accessible.<br>
+    PRE3: Projects exist in 'IN_PROGRESS' or 'PENDING_CONTRACT' states.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: High-level dashboard of ongoing projects is displayed.<br>
+    POST2: System highlights projects with 'Critical' delay status.<br>
+    POST3: View activity is logged for administrative transparency.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Filter projects by Industry or Budget.<br>
+    2. Check current milestone completion overall percentage.<br>
+    3. View assigned lead broker and freelancer count.<br>
+    4. Drill down into specific project health logs.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Risk Assessment: View AI-generated risk scores for each project.<br>
+    AF2: Team Workload: See which brokers are managing too many active projects.<br>
+    AF3: Revenue Forecasting: Estimate remaining platform fees from current active pool.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Data Latency: Real-time progress stats lagging behind actual work.<br>
+    E2: Filter Failure: Complex search parameters return a generic 500 error.<br>
+    E3: Access Restricted: Confidential 'Government' projects hidden from standard staff.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-175: Staff cannot edit project details; only 'Read' access is permitted for monitoring.<br>
+    BR-176: Projects more than 15% behind schedule must be highlighted in ORANGE.<br>
+    BR-177: Global project list access is restricted to the office IP range.
+  </td></tr>
+</table>
+
+<!-- UC-62 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-62 — Send Notification Email</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, SMTP Server, User Base</td></tr>
+  <tr><th>Description:</th><td>Manually trigger system-wide or targeted email notifications for announcements or warnings.</td></tr>
+  <tr><th>Trigger:</th><td>Admin clicks "Broadcast Email" in the Communications tool.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Admin has 'Communications Manager' role.<br>
+    PRE2: Email templates are pre-defined or editable.<br>
+    PRE3: Target user list is non-empty.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Emails are queued in the background worker.<br>
+    POST2: Delivery and Open rates tracking is initialized.<br>
+    POST3: A copy of the broadcast is saved in the 'Announcement Archive'.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Select Target Group (All Users, Only Brokers, etc.).<br>
+    2. Choose Email Template (Update, Warning, New Feature).<br>
+    3. Preview the email with dynamic tags variables.<br>
+    4. Click 'Blast Now'.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Scheduled Send: Set the email to be sent at a specific future UTC time.<br>
+    AF2: A/B Testing: Send two versions to small segments to compare effectiveness.<br>
+    AF3: Personal Warning: Send an email only to a single user about a specific issue.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Bounce Limit: Too many failed deliveries cause the SMTP to pause automatically.<br>
+    E2: Invalid Template: Syntax errors in the HTML code prevent rendering.<br>
+    E3: Unsubscribe Conflict: Trying to send marketing to users who opted out.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-178: All manual emails must include a mandatory 'Unsubscribe' or 'Manage Preferences' link.<br>
+    BR-179: Broadcasts to over 10,000 users must be approved by the CTO.<br>
+    BR-180: System-critical notifications (bans/disputes) bypass the user's opt-out settings.
+  </td></tr>
+</table>
+
+<!-- UC-63 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-63 — View List Feedback</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Admin, Staff</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Users</td></tr>
+  <tr><th>Description:</th><td>Monitor all project completion reviews and platform feedback left by users.</td></tr>
+  <tr><th>Trigger:</th><td>Actor navigates to the "Review Moderation" dashboard.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: Actor has 'Moderator' or 'Admin' role.<br>
+    PRE2: Feedback data is available in the database.<br>
+    PRE3: Session is active.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: List of latest reviews across all projects is shown.<br>
+    POST2: Average platform trust score is updated in the summary.<br>
+    POST3: Negative reviews are flagged for staff investigation.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Browse reviews by project ID.<br>
+    2. Identify reviews containing 'Trigger Keywords' (Scam, Rude, Bad Code).<br>
+    3. Check for 'Retaliatory' rating patterns between two users.<br>
+    4. Approve reviews for public display.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Hide Review: Temporarily unpublish a review that is under investigation.<br>
+    AF2: Direct Response: Post an official platform response to a public review.<br>
+    AF3: Sentiment Analytics: View a word cloud of common feedback themes.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Data Leak: Private feedback meant for admins showing up in the public list.<br>
+    E2: Massive Spam: Review queue flooded by bot accounts.<br>
+    E3: Attachment Error: Unable to view the technical 'Deliverable' linked to the review.
+  </td></tr>
+  <tr><th>Priority:</th><td>Medium</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-181: Reviews cannot be edited by staff; only hidden or deleted via 'Hard Policy'.<br>
+    BR-182: Reviews for projects involving 'Disputes' are held for 14 days before publishing.<br>
+    BR-183: Community trust scores are updated every 24 hours based on new feedback.
+  </td></tr>
+</table>
+
+<!-- UC-64 -->
+<table>
+  <tr><th class="header-cell">ID and Name:</th><td class="header-cell"><b>UC-64 — Check KYC Status</b></td></tr>
+  <tr><th>Created By:</th><td>AnNPCE</td></tr>
+  <tr><th>Date Created:</th><td>15/01/2026</td></tr>
+  <tr><th>Primary Actor:</th><td>Client, Broker, Freelancer</td></tr>
+  <tr><th>Secondary Actors:</th><td>System, Verification Service</td></tr>
+  <tr><th>Description:</th><td>User checks the current state of their identity verification submission.</td></tr>
+  <tr><th>Trigger:</th><td>User clicks "Account Verification" in their profile settings.</td></tr>
+  <tr><th>Preconditions:</th><td>
+    PRE1: User is logged in.<br>
+    PRE2: Verification documents were previously submitted.<br>
+    PRE3: Account is not already 'Permanently Banned'.
+  </td></tr>
+  <tr><th>Postconditions:</th><td>
+    POST1: Current status (In Review, Verified, Rejected, Missing Info) is shown.<br>
+    POST2: Reason for rejection is provided (if status is 'Rejected').<br>
+    POST3: Instructions for next steps are displayed clearly.
+  </td></tr>
+  <tr><th>Normal Flow:</th><td>
+    1. Open Verification Dashboard.<br>
+    2. Read current status badge.<br>
+    3. View timestamp of last update.<br>
+    4. See which specific documents were accepted/denied.
+  </td></tr>
+  <tr><th>Alternative Flows:</th><td>
+    AF1: Re-submit Documents: Upload new photos if the old ones were rejected.<br>
+    AF2: Appeal Rejection: Ask for manual review if the automated AI system failed.<br>
+    AF3: View Benefits: Read what new platform features unlock at this status.
+  </td></tr>
+  <tr><th>Exceptions:</th><td>
+    E1: Status Loading: System displays "Please wait, fetching verification data...".<br>
+    E2: Missing Record: User thinks they submitted but system has no entry.<br>
+    E3: Access Revoked: Verification page disabled because the user tried to upload fraudulent IDs too many times.
+  </td></tr>
+  <tr><th>Priority:</th><td>High</td></tr>
+  <tr><th>Business Rules:</th><td>
+    BR-184: Users are limited to 3 KYC submission attempts per 30 days.<br>
+    BR-185: Being 'Verified' is mandatory for withdrawing funds >$500.<br>
+    BR-186: KYC status is automatically downgraded if ID document expires.
+  </td></tr>
+</table>
+
+</body>
+</html>
+
+
+
+

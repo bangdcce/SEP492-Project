@@ -8,6 +8,20 @@ export const ProjectRequestsPage: React.FC = () => {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [user, setUser] = useState<any>(null);
+
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if(userStr) setUser(JSON.parse(userStr));
+  }, []);
+
+  const myProjects = requests.filter(r => 
+      // 1. Assigned directly
+      r.brokerId === user?.id 
+      || 
+      // 2. Has ACCEPTED proposal (Meaning invited and accepted)
+      r.brokerProposals?.some((p: any) => p.brokerId === user?.id && p.status === 'ACCEPTED')
+  );
 
   // TODO: Get this from real Auth Context
   // const MOCK_BROKER_ID = 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22';
@@ -45,6 +59,17 @@ export const ProjectRequestsPage: React.FC = () => {
     }
   };
 
+  const handleApply = async (requestId: string, coverLetter: string) => {
+     try {
+        await projectRequestsApi.applyToRequest(requestId, coverLetter);
+        alert("Application submitted successfully!");
+        fetchRequests();
+     } catch (error: any) {
+        console.error(error);
+        alert(error.response?.data?.message || "Failed to apply");
+     }
+  };
+
   if (loading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -57,18 +82,20 @@ export const ProjectRequestsPage: React.FC = () => {
     <div className="container mx-auto py-10">
       <div className="mb-8 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Project Requests</h1>
+          <h1 className="text-2xl font-bold tracking-tight">Marketplace Requests</h1>
           <p className="text-muted-foreground">
-            Manage incoming project requests from clients.
+            Browse and apply to public project requests from clients.
           </p>
         </div>
       </div>
       
       <div className="rounded-md bg-white p-4 shadow-sm">
         <ProjectRequestsTable 
-          requests={requests} 
-          onAssign={handleAssign}
-          assigningId={assigningId}
+            requests={requests.filter(r => r.status === 'PUBLIC_DRAFT' && !r.brokerId)} 
+            onAssign={handleAssign}
+            onApply={handleApply}
+            assigningId={assigningId}
+            currentUserId={user?.id}
         />
       </div>
     </div>

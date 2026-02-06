@@ -3,6 +3,8 @@ import type { WizardQuestion } from "../services/wizardService";
 import { Label } from "@/shared/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/shared/components/ui/radio-group";
 
+import { FileText, Globe, ShoppingCart, Smartphone, Laptop, Settings } from "lucide-react";
+
 interface StepB1Props {
   question: WizardQuestion;
   value: string;
@@ -25,14 +27,13 @@ export function StepB1({ question, value, onChange }: StepB1Props) {
               htmlFor={option.id}
               className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer transition-all h-full"
             >
-              <div className="mb-2 text-3xl">
-                {/* Icons placeholder based on value if needed */}
-                {option.value === 'LANDING_PAGE' && '📄'}
-                {option.value === 'CORP_WEBSITE' && '🏢'}
-                {option.value === 'ECOMMERCE' && '🛒'}
-                {option.value === 'MOBILE_APP' && '📱'}
-                {option.value === 'WEB_APP' && '💻'}
-                {option.value === 'SYSTEM' && '⚙️'}
+              <div className="mb-2 text-primary">
+                {option.value === 'LANDING_PAGE' && <FileText className="w-8 h-8" />}
+                {option.value === 'CORP_WEBSITE' && <Globe className="w-8 h-8" />}
+                {option.value === 'ECOMMERCE' && <ShoppingCart className="w-8 h-8" />}
+                {option.value === 'MOBILE_APP' && <Smartphone className="w-8 h-8" />}
+                {option.value === 'WEB_APP' && <Laptop className="w-8 h-8" />}
+                {option.value === 'SYSTEM' && <Settings className="w-8 h-8" />}
               </div>
               <span className="font-semibold text-lg">{option.label}</span>
             </Label>
