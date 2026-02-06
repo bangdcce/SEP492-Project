@@ -76,6 +76,11 @@ export class FptAiService {
       // Note: Selfie is uploaded but NOT verified by AI
       // FPT.AI only has OCR API, no face comparison API
       // Selfie will be stored for manual admin review
+
+      // DEBUG: Log raw OCR response from FPT.AI
+      console.log('\n📊 [DEBUG] FPT.AI Raw OCR Response:');
+      console.log('   Front OCR:', JSON.stringify(frontOcr, null, 2).substring(0, 500));
+      console.log('   Back OCR:', JSON.stringify(backOcr, null, 2).substring(0, 500));
       
       // Step 3: Calculate confidence (OCR only)
       const confidence = this.calculateConfidenceOcrOnly(frontOcr, backOcr);
@@ -85,6 +90,13 @@ export class FptAiService {
       
       // Step 5: Extract data
       const extractedData = this.extractData(frontOcr, backOcr);
+
+      // DEBUG: Log extracted data
+      console.log('\n📋 [DEBUG] Extracted Data from OCR:');
+      console.log('   Full Name:', extractedData?.fullName || 'NOT EXTRACTED');
+      console.log('   ID Number:', extractedData?.idNumber || 'NOT EXTRACTED');
+      console.log('   Date of Birth:', extractedData?.dateOfBirth || 'NOT EXTRACTED');
+      console.log('   Address:', extractedData?.address || 'NOT EXTRACTED');
       
       // Step 6: Detect issues (OCR only)
       const issues = this.detectIssuesOcrOnly(frontOcr, backOcr);
@@ -528,25 +540,24 @@ export class FptAiService {
 
   /**
    * Mock verification for testing (when API key not available)
+   * IMPORTANT: Mock mode should never auto-approve - always pending review
    */
   private mockVerification(): FptAiVerificationResult {
-    // Simulate random confidence for testing
-    const confidence = 0.7 + Math.random() * 0.3; // 70-100%
+    this.logger.warn('⚠️ Using MOCK verification - AI is disabled. Set FPT_AI_ENABLED=true for real verification');
     
     return {
       success: true,
-      confidence,
-      decision: this.makeDecision(confidence),
-      extractedData: {
-        fullName: 'NGUYỄN VĂN A (Mock)',
-        idNumber: '001234567890 (Mock)',
-        dateOfBirth: '01/01/1990 (Mock)',
-      },
+      confidence: 0.5, // Low confidence to trigger manual review
+      decision: 'PENDING_REVIEW', // Never auto-approve in mock mode
+      extractedData: undefined, // No extracted data - cannot validate user input
       faceMatch: {
-        matched: confidence > 0.8,
-        similarity: confidence,
+        matched: false,
+        similarity: 0,
       },
-      issues: confidence < 0.9 ? ['Mock verification - replace with real FPT.AI'] : undefined,
+      issues: [
+        '⚠️ MOCK MODE: AI verification is disabled. Cannot validate document authenticity.',
+        'Please enable FPT_AI_ENABLED=true and provide API key for real verification.',
+      ],
     };
   }
 }

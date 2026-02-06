@@ -90,9 +90,8 @@ export function GoogleCompletePage() {
         picture: formData.picture,
       });
 
-      // Save tokens (OAuth defaults to remember)
-      setStoredItem(STORAGE_KEYS.ACCESS_TOKEN, response.accessToken, true);
-      setStoredItem(STORAGE_KEYS.REFRESH_TOKEN, response.refreshToken, true);
+      // Tokens are now in httpOnly cookies (set by backend)
+      // Only save user info to localStorage
       setStoredJson(STORAGE_KEYS.USER, response.user, true);
 
       toast.success('Account created successfully!');

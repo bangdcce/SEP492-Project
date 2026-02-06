@@ -17,6 +17,7 @@ export const ROUTES = {
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
   VERIFY_EMAIL: "/verify-email",
+  KYC_VERIFICATION: "/kyc",
 
   // Client Routes
   CLIENT_AUDIT_LOGS: "/audit-logs",
@@ -27,6 +28,7 @@ export const ROUTES = {
   FREELANCER_WORKSPACE: "/freelancer/workspace/:projectId",
   FREELANCER_PROFILE: "/freelancer/profile",
   FREELANCER_ONBOARDING: "/freelancer/onboarding",
+  FREELANCER_KYC_STATUS: "/freelancer/kyc-status",
 
   // Broker Routes
   BROKER_DASHBOARD: "/broker/dashboard",
@@ -35,6 +37,7 @@ export const ROUTES = {
   BROKER_FREELANCERS: "/broker/freelancers",
   BROKER_PROFILE: "/broker/profile",
   BROKER_MARKETPLACE: "/broker/marketplace",
+  BROKER_KYC_STATUS: "/broker/kyc-status",
   PROJECT_REQUEST_DETAILS: "/broker/project-requests/:id",
 
   // Admin Routes
@@ -46,6 +49,7 @@ export const ROUTES = {
   CLIENT_PROFILE: "/client/profile",
   CLIENT_DISCOVERY: "/client/discovery",
   CLIENT_DISCOVERY_PROFILE: "/client/discovery/profile/:id",
+  CLIENT_KYC_STATUS: "/client/kyc-status",
   
 
 

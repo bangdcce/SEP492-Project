@@ -196,7 +196,7 @@ export class AuthController {
     // Set access token as httpOnly cookie
     response.cookie('accessToken', result.accessToken, {
       httpOnly: true, // Prevent XSS attacks
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
       sameSite: 'lax', // CSRF protection while allowing cross-site navigation
       maxAge: 15 * 60 * 1000, // 15 minutes (same as JWT expiry)
       path: '/', // Available for all routes
@@ -205,7 +205,7 @@ export class AuthController {
     // Set refresh token as httpOnly cookie
     response.cookie('refreshToken', result.refreshToken, {
       httpOnly: true, // Prevent XSS attacks
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
       sameSite: 'lax', // CSRF protection while allowing cross-site navigation
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/', // Available for all routes
@@ -399,7 +399,7 @@ export class AuthController {
     // Set new access token as httpOnly cookie
     response.cookie('accessToken', tokens.accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
       sameSite: 'lax',
       maxAge: 15 * 60 * 1000, // 15 minutes
       path: '/',
@@ -408,7 +408,7 @@ export class AuthController {
     // Set new refresh token as httpOnly cookie
     response.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',

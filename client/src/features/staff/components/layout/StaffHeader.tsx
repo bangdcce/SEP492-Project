@@ -67,8 +67,7 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
   const userAvatar = user.avatarUrl;
 
   const handleLogout = () => {
-    removeStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
-    removeStoredItem(STORAGE_KEYS.REFRESH_TOKEN);
+    // Tokens are in httpOnly cookies (cleared by backend logout endpoint)
     removeStoredItem(STORAGE_KEYS.USER);
     navigate(ROUTES.LOGIN);
   };

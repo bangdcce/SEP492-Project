@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Upload, Camera, User, CheckCircle, ArrowLeft, ArrowRight, Loader2, XCircle } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
 import { Input } from '@/shared/components/custom/input';
 import { toast } from 'sonner';
+import { ROUTES, STORAGE_KEYS } from '@/constants';
+import { getStoredJson } from '@/shared/utils';
 
 interface KYCFormData {
   // Personal Information
@@ -20,6 +23,7 @@ interface KYCFormData {
 }
 
 export default function KYCPage() {
+  const navigate = useNavigate();
 
   const [currentStep, setCurrentStep] = useState(1);
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'processing' | 'approved' | 'rejected'>('idle');
@@ -100,6 +104,30 @@ export default function KYCPage() {
     
     if (!formData.dateOfBirth) {
       newErrors.dateOfBirth = 'Date of birth is required';
+    } else {
+      // Validate age (must be at least 18 years old)
+      const dob = new Date(formData.dateOfBirth);
+      const today = new Date();
+      
+      if (isNaN(dob.getTime())) {
+        newErrors.dateOfBirth = 'Invalid date format';
+      } else if (dob > today) {
+        newErrors.dateOfBirth = 'Date of birth cannot be in the future';
+      } else {
+        // Calculate age
+        let age = today.getFullYear() - dob.getFullYear();
+        const monthDiff = today.getMonth() - dob.getMonth();
+        
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+          age--;
+        }
+        
+        if (age < 18) {
+          newErrors.dateOfBirth = 'You must be at least 18 years old';
+        } else if (age > 120) {
+          newErrors.dateOfBirth = 'Please enter a valid date of birth';
+        }
+      }
     }
     
     if (!formData.idNumber.trim()) {
@@ -246,7 +274,23 @@ export default function KYCPage() {
   }, [submissionStatus]);
 
   const handleBackToDashboard = () => {
-    window.location.href = '/client/dashboard';
+    // Get user role and navigate to appropriate dashboard
+    const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+    const role = user?.role?.toUpperCase();
+    
+    let dashboardRoute: string = ROUTES.CLIENT_DASHBOARD;
+    
+    if (role === 'FREELANCER') {
+      dashboardRoute = ROUTES.FREELANCER_DASHBOARD;
+    } else if (role === 'BROKER') {
+      dashboardRoute = ROUTES.BROKER_DASHBOARD;
+    } else if (role === 'ADMIN') {
+      dashboardRoute = ROUTES.ADMIN_DASHBOARD;
+    } else if (role === 'STAFF') {
+      dashboardRoute = ROUTES.ADMIN_DASHBOARD; // Staff uses admin dashboard
+    }
+    
+    navigate(dashboardRoute);
   };
 
   const handleRetry = () => {
@@ -278,7 +322,17 @@ export default function KYCPage() {
                   <Button onClick={handleBackToDashboard} className="w-full">
                     Back to dashboard
                   </Button>
-                  <Button variant="outline" onClick={checkKycStatus} className="w-full">
+                  <Button variant="outline" onClick={() => {
+                    const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+                    const role = user?.role?.toUpperCase();
+                    if (role === 'FREELANCER') {
+                      navigate(ROUTES.FREELANCER_KYC_STATUS);
+                    } else if (role === 'BROKER') {
+                      navigate(ROUTES.BROKER_KYC_STATUS);
+                    } else {
+                      navigate(ROUTES.CLIENT_KYC_STATUS);
+                    }
+                  }} className="w-full">
                     Check status
                   </Button>
                 </div>
@@ -481,7 +535,20 @@ export default function KYCPage() {
                 value={formData.dateOfBirth}
                 onChange={(e) => setFormData(prev => ({ ...prev, dateOfBirth: e.target.value }))}
                 error={errors.dateOfBirth}
+                helperText="You must be at least 18 years old"
                 required
+                max={(() => {
+                  // Max date: 18 years ago from today
+                  const today = new Date();
+                  today.setFullYear(today.getFullYear() - 18);
+                  return today.toISOString().split('T')[0];
+                })()}
+                min={(() => {
+                  // Min date: 120 years ago (reasonable max age)
+                  const today = new Date();
+                  today.setFullYear(today.getFullYear() - 120);
+                  return today.toISOString().split('T')[0];
+                })()}
               />
               
               <Input

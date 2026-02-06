@@ -11,6 +11,7 @@ import type { WizardQuestion, CreateProjectRequestDto } from "./services/wizardS
 import { ROUTES, API_CONFIG } from "@/constants";
 import { ArrowLeft, ArrowRight, Check, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
+import { KYCBlocker } from "@/shared/components/custom/KYCBlocker";
 
 export default function WizardPage() {
   const navigate = useNavigate();
@@ -180,6 +181,19 @@ export default function WizardPage() {
 
   if (loading) {
       return <div className="min-h-screen flex items-center justify-center"><Spinner size="lg" /></div>;
+  }
+
+  // Block access if KYC not approved
+  if (kycStatus && kycStatus !== 'APPROVED') {
+    return (
+      <div className="min-h-screen bg-background">
+        <KYCBlocker 
+          kycStatus={kycStatus} 
+          role="client" 
+          action="create project requests"
+        />
+      </div>
+    );
   }
 
 

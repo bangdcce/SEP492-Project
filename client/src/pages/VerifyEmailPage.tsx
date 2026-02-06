@@ -102,8 +102,8 @@ export function VerifyEmailPage() {
   }, [token, pendingEmail]);
 
   return (
-    <AuthLayout title="Xác thực Email">
-      <div className="flex items-center justify-center min-h-screen py-12 px-4">
+    <AuthLayout>
+      <div className="flex items-start justify-center min-h-[60vh] pt-8 px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
