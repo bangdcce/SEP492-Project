@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -23,6 +24,10 @@ import {
 } from './tasks.service';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { SubmitTaskDto } from './dto/submit-task.dto';
+import { CreateTaskLinkDto } from './dto/create-task-link.dto';
+import { CreateSubtaskDto } from './dto/create-subtask.dto';
+import { LinkSubtaskDto } from './dto/link-subtask.dto';
+import { CreateSubmissionDto } from './dto/create-submission.dto';
 
 // Interface for authenticated request with user context
 interface AuthenticatedRequest {
@@ -59,6 +64,42 @@ export class TasksController {
   @Get(':id/comments')
   getTaskComments(@Param('id') id: string) {
     return this.tasksService.getTaskComments(id);
+  }
+
+  @Get(':id/links')
+  getTaskLinks(@Param('id') id: string) {
+    return this.tasksService.getTaskLinks(id);
+  }
+
+  @Get(':id/submissions')
+  getTaskSubmissions(@Param('id') id: string) {
+    return this.tasksService.getTaskSubmissions(id);
+  }
+
+  @Post(':id/links')
+  addTaskLink(@Param('id') id: string, @Body() body: CreateTaskLinkDto) {
+    return this.tasksService.addTaskLink(id, body);
+  }
+
+  @Delete(':id/links/:linkId')
+  async deleteTaskLink(@Param('id') id: string, @Param('linkId') linkId: string) {
+    await this.tasksService.deleteTaskLink(id, linkId);
+    return { success: true };
+  }
+
+  @Get(':id/subtasks')
+  getSubtasks(@Param('id') id: string) {
+    return this.tasksService.getSubtasks(id);
+  }
+
+  @Post(':id/subtasks')
+  createSubtask(@Param('id') id: string, @Body() body: CreateSubtaskDto) {
+    return this.tasksService.createSubtask(id, body);
+  }
+
+  @Post(':id/subtasks/link')
+  linkSubtask(@Param('id') id: string, @Body() body: LinkSubtaskDto) {
+    return this.tasksService.linkExistingSubtask(id, body.subtaskId);
   }
 
   @Post('upload-attachment')
@@ -137,6 +178,15 @@ export class TasksController {
     };
 
     return await this.tasksService.submitTask(id, dto, actorId, reqContext);
+  }
+
+  @Post(':id/submissions')
+  submitWork(
+    @Param('id') id: string,
+    @Body() dto: CreateSubmissionDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasksService.submitWork(id, dto, req.user?.id || 'SYSTEM');
   }
 
   @Patch(':id')

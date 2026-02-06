@@ -6,7 +6,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import sanitizeHtml from 'sanitize-html';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as path from 'path';
@@ -23,6 +23,12 @@ import { SubmitTaskDto } from './dto/submit-task.dto';
 import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
 import { TaskCommentEntity } from '../../database/entities/task-comment.entity';
 import { TaskAttachmentEntity } from './entities/task-attachment.entity';
+import { TaskLinkEntity } from './entities/task-link.entity';
+import {
+  TaskSubmissionEntity,
+  TaskSubmissionStatus,
+} from './entities/task-submission.entity';
+import { CreateSubmissionDto } from './dto/create-submission.dto';
 
 export interface KanbanBoard {
   TODO: TaskEntity[];
@@ -142,6 +148,10 @@ export class TasksService {
     private readonly commentRepository: Repository<TaskCommentEntity>,
     @InjectRepository(TaskAttachmentEntity)
     private readonly attachmentRepository: Repository<TaskAttachmentEntity>,
+    @InjectRepository(TaskLinkEntity)
+    private readonly taskLinkRepository: Repository<TaskLinkEntity>,
+    @InjectRepository(TaskSubmissionEntity)
+    private readonly submissionRepository: Repository<TaskSubmissionEntity>,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -228,6 +238,152 @@ export class TasksService {
     }));
   }
 
+  async getTaskLinks(taskId: string): Promise<TaskLinkEntity[]> {
+    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    return this.taskLinkRepository.find({
+      where: { taskId },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async getTaskSubmissions(taskId: string): Promise<TaskSubmissionEntity[]> {
+    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    return this.submissionRepository.find({
+      where: { taskId },
+      relations: ['submitter'],
+      order: { version: 'DESC', createdAt: 'DESC' },
+    });
+  }
+
+  async addTaskLink(taskId: string, data: { url: string; title?: string }): Promise<TaskLinkEntity> {
+    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    const link = this.taskLinkRepository.create({
+      taskId,
+      url: data.url.trim(),
+      title: data.title?.trim() || null,
+    });
+
+    return this.taskLinkRepository.save(link);
+  }
+
+  async deleteTaskLink(taskId: string, linkId: string): Promise<void> {
+    const link = await this.taskLinkRepository.findOne({
+      where: { id: linkId, taskId },
+    });
+
+    if (!link) {
+      throw new NotFoundException('Link not found');
+    }
+
+    await this.taskLinkRepository.remove(link);
+  }
+
+  async getSubtasks(taskId: string): Promise<TaskEntity[]> {
+    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    return this.taskRepository.find({
+      where: { parentTaskId: taskId },
+      relations: ['assignee', 'reporter'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async createSubtask(
+    parentTaskId: string,
+    data: {
+      title: string;
+      description?: string;
+      priority?: TaskPriority;
+      assignedTo?: string;
+      dueDate?: string;
+    },
+  ): Promise<TaskEntity> {
+    const parent = await this.taskRepository.findOne({ where: { id: parentTaskId } });
+    if (!parent) {
+      throw new NotFoundException('Parent task not found');
+    }
+
+    const subtask = this.taskRepository.create({
+      title: data.title,
+      description: data.description,
+      projectId: parent.projectId,
+      milestoneId: parent.milestoneId,
+      parentTaskId,
+      status: TaskStatus.TODO,
+      priority: data.priority ?? parent.priority ?? TaskPriority.MEDIUM,
+      assignedTo: data.assignedTo,
+      dueDate: data.dueDate ? new Date(data.dueDate) : undefined,
+      reporterId: parent.reporterId,
+    });
+
+    const saved = await this.taskRepository.save(subtask);
+
+    const created = await this.taskRepository.findOne({
+      where: { id: saved.id },
+      relations: ['assignee', 'reporter'],
+    });
+
+    if (!created) {
+      throw new NotFoundException('Subtask not found after creation');
+    }
+
+    return created;
+  }
+
+  async linkExistingSubtask(parentTaskId: string, subtaskId: string): Promise<TaskEntity> {
+    if (parentTaskId === subtaskId) {
+      throw new BadRequestException('Task cannot be linked to itself');
+    }
+
+    const parent = await this.taskRepository.findOne({ where: { id: parentTaskId } });
+    if (!parent) {
+      throw new NotFoundException('Parent task not found');
+    }
+
+    const subtask = await this.taskRepository.findOne({
+      where: { id: subtaskId },
+      relations: ['assignee', 'reporter'],
+    });
+    if (!subtask) {
+      throw new NotFoundException('Subtask not found');
+    }
+
+    if (subtask.projectId !== parent.projectId) {
+      throw new BadRequestException('Subtask must belong to the same project');
+    }
+
+    await this.taskRepository.update(subtaskId, {
+      parentTaskId,
+      milestoneId: parent.milestoneId,
+    });
+
+    const linked = await this.taskRepository.findOne({
+      where: { id: subtaskId },
+      relations: ['assignee', 'reporter'],
+    });
+
+    if (!linked) {
+      throw new NotFoundException('Subtask not found after linking');
+    }
+
+    return linked;
+  }
+
   async addComment(taskId: string, content: string, actorId: string): Promise<TaskCommentEntity> {
     const sanitizedContent = sanitizeHtml(content, COMMENT_SANITIZE_OPTIONS).trim();
     if (!sanitizedContent) {
@@ -263,6 +419,42 @@ export class TasksService {
     }
     
     return fullComment;
+  }
+
+  async submitWork(
+    taskId: string,
+    dto: CreateSubmissionDto,
+    submitterId?: string,
+  ): Promise<TaskSubmissionEntity> {
+    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    const { max } = await this.submissionRepository
+      .createQueryBuilder('submission')
+      .select('MAX(submission.version)', 'max')
+      .where('submission.taskId = :taskId', { taskId })
+      .getRawOne<{ max: string | null }>();
+
+    const nextVersion = (Number(max) || 0) + 1;
+
+    const submission = this.submissionRepository.create({
+      taskId,
+      submitterId: submitterId || null,
+      content: dto.content,
+      attachments: dto.attachments ?? [],
+      version: nextVersion,
+      status: TaskSubmissionStatus.PENDING,
+    });
+
+    const saved = await this.submissionRepository.save(submission);
+
+    await this.taskRepository.update(taskId, {
+      status: TaskStatus.IN_REVIEW,
+    });
+
+    return saved;
   }
 
   private extractImageUrls(html: string): string[] {
@@ -372,7 +564,7 @@ export class TasksService {
   async getKanbanBoard(projectId: string): Promise<BoardWithMilestones> {
     // Fetch all tasks for the project
     const tasks = await this.taskRepository.find({
-      where: { projectId },
+      where: { projectId, parentTaskId: IsNull() },
       relations: ['assignee', 'reporter', 'attachments'],
       order: { sortOrder: 'ASC', createdAt: 'DESC' },
     });
@@ -578,7 +770,7 @@ export class TasksService {
   }> {
     // Count all tasks for this milestone
     const totalTasks = await this.taskRepository.count({
-      where: { milestoneId },
+      where: { milestoneId, parentTaskId: IsNull() },
     });
 
     if (totalTasks === 0) {
@@ -587,7 +779,7 @@ export class TasksService {
 
     // Count completed (DONE) tasks
     const completedTasks = await this.taskRepository.count({
-      where: { milestoneId, status: TaskStatus.DONE },
+      where: { milestoneId, status: TaskStatus.DONE, parentTaskId: IsNull() },
     });
 
     // Calculate percentage (rounded to integer)

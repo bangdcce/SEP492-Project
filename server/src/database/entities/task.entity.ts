@@ -35,6 +35,9 @@ export class TaskEntity {
   @Column()
   projectId: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  parentTaskId: string;
+
   @Column({ type: 'varchar', length: 255 })
   title: string;
 
@@ -81,6 +84,10 @@ export class TaskEntity {
   @JoinColumn({ name: 'projectId' })
   project: any;
 
+  @ManyToOne('TaskEntity', 'subtasks', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'parentTaskId' })
+  parentTask: any;
+
   @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'assignedTo' })
   assignee: any;
@@ -110,4 +117,13 @@ export class TaskEntity {
 
   @OneToMany('TaskAttachmentEntity', 'task')
   attachments: any[];
+
+  @OneToMany('TaskEntity', 'parentTask')
+  subtasks: any[];
+
+  @OneToMany('TaskLinkEntity', 'task')
+  links: any[];
+
+  @OneToMany('TaskSubmissionEntity', 'task')
+  submissions: any[];
 }
