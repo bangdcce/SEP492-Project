@@ -115,7 +115,34 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     hasSpecial: /[@$!%*?&]/.test(formData.password),
   };
 
-  const isPasswordValid = Object.values(passwordRequirements).every(Boolean);
+  // Password is valid if it meets minimum length and at least 2 out of 3 character types (medium strength)
+  const isPasswordValid = passwordRequirements.minLength && (
+    [passwordRequirements.hasLowerCase, passwordRequirements.hasNumber, passwordRequirements.hasSpecial]
+      .filter(Boolean).length >= 2
+  );
+
+  // Check if Step 2 (Info Form) is valid
+  const isStep2Valid = () => {
+    if (!formData.fullName || formData.fullName.length < 2) return false;
+    if (!formData.email || !validateEmail(formData.email)) return false;
+    if (formData.role === 'client_large' && !validateCorporateEmail(formData.email)) return false;
+    if (!formData.phoneNumber || !validatePhone(formData.phoneNumber)) return false;
+    if (!formData.password || !isPasswordValid) return false;
+    if (!formData.confirmPassword || formData.password !== formData.confirmPassword) return false;
+    if (!formData.acceptTerms || !formData.acceptPrivacy) return false;
+    if (!formData.recaptchaToken) return false;
+    return true;
+  };
+
+  // Check if Step 3 (Domain Selection) is valid
+  const isStep3Valid = () => {
+    return formData.domains.length > 0;
+  };
+
+  // Check if Step 4 (Skill Selection) is valid
+  const isStep4Valid = () => {
+    return formData.skills.length > 0;
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -323,7 +350,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     if (!formData.password) {
       newErrors.password = 'Password is required';
     } else if (!isPasswordValid) {
-      newErrors.password = 'Password must be at least 8 characters with lowercase, number and special character';
+      newErrors.password = 'Password must be at least 8 characters with 2 of: lowercase, number, special character';
     }
 
     if (!formData.confirmPassword) {
@@ -888,7 +915,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 onClick={handleInfoFormNext}
                 variant="primary"
                 className="w-full py-3 text-base font-medium justify-center"
-                disabled={loading}
+                disabled={loading || !isStep2Valid()}
               >
                 {(formData.role === 'freelancer' || formData.role === 'broker') ? 'Next' : (loading ? 'Creating account...' : 'Create Account')}
               </Button>
@@ -1001,6 +1028,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 onClick={handleDomainNext}
                 variant="primary"
                 className="w-full py-3 text-base font-medium justify-center mt-6"
+                disabled={!isStep3Valid()}
               >
                 Next
               </Button>
@@ -1086,7 +1114,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 onClick={handleSkillsNext}
                 variant="primary"
                 className="w-full py-3 text-base font-medium justify-center mt-6"
-                disabled={loading}
+                disabled={loading || !isStep4Valid()}
               >
                 {loading ? 'Creating account...' : 'Create Account'}
               </Button>
