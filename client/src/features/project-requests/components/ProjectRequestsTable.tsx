@@ -65,7 +65,7 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
           {requests.map((request) => (
             <TableRow key={request.id}>
               <TableCell className="font-medium">
-                <Link to={`/project-requests/${request.id}`} className="text-teal-600 hover:underline">
+                <Link to={`/broker/project-requests/${request.id}`} className="text-teal-600 hover:underline">
                   {request.title}
                 </Link>
               </TableCell>

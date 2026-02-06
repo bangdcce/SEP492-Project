@@ -104,6 +104,7 @@ export default function CreateProjectSpecPage() {
 
       <CreateProjectSpecForm 
         requestId={id!} // Validated by useEffect
+        projectRequest={request}
         onSubmit={handleSubmit}
         isSubmitting={isSubmitting}
       />

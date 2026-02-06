@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { Bell, ChevronDown, User, Settings, LogOut } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { STORAGE_KEYS } from "@/constants";
+import { STORAGE_KEYS, ROUTES } from "@/constants";
 import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
 import {
   DropdownMenu,
@@ -70,7 +70,7 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
     removeStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
     removeStoredItem(STORAGE_KEYS.REFRESH_TOKEN);
     removeStoredItem(STORAGE_KEYS.USER);
-    navigate("/login");
+    navigate(ROUTES.LOGIN);
   };
 
   const getInitials = (name: string) => {
@@ -289,11 +289,11 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
                   <div className="py-1">
                     <Link
                       to={
-                        userRole === "ADMIN" ? "/admin/profile" :
-                          userRole === "BROKER" ? "/broker/profile" :
-                            userRole === "FREELANCER" ? "/freelancer/profile" :
-                              userRole === "STAFF" ? "/staff/profile" :
-                                "/client/profile"
+                        userRole === "ADMIN" ? ROUTES.ADMIN_PROFILE :
+                          userRole === "BROKER" ? ROUTES.BROKER_PROFILE :
+                            userRole === "FREELANCER" ? ROUTES.FREELANCER_PROFILE :
+                              userRole === "STAFF" ? ROUTES.STAFF_PROFILE :
+                                ROUTES.CLIENT_PROFILE
                       }
                       className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
                       onClick={() => setIsProfileMenuOpen(false)}

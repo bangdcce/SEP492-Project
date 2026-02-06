@@ -49,15 +49,15 @@ export class RegisterDto {
 
   @ApiProperty({
     description:
-      'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ thường, số và ký tự đặc biệt)',
-    example: 'securepass123!',
+      'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ thường và số/ký tự đặc biệt)',
+    example: 'securepass123',
     minLength: 8,
   })
   @IsString({ message: 'Mật khẩu phải là chuỗi ký tự' })
   @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
   @MinLength(8, { message: 'Mật khẩu phải có ít nhất 8 ký tự' })
-  @Matches(/^(?=.*[a-z])(?=.*\d)(?=.*[@$!%*?&])/, {
-    message: 'Mật khẩu phải chứa ít nhất một chữ thường, một số và một ký tự đặc biệt (@$!%*?&)',
+  @Matches(/^(?=.*[a-z])(?=.*[\d@$!%*?&])/, {
+    message: 'Mật khẩu phải chứa ít nhất một chữ thường và một số/ký tự đặc biệt (@$!%*?&)',
   })
   password: string;
 

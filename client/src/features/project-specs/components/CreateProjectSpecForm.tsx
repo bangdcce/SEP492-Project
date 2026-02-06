@@ -112,11 +112,12 @@ type FormValues = z.infer<typeof formSchema>;
 
 interface CreateProjectSpecFormProps {
   requestId: string;
+  projectRequest?: any; // Avoiding full type import to prevent circular deps or complex imports, or better use the type if available
   onSubmit: (data: CreateProjectSpecDTO) => void;
   isSubmitting?: boolean;
 }
 
-export function CreateProjectSpecForm({ requestId, onSubmit, isSubmitting }: CreateProjectSpecFormProps) {
+export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isSubmitting }: CreateProjectSpecFormProps) {
   const [warnings, setWarnings] = useState<string[]>([]);
 
   const form = useForm<FormValues>({
@@ -152,28 +153,46 @@ export function CreateProjectSpecForm({ requestId, onSubmit, isSubmitting }: Cre
   });
 
   // Real-time Warning Check
+  const watchedMilestones = form.watch('milestones');
+  const watchedDescription = form.watch('description');
+  const watchedFeatures = form.watch('features');
+
   useEffect(() => {
-    const subscription = form.watch((value) => {
-       const newWarnings: string[] = [];
-       
-       // Check Description
-       if (value.description) {
-         const keywords = checkKeywords(value.description);
-         if (keywords.length > 0) newWarnings.push(`Description contains vague words: ${keywords.join(', ')}`);
+    const newWarnings: string[] = [];
+    
+    // Check Description
+    if (watchedDescription) {
+      const keywords = checkKeywords(watchedDescription);
+      if (keywords.length > 0) newWarnings.push(`Description contains vague words: ${keywords.join(', ')}`);
+    }
+
+    // Check Features
+    watchedFeatures?.forEach((f, idx) => {
+       if (f?.description) {
+          const keywords = checkKeywords(f.description);
+          if (keywords.length > 0) newWarnings.push(`Feature ${idx + 1} uses vague words: ${keywords.join(', ')}`);
        }
-
-       // Check Features
-       value.features?.forEach((f, idx) => {
-          if (f?.description) {
-             const keywords = checkKeywords(f.description);
-             if (keywords.length > 0) newWarnings.push(`Feature ${idx + 1} uses vague words: ${keywords.join(', ')}`);
-          }
-       });
-
-       setWarnings(newWarnings);
     });
-    return () => subscription.unsubscribe();
-  }, [form.watch]);
+
+    setWarnings(newWarnings);
+  }, [watchedDescription, watchedFeatures]);
+
+  // Auto-calc Total Budget from Milestones
+  // Separate effect to ensure clean dependency on ONLY milestones
+  useEffect(() => {
+      if (watchedMilestones) {
+          // Ensure we are summing numbers, handling potential string inputs
+          const sum = watchedMilestones.reduce((acc, m) => {
+              const val = typeof m.amount === 'string' ? parseFloat(m.amount) : Number(m.amount);
+              return acc + (isNaN(val) ? 0 : val);
+          }, 0);
+          
+          const currentTotal = form.getValues('totalBudget');
+          if (Math.abs(sum - currentTotal) > 0.01) {
+             form.setValue('totalBudget', sum, { shouldValidate: true });
+          }
+      }
+  }, [watchedMilestones, form.setValue, form.getValues]);
 
   // Nested Array handler helper (Acceptance Criteria) is tricky with useFieldArray at top level.
   // We will inline the Criteria list management inside the Feature map loop or create a sub-component.
@@ -256,7 +275,14 @@ export function CreateProjectSpecForm({ requestId, onSubmit, isSubmitting }: Cre
 
              <FormField control={form.control} name="techStack" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Tech Stack</FormLabel>
+                  <FormLabel>
+                     Tech Stack
+                     {projectRequest?.techPreferences && (
+                        <span className="ml-2 text-xs text-muted-foreground font-normal">
+                           (Client preferred: {projectRequest.techPreferences})
+                        </span>
+                     )}
+                  </FormLabel>
                   <FormControl><Input placeholder="React, NestJS, PostgreSQL, Redis..." {...field} /></FormControl>
                   <FormDescription>Specify required technologies.</FormDescription>
                   <FormMessage />
@@ -331,8 +357,24 @@ export function CreateProjectSpecForm({ requestId, onSubmit, isSubmitting }: Cre
            <CardContent className="space-y-6">
               <FormField control={form.control} name="totalBudget" render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Total Budget ($)</FormLabel>
-                  <FormControl><Input type="number" step="10" className="text-lg font-bold" {...field} /></FormControl>
+                  <FormLabel>
+                     Total Budget ($) 
+                     {projectRequest?.budgetRange && (
+                        <span className="ml-2 text-sm text-muted-foreground font-normal">
+                           (Client Range: {projectRequest.budgetRange})
+                        </span>
+                     )}
+                  </FormLabel>
+                  <FormControl>
+                     <Input 
+                        type="number" 
+                        step="10" 
+                        className="text-lg font-bold bg-muted" 
+                        readOnly 
+                        {...field} 
+                     />
+                  </FormControl>
+                  <FormDescription>Calculated automatically from sum of milestones.</FormDescription>
                   <FormMessage />
                 </FormItem>
               )} />
@@ -396,9 +438,9 @@ export function CreateProjectSpecForm({ requestId, onSubmit, isSubmitting }: Cre
               </Button>
               
                {/* Budget Check Footer */}
-               <div className={`p-4 rounded-md border text-sm flex justify-between items-center ${Math.abs(budget - milestoneSum) <= 0.01 ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
-                  <span>Total Budget: <strong>${budget}</strong></span>
-                  <span>Milestone Sum: <strong>${milestoneSum}</strong> {Math.abs(budget - milestoneSum) > 0.01 && '(Must match!)'}</span>
+               <div className={`p-4 rounded-md border text-sm flex justify-between items-center bg-muted`}>
+                  <span>Total Budget (Calculated): <strong>${budget}</strong></span>
+                  <span>Milestone Sum: <strong>${milestoneSum}</strong></span>
                </div>
                {form.formState.errors.root?.message && (
                   <Alert variant="destructive"><AlertDescription>{form.formState.errors.root.message}</AlertDescription></Alert>

@@ -40,7 +40,15 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     label: "Marketplace",
     icon: FileSearch,
     path: "/broker/marketplace",
-    description: "Browse public requests",
+    description: "Browse and claim requests",
+    section: "workspace",
+  },
+  {
+    id: "my-requests",
+    label: "My Requests",
+    icon: Briefcase,
+    path: "/broker/my-requests",
+    description: "Your assigned requests",
     section: "workspace",
   },
   {

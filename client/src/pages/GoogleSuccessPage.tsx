@@ -9,16 +9,24 @@ export function GoogleSuccessPage() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const accessToken = searchParams.get("accessToken");
-    const refreshToken = searchParams.get("refreshToken");
+    // Backend OAuth now sets tokens in httpOnly cookies
+    // Check if authentication was successful (backend should set a success flag or user data)
+    const success = searchParams.get("success");
+    const userData = searchParams.get("user");
 
-    if (accessToken && refreshToken) {
-      // Save tokens (OAuth defaults to remember)
-      setStoredItem(STORAGE_KEYS.ACCESS_TOKEN, accessToken, true);
-      setStoredItem(STORAGE_KEYS.REFRESH_TOKEN, refreshToken, true);
-
-      toast.success("Welcome back!");
-      navigate(ROUTES.DASHBOARD);
+    if (success === "true" && userData) {
+      try {
+        // Save user info to localStorage (tokens are in httpOnly cookies)
+        const user = JSON.parse(decodeURIComponent(userData));
+        setStoredItem(STORAGE_KEYS.USER, JSON.stringify(user), true);
+        
+        toast.success("Welcome back!");
+        navigate(ROUTES.DASHBOARD);
+      } catch (error) {
+        console.error("Failed to parse user data:", error);
+        toast.error("Authentication failed");
+        navigate(ROUTES.LOGIN);
+      }
     } else {
       toast.error("Authentication failed");
       navigate(ROUTES.LOGIN);

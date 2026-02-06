@@ -4,7 +4,7 @@ import { AuthLayout } from "../shared/components/layouts/AuthLayout";
 import { Input } from "../shared/components/custom/input";
 import { Button } from "../shared/components/custom/Button";
 // import { GoogleButton } from '../shared/components/auth/GoogleButton';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { ROUTES, STORAGE_KEYS } from '@/constants';
 import { signIn } from '@/features/auth';
@@ -70,21 +70,11 @@ export function SignInPage({
       // Save tokens based on remember-me choice
 
 
-      // Backend returns {message, data: {accessToken, refreshToken, user}}
+      // Backend returns {message, data: {user}}
+      // Tokens are now stored in httpOnly cookies, not in localStorage
       const loginData = (response as any).data || response;
 
-
-
-      setStoredItem(
-        STORAGE_KEYS.ACCESS_TOKEN,
-        loginData.accessToken,
-        formData.rememberMe
-      );
-      setStoredItem(
-        STORAGE_KEYS.REFRESH_TOKEN,
-        loginData.refreshToken,
-        formData.rememberMe
-      );
+      // Only save user info to localStorage (not tokens)
       setStoredItem(
         STORAGE_KEYS.USER,
         JSON.stringify(loginData.user),
@@ -153,6 +143,14 @@ export function SignInPage({
       title="Sign In"
       subtitle="Welcome back! Access your dashboard and manage your projects."
     >
+      <button
+        type="button"
+        onClick={() => navigate(ROUTES.LANDING)}
+        className="absolute top-6 left-6 flex items-center gap-2 text-gray-600 hover:text-teal-600 transition-colors"
+      >
+        <ArrowLeft className="w-5 h-5" />
+        <span className="text-sm font-medium">Back to Home</span>
+      </button>
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Google OAuth Button - TEMPORARILY DISABLED
         <GoogleButton text="Continue with Google" />

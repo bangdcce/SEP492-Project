@@ -118,10 +118,10 @@ export function VerifyEmailPage() {
                   <Loader2 className="w-16 h-16 text-teal-500 animate-spin" />
                 </div>
                 <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                  Đang xác thực email...
+                  Verifying email...
                 </h1>
                 <p className="text-gray-600">
-                  Vui lòng đợi trong giây lát
+                  Please wait a moment
                 </p>
               </div>
             )}
@@ -188,13 +188,13 @@ export function VerifyEmailPage() {
                   </div>
                 </motion.div>
                 <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                  Xác thực thành công!
+                  Verification Successful!
                 </h1>
                 <p className="text-gray-600 mb-6">
-                  Email <strong>{email}</strong> đã được xác thực thành công.
+                  Email <strong>{email}</strong> has been verified successfully.
                 </p>
                 <p className="text-sm text-gray-500 mb-6">
-                  Bạn sẽ được chuyển đến trang đăng nhập trong giây lát...
+                  You will be redirected to the login page shortly...
                 </p>
                 <Button
                   onClick={() => navigate(ROUTES.LOGIN)}
@@ -204,7 +204,7 @@ export function VerifyEmailPage() {
                     color: 'white',
                   }}
                 >
-                  Đăng nhập ngay
+                  Login Now
                   <ArrowRight className="w-4 h-4 ml-2" />
                 </Button>
               </div>
@@ -219,10 +219,10 @@ export function VerifyEmailPage() {
                   </div>
                 </div>
                 <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                  Xác thực thất bại
+                  Verification Failed
                 </h1>
                 <p className="text-gray-600 mb-6">
-                  {errorMessage || 'Token xác thực không hợp lệ hoặc đã được sử dụng.'}
+                  {errorMessage || 'Invalid or expired verification token.'}
                 </p>
                 <div className="space-y-3">
                   <Button
@@ -233,14 +233,14 @@ export function VerifyEmailPage() {
                       color: 'white',
                     }}
                   >
-                    Quay lại đăng nhập
+                    Back to Login
                   </Button>
                   <Button
                     onClick={() => navigate(ROUTES.REGISTER)}
                     variant="outline"
                     className="w-full"
                   >
-                    Đăng ký lại
+                    Register Again
                   </Button>
                 </div>
               </div>
@@ -255,10 +255,10 @@ export function VerifyEmailPage() {
                   </div>
                 </div>
                 <h1 className="text-2xl font-bold text-gray-900 mb-2">
-                  Link đã hết hạn
+                  Link Expired
                 </h1>
                 <p className="text-gray-600 mb-6">
-                  Link xác thực đã hết hạn (sau 24 giờ). Vui lòng nhập email để gửi lại link xác thực.
+                  The verification link has expired (after 24 hours). Please enter your email to resend the verification link.
                 </p>
                 {!email && (
                   <div className="mb-4 text-left">
@@ -269,7 +269,7 @@ export function VerifyEmailPage() {
                       type="email"
                       value={resendEmail}
                       onChange={(e) => setResendEmail(e.target.value)}
-                      placeholder="Nhập email của bạn"
+                      placeholder="Enter your email"
                     />
                   </div>
                 )}
@@ -286,12 +286,12 @@ export function VerifyEmailPage() {
                     {resending ? (
                       <>
                         <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                        Đang gửi...
+                        Sending...
                       </>
                     ) : (
                       <>
                         <Mail className="w-4 h-4 mr-2" />
-                        Gửi lại email xác thực
+                        Resend Verification Email
                       </>
                     )}
                   </Button>
@@ -300,7 +300,7 @@ export function VerifyEmailPage() {
                     variant="outline"
                     className="w-full"
                   >
-                    Quay lại đăng nhập
+                    Back to Login
                   </Button>
                 </div>
               </div>

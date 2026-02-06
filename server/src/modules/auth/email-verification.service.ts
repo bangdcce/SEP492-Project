@@ -60,7 +60,7 @@ export class EmailVerificationService {
     const mailOptions = {
       from: this.configService.get('SMTP_FROM', '"InterDev Platform" <noreply@interdev.vn>'),
       to: email,
-      subject: 'Xác thực địa chỉ email của bạn - InterDev',
+      subject: 'Verify Your Email Address - InterDev',
       html: `
         <!DOCTYPE html>
         <html>
@@ -69,9 +69,10 @@ export class EmailVerificationService {
           <style>
             body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
             .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-            .header { background-color: #4F46E5; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+            .header { background-color: #14B8A6; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0; }
+            .header h1 { color: white; margin: 0; }
             .content { background-color: #f9fafb; padding: 30px; border-radius: 0 0 8px 8px; }
-            .button { display: inline-block; background-color: #4F46E5; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
+            .button { display: inline-block; background-color: #14B8A6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; margin: 20px 0; }
             .footer { text-align: center; margin-top: 20px; color: #666; font-size: 12px; }
             .warning { background-color: #FEF3C7; border-left: 4px solid #F59E0B; padding: 10px; margin: 15px 0; }
           </style>
@@ -79,27 +80,27 @@ export class EmailVerificationService {
         <body>
           <div class="container">
             <div class="header">
-              <h1>Xác thực email của bạn</h1>
+              <h1>Verify Your Email</h1>
             </div>
             <div class="content">
-              <p>Xin chào,</p>
-              <p>Cảm ơn bạn đã đăng ký tài khoản tại <strong>InterDev Platform</strong>!</p>
-              <p>Vui lòng nhấn vào nút bên dưới để xác thực địa chỉ email của bạn:</p>
+              <p>Hello,</p>
+              <p>Thank you for registering an account at <strong>InterDev Platform</strong>!</p>
+              <p>Please click the button below to verify your email address:</p>
               <p style="text-align: center;">
-                <a href="${verificationUrl}" class="button">Xác thực Email</a>
+                <a href="${verificationUrl}" class="button">Verify Email</a>
               </p>
-              <p>Hoặc sao chép đường link sau vào trình duyệt:</p>
+              <p>Or copy the following link into your browser:</p>
               <p style="word-break: break-all; background: #e5e7eb; padding: 10px; border-radius: 4px;">
                 ${verificationUrl}
               </p>
               <div class="warning">
-                <strong>⚠️ Lưu ý:</strong> Link xác thực sẽ hết hạn sau 24 giờ. Nếu bạn không thực hiện yêu cầu này, vui lòng bỏ qua email này.
+                <strong>⚠️ Note:</strong> This verification link will expire after 24 hours. If you did not request this, please ignore this email.
               </div>
-              <p>Trân trọng,<br><strong>Đội ngũ InterDev</strong></p>
+              <p>Best regards,<br><strong>InterDev Team</strong></p>
             </div>
             <div class="footer">
               <p>© ${new Date().getFullYear()} InterDev Platform. All rights reserved.</p>
-              <p>Email này được gửi tự động, vui lòng không trả lời.</p>
+              <p>This email was sent automatically, please do not reply.</p>
             </div>
           </div>
         </body>

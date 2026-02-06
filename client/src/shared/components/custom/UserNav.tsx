@@ -51,10 +51,19 @@ export function UserNav() {
     else navigate(ROUTES.CLIENT_PROFILE); // Fallback
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      // Call backend logout to clear httpOnly cookies
+      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include', // Send cookies
+      });
+    } catch (error) {
+      console.error('Logout error:', error);
+    }
+    
+    // Clear user info from localStorage
     localStorage.removeItem(STORAGE_KEYS.USER);
-    localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-    localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
     navigate(ROUTES.LOGIN);
   };
 
