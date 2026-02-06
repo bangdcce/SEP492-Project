@@ -70,21 +70,11 @@ export function SignInPage({
       // Save tokens based on remember-me choice
 
 
-      // Backend returns {message, data: {accessToken, refreshToken, user}}
+      // Backend returns {message, data: {user}}
+      // Tokens are now stored in httpOnly cookies, not in localStorage
       const loginData = (response as any).data || response;
 
-
-
-      setStoredItem(
-        STORAGE_KEYS.ACCESS_TOKEN,
-        loginData.accessToken,
-        formData.rememberMe
-      );
-      setStoredItem(
-        STORAGE_KEYS.REFRESH_TOKEN,
-        loginData.refreshToken,
-        formData.rememberMe
-      );
+      // Only save user info to localStorage (not tokens)
       setStoredItem(
         STORAGE_KEYS.USER,
         JSON.stringify(loginData.user),

@@ -12,6 +12,7 @@ export const API_CONFIG = {
 // Route Paths
 export const ROUTES = {
   HOME: "/",
+  LANDING: "/",
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
