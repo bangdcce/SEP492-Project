@@ -13,6 +13,8 @@ import {
   BrokerProposalEntity,
   ProposalStatus,
 } from '../../database/entities/broker-proposal.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+
 
 @Injectable()
 export class ProjectRequestsService {
@@ -23,6 +25,8 @@ export class ProjectRequestsService {
     private readonly answerRepo: Repository<ProjectRequestAnswerEntity>,
     @InjectRepository(BrokerProposalEntity)
     private readonly brokerProposalRepo: Repository<BrokerProposalEntity>,
+    @InjectRepository(ProjectRequestProposalEntity)
+    private readonly freelancerProposalRepo: Repository<ProjectRequestProposalEntity>,
     private readonly auditLogsService: AuditLogsService,
   ) {}
 
@@ -220,14 +224,77 @@ export class ProjectRequestsService {
     return brokers.filter((b) => !involvedBrokerIds.has(b.id));
   }
 
-  async inviteBroker(requestId: string, brokerId: string) {
+  async inviteBroker(requestId: string, brokerId: string, message?: string) {
+    // 1. Check if request exists
+    const request = await this.findOne(requestId);
+    if (!request) throw new Error('Request not found');
+
+    // 2. Check if already has a broker
+    if (request.brokerId) throw new Error('Request already has a broker assigned');
+
+    // 3. Check if already invited or applied
+    const existing = await this.brokerProposalRepo.findOne({
+      where: { requestId, brokerId },
+    });
+
+    if (existing) {
+      if (existing.status === ProposalStatus.INVITED) {
+         throw new Error('Broker already invited');
+      }
+      if (existing.status === ProposalStatus.PENDING) {
+         throw new Error('Broker has already applied');
+      }
+      // If rejected/accepted, maybe allow re-invite? For now assume strict uniqueness.
+      throw new Error(`Broker already has proposal status: ${existing.status}`);
+    }
+
     const proposal = this.brokerProposalRepo.create({
       requestId,
       brokerId,
       status: ProposalStatus.INVITED,
+      coverLetter: message, // saving message in coverLetter for invites
     });
     return this.brokerProposalRepo.save(proposal);
   }
+
+  async inviteFreelancer(requestId: string, freelancerId: string, message?: string) {
+    const request = await this.findOne(requestId);
+    if (!request) throw new Error('Request not found');
+
+    const existing = await this.freelancerProposalRepo.findOne({
+       where: { requestId, freelancerId },
+    });
+
+    if (existing) {
+       throw new Error(`Freelancer already associated with this request (Status: ${existing.status})`);
+    }
+
+    const proposal = this.freelancerProposalRepo.create({
+      requestId,
+      freelancerId,
+      status: 'INVITED',
+      coverLetter: message,
+    });
+    return this.freelancerProposalRepo.save(proposal);
+  }
+
+  async getInvitationsForUser(userId: string, role: UserRole) {
+    if (role === UserRole.BROKER) {
+      return this.brokerProposalRepo.find({
+        where: { brokerId: userId, status: ProposalStatus.INVITED },
+        relations: ['request', 'request.client'],
+        order: { createdAt: 'DESC' },
+      });
+    } else if (role === UserRole.FREELANCER) {
+      return this.freelancerProposalRepo.find({
+        where: { freelancerId: userId, status: 'INVITED' },
+        relations: ['request', 'request.client'],
+        order: { createdAt: 'DESC' },
+      });
+    }
+    return [];
+  }
+
 
   async applyToRequest(requestId: string, brokerId: string, coverLetter: string) {
     const proposal = this.brokerProposalRepo.create({
@@ -444,5 +511,68 @@ export class ProjectRequestsService {
     requests.push(await this.requestRepo.save(phase4));
 
     return requests;
+  }
+
+  async respondToInvitation(
+    invitationId: string,
+    userId: string,
+    role: UserRole,
+    status: 'ACCEPTED' | 'REJECTED',
+  ) {
+    if (role === UserRole.BROKER) {
+      const proposal = await this.brokerProposalRepo.findOne({
+        where: { id: invitationId, brokerId: userId },
+        relations: ['request'],
+      });
+      if (!proposal) throw new Error('Invitation not found');
+      if (proposal.status !== ProposalStatus.INVITED) {
+        throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
+      }
+
+      proposal.status = status === 'ACCEPTED' ? ProposalStatus.ACCEPTED : ProposalStatus.REJECTED;
+      
+      // If ACCEPTED, logic might differ (e.g. they join discussion vs becomes the sole broker).
+      // For now, if they ACCEPT an invite, they become a CANDIDATE (PENDING) or if the invite was explicit, maybe they just join?
+      // Usually "Invite" means "Please Apply". If they accept, they become PENDING application?
+      // OR if it's a direct private invite, maybe they become ACCEPTED immediately if the client pre-approved?
+      // Let's assume: Client Invited -> Broker Accepts -> Broker becomes "PENDING" (Applied) or "ACCEPTED" (Hired).
+      // For safety, let's say they become PENDING (Applied) so Client can confirm? 
+      // OR if it was "Private Invite", maybe the Client already wants them.
+      // Let's stick to: Invite -> Accept = PROPOSAL SUBMITTED (PENDING).
+      // Wait, if it's "Private Project", the Client picked them. So Accept = Hired?
+      // Let's go with: Accept = PENDING (Candidate). Client must finalizing "Hiring".
+       
+      // actually, if status is ACCEPTED here, we map it to ProposalStatus.PENDING?
+      // "Accepting an invitation" usually means "I am interested, here is my bid" or just "I join".
+      // Let's map "ACCEPTED" response to ProposalStatus.PENDING (Applied).
+      if (status === 'ACCEPTED') {
+         // Keep as ACCEPTED to indicate "Ready to Hire"
+         proposal.status = ProposalStatus.ACCEPTED;
+      } else {
+         proposal.status = ProposalStatus.REJECTED; // Declined the invite
+      }
+
+      return this.brokerProposalRepo.save(proposal);
+
+    } else if (role === UserRole.FREELANCER) {
+      const proposal = await this.freelancerProposalRepo.findOne({
+        where: { id: invitationId, freelancerId: userId },
+        relations: ['request'],
+      });
+      if (!proposal) throw new Error('Invitation not found');
+      
+      if (proposal.status !== 'INVITED') {
+         throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
+      }
+      
+      if (status === 'ACCEPTED') {
+          proposal.status = 'PENDING';
+      } else {
+          proposal.status = 'REJECTED'; 
+      }
+      return this.freelancerProposalRepo.save(proposal);
+    }
+    
+    throw new Error('Invalid role');
   }
 }

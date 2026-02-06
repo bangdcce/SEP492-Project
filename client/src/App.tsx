@@ -25,6 +25,8 @@ const MyRequestsPage = lazy(() =>
 const RequestDetailPage = lazy(
   () => import("@/features/requests/RequestDetailPage"),
 );
+const MyInvitationsPage = lazy(() => import("@/features/dashboard/MyInvitationsPage").then(m => ({ default: m.MyInvitationsPage })));
+const InvitationDetailsPage = lazy(() => import("@/features/dashboard/InvitationDetailsPage").then(m => ({ default: m.InvitationDetailsPage })));
 
 // ========== PROJECT PAGES ==========
 const ProjectListPage = lazy(
@@ -57,6 +59,11 @@ const ProjectRequestDetailsPage = lazy(
 );
 const CreateProjectSpecPage = lazy(
   () => import("@/features/project-specs/CreateProjectSpecPage"),
+);
+const BrokerProjectsPage = lazy(() =>
+  import("@/features/project-requests/BrokerProjectsPage").then((module) => ({
+    default: module.BrokerProjectsPage,
+  })),
 );
 const AuditSpecsPage = lazy(
   () => import("@/features/project-specs/AuditSpecsPage"),
@@ -134,6 +141,9 @@ const StaffHearingRoomPage = lazy(() =>
   })),
 );
 
+// ========== LANDING PAGE ==========
+const LandingPage = lazy(() => import("@/pages/LandingPage"));
+
 // ========== AUTH PAGES ==========
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
 const SignUpPage = lazy(() => import("@/pages/SignUpPage"));
@@ -153,6 +163,9 @@ function App() {
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
+        {/* ========== LANDING PAGE ========== */}
+        <Route path={ROUTES.LANDING} element={<LandingPage />} />
+
         {/* ========== AUTH ROUTES - No Layout ========== */}
         <Route path={ROUTES.LOGIN} element={<SignInPage />} />
         <Route path={ROUTES.REGISTER} element={<SignUpPage />} />
@@ -223,6 +236,27 @@ function App() {
             <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <ProfilePage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+
+        <Route
+          path="/freelancer/invitations"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <MyInvitationsPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/invitations/:id"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <InvitationDetailsPage />
               </FreelancerDashboardLayout>
             </RoleGuard>
           }
@@ -493,10 +527,30 @@ function App() {
             </RoleGuard>
           }
         />
+        <Route
+          path="/broker/invitations"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+               <BrokerDashboardLayout>
+                  <MyInvitationsPage />
+               </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+         <Route
+          path="/broker/invitations/:id"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+               <BrokerDashboardLayout>
+                  <InvitationDetailsPage />
+               </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
 
         {/* ========== PROJECT REQUEST ROUTES (Broker) ========== */}
         <Route
-          path="/project-requests"
+          path={ROUTES.BROKER_MARKETPLACE}
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
@@ -506,7 +560,7 @@ function App() {
           }
         />
         <Route
-          path="/project-requests/:id"
+          path={ROUTES.PROJECT_REQUEST_DETAILS}
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
@@ -516,11 +570,21 @@ function App() {
           }
         />
         <Route
-          path="/project-requests/:id/create-spec"
+          path="/broker/project-requests/:id/create-spec"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <CreateProjectSpecPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/broker/my-requests"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <BrokerProjectsPage />
               </BrokerDashboardLayout>
             </RoleGuard>
           }

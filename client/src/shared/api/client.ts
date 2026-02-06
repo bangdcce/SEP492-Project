@@ -1,7 +1,6 @@
 import axios from "axios";
 import type { AxiosInstance, AxiosRequestConfig, AxiosResponse } from "axios";
 import { API_CONFIG, STORAGE_KEYS } from "@/constants";
-import { getStoredItem } from "@/shared/utils/storage";
 
 /**
  * API Client - Centralized Axios instance with interceptors
@@ -16,19 +15,18 @@ class ApiClient {
       headers: {
         "Content-Type": "application/json",
       },
+      withCredentials: true, // Enable sending cookies with requests
     });
 
     this.setupInterceptors();
   }
 
   private setupInterceptors() {
-    // Request interceptor - add token to headers
+    // Request interceptor - add timezone header
     this.client.interceptors.request.use(
       (config) => {
-        const token = getStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
-        if (token) {
-          config.headers.Authorization = `Bearer ${token}`;
-        }
+        // Token is now sent automatically via httpOnly cookie
+        // No need to manually add Authorization header
         if (typeof Intl !== "undefined") {
           const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
           if (tz) {
@@ -48,8 +46,7 @@ class ApiClient {
       async (error) => {
         // TODO: [DEV] Auth disabled for testing - Re-enable before production
         // if (error.response?.status === 401) {
-        //   localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-        //   localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
+        //   // Token in cookie is invalid or expired, redirect to login
         //   window.location.href = "/login";
         // }
         console.warn("[DEV] API Error:", error.response?.status, error.message);

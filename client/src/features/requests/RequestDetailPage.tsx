@@ -20,12 +20,14 @@ import {
 } from "@/shared/components/ui";
 import { wizardService } from "../wizard/services/wizardService";
 import { format } from "date-fns";
-import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, ExternalLink, FolderOpen } from "lucide-react";
+import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, ExternalLink, FolderOpen, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
 import { CommentsSection } from "./components/CommentsSection";
 import { RequestStatus } from "./types";
+import { InviteModal } from "../discovery/InviteModal";
+import { UserRole } from "@/shared/types/user.types";
 
 // Helper for safe date formatting
 const safeFormatDate = (dateStr: any, fmt: string) => {
@@ -57,6 +59,10 @@ export default function RequestDetailPage() {
   const [viewMode, setViewMode] = useState("workflow");
   const [activeTab, setActiveTab] = useState("phase1");
   const [showDraftAlert, setShowDraftAlert] = useState(false);
+
+  // Invite Modal State
+  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
+  const [inviteModalData, setInviteModalData] = useState<{ id: string, name: string, role: "BROKER" | "FREELANCER" } | null>(null);
 
   useEffect(() => {
     if (id) {
@@ -155,18 +161,17 @@ export default function RequestDetailPage() {
       }
   };
 
+  const handleOpenInviteModal = (partnerId: string, partnerName: string, role: "BROKER" | "FREELANCER") => {
+      setInviteModalData({
+        id: partnerId,
+        name: partnerName,
+        role: role
+      });
+      setIsInviteModalOpen(true);
+  };
+
   const handleInvite = async (brokerId: string, brokerName: string) => {
-    try {
-        await wizardService.inviteBroker(request.id, brokerId);
-        toast.success("Invitation Sent", {
-            description: `Invitation sent to ${brokerName}`,
-        });
-        setMatches(prev => prev.filter(m => m.broker.id !== brokerId));
-    } catch (error: any) {
-        toast.error("Invitation Failed", {
-             description: error.response?.data?.message || "Could not invite broker."
-        });
-    }
+    handleOpenInviteModal(brokerId, brokerName, "BROKER");
   };
 
   // Determine current phase
@@ -420,41 +425,82 @@ export default function RequestDetailPage() {
                             </div>
                             )}
 
-                            {/* PUBLIC DRAFT: Show Proposals */}
+                            {/* PUBLIC DRAFT: Show Proposals & Invitations */}
                             {request.status === RequestStatus.PUBLIC_DRAFT && (
-                                <div className="space-y-4 mb-8">
-                                     <h3 className="font-semibold text-lg flex items-center gap-2">
-                                        <FileText className="w-5 h-5" /> Incoming Proposals
-                                        <Badge variant="secondary">{request.brokerProposals?.length || 0}</Badge>
-                                     </h3>
-                                     
-                                     {(!request.brokerProposals || request.brokerProposals.length === 0) ? (
-                                        <div className="text-center py-8 bg-muted/10 border-2 border-dashed rounded-lg">
-                                            <p className="text-muted-foreground">No proposals received yet.</p>
-                                        </div>
-                                     ) : (
-                                        <div className="space-y-4">
-                                            {request.brokerProposals.map((proposal: any) => (
-                                                <div key={proposal.id} className="border rounded-lg p-4 flex justify-between items-start bg-card hover:bg-muted/10 transition-colors">
-                                                    <div>
-                                                        <div className="flex items-center gap-2 mb-1">
-                                                            <h4 className="font-bold text-lg">{proposal.broker?.fullName || 'Unknown Broker'}</h4>
-                                                            <Badge variant={proposal.status === 'ACCEPTED' ? 'default' : 'outline'}>{proposal.status}</Badge>
+                                <div className="space-y-8 mb-8">
+                                     {/* 1. Incoming Applications (PENDING) */}
+                                     <div>
+                                         <h3 className="font-semibold text-lg flex items-center gap-2 mb-4">
+                                            <FileText className="w-5 h-5" /> Incoming Applications
+                                            <Badge variant="secondary">
+                                                {request.brokerProposals?.filter((p: any) => p.status === 'PENDING').length || 0}
+                                            </Badge>
+                                         </h3>
+                                         
+                                         {(!request.brokerProposals || request.brokerProposals.filter((p: any) => p.status === 'PENDING').length === 0) ? (
+                                            <div className="text-center py-6 bg-muted/10 border-2 border-dashed rounded-lg">
+                                                <p className="text-muted-foreground">No applications received yet.</p>
+                                            </div>
+                                         ) : (
+                                            <div className="space-y-4">
+                                                {request.brokerProposals.filter((p: any) => p.status === 'PENDING').map((proposal: any) => (
+                                                    <div key={proposal.id} className="border rounded-lg p-4 flex justify-between items-start bg-card hover:bg-muted/10 transition-colors">
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <h4 className="font-bold text-lg">{proposal.broker?.fullName || 'Unknown Broker'}</h4>
+                                                                <Badge>{proposal.status}</Badge>
+                                                            </div>
+                                                            <p className="text-muted-foreground text-sm mb-2">Applied on {safeFormatDate(proposal.createdAt, "MMM d, yyyy")}</p>
+                                                            <div className="bg-muted p-3 rounded-md text-sm italic">
+                                                                "{proposal.coverLetter || 'No cover letter provided.'}"
+                                                            </div>
                                                         </div>
-                                                        <p className="text-muted-foreground text-sm mb-2">Applied on {safeFormatDate(proposal.createdAt, "MMM d, yyyy")}</p>
-                                                        <div className="bg-muted p-3 rounded-md text-sm italic">
-                                                            "{proposal.coverLetter || 'No cover letter provided.'}"
-                                                        </div>
-                                                    </div>
-                                                    {proposal.status === 'PENDING' && (
                                                         <Button onClick={() => handleAcceptBroker(proposal.brokerId)}>
                                                             Hire Broker
                                                         </Button>
-                                                    )}
-                                                </div>
-                                            ))}
-                                        </div>
-                                     )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                         )}
+                                     </div>
+
+                                     {/* 2. Sent Invitations (INVITED / REJECTED / ACCEPTED) */}
+                                     <div>
+                                         <h3 className="font-semibold text-lg flex items-center gap-2 mb-4">
+                                            <UserPlus className="w-5 h-5" /> Sent Invitations
+                                            <Badge variant="secondary">
+                                                {request.brokerProposals?.filter((p: any) => p.status !== 'PENDING').length || 0}
+                                            </Badge>
+                                         </h3>
+                                         
+                                         {(!request.brokerProposals || request.brokerProposals.filter((p: any) => p.status !== 'PENDING').length === 0) ? (
+                                            <div className="text-center py-6 bg-muted/10 border-2 border-dashed rounded-lg">
+                                                <p className="text-muted-foreground">No invitations sent yet.</p>
+                                            </div>
+                                         ) : (
+                                            <div className="space-y-4">
+                                                {request.brokerProposals.filter((p: any) => p.status !== 'PENDING').map((proposal: any) => (
+                                                    <div key={proposal.id} className="border rounded-lg p-4 flex justify-between items-center bg-card">
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <h4 className="font-semibold">{proposal.broker?.fullName || 'Unknown Broker'}</h4>
+                                                                <Badge variant="outline">{proposal.status}</Badge>
+                                                            </div>
+                                                            <p className="text-muted-foreground text-sm">Invited on {safeFormatDate(proposal.createdAt, "MMM d, yyyy")}</p>
+                                                        </div>
+                                                        {proposal.status === 'ACCEPTED' && (
+                                                            <Button onClick={() => handleAcceptBroker(proposal.brokerId)} size="sm">
+                                                                Hire Candidate
+                                                            </Button>
+                                                        )}
+                                                         {proposal.status === 'INVITED' && (
+                                                            <span className="text-sm text-muted-foreground italic">Waiting for response...</span>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                         )}
+                                     </div>
                                 </div>
                             )}
 
@@ -465,9 +511,14 @@ export default function RequestDetailPage() {
                                             <h3 className="font-semibold text-lg flex items-center gap-2">
                                                 <UserPlus className="w-5 h-5" /> Find & Invite Brokers
                                             </h3>
-                                            <span className="text-xs text-muted-foreground">
-                                                {matches?.length || 0} Available
-                                            </span>
+                                            <div className="flex gap-2 items-center">
+                                                <span className="text-xs text-muted-foreground mr-2">
+                                                    {matches?.length || 0} Top Matches
+                                                </span>
+                                                <Button size="sm" variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.BROKER}`)}>
+                                                    Search Marketplace
+                                                </Button>
+                                            </div>
                                         </div>
                                         {(!matches || matches.length === 0) ? (
                                             <p className="text-muted-foreground text-center py-8">
@@ -600,6 +651,15 @@ export default function RequestDetailPage() {
                                 
                                 {/* Mock Freelancer List */}
                                 <div className="space-y-4">
+                                    <div className="flex justify-between items-center bg-muted/20 p-4 rounded-lg">
+                                        <div>
+                                            <h4 className="font-semibold">Find Freelancers</h4>
+                                            <p className="text-sm text-muted-foreground">Search and invite freelancers to the project.</p>
+                                        </div>
+                                        <Button onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>
+                                            Search Candidates
+                                        </Button>
+                                    </div>
                                     {[1, 2].map((i) => (
                                         <div key={i} className="flex items-center justify-between p-4 border rounded-lg bg-background">
                                             <div className="flex items-center gap-4">
@@ -678,6 +738,69 @@ export default function RequestDetailPage() {
         )}
 
         {viewMode === 'details' && (
+            <>
+                <Card className="mb-6 border-indigo-100 bg-indigo-50/30">
+                    <CardHeader>
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-xl font-semibold flex items-center gap-2">
+                                <Users className="w-5 h-5 text-indigo-600" /> Project Team
+                            </h2>
+                            <Button variant="outline" size="sm" onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>
+                                <UserPlus className="w-4 h-4 mr-2" /> Add Member
+                            </Button>
+                        </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                        {/* Broker Section */}
+                        <div className="flex items-start justify-between p-4 bg-white rounded-lg border border-indigo-100 shadow-sm">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold border-2 border-indigo-200">
+                                    {request.broker ? request.broker.fullName.charAt(0) : "B"}
+                                </div>
+                                <div>
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="font-semibold text-lg">{request.broker?.fullName || "No Broker Assigned"}</h3>
+                                        {request.broker && <Badge variant="secondary" className="bg-indigo-100 text-indigo-700">Broker</Badge>}
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">{request.broker?.email || "Assign a broker to lead this project."}</p>
+                                </div>
+                            </div>
+                            {request.broker ? (
+                                <Button variant="ghost" size="sm">View Profile</Button>
+                            ) : (
+                                <Button size="sm" onClick={() => setActiveTab('phase1')}>Find Broker</Button>
+                            )}
+                        </div>
+
+                        {/* Freelancer/Team Members Section */}
+                        {/* Logic: Show freelancers who have ACCEPTED invitations or are formally hired (future logic) */}
+                        <div className="space-y-2">
+                            <h4 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Freelancers & Candidates</h4>
+                            {(!request.brokerProposals && !request.freelancerProposals) || 
+                             (request.brokerProposals?.filter((p:any) => p.status === 'ACCEPTED').length === 0) ? (
+                                <div className="text-center py-4 text-muted-foreground text-sm italic">
+                                    No team members yet.
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                     {/* Show ACCEPTED candidates */}
+                                     {request.brokerProposals?.filter((p:any) => p.status === 'ACCEPTED' && p.brokerId !== request.brokerId).map((p:any) => (
+                                         <div key={p.id} className="flex items-center gap-3 p-3 bg-white rounded border">
+                                             <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-600">
+                                                 {p.broker?.fullName.charAt(0)}
+                                             </div>
+                                             <div className="overflow-hidden">
+                                                 <p className="font-medium truncate">{p.broker?.fullName}</p>
+                                                 <Badge variant="outline" className="text-[10px] h-5">Candidate (Accepted)</Badge>
+                                             </div>
+                                         </div>
+                                     ))}
+                                </div>
+                            )}
+                        </div>
+                    </CardContent>
+                </Card>
+
               <Card>
                 <CardHeader>
                   <h2 className="text-xl font-semibold">Project Details</h2>
@@ -773,6 +896,7 @@ export default function RequestDetailPage() {
                   </div>
                 </CardContent>
               </Card>
+            </>
         )}
         </div>
 
@@ -783,6 +907,18 @@ export default function RequestDetailPage() {
           </div>
         </div>
       </div>
+
+      {inviteModalData && (
+        <InviteModal 
+            isOpen={isInviteModalOpen}
+            onClose={() => setIsInviteModalOpen(false)}
+            partnerId={inviteModalData.id}
+            partnerName={inviteModalData.name}
+            partnerRole={inviteModalData.role}
+            defaultRequestId={request?.id}
+            onInviteSuccess={() => id && fetchData(id)}
+        />
+      )}
     </div>
   );
 }

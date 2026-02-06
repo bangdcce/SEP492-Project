@@ -99,6 +99,14 @@ export class ProjectRequestsController {
     return this.projectRequestsService.findDraftsByClient(userId);
   }
 
+  @Get('invitations/my')
+  @ApiOperation({ summary: 'Get invitations for the current user (Broker/Freelancer)' })
+  @ApiResponse({ status: 200, description: 'List of invitations' })
+  async getMyInvitations(@GetUser() user: UserEntity) {
+    return this.projectRequestsService.getInvitationsForUser(user.id, user.role);
+  }
+
+
   @Get(':id/matches')
   @ApiOperation({ summary: 'Find matching brokers for a project request' })
   @ApiResponse({ status: 200 })
@@ -174,12 +182,28 @@ export class ProjectRequestsController {
     };
   }
 
-  @Post(':id/invite')
+  @Post(':id/invite/broker')
   @ApiOperation({ summary: 'Invite a broker to a project request' })
   @ApiResponse({ status: 201, description: 'Invitation sent' })
-  async invite(@Param('id') id: string, @Body('brokerId') brokerId: string) {
-    return this.projectRequestsService.inviteBroker(id, brokerId);
+  async inviteBroker(
+    @Param('id') id: string,
+    @Body('brokerId') brokerId: string,
+    @Body('message') message?: string,
+  ) {
+    return this.projectRequestsService.inviteBroker(id, brokerId, message);
   }
+
+  @Post(':id/invite/freelancer')
+  @ApiOperation({ summary: 'Invite a freelancer to a project request (Phase 3)' })
+  @ApiResponse({ status: 201, description: 'Invitation sent' })
+  async inviteFreelancer(
+    @Param('id') id: string,
+    @Body('freelancerId') freelancerId: string,
+    @Body('message') message?: string,
+  ) {
+    return this.projectRequestsService.inviteFreelancer(id, freelancerId, message);
+  }
+
 
   @Post(':id/apply')
   @ApiOperation({ summary: 'Broker applies to a project request' })
@@ -210,5 +234,16 @@ export class ProjectRequestsController {
   @ApiResponse({ status: 201, description: 'Project created' })
   async convertToProject(@Param('id') id: string) {
     return this.projectRequestsService.convertToProject(id);
+  }
+
+  @Patch('invitations/:id/respond')
+  @ApiOperation({ summary: 'Respond to an invitation (Accept/Reject)' })
+  @ApiResponse({ status: 200, description: 'Response recorded' })
+  async respondToInvitation(
+    @Param('id') id: string,
+    @GetUser() user: UserEntity,
+    @Body('status') status: 'ACCEPTED' | 'REJECTED',
+  ) {
+    return this.projectRequestsService.respondToInvitation(id, user.id, user.role, status);
   }
 }

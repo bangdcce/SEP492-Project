@@ -12,11 +12,12 @@ export const API_CONFIG = {
 // Route Paths
 export const ROUTES = {
   HOME: "/",
+  LANDING: "/",
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
   VERIFY_EMAIL: "/verify-email",
-  
+
   // Client Routes
   CLIENT_AUDIT_LOGS: "/audit-logs",
 
@@ -33,6 +34,8 @@ export const ROUTES = {
   BROKER_WORKSPACE: "/broker/workspace/:projectId",
   BROKER_FREELANCERS: "/broker/freelancers",
   BROKER_PROFILE: "/broker/profile",
+  BROKER_MARKETPLACE: "/broker/marketplace",
+  PROJECT_REQUEST_DETAILS: "/broker/project-requests/:id",
 
   // Admin Routes
 
@@ -41,6 +44,10 @@ export const ROUTES = {
   CLIENT_MY_REQUESTS: "/client/my-requests",
   CLIENT_WIZARD: "/client/wizard",
   CLIENT_PROFILE: "/client/profile",
+  CLIENT_DISCOVERY: "/client/discovery",
+  CLIENT_DISCOVERY_PROFILE: "/client/discovery/profile/:id",
+  
+
 
   // ========== PROJECT ROUTES ==========
   CLIENT_PROJECTS: "/client/projects",
@@ -51,6 +58,9 @@ export const ROUTES = {
   ADMIN_AUDIT_LOGS: "/admin/audit-logs",
   ADMIN_REVIEW_MODERATION: "/admin/reviews",
   ADMIN_PROFILE: "/admin/profile",
+
+  // ========== STAFF ROUTES - prefix /staff ==========
+  STAFF_PROFILE: "/staff/profile",
 
   // ========== LEGACY ALIASES (backward compatibility) ==========
   DASHBOARD: "/admin/dashboard",
