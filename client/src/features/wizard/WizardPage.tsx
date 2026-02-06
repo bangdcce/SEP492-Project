@@ -1,4 +1,3 @@
-
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button, Card, CardContent, CardFooter, CardHeader, Progress, Spinner } from "@/shared/components/ui";
@@ -12,7 +11,6 @@ import type { WizardQuestion, CreateProjectRequestDto } from "./services/wizardS
 import { ROUTES, API_CONFIG } from "@/constants";
 import { ArrowLeft, ArrowRight, Check, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
-import { getStoredItem } from "@/shared/utils/storage";
 
 export default function WizardPage() {
   const navigate = useNavigate();
@@ -52,9 +50,7 @@ export default function WizardPage() {
     const checkKycStatus = async () => {
       try {
         const response = await fetch(`${API_CONFIG.BASE_URL}/kyc/me`, {
-          headers: {
-            'Authorization': `Bearer ${getStoredItem('access_token')}`,
-          },
+          credentials: 'include', // Send httpOnly cookies
         });
         const data = await response.json();
         setKycStatus(data.status || 'NOT_STARTED');
