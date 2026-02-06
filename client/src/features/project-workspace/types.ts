@@ -19,13 +19,41 @@ export type TaskAttachment = {
   createdAt: string;
 };
 
+export type TaskLink = {
+  id: string;
+  taskId: string;
+  url: string;
+  title?: string | null;
+  createdAt: string;
+};
+
+export type TaskSubmissionStatus =
+  | "PENDING"
+  | "APPROVED"
+  | "REJECTED"
+  | "REQUEST_CHANGES";
+
+export type TaskSubmission = {
+  id: string;
+  taskId: string;
+  submitterId?: string | null;
+  submitter?: Assignee | null;
+  content: string;
+  attachments?: string[];
+  version: number;
+  status: TaskSubmissionStatus;
+  createdAt: string;
+};
+
 export type Task = {
   id: string;
   title: string;
   description?: string;
   status: KanbanColumnKey;
+  projectId?: string;
   milestoneId?: string;
   assignedTo?: string | null;
+  parentTaskId?: string | null;
   startDate?: string | null;
   dueDate?: string | null;
   specFeatureId?: string | null; // Links task to spec feature (anti-scope creep)
@@ -43,6 +71,9 @@ export type Task = {
   proofLink?: string | null;
   submittedAt?: string | null;
   attachments?: TaskAttachment[];
+  links?: TaskLink[];
+  subtasks?: Task[];
+  submissions?: TaskSubmission[];
 };
 
 export type Milestone = {
