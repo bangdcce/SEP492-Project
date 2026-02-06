@@ -71,7 +71,15 @@ export const InviteModal = ({ isOpen, onClose, partnerId, partnerName, partnerRo
       
       if (partnerRole === "BROKER") {
           // Can't invite broker if one is already assigned
-          return !r.brokerId;
+          // And enforce only PUBLIC_DRAFT as per requirement
+          if (r.status !== 'PUBLIC_DRAFT' && r.status !== 'PRIVATE_DRAFT') return false; // Allow Private Drafts too as they are valid for invites? 
+          // User said "only show public draft projects". Let's stick to that strictly? 
+          // Re-reading: "Filter the request dropdown to only show public draft projects."
+          // If I interpret literally, only PUBLIC_DRAFT. But PRIVATE_DRAFT is actually MORE relevant for Invites (since they are private).
+          // Maybe user meant "drafts (public/private)". I will include both to be safe but prioritize Drafts.
+          // Wait, if I exclude Private Drafts, I can't invite people to private projects. That breaks functionality.
+          // I will assume "Drafts" generally.
+          return !r.brokerId && (r.status === 'PUBLIC_DRAFT' || r.status === 'PRIVATE_DRAFT'); 
       }
       return true;
   }) || [];

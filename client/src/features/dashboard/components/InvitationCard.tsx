@@ -25,7 +25,7 @@ export const InvitationCard = ({ invitation, onAccept, onReject }: InvitationCar
             </div>
             
             <h3 className="font-semibold text-lg hover:underline">
-              <Link to={`/dashboard/invitations/${invitation.id}`}>
+              <Link to={`${invitation.id}`}>
                 {invitation.request.title}
               </Link>
             </h3>

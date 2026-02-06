@@ -405,9 +405,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               item.id === clientMessageId
                 ? {
                     ...(item as DisputeMessage),
-                    id: payload.messageId,
-                    disputeId: payload.disputeId,
-                    hearingId: payload.hearingId,
+                    id: payload.messageId!,
+                    disputeId: payload.disputeId!,
+                    hearingId: payload.hearingId!,
                     senderId: payload.senderId,
                     senderRole: payload.senderRole,
                     type: payload.type,
@@ -432,9 +432,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         return [
           ...prev,
           {
-            id: payload.messageId,
-            disputeId: payload.disputeId,
-            hearingId: payload.hearingId,
+            id: payload.messageId!,
+            disputeId: payload.disputeId!,
+            hearingId: payload.hearingId!,
             senderId: payload.senderId,
             senderRole: payload.senderRole,
             type: payload.type,
@@ -450,7 +450,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               payload.senderId && payload.senderId === currentUserId
                 ? "delivered"
                 : undefined,
-          } as DisputeMessage,
+          } as LocalMessage,
         ];
       });
     },

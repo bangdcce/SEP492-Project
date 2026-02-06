@@ -59,7 +59,7 @@ export const MyInvitationsPage = () => {
                 <Card>
                     <CardContent className="p-10 text-center space-y-4">
                         <div className="text-muted-foreground">You have no pending invitations.</div>
-                        <Button variant="outline" onClick={() => navigate('/client/discovery')}>
+                        <Button variant="outline" onClick={() => navigate('/project-requests')}>
                             Browse Marketplace
                         </Button>
                     </CardContent>

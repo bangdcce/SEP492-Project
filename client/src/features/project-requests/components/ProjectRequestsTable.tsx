@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Table,
@@ -12,6 +12,8 @@ import { Button } from '@/shared/components/custom/Button';
 import type { ProjectRequest } from '../types';
 import { RequestStatus } from '../types';
 import { format } from 'date-fns';
+import { ApplyToRequestModal } from './ApplyToRequestModal';
+import { Eye } from 'lucide-react';
 
 interface ProjectRequestsTableProps {
   requests: ProjectRequest[];
@@ -28,7 +30,25 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
   assigningId,
   currentUserId,
 }) => {
+  const [isApplyModalOpen, setIsApplyModalOpen] = useState(false);
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null);
+
+  const handleOpenApply = (requestId: string) => {
+    setSelectedRequestId(requestId);
+    setIsApplyModalOpen(true);
+  };
+
+  const handleApplySubmit = (coverLetter: string, resumeId?: string) => {
+    if (selectedRequestId && onApply) {
+        // You might want to handle resumeId later
+        console.log("Applying with resume:", resumeId);
+        onApply(selectedRequestId, coverLetter);
+        setIsApplyModalOpen(false);
+    }
+  };
+
   return (
+    <>
     <div className="rounded-md border">
       <Table>
         <TableHeader>
@@ -70,54 +90,45 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
                 </span>
               </TableCell>
               <TableCell className="text-right">
-                {request.status === RequestStatus.PENDING && (
-                  <Button
-                    onClick={() => onAssign(request.id)}
-                    disabled={assigningId === request.id}
-                  >
-                    {assigningId === request.id ? 'Assigning...' : 'Assign'}
-                  </Button>
-                )}
-                
-                
-                {/* Apply Button for Brokers */}
-                {request.status === RequestStatus.PUBLIC_DRAFT && onApply && (
-                     (() => {
-                        const hasApplied = request.brokerProposals?.some((p: any) => p.brokerId === currentUserId);
-                        
-                        if (hasApplied) {
-                             return <Button variant="outline" className="h-8 px-3 text-xs bg-muted text-muted-foreground" disabled>Applied</Button>;
-                        }
-
-                        return (
-                             <Button
-                                variant="outline"
-                                className="h-8 px-3 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                                onClick={() => {
-                                    const letter = prompt("Enter a brief cover letter for your application:");
-                                    if (letter !== null) {
-                                        onApply(request.id, letter);
-                                    }
-                                }}
-                             >
-                                Apply
-                             </Button>
-                        );
-                     })()
-                )}
-
-                <Link to={`/project-requests/${request.id}`}>
-                    <Button variant="ghost" className="h-8 w-8 p-0 ml-1">
-                        <span className="sr-only">View Details</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <div className="flex justify-end gap-2 items-center">
+                    {request.status === RequestStatus.PENDING && (
+                    <Button
+                        onClick={() => onAssign(request.id)}
+                        disabled={assigningId === request.id}
+                    >
+                        {assigningId === request.id ? 'Assigning...' : 'Assign'}
                     </Button>
-                </Link>
+                    )}
+                    
+                    
+                    {/* Apply Button for Brokers */}
+                    {request.status === RequestStatus.PUBLIC_DRAFT && onApply && (
+                        (() => {
+                            const hasApplied = request.brokerProposals?.some((p: any) => p.brokerId === currentUserId);
+                            
+                            if (hasApplied) {
+                                return <Button variant="outline" className="h-8 px-3 text-xs bg-muted text-muted-foreground" disabled>Applied</Button>;
+                            }
 
-                {request.status === RequestStatus.PROCESSING && (
-                  <span className="text-xs text-gray-500 italic">
-                    Assigned to {request.brokerId?.slice(0, 8)}...
-                  </span>
-                )}
+                            return (
+                                <Button
+                                    variant="outline"
+                                    className="h-8 px-3 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                    onClick={() => handleOpenApply(request.id)}
+                                >
+                                    Apply
+                                </Button>
+                            );
+                        })()
+                    )}
+
+                    <Link to={`/project-requests/${request.id}`}>
+                        <Button variant="secondary" className="h-8 text-xs">
+                            <Eye className="w-3.5 h-3.5 mr-1.5" />
+                            View Details
+                        </Button>
+                    </Link>
+                </div>
               </TableCell>
             </TableRow>
           ))}
@@ -131,5 +142,13 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
         </TableBody>
       </Table>
     </div>
+
+    <ApplyToRequestModal 
+        isOpen={isApplyModalOpen}
+        onClose={() => setIsApplyModalOpen(false)}
+        onApply={handleApplySubmit}
+    />
+    </>
   );
 };
+

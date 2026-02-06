@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { FileSignature, Search, ArrowRight } from 'lucide-react';
-import { Card, CardContent, CardHeader } from '@/shared/components/ui/Card';
-import { Button } from '@/shared/components/ui/Button';
-import { Input } from '@/shared/components/ui/Input';
+import { Card, CardContent, CardHeader } from '@/shared/components/ui/card';
+import { Button } from '@/shared/components/ui/button';
+import { Input } from '@/shared/components/ui/input';
 import { Badge } from '@/shared/components/ui/badge';
-import Spinner from '@/shared/components/ui/Spinner';
+import Spinner from '@/shared/components/ui/spinner';
 import { apiClient } from '@/shared/api/client';
 
 interface ContractSummary {

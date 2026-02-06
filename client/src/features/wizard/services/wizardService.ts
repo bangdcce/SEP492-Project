@@ -104,5 +104,15 @@ export const wizardService = {
   convertToProject: async (requestId: string) => {
      const response = await axiosClient.post(`/project-requests/${requestId}/convert`, {});
      return response.data;
+  },
+
+  rejectProposal: async (proposalId: string) => {
+    const response = await axiosClient.post(`/project-requests/proposals/${proposalId}/reject`);
+    return response.data;
+  },
+
+  cancelInvitation: async (proposalId: string) => {
+    const response = await axiosClient.post(`/project-requests/proposals/${proposalId}/cancel`);
+    return response.data;
   }
 };

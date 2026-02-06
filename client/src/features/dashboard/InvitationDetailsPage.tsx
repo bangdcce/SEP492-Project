@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { discoveryApi } from "../discovery/api";
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Separator, Skeleton } from "@/shared/components/ui";
-import { ArrowLeft, Calendar, DollarSign, Monitor, User, Check, X } from "lucide-react";
-import { useToast } from "@/shared/hooks/use-toast";
+import { ArrowLeft, Calendar, DollarSign, Monitor, Check, X } from "lucide-react";
+import { toast } from "sonner";
 
 export const InvitationDetailsPage = () => {
     const { id } = useParams<{ id: string }>(); // Invitation ID
     const navigate = useNavigate();
-    const { toast } = useToast();
+
     
     const [invitation, setInvitation] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
@@ -38,18 +38,12 @@ export const InvitationDetailsPage = () => {
         if (!invitation) return;
         try {
             await discoveryApi.respondToInvitation(invitation.id, status);
-            toast({
-                title: status === 'ACCEPTED' ? "Invitation Accepted" : "Invitation Denied",
+            toast.success(status === 'ACCEPTED' ? "Invitation Accepted" : "Invitation Denied", {
                 description: status === 'ACCEPTED' ? "You have joined the project negotiation." : "Invitation has been removed.",
-                variant: status === 'ACCEPTED' ? "default" : "destructive",
             });
             navigate('/dashboard/invitations');
         } catch (error) {
-            toast({
-                title: "Error",
-                description: "Failed to update invitation status.",
-                variant: "destructive",
-            });
+            toast.error("Failed to update invitation status.");
         }
     };
 

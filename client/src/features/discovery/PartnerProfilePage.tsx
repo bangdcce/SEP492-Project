@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, CheckCircle, Clock, Globe } from "lucide-react";
 import { Button, Card, CardContent, CardHeader, CardTitle, Avatar, AvatarImage, AvatarFallback, Badge, Separator, Skeleton } from "@/shared/components/ui";
 import { discoveryApi } from "./api";
@@ -9,6 +9,9 @@ import { UserRole } from "../../shared/types/user.types";
 export const PartnerProfilePage = () => {
     const { id } = useParams<{ id: string }>();
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
+    const inviteTo = searchParams.get("inviteTo");
+
     const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
 
     const [user, setUser] = useState<any>(null);
@@ -161,6 +164,7 @@ export const PartnerProfilePage = () => {
                 partnerId={user.id}
                 partnerName={user.fullName}
                 partnerRole={user.role as "BROKER" | "FREELANCER"}
+                defaultRequestId={inviteTo || undefined}
             />
         </div>
     );

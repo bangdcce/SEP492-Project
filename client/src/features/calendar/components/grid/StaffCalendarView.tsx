@@ -363,7 +363,7 @@ export const StaffCalendarView = () => {
           });
         }
 
-        const eventSlots: CalendarSlot[] = events.map((event) => ({
+        const eventSlots: CalendarSlot[] = events.map((event: CalendarEvent) => ({
           id: `event-${event.id}`,
           kind: "event",
           title: event.title || event.type,

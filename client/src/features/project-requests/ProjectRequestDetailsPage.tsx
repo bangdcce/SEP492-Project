@@ -10,10 +10,11 @@ import {
   Monitor,
   FileText,
   UserPlus,
-  FileSignature,
-  CheckCircle2
+  CheckCircle2,
+  FileSignature
 } from "lucide-react";
 import { UserRole } from "@/shared/types/user.types";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 
 import type { ProjectRequest, RequestStatus } from "./types";
 import { projectRequestsApi } from "./api";
@@ -46,19 +47,10 @@ export default function ProjectRequestDetailsPage() {
     }
   }, []);
 
-  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs"; // Assuming standard Shadcn tabs
-import { Check, Clock, FileSignature, CheckCircle2, AlertCircle } from "lucide-react";
 
-// Helper to determine active phase for Broker (mirrors Client logic but simpler)
-const getBrokerPhase = (status: string) => {
-    if (status === 'SPEC_APPROVED') return 'phase3'; // Hiring
-    if (status === 'CONTRACT_PENDING') return 'phase4'; // Contract
-    if (status === 'PROCESSING') return 'phase2'; // Specs
-    return 'phase1'; // Default
-};
 
   const handleBack = () => {
-    if (isAdmin) {
+    if (user?.role === "ADMIN") {
       navigate("/admin/specs"); 
     } else if (user?.role === "BROKER") {
       navigate("/project-requests");
@@ -156,6 +148,49 @@ const getBrokerPhase = (status: string) => {
 
 
 
+  /* --- Client Management Actions --- */
+
+  const handleMakePrivate = async () => {
+    if (!request || !request.id) return;
+    if (!confirm("Are you sure? This will remove the request from the marketplace and Reject all pending applications.")) return;
+
+    try {
+        await projectRequestsApi.update(request.id, { status: "PRIVATE_DRAFT" });
+        await fetchRequest();
+        alert("Request is now Private.");
+    } catch (error) {
+        console.error("Failed to make private:", error);
+        alert("Failed to update status.");
+    }
+  };
+
+  const handleRejectProposal = async (proposalId: string) => {
+    if(!confirm("Reject this application?")) return;
+    try {
+        await projectRequestsApi.rejectProposal(proposalId);
+        await fetchRequest(); // Refresh list
+    } catch (error) {
+        console.error("Failed to reject:", error);
+        alert("Failed to reject application.");
+    }
+  };
+
+  const handleCancelInvitation = async (proposalId: string) => {
+    if(!confirm("Cancel this invitation?")) return;
+    try {
+        await projectRequestsApi.cancelInvitation(proposalId);
+        await fetchRequest(); // Refresh list
+    } catch (error) {
+        console.error("Failed to cancel:", error);
+        alert("Failed to cancel invitation.");
+    }
+  };
+
+  // Filter Proposals
+  const applications = request?.brokerProposals?.filter(p => p.status === 'PENDING') || [];
+  const invitations = request?.brokerProposals?.filter(p => p.status === 'INVITED') || [];
+  const acceptedBroker = request?.brokerProposals?.find(p => p.status === 'ACCEPTED');
+
   return (
     <div className="container mx-auto py-8 space-y-6">
       <div className="flex items-center gap-4">
@@ -173,6 +208,9 @@ const getBrokerPhase = (status: string) => {
             <TabsList className="mb-4 w-full justify-start">
                <TabsTrigger value="overview">Overview & Status</TabsTrigger>
                <TabsTrigger value="phases">Workflow Phases</TabsTrigger>
+               {(user?.role === 'CLIENT' || user?.role === 'ADMIN') && (
+                   <TabsTrigger value="applicants">Applicants & Invites</TabsTrigger>
+               )}
             </TabsList>
 
             <TabsContent value="overview" className="space-y-6">
@@ -253,7 +291,7 @@ const getBrokerPhase = (status: string) => {
 
             <TabsContent value="phases" className="space-y-6">
                 {/* Phase 2: Specs */}
-                <Card className={request.status === 'PROCESSING' || request.status === 'PENDING_SPECS' ? "border-2 border-primary" : ""}>
+                <Card className={request.status === 'PROCESSING' || request.status === 'BROKER_ASSIGNED' ? "border-2 border-primary" : ""}>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                              <div className="bg-blue-100 p-2 rounded-full"><FileText className="w-5 h-5 text-blue-600"/></div>
@@ -333,6 +371,62 @@ const getBrokerPhase = (status: string) => {
                     </CardContent>
                 </Card>
             </TabsContent>
+
+            {/* TAB: APPLICANTS & INVITES */}
+            <TabsContent value="applicants" className="space-y-6">
+                {/* 1. Received Applications */}
+                <Card>
+                    <CardHeader><CardTitle>Received Applications</CardTitle></CardHeader>
+                    <CardContent>
+                        {applications.length === 0 ? <p className="text-muted-foreground text-sm">No applications yet.</p> : (
+                            <div className="space-y-4">
+                                {applications.map((app: any) => (
+                                    <div key={app.id} className="flex items-center justify-between p-4 border rounded-lg">
+                                        <div>
+                                            <p className="font-bold">{app.broker?.fullName || 'Unknown Broker'}</p>
+                                            <p className="text-sm text-muted-foreground">{app.coverLetter || 'No cover letter'}</p>
+                                            <p className="text-xs text-muted-foreground mt-1">Applied: {format(new Date(app.createdAt), "PP")}</p>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button size="sm" onClick={() => navigate(`/client/discovery/profile/${app.brokerId}`)} variant="outline">Profile</Button>
+                                            <Button size="sm" onClick={() => {
+                                                 if(confirm("Accept this broker and start project?")) {
+                                                     projectRequestsApi.assignBroker(request.id).then(() => fetchRequest());
+                                                 }
+                                            }}>Accept</Button>
+                                            <Button size="sm" variant="destructive" onClick={() => handleRejectProposal(app.id)}>Reject</Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* 2. Sent Invitations */}
+                 <Card>
+                    <CardHeader><CardTitle>Sent Invitations</CardTitle></CardHeader>
+                    <CardContent>
+                        {invitations.length === 0 ? <p className="text-muted-foreground text-sm">No pending invitations.</p> : (
+                            <div className="space-y-4">
+                                {invitations.map((inv: any) => (
+                                    <div key={inv.id} className="flex items-center justify-between p-4 border rounded-lg bg-slate-50">
+                                        <div>
+                                            <p className="font-bold">To: {inv.broker?.fullName || 'Unknown Broker'}</p>
+                                            <p className="text-sm text-muted-foreground">{inv.coverLetter || 'Invitation message'}</p>
+                                            <p className="text-xs text-muted-foreground mt-1">Sent: {format(new Date(inv.createdAt), "PP")}</p>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <Button size="sm" variant="outline" disabled>Pending Response</Button>
+                                            <Button size="sm" variant="destructive" onClick={() => handleCancelInvitation(inv.id)}>Cancel</Button>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </TabsContent>
            </Tabs>
 
         </div>
@@ -367,6 +461,11 @@ const getBrokerPhase = (status: string) => {
                   Client information unavailable
                 </div>
               )}
+              {request?.client && (
+                 <Button variant="outline" className="w-full text-xs" onClick={() => navigate(`/client/discovery/profile/${request?.client?.id}`)}>
+                    View Client Profile
+                 </Button>
+              )}
             </CardContent>
           </Card>
           
@@ -380,6 +479,12 @@ const getBrokerPhase = (status: string) => {
                    </div>
                    {request.status === 'PENDING' && (
                        <Button className="w-full" onClick={handleAssign}>Assign to Me</Button>
+                   )}
+                   {/* Client Actions */}
+                   {request.status === 'PUBLIC_DRAFT' && user?.id === request.clientId && (
+                       <Button variant="destructive" className="w-full mt-2" onClick={handleMakePrivate}>
+                           Make Private
+                       </Button>
                    )}
                </CardContent>
            </Card>

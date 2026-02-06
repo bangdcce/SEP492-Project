@@ -266,7 +266,7 @@ export default function RichTextEditor({
         bucket: "task-attachments",
         pathPrefix: "comments",
       });
-      editor.chain().focus().setImage({ src: url }).run();
+      (editor.chain().focus() as any).setImage({ src: url }).run();
     } catch (error) {
       console.error("Failed to upload image:", error);
     } finally {
@@ -277,9 +277,7 @@ export default function RichTextEditor({
 
   const handleInsertTable = () => {
     if (!editor) return;
-    editor
-      .chain()
-      .focus()
+      (editor.chain().focus() as any)
       .insertTable({ rows: 3, cols: 3, withHeaderRow: true })
       .run();
   };

@@ -27,6 +27,8 @@ const RequestDetailPage = lazy(
 );
 const DiscoveryPage = lazy(() => import("@/features/discovery/DiscoveryPage").then(module => ({ default: module.DiscoveryPage })));
 const PartnerProfilePage = lazy(() => import("@/features/discovery/PartnerProfilePage").then(module => ({ default: module.PartnerProfilePage })));
+
+
 const MyInvitationsPage = lazy(() => import("@/features/dashboard/MyInvitationsPage").then(m => ({ default: m.MyInvitationsPage })));
 const InvitationDetailsPage = lazy(() => import("@/features/dashboard/InvitationDetailsPage").then(m => ({ default: m.InvitationDetailsPage })));
 
@@ -299,6 +301,27 @@ function App() {
             </RoleGuard>
           }
         />
+        <Route
+          path={ROUTES.CLIENT_DISCOVERY}
+          element={
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+              <ClientDashboardLayout>
+                <DiscoveryPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_DISCOVERY_PROFILE}
+          element={
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+              <ClientDashboardLayout>
+                <PartnerProfilePage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+
         <Route
           path={ROUTES.CLIENT_PROFILE}
           element={

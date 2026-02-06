@@ -15,13 +15,7 @@ export const ProjectRequestsPage: React.FC = () => {
     if(userStr) setUser(JSON.parse(userStr));
   }, []);
 
-  const myProjects = requests.filter(r => 
-      // 1. Assigned directly
-      r.brokerId === user?.id 
-      || 
-      // 2. Has ACCEPTED proposal (Meaning invited and accepted)
-      r.brokerProposals?.some((p: any) => p.brokerId === user?.id && p.status === 'ACCEPTED')
-  );
+
 
   // TODO: Get this from real Auth Context
   // const MOCK_BROKER_ID = 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22';

@@ -110,6 +110,8 @@ export default function RequestDetailPage() {
       try {
           setIsUpdatingStatus(true);
           await wizardService.updateRequest(id!, { status: newStatus });
+          // Force re-fetch to get updated proposals statuses (e.g. if switching to PRIVATE)
+          await fetchData(id!);
           setRequest((prev: any) => ({ ...prev, status: newStatus }));
           toast.success("Status Updated", {
               description: `Project is now ${newStatus.replace('_', ' ').toLowerCase()}`
@@ -158,6 +160,28 @@ export default function RequestDetailPage() {
           fetchData(request.id);
       } catch (error) {
           toast.error("Failed to hire broker");
+      }
+  };
+
+  const handleRejectProposal = async (proposalId: string) => {
+      if (!window.confirm("Are you sure you want to reject this application?")) return;
+      try {
+          await wizardService.rejectProposal(proposalId);
+          toast.success("Application Rejected");
+          fetchData(request.id);
+      } catch (error) {
+          toast.error("Failed to reject application");
+      }
+  };
+
+  const handleCancelInvitation = async (proposalId: string) => {
+      if (!window.confirm("Are you sure you want to cancel this invitation?")) return;
+      try {
+          await wizardService.cancelInvitation(proposalId);
+          toast.success("Invitation Cancelled");
+          fetchData(request.id);
+      } catch (error) {
+          toast.error("Failed to cancel invitation");
       }
   };
 
@@ -455,9 +479,17 @@ export default function RequestDetailPage() {
                                                                 "{proposal.coverLetter || 'No cover letter provided.'}"
                                                             </div>
                                                         </div>
-                                                        <Button onClick={() => handleAcceptBroker(proposal.brokerId)}>
-                                                            Hire Broker
-                                                        </Button>
+                                                        <div className="flex flex-col gap-2">
+                                                            <Button variant="outline" size="sm" onClick={() => navigate(`/profile/${proposal.brokerId}`)}>
+                                                                View Profile
+                                                            </Button>
+                                                            <Button size="sm" onClick={() => handleAcceptBroker(proposal.brokerId)}>
+                                                                Hire Broker
+                                                            </Button>
+                                                            <Button variant="destructive" size="sm" onClick={() => handleRejectProposal(proposal.id)}>
+                                                                Reject
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
@@ -493,8 +525,13 @@ export default function RequestDetailPage() {
                                                                 Hire Candidate
                                                             </Button>
                                                         )}
-                                                         {proposal.status === 'INVITED' && (
-                                                            <span className="text-sm text-muted-foreground italic">Waiting for response...</span>
+                                                        {proposal.status === 'INVITED' && (
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-sm text-muted-foreground italic">Waiting for response...</span>
+                                                                <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleCancelInvitation(proposal.id)}>
+                                                                    Cancel
+                                                                </Button>
+                                                            </div>
                                                         )}
                                                     </div>
                                                 ))}
@@ -515,7 +552,7 @@ export default function RequestDetailPage() {
                                                 <span className="text-xs text-muted-foreground mr-2">
                                                     {matches?.length || 0} Top Matches
                                                 </span>
-                                                <Button size="sm" variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.BROKER}`)}>
+                                                <Button size="sm" variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.BROKER}&inviteTo=${request.id}`)}>
                                                     Search Marketplace
                                                 </Button>
                                             </div>

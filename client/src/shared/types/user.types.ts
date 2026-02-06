@@ -23,5 +23,5 @@ export interface User {
     currentTrustScore: number;
     createdAt: string;
     profile?: UserProfile;
-    userSkills?: any[];
+    userSkills?: { id: string; skill: { name: string } }[];
 }

@@ -111,6 +111,7 @@ export const DiscoveryPage = () => {
 };
 
 function UserCard({ user }: { user: any }) {
+    const [searchParams] = useSearchParams();
     const isBroker = user.role === UserRole.BROKER;
     return (
         <Card className="hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden">
@@ -126,7 +127,7 @@ function UserCard({ user }: { user: any }) {
                         </Avatar>
                         <div>
                             <h3 className="font-semibold text-lg hover:underline group-hover:text-primary transition-colors">
-                                <Link to={`/client/discovery/profile/${user.id}`}>
+                                <Link to={`/client/discovery/profile/${user.id}${searchParams.toString() ? '?' + searchParams.toString() : ''}`}>
                                     {user.fullName}
                                 </Link>
                             </h3>
@@ -168,7 +169,7 @@ function UserCard({ user }: { user: any }) {
                 </div>
 
                 <Button className="w-full" asChild>
-                    <Link to={`/client/discovery/profile/${user.id}`}>View Profile</Link>
+                    <Link to={`/client/discovery/profile/${user.id}${searchParams.toString() ? '?' + searchParams.toString() : ''}`}>View Profile</Link>
                 </Button>
              </CardContent>
         </Card>

@@ -153,7 +153,7 @@ export const StaffDisputeBoard = ({
       page,
       limit: 20,
       sortBy: "urgency",
-      sortOrder: "DESC",
+      sortOrder: "DESC" as const,
       statusIn,
       priority: priorityFilter === "ALL" ? undefined : priorityFilter,
       category: categoryFilter === "ALL" ? undefined : categoryFilter,

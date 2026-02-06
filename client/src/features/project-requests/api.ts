@@ -13,6 +13,10 @@ export const projectRequestsApi = {
     return apiClient.get<ProjectRequest>(`/project-requests/${id}`);
   },
 
+  update: (id: string, data: any) => {
+    return apiClient.patch<ProjectRequest>(`/project-requests/${id}`, data);
+  },
+
   assignBroker: (id: string) => {
     return apiClient.patch<ProjectRequest>(
       `/project-requests/${id}/assign`
@@ -24,5 +28,13 @@ export const projectRequestsApi = {
       `/project-requests/${id}/apply`,
       { coverLetter }
     );
+  },
+
+  rejectProposal: (proposalId: string) => {
+    return apiClient.post(`/project-requests/proposals/${proposalId}/reject`);
+  },
+
+  cancelInvitation: (proposalId: string) => {
+    return apiClient.post(`/project-requests/proposals/${proposalId}/cancel`);
   },
 };
