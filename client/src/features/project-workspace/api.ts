@@ -1,5 +1,13 @@
 import { apiClient } from "@/shared/api/client";
-import type { KanbanBoard, KanbanColumnKey, Task, Milestone, TaskStatusUpdateResult } from "./types";
+import type {
+  KanbanBoard,
+  KanbanColumnKey,
+  Task,
+  Milestone,
+  TaskLink,
+  TaskSubmission,
+  TaskStatusUpdateResult,
+} from "./types";
 
 // ============================================
 // REAL API - Database Integration
@@ -67,6 +75,59 @@ export const fetchTaskComments = async (taskId: string): Promise<import("./types
 
 export const createComment = async (taskId: string, content: string): Promise<import("./types").TaskComment> => {
   return apiClient.post<import("./types").TaskComment>(`/tasks/${taskId}/comments`, { content });
+};
+
+export const fetchTaskLinks = async (taskId: string): Promise<TaskLink[]> => {
+  return apiClient.get<TaskLink[]>(`/tasks/${taskId}/links`);
+};
+
+export const createTaskLink = async (
+  taskId: string,
+  payload: { url: string; title?: string }
+): Promise<TaskLink> => {
+  return apiClient.post<TaskLink>(`/tasks/${taskId}/links`, payload);
+};
+
+export const deleteTaskLink = async (
+  taskId: string,
+  linkId: string
+): Promise<{ success: boolean }> => {
+  return apiClient.delete<{ success: boolean }>(`/tasks/${taskId}/links/${linkId}`);
+};
+
+export const fetchSubtasks = async (taskId: string): Promise<Task[]> => {
+  return apiClient.get<Task[]>(`/tasks/${taskId}/subtasks`);
+};
+
+export const createSubtask = async (
+  taskId: string,
+  payload: {
+    title: string;
+    description?: string;
+    priority?: Task["priority"];
+    assignedTo?: string;
+    dueDate?: string;
+  }
+): Promise<Task> => {
+  return apiClient.post<Task>(`/tasks/${taskId}/subtasks`, payload);
+};
+
+export const linkSubtask = async (
+  taskId: string,
+  subtaskId: string
+): Promise<Task> => {
+  return apiClient.post<Task>(`/tasks/${taskId}/subtasks/link`, { subtaskId });
+};
+
+export const fetchTaskSubmissions = async (taskId: string): Promise<TaskSubmission[]> => {
+  return apiClient.get<TaskSubmission[]>(`/tasks/${taskId}/submissions`);
+};
+
+export const createTaskSubmission = async (
+  taskId: string,
+  payload: { content: string; attachments?: string[] }
+): Promise<TaskSubmission> => {
+  return apiClient.post<TaskSubmission>(`/tasks/${taskId}/submissions`, payload);
 };
 
 /**

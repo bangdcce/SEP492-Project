@@ -12,14 +12,41 @@ import {
   ChevronDown,
   Plus,
   Flag,
+  AlertTriangle,
+  Circle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/shared/components/ui/popover";
+import { Progress } from "@/shared/components/ui/progress";
 import RichTextEditor from "../editor/RichTextEditor";
 import AttachmentGallery from "./AttachmentGallery";
 import "highlight.js/styles/github.css";
-import type { Task, TaskPriority, KanbanColumnKey } from "../../types";
+import type {
+  Task,
+  TaskLink,
+  TaskPriority,
+  TaskSubmission,
+  TaskSubmissionStatus,
+  KanbanColumnKey,
+} from "../../types";
 import { MOCK_SPEC_FEATURES } from "./CreateTaskModal";
-import { updateTask, updateTaskStatus, fetchTaskHistory } from "../../api";
+import {
+  updateTask,
+  updateTaskStatus,
+  fetchTaskHistory,
+  fetchTaskLinks,
+  createTaskLink,
+  deleteTaskLink,
+  fetchSubtasks,
+  createSubtask,
+  linkSubtask,
+  fetchTaskSubmissions,
+  createTaskSubmission,
+} from "../../api";
 
 // Helper for robust date parsing (force UTC if naked ISO)
 const normalizeToUTC = (d: string | Date | undefined): Date => {
@@ -63,6 +90,20 @@ const STATUS_OPTIONS: { value: KanbanColumnKey; label: string; color: string }[]
   { value: "IN_REVIEW", label: "In Review", color: "bg-amber-100 text-amber-700" },
   { value: "DONE", label: "Done", color: "bg-emerald-100 text-emerald-700" },
 ];
+
+const SUBTASK_STATUS_OPTIONS = STATUS_OPTIONS.filter((option) =>
+  ["TODO", "IN_PROGRESS", "DONE"].includes(option.value)
+);
+
+const SUBMISSION_STATUS_CONFIG: Record<
+  TaskSubmissionStatus,
+  { label: string; color: string }
+> = {
+  PENDING: { label: "Pending", color: "bg-amber-100 text-amber-700" },
+  APPROVED: { label: "Approved", color: "bg-emerald-100 text-emerald-700" },
+  REJECTED: { label: "Rejected", color: "bg-red-100 text-red-700" },
+  REQUEST_CHANGES: { label: "Request changes", color: "bg-purple-100 text-purple-700" },
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SUB-COMPONENTS
@@ -189,9 +230,43 @@ export function TaskDetailModal({
   const [isSavingComment, setIsSavingComment] = useState(false);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(5);
 
+  // Web Links State
+  const [taskLinks, setTaskLinks] = useState<TaskLink[]>([]);
+  const [isLoadingLinks, setIsLoadingLinks] = useState(false);
+  const [isSavingLink, setIsSavingLink] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkForm, setLinkForm] = useState({ url: "", title: "" });
+  const [isLinkPopoverOpen, setIsLinkPopoverOpen] = useState(false);
+
+  // Subtasks State
+  const [subtasks, setSubtasks] = useState<Task[]>([]);
+  const [isLoadingSubtasks, setIsLoadingSubtasks] = useState(false);
+  const [isCreatingSubtask, setIsCreatingSubtask] = useState(false);
+  const [isCreateSubtaskOpen, setIsCreateSubtaskOpen] = useState(false);
+  const [newSubtaskTitle, setNewSubtaskTitle] = useState("");
+  const [newSubtaskPriority, setNewSubtaskPriority] = useState<TaskPriority>("MEDIUM");
+  const [linkExistingSubtaskId, setLinkExistingSubtaskId] = useState("");
+  const [isLinkExistingOpen, setIsLinkExistingOpen] = useState(false);
+  const [isLinkingSubtask, setIsLinkingSubtask] = useState(false);
+  const [subtaskError, setSubtaskError] = useState<string | null>(null);
+  const [updatingSubtaskId, setUpdatingSubtaskId] = useState<string | null>(null);
+
+  // Submission History State
+  const [submissions, setSubmissions] = useState<TaskSubmission[]>([]);
+  const [isLoadingSubmissions, setIsLoadingSubmissions] = useState(false);
+  const [isSubmittingSubmission, setIsSubmittingSubmission] = useState(false);
+  const [submissionError, setSubmissionError] = useState<string | null>(null);
+  const [expandedSubmissions, setExpandedSubmissions] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     setTask(initialTask);
   }, [initialTask]);
+
+  useEffect(() => {
+    if (task?.priority) {
+      setNewSubtaskPriority(task.priority);
+    }
+  }, [task?.id, task?.priority]);
 
   useEffect(() => {
     setVisibleHistoryCount(5);
@@ -217,6 +292,38 @@ export function TaskDetailModal({
     }
   }, [activeTab, task?.id]);
 
+  useEffect(() => {
+    if (!task?.id) return;
+
+    setTaskLinks([]);
+    setSubtasks([]);
+    setSubmissions([]);
+    setExpandedSubmissions({});
+    setIsLoadingLinks(true);
+    fetchTaskLinks(task.id)
+      .then(setTaskLinks)
+      .catch((error) => {
+        console.error("Failed to load task links:", error);
+      })
+      .finally(() => setIsLoadingLinks(false));
+
+    setIsLoadingSubtasks(true);
+    fetchSubtasks(task.id)
+      .then(setSubtasks)
+      .catch((error) => {
+        console.error("Failed to load subtasks:", error);
+      })
+      .finally(() => setIsLoadingSubtasks(false));
+
+    setIsLoadingSubmissions(true);
+    fetchTaskSubmissions(task.id)
+      .then(setSubmissions)
+      .catch((error) => {
+        console.error("Failed to load submissions:", error);
+      })
+      .finally(() => setIsLoadingSubmissions(false));
+  }, [task?.id]);
+
   // Combine and Sort for "All" Tab
   const getAllTimelineItems = (): TimelineItem[] => {
       const historyItems: TimelineItem[] = history.map(h => ({
@@ -241,6 +348,17 @@ export function TaskDetailModal({
   const linkedFeature = task.specFeatureId
     ? MOCK_SPEC_FEATURES.find((f) => f.id === task.specFeatureId)
     : null;
+
+  const dueDate = task.dueDate ? new Date(task.dueDate) : null;
+  const dueDateInputValue = dueDate ? format(dueDate, "yyyy-MM-dd") : "";
+  const dueDateLabel = dueDate ? format(dueDate, "MMM d, yyyy") : "";
+  const isDueDateOverdue =
+    !!dueDate && dueDate.getTime() < Date.now() && task.status !== "DONE";
+  const totalSubtasks = subtasks.length;
+  const completedSubtasks = subtasks.filter((subtask) => subtask.status === "DONE").length;
+  const subtaskProgress = totalSubtasks
+    ? Math.round((completedSubtasks / totalSubtasks) * 100)
+    : 0;
 
   // HANDLERS
   const handleUpdate = async (patch: Partial<Task>) => {
@@ -310,6 +428,161 @@ export function TaskDetailModal({
 
   const handleCancelComment = () => {
     setCommentDraft("");
+  };
+
+  const handleAddLink = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!task) return;
+
+    const url = linkForm.url.trim();
+    const title = linkForm.title.trim();
+
+    if (!url) {
+      setLinkError("URL is required.");
+      return;
+    }
+
+    setIsSavingLink(true);
+    setLinkError(null);
+    try {
+      const created = await createTaskLink(task.id, {
+        url,
+        title: title || undefined,
+      });
+      setTaskLinks((prev) => [created, ...prev]);
+      setLinkForm({ url: "", title: "" });
+      setIsLinkPopoverOpen(false);
+    } catch (error) {
+      console.error("Failed to add link:", error);
+      setLinkError("Failed to add link. Please try again.");
+    } finally {
+      setIsSavingLink(false);
+    }
+  };
+
+  const handleDeleteLink = async (linkId: string) => {
+    if (!task) return;
+    try {
+      await deleteTaskLink(task.id, linkId);
+      setTaskLinks((prev) => prev.filter((link) => link.id !== linkId));
+    } catch (error) {
+      console.error("Failed to delete link:", error);
+    }
+  };
+
+  const handleCreateSubtask = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!task) return;
+
+    const title = newSubtaskTitle.trim();
+    if (!title) {
+      setSubtaskError("Title is required.");
+      return;
+    }
+
+    setIsCreatingSubtask(true);
+    setSubtaskError(null);
+    try {
+      const created = await createSubtask(task.id, {
+        title,
+        priority: newSubtaskPriority || task.priority,
+      });
+      setSubtasks((prev) => [created, ...prev]);
+      setNewSubtaskTitle("");
+      setIsCreateSubtaskOpen(false);
+    } catch (error) {
+      console.error("Failed to create subtask:", error);
+      setSubtaskError("Failed to create subtask. Please try again.");
+    } finally {
+      setIsCreatingSubtask(false);
+    }
+  };
+
+  const handleLinkExistingSubtask = async (
+    event: React.FormEvent<HTMLFormElement>
+  ) => {
+    event.preventDefault();
+    if (!task) return;
+
+    const subtaskId = linkExistingSubtaskId.trim();
+    if (!subtaskId) {
+      setSubtaskError("Subtask ID is required.");
+      return;
+    }
+
+    setIsLinkingSubtask(true);
+    setSubtaskError(null);
+    try {
+      const linked = await linkSubtask(task.id, subtaskId);
+      setSubtasks((prev) => [linked, ...prev.filter((item) => item.id !== linked.id)]);
+      setLinkExistingSubtaskId("");
+      setIsLinkExistingOpen(false);
+    } catch (error) {
+      console.error("Failed to link subtask:", error);
+      setSubtaskError("Failed to link subtask. Please check the ID and try again.");
+    } finally {
+      setIsLinkingSubtask(false);
+    }
+  };
+
+  const handleUpdateSubtaskStatus = async (
+    subtaskId: string,
+    newStatus: KanbanColumnKey
+  ) => {
+    if (updatingSubtaskId || !task) return;
+
+    const current = subtasks.find((subtask) => subtask.id === subtaskId);
+    if (!current || current.status === newStatus) return;
+
+    setUpdatingSubtaskId(subtaskId);
+    setSubtaskError(null);
+    try {
+      const updated = await updateTask(subtaskId, { status: newStatus });
+      setSubtasks((prev) =>
+        prev.map((subtask) =>
+          subtask.id === subtaskId ? { ...subtask, ...updated } : subtask
+        )
+      );
+    } catch (error) {
+      console.error("Failed to update subtask status:", error);
+      setSubtaskError("Failed to update subtask status. Please try again.");
+    } finally {
+      setUpdatingSubtaskId(null);
+    }
+  };
+
+  const handleSubmitSubmission = async (html: string) => {
+    if (!task) return;
+    const trimmed = html?.trim();
+    if (!trimmed || trimmed === "<p></p>") {
+      setSubmissionError("Submission content is required.");
+      return;
+    }
+
+    setIsSubmittingSubmission(true);
+    setSubmissionError(null);
+    try {
+      const created = await createTaskSubmission(task.id, {
+        content: html,
+        attachments: [],
+      });
+      setSubmissions((prev) => [created, ...prev]);
+      setTask((prev) => (prev ? { ...prev, status: "IN_REVIEW" } : prev));
+      onUpdate?.({ ...task, status: "IN_REVIEW" });
+    } catch (error) {
+      console.error("Failed to submit work:", error);
+      setSubmissionError("Failed to submit work. Please try again.");
+      throw error;
+    } finally {
+      setIsSubmittingSubmission(false);
+    }
+  };
+
+  const toggleSubmissionExpanded = (submissionId: string) => {
+    setExpandedSubmissions((prev) => ({
+      ...prev,
+      [submissionId]: !prev[submissionId],
+    }));
   };
 
   return (
@@ -405,6 +678,498 @@ export function TaskDetailModal({
               )}
 
               <AttachmentGallery attachments={task.attachments || []} />
+
+              {/* WEB LINKS */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Web Links
+                  </h3>
+                  <Popover
+                    open={isLinkPopoverOpen}
+                    onOpenChange={(open) => {
+                      setIsLinkPopoverOpen(open);
+                      if (open) setLinkError(null);
+                    }}
+                  >
+                    <PopoverTrigger asChild>
+                      <button
+                        type="button"
+                        className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                        aria-label="Add web link"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Add
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-80">
+                      <form onSubmit={handleAddLink} className="space-y-3">
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold text-gray-600">URL</label>
+                          <input
+                            type="url"
+                            value={linkForm.url}
+                            onChange={(e) =>
+                              setLinkForm((prev) => ({ ...prev, url: e.target.value }))
+                            }
+                            placeholder="https://example.com"
+                            className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-xs font-semibold text-gray-600">
+                            Link Text
+                          </label>
+                          <input
+                            type="text"
+                            value={linkForm.title}
+                            onChange={(e) =>
+                              setLinkForm((prev) => ({ ...prev, title: e.target.value }))
+                            }
+                            placeholder="Design spec"
+                            className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
+                          />
+                        </div>
+                        {linkError && <p className="text-xs text-red-600">{linkError}</p>}
+                        <div className="flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setIsLinkPopoverOpen(false)}
+                            className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="submit"
+                            disabled={isSavingLink}
+                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                          >
+                            {isSavingLink ? "Saving..." : "Add Link"}
+                          </button>
+                        </div>
+                      </form>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+                <div className="space-y-2">
+                  {isLoadingLinks ? (
+                    <div className="flex items-center justify-center py-4 text-gray-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    </div>
+                  ) : taskLinks.length === 0 ? (
+                    <p className="text-sm text-gray-500">No links yet.</p>
+                  ) : (
+                    taskLinks.map((link) => (
+                      <div
+                        key={link.id}
+                        className="flex items-center justify-between gap-3 rounded-md border border-gray-200 bg-white px-3 py-2"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-md bg-blue-50 text-blue-600">
+                            <Link2 className="w-4 h-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="block truncate text-sm font-semibold text-blue-700 hover:underline"
+                            >
+                              {link.title || link.url}
+                            </a>
+                            <p className="truncate text-xs text-gray-500">{link.url}</p>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLink(link.id)}
+                          className="rounded p-1 text-gray-400 hover:text-red-500"
+                          aria-label="Remove link"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* SUBTASKS */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+                    Subtasks
+                  </h3>
+                  <div className="flex items-center gap-2">
+                    <Popover
+                      open={isCreateSubtaskOpen}
+                      onOpenChange={(open) => {
+                        setIsCreateSubtaskOpen(open);
+                        if (open) setSubtaskError(null);
+                      }}
+                    >
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                          aria-label="Add subtask"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Add
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-80">
+                        <form onSubmit={handleCreateSubtask} className="space-y-3">
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-gray-600">Title</label>
+                            <input
+                              type="text"
+                              value={newSubtaskTitle}
+                              onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                              placeholder="Implement login flow"
+                              className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-gray-600">
+                              Priority
+                            </label>
+                            <select
+                              value={newSubtaskPriority}
+                              onChange={(e) =>
+                                setNewSubtaskPriority(e.target.value as TaskPriority)
+                              }
+                              className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
+                            >
+                              {Object.keys(PRIORITY_CONFIG).map((priority) => (
+                                <option key={priority} value={priority}>
+                                  {priority}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          {subtaskError && (
+                            <p className="text-xs text-red-600">{subtaskError}</p>
+                          )}
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setIsCreateSubtaskOpen(false)}
+                              className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isCreatingSubtask}
+                              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                            >
+                              {isCreatingSubtask ? "Saving..." : "Create"}
+                            </button>
+                          </div>
+                        </form>
+                      </PopoverContent>
+                    </Popover>
+                    <Popover
+                      open={isLinkExistingOpen}
+                      onOpenChange={(open) => {
+                        setIsLinkExistingOpen(open);
+                        if (open) setSubtaskError(null);
+                      }}
+                    >
+                      <PopoverTrigger asChild>
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                          aria-label="Link existing subtask"
+                        >
+                          <Link2 className="w-3.5 h-3.5" />
+                          Link
+                        </button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-80">
+                        <form onSubmit={handleLinkExistingSubtask} className="space-y-3">
+                          <div className="space-y-1">
+                            <label className="text-xs font-semibold text-gray-600">
+                              Subtask ID
+                            </label>
+                            <input
+                              type="text"
+                              value={linkExistingSubtaskId}
+                              onChange={(e) => setLinkExistingSubtaskId(e.target.value)}
+                              placeholder="UUID of the existing task"
+                              className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
+                            />
+                          </div>
+                          {subtaskError && (
+                            <p className="text-xs text-red-600">{subtaskError}</p>
+                          )}
+                          <div className="flex justify-end gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setIsLinkExistingOpen(false)}
+                              className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                            >
+                              Cancel
+                            </button>
+                            <button
+                              type="submit"
+                              disabled={isLinkingSubtask}
+                              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                            >
+                              {isLinkingSubtask ? "Linking..." : "Link"}
+                            </button>
+                          </div>
+                        </form>
+                      </PopoverContent>
+                    </Popover>
+                  </div>
+                </div>
+
+                <div className="rounded-md border border-gray-200 bg-white p-3">
+                  <div className="flex items-center justify-between text-xs text-gray-500">
+                    <span>
+                      {completedSubtasks}/{totalSubtasks} done
+                    </span>
+                    <span>{subtaskProgress}%</span>
+                  </div>
+                  <Progress value={subtaskProgress} className="h-2 mt-2" />
+                </div>
+
+                <div className="space-y-2 mt-3">
+                  {isLoadingSubtasks ? (
+                    <div className="flex items-center justify-center py-4 text-gray-400">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    </div>
+                  ) : subtasks.length === 0 ? (
+                    <p className="text-sm text-gray-500">No subtasks yet.</p>
+                  ) : (
+                    subtasks.map((subtask) => {
+                      const priorityKey = (subtask.priority || "MEDIUM") as TaskPriority;
+                      const subtaskStatusOption = SUBTASK_STATUS_OPTIONS.find(
+                        (option) => option.value === subtask.status
+                      );
+                      return (
+                        <div
+                          key={subtask.id}
+                          className="flex items-start gap-3 rounded-md border border-gray-200 bg-white px-3 py-2"
+                        >
+                          <div
+                            className={cn(
+                              "mt-1",
+                              subtask.status === "DONE"
+                                ? "text-emerald-600"
+                                : "text-gray-400"
+                            )}
+                          >
+                            {subtask.status === "DONE" ? (
+                              <CheckCircle2 className="w-4 h-4" />
+                            ) : (
+                              <Circle className="w-4 h-4" />
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-mono text-gray-500">
+                                TASK-{subtask.id.slice(0, 6).toUpperCase()}
+                              </span>
+                              <span className="truncate text-sm font-semibold text-gray-900">
+                                {subtask.title}
+                              </span>
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                              <span className="inline-flex items-center gap-1">
+                                <Flag
+                                  className={cn(
+                                    "w-3 h-3",
+                                    PRIORITY_CONFIG[priorityKey].color
+                                  )}
+                                />
+                                <span className={PRIORITY_CONFIG[priorityKey].color}>
+                                  {priorityKey}
+                                </span>
+                              </span>
+                              <span className="inline-flex items-center gap-1">
+                                <User className="w-3 h-3" />
+                                {subtask.assignee?.fullName || "Unassigned"}
+                              </span>
+                              <div className="relative">
+                                <select
+                                  value={subtask.status}
+                                  onChange={(e) =>
+                                    handleUpdateSubtaskStatus(
+                                      subtask.id,
+                                      e.target.value as KanbanColumnKey
+                                    )
+                                  }
+                                  disabled={updatingSubtaskId === subtask.id}
+                                  className={cn(
+                                    "appearance-none rounded-full px-2 py-0.5 pr-5 text-[10px] font-semibold ring-1 ring-inset ring-gray-200 focus:ring-2 focus:ring-blue-500 cursor-pointer",
+                                    subtaskStatusOption?.color,
+                                    updatingSubtaskId === subtask.id && "opacity-60"
+                                  )}
+                                >
+                                  {SUBTASK_STATUS_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                                <ChevronDown className="pointer-events-none absolute right-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-gray-500" />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              {/* SUBMISSIONS */}
+              <div>
+                <SectionHeader title="Submissions" />
+                <div className="space-y-4">
+                  <div className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-start justify-between gap-4 mb-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-900">New submission</h4>
+                        <p className="text-xs text-gray-500">
+                          Share rich updates, evidence, and context.
+                        </p>
+                      </div>
+                      <span className="text-[10px] font-semibold uppercase text-gray-400">
+                        Rich text
+                      </span>
+                    </div>
+                    <RichTextEditor
+                      placeholder="Describe what you delivered, include links, images, or steps..."
+                      onSave={handleSubmitSubmission}
+                      onCancel={() => setSubmissionError(null)}
+                      isSaving={isSubmittingSubmission}
+                      saveLabel="Submit"
+                    />
+                    {submissionError && (
+                      <p className="mt-2 text-xs text-red-600">{submissionError}</p>
+                    )}
+                  </div>
+
+                  <div className="rounded-md border border-gray-200 bg-white p-4 shadow-sm">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="text-sm font-semibold text-gray-900">
+                          Submission history
+                        </h4>
+                        <p className="text-xs text-gray-500">All previous versions.</p>
+                      </div>
+                      <span className="text-xs text-gray-400">
+                        {submissions.length} versions
+                      </span>
+                    </div>
+
+                    {isLoadingSubmissions ? (
+                      <div className="flex items-center justify-center py-6 text-gray-400">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      </div>
+                    ) : submissions.length === 0 ? (
+                      <p className="text-sm text-gray-500">No submissions yet.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {submissions.map((submission) => {
+                          const statusMeta =
+                            SUBMISSION_STATUS_CONFIG[submission.status];
+                          const submitterName =
+                            submission.submitter?.fullName || "Unknown";
+                          const isExpanded = !!expandedSubmissions[submission.id];
+                          return (
+                            <div
+                              key={submission.id}
+                              className="rounded-md border border-gray-200 bg-white"
+                            >
+                              <div className="flex items-start justify-between gap-4 px-3 py-3">
+                                <div className="flex items-start gap-3">
+                                  <div className="h-9 w-9 rounded-full bg-blue-50 text-blue-700 flex items-center justify-center text-xs font-semibold overflow-hidden">
+                                    {submission.submitter?.avatarUrl ? (
+                                      <img
+                                        src={submission.submitter.avatarUrl}
+                                        alt=""
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      submitterName.slice(0, 1).toUpperCase()
+                                    )}
+                                  </div>
+                                  <div>
+                                    <div className="flex flex-wrap items-center gap-2 text-sm">
+                                      <span className="font-semibold text-gray-900">
+                                        {submitterName}
+                                      </span>
+                                      <span className="text-xs text-gray-500">
+                                        Submitted V{submission.version}
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-gray-400 mt-0.5">
+                                      {formatDistanceToNow(
+                                        normalizeToUTC(submission.createdAt),
+                                        { addSuffix: true }
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+                                <span
+                                  className={cn(
+                                    "rounded-full px-2 py-0.5 text-[10px] font-semibold",
+                                    statusMeta?.color
+                                  )}
+                                >
+                                  {statusMeta?.label}
+                                </span>
+                              </div>
+                              <div className="border-t border-gray-200 px-3 py-2">
+                                <button
+                                  type="button"
+                                  onClick={() => toggleSubmissionExpanded(submission.id)}
+                                  className="flex items-center gap-2 text-xs font-semibold text-gray-600 hover:text-gray-900"
+                                >
+                                  {isExpanded ? "Hide content" : "View content"}
+                                  <ChevronDown
+                                    className={cn(
+                                      "h-3 w-3 transition-transform",
+                                      isExpanded && "rotate-180"
+                                    )}
+                                  />
+                                </button>
+                                {isExpanded && (
+                                  <div
+                                    className={cn(
+                                      "mt-3 rounded-md border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700",
+                                      "[&_p]:mb-2 [&_p]:leading-relaxed",
+                                      "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5",
+                                      "[&_li]:my-1 [&_a]:text-blue-600 [&_a]:underline",
+                                      "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-gray-100 [&_pre]:p-3 [&_pre]:border [&_pre]:border-gray-200",
+                                      "[&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px]",
+                                      "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded [&_img]:border [&_img]:border-gray-200",
+                                      "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse",
+                                      "[&_th]:border [&_th]:border-gray-200 [&_th]:bg-gray-50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:text-xs [&_th]:font-semibold",
+                                      "[&_td]:border [&_td]:border-gray-200 [&_td]:px-2 [&_td]:py-1 [&_td]:text-xs",
+                                      "[&_[data-type=taskList]]:my-2 [&_[data-type=taskList]]:list-none [&_[data-type=taskList]]:pl-2",
+                                      "[&_[data-type=taskItem]]:flex [&_[data-type=taskItem]]:items-start [&_[data-type=taskItem]]:gap-2",
+                                      "[&_[data-type=taskItem]_input]:mt-1 [&_[data-type=taskItem]_input]:accent-blue-600"
+                                    )}
+                                    dangerouslySetInnerHTML={{
+                                      __html: submission.content,
+                                    }}
+                                  />
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
 
               {/* ACTIVITY TABS */}
               <div className="mt-8">
@@ -695,12 +1460,28 @@ export function TaskDetailModal({
                   <div className="flex items-center justify-between">
                       <span className="text-sm text-gray-600 font-medium">Due Date</span>
                       <div className="relative">
-                          <input 
-                             type="date" 
-                             value={task.dueDate ? format(new Date(task.dueDate), 'yyyy-MM-dd') : ""}
-                             onChange={(e) => handleUpdate({ dueDate: e.target.value })}
-                             className="text-xs border-0 p-0 text-slate-600 focus:ring-0 text-right w-24 bg-transparent cursor-pointer"
-                          />
+                          {isDueDateOverdue && dueDate ? (
+                            <div className="relative">
+                              <div className="flex items-center gap-2 rounded-md border border-red-500 px-2 py-1 text-red-600 bg-red-50/40">
+                                <AlertTriangle className="w-4 h-4" />
+                                <span className="text-xs font-semibold">{dueDateLabel}</span>
+                              </div>
+                              <input
+                                type="date"
+                                value={dueDateInputValue}
+                                onChange={(e) => handleUpdate({ dueDate: e.target.value })}
+                                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                                aria-label="Due date"
+                              />
+                            </div>
+                          ) : (
+                            <input
+                              type="date"
+                              value={dueDateInputValue}
+                              onChange={(e) => handleUpdate({ dueDate: e.target.value })}
+                              className="text-xs border-0 p-0 text-slate-600 focus:ring-0 text-right w-24 bg-transparent cursor-pointer"
+                            />
+                          )}
                       </div>
                   </div>
               </div>
