@@ -97,7 +97,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
       'protonmail.com', 'proton.me', 'zoho.com', 'yandex.com',
       'gmx.com', 'gmx.net', 'inbox.com', 'mail.ru'
     ];
-    
+
     const domain = email.split('@')[1]?.toLowerCase();
     if (!domain) return false;
     return !freeEmailProviders.includes(domain);
@@ -203,7 +203,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
       });
 
       toast.success('Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.');
-      
+
       if (onSignUpSuccess) {
         onSignUpSuccess();
       } else {
@@ -213,10 +213,10 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     } catch (error: any) {
       console.error('Sign up error:', error);
       console.error('Error response:', error.response?.data);
-      
+
       // Handle error message (could be string, array, or object)
       let errorMessage = 'Failed to create account. Please try again.';
-      
+
       if (error.response?.data?.message) {
         const msg = error.response.data.message;
         if (typeof msg === 'string') {
@@ -227,7 +227,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
           errorMessage = JSON.stringify(msg);
         }
       }
-      
+
       // Check if error is related to duplicate email
       if (typeof errorMessage === 'string' && errorMessage.toLowerCase().includes('email')) {
         setErrors({ email: errorMessage });
@@ -240,7 +240,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
       } else {
         setErrors({ acceptTerms: errorMessage });
       }
-      
+
       toast.error(errorMessage);
     } finally {
       setLoading(false);
@@ -292,7 +292,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
         return Laptop;
     }
   };
-const handleRoleSelect = (role: UserRole) => {
+  const handleRoleSelect = (role: UserRole) => {
     handleChange('role', role);
     // Auto-advance to next step after selecting role
     setTimeout(() => {
@@ -305,7 +305,7 @@ const handleRoleSelect = (role: UserRole) => {
     const newErrors: Record<string, string> = {};
 
     if (!formData.fullName) newErrors.fullName = 'Full name is required';
-    
+
     if (!formData.email) {
       newErrors.email = 'Email is required';
     } else if (!validateEmail(formData.email)) {
@@ -313,25 +313,25 @@ const handleRoleSelect = (role: UserRole) => {
     } else if (formData.role === 'client_large' && !validateCorporateEmail(formData.email)) {
       newErrors.email = 'Large SMEs must use a corporate/organization email (not Gmail, Yahoo, Hotmail, etc.)';
     }
-    
+
     if (!formData.phoneNumber) {
       newErrors.phoneNumber = 'Phone number is required';
     } else if (!validatePhone(formData.phoneNumber)) {
       newErrors.phoneNumber = 'Invalid phone number. Format: 0[3|5|7|8|9]xxxxxxxx';
     }
-    
+
     if (!formData.password) {
       newErrors.password = 'Password is required';
     } else if (!isPasswordValid) {
       newErrors.password = 'Password must be at least 8 characters with lowercase, number and special character';
     }
-    
+
     if (!formData.confirmPassword) {
       newErrors.confirmPassword = 'Confirm password is required';
     } else if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = 'Passwords do not match';
     }
-    
+
     if (!formData.acceptTerms) newErrors.acceptTerms = 'You must accept Terms of Service';
     if (!formData.acceptPrivacy) newErrors.acceptPrivacy = 'You must accept Privacy Policy';
     if (!formData.recaptchaToken) newErrors.recaptcha = 'Complete reCAPTCHA';
@@ -426,7 +426,7 @@ const handleRoleSelect = (role: UserRole) => {
   const totalSteps = (formData.role === 'freelancer' || formData.role === 'broker') ? 4 : 2;
 
   return (
-    <AuthLayout 
+    <AuthLayout
       title={getStepTitle()}
       subtitle={getStepSubtitle()}
     >
@@ -435,7 +435,7 @@ const handleRoleSelect = (role: UserRole) => {
         {/* Progress bars */}
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
           {[...Array(totalSteps)].map((_, idx) => (
-            <div 
+            <div
               key={idx}
               style={{
                 flex: 1,
@@ -447,17 +447,17 @@ const handleRoleSelect = (role: UserRole) => {
             />
           ))}
         </div>
-        
+
         {/* Step labels with numbers */}
-        <div style={{ 
-          display: 'grid', 
+        <div style={{
+          display: 'grid',
           gridTemplateColumns: totalSteps === 4 ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)',
           gap: '0.5rem',
         }}>
           {/* Step 1 */}
-          <div style={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
             gap: '0.25rem',
           }}>
@@ -476,9 +476,9 @@ const handleRoleSelect = (role: UserRole) => {
             }}>
               {currentStep > 1 ? '✓' : '1'}
             </div>
-            <span style={{ 
-              fontSize: '0.75rem', 
-              fontWeight: currentStep === 1 ? 600 : 400, 
+            <span style={{
+              fontSize: '0.75rem',
+              fontWeight: currentStep === 1 ? 600 : 400,
               color: currentStep === 1 ? '#14b8a6' : 'var(--auth-text-muted)',
               textAlign: 'center',
               transition: 'all 0.3s ease',
@@ -488,9 +488,9 @@ const handleRoleSelect = (role: UserRole) => {
           </div>
 
           {/* Step 2 */}
-          <div style={{ 
-            display: 'flex', 
-            flexDirection: 'column', 
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
             alignItems: 'center',
             gap: '0.25rem',
           }}>
@@ -509,9 +509,9 @@ const handleRoleSelect = (role: UserRole) => {
             }}>
               {currentStep > 2 ? '✓' : '2'}
             </div>
-            <span style={{ 
-              fontSize: '0.75rem', 
-              fontWeight: currentStep === 2 ? 600 : 400, 
+            <span style={{
+              fontSize: '0.75rem',
+              fontWeight: currentStep === 2 ? 600 : 400,
               color: currentStep === 2 ? '#14b8a6' : 'var(--auth-text-muted)',
               textAlign: 'center',
               transition: 'all 0.3s ease',
@@ -522,9 +522,9 @@ const handleRoleSelect = (role: UserRole) => {
 
           {/* Step 3 (only for Freelancer/Broker) */}
           {totalSteps === 4 && (
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
               gap: '0.25rem',
             }}>
@@ -543,9 +543,9 @@ const handleRoleSelect = (role: UserRole) => {
               }}>
                 {currentStep > 3 ? '✓' : '3'}
               </div>
-              <span style={{ 
-                fontSize: '0.75rem', 
-                fontWeight: currentStep === 3 ? 600 : 400, 
+              <span style={{
+                fontSize: '0.75rem',
+                fontWeight: currentStep === 3 ? 600 : 400,
                 color: currentStep === 3 ? '#14b8a6' : 'var(--auth-text-muted)',
                 textAlign: 'center',
                 transition: 'all 0.3s ease',
@@ -557,9 +557,9 @@ const handleRoleSelect = (role: UserRole) => {
 
           {/* Step 4 (only for Freelancer/Broker) */}
           {totalSteps === 4 && (
-            <div style={{ 
-              display: 'flex', 
-              flexDirection: 'column', 
+            <div style={{
+              display: 'flex',
+              flexDirection: 'column',
               alignItems: 'center',
               gap: '0.25rem',
             }}>
@@ -578,9 +578,9 @@ const handleRoleSelect = (role: UserRole) => {
               }}>
                 4
               </div>
-              <span style={{ 
-                fontSize: '0.75rem', 
-                fontWeight: currentStep === 4 ? 600 : 400, 
+              <span style={{
+                fontSize: '0.75rem',
+                fontWeight: currentStep === 4 ? 600 : 400,
                 color: currentStep === 4 ? '#14b8a6' : 'var(--auth-text-muted)',
                 textAlign: 'center',
                 transition: 'all 0.3s ease',
@@ -609,9 +609,9 @@ const handleRoleSelect = (role: UserRole) => {
             >
               {/* Role Selection */}
               <div>
-                <label 
+                <label
                   htmlFor="role"
-                  style={{ 
+                  style={{
                     display: 'block',
                     marginBottom: '0.5rem',
                     fontSize: '0.875rem',
@@ -883,10 +883,10 @@ const handleRoleSelect = (role: UserRole) => {
                 )}
               </div>
 
-              <Button 
+              <Button
                 type="button"
                 onClick={handleInfoFormNext}
-                variant="primary" 
+                variant="primary"
                 className="w-full py-3 text-base font-medium justify-center"
                 disabled={loading}
               >
@@ -996,10 +996,10 @@ const handleRoleSelect = (role: UserRole) => {
                 )}
               </div>
 
-              <Button 
+              <Button
                 type="button"
                 onClick={handleDomainNext}
-                variant="primary" 
+                variant="primary"
                 className="w-full py-3 text-base font-medium justify-center mt-6"
               >
                 Next
@@ -1081,10 +1081,10 @@ const handleRoleSelect = (role: UserRole) => {
                 )}
               </div>
 
-              <Button 
+              <Button
                 type="button"
                 onClick={handleSkillsNext}
-                variant="primary" 
+                variant="primary"
                 className="w-full py-3 text-base font-medium justify-center mt-6"
                 disabled={loading}
               >
@@ -1097,11 +1097,11 @@ const handleRoleSelect = (role: UserRole) => {
 
       {/* Terms of Service Modal */}
       {showTermsModal && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
           onClick={() => setShowTermsModal(false)}
         >
-          <div 
+          <div
             className="bg-white rounded-lg max-w-4xl max-h-[90vh] overflow-y-auto relative"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1118,11 +1118,11 @@ const handleRoleSelect = (role: UserRole) => {
 
       {/* Privacy Policy Modal */}
       {showPrivacyModal && (
-        <div 
+        <div
           className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
           onClick={() => setShowPrivacyModal(false)}
         >
-          <div 
+          <div
             className="bg-white rounded-lg max-w-4xl max-h-[90vh] overflow-y-auto relative"
             onClick={(e) => e.stopPropagation()}
           >

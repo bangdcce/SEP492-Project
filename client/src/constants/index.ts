@@ -12,11 +12,12 @@ export const API_CONFIG = {
 // Route Paths
 export const ROUTES = {
   HOME: "/",
+  LANDING: "/",
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
   VERIFY_EMAIL: "/verify-email",
-  
+
   // Client Routes
   CLIENT_AUDIT_LOGS: "/audit-logs",
 
@@ -57,6 +58,9 @@ export const ROUTES = {
   ADMIN_AUDIT_LOGS: "/admin/audit-logs",
   ADMIN_REVIEW_MODERATION: "/admin/reviews",
   ADMIN_PROFILE: "/admin/profile",
+
+  // ========== STAFF ROUTES - prefix /staff ==========
+  STAFF_PROFILE: "/staff/profile",
 
   // ========== LEGACY ALIASES (backward compatibility) ==========
   DASHBOARD: "/admin/dashboard",

@@ -193,6 +193,15 @@ export class AuthController {
       typeof req.headers['x-timezone'] === 'string' ? req.headers['x-timezone'] : undefined;
     const result = await this.authService.login(loginDto, userAgent, ipAddress, timeZone);
 
+    // Set access token as httpOnly cookie
+    response.cookie('accessToken', result.accessToken, {
+      httpOnly: true, // Prevent XSS attacks
+      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      sameSite: 'lax', // CSRF protection while allowing cross-site navigation
+      maxAge: 15 * 60 * 1000, // 15 minutes (same as JWT expiry)
+      path: '/', // Available for all routes
+    });
+
     // Set refresh token as httpOnly cookie
     response.cookie('refreshToken', result.refreshToken, {
       httpOnly: true, // Prevent XSS attacks
@@ -202,12 +211,12 @@ export class AuthController {
       path: '/', // Available for all routes
     });
 
-    // Return response without refreshToken (it's now in cookie)
-    const { refreshToken, ...dataWithoutRefreshToken } = result;
+    // Return response without tokens (they're now in cookies)
+    const { refreshToken, accessToken, ...dataWithoutTokens } = result;
 
     return {
       message: 'Đăng nhập thành công',
-      data: dataWithoutRefreshToken,
+      data: dataWithoutTokens,
     };
   }
 
@@ -243,7 +252,11 @@ export class AuthController {
 
     const result = await this.authService.logout(req.user.id, refreshToken);
 
-    // Clear refresh token cookie
+    // Clear both access token and refresh token cookies
+    response.clearCookie('accessToken', {
+      path: '/',
+      httpOnly: true,
+    });
     response.clearCookie('refreshToken', {
       path: '/',
       httpOnly: true,
@@ -383,6 +396,15 @@ export class AuthController {
 
     const tokens = await this.authService.refreshToken(refreshToken);
 
+    // Set new access token as httpOnly cookie
+    response.cookie('accessToken', tokens.accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 15 * 60 * 1000, // 15 minutes
+      path: '/',
+    });
+
     // Set new refresh token as httpOnly cookie
     response.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
@@ -392,12 +414,10 @@ export class AuthController {
       path: '/',
     });
 
-    // Chỉ trả về access token
+    // Không trả về tokens trong response body
     return {
       message: 'Làm mới token thành công',
-      data: {
-        accessToken: tokens.accessToken,
-      },
+      data: {},
     };
   }
 
