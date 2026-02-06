@@ -4,7 +4,7 @@ import { AuthLayout } from "../shared/components/layouts/AuthLayout";
 import { Input } from "../shared/components/custom/input";
 import { Button } from "../shared/components/custom/Button";
 // import { GoogleButton } from '../shared/components/auth/GoogleButton';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
 import { ROUTES, STORAGE_KEYS } from '@/constants';
 import { signIn } from '@/features/auth';
@@ -143,6 +143,14 @@ export function SignInPage({
       title="Sign In"
       subtitle="Welcome back! Access your dashboard and manage your projects."
     >
+      <button
+        type="button"
+        onClick={() => navigate(ROUTES.LANDING)}
+        className="absolute top-6 left-6 flex items-center gap-2 text-gray-600 hover:text-teal-600 transition-colors"
+      >
+        <ArrowLeft className="w-5 h-5" />
+        <span className="text-sm font-medium">Back to Home</span>
+      </button>
       <form onSubmit={handleSubmit} className="space-y-6">
         {/* Google OAuth Button - TEMPORARILY DISABLED
         <GoogleButton text="Continue with Google" />
