@@ -1,4 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions } from 'typeorm';
 import {
@@ -117,7 +123,7 @@ export class ProjectRequestsService {
         request.status === RequestStatus.PUBLIC_DRAFT &&
         dto.status === RequestStatus.PRIVATE_DRAFT
       ) {
-        await this.denyPendingProposals(request.id);
+        await this.cancelAllActiveProposals(request.id);
       }
       request.status = dto.status;
     }
@@ -176,31 +182,43 @@ export class ProjectRequestsService {
   }
 
   async findOne(id: string, user?: UserEntity) {
-    const request = await this.requestRepo.findOne({
-      where: { id },
-      relations: [
-        'answers',
-        'answers.question',
-        'answers.option',
-        'client',
-        'brokerProposals',
-        'brokerProposals.broker',
-        'spec',
-        'spec.milestones',
-      ],
-    });
-    
+    try {
+        const request = await this.requestRepo.findOne({
+        where: { id },
+        relations: [
+            'answers',
+            'answers.question',
+            'answers.option',
+            'client',
+            'brokerProposals',
+            'brokerProposals.broker',
+            'spec',
+            'spec.milestones',
+        ],
+        });
 
+        if (!request) {
+            console.warn(`Request not found: ${id}`);
+            return null; // Controller will handle 404 if needed, or we can throw NotFoundException here if we want strictness.
+            // For now, let's keep return null to be safe with existing logic, 
+            // OR consistent with other frameworks, returning null is fine if controller checks it.
+            // But usually findOne throws if not found in REST.
+            // Let's throw NotFoundException to be explicit.
+            // throw new NotFoundException('Request not found');
+        }
 
-    if (!request) return null;
+        if (user) {
+        if (user.role === UserRole.CLIENT && request.clientId !== user.id) {
+            console.warn(`Forbidden access to request ${id} by user ${user.id}`);
+            throw new ForbiddenException('You can only view your own requests');
+        }
+        }
 
-    if (user) {
-      if (user.role === UserRole.CLIENT && request.clientId !== user.id) {
-        throw new Error('Forbidden: You can only view your own requests');
-      }
+        return request;
+    } catch (error) {
+        console.error(`Error loading request ${id}:`, error);
+        throw error;
     }
-
-    return request;
   }
 
   async findMatches(id: string) {
@@ -227,10 +245,10 @@ export class ProjectRequestsService {
   async inviteBroker(requestId: string, brokerId: string, message?: string) {
     // 1. Check if request exists
     const request = await this.findOne(requestId);
-    if (!request) throw new Error('Request not found');
+    if (!request) throw new NotFoundException('Request not found');
 
     // 2. Check if already has a broker
-    if (request.brokerId) throw new Error('Request already has a broker assigned');
+    if (request.brokerId) throw new ConflictException('Request already has a broker assigned');
 
     // 3. Check if already invited or applied
     const existing = await this.brokerProposalRepo.findOne({
@@ -239,22 +257,51 @@ export class ProjectRequestsService {
 
     if (existing) {
       if (existing.status === ProposalStatus.INVITED) {
-         throw new Error('Broker already invited');
+         throw new ConflictException('Broker already invited');
       }
       if (existing.status === ProposalStatus.PENDING) {
-         throw new Error('Broker has already applied');
+         throw new ConflictException('Broker has already applied');
       }
-      // If rejected/accepted, maybe allow re-invite? For now assume strict uniqueness.
-      throw new Error(`Broker already has proposal status: ${existing.status}`);
+      if (existing.status === ProposalStatus.ACCEPTED) {
+         throw new ConflictException('Broker is already accepted');
+      }
+      
+      // If REJECTED or CANCELLED, we allow re-invite by updating the existing row
+      if (existing.status === ProposalStatus.REJECTED || existing.status === ProposalStatus.CANCELLED) {
+          existing.status = ProposalStatus.INVITED;
+          existing.coverLetter = message; // Update message
+          return await this.brokerProposalRepo.save(existing);
+      }
     }
 
-    const proposal = this.brokerProposalRepo.create({
-      requestId,
-      brokerId,
-      status: ProposalStatus.INVITED,
-      coverLetter: message, // saving message in coverLetter for invites
+    try {
+      const proposal = this.brokerProposalRepo.create({
+        requestId,
+        brokerId,
+        status: ProposalStatus.INVITED,
+        coverLetter: message, // saving message in coverLetter for invites
+      });
+      return await this.brokerProposalRepo.save(proposal);
+    } catch (err: any) {
+      console.error('Error inviting broker:', err);
+      throw err; // Re-throw to let global filter handle it, but now we have logs
+    }
+  }
+
+  async cancelAllActiveProposals(requestId: string) {
+    const proposals = await this.brokerProposalRepo.find({
+      where: { requestId },
     });
-    return this.brokerProposalRepo.save(proposal);
+
+    for (const p of proposals) {
+      if (p.status === ProposalStatus.PENDING || p.status === ProposalStatus.ACCEPTED) {
+        p.status = ProposalStatus.REJECTED;
+        await this.brokerProposalRepo.save(p);
+      } else if (p.status === ProposalStatus.INVITED) {
+        p.status = ProposalStatus.CANCELLED;
+        await this.brokerProposalRepo.save(p);
+      }
+    }
   }
 
   async inviteFreelancer(requestId: string, freelancerId: string, message?: string) {
@@ -297,13 +344,43 @@ export class ProjectRequestsService {
 
 
   async applyToRequest(requestId: string, brokerId: string, coverLetter: string) {
-    const proposal = this.brokerProposalRepo.create({
-      requestId,
-      brokerId,
-      coverLetter,
-      status: ProposalStatus.PENDING,
-    });
-    return this.brokerProposalRepo.save(proposal);
+    try {
+        const existing = await this.brokerProposalRepo.findOne({
+            where: { requestId, brokerId },
+        });
+
+        if (existing) {
+             console.warn(`Broker ${brokerId} already applied to request ${requestId}`);
+             
+             // If INVITED, REJECTED, or CANCELLED, we update status to PENDING
+             if (
+                 existing.status === ProposalStatus.INVITED || 
+                 existing.status === ProposalStatus.REJECTED || 
+                 existing.status === ProposalStatus.CANCELLED
+             ) {
+                 existing.status = ProposalStatus.PENDING;
+                 existing.coverLetter = coverLetter; // Update cover letter
+                 return await this.brokerProposalRepo.save(existing);
+             }
+             
+             if (existing.status === ProposalStatus.ACCEPTED) {
+                 throw new ConflictException('You have already been accepted for this project.');
+             }
+
+             throw new ConflictException('You have already applied (Pending review).');
+        }
+
+        const proposal = this.brokerProposalRepo.create({
+        requestId,
+        brokerId,
+        coverLetter,
+        status: ProposalStatus.PENDING,
+        });
+        return await this.brokerProposalRepo.save(proposal);
+    } catch (error) {
+        console.error("Error applying to request:", error);
+        throw error;
+    }
   }
 
   // --- Broker Self-Assignment (C02) ---
@@ -574,5 +651,43 @@ export class ProjectRequestsService {
     }
     
     throw new Error('Invalid role');
+  }
+
+  async rejectProposal(proposalId: string, clientId: string) {
+    const proposal = await this.brokerProposalRepo.findOne({
+      where: { id: proposalId },
+      relations: ['request'],
+    });
+
+    if (!proposal) throw new NotFoundException('Proposal not found');
+    if (proposal.request.clientId !== clientId) {
+      throw new ForbiddenException('You can only reject proposals for your own requests');
+    }
+
+    if (proposal.status !== ProposalStatus.PENDING) {
+        throw new BadRequestException('Can only reject PENDING proposals');
+    }
+
+    proposal.status = ProposalStatus.REJECTED;
+    return this.brokerProposalRepo.save(proposal);
+  }
+
+  async cancelInvitation(proposalId: string, clientId: string) {
+    const proposal = await this.brokerProposalRepo.findOne({
+      where: { id: proposalId },
+      relations: ['request'],
+    });
+
+    if (!proposal) throw new NotFoundException('Invitation not found');
+    if (proposal.request.clientId !== clientId) {
+      throw new ForbiddenException('You can only cancel invitations for your own requests');
+    }
+
+    if (proposal.status !== ProposalStatus.INVITED) {
+        throw new BadRequestException('Can only cancel INVITED proposals');
+    }
+
+    proposal.status = ProposalStatus.CANCELLED;
+    return this.brokerProposalRepo.save(proposal);
   }
 }

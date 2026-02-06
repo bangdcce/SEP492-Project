@@ -15,6 +15,7 @@ export enum ProposalStatus {
   INVITED = 'INVITED',
   ACCEPTED = 'ACCEPTED',
   REJECTED = 'REJECTED',
+  CANCELLED = 'CANCELLED',
 }
 
 @Entity('broker_proposals')

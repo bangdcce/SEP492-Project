@@ -246,4 +246,18 @@ export class ProjectRequestsController {
   ) {
     return this.projectRequestsService.respondToInvitation(id, user.id, user.role, status);
   }
+
+  @Post('proposals/:id/reject')
+  @ApiOperation({ summary: 'Client rejects a broker proposal' })
+  @ApiResponse({ status: 200, description: 'Proposal rejected' })
+  async rejectProposal(@Param('id') id: string, @GetUser('id') clientId: string) {
+    return this.projectRequestsService.rejectProposal(id, clientId);
+  }
+
+  @Post('proposals/:id/cancel')
+  @ApiOperation({ summary: 'Client cancels a broker invitation' })
+  @ApiResponse({ status: 200, description: 'Invitation cancelled' })
+  async cancelInvitation(@Param('id') id: string, @GetUser('id') clientId: string) {
+    return this.projectRequestsService.cancelInvitation(id, clientId);
+  }
 }
