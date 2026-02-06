@@ -59,13 +59,13 @@ export class ResetPasswordDto {
   otp: string;
 
   @ApiProperty({
-    description: 'New password (minimum 8 characters, with lowercase, number & special character)',
-    example: 'newpassword123!',
+    description: 'New password (minimum 8 characters, with lowercase and number/special character)',
+    example: 'newpassword123',
   })
   @IsString({ message: 'Password must be a string' })
   @MinLength(8, { message: 'Password must be at least 8 characters' })
-  @Matches(/^(?=.*[a-z])(?=.*\d)(?=.*[@$!%*?&])/, {
-    message: 'Mật khẩu phải chứa ít nhất một chữ thường, một số và một ký tự đặc biệt (@$!%*?&)',
+  @Matches(/^(?=.*[a-z])(?=.*[\d@$!%*?&])/, {
+    message: 'Mật khẩu phải chứa ít nhất một chữ thường và một số/ký tự đặc biệt (@$!%*?&)',
   })
   newPassword: string;
 
