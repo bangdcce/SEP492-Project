@@ -11,17 +11,14 @@ import {
   FileText,
   UserPlus,
   FileSignature,
-  CheckCircle2,
-  Check,
-  Clock,
-  AlertCircle
+  CheckCircle2
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { UserRole } from "@/shared/types/user.types";
 
 import type { ProjectRequest, RequestStatus } from "./types";
 import { projectRequestsApi } from "./api";
-import { Button } from "@/shared/components/custom/Button";
+import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import {
   Card,
@@ -33,13 +30,7 @@ import {
 import { Separator } from "@/shared/components/ui/separator";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 
-// Helper to determine active phase for Broker (mirrors Client logic but simpler)
-const getBrokerPhase = (status: string) => {
-    if (status === 'SPEC_APPROVED') return 'phase3'; // Hiring
-    if (status === 'CONTRACT_PENDING') return 'phase4'; // Contract
-    if (status === 'PROCESSING') return 'phase2'; // Specs
-    return 'phase1'; // Default
-};
+
 
 export default function ProjectRequestDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -57,8 +48,6 @@ export default function ProjectRequestDetailsPage() {
       setUser(JSON.parse(userJson));
     }
   }, []);
-
-  const isAdmin = user?.role === "ADMIN";
 
   // Helper moved to top level
 
@@ -207,7 +196,6 @@ export default function ProjectRequestDetailsPage() {
   // Filter Proposals
   const applications = request?.brokerProposals?.filter(p => p.status === 'PENDING') || [];
   const invitations = request?.brokerProposals?.filter(p => p.status === 'INVITED') || [];
-  const acceptedBroker = request?.brokerProposals?.find(p => p.status === 'ACCEPTED');
 
   return (
     <div className="container mx-auto py-8 space-y-6">
