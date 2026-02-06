@@ -64,7 +64,7 @@ export function BrokerDashboard() {
             Manage project requests and specifications.
           </p>
         </div>
-        <Button onClick={() => navigate("/project-requests")}>
+        <Button onClick={() => navigate("/broker/marketplace")}>
           Browse All Requests
         </Button>
       </div>
@@ -136,7 +136,7 @@ export function BrokerDashboard() {
                   <div
                     key={req.id}
                     className="flex justify-between items-center p-3 border rounded-lg hover:bg-muted/50 transition-colors cursor-pointer"
-                    onClick={() => navigate(`/project-requests/${req.id}`)}
+                    onClick={() => navigate(`/broker/project-requests/${req.id}`)}
                   >
                     <div>
                       <h4 className="font-semibold line-clamp-1">
@@ -162,7 +162,7 @@ export function BrokerDashboard() {
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => navigate("/project-requests")}
+              onClick={() => navigate("/broker/marketplace")}
             >
               View Market
             </Button>
@@ -189,7 +189,7 @@ export function BrokerDashboard() {
                     <div className="flex justify-between items-start mb-2">
                       <h4
                         className="font-semibold text-lg cursor-pointer hover:text-primary transition-colors"
-                        onClick={() => navigate(`/project-requests/${req.id}`)}
+                        onClick={() => navigate(`/broker/project-requests/${req.id}`)}
                       >
                         {req.title}
                       </h4>
@@ -211,7 +211,7 @@ export function BrokerDashboard() {
                         variant="default"
                         size="sm"
                         className="w-full"
-                        onClick={() => navigate(`/project-requests/${req.id}`)}
+                        onClick={() => navigate(`/broker/project-requests/${req.id}`)}
                       >
                        Manage Project
                       </Button>

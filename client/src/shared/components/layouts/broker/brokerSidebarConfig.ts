@@ -36,11 +36,19 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
   },
   // Workspace
   {
-    id: "project-requests",
-    label: "Project Requests",
+    id: "marketplace",
+    label: "Marketplace",
     icon: FileSearch,
-    path: "/project-requests",
+    path: "/broker/marketplace",
     description: "Browse and claim requests",
+    section: "workspace",
+  },
+  {
+    id: "my-requests",
+    label: "My Requests",
+    icon: Briefcase,
+    path: "/broker/my-requests",
+    description: "Your assigned requests",
     section: "workspace",
   },
   {

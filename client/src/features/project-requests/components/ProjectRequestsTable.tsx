@@ -45,7 +45,7 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
           {requests.map((request) => (
             <TableRow key={request.id}>
               <TableCell className="font-medium">
-                <Link to={`/project-requests/${request.id}`} className="text-teal-600 hover:underline">
+                <Link to={`/broker/project-requests/${request.id}`} className="text-teal-600 hover:underline">
                   {request.title}
                 </Link>
               </TableCell>
@@ -106,8 +106,8 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
                      })()
                 )}
 
-                <Link to={`/project-requests/${request.id}`}>
-                    <Button variant="ghost" className="h-8 w-8 p-0 ml-1">
+                <Link to={`/broker/project-requests/${request.id}`}>
+                    <Button variant="outline" className="h-8 w-8 p-0 ml-1">
                         <span className="sr-only">View Details</span>
                         <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
                     </Button>

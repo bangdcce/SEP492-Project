@@ -25,8 +25,6 @@ const MyRequestsPage = lazy(() =>
 const RequestDetailPage = lazy(
   () => import("@/features/requests/RequestDetailPage"),
 );
-const DiscoveryPage = lazy(() => import("@/features/discovery/DiscoveryPage").then(module => ({ default: module.DiscoveryPage })));
-const PartnerProfilePage = lazy(() => import("@/features/discovery/PartnerProfilePage").then(module => ({ default: module.PartnerProfilePage })));
 const MyInvitationsPage = lazy(() => import("@/features/dashboard/MyInvitationsPage").then(m => ({ default: m.MyInvitationsPage })));
 const InvitationDetailsPage = lazy(() => import("@/features/dashboard/InvitationDetailsPage").then(m => ({ default: m.InvitationDetailsPage })));
 
@@ -546,7 +544,7 @@ function App() {
 
         {/* ========== PROJECT REQUEST ROUTES (Broker) ========== */}
         <Route
-          path="/broker/marketplace"
+          path={ROUTES.BROKER_MARKETPLACE}
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
@@ -556,7 +554,7 @@ function App() {
           }
         />
         <Route
-          path="/project-requests/:id"
+          path={ROUTES.PROJECT_REQUEST_DETAILS}
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
@@ -566,7 +564,7 @@ function App() {
           }
         />
         <Route
-          path="/project-requests/:id/create-spec"
+          path="/broker/project-requests/:id/create-spec"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
