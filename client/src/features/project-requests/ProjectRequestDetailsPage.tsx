@@ -11,8 +11,12 @@ import {
   FileText,
   UserPlus,
   FileSignature,
-  CheckCircle2
+  CheckCircle2,
+  Check, 
+  Clock, 
+  AlertCircle
 } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { UserRole } from "@/shared/types/user.types";
 
 import type { ProjectRequest, RequestStatus } from "./types";
@@ -28,6 +32,14 @@ import {
 } from "@/shared/components/ui/card";
 import { Separator } from "@/shared/components/ui/separator";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+
+// Helper to determine active phase for Broker (mirrors Client logic but simpler)
+const getBrokerPhase = (status: string) => {
+    if (status === 'SPEC_APPROVED') return 'phase3'; // Hiring
+    if (status === 'CONTRACT_PENDING') return 'phase4'; // Contract
+    if (status === 'PROCESSING') return 'phase2'; // Specs
+    return 'phase1'; // Default
+};
 
 export default function ProjectRequestDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -46,22 +58,20 @@ export default function ProjectRequestDetailsPage() {
     }
   }, []);
 
-  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs"; // Assuming standard Shadcn tabs
-import { Check, Clock, FileSignature, CheckCircle2, AlertCircle } from "lucide-react";
+  const isAdmin = user?.role === "ADMIN";
 
-// Helper to determine active phase for Broker (mirrors Client logic but simpler)
-const getBrokerPhase = (status: string) => {
-    if (status === 'SPEC_APPROVED') return 'phase3'; // Hiring
-    if (status === 'CONTRACT_PENDING') return 'phase4'; // Contract
-    if (status === 'PROCESSING') return 'phase2'; // Specs
-    return 'phase1'; // Default
-};
+  // Helper moved to top level
 
   const handleBack = () => {
     if (isAdmin) {
       navigate("/admin/specs"); 
     } else if (user?.role === "BROKER") {
-      navigate("/project-requests");
+      // If assigned to me, go to My Requests, otherwise Marketplace
+      if (request?.brokerId === user?.id) {
+          navigate("/broker/my-requests");
+      } else {
+          navigate("/broker/marketplace");
+      }
     } else {
       navigate("/client/my-requests");
     }
@@ -268,7 +278,7 @@ const getBrokerPhase = (status: string) => {
                                     <p className="font-medium text-blue-900">Action Required</p>
                                     <p className="text-sm text-blue-700">Create and submit detailed specs for client approval.</p>
                                 </div>
-                                <Button onClick={() => navigate(`/project-requests/${request.id}/create-spec`)}>Create Spec</Button>
+                                <Button onClick={() => navigate(`/broker/project-requests/${request.id}/create-spec`)}>Create Spec</Button>
                             </div>
                         ) : request.spec ? (
                             <div className="space-y-2">

@@ -34,6 +34,8 @@ export const ROUTES = {
   BROKER_WORKSPACE: "/broker/workspace/:projectId",
   BROKER_FREELANCERS: "/broker/freelancers",
   BROKER_PROFILE: "/broker/profile",
+  BROKER_MARKETPLACE: "/broker/marketplace",
+  PROJECT_REQUEST_DETAILS: "/broker/project-requests/:id",
 
   // Admin Routes
 
