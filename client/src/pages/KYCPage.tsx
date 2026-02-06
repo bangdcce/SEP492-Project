@@ -3,7 +3,6 @@ import { Upload, Camera, User, CheckCircle, ArrowLeft, ArrowRight, Loader2, XCir
 import { Button } from '@/shared/components/custom/Button';
 import { Input } from '@/shared/components/custom/input';
 import { toast } from 'sonner';
-import { getStoredItem } from '@/shared/utils/storage';
 
 interface KYCFormData {
   // Personal Information
@@ -191,9 +190,7 @@ export default function KYCPage() {
       // Call KYC API
       const response = await fetch(`${baseUrl}/kyc`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${getStoredItem('access_token')}`,
-        },
+        credentials: 'include', // Send httpOnly cookies
         body: submitData,
       });
 
@@ -215,9 +212,7 @@ export default function KYCPage() {
   const checkKycStatus = async () => {
     try {
       const response = await fetch(`${baseUrl}/kyc/me`, {
-        headers: {
-          'Authorization': `Bearer ${getStoredItem('access_token')}`,
-        },
+        credentials: 'include', // Send httpOnly cookies
       });
 
       if (!response.ok) return;
