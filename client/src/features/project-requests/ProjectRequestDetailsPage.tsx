@@ -8,7 +8,12 @@ import {
   Calendar,
   DollarSign,
   Monitor,
+  FileText,
+  UserPlus,
+  FileSignature,
+  CheckCircle2
 } from "lucide-react";
+import { UserRole } from "@/shared/types/user.types";
 
 import type { ProjectRequest, RequestStatus } from "./types";
 import { projectRequestsApi } from "./api";
@@ -20,7 +25,7 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-} from "@/shared/components/ui/Card";
+} from "@/shared/components/ui/card";
 import { Separator } from "@/shared/components/ui/separator";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 
@@ -41,7 +46,16 @@ export default function ProjectRequestDetailsPage() {
     }
   }, []);
 
-  const isAdmin = user?.role === "ADMIN";
+  import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs"; // Assuming standard Shadcn tabs
+import { Check, Clock, FileSignature, CheckCircle2, AlertCircle } from "lucide-react";
+
+// Helper to determine active phase for Broker (mirrors Client logic but simpler)
+const getBrokerPhase = (status: string) => {
+    if (status === 'SPEC_APPROVED') return 'phase3'; // Hiring
+    if (status === 'CONTRACT_PENDING') return 'phase4'; // Contract
+    if (status === 'PROCESSING') return 'phase2'; // Specs
+    return 'phase1'; // Default
+};
 
   const handleBack = () => {
     if (isAdmin) {
@@ -152,100 +166,178 @@ export default function ProjectRequestDetailsPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Main Content */}
+        {/* Main Content Area */}
         <div className="lg:col-span-2 space-y-6">
-          <Card>
-            <CardHeader>
-              <div className="flex justify-between items-start">
-                <div className="space-y-1">
-                  <CardTitle className="text-xl">{request.title}</CardTitle>
-                  <CardDescription>
-                    Created on {format(new Date(request.createdAt), "PPP")}
-                  </CardDescription>
-                </div>
-                <Badge className={getStatusColor(request.status)}>
-                  {request.status}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              <div>
-                <h3 className="text-sm font-medium text-muted-foreground mb-2">
-                  Description
-                </h3>
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                  {request.description}
-                </p>
-              </div>
+           
+           <Tabs defaultValue="overview" className="w-full">
+            <TabsList className="mb-4 w-full justify-start">
+               <TabsTrigger value="overview">Overview & Status</TabsTrigger>
+               <TabsTrigger value="phases">Workflow Phases</TabsTrigger>
+            </TabsList>
 
-              <Separator />
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <DollarSign className="h-4 w-4" />
-                    <span>Budget Range</span>
-                  </div>
-                  <p className="font-medium text-sm">
-                    {request.budgetRange || "Not specified"}
-                  </p>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Calendar className="h-4 w-4" />
-                    <span>Intended Timeline</span>
-                  </div>
-                  <p className="font-medium text-sm">
-                    {request.intendedTimeline || "Not specified"}
-                  </p>
-                </div>
-
-                <div className="col-span-1 md:col-span-2 space-y-1">
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <Monitor className="h-4 w-4" />
-                    <span>Tech Preferences</span>
-                  </div>
-                  <p className="font-medium text-sm">
-                    {request.techPreferences || "None specified"}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {request.answers && request.answers.length > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">
-                  Additional Information
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-4">
-                  {request.answers.map((answer) => (
-                    <div
-                      key={answer.id}
-                      className="p-4 bg-muted/50 rounded-lg space-y-2"
-                    >
-                      {/* Use safer access and fallback */}
-                      <p className="text-sm font-medium">
-                        {answer.question?.label || "Unknown Question"}
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        {answer.option?.label ||
-                          answer.valueText ||
-                          "No Answer"}
-                      </p>
+            <TabsContent value="overview" className="space-y-6">
+                <Card>
+                    <CardHeader>
+                    <div className="flex justify-between items-start">
+                        <div className="space-y-1">
+                        <CardTitle className="text-xl">{request.title}</CardTitle>
+                        <CardDescription>
+                            Created on {format(new Date(request.createdAt), "PPP")}
+                        </CardDescription>
+                        </div>
+                        <Badge className={getStatusColor(request.status)}>
+                        {request.status}
+                        </Badge>
                     </div>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+                    </CardHeader>
+                    <CardContent className="space-y-6">
+                    <div>
+                        <h3 className="text-sm font-medium text-muted-foreground mb-2">
+                        Description
+                        </h3>
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap">
+                        {request.description}
+                        </p>
+                    </div>
+                    <Separator />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <DollarSign className="h-4 w-4" />
+                            <span>Budget Range</span>
+                        </div>
+                        <p className="font-medium text-sm">
+                            {request.budgetRange || "Not specified"}
+                        </p>
+                        </div>
+                        <div className="space-y-1">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Calendar className="h-4 w-4" />
+                            <span>Intended Timeline</span>
+                        </div>
+                        <p className="font-medium text-sm">
+                            {request.intendedTimeline || "Not specified"}
+                        </p>
+                        </div>
+                        <div className="col-span-1 md:col-span-2 space-y-1">
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Monitor className="h-4 w-4" />
+                            <span>Tech Preferences</span>
+                        </div>
+                        <p className="font-medium text-sm">
+                            {request.techPreferences || "None specified"}
+                        </p>
+                        </div>
+                    </div>
+                    </CardContent>
+                </Card>
+
+                {request.answers && request.answers.length > 0 && (
+                 <Card>
+                   <CardHeader>
+                     <CardTitle className="text-lg">Additional Information</CardTitle>
+                   </CardHeader>
+                   <CardContent>
+                     <div className="space-y-4">
+                       {request.answers.map((answer) => (
+                         <div key={answer.id} className="p-4 bg-muted/50 rounded-lg space-y-2">
+                           <p className="text-sm font-medium">{answer.question?.label || "Unknown Question"}</p>
+                           <p className="text-sm text-muted-foreground">{answer.option?.label || answer.valueText || "No Answer"}</p>
+                         </div>
+                       ))}
+                     </div>
+                   </CardContent>
+                 </Card>
+                )}
+            </TabsContent>
+
+            <TabsContent value="phases" className="space-y-6">
+                {/* Phase 2: Specs */}
+                <Card className={request.status === 'PROCESSING' || request.status === 'PENDING_SPECS' ? "border-2 border-primary" : ""}>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                             <div className="bg-blue-100 p-2 rounded-full"><FileText className="w-5 h-5 text-blue-600"/></div>
+                             Phase 2: Requirement Specifications
+                             {request.spec && <Badge variant="outline" className="ml-2">Submitted</Badge>}
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {(!request.spec && (request.status === 'PROCESSING' || request.status === 'BROKER_ASSIGNED')) ? (
+                            <div className="bg-blue-50 p-4 rounded-lg flex justify-between items-center">
+                                <div>
+                                    <p className="font-medium text-blue-900">Action Required</p>
+                                    <p className="text-sm text-blue-700">Create and submit detailed specs for client approval.</p>
+                                </div>
+                                <Button onClick={() => navigate(`/project-requests/${request.id}/create-spec`)}>Create Spec</Button>
+                            </div>
+                        ) : request.spec ? (
+                            <div className="space-y-2">
+                                <div className="flex justify-between text-sm">
+                                    <span>Spec Status:</span>
+                                    <Badge>{request.spec.status}</Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">Waiting for Client Approval.</p>
+                            </div>
+                        ) : (
+                             <p className="text-sm text-muted-foreground">Pending prerequisite phases.</p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                {/* Phase 3: Hiring */}
+                <Card className={request.status === 'SPEC_APPROVED' ? "border-2 border-primary" : ""}>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                             <div className="bg-orange-100 p-2 rounded-full"><UserPlus className="w-5 h-5 text-orange-600"/></div>
+                             Phase 3: Freelancer Recruitment
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                        {request.status === 'SPEC_APPROVED' ? (
+                             <div className="bg-orange-50 p-4 rounded-lg">
+                                  <p className="mb-4 text-sm text-orange-800">Specs Approved! Now you must recruit freelancers.</p>
+                                  <div className="flex gap-2">
+                                      <Button variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>Search Market</Button>
+                                      <Button onClick={() => alert("Shortcut to Freelancer Suggestion Tool (Coming Soon)")}>Suggest Team</Button>
+                                  </div>
+                             </div>
+                        ) : (
+                             <p className="text-sm text-muted-foreground">Locked until Specs are Approved.</p>
+                        )}
+                    </CardContent>
+                </Card>
+
+                 {/* Phase 4: Contract */}
+                <Card className={request.status === 'CONTRACT_PENDING' ? "border-2 border-primary" : ""}>
+                    <CardHeader>
+                        <CardTitle className="flex items-center gap-2">
+                             <div className="bg-green-100 p-2 rounded-full"><FileSignature className="w-5 h-5 text-green-600"/></div>
+                             Phase 4: Contract
+                        </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                         {request.status === 'SPEC_APPROVED' || request.status === 'HIRING' ? (
+                             <Button 
+                                className="w-full" 
+                                onClick={async () => {
+                                    if(!confirm("Ready to draft contract?")) return;
+                                     // Logic to trigger contract draft
+                                     alert("Drafting contract...");
+                                }}
+                             >
+                                Draft Contract
+                             </Button>
+                         ) : (
+                            <p className="text-sm text-muted-foreground">Locked until Team is assembled.</p>
+                         )}
+                    </CardContent>
+                </Card>
+            </TabsContent>
+           </Tabs>
+
         </div>
 
-        {/* Sidebar Info */}
+        {/* Right Sidebar Info */}
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -277,132 +369,20 @@ export default function ProjectRequestDetailsPage() {
               )}
             </CardContent>
           </Card>
-
-          {request.spec && (
-            <Card className="border-teal-200 bg-teal-50/50">
-              <CardHeader>
-                <CardTitle className="text-lg text-teal-900">
-                  Project Specification
-                </CardTitle>
-                <CardDescription>
-                  Submitted specification for this project.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <h4 className="font-semibold text-sm mb-1">Title</h4>
-                  <p className="text-sm">{request.spec.title}</p>
-                </div>
-                <div>
-                  <h4 className="font-semibold text-sm mb-1">Total Budget</h4>
-                  <p className="text-sm font-medium text-teal-700">
-                    {new Intl.NumberFormat("en-US", {
-                      style: "currency",
-                      currency: "USD",
-                    }).format(request.spec.totalBudget)}
-                  </p>
-                </div>
-                <div>
-                  <h4 className="font-semibold text-sm mb-2">
-                    Milestones ({request.spec.milestones?.length || 0})
-                  </h4>
-                  <div className="space-y-2">
-                    {request.spec.milestones?.map((m) => (
-                      <div
-                        key={m.id}
-                        className="flex justify-between items-center text-sm bg-white p-2 rounded border border-teal-100"
-                      >
-                        <span>{m.title}</span>
-                        <span className="font-medium">
-                          {new Intl.NumberFormat("en-US", {
-                            style: "currency",
-                            currency: "USD",
-                          }).format(m.amount)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="pt-2">
-                  <Badge
-                    variant="outline"
-                    className="bg-white border-teal-200 text-teal-700"
-                  >
-                    Status: {request.spec.status}
-                  </Badge>
-                </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {!isAdmin && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Broker Actions</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {request.status === "PENDING" ? (
-                <div className="space-y-2">
-                  <p className="text-sm text-muted-foreground">
-                    This request is pending assignment.
-                  </p>
-                  <Button className="w-full" onClick={handleAssign}>
-                    Assign to Me
-                  </Button>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  <div className="text-sm text-muted-foreground">
-                    {request.brokerId
-                      ? `Assigned to broker ID: ${request.brokerId}`
-                      : "No broker assigned yet."}
-                  </div>
-                  {(request.status === "PROCESSING" || request.status === "SPEC_APPROVED") && (
-                    <>
-                      {request.status === "PROCESSING" && (
-                        <Button
-                          className="w-full mb-3"
-                          onClick={() =>
-                            navigate(`/project-requests/${request.id}/create-spec`)
-                          }
-                        >
-                          Create Specification
-                        </Button>
-                      )}
-                      
-                       {/* Initialize Contract Button - Only when Spec is APPROVED */}
-                       {request.spec && request.spec.status === 'APPROVED' && (
-                          <Button
-                            className="w-full bg-indigo-600 hover:bg-indigo-700"
-                            onClick={async () => {
-                              try {
-                                if(!confirm("Initialize contract for this spec?")) return;
-                                // Need to call POST /contracts/initialize/:specId
-                                // We can use the apiClient directly here or add to api.ts
-                                // For speed, I'll direct call but clean code suggests imports.
-                                // Assuming apiClient exists (need to import it if not, checking imports...)
-                                // Import apiClient from shared api
-                                const { apiClient } = await import('@/shared/api/client');
-                                const contract = await apiClient.post<any>(`/contracts/initialize/${request.spec?.id}`);
-                                alert("Contract Initialized! Redirecting to preview...");
-                                // Navigate to contract preview
-                                navigate(`/broker/contracts/${contract.id}`);
-                              } catch(err) {
-                                console.error(err);
-                                alert("Failed to initialize contract");
-                              }
-                            }}
-                          >
-                            Initialize Contract
-                          </Button>
-                       )}
-                    </>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-          )}
+          
+           {/* Current Action / Status Card */}
+           <Card className="bg-slate-50 border-slate-200">
+               <CardHeader><CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Current Status</CardTitle></CardHeader>
+               <CardContent>
+                   <div className="flex items-center gap-2 mb-4">
+                       <CheckCircle2 className="w-6 h-6 text-green-600" />
+                       <span className="font-bold text-lg">{request.status}</span>
+                   </div>
+                   {request.status === 'PENDING' && (
+                       <Button className="w-full" onClick={handleAssign}>Assign to Me</Button>
+                   )}
+               </CardContent>
+           </Card>
         </div>
       </div>
     </div>

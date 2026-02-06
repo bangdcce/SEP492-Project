@@ -7,7 +7,7 @@ import { projectRequestsApi } from '../project-requests/api';
 import { projectSpecsApi } from './api';
 import type { ProjectRequest } from '../project-requests/types';
 import type { CreateProjectSpecDTO } from './types';
-import Spinner from '@/shared/components/ui/Spinner';
+import Spinner from '@/shared/components/ui/spinner';
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert';
 
 export default function CreateProjectSpecPage() {
