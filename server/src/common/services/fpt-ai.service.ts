@@ -58,29 +58,14 @@ export class FptAiService {
 
     try {
       // Step 1: OCR ID card front
-      console.log('  🔍 Step 1/3: OCR scanning ID card front...');
       const frontOcr = await this.ocrIdCard(idCardFront, 'front');
-      console.log('  ✓ Front OCR completed');
       
       // Step 2: OCR ID card back
-      console.log('  🔍 Step 2/3: OCR scanning ID card back...');
       const backOcr = await this.ocrIdCard(idCardBack, 'back');
-      console.log('  ✓ Back OCR completed');
-      
-      // Step 3: Selfie (stored for manual review, not AI-processed)
-      console.log('  📸 Step 3/3: Selfie stored for manual review');
-      console.log('  ✓ All documents processed\n');
-      
-      console.log('  📊 Analyzing OCR data quality...');
       
       // Note: Selfie is uploaded but NOT verified by AI
       // FPT.AI only has OCR API, no face comparison API
       // Selfie will be stored for manual admin review
-
-      // DEBUG: Log raw OCR response from FPT.AI
-      console.log('\n📊 [DEBUG] FPT.AI Raw OCR Response:');
-      console.log('   Front OCR:', JSON.stringify(frontOcr, null, 2).substring(0, 500));
-      console.log('   Back OCR:', JSON.stringify(backOcr, null, 2).substring(0, 500));
       
       // Step 3: Calculate confidence (OCR only)
       const confidence = this.calculateConfidenceOcrOnly(frontOcr, backOcr);
@@ -91,13 +76,6 @@ export class FptAiService {
       // Step 5: Extract data
       const extractedData = this.extractData(frontOcr, backOcr);
 
-      // DEBUG: Log extracted data
-      console.log('\n📋 [DEBUG] Extracted Data from OCR:');
-      console.log('   Full Name:', extractedData?.fullName || 'NOT EXTRACTED');
-      console.log('   ID Number:', extractedData?.idNumber || 'NOT EXTRACTED');
-      console.log('   Date of Birth:', extractedData?.dateOfBirth || 'NOT EXTRACTED');
-      console.log('   Address:', extractedData?.address || 'NOT EXTRACTED');
-      
       // Step 6: Detect issues (OCR only)
       const issues = this.detectIssuesOcrOnly(frontOcr, backOcr);
 
@@ -118,10 +96,6 @@ export class FptAiService {
       };
     } catch (error) {
       this.logger.error('FPT.AI verification failed:', error);
-      console.error('❌ [FPT.AI ERROR]', error.response?.data || error.message);
-      console.error('   Status:', error.response?.status);
-      console.error('   API URL:', this.apiUrl);
-      console.error('   Has API Key:', !!this.apiKey);
       
       // Fallback to pending review if AI fails
       return {
@@ -144,8 +118,6 @@ export class FptAiService {
       contentType: 'image/jpeg'
     });
 
-    console.log(`  📤 Sending ${side} image to FPT.AI (${imageBuffer.length} bytes)...`);
-
     const response = await axios.post(
       this.apiUrl, // POST https://api.fpt.ai/vision/idr/vnm
       formData,
@@ -157,8 +129,6 @@ export class FptAiService {
         timeout: 30000, // 30s timeout
       }
     );
-
-    console.log(`  ✅ FPT.AI response for ${side}:`, response.data.errorCode === 0 ? 'SUCCESS' : `ERROR ${response.data.errorCode}`);
 
     return response.data;
   }

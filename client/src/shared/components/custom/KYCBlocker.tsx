@@ -120,19 +120,17 @@ export function useKYCStatus() {
         credentials: 'include',
       });
       
-      if (response.status === 404) {
-        return 'NOT_SUBMITTED';
-      }
-      
+      // Handle non-200 responses (401, 403, 500, etc.)
       if (!response.ok) {
-        return 'NOT_SUBMITTED';
+        return 'NOT_STARTED';
       }
       
       const data = await response.json();
-      return data.status || 'NOT_SUBMITTED';
+      // Server returns 'NOT_STARTED' when no KYC exists
+      return data.status || 'NOT_STARTED';
     } catch (error) {
       console.error('Error checking KYC status:', error);
-      return 'NOT_SUBMITTED';
+      return 'NOT_STARTED';
     }
   };
 

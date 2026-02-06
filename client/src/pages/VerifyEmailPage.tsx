@@ -102,7 +102,7 @@ export function VerifyEmailPage() {
   }, [token, pendingEmail]);
 
   return (
-    <AuthLayout>
+    <AuthLayout title="Verify your email" subtitle="Confirm your email address to continue.">
       <div className="flex items-start justify-center min-h-[60vh] pt-8 px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}

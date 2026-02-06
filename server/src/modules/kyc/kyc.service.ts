@@ -60,25 +60,11 @@ export class KycService {
     }
 
     // Step 1: AI Verification BEFORE uploading
-    console.log('\n=================================');
-    console.log('🤖 [AI VERIFICATION] Starting...');
-    console.log('📄 Processing 3 documents (Front, Back, Selfie)');
-    console.log('=================================\n');
-    
     const aiVerification = await this.fptAiService.verifyKyc(
       files.idCardFront.buffer,
       files.idCardBack.buffer,
       files.selfie.buffer,
     );
-
-    console.log('\n=================================');
-    console.log('✅ [AI RESULT] Verification Complete!');
-    console.log('📊 Decision:', aiVerification.decision);
-    console.log('📈 Confidence:', `${(aiVerification.confidence * 100).toFixed(2)}%`);
-    if (aiVerification.issues?.length > 0) {
-      console.log('⚠️  Issues:', aiVerification.issues.join(', '));
-    }
-    console.log('=================================\n');
 
     // Step 2: Validate user input against AI extracted data
     const dataValidation = this.validateDataMatch(dto, aiVerification.extractedData);
@@ -98,7 +84,6 @@ export class KycService {
     
     // Critical mismatch = auto-reject or manual review
     if (dataValidation.criticalMismatch) {
-      console.log('🚨 [CRITICAL] Data mismatch detected! Sending for manual review.');
       kycStatus = KycStatus.PENDING; // Send to admin for review
       allIssues.unshift('⚠️ CRITICAL: User-entered data does not match ID card');
     } else if (aiVerification.decision === 'AUTO_APPROVED' && dataValidation.matchScore >= 0.8) {
@@ -112,7 +97,6 @@ export class KycService {
     }
 
     // Step 3: Upload encrypted files to Supabase Storage
-    console.log('📤 [UPLOAD] Encrypting and uploading documents to Supabase...');
     const [documentFrontUrl, documentBackUrl, selfieUrl] = await Promise.all([
       uploadEncryptedFile(files.idCardFront.buffer, userId, 'id-front', files.idCardFront.mimetype),
       uploadEncryptedFile(files.idCardBack.buffer, userId, 'id-back', files.idCardBack.mimetype),
@@ -138,25 +122,10 @@ export class KycService {
     });
 
     const savedKyc = await this.kycRepo.save(kyc);
-    console.log('💾 [DATABASE] KYC record saved successfully');
 
     // Step 5: If auto-approved by AI, update user verification status immediately
     if (autoApproved) {
       await this.userRepo.update(userId, { isVerified: true });
-      console.log('\n🎉 ✅ [SUCCESS] KYC AUTO-APPROVED by AI!');
-      console.log('User verification status updated.\n');
-    } else if (kycStatus === KycStatus.REJECTED) {
-      console.log('\n❌ [REJECTED] KYC auto-rejected by AI');
-      console.log('Reason:', allIssues.join(', ') || 'Quality issues detected\n');
-    } else if (dataValidation.criticalMismatch) {
-      console.log('\n⏳ [PENDING] Data mismatch detected. Sent for manual review');
-      console.log('Issues:', allIssues.join(', ') || 'Data mismatch\n');
-    } else if (hasUnreadableIssue) {
-      console.log('\n⏳ [PENDING] AI could not extract key fields. Sent for manual review');
-      console.log('Issues:', allIssues.join(', ') || 'Unreadable fields\n');
-    } else {
-      console.log('\n⏳ [PENDING] KYC requires manual admin review');
-      console.log('Confidence too low for auto-decision\n');
     }
 
     // Generate signed URLs for immediate response (expire in 1 hour)
@@ -174,7 +143,13 @@ export class KycService {
       aiVerification: {
         decision: aiVerification.decision,
         confidence: aiVerification.confidence,
-        extractedData: aiVerification.extractedData,
+        // Redact PII from extractedData - only show field extraction status
+        extractedData: aiVerification.extractedData ? {
+          fullName: aiVerification.extractedData.fullName ? '[EXTRACTED]' : undefined,
+          idNumber: aiVerification.extractedData.idNumber ? '[EXTRACTED]' : undefined,
+          dateOfBirth: aiVerification.extractedData.dateOfBirth ? '[EXTRACTED]' : undefined,
+          address: aiVerification.extractedData.address ? '[EXTRACTED]' : undefined,
+        } : undefined,
         issues: aiVerification.issues,
       },
       dataValidation: {
@@ -208,11 +183,25 @@ export class KycService {
       getSignedUrl(kyc.selfieUrl, 3600),
     ]);
 
+    // Redact PII from user-facing response - only show status info
     return {
-      ...kyc,
+      id: kyc.id,
+      userId: kyc.userId,
+      status: kyc.status,
+      documentType: kyc.documentType,
       documentFrontUrl: frontUrl,
       documentBackUrl: backUrl,
       selfieUrl: selfieUrl,
+      // Mask sensitive fields
+      fullNameOnDocument: kyc.fullNameOnDocument ? '[SUBMITTED]' : undefined,
+      documentNumber: kyc.documentNumber ? '[SUBMITTED]' : undefined,
+      dateOfBirth: kyc.dateOfBirth ? '[SUBMITTED]' : undefined,
+      address: kyc.address ? '[SUBMITTED]' : undefined,
+      // Include non-sensitive metadata
+      rejectionReason: kyc.rejectionReason,
+      createdAt: kyc.createdAt,
+      updatedAt: kyc.updatedAt,
+      reviewedAt: kyc.reviewedAt,
     };
   }
 
@@ -528,25 +517,44 @@ export class KycService {
 
   /**
    * Normalize date to YYYY-MM-DD format for comparison
+   * Handle Vietnamese DD/MM/YYYY format explicitly before falling back to ISO
    */
   private normalizeDateString(dateStr: string | undefined | null): string {
     if (!dateStr) return '';
     
     try {
-      // Try parsing various formats
-      const date = new Date(dateStr);
-      if (!isNaN(date.getTime())) {
-        return date.toISOString().split('T')[0]; // YYYY-MM-DD
-      }
-
-      // Handle DD/MM/YYYY or DD-MM-YYYY format (common in Vietnam)
-      const match = dateStr.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})/);
-      if (match) {
-        const [, day, month, year] = match;
+      const trimmed = dateStr.trim();
+      
+      // 1. Handle DD/MM/YYYY or DD-MM-YYYY format (common in Vietnam) FIRST
+      const vnMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (vnMatch) {
+        const [, day, month, year] = vnMatch;
         return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
       }
 
-      return dateStr;
+      // 2. Handle YYYY-MM-DD (ISO format)
+      const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (isoMatch) {
+        const [, year, month, day] = isoMatch;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+
+      // 3. Handle YYYY/MM/DD
+      const isoSlashMatch = trimmed.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+      if (isoSlashMatch) {
+        const [, year, month, day] = isoSlashMatch;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+
+      // 4. Only try Date parsing for ISO-like formats (avoid MM/DD/YYYY ambiguity)
+      if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
+        const date = new Date(trimmed);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString().split('T')[0];
+        }
+      }
+
+      return trimmed;
     } catch {
       return dateStr || '';
     }
@@ -565,17 +573,8 @@ export class KycService {
     let matches = 0;
     let criticalMismatch = false;
 
-    console.log('\n📋 [DATA VALIDATION] Comparing user input with AI extracted data...');
-    console.log('   User Input:', {
-      fullName: dto.fullNameOnDocument,
-      idNumber: dto.documentNumber,
-      dob: dto.dateOfBirth,
-    });
-    console.log('   AI Extracted:', extractedData);
-
     // If no extracted data available, cannot validate - require manual review
     if (!extractedData || (!extractedData.fullName && !extractedData.idNumber && !extractedData.dateOfBirth)) {
-      console.log('   ⚠️ No AI extracted data available - cannot validate user input');
       issues.push('Cannot validate: AI did not extract data from documents. Manual review required.');
       return {
         issues,
@@ -594,15 +593,12 @@ export class KycService {
       
       if (nameSimilarity >= 0.8) {
         matches++;
-        console.log(`   ✓ Name matched (${(nameSimilarity * 100).toFixed(0)}% similarity)`);
       } else if (nameSimilarity >= 0.6) {
         matches += 0.5;
-        issues.push(`Name partially matches: entered "${dto.fullNameOnDocument}", ID shows "${extractedData.fullName}"`);
-        console.log(`   ⚠ Name partially matched (${(nameSimilarity * 100).toFixed(0)}% similarity)`);
+        issues.push('Name partially matches with ID document');
       } else {
         criticalMismatch = true;
-        issues.push(`Name mismatch: entered "${dto.fullNameOnDocument}", but ID shows "${extractedData.fullName}"`);
-        console.log(`   ✗ Name MISMATCH (${(nameSimilarity * 100).toFixed(0)}% similarity)`);
+        issues.push('Name does not match ID document');
       }
     }
 
@@ -614,15 +610,12 @@ export class KycService {
       
       if (inputId === extractedId) {
         matches++;
-        console.log('   ✓ ID number matched');
       } else if (inputId.includes(extractedId) || extractedId.includes(inputId)) {
         matches += 0.5;
-        issues.push(`ID number partially matches: entered "${dto.documentNumber}", ID shows "${extractedData.idNumber}"`);
-        console.log('   ⚠ ID number partially matched');
+        issues.push('ID number partially matches with ID document');
       } else {
         criticalMismatch = true;
-        issues.push(`ID number mismatch: entered "${dto.documentNumber}", but ID shows "${extractedData.idNumber}"`);
-        console.log('   ✗ ID number MISMATCH');
+        issues.push('ID number does not match ID document');
       }
     }
 
@@ -634,11 +627,9 @@ export class KycService {
       
       if (inputDob === extractedDob) {
         matches++;
-        console.log('   ✓ Date of birth matched');
       } else {
         criticalMismatch = true;
-        issues.push(`Date of birth mismatch: entered "${dto.dateOfBirth}", but ID shows "${extractedData.dateOfBirth}"`);
-        console.log(`   ✗ DOB MISMATCH: ${inputDob} vs ${extractedDob}`);
+        issues.push('Date of birth does not match ID document');
       }
     }
 
@@ -649,16 +640,12 @@ export class KycService {
       
       if (addrSimilarity >= 0.5) {
         matches++;
-        console.log(`   ✓ Address matched (${(addrSimilarity * 100).toFixed(0)}% similarity)`);
       } else {
-        issues.push(`Address differs: entered may not match ID (AI confidence low)`);
-        console.log(`   ⚠ Address differs (${(addrSimilarity * 100).toFixed(0)}% similarity)`);
+        issues.push('Address may not match ID document');
       }
     }
 
     const matchScore = totalChecks > 0 ? matches / totalChecks : 1;
-    console.log(`   📊 Match Score: ${(matchScore * 100).toFixed(0)}%`);
-    console.log(`   🚨 Critical Mismatch: ${criticalMismatch ? 'YES' : 'NO'}\n`);
 
     return { issues, matchScore, criticalMismatch };
   }
