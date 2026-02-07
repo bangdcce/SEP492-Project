@@ -230,7 +230,6 @@ export default function KYCPage() {
       toast.success('KYC submitted successfully. Your documents are being processed.');
       setSubmissionStatus('processing');
     } catch (error: any) {
-      console.error('KYC submission error:', error);
       toast.error(error.message || 'Unable to submit KYC. Please try again.');
     } finally {
       setLoading(false);
@@ -261,7 +260,7 @@ export default function KYCPage() {
         setSubmissionStatus('processing');
       }
     } catch (error) {
-      console.error('KYC status check error:', error);
+      // Silent failure for status check
     }
   };
 

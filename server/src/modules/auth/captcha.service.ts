@@ -36,7 +36,6 @@ export class CaptchaService {
       // For reCAPTCHA v2, just check success
       // For reCAPTCHA v3, you can check score (0.0 - 1.0)
       if (!success) {
-        console.error('reCAPTCHA verification failed:', errorCodes);
         return false;
       }
 
@@ -48,7 +47,6 @@ export class CaptchaService {
 
       return true;
     } catch (error) {
-      console.error('reCAPTCHA verification error:', error);
       throw new HttpException('Failed to verify reCAPTCHA', HttpStatus.INTERNAL_SERVER_ERROR);
     }
   }

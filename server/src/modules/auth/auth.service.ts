@@ -1,13 +1,15 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Repository, LessThan, MoreThan } from 'typeorm';
+import { Repository, LessThan, MoreThan, In, Not } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes } from 'crypto';
+import { randomBytes, randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
-import { UserEntity } from '../../database/entities/user.entity';
+import { UserEntity, UserStatus } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
+import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
+import { WalletEntity } from '../../database/entities/wallet.entity';
 import { EmailService } from './email.service';
 import { EmailVerificationService } from './email-verification.service';
 import {
@@ -23,6 +25,9 @@ import {
   VerifyOtpDto,
   VerifyOtpResponseDto,
   UpdateProfileDto,
+  DeleteAccountDto,
+  DeleteAccountResponseDto,
+  ActiveObligationsResponseDto,
 } from './dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
@@ -36,6 +41,10 @@ export class AuthService {
     private authSessionRepository: Repository<AuthSessionEntity>,
     @InjectRepository(ProfileEntity)
     private profileRepository: Repository<ProfileEntity>,
+    @InjectRepository(ProjectEntity)
+    private projectRepository: Repository<ProjectEntity>,
+    @InjectRepository(WalletEntity)
+    private walletRepository: Repository<WalletEntity>,
     private jwtService: JwtService,
     private configService: ConfigService,
     private emailService: EmailService,
@@ -128,7 +137,6 @@ export class AuthService {
     try {
       await this.emailVerificationService.sendVerificationEmail(savedUser.id, savedUser.email);
     } catch (error) {
-      console.error('Failed to send verification email:', error);
       // Don't fail registration if email fails, user can resend later
     }
 
@@ -142,7 +150,7 @@ export class AuthService {
         domainCount: domainIds?.length || 0,
         skillCount: skillIds?.length || 0,
       })
-      .catch(err => console.error('Failed to log registration:', err));
+      .catch(() => {});
 
     // Return user data (không bao gồm password)
     return this.mapToAuthResponse(savedUser);
@@ -173,6 +181,15 @@ export class AuthService {
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
       throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+    }
+
+    // Check user status
+    if (user.status === UserStatus.DELETED) {
+      throw new UnauthorizedException('This account has been deleted');
+    }
+
+    if (user.isBanned) {
+      throw new UnauthorizedException('This account has been banned. Please contact support.');
     }
 
     // Check if email is verified
@@ -209,7 +226,7 @@ export class AuthService {
         { success: true, userAgent, ipAddress },
         { ip: ipAddress, headers: { 'user-agent': userAgent } },
       )
-      .catch((err) => console.error('Lỗi ghi audit log:', err));
+      .catch(() => {});
 
     return {
       user: this.mapToAuthResponse(user),
@@ -391,36 +408,30 @@ export class AuthService {
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto> {
     const { email } = forgotPasswordDto;
 
-    // 1. Tìm user theo email
+    // 1. Find user by email
     const user = await this.userRepository.findOne({
       where: { email },
     });
 
-    if (!user) {
-      // Security: Không tiết lộ email có tồn tại hay không
-      return {
-        message: 'If the email exists, you will receive an OTP code',
-        email: this.emailService.maskEmail(email),
-        expiresIn: 300,
-      };
+    // Reject non-existent, deleted, or banned accounts immediately
+    if (!user || user.status === UserStatus.DELETED || user.isBanned) {
+      throw new BadRequestException('Email does not exist');
     }
 
     // 2. Generate 6-digit OTP
     const otp = this.emailService.generateOTP();
     const otpExpires = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    // 3. Lưu OTP vào database (plain text, short-lived)
+    // 3. Save OTP to database (plain text, short-lived)
     await this.userRepository.update(user.id, {
       resetPasswordOtp: otp,
       resetPasswordOtpExpires: otpExpires,
     });
 
-    // 4. Gửi OTP qua Email
+    // 4. Send OTP via Email
     try {
       await this.emailService.sendOTP(email, otp);
-      console.log(`✅ OTP sent successfully to: ${email}`);
     } catch (error) {
-      console.error(`❌ Failed to send OTP to ${email}:`, error);
       // Continue execution even if email fails
     }
 
@@ -441,7 +452,8 @@ export class AuthService {
       where: { email },
     });
 
-    if (!user || !user.resetPasswordOtp || !user.resetPasswordOtpExpires) {
+    // Return generic error for deleted/banned/non-existent accounts
+    if (!user || user.status === UserStatus.DELETED || user.isBanned || !user.resetPasswordOtp || !user.resetPasswordOtpExpires) {
       return {
         message: 'Invalid OTP code',
         isValid: false,
@@ -481,7 +493,8 @@ export class AuthService {
       where: { email },
     });
 
-    if (!user || !user.resetPasswordOtp || !user.resetPasswordOtpExpires) {
+    // Return generic error for deleted/banned/non-existent accounts
+    if (!user || user.status === UserStatus.DELETED || user.isBanned || !user.resetPasswordOtp || !user.resetPasswordOtpExpires) {
       throw new UnauthorizedException('Invalid or expired OTP code');
     }
 
@@ -492,7 +505,7 @@ export class AuthService {
 
     // 4. Verify OTP (plain text comparison)
     if (otp !== user.resetPasswordOtp) {
-      throw new UnauthorizedException('Mã OTP không đúng');
+      throw new UnauthorizedException('Invalid OTP code');
     }
 
     // 5. Hash new password
@@ -510,8 +523,6 @@ export class AuthService {
       { userId: user.id, isRevoked: false },
       { isRevoked: true, revokedAt: new Date() },
     );
-
-    console.log(`✅ Password reset successful for user: ${user.email}`);
 
     return {
       message: 'Password reset successful. Please login again.',
@@ -697,6 +708,162 @@ export class AuthService {
       throw new Error('User not found after update');
     }
     return this.mapToAuthResponse(updatedUser);
+  }
+
+  /**
+   * Check active obligations before account deletion
+   */
+  async checkActiveObligations(userId: string): Promise<{
+    hasObligations: boolean;
+    activeProjects: number;
+    walletBalance: number;
+  }> {
+    // Check for active projects (as client, broker, or freelancer)
+    const activeStatuses = [
+      ProjectStatus.INITIALIZING,
+      ProjectStatus.PLANNING,
+      ProjectStatus.IN_PROGRESS,
+      ProjectStatus.TESTING,
+      ProjectStatus.DISPUTED,
+    ];
+
+    const activeProjectsCount = await this.projectRepository.count({
+      where: [
+        { clientId: userId, status: In(activeStatuses) },
+        { brokerId: userId, status: In(activeStatuses) },
+        { freelancerId: userId, status: In(activeStatuses) },
+      ],
+    });
+
+    // Check wallet balance
+    const wallet = await this.walletRepository.findOne({
+      where: { userId },
+    });
+
+    const walletBalance = wallet ? Number(wallet.balance) + Number(wallet.pendingBalance) : 0;
+
+    return {
+      hasObligations: activeProjectsCount > 0 || walletBalance > 0,
+      activeProjects: activeProjectsCount,
+      walletBalance,
+    };
+  }
+
+  /**
+   * Delete user account after verification
+   */
+  async deleteAccount(
+    userId: string,
+    deleteAccountDto: DeleteAccountDto,
+  ): Promise<DeleteAccountResponseDto> {
+    const user = await this.userRepository.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    // Check if user is already deleted
+    if (user.status === UserStatus.DELETED) {
+      throw new BadRequestException('This account has already been deleted');
+    }
+
+    // Verify password
+    if (!user.passwordHash) {
+      throw new BadRequestException('This account does not have a password');
+    }
+
+    const isPasswordValid = await bcrypt.compare(
+      deleteAccountDto.password,
+      user.passwordHash,
+    );
+
+    if (!isPasswordValid) {
+      throw new UnauthorizedException('Incorrect password');
+    }
+
+    // Check for active obligations
+    const obligations = await this.checkActiveObligations(userId);
+
+    if (obligations.hasObligations) {
+      throw new BadRequestException({
+        message: 'Cannot delete account while having active projects or wallet balance',
+        activeProjects: obligations.activeProjects,
+        walletBalance: obligations.walletBalance,
+      });
+    }
+
+    // Revoke all auth sessions
+    await this.authSessionRepository.update(
+      { userId, isRevoked: false },
+      { isRevoked: true, revokedAt: new Date() },
+    );
+
+    // Store original data for audit log before anonymization
+    const originalEmail = user.email;
+    const originalFullName = user.fullName;
+    const originalRole = user.role;
+
+    // Generate unique identifier for anonymization
+    const anonymousId = randomUUID();
+    const deletedAt = new Date();
+
+    // Soft delete with anonymization
+    await this.userRepository.update(
+      { id: userId },
+      {
+        status: UserStatus.DELETED,
+        deletedAt: deletedAt,
+        deletedReason: deleteAccountDto.reason || 'User requested account deletion',
+        email: `deleted_${anonymousId}@system.local`,
+        phoneNumber: '', // Anonymize phone number
+        fullName: 'Deleted User',
+        passwordHash: '', // Clear password for security
+        isVerified: false,
+        // Clear all auth tokens for security
+        emailVerificationToken: undefined,
+        emailVerificationExpires: undefined,
+        resetPasswordOtp: undefined,
+        resetPasswordOtpExpires: undefined,
+      },
+    );
+
+    // Anonymize profile data
+    await this.profileRepository.update(
+      { userId },
+      {
+        bio: '',
+        linkedinUrl: '',
+        cvUrl: '',
+        avatarUrl: '',
+        portfolioLinks: [],
+      },
+    );
+
+    // Log the account deletion
+    this.auditLogsService
+      .log({
+        actorId: userId,
+        action: 'ACCOUNT_DELETED',
+        entityType: 'USER',
+        entityId: userId,
+        oldData: {
+          email: originalEmail,
+          fullName: originalFullName,
+          role: originalRole,
+        },
+        newData: {
+          status: UserStatus.DELETED,
+          deletedAt: deletedAt.toISOString(),
+          anonymizedEmail: `deleted_${anonymousId}@system.local`,
+        },
+      })
+      .catch(() => {});
+
+    return {
+      message: 'Account has been deleted successfully',
+    };
   }
 
   private mapToAuthResponse(user: UserEntity): AuthResponseDto {

@@ -97,7 +97,6 @@ export function GoogleCompletePage() {
       toast.success('Account created successfully!');
       navigate(ROUTES.DASHBOARD);
     } catch (error: any) {
-      console.error('Complete signup error:', error);
       const errorMessage = error.response?.data?.message || 'Failed to complete signup. Please try again.';
       toast.error(errorMessage);
     } finally {

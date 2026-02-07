@@ -72,7 +72,6 @@ export function VerifyEmailPage() {
       setErrorMessage('');
       setResendEmail('');
     } catch (error: any) {
-      console.error('Resend email error:', error);
       const errorMsg = error.response?.data?.message || 'Failed to resend email. Please try again later.';
       toast.error(errorMsg);
     } finally {

@@ -108,8 +108,6 @@ export function SignInPage({
         }
       }
     } catch (error: any) {
-      console.error("Sign in error:", error);
-
       // Check if error is due to unverified email
       if (error.response?.data?.error === 'EMAIL_NOT_VERIFIED') {
         const email = error.response?.data?.email || formData.email;

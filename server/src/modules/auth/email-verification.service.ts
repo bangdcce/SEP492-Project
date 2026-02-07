@@ -110,9 +110,7 @@ export class EmailVerificationService {
 
     try {
       await this.transporter.sendMail(mailOptions);
-      console.log(`Verification email sent to ${email}`);
     } catch (error) {
-      console.error('Failed to send verification email:', error);
       throw new BadRequestException('Failed to send verification email');
     }
   }
@@ -131,6 +129,11 @@ export class EmailVerificationService {
 
     if (!user) {
       throw new BadRequestException('Invalid or expired verification token');
+    }
+
+    // Check if account is deleted
+    if (user.status === 'DELETED') {
+      throw new BadRequestException('This account has been deleted');
     }
 
     // Check if already verified

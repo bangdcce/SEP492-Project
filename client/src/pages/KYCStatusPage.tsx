@@ -57,7 +57,6 @@ export default function KYCStatusPage() {
         verifiedAt: data.verifiedAt,
       });
     } catch (error) {
-      console.error('Error fetching KYC status:', error);
       setKycData({ status: 'NOT_SUBMITTED' });
     } finally {
       setLoading(false);
