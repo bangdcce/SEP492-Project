@@ -20,6 +20,11 @@ export enum UserRole {
   FREELANCER = 'FREELANCER',
 }
 
+export enum UserStatus {
+  ACTIVE = 'ACTIVE',
+  DELETED = 'DELETED',
+}
+
 export enum BadgeType {
   NEW = 'NEW',
   VERIFIED = 'VERIFIED',
@@ -118,6 +123,20 @@ export class UserEntity {
 
   @Column({ type: 'uuid', nullable: true })
   bannedBy: string;
+
+  // --- SOFT DELETE FIELDS ---
+  @Column({
+    type: 'enum',
+    enum: UserStatus,
+    default: UserStatus.ACTIVE,
+  })
+  status: UserStatus;
+
+  @Column({ type: 'timestamp', nullable: true })
+  deletedAt: Date;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  deletedReason: string;
 
   @CreateDateColumn()
   createdAt: Date;

@@ -5,6 +5,7 @@ export * from './refresh-token.dto';
 export * from './secure-login-response.dto';
 export * from './password-reset.dto';
 export * from './update-profile.dto';
+export * from './delete-account.dto';
 // export * from './complete-google-signup.dto'; // TEMPORARILY DISABLED
 
 // Export individual classes from password-reset

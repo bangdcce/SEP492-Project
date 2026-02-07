@@ -51,7 +51,6 @@ export default function AdminUsersPage() {
   const [sendEmail, setSendEmail] = useState(true);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const token = getStoredItem('access_token');
 
   // Fetch users
   useEffect(() => {
@@ -72,9 +71,7 @@ export default function AdminUsersPage() {
       if (banFilter) params.append('isBanned', banFilter);
 
       const response = await fetch(`${API_URL}/users?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        credentials: 'include',
       });
 
       if (!response.ok) throw new Error('Failed to fetch users');
@@ -92,9 +89,7 @@ export default function AdminUsersPage() {
   const fetchStats = async () => {
     try {
       const response = await fetch(`${API_URL}/users/admin/statistics`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        credentials: 'include',
       });
 
       if (!response.ok) throw new Error('Failed to fetch stats');
@@ -115,9 +110,9 @@ export default function AdminUsersPage() {
     try {
       const response = await fetch(`${API_URL}/users/${selectedUser.id}/ban`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ reason: banReason }),
       });
@@ -142,9 +137,9 @@ export default function AdminUsersPage() {
     try {
       const response = await fetch(`${API_URL}/users/${selectedUser.id}/unban`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ reason: unbanReason }),
       });
@@ -169,9 +164,9 @@ export default function AdminUsersPage() {
     try {
       const response = await fetch(`${API_URL}/users/${selectedUser.id}/reset-password`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ newPassword, sendEmail }),
       });

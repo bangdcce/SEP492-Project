@@ -196,7 +196,7 @@ export class AuthController {
     // Set access token as httpOnly cookie
     response.cookie('accessToken', result.accessToken, {
       httpOnly: true, // Prevent XSS attacks
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
       sameSite: 'lax', // CSRF protection while allowing cross-site navigation
       maxAge: 15 * 60 * 1000, // 15 minutes (same as JWT expiry)
       path: '/', // Available for all routes
@@ -205,7 +205,7 @@ export class AuthController {
     // Set refresh token as httpOnly cookie
     response.cookie('refreshToken', result.refreshToken, {
       httpOnly: true, // Prevent XSS attacks
-      secure: process.env.NODE_ENV === 'production', // HTTPS only in production
+      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
       sameSite: 'lax', // CSRF protection while allowing cross-site navigation
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/', // Available for all routes
@@ -399,7 +399,7 @@ export class AuthController {
     // Set new access token as httpOnly cookie
     response.cookie('accessToken', tokens.accessToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
       sameSite: 'lax',
       maxAge: 15 * 60 * 1000, // 15 minutes
       path: '/',
@@ -408,7 +408,7 @@ export class AuthController {
     // Set new refresh token as httpOnly cookie
     response.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
+      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
       sameSite: 'lax',
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
       path: '/',
@@ -437,11 +437,11 @@ export class AuthController {
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'Mã OTP đã được gửi' },
+        message: { type: 'string', example: 'OTP code has been sent' },
         data: {
           type: 'object',
           properties: {
-            message: { type: 'string', example: 'Mã OTP đã được gửi đến số điện thoại của bạn' },
+            message: { type: 'string', example: 'OTP code has been sent to your phone number' },
             phoneNumber: { type: 'string', example: '0123***789' },
             expiresIn: { type: 'number', example: 300 },
           },
@@ -457,7 +457,7 @@ export class AuthController {
     const result = await this.authService.forgotPassword(forgotPasswordDto);
 
     return {
-      message: 'Mã OTP đã được gửi',
+      message: 'OTP code has been sent',
       data: result,
     };
   }
@@ -529,6 +529,91 @@ export class AuthController {
       message: 'Đặt lại mật khẩu thành công',
       data: result,
     };
+  }
+
+  // ==========================================
+  // Delete Account Routes
+  // ==========================================
+
+  @Get('check-obligations')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Check obligations before deleting account',
+    description: 'Check if user has active projects or wallet balance',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Returns obligation information',
+    schema: {
+      type: 'object',
+      properties: {
+        hasObligations: { type: 'boolean', example: false },
+        activeProjects: { type: 'number', example: 0 },
+        walletBalance: { type: 'number', example: 0 },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Invalid or expired token' })
+  async checkObligations(@Req() req: AuthRequest): Promise<{
+    hasObligations: boolean;
+    activeProjects: number;
+    walletBalance: number;
+  }> {
+    return await this.authService.checkActiveObligations(req.user.id);
+  }
+
+  @Post('delete-account')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Delete account',
+    description: 'Permanently delete user account after password verification. Cannot delete if there are active projects or wallet balance.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['password'],
+      properties: {
+        password: {
+          type: 'string',
+          description: 'Current password to confirm identity',
+          example: 'currentPassword123',
+        },
+      },
+    },
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Account has been deleted successfully',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Account has been deleted successfully' },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Incorrect password' })
+  @ApiBadRequestResponse({ description: 'Cannot delete account while having obligations' })
+  async deleteAccount(
+    @Req() req: AuthRequest,
+    @Body(ValidationPipe) deleteAccountDto: { password: string },
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<{ message: string }> {
+    const result = await this.authService.deleteAccount(req.user.id, { password: deleteAccountDto.password });
+
+    // Clear both access token and refresh token cookies
+    response.clearCookie('accessToken', {
+      path: '/',
+      httpOnly: true,
+    });
+    response.clearCookie('refreshToken', {
+      path: '/',
+      httpOnly: true,
+    });
+
+    return result;
   }
 
   // ==========================================

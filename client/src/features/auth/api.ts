@@ -123,3 +123,25 @@ export const verifyEmail = async (token: string): Promise<{ message: string; ema
 export const resendVerificationEmail = async (email: string): Promise<{ message: string }> => {
   return await apiClient.post<{ message: string }>('/auth/resend-verification', { email });
 };
+
+/**
+ * Check active obligations before account deletion
+ */
+export const checkObligations = async (): Promise<{
+  hasObligations: boolean;
+  activeProjects: number;
+  walletBalance: number;
+}> => {
+  return await apiClient.get<{
+    hasObligations: boolean;
+    activeProjects: number;
+    walletBalance: number;
+  }>('/auth/check-obligations');
+};
+
+/**
+ * Delete user account
+ */
+export const deleteAccount = async (password: string): Promise<{ message: string }> => {
+  return await apiClient.post<{ message: string }>('/auth/delete-account', { password });
+};

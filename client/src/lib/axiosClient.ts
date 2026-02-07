@@ -1,23 +1,19 @@
 
 import axios from "axios";
-import { API_CONFIG, STORAGE_KEYS } from "@/constants";
-import { getStoredItem } from "@/shared/utils/storage";
+import { API_CONFIG } from "@/constants";
 
 const axiosClient = axios.create({
   baseURL: API_CONFIG.BASE_URL,
   timeout: API_CONFIG.TIMEOUT,
+  withCredentials: true, // Send httpOnly cookies with requests
   headers: {
     "Content-Type": "application/json",
   },
 });
 
-// Interceptor to add auth token
+// Request interceptor (no longer needed for token since we use httpOnly cookies)
 axiosClient.interceptors.request.use(
   (config) => {
-    const token = getStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
     return config;
   },
   (error) => {

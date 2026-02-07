@@ -63,7 +63,6 @@ export default function FreelancerOnboardingPage() {
         setCvPreview(userData.cvUrl);
       }
     } catch (error: any) {
-      console.error('Failed to load profile:', error);
       toast.error('Failed to load profile');
     } finally {
       setLoading(false);
@@ -181,7 +180,6 @@ export default function FreelancerOnboardingPage() {
         navigate(ROUTES.FREELANCER_DASHBOARD);
       }, 1500);
     } catch (error: any) {
-      console.error('Failed to update profile:', error);
       const errorMessage = error.response?.data?.message || 'Failed to update profile';
       toast.error(errorMessage);
     } finally {

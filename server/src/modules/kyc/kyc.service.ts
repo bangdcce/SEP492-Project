@@ -60,46 +60,43 @@ export class KycService {
     }
 
     // Step 1: AI Verification BEFORE uploading
-    console.log('\n=================================');
-    console.log('🤖 [AI VERIFICATION] Starting...');
-    console.log('📄 Processing 3 documents (Front, Back, Selfie)');
-    console.log('=================================\n');
-    
     const aiVerification = await this.fptAiService.verifyKyc(
       files.idCardFront.buffer,
       files.idCardBack.buffer,
       files.selfie.buffer,
     );
 
-    console.log('\n=================================');
-    console.log('✅ [AI RESULT] Verification Complete!');
-    console.log('📊 Decision:', aiVerification.decision);
-    console.log('📈 Confidence:', `${(aiVerification.confidence * 100).toFixed(2)}%`);
-    if (aiVerification.issues?.length > 0) {
-      console.log('⚠️  Issues:', aiVerification.issues.join(', '));
-    }
-    console.log('=================================\n');
+    // Step 2: Validate user input against AI extracted data
+    const dataValidation = this.validateDataMatch(dto, aiVerification.extractedData);
+    
+    // Combine AI issues with data validation issues
+    const allIssues = [
+      ...(aiVerification.issues || []),
+      ...dataValidation.issues,
+    ];
 
-    // Step 2: Determine KYC status based on AI decision
+    // Step 3: Determine KYC status based on AI decision AND data matching
     let kycStatus: KycStatus;
     let autoApproved = false;
-    const aiIssues = aiVerification.issues || [];
-    const hasUnreadableIssue = aiIssues.some(issue =>
+    const hasUnreadableIssue = allIssues.some(issue =>
       /could not extract|cannot extract|unable to extract/i.test(issue),
     );
     
-    if (aiVerification.decision === 'AUTO_APPROVED') {
+    // Critical mismatch = auto-reject or manual review
+    if (dataValidation.criticalMismatch) {
+      kycStatus = KycStatus.PENDING; // Send to admin for review
+      allIssues.unshift('⚠️ CRITICAL: User-entered data does not match ID card');
+    } else if (aiVerification.decision === 'AUTO_APPROVED' && dataValidation.matchScore >= 0.8) {
+      // Only auto-approve if both AI and data match are good
       kycStatus = KycStatus.APPROVED;
       autoApproved = true;
-    } else if (aiVerification.decision === 'AUTO_REJECTED') {
-      // If AI cannot read key fields, send to manual review instead of hard reject
-      kycStatus = hasUnreadableIssue ? KycStatus.PENDING : KycStatus.REJECTED;
+    } else if (aiVerification.decision === 'AUTO_REJECTED' && !hasUnreadableIssue) {
+      kycStatus = KycStatus.REJECTED;
     } else {
       kycStatus = KycStatus.PENDING; // Needs admin review
     }
 
     // Step 3: Upload encrypted files to Supabase Storage
-    console.log('📤 [UPLOAD] Encrypting and uploading documents to Supabase...');
     const [documentFrontUrl, documentBackUrl, selfieUrl] = await Promise.all([
       uploadEncryptedFile(files.idCardFront.buffer, userId, 'id-front', files.idCardFront.mimetype),
       uploadEncryptedFile(files.idCardBack.buffer, userId, 'id-back', files.idCardBack.mimetype),
@@ -121,26 +118,14 @@ export class KycService {
       documentBackUrl,
       selfieUrl,
       status: kycStatus,
-      rejectionReason: aiVerification.issues?.join(', '), // Store AI issues if any
+      rejectionReason: allIssues.length > 0 ? allIssues.join(', ') : undefined, // Store all issues
     });
 
     const savedKyc = await this.kycRepo.save(kyc);
-    console.log('💾 [DATABASE] KYC record saved successfully');
 
     // Step 5: If auto-approved by AI, update user verification status immediately
     if (autoApproved) {
       await this.userRepo.update(userId, { isVerified: true });
-      console.log('\n🎉 ✅ [SUCCESS] KYC AUTO-APPROVED by AI!');
-      console.log('User verification status updated.\n');
-    } else if (kycStatus === KycStatus.REJECTED) {
-      console.log('\n❌ [REJECTED] KYC auto-rejected by AI');
-      console.log('Reason:', aiIssues.join(', ') || 'Quality issues detected\n');
-    } else if (hasUnreadableIssue) {
-      console.log('\n⏳ [PENDING] AI could not extract key fields. Sent for manual review');
-      console.log('Issues:', aiIssues.join(', ') || 'Unreadable fields\n');
-    } else {
-      console.log('\n⏳ [PENDING] KYC requires manual admin review');
-      console.log('Confidence too low for auto-decision\n');
     }
 
     // Generate signed URLs for immediate response (expire in 1 hour)
@@ -158,8 +143,19 @@ export class KycService {
       aiVerification: {
         decision: aiVerification.decision,
         confidence: aiVerification.confidence,
-        extractedData: aiVerification.extractedData,
+        // Redact PII from extractedData - only show field extraction status
+        extractedData: aiVerification.extractedData ? {
+          fullName: aiVerification.extractedData.fullName ? '[EXTRACTED]' : undefined,
+          idNumber: aiVerification.extractedData.idNumber ? '[EXTRACTED]' : undefined,
+          dateOfBirth: aiVerification.extractedData.dateOfBirth ? '[EXTRACTED]' : undefined,
+          address: aiVerification.extractedData.address ? '[EXTRACTED]' : undefined,
+        } : undefined,
         issues: aiVerification.issues,
+      },
+      dataValidation: {
+        matchScore: dataValidation.matchScore,
+        criticalMismatch: dataValidation.criticalMismatch,
+        issues: dataValidation.issues,
       },
     };
   }
@@ -187,11 +183,25 @@ export class KycService {
       getSignedUrl(kyc.selfieUrl, 3600),
     ]);
 
+    // Redact PII from user-facing response - only show status info
     return {
-      ...kyc,
+      id: kyc.id,
+      userId: kyc.userId,
+      status: kyc.status,
+      documentType: kyc.documentType,
       documentFrontUrl: frontUrl,
       documentBackUrl: backUrl,
       selfieUrl: selfieUrl,
+      // Mask sensitive fields
+      fullNameOnDocument: kyc.fullNameOnDocument ? '[SUBMITTED]' : undefined,
+      documentNumber: kyc.documentNumber ? '[SUBMITTED]' : undefined,
+      dateOfBirth: kyc.dateOfBirth ? '[SUBMITTED]' : undefined,
+      address: kyc.address ? '[SUBMITTED]' : undefined,
+      // Include non-sensitive metadata
+      rejectionReason: kyc.rejectionReason,
+      createdAt: kyc.createdAt,
+      updatedAt: kyc.updatedAt,
+      reviewedAt: kyc.reviewedAt,
     };
   }
 
@@ -451,5 +461,192 @@ export class KycService {
 
     return !!kyc;
   }
-}
 
+  // ============================================================
+  // DATA MATCHING VALIDATION - Compare user input with AI OCR
+  // ============================================================
+
+  /**
+   * Normalize string for comparison (remove accents, lowercase, trim)
+   */
+  private normalizeString(str: string | undefined | null): string {
+    if (!str) return '';
+    return str
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '') // Remove Vietnamese accents
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, '') // Remove special chars
+      .trim();
+  }
+
+  /**
+   * Calculate similarity between two strings (0-1)
+   */
+  private calculateSimilarity(str1: string, str2: string): number {
+    const s1 = this.normalizeString(str1);
+    const s2 = this.normalizeString(str2);
+    
+    if (s1 === s2) return 1;
+    if (!s1 || !s2) return 0;
+
+    // Levenshtein distance-based similarity for typos
+    const len1 = s1.length;
+    const len2 = s2.length;
+    const maxLen = Math.max(len1, len2);
+    
+    if (maxLen === 0) return 1;
+
+    // Simple character match ratio
+    let matches = 0;
+    const shorter = len1 < len2 ? s1 : s2;
+    const longer = len1 < len2 ? s2 : s1;
+    
+    for (let i = 0; i < shorter.length; i++) {
+      if (longer.includes(shorter[i])) {
+        matches++;
+      }
+    }
+
+    // Also check if one string contains the other
+    if (longer.includes(shorter) || shorter.includes(longer)) {
+      return 0.9;
+    }
+
+    return matches / maxLen;
+  }
+
+  /**
+   * Normalize date to YYYY-MM-DD format for comparison
+   * Handle Vietnamese DD/MM/YYYY format explicitly before falling back to ISO
+   */
+  private normalizeDateString(dateStr: string | undefined | null): string {
+    if (!dateStr) return '';
+    
+    try {
+      const trimmed = dateStr.trim();
+      
+      // 1. Handle DD/MM/YYYY or DD-MM-YYYY format (common in Vietnam) FIRST
+      const vnMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if (vnMatch) {
+        const [, day, month, year] = vnMatch;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+
+      // 2. Handle YYYY-MM-DD (ISO format)
+      const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+      if (isoMatch) {
+        const [, year, month, day] = isoMatch;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+
+      // 3. Handle YYYY/MM/DD
+      const isoSlashMatch = trimmed.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+      if (isoSlashMatch) {
+        const [, year, month, day] = isoSlashMatch;
+        return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+      }
+
+      // 4. Only try Date parsing for ISO-like formats (avoid MM/DD/YYYY ambiguity)
+      if (/^\d{4}-\d{2}-\d{2}T/.test(trimmed)) {
+        const date = new Date(trimmed);
+        if (!isNaN(date.getTime())) {
+          return date.toISOString().split('T')[0];
+        }
+      }
+
+      return trimmed;
+    } catch {
+      return dateStr || '';
+    }
+  }
+
+  /**
+   * Validate user input against AI extracted data
+   * Returns issues list and match score
+   */
+  private validateDataMatch(
+    dto: SubmitKycDto,
+    extractedData: any,
+  ): { issues: string[]; matchScore: number; criticalMismatch: boolean } {
+    const issues: string[] = [];
+    let totalChecks = 0;
+    let matches = 0;
+    let criticalMismatch = false;
+
+    // If no extracted data available, cannot validate - require manual review
+    if (!extractedData || (!extractedData.fullName && !extractedData.idNumber && !extractedData.dateOfBirth)) {
+      issues.push('Cannot validate: AI did not extract data from documents. Manual review required.');
+      return {
+        issues,
+        matchScore: 0.5, // Low score to trigger manual review
+        criticalMismatch: false, // Not a mismatch, just unable to verify
+      };
+    }
+
+    // 1. Compare Full Name (CRITICAL)
+    if (extractedData?.fullName) {
+      totalChecks++;
+      const nameSimilarity = this.calculateSimilarity(
+        dto.fullNameOnDocument,
+        extractedData.fullName,
+      );
+      
+      if (nameSimilarity >= 0.8) {
+        matches++;
+      } else if (nameSimilarity >= 0.6) {
+        matches += 0.5;
+        issues.push('Name partially matches with ID document');
+      } else {
+        criticalMismatch = true;
+        issues.push('Name does not match ID document');
+      }
+    }
+
+    // 2. Compare ID Number (CRITICAL)
+    if (extractedData?.idNumber) {
+      totalChecks++;
+      const inputId = this.normalizeString(dto.documentNumber);
+      const extractedId = this.normalizeString(extractedData.idNumber);
+      
+      if (inputId === extractedId) {
+        matches++;
+      } else if (inputId.includes(extractedId) || extractedId.includes(inputId)) {
+        matches += 0.5;
+        issues.push('ID number partially matches with ID document');
+      } else {
+        criticalMismatch = true;
+        issues.push('ID number does not match ID document');
+      }
+    }
+
+    // 3. Compare Date of Birth (CRITICAL)
+    if (extractedData?.dateOfBirth) {
+      totalChecks++;
+      const inputDob = this.normalizeDateString(dto.dateOfBirth);
+      const extractedDob = this.normalizeDateString(extractedData.dateOfBirth);
+      
+      if (inputDob === extractedDob) {
+        matches++;
+      } else {
+        criticalMismatch = true;
+        issues.push('Date of birth does not match ID document');
+      }
+    }
+
+    // 4. Compare Address (optional, not critical)
+    if (extractedData?.address && dto.address) {
+      totalChecks++;
+      const addrSimilarity = this.calculateSimilarity(dto.address, extractedData.address);
+      
+      if (addrSimilarity >= 0.5) {
+        matches++;
+      } else {
+        issues.push('Address may not match ID document');
+      }
+    }
+
+    const matchScore = totalChecks > 0 ? matches / totalChecks : 1;
+
+    return { issues, matchScore, criticalMismatch };
+  }
+}

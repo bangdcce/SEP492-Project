@@ -72,7 +72,6 @@ export function VerifyEmailPage() {
       setErrorMessage('');
       setResendEmail('');
     } catch (error: any) {
-      console.error('Resend email error:', error);
       const errorMsg = error.response?.data?.message || 'Failed to resend email. Please try again later.';
       toast.error(errorMsg);
     } finally {
@@ -102,8 +101,8 @@ export function VerifyEmailPage() {
   }, [token, pendingEmail]);
 
   return (
-    <AuthLayout title="Xác thực Email">
-      <div className="flex items-center justify-center min-h-screen py-12 px-4">
+    <AuthLayout title="Verify your email" subtitle="Confirm your email address to continue.">
+      <div className="flex items-start justify-center min-h-[60vh] pt-8 px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}

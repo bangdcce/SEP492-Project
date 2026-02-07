@@ -19,11 +19,13 @@ import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
 import { SkillDomainEntity } from '../../database/entities/skill-domain.entity';
 import { SkillEntity } from '../../database/entities/skill.entity';
+import { ProjectEntity } from '../../database/entities/project.entity';
+import { WalletEntity } from '../../database/entities/wallet.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity, AuthSessionEntity, ProfileEntity, SkillDomainEntity, SkillEntity]),
+    TypeOrmModule.forFeature([UserEntity, AuthSessionEntity, ProfileEntity, SkillDomainEntity, SkillEntity, ProjectEntity, WalletEntity]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     AuditLogsModule, // Import để dùng AuditLogsService
     JwtModule.registerAsync({
