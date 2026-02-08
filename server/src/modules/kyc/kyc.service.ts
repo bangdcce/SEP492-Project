@@ -474,6 +474,8 @@ export class KycService {
     return str
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '') // Remove Vietnamese accents
+      .replace(/đ/g, 'd') // Vietnamese đ → d
+      .replace(/Đ/g, 'd') // Vietnamese Đ → d
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '') // Remove special chars
       .trim();

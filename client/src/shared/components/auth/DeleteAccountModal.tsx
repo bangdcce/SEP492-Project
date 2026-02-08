@@ -173,10 +173,6 @@ export function DeleteAccountModal({ isOpen, onClose, userEmail }: DeleteAccount
                         <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
                         <span>Transaction history and reviews will be hidden</span>
                       </li>
-                      <li className="flex items-start gap-2">
-                        <XCircle className="w-4 h-4 shrink-0 mt-0.5" />
-                        <span>Your email cannot be reused for registration</span>
-                      </li>
                     </ul>
                   </div>
                 </div>

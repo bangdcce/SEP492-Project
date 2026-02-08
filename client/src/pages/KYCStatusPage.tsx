@@ -21,7 +21,7 @@ interface KYCData {
   status: KYCStatus;
   rejectionReason?: string;
   submittedAt?: string;
-  verifiedAt?: string;
+  reviewedAt?: string;
 }
 
 export default function KYCStatusPage() {
@@ -54,7 +54,7 @@ export default function KYCStatusPage() {
         status: data.status,
         rejectionReason: data.rejectionReason,
         submittedAt: data.createdAt,
-        verifiedAt: data.verifiedAt,
+        reviewedAt: data.reviewedAt,
       });
     } catch (error) {
       setKycData({ status: 'NOT_SUBMITTED' });
@@ -205,11 +205,11 @@ export default function KYCStatusPage() {
                   })}
                 </span>
               </p>
-              {kycData?.verifiedAt && status === 'APPROVED' && (
+              {kycData?.reviewedAt && status === 'APPROVED' && (
                 <p className="mt-1">
                   Verified on:{' '}
                   <span className="font-medium">
-                    {new Date(kycData.verifiedAt).toLocaleDateString('en-US', {
+                    {new Date(kycData.reviewedAt).toLocaleDateString('en-US', {
                       year: 'numeric',
                       month: 'long',
                       day: 'numeric',

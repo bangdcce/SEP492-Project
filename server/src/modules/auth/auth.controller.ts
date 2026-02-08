@@ -47,6 +47,7 @@ import {
   VerifyOtpDto,
   VerifyOtpResponseDto,
   UpdateProfileDto,
+  DeleteAccountDto,
   // CompleteGoogleSignupDto
 } from './dto';
 import { UserEntity } from '../../database/entities/user.entity';
@@ -571,19 +572,7 @@ export class AuthController {
     summary: 'Delete account',
     description: 'Permanently delete user account after password verification. Cannot delete if there are active projects or wallet balance.',
   })
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['password'],
-      properties: {
-        password: {
-          type: 'string',
-          description: 'Current password to confirm identity',
-          example: 'currentPassword123',
-        },
-      },
-    },
-  })
+  @ApiBody({ type: DeleteAccountDto })
   @ApiResponse({
     status: HttpStatus.OK,
     description: 'Account has been deleted successfully',
@@ -598,10 +587,10 @@ export class AuthController {
   @ApiBadRequestResponse({ description: 'Cannot delete account while having obligations' })
   async deleteAccount(
     @Req() req: AuthRequest,
-    @Body(ValidationPipe) deleteAccountDto: { password: string },
+    @Body(ValidationPipe) deleteAccountDto: DeleteAccountDto,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{ message: string }> {
-    const result = await this.authService.deleteAccount(req.user.id, { password: deleteAccountDto.password });
+    const result = await this.authService.deleteAccount(req.user.id, deleteAccountDto);
 
     // Clear both access token and refresh token cookies
     response.clearCookie('accessToken', {

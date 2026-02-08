@@ -65,9 +65,17 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
   const userName = user.fullName || "Staff User";
   const userRole = user.role || "STAFF";
   const userAvatar = user.avatarUrl;
+  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-  const handleLogout = () => {
-    // Tokens are in httpOnly cookies (cleared by backend logout endpoint)
+  const handleLogout = async () => {
+    try {
+      await fetch(`${baseUrl}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+      // Continue with logout even if request fails
+    }
     removeStoredItem(STORAGE_KEYS.USER);
     navigate(ROUTES.LOGIN);
   };

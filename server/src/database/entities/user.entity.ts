@@ -128,6 +128,7 @@ export class UserEntity {
   @Column({
     type: 'enum',
     enum: UserStatus,
+    enumName: 'users_status_enum',
     default: UserStatus.ACTIVE,
   })
   status: UserStatus;

@@ -4,10 +4,10 @@ export class AddSoftDeleteFieldsToUsers1770400000000 implements MigrationInterfa
   name = 'AddSoftDeleteFieldsToUsers1770400000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Create UserStatus enum type
+    // Create UserStatus enum type (follows users_<column>_enum convention)
     await queryRunner.query(`
       DO $$ BEGIN
-        CREATE TYPE "user_status_enum" AS ENUM ('ACTIVE', 'DELETED');
+        CREATE TYPE "users_status_enum" AS ENUM ('ACTIVE', 'DELETED');
       EXCEPTION
         WHEN duplicate_object THEN null;
       END $$;
@@ -16,7 +16,7 @@ export class AddSoftDeleteFieldsToUsers1770400000000 implements MigrationInterfa
     // Add status column with default ACTIVE
     await queryRunner.query(`
       ALTER TABLE "users" 
-      ADD COLUMN IF NOT EXISTS "status" "user_status_enum" NOT NULL DEFAULT 'ACTIVE'
+      ADD COLUMN IF NOT EXISTS "status" "users_status_enum" NOT NULL DEFAULT 'ACTIVE'
     `);
 
     // Add deletedAt column
@@ -48,6 +48,6 @@ export class AddSoftDeleteFieldsToUsers1770400000000 implements MigrationInterfa
     await queryRunner.query(`ALTER TABLE "users" DROP COLUMN IF EXISTS "deletedReason"`);
     await queryRunner.query(`ALTER TABLE "users" DROP COLUMN IF EXISTS "deletedAt"`);
     await queryRunner.query(`ALTER TABLE "users" DROP COLUMN IF EXISTS "status"`);
-    await queryRunner.query(`DROP TYPE IF EXISTS "user_status_enum"`);
+    await queryRunner.query(`DROP TYPE IF EXISTS "users_status_enum"`);
   }
 }
