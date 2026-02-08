@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { UserEntity } from '../../database/entities/user.entity';
+import { UserEntity, UserStatus } from '../../database/entities/user.entity';
 import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { ConfigService } from '@nestjs/config';
@@ -132,7 +132,7 @@ export class EmailVerificationService {
     }
 
     // Check if account is deleted
-    if (user.status === 'DELETED') {
+    if (user.status === UserStatus.DELETED) {
       throw new BadRequestException('This account has been deleted');
     }
 
