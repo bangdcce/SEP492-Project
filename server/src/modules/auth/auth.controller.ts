@@ -257,10 +257,14 @@ export class AuthController {
     response.clearCookie('accessToken', {
       path: '/',
       httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
     });
     response.clearCookie('refreshToken', {
       path: '/',
       httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
     });
 
     return {
@@ -596,10 +600,14 @@ export class AuthController {
     response.clearCookie('accessToken', {
       path: '/',
       httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
     });
     response.clearCookie('refreshToken', {
       path: '/',
       httpOnly: true,
+      secure: true,
+      sameSite: 'lax',
     });
 
     return result;

@@ -482,7 +482,42 @@ export class KycService {
   }
 
   /**
-   * Calculate similarity between two strings (0-1)
+   * Calculate Levenshtein distance between two strings
+   */
+  private levenshteinDistance(str1: string, str2: string): number {
+    const m = str1.length;
+    const n = str2.length;
+
+    // Create a 2D array to store distances
+    const dp: number[][] = Array(m + 1)
+      .fill(null)
+      .map(() => Array(n + 1).fill(0));
+
+    // Initialize base cases
+    for (let i = 0; i <= m; i++) dp[i][0] = i;
+    for (let j = 0; j <= n; j++) dp[0][j] = j;
+
+    // Fill the dp table
+    for (let i = 1; i <= m; i++) {
+      for (let j = 1; j <= n; j++) {
+        if (str1[i - 1] === str2[j - 1]) {
+          dp[i][j] = dp[i - 1][j - 1];
+        } else {
+          dp[i][j] = 1 + Math.min(
+            dp[i - 1][j],     // deletion
+            dp[i][j - 1],     // insertion
+            dp[i - 1][j - 1], // substitution
+          );
+        }
+      }
+    }
+
+    return dp[m][n];
+  }
+
+  /**
+   * Calculate similarity between two strings using Levenshtein distance (0-1)
+   * Higher score = more similar
    */
   private calculateSimilarity(str1: string, str2: string): number {
     const s1 = this.normalizeString(str1);
@@ -491,30 +526,28 @@ export class KycService {
     if (s1 === s2) return 1;
     if (!s1 || !s2) return 0;
 
-    // Levenshtein distance-based similarity for typos
     const len1 = s1.length;
     const len2 = s2.length;
     const maxLen = Math.max(len1, len2);
     
     if (maxLen === 0) return 1;
 
-    // Simple character match ratio
-    let matches = 0;
-    const shorter = len1 < len2 ? s1 : s2;
-    const longer = len1 < len2 ? s2 : s1;
+    // Use Levenshtein distance for similarity calculation
+    const distance = this.levenshteinDistance(s1, s2);
+    const similarity = 1 - distance / maxLen;
+
+    // Containment bonus: if one string fully contains the other
+    // Only apply if the shorter string is substantial (>= 60% of longer)
+    // to avoid false positives with short substrings
+    const minLen = Math.min(len1, len2);
+    const lengthRatio = minLen / maxLen;
     
-    for (let i = 0; i < shorter.length; i++) {
-      if (longer.includes(shorter[i])) {
-        matches++;
-      }
+    if (lengthRatio >= 0.6 && (s1.includes(s2) || s2.includes(s1))) {
+      // Boost similarity but cap at 0.9 since it's not exact match
+      return Math.max(similarity, 0.85);
     }
 
-    // Also check if one string contains the other
-    if (longer.includes(shorter) || shorter.includes(longer)) {
-      return 0.9;
-    }
-
-    return matches / maxLen;
+    return similarity;
   }
 
   /**
