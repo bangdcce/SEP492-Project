@@ -56,11 +56,9 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
       setLoadingDomains(true);
       getSkillDomains()
         .then(domains => {
-          console.log('Loaded domains:', domains);
           setAvailableDomains(domains || []);
         })
         .catch(err => {
-          console.error('Failed to load domains:', err);
           toast.error('Failed to load domains');
           setAvailableDomains([]);
         })
@@ -76,7 +74,6 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
       getSkills(role)
         .then(skills => setAvailableSkills(skills || []))
         .catch(err => {
-          console.error('Failed to load skills:', err);
           toast.error('Failed to load skills');
           setAvailableSkills([]);
         })
@@ -238,9 +235,6 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
         navigate(pendingUrl);
       }
     } catch (error: any) {
-      console.error('Sign up error:', error);
-      console.error('Error response:', error.response?.data);
-
       // Handle error message (could be string, array, or object)
       let errorMessage = 'Failed to create account. Please try again.';
 

@@ -58,20 +58,10 @@ export class FptAiService {
 
     try {
       // Step 1: OCR ID card front
-      console.log('  🔍 Step 1/3: OCR scanning ID card front...');
       const frontOcr = await this.ocrIdCard(idCardFront, 'front');
-      console.log('  ✓ Front OCR completed');
       
       // Step 2: OCR ID card back
-      console.log('  🔍 Step 2/3: OCR scanning ID card back...');
       const backOcr = await this.ocrIdCard(idCardBack, 'back');
-      console.log('  ✓ Back OCR completed');
-      
-      // Step 3: Selfie (stored for manual review, not AI-processed)
-      console.log('  📸 Step 3/3: Selfie stored for manual review');
-      console.log('  ✓ All documents processed\n');
-      
-      console.log('  📊 Analyzing OCR data quality...');
       
       // Note: Selfie is uploaded but NOT verified by AI
       // FPT.AI only has OCR API, no face comparison API
@@ -85,7 +75,7 @@ export class FptAiService {
       
       // Step 5: Extract data
       const extractedData = this.extractData(frontOcr, backOcr);
-      
+
       // Step 6: Detect issues (OCR only)
       const issues = this.detectIssuesOcrOnly(frontOcr, backOcr);
 
@@ -106,10 +96,6 @@ export class FptAiService {
       };
     } catch (error) {
       this.logger.error('FPT.AI verification failed:', error);
-      console.error('❌ [FPT.AI ERROR]', error.response?.data || error.message);
-      console.error('   Status:', error.response?.status);
-      console.error('   API URL:', this.apiUrl);
-      console.error('   Has API Key:', !!this.apiKey);
       
       // Fallback to pending review if AI fails
       return {
@@ -132,8 +118,6 @@ export class FptAiService {
       contentType: 'image/jpeg'
     });
 
-    console.log(`  📤 Sending ${side} image to FPT.AI (${imageBuffer.length} bytes)...`);
-
     const response = await axios.post(
       this.apiUrl, // POST https://api.fpt.ai/vision/idr/vnm
       formData,
@@ -145,8 +129,6 @@ export class FptAiService {
         timeout: 30000, // 30s timeout
       }
     );
-
-    console.log(`  ✅ FPT.AI response for ${side}:`, response.data.errorCode === 0 ? 'SUCCESS' : `ERROR ${response.data.errorCode}`);
 
     return response.data;
   }
@@ -528,25 +510,24 @@ export class FptAiService {
 
   /**
    * Mock verification for testing (when API key not available)
+   * IMPORTANT: Mock mode should never auto-approve - always pending review
    */
   private mockVerification(): FptAiVerificationResult {
-    // Simulate random confidence for testing
-    const confidence = 0.7 + Math.random() * 0.3; // 70-100%
+    this.logger.warn('⚠️ Using MOCK verification - AI is disabled. Set FPT_AI_ENABLED=true for real verification');
     
     return {
       success: true,
-      confidence,
-      decision: this.makeDecision(confidence),
-      extractedData: {
-        fullName: 'NGUYỄN VĂN A (Mock)',
-        idNumber: '001234567890 (Mock)',
-        dateOfBirth: '01/01/1990 (Mock)',
-      },
+      confidence: 0.5, // Low confidence to trigger manual review
+      decision: 'PENDING_REVIEW', // Never auto-approve in mock mode
+      extractedData: undefined, // No extracted data - cannot validate user input
       faceMatch: {
-        matched: confidence > 0.8,
-        similarity: confidence,
+        matched: false,
+        similarity: 0,
       },
-      issues: confidence < 0.9 ? ['Mock verification - replace with real FPT.AI'] : undefined,
+      issues: [
+        '⚠️ MOCK MODE: AI verification is disabled. Cannot validate document authenticity.',
+        'Please enable FPT_AI_ENABLED=true and provide API key for real verification.',
+      ],
     };
   }
 }

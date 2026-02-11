@@ -74,7 +74,6 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
       setResendCountdown(60);
       toast.success(response.message || `OTP sent to ${maskEmail(email)}`);
     } catch (error: any) {
-      console.error('Forgot password error:', error);
       const errorMessage = error.response?.data?.message || 'Failed to send OTP. Please try again.';
       setErrors({ email: errorMessage });
       toast.error(errorMessage);
@@ -126,7 +125,6 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
         toast.error('Invalid OTP code');
       }
     } catch (error: any) {
-      console.error('Verify OTP error:', error);
       const errorMessage = error.response?.data?.message || 'Invalid OTP code';
       setErrors({ otp: errorMessage });
       toast.error(errorMessage);
@@ -176,7 +174,6 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
         }
       }, 1500);
     } catch (error: any) {
-      console.error('Reset password error:', error);
       const errorMessage = error.response?.data?.message || 'Failed to reset password. Please try again.';
       setErrors({ newPassword: errorMessage });
       toast.error(errorMessage);

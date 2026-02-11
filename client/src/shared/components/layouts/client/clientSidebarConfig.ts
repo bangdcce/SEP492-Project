@@ -11,6 +11,7 @@ import {
   PlusCircle,
   Briefcase,
   Video,
+  ShieldCheck,
 } from "lucide-react";
 
 export interface ClientSidebarMenuItem {
@@ -22,6 +23,12 @@ export interface ClientSidebarMenuItem {
   description?: string;
   section?: "main" | "workspace" | "account";
 }
+
+export const sectionTitles: Record<string, string> = {
+  main: "Main",
+  workspace: "Workspace",
+  account: "Account",
+};
 
 /**
  * Client sidebar menu items
@@ -69,12 +76,12 @@ export const clientSidebarMenuItems: ClientSidebarMenuItem[] = [
     description: "Create new project request",
     section: "workspace",
   },
+  {
+    id: "kyc-status",
+    label: "KYC Status",
+    icon: ShieldCheck,
+    path: "/client/kyc-status",
+    description: "Verify your identity",
+    section: "account",
+  },
 ];
-
-/**
- * Section titles for grouped menu display
- */
-export const sectionTitles: Record<string, string> = {
-  main: "Main",
-  workspace: "Workspace",
-};

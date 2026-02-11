@@ -96,9 +96,6 @@ export class UsersService {
 
     await this.userRepo.save(user);
 
-    // TODO: Log audit log
-    console.log(`✅ User ${user.email} banned by admin ${adminId}`);
-
     return {
       message: 'User banned successfully',
       user,
@@ -127,9 +124,6 @@ export class UsersService {
 
     await this.userRepo.save(user);
 
-    // TODO: Log audit log
-    console.log(`✅ User ${user.email} unbanned by admin ${adminId}. Reason: ${dto.reason}`);
-
     return {
       message: 'User unbanned successfully',
       user,
@@ -154,12 +148,6 @@ export class UsersService {
     await this.userRepo.save(user);
 
     // TODO: Send email notification if sendEmail = true
-    if (dto.sendEmail) {
-      console.log(`📧 Email sent to ${user.email} with new temporary password`);
-    }
-
-    // TODO: Log audit log
-    console.log(`✅ Password reset for user ${user.email} by admin ${adminId}`);
 
     return {
       message: 'Password reset successfully',
