@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, In } from 'typeorm';
 import { UserEntity } from '../../database/entities/user.entity';
+import { KycVerificationEntity } from '../../database/entities/kyc-verification.entity';
 import {
   BanUserDto,
   UnbanUserDto,
@@ -9,12 +10,15 @@ import {
   UserFilterDto,
 } from './dto/admin-user.dto';
 import * as bcrypt from 'bcryptjs';
+import { getSignedUrl } from '../../common/utils/supabase-storage.util';
 
 @Injectable()
 export class UsersService {
   constructor(
     @InjectRepository(UserEntity)
     private userRepo: Repository<UserEntity>,
+    @InjectRepository(KycVerificationEntity)
+    private kycRepo: Repository<KycVerificationEntity>,
   ) {}
 
   /**
@@ -65,13 +69,46 @@ export class UsersService {
   async getUserDetail(userId: string) {
     const user = await this.userRepo.findOne({
       where: { id: userId },
+      relations: ['profile'],
     });
 
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    const latestKyc = await this.kycRepo.findOne({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
+
+    const kycInfo = latestKyc
+      ? {
+          id: latestKyc.id,
+          status: latestKyc.status,
+          rejectionReason: latestKyc.rejectionReason,
+          createdAt: latestKyc.createdAt,
+          reviewedAt: latestKyc.reviewedAt,
+          documentFrontUrl: await getSignedUrl(latestKyc.documentFrontUrl, 3600),
+          documentBackUrl: await getSignedUrl(latestKyc.documentBackUrl, 3600),
+        }
+      : { status: 'NOT_STARTED' };
+
+    return {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      phoneNumber: user.phoneNumber,
+      isVerified: user.isVerified,
+      isBanned: user.isBanned,
+      banReason: user.banReason,
+      bannedAt: user.bannedAt,
+      currentTrustScore: user.currentTrustScore,
+      totalProjectsFinished: user.totalProjectsFinished,
+      totalDisputesLost: user.totalDisputesLost,
+      createdAt: user.createdAt,
+      kyc: kycInfo,
+    };
   }
 
   /**

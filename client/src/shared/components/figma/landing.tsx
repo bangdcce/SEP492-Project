@@ -80,13 +80,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
     },
   ];
 
-  const stats = [
-    { value: '10K+', label: 'Active Users' },
-    { value: '5K+', label: 'Projects Completed' },
-    { value: '98%', label: 'Success Rate' },
-    { value: '24/7', label: 'Support' },
-  ];
-
   return (
     <div className="min-h-screen bg-white">
       {/* Navigation */}
@@ -194,11 +187,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
               transition={{ duration: 0.6 }}
               className="space-y-8"
             >
-              <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-100 text-teal-700 rounded-full text-sm font-medium">
-                <Star className="w-4 h-4 fill-current" />
-                Trusted by 10,000+ Users
-              </div>
-
               <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold text-slate-900 leading-tight">
                 Connect.
                 <br />
@@ -233,24 +221,6 @@ export const LandingPage: React.FC<LandingPageProps> = ({
                   Sign In
                   <ChevronRight className="w-5 h-5" />
                 </motion.button>
-              </div>
-
-              {/* Stats */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 pt-8">
-                {stats.map((stat, index) => (
-                  <motion.div
-                    key={index}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.2 + index * 0.1 }}
-                    className="text-center"
-                  >
-                    <div className="text-3xl font-bold bg-gradient-to-r from-teal-500 to-teal-600 bg-clip-text text-transparent">
-                      {stat.value}
-                    </div>
-                    <div className="text-sm text-slate-600 mt-1">{stat.label}</div>
-                  </motion.div>
-                ))}
               </div>
             </motion.div>
 

@@ -882,6 +882,7 @@ export class AuthService {
       portfolioLinks: user.profile?.portfolioLinks,
       role: user.role,
       isVerified: user.isVerified,
+      isEmailVerified: !!user.emailVerifiedAt,
       currentTrustScore: user.currentTrustScore,
       badge: user.badge, // Từ virtual property của Entity
       stats: user.stats, // Từ virtual property của Entity
