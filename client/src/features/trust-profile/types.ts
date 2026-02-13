@@ -14,6 +14,7 @@ export interface User {
   fullName: string;
   avatarUrl: string;
   isVerified: boolean;
+  isEmailVerified?: boolean;
   currentTrustScore: number | string;
   badge: BadgeType;
   stats: TrustStats;

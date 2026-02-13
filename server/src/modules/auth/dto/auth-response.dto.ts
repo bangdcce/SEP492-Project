@@ -91,6 +91,9 @@ export class AuthResponseDto {
   @ApiProperty({ description: 'Trạng thái xác thực', example: false })
   isVerified: boolean;
 
+  @ApiProperty({ description: 'Email đã được xác thực', example: true })
+  isEmailVerified: boolean;
+
   @ApiProperty({ description: 'Điểm tin cậy hiện tại', example: 5.0 })
   currentTrustScore: number;
 

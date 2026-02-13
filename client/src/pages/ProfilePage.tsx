@@ -19,6 +19,7 @@ interface UserProfile {
   bio?: string;
   badge: BadgeType;
   isVerified: boolean;
+  isEmailVerified?: boolean;
   currentTrustScore: number;
   skills?: string[];
   linkedinUrl?: string;
@@ -367,6 +368,7 @@ export default function ProfilePage() {
                   fullName: profile.fullName,
                   avatarUrl: profile.avatarUrl || "",
                   isVerified: profile.isVerified,
+                  isEmailVerified: profile.isEmailVerified,
                   currentTrustScore: profile.currentTrustScore,
                   badge: profile.badge,
                   stats: profile.stats || {
@@ -513,11 +515,11 @@ export default function ProfilePage() {
                     <div className="flex items-center gap-2 mb-1">
                       <Shield className="w-4 h-4 text-green-600" />
                       <span className="text-sm text-gray-600">
-                        Verification
+                        KYC Verification
                       </span>
                     </div>
                     <p className="text-lg font-bold text-gray-900">
-                      {profile.isVerified ? "Verified" : "Not Verified"}
+                      {profile.isVerified ? "KYC Verified" : "KYC Unverified"}
                     </p>
                   </div>
                 </div>

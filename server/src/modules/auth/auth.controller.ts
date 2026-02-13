@@ -315,12 +315,13 @@ export class AuthController {
       portfolioLinks: userWithProfile?.profile?.portfolioLinks,
       role: req.user.role,
       isVerified: req.user.isVerified,
+      isEmailVerified: !!req.user.emailVerifiedAt,
       currentTrustScore: req.user.currentTrustScore,
       badge: req.user.badge || 'NORMAL',
       stats: {
-        finished: 0, // TODO: Calculate from completed projects
-        disputes: 0, // TODO: Calculate from lost disputes
-        score: req.user.currentTrustScore,
+        finished: req.user.totalProjectsFinished || 0,
+        disputes: req.user.totalDisputesLost || 0,
+        score: Number(req.user.currentTrustScore) || 0,
       },
       createdAt: req.user.createdAt,
       updatedAt: req.user.updatedAt,
