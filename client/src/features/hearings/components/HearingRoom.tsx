@@ -14,11 +14,14 @@ import {
 import { toast } from "sonner";
 import {
   askHearingQuestion,
+  extendHearingDuration,
   getHearingAttendance,
   getHearingById,
   getHearingQuestions,
+  getHearingSupportCandidates,
   getHearingStatements,
   getHearingTimeline,
+  inviteSupportStaff,
   updateSpeakerControl,
 } from "@/features/hearings/api";
 import type {
@@ -29,6 +32,7 @@ import type {
   HearingStatementSummary,
   HearingTimelineEvent,
   SpeakerRole,
+  SupportCandidate,
 } from "@/features/hearings/types";
 import { useHearingRealtime } from "@/features/hearings/hooks/useHearingRealtime";
 import {
@@ -162,6 +166,42 @@ const speakerAllows = (
   }
 };
 
+const EVIDENCE_TAG_REGEX = /#EVD-([A-Za-z0-9-]+)/g;
+
+const extractEvidenceTagIds = (content?: string | null): string[] => {
+  if (!content) return [];
+  const ids = new Set<string>();
+  for (const match of content.matchAll(EVIDENCE_TAG_REGEX)) {
+    if (match[1]) {
+      ids.add(match[1]);
+    }
+  }
+  return Array.from(ids);
+};
+
+const renderMessageWithEvidenceTags = (
+  content: string,
+  onTagClick: (tagId: string) => void,
+) => {
+  const parts = content.split(/(#EVD-[A-Za-z0-9-]+)/g);
+  return parts.map((part, index) => {
+    if (part.startsWith("#EVD-")) {
+      const id = part.replace("#EVD-", "");
+      return (
+        <button
+          key={`${part}-${index}`}
+          type="button"
+          onClick={() => onTagClick(id)}
+          className="text-teal-700 hover:text-teal-800 underline underline-offset-2 font-medium"
+        >
+          {part}
+        </button>
+      );
+    }
+    return <span key={`${part}-${index}`}>{part}</span>;
+  });
+};
+
 export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   const [hearing, setHearing] = useState<DisputeHearingSummary | null>(null);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
@@ -187,6 +227,19 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   const [questionText, setQuestionText] = useState("");
   const [questionDeadlineMinutes, setQuestionDeadlineMinutes] = useState("");
   const [questionSubmitting, setQuestionSubmitting] = useState(false);
+  const [extendMinutes, setExtendMinutes] = useState("15");
+  const [extendReason, setExtendReason] = useState("");
+  const [extending, setExtending] = useState(false);
+  const [supportCandidates, setSupportCandidates] = useState<SupportCandidate[]>(
+    [],
+  );
+  const [supportLoading, setSupportLoading] = useState(false);
+  const [supportUserId, setSupportUserId] = useState("");
+  const [supportReason, setSupportReason] = useState("");
+  const [supportInviting, setSupportInviting] = useState(false);
+  const [highlightedEvidenceTagId, setHighlightedEvidenceTagId] = useState<
+    string | null
+  >(null);
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const isNearBottomRef = useRef(true);
   const isInitialMessagesLoadRef = useRef(true);
@@ -290,6 +343,27 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     }
   }, [hearingId, currentUserRole]);
 
+  const loadSupportCandidates = useCallback(async () => {
+    if (
+      currentUserRole !== UserRole.ADMIN &&
+      currentUserRole !== UserRole.STAFF
+    ) {
+      setSupportCandidates([]);
+      return;
+    }
+
+    try {
+      setSupportLoading(true);
+      const data = await getHearingSupportCandidates(hearingId);
+      setSupportCandidates(data ?? []);
+    } catch (error) {
+      console.error("Failed to load support candidates:", error);
+      setSupportCandidates([]);
+    } finally {
+      setSupportLoading(false);
+    }
+  }, [hearingId, currentUserRole]);
+
   useEffect(() => {
     refreshHearing();
   }, [refreshHearing]);
@@ -313,6 +387,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   useEffect(() => {
     loadAttendance();
   }, [loadAttendance]);
+
+  useEffect(() => {
+    loadSupportCandidates();
+  }, [loadSupportCandidates]);
 
   const handleMessagesScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -374,7 +452,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       createdAt?: string;
       sender?: { id: string; fullName?: string; email?: string };
     }) => {
-      if (!payload?.messageId || payload.hearingId !== hearingId) return;
+      const realtimeMessageId = payload?.messageId;
+      if (!realtimeMessageId || payload.hearingId !== hearingId) return;
       const metadata = payload.metadata;
       const clientMessageId =
         metadata && typeof metadata === "object" && "clientMessageId" in metadata
@@ -383,10 +462,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
             : undefined
           : undefined;
       setMessages((prev) => {
-        const existing = prev.find((item) => item.id === payload.messageId);
+        const existing = prev.find((item) => item.id === realtimeMessageId);
         if (existing) {
           return prev.map((item) =>
-            item.id === payload.messageId
+            item.id === realtimeMessageId
               ? {
                   ...item,
                   status:
@@ -401,56 +480,61 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         if (clientMessageId) {
           const optimistic = prev.find((item) => item.id === clientMessageId);
           if (optimistic) {
+            const updated: LocalMessage = {
+              ...optimistic,
+              id: realtimeMessageId,
+              disputeId: payload.disputeId ?? optimistic.disputeId,
+              hearingId: payload.hearingId ?? optimistic.hearingId,
+              senderId: payload.senderId ?? optimistic.senderId,
+              senderRole: payload.senderRole ?? optimistic.senderRole,
+              type: payload.type ?? optimistic.type,
+              content: payload.content ?? optimistic.content,
+              metadata: payload.metadata ?? optimistic.metadata,
+              replyToMessageId: payload.replyToMessageId ?? optimistic.replyToMessageId,
+              relatedEvidenceId: payload.relatedEvidenceId ?? optimistic.relatedEvidenceId,
+              isHidden: payload.isHidden ?? optimistic.isHidden,
+              hiddenReason: payload.hiddenReason ?? optimistic.hiddenReason,
+              createdAt: payload.createdAt ?? optimistic.createdAt,
+              sender: payload.sender ?? optimistic.sender,
+              status:
+                payload.senderId && payload.senderId === currentUserId
+                  ? "delivered"
+                  : optimistic.status,
+            };
             return prev.map((item) =>
-              item.id === clientMessageId
-                ? {
-                    ...(item as DisputeMessage),
-                    id: payload.messageId,
-                    disputeId: payload.disputeId,
-                    hearingId: payload.hearingId,
-                    senderId: payload.senderId,
-                    senderRole: payload.senderRole,
-                    type: payload.type,
-                    content: payload.content,
-                    metadata: payload.metadata,
-                    replyToMessageId: payload.replyToMessageId,
-                    relatedEvidenceId: payload.relatedEvidenceId,
-                    isHidden: payload.isHidden,
-                    hiddenReason: payload.hiddenReason,
-                    createdAt: payload.createdAt ?? new Date().toISOString(),
-                    sender: payload.sender,
-                    status:
-                      payload.senderId && payload.senderId === currentUserId
-                        ? "delivered"
-                        : undefined,
-                  }
-                : item,
+              item.id === clientMessageId ? updated : item,
             );
           }
         }
 
+        if (!payload.disputeId) {
+          return prev;
+        }
+
+        const appended: LocalMessage = {
+          id: realtimeMessageId,
+          disputeId: payload.disputeId,
+          hearingId: payload.hearingId ?? hearingId,
+          senderId: payload.senderId,
+          senderRole: payload.senderRole,
+          type: payload.type,
+          content: payload.content,
+          metadata: payload.metadata,
+          replyToMessageId: payload.replyToMessageId,
+          relatedEvidenceId: payload.relatedEvidenceId,
+          isHidden: payload.isHidden,
+          hiddenReason: payload.hiddenReason,
+          createdAt: payload.createdAt ?? new Date().toISOString(),
+          sender: payload.sender,
+          status:
+            payload.senderId && payload.senderId === currentUserId
+              ? "delivered"
+              : undefined,
+        };
+
         return [
           ...prev,
-          {
-            id: payload.messageId,
-            disputeId: payload.disputeId,
-            hearingId: payload.hearingId,
-            senderId: payload.senderId,
-            senderRole: payload.senderRole,
-            type: payload.type,
-            content: payload.content,
-            metadata: payload.metadata,
-            replyToMessageId: payload.replyToMessageId,
-            relatedEvidenceId: payload.relatedEvidenceId,
-            isHidden: payload.isHidden,
-            hiddenReason: payload.hiddenReason,
-            createdAt: payload.createdAt ?? new Date().toISOString(),
-            sender: payload.sender,
-            status:
-              payload.senderId && payload.senderId === currentUserId
-                ? "delivered"
-                : undefined,
-          } as DisputeMessage,
+          appended,
         ];
       });
     },
@@ -568,7 +652,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       console.error("Failed to send hearing message:", error);
       try {
         await sendDisputeMessage(hearing.disputeId, {
-          content: messageInput.trim(),
+          content,
           hearingId: hearing.id,
         });
         setMessages((prev) =>
@@ -650,6 +734,80 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       setQuestionSubmitting(false);
     }
   };
+
+  const handleExtendHearing = async () => {
+    if (!hearing) return;
+
+    const parsedMinutes = Number(extendMinutes);
+    const additionalMinutes = Number.isFinite(parsedMinutes)
+      ? Math.max(5, Math.min(240, Math.floor(parsedMinutes)))
+      : 0;
+
+    if (additionalMinutes <= 0) {
+      toast.error("Extension minutes must be between 5 and 240.");
+      return;
+    }
+    if (!extendReason.trim() || extendReason.trim().length < 8) {
+      toast.error("Please provide a detailed extension reason.");
+      return;
+    }
+
+    try {
+      setExtending(true);
+      await extendHearingDuration(hearing.id, {
+        hearingId: hearing.id,
+        additionalMinutes,
+        reason: extendReason.trim(),
+      });
+      toast.success("Hearing duration updated.");
+      setExtendReason("");
+      await refreshHearing();
+      await loadTimeline();
+    } catch (error) {
+      console.error("Failed to extend hearing duration:", error);
+      toast.error("Could not extend hearing duration");
+    } finally {
+      setExtending(false);
+    }
+  };
+
+  const handleInviteSupport = async () => {
+    if (!hearing) return;
+    if (!supportUserId) {
+      toast.error("Select a support reviewer.");
+      return;
+    }
+    if (!supportReason.trim() || supportReason.trim().length < 8) {
+      toast.error("Please provide a detailed invite reason.");
+      return;
+    }
+
+    try {
+      setSupportInviting(true);
+      await inviteSupportStaff(hearing.id, {
+        hearingId: hearing.id,
+        userId: supportUserId,
+        reason: supportReason.trim(),
+      });
+      toast.success("Support reviewer invited.");
+      setSupportReason("");
+      setSupportUserId("");
+      await Promise.all([refreshHearing(), loadSupportCandidates(), loadTimeline()]);
+    } catch (error) {
+      console.error("Failed to invite support reviewer:", error);
+      toast.error("Could not invite support reviewer");
+    } finally {
+      setSupportInviting(false);
+    }
+  };
+
+  const evidenceTagsInMessages = useMemo(() => {
+    const ids = new Set<string>();
+    messages.forEach((message) => {
+      extractEvidenceTagIds(message.content).forEach((id) => ids.add(id));
+    });
+    return Array.from(ids);
+  }, [messages]);
 
   const scheduleLine = useMemo(() => {
     if (!hearing) return "N/A";
@@ -808,9 +966,33 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                             Message hidden
                           </span>
                         ) : (
-                          message.content
+                          <span>
+                            {renderMessageWithEvidenceTags(
+                              message.content || "",
+                              (tagId) => setHighlightedEvidenceTagId(tagId),
+                            )}
+                          </span>
                         )}
                       </div>
+                      {!message.isHidden &&
+                      extractEvidenceTagIds(message.content).length > 0 ? (
+                        <div className="mt-2 flex flex-wrap gap-1">
+                          {extractEvidenceTagIds(message.content).map((tagId) => (
+                            <button
+                              key={`${message.id}-${tagId}`}
+                              type="button"
+                              onClick={() => setHighlightedEvidenceTagId(tagId)}
+                              className={`text-[11px] px-2 py-0.5 rounded-full border ${
+                                highlightedEvidenceTagId === tagId
+                                  ? "bg-teal-50 text-teal-700 border-teal-200"
+                                  : "bg-slate-50 text-slate-600 border-slate-200"
+                              }`}
+                            >
+                              EVD-{tagId}
+                            </button>
+                          ))}
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })
@@ -925,6 +1107,123 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                 Only the assigned moderator or admin can control speaker roles.
               </p>
             )}
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Moderation actions
+            </h3>
+            {canControlSpeaker ? (
+              <div className="mt-4 space-y-4">
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-gray-600">
+                    Extend hearing duration
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={5}
+                      max={240}
+                      value={extendMinutes}
+                      onChange={(event) => setExtendMinutes(event.target.value)}
+                      className="w-24 border border-gray-200 rounded-lg px-2 py-1 text-sm"
+                    />
+                    <span className="text-xs text-gray-500">minutes</span>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={extendReason}
+                    onChange={(event) => setExtendReason(event.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm"
+                    placeholder="Reason for extension..."
+                  />
+                  <button
+                    type="button"
+                    onClick={handleExtendHearing}
+                    disabled={extending || !extendReason.trim()}
+                    className="px-3 py-2 text-xs rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
+                  >
+                    {extending ? "Extending..." : "Extend hearing"}
+                  </button>
+                </div>
+
+                <div className="border-t border-gray-100 pt-3 space-y-2">
+                  <p className="text-xs font-medium text-gray-600">
+                    Invite support reviewer
+                  </p>
+                  <select
+                    value={supportUserId}
+                    onChange={(event) => setSupportUserId(event.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm"
+                  >
+                    <option value="">
+                      {supportLoading
+                        ? "Loading candidates..."
+                        : "Select support staff/admin"}
+                    </option>
+                    {supportCandidates.map((candidate) => (
+                      <option key={candidate.id} value={candidate.id}>
+                        {candidate.fullName || candidate.email} ({candidate.role})
+                      </option>
+                    ))}
+                  </select>
+                  <textarea
+                    rows={2}
+                    value={supportReason}
+                    onChange={(event) => setSupportReason(event.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-2 py-1 text-sm"
+                    placeholder="Why this hearing needs senior support..."
+                  />
+                  <button
+                    type="button"
+                    onClick={handleInviteSupport}
+                    disabled={supportInviting || !supportUserId || !supportReason.trim()}
+                    className="px-3 py-2 text-xs rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
+                  >
+                    {supportInviting ? "Inviting..." : "Invite support"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-gray-500">
+                Only the assigned moderator or admin can extend and invite support.
+              </p>
+            )}
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-xl p-4">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Evidence tags
+            </h3>
+            <div className="mt-3 space-y-2">
+              {evidenceTagsInMessages.length === 0 ? (
+                <p className="text-xs text-gray-500">
+                  No `#EVD-...` references detected in chat yet.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {evidenceTagsInMessages.map((tagId) => (
+                    <button
+                      key={tagId}
+                      type="button"
+                      onClick={() => setHighlightedEvidenceTagId(tagId)}
+                      className={`text-xs px-2 py-1 rounded-lg border ${
+                        highlightedEvidenceTagId === tagId
+                          ? "bg-teal-50 text-teal-700 border-teal-200"
+                          : "bg-slate-50 text-slate-600 border-slate-200"
+                      }`}
+                    >
+                      #EVD-{tagId}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {highlightedEvidenceTagId ? (
+                <p className="text-[11px] text-teal-700 bg-teal-50 border border-teal-100 rounded-md px-2 py-1">
+                  Highlighted evidence reference: #EVD-{highlightedEvidenceTagId}
+                </p>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>

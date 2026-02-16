@@ -27,10 +27,10 @@ async function runSeeds() {
 
     // Run seeds
     console.log('\n🌱 Starting database seeding...\n');
-    
+
     await seedSkillDomains(dataSource);
     await seedSkills(dataSource);
-    
+
     console.log('\n✅ All seeds completed successfully!');
   } catch (error) {
     console.error('❌ Seeding failed:', error);

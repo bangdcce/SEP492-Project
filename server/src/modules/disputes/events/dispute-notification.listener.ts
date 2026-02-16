@@ -66,10 +66,7 @@ export class DisputeNotificationListener {
   }
 
   @OnEvent(DISPUTE_EVENTS.INFO_REQUESTED)
-  async handleInfoRequested(payload: {
-    disputeId?: string;
-    reason?: string;
-  }): Promise<void> {
+  async handleInfoRequested(payload: { disputeId?: string; reason?: string }): Promise<void> {
     if (!payload?.disputeId) {
       return;
     }
@@ -116,10 +113,7 @@ export class DisputeNotificationListener {
   }
 
   @OnEvent(DISPUTE_EVENTS.ESCALATED)
-  async handleDisputeAccepted(payload: {
-    disputeId?: string;
-    adminId?: string;
-  }): Promise<void> {
+  async handleDisputeAccepted(payload: { disputeId?: string; adminId?: string }): Promise<void> {
     if (!payload?.disputeId) {
       return;
     }
@@ -268,12 +262,16 @@ export class DisputeNotificationListener {
       return;
     }
 
-    const rateText = payload.dismissalRate
-      ? `${Math.round(payload.dismissalRate * 100)}%`
-      : 'high';
+    const rateText = payload.dismissalRate ? `${Math.round(payload.dismissalRate * 100)}%` : 'high';
     const body = `Staff ${payload.staffId} dismissal rate is ${rateText} (n=${payload.totalReviewed || 0}).`;
 
-    await this.createNotifications(admins, 'Staff dismissal rate high', body, 'User', payload.staffId);
+    await this.createNotifications(
+      admins,
+      'Staff dismissal rate high',
+      body,
+      'User',
+      payload.staffId,
+    );
   }
 
   @OnEvent('dispute.dismissal_audit_requested')
@@ -291,7 +289,13 @@ export class DisputeNotificationListener {
     }
 
     const body = `Random audit requested for dispute ${payload.disputeId}.`;
-    await this.createNotifications(admins, 'Random dismissal audit', body, 'Dispute', payload.disputeId);
+    await this.createNotifications(
+      admins,
+      'Random dismissal audit',
+      body,
+      'Dispute',
+      payload.disputeId,
+    );
   }
 
   private async getAdminIds(): Promise<string[]> {

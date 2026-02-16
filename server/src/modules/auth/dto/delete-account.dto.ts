@@ -40,7 +40,7 @@ export class ActiveObligationsResponseDto {
 
   @ApiProperty({
     description: 'Wallet balance',
-    example: 1500.00,
+    example: 1500.0,
   })
   walletBalance: number;
 

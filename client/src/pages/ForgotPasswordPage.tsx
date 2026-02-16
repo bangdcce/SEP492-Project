@@ -1,27 +1,29 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { AuthLayout } from '../shared/components/layouts/AuthLayout';
-import { Input } from '../shared/components/custom/input';
-import { Button } from '../shared/components/custom/Button';
-import { OTPInput } from '../shared/components/auth/OTPInput';
-import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
-import { toast } from 'sonner';
-import { ROUTES } from '@/constants';
-import { forgotPassword, verifyOtp, resetPassword } from '@/features/auth';
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { AuthLayout } from "../shared/components/layouts/AuthLayout";
+import { Input } from "../shared/components/custom/input";
+import { Button } from "../shared/components/custom/Button";
+import { OTPInput } from "../shared/components/auth/OTPInput";
+import { Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
+import { ROUTES } from "@/constants";
+import { forgotPassword, verifyOtp, resetPassword } from "@/features/auth";
 
 export interface ForgotPasswordPageProps {
   onNavigateToSignIn?: () => void;
 }
 
-type Step = 'phone' | 'otp' | 'reset';
+type Step = "phone" | "otp" | "reset";
 
-export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPageProps = {}) {
+export function ForgotPasswordPage({
+  onNavigateToSignIn,
+}: ForgotPasswordPageProps = {}) {
   const navigate = useNavigate();
-  const [step, setStep] = useState<Step>('phone');
-  const [email, setEmail] = useState('');
-  const [otp, setOtp] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
+  const [step, setStep] = useState<Step>("phone");
+  const [email, setEmail] = useState("");
+  const [otp, setOtp] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
@@ -34,7 +36,7 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
   };
 
   const maskEmail = (email: string): string => {
-    const [localPart, domain] = email.split('@');
+    const [localPart, domain] = email.split("@");
     if (localPart.length <= 3) {
       return `${localPart[0]}***@${domain}`;
     }
@@ -54,9 +56,9 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
     const newErrors: Record<string, string> = {};
 
     if (!email) {
-      newErrors.email = 'Email is required';
+      newErrors.email = "Email is required";
     } else if (!validateEmail(email)) {
-      newErrors.email = 'Invalid email address';
+      newErrors.email = "Invalid email address";
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -69,12 +71,14 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
 
     try {
       const response = await forgotPassword({ email });
-      
-      setStep('otp');
+
+      setStep("otp");
       setResendCountdown(60);
       toast.success(response.message || `OTP sent to ${maskEmail(email)}`);
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || 'Failed to send OTP. Please try again.';
+      const errorMessage =
+        error.response?.data?.message ||
+        "Failed to send OTP. Please try again.";
       setErrors({ email: errorMessage });
       toast.error(errorMessage);
     } finally {
@@ -84,14 +88,15 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
 
   const handleResendOTP = async () => {
     if (resendCountdown > 0) return;
-    
+
     setLoading(true);
     try {
       await forgotPassword({ email });
       setResendCountdown(60);
-      toast.success('OTP resent successfully!');
+      toast.success("OTP resent successfully!");
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || 'Failed to resend OTP';
+      const errorMessage =
+        error.response?.data?.message || "Failed to resend OTP";
       toast.error(errorMessage);
     } finally {
       setLoading(false);
@@ -103,7 +108,7 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
     const newErrors: Record<string, string> = {};
 
     if (otp.length !== 6) {
-      newErrors.otp = 'Please enter the 6-digit code';
+      newErrors.otp = "Please enter the 6-digit code";
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -116,16 +121,16 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
 
     try {
       const response = await verifyOtp({ email, otp });
-      
+
       if (response.data.isValid) {
-        setStep('reset');
-        toast.success('OTP verified successfully!');
+        setStep("reset");
+        toast.success("OTP verified successfully!");
       } else {
-        setErrors({ otp: 'Invalid OTP code' });
-        toast.error('Invalid OTP code');
+        setErrors({ otp: "Invalid OTP code" });
+        toast.error("Invalid OTP code");
       }
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || 'Invalid OTP code';
+      const errorMessage = error.response?.data?.message || "Invalid OTP code";
       setErrors({ otp: errorMessage });
       toast.error(errorMessage);
     } finally {
@@ -138,15 +143,21 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
     const newErrors: Record<string, string> = {};
 
     if (!newPassword) {
-      newErrors.newPassword = 'Password is required';
-    } else if (newPassword.length < 8 || !/[a-z]/.test(newPassword) || !/[0-9]/.test(newPassword) || !/[@$!%*?&]/.test(newPassword)) {
-      newErrors.newPassword = 'Password must be at least 8 characters with lowercase, number & special character (@$!%*?&)';
+      newErrors.newPassword = "Password is required";
+    } else if (
+      newPassword.length < 8 ||
+      !/[a-z]/.test(newPassword) ||
+      !/[0-9]/.test(newPassword) ||
+      !/[@$!%*?&]/.test(newPassword)
+    ) {
+      newErrors.newPassword =
+        "Password must be at least 8 characters with lowercase, number & special character (@$!%*?&)";
     }
 
     if (!confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
+      newErrors.confirmPassword = "Please confirm your password";
     } else if (newPassword !== confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+      newErrors.confirmPassword = "Passwords do not match";
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -158,14 +169,14 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
     setLoading(true);
 
     try {
-      await resetPassword({ 
-        email, 
-        otp, 
+      await resetPassword({
+        email,
+        otp,
         newPassword,
-        confirmPassword
+        confirmPassword,
       });
-      
-      toast.success('Password reset successful. Please sign in.');
+
+      toast.success("Password reset successful. Please sign in.");
       setTimeout(() => {
         if (onNavigateToSignIn) {
           onNavigateToSignIn();
@@ -174,7 +185,9 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
         }
       }, 1500);
     } catch (error: any) {
-      const errorMessage = error.response?.data?.message || 'Failed to reset password. Please try again.';
+      const errorMessage =
+        error.response?.data?.message ||
+        "Failed to reset password. Please try again.";
       setErrors({ newPassword: errorMessage });
       toast.error(errorMessage);
     } finally {
@@ -183,14 +196,14 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
   };
 
   const handleBack = () => {
-    if (step === 'otp') {
-      setStep('phone');
-      setOtp('');
+    if (step === "otp") {
+      setStep("phone");
+      setOtp("");
       setErrors({});
-    } else if (step === 'reset') {
-      setStep('otp');
-      setNewPassword('');
-      setConfirmPassword('');
+    } else if (step === "reset") {
+      setStep("otp");
+      setNewPassword("");
+      setConfirmPassword("");
       setErrors({});
     }
   };
@@ -205,25 +218,27 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
         value={email}
         onChange={(e) => {
           setEmail(e.target.value);
-          if (errors.email) setErrors({ ...errors, email: '' });
+          if (errors.email) setErrors({ ...errors, email: "" });
         }}
         error={errors.email}
       />
 
-      <Button 
-        type="submit" 
-        variant="primary" 
+      <Button
+        type="submit"
+        variant="primary"
         className="w-full py-3 text-base font-medium justify-center"
         disabled={loading}
       >
-        {loading ? 'Sending OTP...' : 'Send OTP'}
+        {loading ? "Sending OTP..." : "Send OTP"}
       </Button>
 
       <button
         type="button"
-        onClick={() => onNavigateToSignIn ? onNavigateToSignIn() : navigate(ROUTES.LOGIN)}
+        onClick={() =>
+          onNavigateToSignIn ? onNavigateToSignIn() : navigate(ROUTES.LOGIN)
+        }
         className="w-full text-center hover:underline"
-        style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem' }}
+        style={{ color: "var(--auth-text-muted)", fontSize: "0.875rem" }}
       >
         Back to Sign In
       </button>
@@ -233,9 +248,12 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
   const renderOTPStep = () => (
     <form onSubmit={handleVerifyOTP} className="space-y-6">
       <div>
-        <p className="mb-6" style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem' }}>
-          Enter the 6-digit code sent to{' '}
-          <span style={{ color: 'var(--auth-text)', fontWeight: 500 }}>
+        <p
+          className="mb-6"
+          style={{ color: "var(--auth-text-muted)", fontSize: "0.875rem" }}
+        >
+          Enter the 6-digit code sent to{" "}
+          <span style={{ color: "var(--auth-text)", fontWeight: 500 }}>
             {maskEmail(email)}
           </span>
         </p>
@@ -245,14 +263,17 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
             value={otp}
             onChange={(value) => {
               setOtp(value);
-              if (errors.otp) setErrors({ ...errors, otp: '' });
+              if (errors.otp) setErrors({ ...errors, otp: "" });
             }}
             error={!!errors.otp}
           />
         </div>
 
         {errors.otp && (
-          <p className="text-center text-sm mt-2" style={{ color: 'var(--auth-error)' }}>
+          <p
+            className="text-center text-sm mt-2"
+            style={{ color: "var(--auth-error)" }}
+          >
             {errors.otp}
           </p>
         )}
@@ -260,35 +281,42 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
 
       <div className="text-center">
         {resendCountdown > 0 ? (
-          <p style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem' }}>
-            Resend code in <span style={{ color: 'var(--auth-primary)', fontWeight: 500 }}>{resendCountdown}s</span>
+          <p style={{ color: "var(--auth-text-muted)", fontSize: "0.875rem" }}>
+            Resend code in{" "}
+            <span style={{ color: "var(--auth-primary)", fontWeight: 500 }}>
+              {resendCountdown}s
+            </span>
           </p>
         ) : (
           <button
             type="button"
             onClick={handleResendOTP}
             className="hover:underline"
-            style={{ color: 'var(--auth-primary)', fontSize: '0.875rem', fontWeight: 500 }}
+            style={{
+              color: "var(--auth-primary)",
+              fontSize: "0.875rem",
+              fontWeight: 500,
+            }}
           >
             Resend Code
           </button>
         )}
       </div>
 
-      <Button 
-        type="submit" 
-        variant="primary" 
+      <Button
+        type="submit"
+        variant="primary"
         className="w-full py-3 text-base font-medium justify-center"
         disabled={loading}
       >
-        {loading ? 'Verifying...' : 'Verify'}
+        {loading ? "Verifying..." : "Verify"}
       </Button>
 
       <button
         type="button"
         onClick={handleBack}
         className="w-full flex items-center justify-center gap-2 hover:underline"
-        style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem' }}
+        style={{ color: "var(--auth-text-muted)", fontSize: "0.875rem" }}
       >
         <ArrowLeft className="w-4 h-4" />
         Back
@@ -302,12 +330,13 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
         <Input
           id="newPassword"
           label="New password"
-          type={showNewPassword ? 'text' : 'password'}
+          type={showNewPassword ? "text" : "password"}
+          autoComplete="new-password"
           placeholder="At least 8 characters with lowercase, number & special character"
           value={newPassword}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             setNewPassword(e.target.value);
-            if (errors.newPassword) setErrors({ ...errors, newPassword: '' });
+            if (errors.newPassword) setErrors({ ...errors, newPassword: "" });
           }}
           error={errors.newPassword}
           helperText="Must include: lowercase (a-z), number (0-9) & special character (@$!%*?&)"
@@ -319,9 +348,15 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
           tabIndex={-1}
         >
           {showNewPassword ? (
-            <EyeOff className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+            <EyeOff
+              className="w-5 h-5"
+              style={{ color: "var(--auth-text-muted)" }}
+            />
           ) : (
-            <Eye className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+            <Eye
+              className="w-5 h-5"
+              style={{ color: "var(--auth-text-muted)" }}
+            />
           )}
         </button>
       </div>
@@ -330,15 +365,23 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
         <Input
           id="confirmPassword"
           label="Confirm password"
-          type={showConfirmPassword ? 'text' : 'password'}
+          type={showConfirmPassword ? "text" : "password"}
+          autoComplete="new-password"
           placeholder="Re-enter your password"
           value={confirmPassword}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             setConfirmPassword(e.target.value);
-            if (errors.confirmPassword) setErrors({ ...errors, confirmPassword: '' });
+            if (errors.confirmPassword)
+              setErrors({ ...errors, confirmPassword: "" });
           }}
           error={errors.confirmPassword}
-          success={!!(confirmPassword && newPassword === confirmPassword && confirmPassword.length >= 8)}
+          success={
+            !!(
+              confirmPassword &&
+              newPassword === confirmPassword &&
+              confirmPassword.length >= 8
+            )
+          }
         />
         <button
           type="button"
@@ -347,40 +390,46 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
           tabIndex={-1}
         >
           {showConfirmPassword ? (
-            <EyeOff className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+            <EyeOff
+              className="w-5 h-5"
+              style={{ color: "var(--auth-text-muted)" }}
+            />
           ) : (
-            <Eye className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+            <Eye
+              className="w-5 h-5"
+              style={{ color: "var(--auth-text-muted)" }}
+            />
           )}
         </button>
       </div>
 
-      <Button 
-        type="submit" 
-        variant="primary" 
+      <Button
+        type="submit"
+        variant="primary"
         className="w-full py-3 text-base font-medium justify-center"
         disabled={loading}
       >
-        {loading ? 'Resetting password...' : 'Reset Password'}
+        {loading ? "Resetting password..." : "Reset Password"}
       </Button>
     </form>
   );
 
   const getTitleAndSubtitle = () => {
     switch (step) {
-      case 'phone':
+      case "phone":
         return {
-          title: 'Forgot Password?',
-          subtitle: 'Enter your email to receive a verification code.',
+          title: "Forgot Password?",
+          subtitle: "Enter your email to receive a verification code.",
         };
-      case 'otp':
+      case "otp":
         return {
-          title: 'Verify Code',
-          subtitle: 'Enter the verification code sent to your email.',
+          title: "Verify Code",
+          subtitle: "Enter the verification code sent to your email.",
         };
-      case 'reset':
+      case "reset":
         return {
-          title: 'Reset Password',
-          subtitle: 'Create a new password for your account.',
+          title: "Reset Password",
+          subtitle: "Create a new password for your account.",
         };
     }
   };
@@ -389,9 +438,9 @@ export function ForgotPasswordPage({ onNavigateToSignIn }: ForgotPasswordPagePro
 
   return (
     <AuthLayout title={title} subtitle={subtitle}>
-      {step === 'phone' && renderPhoneStep()}
-      {step === 'otp' && renderOTPStep()}
-      {step === 'reset' && renderResetStep()}
+      {step === "phone" && renderPhoneStep()}
+      {step === "otp" && renderOTPStep()}
+      {step === "reset" && renderResetStep()}
     </AuthLayout>
   );
 }

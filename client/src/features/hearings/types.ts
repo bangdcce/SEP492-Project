@@ -246,3 +246,23 @@ export interface EndHearingInput {
   pendingActions?: string[];
   forceEnd?: boolean;
 }
+
+export interface ExtendHearingInput {
+  hearingId: string;
+  additionalMinutes: number;
+  reason: string;
+}
+
+export interface InviteSupportInput {
+  hearingId: string;
+  userId: string;
+  participantRole?: HearingParticipantRole;
+  reason: string;
+}
+
+export interface SupportCandidate {
+  id: string;
+  fullName: string;
+  email: string;
+  role: string;
+}

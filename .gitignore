@@ -46,3 +46,6 @@ coverage
 *.temp
 .cache
 docs/
+
+# AI/Agent skills (local only)
+.agent/

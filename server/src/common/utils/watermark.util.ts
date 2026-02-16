@@ -76,9 +76,13 @@ export async function addWatermark(
         stroke="rgba(0, 0, 0, 0.5)"
         stroke-width="1"
       >
-        ${watermarkLines.map((line, index) => `
+        ${watermarkLines
+          .map(
+            (line, index) => `
           <tspan x="10" dy="${index === 0 ? 0 : lineHeight}">${line}</tspan>
-        `).join('')}
+        `,
+          )
+          .join('')}
       </text>
       
       <!-- Bottom right watermark (minimal) -->

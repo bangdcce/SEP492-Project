@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import {
   Button,
@@ -65,17 +65,21 @@ export default function RequestDetailPage() {
   const [inviteModalData, setInviteModalData] = useState<{ id: string, name: string, role: "BROKER" | "FREELANCER" } | null>(null);
 
   useEffect(() => {
-    if (id) {
-      fetchData(id);
-    }
-  }, [id]);
-
-  useEffect(() => {
     const tabParam = searchParams.get('tab');
     if (tabParam) setActiveTab(tabParam);
   }, [searchParams]);
 
-  const fetchData = async (requestId: string) => {
+  // Determine current phase
+  const getPhase = useCallback((status: string) => {
+    if (status === RequestStatus.DRAFT || status === RequestStatus.PUBLIC_DRAFT || status === RequestStatus.PRIVATE_DRAFT) return 1;
+    if (status === RequestStatus.BROKER_ASSIGNED || status === RequestStatus.PENDING_SPECS || status === RequestStatus.PENDING) return 2;
+    if (status === RequestStatus.SPEC_APPROVED || status === RequestStatus.HIRING) return 3;
+    if (status === RequestStatus.CONTRACT_PENDING) return 4;
+    if (status === RequestStatus.CONVERTED_TO_PROJECT || status === RequestStatus.IN_PROGRESS || status === RequestStatus.COMPLETED) return 5;
+    return 1; // Default
+  }, []);
+
+  const fetchData = useCallback(async (requestId: string) => {
     try {
       setLoading(true);
       const [reqData, matchData] = await Promise.all([
@@ -104,7 +108,13 @@ export default function RequestDetailPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [getPhase]);
+
+  useEffect(() => {
+    if (id) {
+      void fetchData(id);
+    }
+  }, [id, fetchData]);
 
   const handleStatusChange = async (newStatus: RequestStatus) => {
       try {
@@ -114,7 +124,7 @@ export default function RequestDetailPage() {
           toast.success("Status Updated", {
               description: `Project is now ${newStatus.replace('_', ' ').toLowerCase()}`
           });
-      } catch (error) {
+      } catch (_error) {
           toast.error("Failed to update status");
       } finally {
           setIsUpdatingStatus(false);
@@ -129,7 +139,7 @@ export default function RequestDetailPage() {
               description: "Redirecting to wizard for editing...",
           });
           navigate(`/client/wizard?draftId=${id}`);
-      } catch (error) {
+      } catch (_error) {
           toast.error("Failed to revert to draft");
       }
   };
@@ -145,7 +155,7 @@ export default function RequestDetailPage() {
         toast.success("Specs Approved", {
           description: "Specifications approved. Moving to Freelancer Recruitment.",
         });
-    } catch (error) {
+    } catch (_error) {
         toast.error("Failed to approve specs");
         setSpecsAccepted(false);
     }
@@ -156,7 +166,7 @@ export default function RequestDetailPage() {
           await wizardService.acceptBroker(request.id, brokerId);
           toast.success("Broker Hired", { description: "You have assigned a broker to this project." });
           fetchData(request.id);
-      } catch (error) {
+      } catch (_error) {
           toast.error("Failed to hire broker");
       }
   };
@@ -172,16 +182,6 @@ export default function RequestDetailPage() {
 
   const handleInvite = async (brokerId: string, brokerName: string) => {
     handleOpenInviteModal(brokerId, brokerName, "BROKER");
-  };
-
-  // Determine current phase
-  const getPhase = (status: string) => {
-    if (status === RequestStatus.DRAFT || status === RequestStatus.PUBLIC_DRAFT || status === RequestStatus.PRIVATE_DRAFT) return 1;
-    if (status === RequestStatus.BROKER_ASSIGNED || status === RequestStatus.PENDING_SPECS || status === RequestStatus.PENDING) return 2;
-    if (status === RequestStatus.SPEC_APPROVED || status === RequestStatus.HIRING) return 3;
-    if (status === RequestStatus.CONTRACT_PENDING) return 4;
-    if (status === RequestStatus.CONVERTED_TO_PROJECT || status === RequestStatus.IN_PROGRESS || status === RequestStatus.COMPLETED) return 5;
-    return 1; // Default
   };
 
   if (loading)

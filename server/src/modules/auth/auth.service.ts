@@ -1,11 +1,17 @@
-import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+  BadRequestException,
+  Logger,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Repository, LessThan, MoreThan, In, Not } from 'typeorm';
+import { Repository, LessThan, MoreThan, In, Not, IsNull } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomBytes, randomUUID } from 'crypto';
+import { createHash, randomBytes, randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
-import { UserEntity, UserStatus } from '../../database/entities/user.entity';
+import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
@@ -34,6 +40,9 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+  private readonly refreshTokenLegacyScanLimit = 5000;
+
   constructor(
     @InjectRepository(UserEntity)
     private userRepository: Repository<UserEntity>,
@@ -50,7 +59,7 @@ export class AuthService {
     private emailService: EmailService,
     private emailVerificationService: EmailVerificationService,
     private auditLogsService: AuditLogsService, // Inject AuditLogsService
-  ) { }
+  ) {}
 
   async register(
     registerDto: RegisterDto,
@@ -69,27 +78,29 @@ export class AuthService {
       acceptPrivacy,
     } = registerDto;
 
-    // Kiểm tra email đã tồn tại
-    // Chỉ select các cột cần thiết để tránh lỗi nếu có cột chưa tồn tại
+    // Ki盻ノ tra email ﾄ妥｣ t盻渡 t蘯｡i
+    // Ch盻・select cﾃ｡c c盻冲 c蘯ｧn thi蘯ｿt ﾄ黛ｻ・trﾃ｡nh l盻擁 n蘯ｿu cﾃｳ c盻冲 chﾆｰa t盻渡 t蘯｡i
     const existingUser = await this.userRepository.findOne({
       where: { email },
       select: ['id', 'email', 'passwordHash', 'fullName', 'role', 'phoneNumber', 'isVerified'],
     });
 
     if (existingUser) {
-      throw new ConflictException('Email đã được sử dụng');
+      throw new ConflictException('Email ﾄ妥｣ ﾄ柁ｰ盻｣c s盻ｭ d盻･ng');
     }
 
     // Validate legal consent
     if (!acceptTerms || !acceptPrivacy) {
-      throw new ConflictException('Bạn phải chấp nhận Điều khoản Dịch vụ và Chính sách Bảo mật');
+      throw new ConflictException(
+        'B蘯｡n ph蘯｣i ch蘯･p nh蘯ｭn ﾄ進盻「 kho蘯｣n D盻議h v盻･ vﾃ Chﾃｭnh sﾃ｡ch B蘯｣o m蘯ｭt',
+      );
     }
 
     // Hash password
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // Tạo user mới với legal consent timestamps
+    // T蘯｡o user m盻嬖 v盻嬖 legal consent timestamps
     const now = new Date();
     const newUser = this.userRepository.create({
       email,
@@ -107,23 +118,24 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(newUser);
 
-    // Nếu là BROKER hoặc FREELANCER → Lưu domains và skills
-    if ((role === 'BROKER' || role === 'FREELANCER') && (domainIds || skillIds)) {
-      const userSkillDomainRepo = this.userRepository.manager.getRepository('UserSkillDomainEntity');
+    // N蘯ｿu lﾃ BROKER ho蘯ｷc FREELANCER 竊・Lﾆｰu domains vﾃ skills
+    if ((role === UserRole.BROKER || role === UserRole.FREELANCER) && (domainIds || skillIds)) {
+      const userSkillDomainRepo =
+        this.userRepository.manager.getRepository('UserSkillDomainEntity');
       const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
 
-      // Lưu domains
+      // Lﾆｰu domains
       if (domainIds && domainIds.length > 0) {
-        const domainRecords = domainIds.map(domainId => ({
+        const domainRecords = domainIds.map((domainId) => ({
           userId: savedUser.id,
           domainId,
         }));
         await userSkillDomainRepo.save(domainRecords);
       }
 
-      // Lưu skills
+      // Lﾆｰu skills
       if (skillIds && skillIds.length > 0) {
-        const skillRecords = skillIds.map(skillId => ({
+        const skillRecords = skillIds.map((skillId) => ({
           userId: savedUser.id,
           skillId,
           priority: 'SECONDARY', // Default to SECONDARY, user can upgrade later
@@ -152,7 +164,7 @@ export class AuthService {
       })
       .catch(() => {});
 
-    // Return user data (không bao gồm password)
+    // Return user data (khﾃｴng bao g盻杜 password)
     return this.mapToAuthResponse(savedUser);
   }
 
@@ -164,23 +176,23 @@ export class AuthService {
   ): Promise<LoginResponseDto> {
     const { email, password } = loginDto;
 
-    // Tìm user theo email với profile relation
+    // Tﾃｬm user theo email v盻嬖 profile relation
     const user = await this.userRepository.findOne({
       where: { email },
       relations: ['profile'],
     });
 
     if (!user) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+      throw new UnauthorizedException('Email ho蘯ｷc m蘯ｭt kh蘯ｩu khﾃｴng ﾄ妥ｺng');
     }
 
-    // Kiểm tra password
+    // Ki盻ノ tra password
     if (!user.passwordHash) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+      throw new UnauthorizedException('Email ho蘯ｷc m蘯ｭt kh蘯ｩu khﾃｴng ﾄ妥ｺng');
     }
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Email hoặc mật khẩu không đúng');
+      throw new UnauthorizedException('Email ho蘯ｷc m蘯ｭt kh蘯ｩu khﾃｴng ﾄ妥ｺng');
     }
 
     // Check user status
@@ -206,7 +218,7 @@ export class AuthService {
       user.timeZone = timeZone;
     }
 
-    // Tạo JWT tokens
+    // T蘯｡o JWT tokens
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -216,7 +228,7 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
     const refreshToken = randomBytes(64).toString('hex');
 
-    // Lưu auth session với thông tin thiết bị
+    // Lﾆｰu auth session v盻嬖 thﾃｴng tin thi蘯ｿt b盻・
     await this.createAuthSession(user.id, refreshToken, userAgent, ipAddress);
 
     // Ghi Audit Log cho LOGIN
@@ -237,25 +249,49 @@ export class AuthService {
 
   async logout(userId: string, refreshToken?: string): Promise<LogoutResponseDto> {
     if (refreshToken) {
-      // Tìm tất cả sessions của user và kiểm tra refreshToken bằng bcrypt.compare
-      const userSessions = await this.authSessionRepository.find({
-        where: { userId, isRevoked: false },
+      const refreshTokenFingerprint = this.buildRefreshTokenFingerprint(refreshToken);
+      const directMatch = await this.authSessionRepository.findOne({
+        where: {
+          userId,
+          refreshTokenFingerprint,
+          isRevoked: false,
+        },
+        select: ['id'],
       });
 
-      // So sánh refreshToken với từng session hash
-      for (const session of userSessions) {
-        const isMatch = await bcrypt.compare(refreshToken, session.refreshTokenHash);
-        if (isMatch) {
-          // Revoke session tìm thấy
-          await this.authSessionRepository.update(
-            { id: session.id },
-            { isRevoked: true, revokedAt: new Date() },
-          );
-          break;
+      if (directMatch) {
+        await this.authSessionRepository.update(
+          { id: directMatch.id },
+          { isRevoked: true, revokedAt: new Date() },
+        );
+      } else {
+        // Tﾃｬm t蘯･t c蘯｣ sessions c盻ｧa user vﾃ ki盻ノ tra refreshToken b蘯ｱng bcrypt.compare
+        const userSessions = await this.authSessionRepository.find({
+          where: { userId, isRevoked: false },
+        });
+
+        // So sﾃ｡nh refreshToken v盻嬖 t盻ｫng session hash
+        for (const session of userSessions) {
+          const isMatch = await bcrypt.compare(refreshToken, session.refreshTokenHash);
+          if (isMatch) {
+            if (!session.refreshTokenFingerprint) {
+              await this.authSessionRepository.update(
+                { id: session.id },
+                { refreshTokenFingerprint },
+              );
+            }
+
+            // Revoke session tﾃｬm th蘯･y
+            await this.authSessionRepository.update(
+              { id: session.id },
+              { isRevoked: true, revokedAt: new Date() },
+            );
+            break;
+          }
         }
       }
     } else {
-      // Revoke tất cả sessions của user
+      // Revoke t蘯･t c蘯｣ sessions c盻ｧa user
       await this.authSessionRepository.update(
         { userId, isRevoked: false },
         { isRevoked: true, revokedAt: new Date() },
@@ -263,7 +299,7 @@ export class AuthService {
     }
 
     return {
-      message: 'Đăng xuất thành công',
+      message: 'ﾄ斉ハg xu蘯･t thﾃnh cﾃｴng',
     };
   }
 
@@ -277,39 +313,57 @@ export class AuthService {
     accessToken: string;
     refreshToken: string;
   }> {
-    // 1. Tìm session với refresh token này
-    const sessions = await this.authSessionRepository.find({
-      where: { isRevoked: false },
-    });
-
-    let validSession: AuthSessionEntity | null = null;
-    for (const session of sessions) {
-      // Kiểm tra token chưa hết hạn và so sánh với hash
-      if (session.expiresAt > new Date()) {
-        const isMatch = await bcrypt.compare(oldRefreshToken, session.refreshTokenHash);
-        if (isMatch) {
-          validSession = session;
-          break;
-        }
-      }
+    if (!oldRefreshToken) {
+      throw new UnauthorizedException({
+        error: 'INVALID_REFRESH',
+        message: 'Refresh token is missing',
+      });
     }
 
-    if (!validSession) {
-      throw new UnauthorizedException('Refresh token không hợp lệ hoặc đã hết hạn');
+    const matchedSession = await this.findSessionByRefreshToken(oldRefreshToken);
+
+    if (!matchedSession) {
+      this.logger.warn('Refresh rejected: INVALID_REFRESH');
+      throw new UnauthorizedException({
+        error: 'INVALID_REFRESH',
+        message: 'Refresh token is invalid',
+      });
     }
 
-    // Lấy thông tin user từ session
+    if (matchedSession.isRevoked) {
+      this.logger.warn(`Refresh rejected: SESSION_REVOKED user=${matchedSession.userId}`);
+      throw new UnauthorizedException({
+        error: 'SESSION_REVOKED',
+        message: 'Session has been revoked',
+      });
+    }
+
+    if (matchedSession.expiresAt <= new Date()) {
+      await this.authSessionRepository.update(
+        { id: matchedSession.id },
+        { isRevoked: true, revokedAt: new Date() },
+      );
+      this.logger.warn(`Refresh rejected: SESSION_EXPIRED user=${matchedSession.userId}`);
+      throw new UnauthorizedException({
+        error: 'SESSION_EXPIRED',
+        message: 'Session has expired',
+      });
+    }
+
     const user = await this.userRepository.findOne({
-      where: { id: validSession.userId },
+      where: { id: matchedSession.userId },
     });
 
     if (!user) {
-      throw new UnauthorizedException('User không tồn tại');
+      this.logger.warn(`Refresh rejected: SESSION_REVOKED missing-user=${matchedSession.userId}`);
+      throw new UnauthorizedException({
+        error: 'SESSION_REVOKED',
+        message: 'Session owner no longer exists',
+      });
     }
 
-    // 2. Tạo tokens mới
     const payload: JwtPayload = {
-      sub: validSession.userId,
+      sub: matchedSession.userId,
       email: user.email,
       role: user.role,
     };
@@ -317,18 +371,54 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
     const newRefreshToken = randomBytes(64).toString('hex');
 
-    // 3. Rotate refresh token (security best practice)
     const newRefreshTokenHash = await bcrypt.hash(newRefreshToken, 10);
+    const newRefreshTokenFingerprint = this.buildRefreshTokenFingerprint(newRefreshToken);
 
     await this.authSessionRepository.update(
-      { id: validSession.id },
+      { id: matchedSession.id },
       {
         refreshTokenHash: newRefreshTokenHash,
+        refreshTokenFingerprint: newRefreshTokenFingerprint,
         lastUsedAt: new Date(),
       },
     );
 
     return { accessToken, refreshToken: newRefreshToken };
+  }
+
+  private buildRefreshTokenFingerprint(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  private async findSessionByRefreshToken(token: string): Promise<AuthSessionEntity | null> {
+    const refreshTokenFingerprint = this.buildRefreshTokenFingerprint(token);
+    const byFingerprint = await this.authSessionRepository.findOne({
+      where: { refreshTokenFingerprint },
+    });
+
+    if (byFingerprint) {
+      return byFingerprint;
+    }
+
+    // Backward-compatible fallback for sessions created before fingerprint support.
+    const legacyCandidates = await this.authSessionRepository.find({
+      where: {
+        refreshTokenFingerprint: IsNull(),
+        expiresAt: MoreThan(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)),
+      },
+      order: { createdAt: 'DESC' },
+      take: this.refreshTokenLegacyScanLimit,
+    });
+
+    for (const session of legacyCandidates) {
+      const isMatch = await bcrypt.compare(token, session.refreshTokenHash);
+      if (isMatch) {
+        await this.authSessionRepository.update({ id: session.id }, { refreshTokenFingerprint });
+        return session;
+      }
+    }
+
+    return null;
   }
 
   private async createAuthSession(
@@ -337,7 +427,7 @@ export class AuthService {
     userAgent?: string,
     ipAddress?: string,
   ): Promise<void> {
-    // Chỉ revoke session cùng userAgent (cùng thiết bị), không revoke tất cả
+    // Ch盻・revoke session cﾃｹng userAgent (cﾃｹng thi蘯ｿt b盻・, khﾃｴng revoke t蘯･t c蘯｣
     if (userAgent) {
       await this.authSessionRepository.update(
         {
@@ -349,19 +439,21 @@ export class AuthService {
       );
     }
 
-    // Dọn dẹp sessions hết hạn của user này
+    // D盻肱 d蘯ｹp sessions h蘯ｿt h蘯｡n c盻ｧa user nﾃy
     await this.cleanupExpiredSessions(userId);
 
-    // Hash refresh token với salt rounds thấp hơn cho session
+    // Hash refresh token v盻嬖 salt rounds th蘯･p hﾆ｡n cho session
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+    const refreshTokenFingerprint = this.buildRefreshTokenFingerprint(refreshToken);
 
-    // Tạo session mới với thông tin thiết bị
+    // T蘯｡o session m盻嬖 v盻嬖 thﾃｴng tin thi蘯ｿt b盻・
     const authSession = this.authSessionRepository.create({
       userId,
       refreshTokenHash,
+      refreshTokenFingerprint,
       userAgent: userAgent || 'Unknown Device',
       ipAddress: ipAddress || 'Unknown IP',
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 ngày
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 ngﾃy
       isRevoked: false,
       lastUsedAt: new Date(),
     });
@@ -370,16 +462,16 @@ export class AuthService {
   }
 
   /**
-   * Dọn dẹp các sessions hết hạn hoặc quá nhiều sessions của user
+   * D盻肱 d蘯ｹp cﾃ｡c sessions h蘯ｿt h蘯｡n ho蘯ｷc quﾃ｡ nhi盻「 sessions c盻ｧa user
    */
   private async cleanupExpiredSessions(userId: string): Promise<void> {
-    // Xóa sessions hết hạn
+    // Xﾃｳa sessions h蘯ｿt h蘯｡n
     await this.authSessionRepository.delete({
       userId,
       expiresAt: LessThan(new Date()),
     });
 
-    // Giới hạn tối đa 5 sessions active per user (để tránh tấn công)
+    // Gi盻嬖 h蘯｡n t盻訴 ﾄ疎 5 sessions active per user (ﾄ黛ｻ・trﾃ｡nh t蘯･n cﾃｴng)
     const activeSessions = await this.authSessionRepository.find({
       where: {
         userId,
@@ -389,9 +481,9 @@ export class AuthService {
       order: { createdAt: 'DESC' },
     });
 
-    // Nếu có nhiều hơn 5 sessions, revoke những sessions cũ nhất
+    // N蘯ｿu cﾃｳ nhi盻「 hﾆ｡n 5 sessions, revoke nh盻ｯng sessions cﾅｩ nh蘯･t
     if (activeSessions.length >= 5) {
-      const sessionsToRevoke = activeSessions.slice(4); // Giữ 4 sessions mới nhất
+      const sessionsToRevoke = activeSessions.slice(4); // Gi盻ｯ 4 sessions m盻嬖 nh蘯･t
 
       for (const session of sessionsToRevoke) {
         await this.authSessionRepository.update(session.id, {
@@ -453,7 +545,13 @@ export class AuthService {
     });
 
     // Return generic error for deleted/banned/non-existent accounts
-    if (!user || user.status === UserStatus.DELETED || user.isBanned || !user.resetPasswordOtp || !user.resetPasswordOtpExpires) {
+    if (
+      !user ||
+      user.status === UserStatus.DELETED ||
+      user.isBanned ||
+      !user.resetPasswordOtp ||
+      !user.resetPasswordOtpExpires
+    ) {
       return {
         message: 'Invalid OTP code',
         isValid: false,
@@ -488,13 +586,19 @@ export class AuthService {
       throw new UnauthorizedException('Password confirmation does not match');
     }
 
-    // 2. Tìm user theo email
+    // 2. Tﾃｬm user theo email
     const user = await this.userRepository.findOne({
       where: { email },
     });
 
     // Return generic error for deleted/banned/non-existent accounts
-    if (!user || user.status === UserStatus.DELETED || user.isBanned || !user.resetPasswordOtp || !user.resetPasswordOtpExpires) {
+    if (
+      !user ||
+      user.status === UserStatus.DELETED ||
+      user.isBanned ||
+      !user.resetPasswordOtp ||
+      !user.resetPasswordOtpExpires
+    ) {
       throw new UnauthorizedException('Invalid or expired OTP code');
     }
 
@@ -511,7 +615,7 @@ export class AuthService {
     // 5. Hash new password
     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
 
-    // 6. Update password và clear OTP
+    // 6. Update password vﾃ clear OTP
     await this.userRepository.update(user.id, {
       passwordHash: hashedNewPassword,
       resetPasswordOtp: undefined,
@@ -601,7 +705,7 @@ export class AuthService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email đã được sử dụng');
+      throw new ConflictException('Email ﾄ妥｣ ﾄ柁ｰ盻｣c s盻ｭ d盻･ng');
     }
 
     // Create new user (no password needed for Google OAuth users)
@@ -654,11 +758,22 @@ export class AuthService {
     });
   }
 
+  async getSessionUser(userId: string): Promise<AuthResponseDto> {
+    const user = await this.findUserWithProfile(userId);
+    if (!user) {
+      throw new UnauthorizedException({
+        error: 'SESSION_REVOKED',
+        message: 'Authenticated user not found',
+      });
+    }
+    return this.mapToAuthResponse(user);
+  }
+
   async updateProfile(
     userId: string,
     updateProfileDto: UpdateProfileDto,
   ): Promise<AuthResponseDto> {
-    // Cập nhật thông tin User
+    // C蘯ｭp nh蘯ｭt thﾃｴng tin User
     const updateUserData: Partial<UserEntity> = {};
     if (updateProfileDto.fullName) updateUserData.fullName = updateProfileDto.fullName;
     if (updateProfileDto.phoneNumber) updateUserData.phoneNumber = updateProfileDto.phoneNumber;
@@ -668,11 +783,11 @@ export class AuthService {
       await this.userRepository.update({ id: userId }, updateUserData);
     }
 
-    // Tìm hoặc tạo Profile
+    // Tﾃｬm ho蘯ｷc t蘯｡o Profile
     let profile = await this.profileRepository.findOne({ where: { userId } });
 
     if (!profile) {
-      // Tạo profile mới nếu chưa có
+      // T蘯｡o profile m盻嬖 n蘯ｿu chﾆｰa cﾃｳ
       profile = this.profileRepository.create({
         userId,
         avatarUrl: updateProfileDto.avatarUrl,
@@ -683,7 +798,7 @@ export class AuthService {
       });
       await this.profileRepository.save(profile);
     } else {
-      // Cập nhật profile
+      // C蘯ｭp nh蘯ｭt profile
       const updateProfileData: Partial<ProfileEntity> = {};
       if (updateProfileDto.avatarUrl !== undefined)
         updateProfileData.avatarUrl = updateProfileDto.avatarUrl;
@@ -702,7 +817,7 @@ export class AuthService {
       }
     }
 
-    // Lấy lại user với profile
+    // L蘯･y l蘯｡i user v盻嬖 profile
     const updatedUser = await this.findUserWithProfile(userId);
     if (!updatedUser) {
       throw new Error('User not found after update');
@@ -774,10 +889,7 @@ export class AuthService {
       throw new BadRequestException('This account does not have a password');
     }
 
-    const isPasswordValid = await bcrypt.compare(
-      deleteAccountDto.password,
-      user.passwordHash,
-    );
+    const isPasswordValid = await bcrypt.compare(deleteAccountDto.password, user.passwordHash);
 
     if (!isPasswordValid) {
       throw new UnauthorizedException('Incorrect password');
@@ -884,8 +996,8 @@ export class AuthService {
       isVerified: user.isVerified,
       isEmailVerified: !!user.emailVerifiedAt,
       currentTrustScore: user.currentTrustScore,
-      badge: user.badge, // Từ virtual property của Entity
-      stats: user.stats, // Từ virtual property của Entity
+      badge: user.badge, // T盻ｫ virtual property c盻ｧa Entity
+      stats: user.stats, // T盻ｫ virtual property c盻ｧa Entity
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };

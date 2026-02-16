@@ -4,8 +4,6 @@
 // Types for Staff Scheduling, Workload Management, and Auto-Assignment
 // ============================================================================
 
-import { EventType } from '../../../database/entities/calendar-event.entity';
-
 // =============================================================================
 // COMPLEXITY ESTIMATION
 // =============================================================================

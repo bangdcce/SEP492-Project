@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash } from 'crypto';
 import Decimal from 'decimal.js';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
@@ -18,11 +19,16 @@ import {
   DisputeNoteEntity,
   DisputeActivityEntity,
   DisputeEvidenceEntity,
+  DisputeLedgerEntity,
   DisputeMessageEntity,
   DisputeAction,
+  DisputePartyEntity,
+  DisputePartySide,
   DisputeHearingEntity,
+  HearingQuestionEntity,
   HearingTier,
   HearingStatus,
+  HearingQuestionStatus,
   DisputeVerdictEntity,
   EscrowEntity,
   EscrowStatus,
@@ -47,10 +53,12 @@ import {
   Brackets,
   LessThan,
   LessThanOrEqual,
+  EntityManager,
   Between,
   MoreThan,
   IsNull,
   SelectQueryBuilder,
+  DeepPartial,
 } from 'typeorm';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
 import { UpdateDisputeDto } from './dto/update-disputes.dto';
@@ -85,6 +93,7 @@ import { VerdictService } from './services/verdict.service';
 import { AppealVerdictDto } from './dto/verdict.dto';
 import { StaffAssignmentService } from './services/staff-assignment.service';
 import { CalendarService } from '../calendar/calendar.service';
+import { TriageActionType, TriageDisputeDto } from './dto/triage-dispute.dto';
 
 // Constants for deadlines
 const DEFAULT_RESPONSE_DEADLINE_DAYS = 7;
@@ -93,14 +102,14 @@ const URGENT_THRESHOLD_HOURS = 48; // Dispute được coi là urgent nếu còn
 const DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS = 7;
 const DEFAULT_HEARING_DURATION_MINUTES = 60;
 const DEFAULT_HEARING_MIN_NOTICE_HOURS = 24;
-const DEFAULT_SETTLEMENT_WINDOW_HOURS = 24;
-const DEADLINE_SETTLEMENT_WINDOW_HOURS = 48;
-const REJECTION_APPEAL_WINDOW_HOURS = 24;
+const _DEFAULT_SETTLEMENT_WINDOW_HOURS = 24;
+const _DEADLINE_SETTLEMENT_WINDOW_HOURS = 48;
+const _REJECTION_APPEAL_WINDOW_HOURS = 24;
 const DISMISSAL_HOLD_HOURS = 24;
 const DISMISSAL_RATE_SAMPLE_WINDOW_DAYS = 30;
 const DISMISSAL_RATE_ALERT_THRESHOLD = 0.3;
 const DISMISSAL_RATE_MIN_SAMPLES = 10;
-const DISMISSAL_AUDIT_SAMPLE_RATE = 0.1;
+const _DISMISSAL_AUDIT_SAMPLE_RATE = 0.1;
 const MESSAGE_RATE_LIMIT = {
   MIN_INTERVAL_MS: 1000,
   MAX_PER_MINUTE: 10,
@@ -134,6 +143,8 @@ export class DisputesService {
     private messageRepo: Repository<DisputeMessageEntity>,
     @InjectRepository(DisputeHearingEntity)
     private hearingRepo: Repository<DisputeHearingEntity>,
+    @InjectRepository(HearingQuestionEntity)
+    private hearingQuestionRepo: Repository<HearingQuestionEntity>,
     @InjectRepository(DisputeVerdictEntity)
     private verdictRepo: Repository<DisputeVerdictEntity>,
     @InjectRepository(EscrowEntity)
@@ -148,6 +159,10 @@ export class DisputesService {
     private noteRepo: Repository<DisputeNoteEntity>,
     @InjectRepository(DisputeActivityEntity)
     private activityRepo: Repository<DisputeActivityEntity>,
+    @InjectRepository(DisputeLedgerEntity)
+    private ledgerRepo: Repository<DisputeLedgerEntity>,
+    @InjectRepository(DisputePartyEntity)
+    private disputePartyRepo: Repository<DisputePartyEntity>,
 
     private readonly dataSource: DataSource,
     private readonly trustScoreService: TrustScoreService,
@@ -181,7 +196,9 @@ export class DisputesService {
   >();
 
   private async buildMessageEventPayload(message: DisputeMessageEntity) {
-    let senderSummary: { id: string; fullName?: string; email?: string; role?: UserRole } | undefined;
+    let senderSummary:
+      | { id: string; fullName?: string; email?: string; role?: UserRole }
+      | undefined;
     if (message.senderId) {
       const sender = await this.userRepo.findOne({
         where: { id: message.senderId },
@@ -215,6 +232,178 @@ export class DisputesService {
     };
   }
 
+  private canonicalize(value: unknown): string {
+    if (Array.isArray(value)) {
+      return `[${value.map((item) => this.canonicalize(item)).join(',')}]`;
+    }
+
+    if (value && typeof value === 'object') {
+      const entries = Object.entries(value as Record<string, unknown>).sort(([a], [b]) =>
+        a.localeCompare(b),
+      );
+      const normalized = entries
+        .map(([key, nestedValue]) => `${JSON.stringify(key)}:${this.canonicalize(nestedValue)}`)
+        .join(',');
+      return `{${normalized}}`;
+    }
+
+    return JSON.stringify(value ?? null);
+  }
+
+  private buildLedgerCanonicalPayload(input: {
+    disputeId: string;
+    eventType: string;
+    actorId?: string | null;
+    reason?: string | null;
+    payload?: Record<string, unknown> | null;
+    previousHash?: string | null;
+    recordedAt: string;
+  }): string {
+    return this.canonicalize({
+      disputeId: input.disputeId,
+      eventType: input.eventType,
+      actorId: input.actorId || null,
+      reason: input.reason || null,
+      previousHash: input.previousHash || null,
+      recordedAt: input.recordedAt,
+      payload: input.payload || {},
+    });
+  }
+
+  private async appendLedgerEntry(
+    manager: EntityManager,
+    input: {
+      disputeId: string;
+      eventType: string;
+      actorId?: string | null;
+      reason?: string | null;
+      payload?: Record<string, unknown>;
+      previousStatus?: DisputeStatus | null;
+      newStatus?: DisputeStatus | null;
+    },
+  ): Promise<void> {
+    const ledgerRepo = manager.getRepository(DisputeLedgerEntity);
+    const latest = await ledgerRepo.findOne({
+      where: { disputeId: input.disputeId },
+      order: { createdAt: 'DESC' },
+    });
+
+    const recordedAt = new Date().toISOString();
+    const payload: Record<string, unknown> = {
+      ...(input.payload || {}),
+      stateDelta: {
+        from: input.previousStatus || null,
+        to: input.newStatus || null,
+      },
+    };
+
+    const canonicalPayload = this.buildLedgerCanonicalPayload({
+      disputeId: input.disputeId,
+      eventType: input.eventType,
+      actorId: input.actorId || null,
+      reason: input.reason || null,
+      payload,
+      previousHash: latest?.hash || null,
+      recordedAt,
+    });
+
+    const hash = createHash('sha256').update(canonicalPayload).digest('hex');
+
+    await ledgerRepo.insert({
+      disputeId: input.disputeId,
+      eventType: input.eventType,
+      actorId: input.actorId || null,
+      reason: input.reason || null,
+      payload,
+      previousHash: latest?.hash || null,
+      canonicalPayload,
+      hash,
+    });
+  }
+
+  private async ensureDisputeParty(
+    manager: EntityManager,
+    input: {
+      groupId: string;
+      disputeId: string;
+      userId: string;
+      role?: UserRole;
+      side: DisputePartySide;
+    },
+  ): Promise<void> {
+    const partyRepo = manager.getRepository(DisputePartyEntity);
+    const existing = await partyRepo.findOne({
+      where: {
+        groupId: input.groupId,
+        userId: input.userId,
+      },
+    });
+
+    if (existing) {
+      const updatePayload: Partial<DisputePartyEntity> = {};
+      if (!existing.disputeId) {
+        updatePayload.disputeId = input.disputeId;
+      }
+      if (!existing.role && input.role) {
+        updatePayload.role = input.role;
+      }
+      if (existing.side !== input.side && existing.side !== DisputePartySide.THIRD_PARTY) {
+        updatePayload.side = input.side;
+      }
+
+      if (Object.keys(updatePayload).length > 0) {
+        await partyRepo.update(existing.id, updatePayload);
+      }
+      return;
+    }
+
+    await partyRepo.save(
+      partyRepo.create({
+        groupId: input.groupId,
+        disputeId: input.disputeId,
+        userId: input.userId,
+        role: input.role,
+        side: input.side,
+      }),
+    );
+  }
+
+  private async assertDisputeAccess(
+    dispute: DisputeEntity,
+    userId: string,
+    userRole: UserRole,
+  ): Promise<void> {
+    if ([UserRole.ADMIN, UserRole.STAFF].includes(userRole)) {
+      return;
+    }
+
+    if ([dispute.raisedById, dispute.defendantId].includes(userId)) {
+      return;
+    }
+
+    if ([dispute.assignedStaffId, dispute.escalatedToAdminId].includes(userId)) {
+      return;
+    }
+
+    if (await this.isGroupPartyMember(dispute, userId)) {
+      return;
+    }
+
+    throw new ForbiddenException('You do not have access to this dispute');
+  }
+
+  private async isGroupPartyMember(
+    dispute: Pick<DisputeEntity, 'id' | 'groupId'>,
+    userId: string,
+  ): Promise<boolean> {
+    const groupId = dispute.groupId || dispute.id;
+    const membership = await this.disputePartyRepo.findOne({
+      where: { groupId, userId },
+      select: ['id'],
+    });
+    return Boolean(membership);
+  }
+
   async create(raisedBy: string, dto: CreateDisputeDto) {
     const {
       projectId,
@@ -233,14 +422,22 @@ export class DisputesService {
       );
     }
 
+    if (disputeCategory === DisputeCategory.OTHER) {
+      if (!reason || reason.trim().length < 20) {
+        throw new BadRequestException(
+          'For "Other" category, a detailed reason (minimum 20 characters) is required.',
+        );
+      }
+    }
+
     const now = new Date();
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     let savedDispute: DisputeEntity;
-    let project: ProjectEntity;
-    let escrow: EscrowEntity;
+    let project: ProjectEntity | null;
+    let escrow: EscrowEntity | null;
     let raiserRole: UserRole;
     let defendantRole: UserRole;
 
@@ -257,7 +454,17 @@ export class DisputesService {
       }
 
       if (project.status === ProjectStatus.PAID) {
-        throw new BadRequestException('Project is already paid. Dispute requires manual support');
+        // Cho phép raise dispute trong vòng 30 ngày kể từ khi PAID (tính theo updatedAt)
+        const WARRANTY_DAYS = 30;
+        // Dùng endDate
+        const warrantyDeadline = new Date(project.endDate);
+        warrantyDeadline.setDate(warrantyDeadline.getDate() + WARRANTY_DAYS);
+
+        if (new Date() > warrantyDeadline) {
+          throw new BadRequestException(
+            'Project is already paid and warranty period (30 days) has expired.',
+          );
+        }
       }
 
       const milestone = await queryRunner.manager.findOne(MilestoneEntity, {
@@ -273,19 +480,7 @@ export class DisputesService {
         throw new BadRequestException('Milestone does not belong to this project');
       }
 
-      if (milestone.status === MilestoneStatus.PAID) {
-        throw new BadRequestException('Milestone is already paid. Dispute requires manual support');
-      }
-      const allowedMilestoneStatuses = parentDisputeId
-        ? [MilestoneStatus.COMPLETED, MilestoneStatus.LOCKED]
-        : this.getAllowedMilestoneStatusesForDispute(disputeCategory);
-      if (!allowedMilestoneStatuses.includes(milestone.status)) {
-        throw new BadRequestException(
-          `Milestone status "${milestone.status}" does not allow ${disputeCategory} disputes. ` +
-            `Allowed statuses: ${allowedMilestoneStatuses.join(', ')}`,
-        );
-      }
-
+      // Lấy Escrow trước để check ngày trả tiền (releasedAt)
       escrow = await queryRunner.manager.findOne(EscrowEntity, {
         where: { milestoneId },
         lock: { mode: 'pessimistic_write' },
@@ -295,11 +490,46 @@ export class DisputesService {
         throw new NotFoundException('Escrow not found');
       }
 
+      // Logic check Milestone PAID (Bảo hành 30 ngày)
+      const WARRANTY_DAYS = 30;
+      if (milestone.status === MilestoneStatus.PAID) {
+        // Mặc định lấy ngày releasedAt trong Escrow, nếu không có thì fallback sang createdAt của milestone
+        const paidAt = escrow.releasedAt || milestone.dueDate;
+        const warrantyDeadline = new Date(paidAt);
+        warrantyDeadline.setDate(warrantyDeadline.getDate() + WARRANTY_DAYS);
+
+        if (new Date() > warrantyDeadline) {
+          throw new BadRequestException(
+            'Milestone warranty period (30 days) has expired. Dispute requires manual support.',
+          );
+        }
+      }
+
+      const allowedMilestoneStatuses = parentDisputeId
+        ? [MilestoneStatus.COMPLETED, MilestoneStatus.LOCKED]
+        : this.getAllowedMilestoneStatusesForDispute(disputeCategory);
+
+      // Nếu milestone đã PAID nhưng còn bảo hành -> Cho phép dispute
+      if (milestone.status === MilestoneStatus.PAID) {
+        allowedMilestoneStatuses.push(MilestoneStatus.PAID);
+      }
+
+      if (!allowedMilestoneStatuses.includes(milestone.status)) {
+        throw new BadRequestException(
+          `Milestone status "${milestone.status}" does not allow ${disputeCategory} disputes. ` +
+            `Allowed statuses: ${allowedMilestoneStatuses.join(', ')}`,
+        );
+      }
+
       const allowedEscrowStatuses = parentDisputeId
         ? [EscrowStatus.FUNDED, EscrowStatus.DISPUTED]
-        : [EscrowStatus.FUNDED];
+        : [EscrowStatus.FUNDED, EscrowStatus.RELEASED]; // Cho phép RELEASED (đã trả tiền)
+
       if (!allowedEscrowStatuses.includes(escrow.status)) {
-        throw new BadRequestException('Escrow is not in HOLD state for dispute');
+        // Nếu đã release thì ok (được dispute bảo hành), còn không thì lỗi
+        if (escrow.status !== EscrowStatus.RELEASED) {
+          throw new BadRequestException('Escrow is not in valid state for dispute');
+        }
       }
 
       const projectMember = [project.clientId, project.brokerId, project.freelancerId].filter(
@@ -317,6 +547,8 @@ export class DisputesService {
 
       const activeStatuses = [
         DisputeStatus.OPEN,
+        DisputeStatus.TRIAGE_PENDING,
+        DisputeStatus.PREVIEW,
         DisputeStatus.PENDING_REVIEW,
         DisputeStatus.INFO_REQUESTED,
         DisputeStatus.IN_MEDIATION,
@@ -351,10 +583,20 @@ export class DisputesService {
           },
           lock: { mode: 'pessimistic_read' },
         });
+
+        // Nếu đã có dispute active cho defendant này:
+        // - Block nếu dispute đó thuộc về MỘT VỤ KIỆN KHÁC (khác groupId) -> Xung đột
+        // - Allow nếu dispute đó thuộc CÙNG VỤ KIỆN (cùng groupId) -> Trường hợp 1 người bị kiện nhiều lỗi (Quality + Deadline)
+        // - Allow nếu chưa từng bị kiện (Trường hợp 1 nguyên đơn kiện 2 bị đơn -> Defendant mới chưa có record nào)
         if (existingForDefendant) {
-          throw new BadRequestException(
-            'Active dispute already exists for this defendant. Add evidence to existing dispute.',
-          );
+          const parentGroupId = parentDispute.groupId || parentDispute.id;
+          const existingGroupId = existingForDefendant.groupId || existingForDefendant.id;
+
+          if (parentGroupId !== existingGroupId) {
+            throw new BadRequestException(
+              'Defendant is already involved in a DIFFERENT dispute case on this milestone.',
+            );
+          }
         }
       } else {
         const existingDispute = await queryRunner.manager.findOne(DisputeEntity, {
@@ -382,6 +624,13 @@ export class DisputesService {
         now.getTime() + DEFAULT_RESOLUTION_DEADLINE_DAYS * 24 * 60 * 60 * 1000,
       );
 
+      // Gán groupId:
+      // - Nếu là con -> Kế thừa groupId của cha (hoặc id của cha nếu cha chưa có groupId)
+      // - Nếu là root -> Dùng chính id của mình (sẽ update sau khi save)
+      const groupId: string | null = parentDisputeId
+        ? parentDispute?.groupId || parentDispute?.id || null
+        : null;
+
       const dispute = this.disputeRepo.create({
         raisedById: raisedBy,
         raiserRole,
@@ -396,12 +645,12 @@ export class DisputesService {
         reason,
         evidence,
         phase: DisputePhase.PRESENTATION,
-        status: DisputeStatus.PENDING_REVIEW,
+        status: DisputeStatus.TRIAGE_PENDING,
         responseDeadline,
         resolutionDeadline,
         parentDisputeId: parentDisputeId || null,
-        groupId: parentDispute?.groupId || parentDispute?.id || null,
-      });
+        groupId, // Gán ngay từ đầu nếu có thể
+      } as unknown as DeepPartial<DisputeEntity>);
 
       escrow.status = EscrowStatus.DISPUTED;
       project.status = ProjectStatus.DISPUTED;
@@ -412,7 +661,8 @@ export class DisputesService {
       await queryRunner.manager.save(ProjectEntity, project);
       savedDispute = await queryRunner.manager.save(DisputeEntity, dispute);
 
-      if (!parentDisputeId && !savedDispute.groupId) {
+      // Nếu là root dispute (chưa có groupId), update lại chính nó làm group leader
+      if (!groupId) {
         savedDispute.groupId = savedDispute.id;
         await queryRunner.manager.update(
           DisputeEntity,
@@ -420,6 +670,23 @@ export class DisputesService {
           { groupId: savedDispute.groupId },
         );
       }
+      const canonicalGroupId = savedDispute.groupId || savedDispute.id;
+
+      await this.ensureDisputeParty(queryRunner.manager, {
+        groupId: canonicalGroupId,
+        disputeId: savedDispute.id,
+        userId: raisedBy,
+        role: raiserRole,
+        side: DisputePartySide.RAISER,
+      });
+
+      await this.ensureDisputeParty(queryRunner.manager, {
+        groupId: canonicalGroupId,
+        disputeId: savedDispute.id,
+        userId: defendantId,
+        role: defendantRole,
+        side: DisputePartySide.DEFENDANT,
+      });
 
       if (!escrow.disputeId) {
         escrow.disputeId = savedDispute.id;
@@ -451,6 +718,21 @@ export class DisputesService {
           parentDisputeId: parentDisputeId || null,
         },
       );
+
+      await this.appendLedgerEntry(queryRunner.manager, {
+        disputeId: savedDispute.id,
+        eventType: 'DISPUTE_CREATED',
+        actorId: raisedBy,
+        reason,
+        previousStatus: null,
+        newStatus: savedDispute.status,
+        payload: {
+          category: disputeCategory,
+          disputedAmount: amount,
+          parentDisputeId: parentDisputeId || null,
+          groupId: canonicalGroupId,
+        },
+      });
 
       await queryRunner.commitTransaction();
     } catch (error) {
@@ -791,6 +1073,15 @@ export class DisputesService {
           sub.orWhere('project.clientId = :userId', { userId });
           sub.orWhere('project.freelancerId = :userId', { userId });
           sub.orWhere('project.brokerId = :userId', { userId });
+          sub.orWhere(
+            `EXISTS (
+              SELECT 1
+              FROM dispute_parties dp
+              WHERE dp."groupId" = COALESCE(dispute."groupId", dispute."id")
+                AND dp."userId" = :userId
+            )`,
+            { userId },
+          );
         }
       }),
     );
@@ -989,6 +1280,447 @@ export class DisputesService {
     return dispute;
   }
 
+  async triageDispute(
+    staffId: string,
+    disputeId: string,
+    dto: TriageDisputeDto,
+  ): Promise<DisputeEntity> {
+    switch (dto.action) {
+      case TriageActionType.ACCEPT:
+        return await this.acceptDispute(staffId, disputeId);
+      case TriageActionType.REJECT:
+        if (!dto.reason?.trim()) {
+          throw new BadRequestException('Reason is required for REJECT action');
+        }
+        return await this.rejectDispute(staffId, disputeId, dto.reason);
+      case TriageActionType.REQUEST_INFO:
+        if (!dto.reason?.trim()) {
+          throw new BadRequestException('Reason is required for REQUEST_INFO action');
+        }
+        return await this.requestAdditionalInfo(staffId, disputeId, dto.reason, dto.deadlineAt);
+      case TriageActionType.COMPLETE_PREVIEW:
+        return await this.completePreview(staffId, disputeId, dto.reason);
+      default:
+        throw new BadRequestException('Unsupported triage action');
+    }
+  }
+
+  async completePreview(staffId: string, disputeId: string, note?: string): Promise<DisputeEntity> {
+    const staff = await this.userRepo.findOne({
+      where: { id: staffId },
+      select: ['id', 'role'],
+    });
+    if (!staff) {
+      throw new NotFoundException('User not found');
+    }
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(staff.role)) {
+      throw new ForbiddenException('Only staff or admin can complete preview');
+    }
+
+    const updated = await this.dataSource.transaction(async (manager) => {
+      const disputeRepo = manager.getRepository(DisputeEntity);
+      const activityRepo = manager.getRepository(DisputeActivityEntity);
+
+      const dispute = await disputeRepo.findOne({
+        where: { id: disputeId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!dispute) {
+        throw new NotFoundException('Dispute not found');
+      }
+
+      if (![DisputeStatus.PREVIEW, DisputeStatus.PENDING_REVIEW].includes(dispute.status)) {
+        throw new BadRequestException(
+          `Cannot complete preview from status ${dispute.status}. Allowed statuses: PREVIEW, PENDING_REVIEW.`,
+        );
+      }
+
+      if (
+        dispute.assignedStaffId &&
+        dispute.assignedStaffId !== staffId &&
+        staff.role !== UserRole.ADMIN
+      ) {
+        throw new ForbiddenException('Dispute is assigned to another staff member');
+      }
+
+      const previousStatus = dispute.status;
+      const now = new Date();
+      if (!dispute.assignedStaffId) {
+        dispute.assignedStaffId = staffId;
+        dispute.assignedAt = now;
+      }
+      dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.IN_MEDIATION);
+      dispute.previewCompletedById = staffId;
+      dispute.previewCompletedAt = now;
+      if (note?.trim()) {
+        dispute.adminComment = note.trim();
+      }
+
+      const updated = await disputeRepo.save(dispute);
+
+      await activityRepo.save(
+        activityRepo.create({
+          disputeId: dispute.id,
+          actorId: staff.id,
+          actorRole: staff.role,
+          action: DisputeAction.ESCALATED,
+          description: 'Preview completed. Dispute moved to mediation.',
+          metadata: {
+            previousStatus,
+            note: note?.trim() || null,
+          },
+        }),
+      );
+
+      await this.appendLedgerEntry(manager, {
+        disputeId: dispute.id,
+        eventType: 'PREVIEW_COMPLETED',
+        actorId: staff.id,
+        reason: note?.trim() || null,
+        previousStatus,
+        newStatus: updated.status,
+      });
+
+      this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
+        disputeId: dispute.id,
+        previousStatus,
+        newStatus: updated.status,
+      });
+
+      this.eventEmitter.emit(DISPUTE_EVENTS.ESCALATED, {
+        disputeId: dispute.id,
+        adminId: staff.id,
+      });
+
+      return updated;
+    });
+
+    try {
+      await this.escalateToHearing(disputeId, staffId);
+    } catch (error) {
+      this.logger.warn(
+        `Auto-schedule after preview completion failed for dispute ${disputeId}: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+    }
+
+    return updated;
+  }
+
+  private getEscalationAmountThreshold(): number {
+    const raw = process.env.DISPUTE_ESCALATION_AMOUNT_THRESHOLD;
+    const parsed = raw ? Number(raw) : NaN;
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return 5000;
+    }
+    return parsed;
+  }
+
+  private async evaluateEscalationPolicy(dispute: DisputeEntity): Promise<{
+    recommendEscalation: boolean;
+    rationale: Array<{ code: string; detail: string; severity: 'LOW' | 'MEDIUM' | 'HIGH' }>;
+    metrics: {
+      disputedAmount: number | null;
+      amountThreshold: number;
+      rescheduleCount: number;
+      pendingQuestionCount: number;
+      complexityLevel: string | null;
+    };
+  }> {
+    const amountThreshold = this.getEscalationAmountThreshold();
+    const rationale: Array<{ code: string; detail: string; severity: 'LOW' | 'MEDIUM' | 'HIGH' }> =
+      [];
+
+    const disputedAmount = dispute.disputedAmount ? Number(dispute.disputedAmount) : null;
+    if (disputedAmount !== null && disputedAmount >= amountThreshold) {
+      rationale.push({
+        code: 'HIGH_DISPUTED_AMOUNT',
+        detail: `Disputed amount ${disputedAmount} exceeds threshold ${amountThreshold}.`,
+        severity: 'HIGH',
+      });
+    }
+
+    let complexityLevel: string | null = null;
+    try {
+      const complexity = await this.staffAssignmentService.estimateDisputeComplexity(dispute.id);
+      complexityLevel = complexity?.level || null;
+      if (complexityLevel === 'HIGH' || complexityLevel === 'CRITICAL') {
+        rationale.push({
+          code: 'HIGH_COMPLEXITY',
+          detail: `Estimated dispute complexity is ${complexityLevel}.`,
+          severity: complexityLevel === 'CRITICAL' ? 'HIGH' : 'MEDIUM',
+        });
+      }
+    } catch {
+      // Keep policy evaluation resilient to complexity estimator failures.
+    }
+
+    const latestHearing = await this.hearingRepo.findOne({
+      where: { disputeId: dispute.id },
+      order: { createdAt: 'DESC' },
+      select: ['id', 'rescheduleCount'],
+    });
+    const rescheduleCount = latestHearing?.rescheduleCount || 0;
+    if (rescheduleCount >= 2) {
+      rationale.push({
+        code: 'REPEATED_RESCHEDULES',
+        detail: `Hearing has been rescheduled ${rescheduleCount} times.`,
+        severity: rescheduleCount >= 3 ? 'HIGH' : 'MEDIUM',
+      });
+    }
+
+    const pendingQuestionCount = latestHearing
+      ? await this.hearingQuestionRepo.count({
+          where: {
+            hearingId: latestHearing.id,
+            status: HearingQuestionStatus.PENDING_ANSWER,
+          },
+        })
+      : 0;
+    if (pendingQuestionCount >= 3) {
+      rationale.push({
+        code: 'UNRESOLVED_HEARING_QUESTIONS',
+        detail: `${pendingQuestionCount} unresolved hearing questions remain.`,
+        severity: pendingQuestionCount >= 5 ? 'HIGH' : 'MEDIUM',
+      });
+    }
+
+    const highSeverityCount = rationale.filter((item) => item.severity === 'HIGH').length;
+    const recommendEscalation = highSeverityCount > 0 || rationale.length >= 2;
+
+    return {
+      recommendEscalation,
+      rationale,
+      metrics: {
+        disputedAmount,
+        amountThreshold,
+        rescheduleCount,
+        pendingQuestionCount,
+        complexityLevel,
+      },
+    };
+  }
+
+  async getDisputeDossier(disputeId: string, userId: string, userRole: UserRole) {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+      relations: ['project', 'raiser', 'defendant', 'assignedStaff'],
+    });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    await this.assertDisputeAccess(dispute, userId, userRole);
+
+    const [activities, evidenceItems, hearings] = await Promise.all([
+      this.activityRepo.find({
+        where: { disputeId },
+        order: { timestamp: 'DESC' },
+        take: 100,
+      }),
+      this.evidenceRepo.find({
+        where: { disputeId },
+        order: { uploadedAt: 'DESC' },
+      }),
+      this.hearingRepo.find({
+        where: { disputeId },
+        order: { createdAt: 'DESC' },
+        take: 20,
+      }),
+    ]);
+
+    const now = new Date();
+    const hasInfoDeadline =
+      !!dispute.infoRequestDeadline && new Date(dispute.infoRequestDeadline).getTime() > 0;
+
+    const pendingActions: Array<{ code: string; description: string; urgent: boolean }> = [];
+    if ([DisputeStatus.TRIAGE_PENDING, DisputeStatus.OPEN].includes(dispute.status)) {
+      pendingActions.push({
+        code: 'TRIAGE_DECISION_REQUIRED',
+        description: 'Staff triage decision is required before preview starts.',
+        urgent: true,
+      });
+    }
+    if ([DisputeStatus.PREVIEW, DisputeStatus.PENDING_REVIEW].includes(dispute.status)) {
+      pendingActions.push({
+        code: 'PREVIEW_IN_PROGRESS',
+        description: 'Preview in progress. Complete dossier review or request more evidence.',
+        urgent: false,
+      });
+    }
+    if (dispute.status === DisputeStatus.INFO_REQUESTED) {
+      pendingActions.push({
+        code: 'WAITING_EVIDENCE',
+        description: hasInfoDeadline
+          ? `Waiting for additional evidence before ${new Date(
+              dispute.infoRequestDeadline as any,
+            ).toISOString()}.`
+          : 'Waiting for additional evidence from raiser.',
+        urgent:
+          !!dispute.infoRequestDeadline &&
+          new Date(dispute.infoRequestDeadline as any).getTime() <= now.getTime(),
+      });
+    }
+
+    const contradictionHints: Array<{ code: string; message: string }> = [];
+    if (
+      dispute.defendantResponse &&
+      dispute.reason &&
+      dispute.defendantResponse.trim().toLowerCase() === dispute.reason.trim().toLowerCase()
+    ) {
+      contradictionHints.push({
+        code: 'IDENTICAL_ARGUMENTS',
+        message:
+          'Raiser and defendant statements are nearly identical. Verify evidence provenance.',
+      });
+    }
+    if ((dispute.evidence?.length || 0) === 0 && (evidenceItems?.length || 0) === 0) {
+      contradictionHints.push({
+        code: 'NO_EVIDENCE',
+        message: 'No evidence has been attached yet. Request concrete files before adjudication.',
+      });
+    }
+
+    const totalEvidenceSize = evidenceItems.reduce((sum, item) => sum + (item.fileSize || 0), 0);
+    const escalationPolicy = await this.evaluateEscalationPolicy(dispute);
+
+    return {
+      dispute: {
+        id: dispute.id,
+        status: dispute.status,
+        category: dispute.category,
+        priority: dispute.priority,
+        reason: dispute.reason,
+        disputedAmount: dispute.disputedAmount,
+        createdAt: dispute.createdAt,
+        assignedStaffId: dispute.assignedStaffId,
+      },
+      projectContext: {
+        id: dispute.projectId,
+        title: dispute.project?.title || null,
+        milestoneId: dispute.milestoneId,
+        raiser: {
+          id: dispute.raisedById,
+          name: dispute.raiser?.fullName || null,
+          email: dispute.raiser?.email || null,
+          role: dispute.raiserRole,
+        },
+        defendant: {
+          id: dispute.defendantId,
+          name: dispute.defendant?.fullName || null,
+          email: dispute.defendant?.email || null,
+          role: dispute.defendantRole,
+        },
+      },
+      evidenceInventory: {
+        totalFiles: evidenceItems.length,
+        totalSizeBytes: totalEvidenceSize,
+        flaggedFiles: evidenceItems.filter((item) => item.isFlagged).length,
+        latestFiles: evidenceItems.slice(0, 10).map((item) => ({
+          id: item.id,
+          fileName: item.fileName,
+          mimeType: item.mimeType,
+          uploadedAt: item.uploadedAt,
+          uploaderId: item.uploaderId,
+        })),
+      },
+      timeline: activities.map((activity) => ({
+        id: activity.id,
+        action: activity.action,
+        actorId: activity.actorId,
+        actorRole: activity.actorRole,
+        description: activity.description,
+        timestamp: activity.timestamp,
+        metadata: activity.metadata,
+      })),
+      contradictionHints,
+      pendingActions,
+      escalationPolicy,
+      hearings: hearings.map((hearing) => ({
+        id: hearing.id,
+        status: hearing.status,
+        scheduledAt: hearing.scheduledAt,
+        hearingNumber: hearing.hearingNumber,
+      })),
+    };
+  }
+
+  async getEscalationPolicy(disputeId: string, userId: string, userRole: UserRole) {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+      select: [
+        'id',
+        'status',
+        'disputedAmount',
+        'assignedStaffId',
+        'escalatedToAdminId',
+        'raisedById',
+        'defendantId',
+        'groupId',
+      ],
+    });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    await this.assertDisputeAccess(dispute, userId, userRole);
+    return await this.evaluateEscalationPolicy(dispute);
+  }
+
+  async getDisputeLedger(disputeId: string, userId: string, userRole: UserRole) {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+      select: [
+        'id',
+        'groupId',
+        'raisedById',
+        'defendantId',
+        'assignedStaffId',
+        'escalatedToAdminId',
+      ],
+    });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+    await this.assertDisputeAccess(dispute, userId, userRole);
+
+    const entries = await this.ledgerRepo.find({
+      where: { disputeId },
+      order: { createdAt: 'ASC' },
+    });
+
+    let expectedPreviousHash: string | null = null;
+
+    return {
+      disputeId,
+      totalEntries: entries.length,
+      entries: entries.map((entry) => {
+        const recomputedHash = createHash('sha256').update(entry.canonicalPayload).digest('hex');
+        const chainOk = (entry.previousHash || null) === expectedPreviousHash;
+        const hashOk = recomputedHash === entry.hash;
+        const verified = chainOk && hashOk;
+        expectedPreviousHash = entry.hash;
+
+        return {
+          id: entry.id,
+          eventType: entry.eventType,
+          actorId: entry.actorId,
+          reason: entry.reason,
+          payload: entry.payload,
+          previousHash: entry.previousHash,
+          hash: entry.hash,
+          createdAt: entry.createdAt,
+          integrity: {
+            verified,
+            chainOk,
+            hashOk,
+          },
+        };
+      }),
+    };
+  }
+
   async escalateToMediation(staffId: string, disputeId: string): Promise<DisputeEntity> {
     const staff = await this.userRepo.findOne({
       where: { id: staffId },
@@ -1019,7 +1751,11 @@ export class DisputesService {
 
       const previousStatus = dispute.status;
       const wasAssigned = Boolean(dispute.assignedStaffId);
-      if (dispute.assignedStaffId && dispute.assignedStaffId !== staffId && staff.role !== UserRole.ADMIN) {
+      if (
+        dispute.assignedStaffId &&
+        dispute.assignedStaffId !== staffId &&
+        staff.role !== UserRole.ADMIN
+      ) {
         throw new ForbiddenException('Dispute is already assigned to another staff member');
       }
 
@@ -1046,6 +1782,17 @@ export class DisputesService {
         }),
       );
 
+      await this.appendLedgerEntry(manager, {
+        disputeId: dispute.id,
+        eventType: 'STATUS_ESCALATED_MEDIATION',
+        actorId: staff.id,
+        previousStatus,
+        newStatus: updated.status,
+        payload: {
+          assignedStaffId: dispute.assignedStaffId || null,
+        },
+      });
+
       if (!wasAssigned && dispute.assignedStaffId) {
         this.eventEmitter.emit(DISPUTE_EVENTS.ASSIGNED, {
           disputeId: dispute.id,
@@ -1067,6 +1814,160 @@ export class DisputesService {
 
       return updated;
     });
+  }
+
+  async getAutoScheduleOptions(
+    disputeId: string,
+    userId: string,
+    userRole: UserRole,
+    limit: number = 5,
+  ): Promise<{
+    manualRequired: boolean;
+    reason?: string;
+    moderatorId?: string;
+    durationMinutes?: number;
+    slots: Array<{
+      start: Date;
+      end: Date;
+      durationMinutes: number;
+      score: number;
+      scoreReasons: string[];
+    }>;
+    participants: Array<{
+      userId: string;
+      role: string;
+      isRequired: boolean;
+      relationToProject: string;
+    }>;
+    warnings: string[];
+  }> {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+      select: [
+        'id',
+        'groupId',
+        'status',
+        'assignedStaffId',
+        'raisedById',
+        'defendantId',
+        'escalatedToAdminId',
+      ],
+    });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    await this.assertDisputeAccess(dispute, userId, userRole);
+
+    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
+      return {
+        manualRequired: true,
+        reason: 'Dispute is already closed',
+        slots: [],
+        participants: [],
+        warnings: [],
+      };
+    }
+
+    let moderatorId = dispute.assignedStaffId || null;
+    if (!moderatorId && [UserRole.STAFF, UserRole.ADMIN].includes(userRole)) {
+      moderatorId = userId;
+    }
+    if (!moderatorId) {
+      const assignment = await this.autoAssignStaff(dispute.id);
+      moderatorId = assignment?.staffId || null;
+    }
+
+    if (!moderatorId) {
+      return {
+        manualRequired: true,
+        reason: 'No staff available to moderate hearing',
+        slots: [],
+        participants: [],
+        warnings: [],
+      };
+    }
+
+    const participantsResult = await this.hearingService.determineRequiredParticipants(
+      dispute.id,
+      HearingTier.TIER_1,
+      moderatorId,
+    );
+
+    const participantIds = Array.from(
+      new Set(
+        participantsResult.participants.map((participant) => participant.userId).filter(Boolean),
+      ),
+    );
+
+    if (!participantIds.length) {
+      return {
+        manualRequired: true,
+        reason: 'No participants available for hearing',
+        moderatorId,
+        slots: [],
+        participants: [],
+        warnings: participantsResult.warnings,
+      };
+    }
+
+    const complexity = await this.staffAssignmentService
+      .estimateDisputeComplexity(dispute.id)
+      .catch(() => null);
+    const durationMinutes =
+      complexity?.timeEstimation?.recommendedMinutes ?? DEFAULT_HEARING_DURATION_MINUTES;
+
+    const rangeStart = new Date(Date.now() + DEFAULT_HEARING_MIN_NOTICE_HOURS * 60 * 60 * 1000);
+    const rangeEnd = this.addDays(rangeStart, DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS);
+
+    const userTimezones = await this.resolveUserTimezones(participantIds);
+    const slotsResult = await this.calendarService.findAvailableSlots({
+      userIds: participantIds,
+      durationMinutes,
+      dateRange: { start: rangeStart, end: rangeEnd },
+      userTimezones,
+      maxSlots: Math.max(15, limit * 3),
+    });
+
+    const normalizedLimit = Math.min(Math.max(1, limit), 20);
+    const slots = slotsResult.slots.slice(0, normalizedLimit).map((slot) => ({
+      start: slot.start,
+      end: slot.end,
+      durationMinutes: slot.durationMinutes,
+      score: slot.score,
+      scoreReasons: slot.scoreReasons,
+    }));
+
+    if (!slots.length) {
+      return {
+        manualRequired: true,
+        reason: slotsResult.noSlotsReason || 'No available schedule slots',
+        moderatorId,
+        durationMinutes,
+        slots: [],
+        participants: participantsResult.participants.map((participant) => ({
+          userId: participant.userId,
+          role: participant.role,
+          isRequired: participant.isRequired,
+          relationToProject: participant.relationToProject,
+        })),
+        warnings: participantsResult.warnings,
+      };
+    }
+
+    return {
+      manualRequired: false,
+      moderatorId,
+      durationMinutes,
+      slots,
+      participants: participantsResult.participants.map((participant) => ({
+        userId: participant.userId,
+        role: participant.role,
+        isRequired: participant.isRequired,
+        relationToProject: participant.relationToProject,
+      })),
+      warnings: participantsResult.warnings,
+    };
   }
 
   async escalateToHearing(
@@ -1144,9 +2045,7 @@ export class DisputesService {
     const durationMinutes =
       complexity?.timeEstimation?.recommendedMinutes ?? DEFAULT_HEARING_DURATION_MINUTES;
 
-    const rangeStart = new Date(
-      Date.now() + DEFAULT_HEARING_MIN_NOTICE_HOURS * 60 * 60 * 1000,
-    );
+    const rangeStart = new Date(Date.now() + DEFAULT_HEARING_MIN_NOTICE_HOURS * 60 * 60 * 1000);
     const rangeEnd = this.addDays(rangeStart, DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS);
 
     const userTimezones = await this.resolveUserTimezones(participantIds);
@@ -1195,7 +2094,9 @@ export class DisputesService {
     }
 
     // Then check authorization
-    if (userId !== dispute.defendantId && userId !== dispute.raisedById) {
+    const isPrimaryParty = userId === dispute.defendantId || userId === dispute.raisedById;
+    const isGroupParty = isPrimaryParty ? true : await this.isGroupPartyMember(dispute, userId);
+    if (!isPrimaryParty && !isGroupParty) {
       throw new BadRequestException('You are not authorized to perform this action');
     }
 
@@ -1216,14 +2117,8 @@ export class DisputesService {
     }
     const now = new Date();
     let infoProvided = false;
-    if (
-      dispute.status === DisputeStatus.INFO_REQUESTED &&
-      userId === dispute.raisedById
-    ) {
-      dispute.status = DisputeStateMachine.transition(
-        dispute.status,
-        DisputeStatus.PENDING_REVIEW,
-      );
+    if (dispute.status === DisputeStatus.INFO_REQUESTED && userId === dispute.raisedById) {
+      dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.PREVIEW);
       dispute.infoProvidedAt = now;
       infoProvided = true;
     }
@@ -1250,7 +2145,10 @@ export class DisputesService {
   }
 
   // =============================================================================
-  // MESSAGE SERVICE (LIVE CHAT)
+  // MESSAGE SERVICE
+  // - Dispute messages: Bất đồng bộ (Async) - Nộp hồ sơ, bằng chứng, comment
+  // - Hearing messages: Đồng bộ (Realtime) - Chat theo lượt trong phiên tòa
+  //   (Quyền chat realtime được kiểm soát bởi HearingService.getChatPermission)
   // =============================================================================
 
   private checkMessageRateLimit(
@@ -1325,6 +2223,16 @@ export class DisputesService {
     }
   }
 
+  /**
+   * @deprecated Phase-based access control giờ được xử lý bởi HearingService.getChatPermission()
+   * thông qua currentSpeakerRole trên HearingEntity.
+   * Hàm này chỉ giữ lại để tương thích ngược (backward compatibility).
+   * Logic tương đương:
+   *   PRESENTATION     -> SpeakerRole.RAISER_ONLY   (Chỉ nguyên đơn trình bày)
+   *   CROSS_EXAMINATION -> SpeakerRole.DEFENDANT_ONLY (Chỉ bị đơn phản bác)
+   *   INTERROGATION    -> SpeakerRole.MODERATOR_ONLY (Thẩm phán đặt câu hỏi)
+   *   DELIBERATION     -> SpeakerRole.MUTED_ALL      (Nghị án, khóa chat)
+   */
   private getPhaseAccess(
     phase: DisputePhase,
     senderId: string,
@@ -1401,18 +2309,17 @@ export class DisputesService {
       throw new BadRequestException('Cannot send messages to a closed dispute');
     }
 
-    const phase = dispute.phase ?? DisputePhase.PRESENTATION;
-    const isSystemType = [MessageType.SYSTEM_LOG, MessageType.ADMIN_ANNOUNCEMENT].includes(
-      dto.type,
-    );
-    if (phase === DisputePhase.DELIBERATION && !isSystemType) {
-      throw new ForbiddenException('Chat is locked during deliberation.');
-    }
-
     const isStaffOrAdmin = [UserRole.STAFF, UserRole.ADMIN].includes(senderRole);
-    const isParty = dispute.raisedById === senderId || dispute.defendantId === senderId;
+    const isPrimaryParty = dispute.raisedById === senderId || dispute.defendantId === senderId;
+    const isGroupParty = isPrimaryParty ? true : await this.isGroupPartyMember(dispute, senderId);
+    const isParty = isPrimaryParty || isGroupParty;
     let isHearingParticipant = false;
 
+    // =========================================================================
+    // LUỒNG 1: HEARING MESSAGE (Phiên tòa - Realtime, có phase/speaker control)
+    // Quyền chat được kiểm soát bởi HearingService.getChatPermission()
+    // dựa trên currentSpeakerRole của Hearing (ALL, RAISER_ONLY, DEFENDANT_ONLY, etc.)
+    // =========================================================================
     if (dto.hearingId) {
       const chatPermission = await this.hearingService.getChatPermission(dto.hearingId, senderId);
       if (!chatPermission.allowed) {
@@ -1424,6 +2331,11 @@ export class DisputesService {
       isHearingParticipant = true;
     }
 
+    // =========================================================================
+    // LUỒNG 2: DISPUTE MESSAGE (Hồ sơ vụ án - Async, không phase restriction)
+    // Cả hai bên (raiser + defendant) đều được gửi message/evidence bất kỳ lúc nào
+    // miễn là dispute chưa đóng. Giống nộp hồ sơ qua cổng thông tin tòa án.
+    // =========================================================================
     if (!isStaffOrAdmin && !isParty && !isHearingParticipant) {
       throw new ForbiddenException('You are not allowed to send messages in this dispute');
     }
@@ -1435,12 +2347,8 @@ export class DisputesService {
       throw new ForbiddenException('Only staff or admin can send this message type');
     }
 
-    if (!isStaffOrAdmin) {
-      const access = this.getPhaseAccess(phase, senderId, dispute);
-      if (!access.allowed) {
-        throw new ForbiddenException(access.reason || 'You cannot send messages in this phase.');
-      }
-
+    // Kiểm tra settlement lock (chỉ áp dụng cho dispute-level, không phải hearing)
+    if (!isStaffOrAdmin && !dto.hearingId) {
       const lockStatus = await this.settlementService.checkChatLockStatus(dispute.id, senderId);
       if (lockStatus.isLocked) {
         throw new ForbiddenException(lockStatus.reason || 'Chat is locked');
@@ -1522,7 +2430,14 @@ export class DisputesService {
   ): Promise<DisputeMessageEntity[]> {
     const dispute = await this.disputeRepo.findOne({
       where: { id: disputeId },
-      select: ['id', 'raisedById', 'defendantId', 'assignedStaffId', 'escalatedToAdminId'],
+      select: [
+        'id',
+        'groupId',
+        'raisedById',
+        'defendantId',
+        'assignedStaffId',
+        'escalatedToAdminId',
+      ],
     });
 
     if (!dispute) {
@@ -1530,13 +2445,7 @@ export class DisputesService {
     }
 
     const isStaffOrAdmin = [UserRole.STAFF, UserRole.ADMIN].includes(userRole);
-    const isParty = userId === dispute.raisedById || userId === dispute.defendantId;
-    const isAssignedStaff = userRole === UserRole.STAFF && userId === dispute.assignedStaffId;
-    const isEscalatedAdmin = userId === dispute.escalatedToAdminId;
-
-    if (!isStaffOrAdmin && !isParty && !isAssignedStaff && !isEscalatedAdmin) {
-      throw new ForbiddenException('You are not allowed to view messages for this dispute');
-    }
+    await this.assertDisputeAccess(dispute, userId, userRole);
 
     if (options.hearingId) {
       const hearing = await this.hearingRepo.findOne({
@@ -1554,7 +2463,7 @@ export class DisputesService {
       .createQueryBuilder('message')
       .leftJoinAndSelect('message.sender', 'sender')
       .where('message.disputeId = :disputeId', { disputeId })
-      .orderBy('message.createdAt', 'ASC')
+      // OLD: .orderBy('message.createdAt', 'ASC')
       .take(limit);
 
     if (options.hearingId) {
@@ -1565,9 +2474,23 @@ export class DisputesService {
       qb.andWhere('message.isHidden = :isHidden', { isHidden: false });
     }
 
-    return await qb.getMany();
+    // NEW: Fetch latest messages first, then reverse them to ASC order
+    const messages = await qb.orderBy('message.createdAt', 'DESC').getMany();
+    return messages.reverse();
   }
 
+  /**
+   * Cập nhật phase cho dispute.
+   * Lưu ý: Phase trên DisputeEntity chỉ mang tính chất ghi nhận trạng thái tổng quan
+   * của vụ kiện (ví dụ: đang ở giai đoạn nào). Việc kiểm soát quyền chat realtime
+   * theo phase được xử lý bởi HearingService thông qua SpeakerRole trên HearingEntity.
+   *
+   * Mapping tham khảo:
+   *   PRESENTATION     -> SpeakerRole.RAISER_ONLY
+   *   CROSS_EXAMINATION -> SpeakerRole.DEFENDANT_ONLY
+   *   INTERROGATION    -> SpeakerRole.MODERATOR_ONLY
+   *   DELIBERATION     -> SpeakerRole.MUTED_ALL
+   */
   async updatePhase(
     disputeId: string,
     phase: DisputePhase,
@@ -1906,6 +2829,791 @@ export class DisputesService {
   }
 
   // =============================================================================
+  // ACCEPT DISPUTE (Queue → Caseload)
+  // Staff chấp nhận dispute từ queue vào caseload để review
+  // TRIAGE_PENDING → PREVIEW
+  // =============================================================================
+
+  async acceptDispute(staffId: string, disputeId: string): Promise<DisputeEntity> {
+    const staff = await this.userRepo.findOne({
+      where: { id: staffId },
+      select: ['id', 'role'],
+    });
+    if (!staff) {
+      throw new NotFoundException('User not found');
+    }
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(staff.role)) {
+      throw new ForbiddenException('Only staff or admin can accept disputes');
+    }
+
+    return await this.dataSource.transaction(async (manager) => {
+      const disputeRepo = manager.getRepository(DisputeEntity);
+      const activityRepo = manager.getRepository(DisputeActivityEntity);
+
+      const dispute = await disputeRepo.findOne({
+        where: { id: disputeId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!dispute) {
+        throw new NotFoundException('Dispute not found');
+      }
+
+      if (![DisputeStatus.OPEN, DisputeStatus.TRIAGE_PENDING].includes(dispute.status)) {
+        throw new BadRequestException(
+          `Cannot accept dispute in status ${dispute.status}. Only TRIAGE_PENDING disputes can be accepted.`,
+        );
+      }
+
+      // Nếu dispute đã assign cho staff khác (qua autoAssign), chỉ admin mới được reassign
+      if (
+        dispute.assignedStaffId &&
+        dispute.assignedStaffId !== staffId &&
+        staff.role !== UserRole.ADMIN
+      ) {
+        throw new ForbiddenException('Dispute is assigned to another staff member');
+      }
+
+      const previousStatus = dispute.status;
+      const now = new Date();
+
+      // Gán staff nếu chưa có
+      if (!dispute.assignedStaffId) {
+        dispute.assignedStaffId = staffId;
+        dispute.assignedAt = now;
+      }
+
+      dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.PREVIEW);
+      dispute.triageActorId = staffId;
+      dispute.triageAt = now;
+      dispute.triagePreviousStatus = previousStatus;
+      dispute.triageReason = 'Accepted into preview by staff';
+
+      const updated = await disputeRepo.save(dispute);
+
+      await activityRepo.save(
+        activityRepo.create({
+          disputeId: dispute.id,
+          actorId: staff.id,
+          actorRole: staff.role,
+          action: DisputeAction.REVIEW_ACCEPTED,
+          description: 'Dispute accepted for preview (moved to caseload)',
+          metadata: {
+            previousStatus,
+            assignedStaffId: dispute.assignedStaffId,
+          },
+        }),
+      );
+
+      await this.appendLedgerEntry(manager, {
+        disputeId: dispute.id,
+        eventType: 'TRIAGE_ACCEPTED',
+        actorId: staff.id,
+        reason: dispute.triageReason || null,
+        previousStatus,
+        newStatus: updated.status,
+        payload: {
+          assignedStaffId: dispute.assignedStaffId || null,
+          triageAt: dispute.triageAt?.toISOString() || null,
+        },
+      });
+
+      this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
+        disputeId: dispute.id,
+        previousStatus,
+        newStatus: updated.status,
+      });
+
+      return updated;
+    });
+  }
+
+  // =============================================================================
+  // REJECT DISPUTE
+  // Staff/Admin từ chối dispute (OPEN/PENDING_REVIEW → REJECTED)
+  // =============================================================================
+
+  async rejectDispute(staffId: string, disputeId: string, reason: string): Promise<DisputeEntity> {
+    if (!reason || reason.trim().length < 5) {
+      throw new BadRequestException('Rejection reason must be at least 5 characters');
+    }
+
+    const staff = await this.userRepo.findOne({
+      where: { id: staffId },
+      select: ['id', 'role'],
+    });
+    if (!staff) {
+      throw new NotFoundException('User not found');
+    }
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(staff.role)) {
+      throw new ForbiddenException('Only staff or admin can reject disputes');
+    }
+
+    return await this.dataSource.transaction(async (manager) => {
+      const disputeRepo = manager.getRepository(DisputeEntity);
+      const activityRepo = manager.getRepository(DisputeActivityEntity);
+
+      const dispute = await disputeRepo.findOne({
+        where: { id: disputeId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!dispute) {
+        throw new NotFoundException('Dispute not found');
+      }
+
+      if (
+        dispute.assignedStaffId &&
+        dispute.assignedStaffId !== staffId &&
+        staff.role !== UserRole.ADMIN
+      ) {
+        throw new ForbiddenException('Dispute is assigned to another staff member');
+      }
+
+      const previousStatus = dispute.status;
+      dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.REJECTED);
+      dispute.adminComment = reason.trim();
+
+      // Set dismissal hold để cho phép appeal trong 24h
+      const now = new Date();
+      dispute.dismissalHoldUntil = new Date(now.getTime() + DISMISSAL_HOLD_HOURS * 60 * 60 * 1000);
+      dispute.triageActorId = staffId;
+      dispute.triageAt = now;
+      dispute.triagePreviousStatus = previousStatus;
+      dispute.triageReason = reason.trim();
+
+      if (!dispute.assignedStaffId) {
+        dispute.assignedStaffId = staffId;
+        dispute.assignedAt = now;
+      }
+
+      const updated = await disputeRepo.save(dispute);
+
+      await activityRepo.save(
+        activityRepo.create({
+          disputeId: dispute.id,
+          actorId: staff.id,
+          actorRole: staff.role,
+          action: DisputeAction.REJECTED,
+          description: `Dispute rejected: ${reason.trim()}`,
+          metadata: { previousStatus, reason: reason.trim() },
+        }),
+      );
+
+      await this.appendLedgerEntry(manager, {
+        disputeId: dispute.id,
+        eventType: 'TRIAGE_REJECTED',
+        actorId: staff.id,
+        reason: reason.trim(),
+        previousStatus,
+        newStatus: updated.status,
+      });
+
+      this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
+        disputeId: dispute.id,
+        previousStatus,
+        newStatus: updated.status,
+      });
+
+      // Check dismissal rate
+      this.checkDismissalRateAndFlag(staffId).catch(() => {});
+
+      return updated;
+    });
+  }
+
+  // =============================================================================
+  // REQUEST ADDITIONAL INFO
+  // Staff yêu cầu thêm thông tin từ raiser
+  // =============================================================================
+
+  async requestAdditionalInfo(
+    staffId: string,
+    disputeId: string,
+    reason: string,
+    deadlineAt?: string,
+  ): Promise<DisputeEntity> {
+    if (!reason || reason.trim().length < 5) {
+      throw new BadRequestException('Info request reason must be at least 5 characters');
+    }
+
+    const staff = await this.userRepo.findOne({
+      where: { id: staffId },
+      select: ['id', 'role'],
+    });
+    if (!staff) {
+      throw new NotFoundException('User not found');
+    }
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(staff.role)) {
+      throw new ForbiddenException('Only staff or admin can request info');
+    }
+
+    return await this.dataSource.transaction(async (manager) => {
+      const disputeRepo = manager.getRepository(DisputeEntity);
+      const activityRepo = manager.getRepository(DisputeActivityEntity);
+      const now = new Date();
+      let infoDeadline: Date | null = null;
+
+      if (deadlineAt) {
+        infoDeadline = new Date(deadlineAt);
+        if (Number.isNaN(infoDeadline.getTime())) {
+          throw new BadRequestException('Invalid info request deadline');
+        }
+        if (infoDeadline <= now) {
+          throw new BadRequestException('Info request deadline must be in the future');
+        }
+      }
+
+      const dispute = await disputeRepo.findOne({
+        where: { id: disputeId },
+        lock: { mode: 'pessimistic_write' },
+      });
+      if (!dispute) {
+        throw new NotFoundException('Dispute not found');
+      }
+
+      if (
+        dispute.assignedStaffId &&
+        dispute.assignedStaffId !== staffId &&
+        staff.role !== UserRole.ADMIN
+      ) {
+        throw new ForbiddenException('Dispute is assigned to another staff member');
+      }
+
+      const previousStatus = dispute.status;
+      dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.INFO_REQUESTED);
+      dispute.infoRequestReason = reason.trim();
+      dispute.infoRequestedById = staffId;
+      dispute.infoRequestedAt = now;
+      dispute.infoRequestDeadline = infoDeadline as any;
+      dispute.infoProvidedAt = null as any;
+
+      const updated = await disputeRepo.save(dispute);
+
+      await activityRepo.save(
+        activityRepo.create({
+          disputeId: dispute.id,
+          actorId: staff.id,
+          actorRole: staff.role,
+          action: DisputeAction.INFO_REQUESTED,
+          description: `Additional info requested: ${reason.trim()}`,
+          metadata: {
+            previousStatus,
+            reason: reason.trim(),
+            deadlineAt: infoDeadline ? infoDeadline.toISOString() : null,
+          },
+        }),
+      );
+
+      await this.appendLedgerEntry(manager, {
+        disputeId: dispute.id,
+        eventType: 'INFO_REQUESTED',
+        actorId: staff.id,
+        reason: reason.trim(),
+        previousStatus,
+        newStatus: updated.status,
+        payload: {
+          deadlineAt: infoDeadline ? infoDeadline.toISOString() : null,
+        },
+      });
+
+      this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
+        disputeId: dispute.id,
+        previousStatus,
+        newStatus: updated.status,
+      });
+
+      return updated;
+    });
+  }
+
+  // =============================================================================
+  // DEFENDANT RESPONSE
+  // Bị đơn gửi phản hồi
+  // =============================================================================
+
+  async submitDefendantResponse(
+    userId: string,
+    disputeId: string,
+    dto: DefendantResponseDto,
+  ): Promise<DisputeEntity> {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+    });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    if (userId !== dispute.defendantId) {
+      throw new ForbiddenException('Only the defendant can submit a response');
+    }
+
+    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
+      throw new BadRequestException('Cannot respond to a closed dispute');
+    }
+
+    dispute.messages = dto.response;
+    if (dto.evidence?.length) {
+      const existing = dispute.evidence || [];
+      dispute.evidence = [...new Set([...existing, ...dto.evidence])];
+    }
+
+    const saved = await this.disputeRepo.save(dispute);
+
+    await this.activityRepo.save(
+      this.activityRepo.create({
+        disputeId,
+        actorId: userId,
+        actorRole: dispute.defendantRole,
+        action: DisputeAction.DEFENDANT_RESPONDED,
+        description: 'Defendant submitted response',
+        metadata: {
+          hasEvidence: Boolean(dto.evidence?.length),
+          evidenceCount: dto.evidence?.length || 0,
+        },
+      }),
+    );
+
+    this.eventEmitter.emit(DISPUTE_EVENTS.DEFENDANT_RESPONDED, {
+      disputeId,
+      defendantId: userId,
+    });
+
+    return saved;
+  }
+
+  // =============================================================================
+  // NOTES (Ghi chú nội bộ)
+  // =============================================================================
+
+  async getActivities(
+    disputeId: string,
+    includeInternal: boolean = false,
+  ): Promise<DisputeActivityEntity[]> {
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    const qb = this.activityRepo
+      .createQueryBuilder('activity')
+      .where('activity.disputeId = :disputeId', { disputeId })
+      .orderBy('activity.timestamp', 'DESC');
+
+    if (!includeInternal) {
+      qb.andWhere('activity.isInternal = :isInternal', { isInternal: false });
+    }
+
+    return await qb.getMany();
+  }
+
+  async getNotes(
+    disputeId: string,
+    includeInternal: boolean = false,
+  ): Promise<DisputeNoteEntity[]> {
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    const where: Record<string, unknown> = { disputeId };
+    if (!includeInternal) {
+      where.isInternal = false;
+    }
+
+    return await this.noteRepo.find({
+      where,
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  async addNote(
+    userId: string,
+    userRole: UserRole,
+    disputeId: string,
+    dto: AddNoteDto,
+  ): Promise<DisputeNoteEntity> {
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    const note = this.noteRepo.create({
+      disputeId,
+      authorId: userId,
+      authorRole: userRole,
+      content: dto.content,
+      isInternal: dto.isInternal ?? false,
+      isPinned: dto.isPinned ?? false,
+      noteType: dto.noteType || 'GENERAL',
+      attachments: dto.attachments || [],
+    });
+
+    const saved = await this.noteRepo.save(note);
+
+    await this.activityRepo.save(
+      this.activityRepo.create({
+        disputeId,
+        actorId: userId,
+        actorRole: userRole,
+        action: DisputeAction.NOTE_ADDED,
+        description: dto.isInternal ? 'Internal note added' : 'Note added',
+        isInternal: dto.isInternal ?? false,
+        metadata: { noteId: saved.id, noteType: dto.noteType },
+      }),
+    );
+
+    return saved;
+  }
+
+  async deleteNote(userId: string, noteId: string): Promise<void> {
+    const note = await this.noteRepo.findOne({ where: { id: noteId } });
+    if (!note) {
+      throw new NotFoundException('Note not found');
+    }
+
+    if (note.authorId !== userId) {
+      throw new ForbiddenException('You can only delete your own notes');
+    }
+
+    await this.noteRepo.remove(note);
+  }
+
+  // =============================================================================
+  // APPEAL SYSTEM
+  // =============================================================================
+
+  async submitAppeal(userId: string, disputeId: string, dto: AppealDto): Promise<DisputeEntity> {
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    // Chỉ raiser hoặc defendant mới được appeal
+    if (userId !== dispute.raisedById && userId !== dispute.defendantId) {
+      throw new ForbiddenException('Only dispute parties can submit an appeal');
+    }
+
+    if (dispute.status !== DisputeStatus.RESOLVED) {
+      throw new BadRequestException('Can only appeal a resolved dispute');
+    }
+
+    // Check appeal deadline
+    if (dispute.appealDeadline && new Date() > dispute.appealDeadline) {
+      throw new BadRequestException('Appeal deadline has passed');
+    }
+
+    const previousStatus = dispute.status;
+    dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.APPEALED);
+    dispute.isAppealed = true;
+    dispute.appealReason = dto.reason;
+    dispute.appealedAt = new Date();
+
+    if (dto.additionalEvidence?.length) {
+      const existing = dispute.evidence || [];
+      dispute.evidence = [...new Set([...existing, ...dto.additionalEvidence])];
+    }
+
+    const updated = await this.disputeRepo.save(dispute);
+
+    await this.activityRepo.save(
+      this.activityRepo.create({
+        disputeId,
+        actorId: userId,
+        actorRole: userId === dispute.raisedById ? dispute.raiserRole : dispute.defendantRole,
+        action: DisputeAction.APPEAL_SUBMITTED,
+        description: `Appeal submitted: ${dto.reason}`,
+        metadata: { previousStatus, reason: dto.reason },
+      }),
+    );
+
+    this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
+      disputeId: dispute.id,
+      previousStatus,
+      newStatus: updated.status,
+    });
+
+    return updated;
+  }
+
+  async appealRejection(userId: string, disputeId: string, reason: string): Promise<DisputeEntity> {
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    if (userId !== dispute.raisedById) {
+      throw new ForbiddenException('Only the raiser can appeal a rejection');
+    }
+
+    if (dispute.status !== DisputeStatus.REJECTED) {
+      throw new BadRequestException('Can only appeal a rejected dispute');
+    }
+
+    // Check dismissal hold (24h window)
+    if (dispute.dismissalHoldUntil && new Date() > dispute.dismissalHoldUntil) {
+      throw new BadRequestException('Rejection appeal window has expired');
+    }
+
+    const previousStatus = dispute.status;
+    dispute.status = DisputeStateMachine.transition(
+      dispute.status,
+      DisputeStatus.REJECTION_APPEALED,
+    );
+    dispute.rejectionAppealReason = reason;
+    dispute.rejectionAppealedAt = new Date();
+
+    const updated = await this.disputeRepo.save(dispute);
+
+    await this.activityRepo.save(
+      this.activityRepo.create({
+        disputeId,
+        actorId: userId,
+        actorRole: dispute.raiserRole,
+        action: DisputeAction.REJECTION_APPEALED,
+        description: `Rejection appealed: ${reason}`,
+        metadata: { previousStatus, reason },
+      }),
+    );
+
+    this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
+      disputeId: dispute.id,
+      previousStatus,
+      newStatus: updated.status,
+    });
+
+    return updated;
+  }
+
+  async resolveAppeal(
+    staffId: string,
+    disputeId: string,
+    dto: AppealVerdictDto,
+  ): Promise<DisputeEntity> {
+    const staff = await this.userRepo.findOne({
+      where: { id: staffId },
+      select: ['id', 'role'],
+    });
+    if (!staff) {
+      throw new NotFoundException('User not found');
+    }
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(staff.role)) {
+      throw new ForbiddenException('Only staff or admin can resolve appeals');
+    }
+
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    if (dispute.status !== DisputeStatus.APPEALED) {
+      throw new BadRequestException('Dispute is not in APPEALED status');
+    }
+
+    const previousStatus = dispute.status;
+    const now = new Date();
+
+    // AppealVerdictDto chứa verdict mới → issue new verdict overriding old one
+    // Transition APPEALED → IN_MEDIATION (để re-evaluate) hoặc → RESOLVED (giữ nguyên)
+    // Nếu admin ra verdict mới khác cũ → override, nếu giống → uphold
+    const verdictPayload = {
+      disputeId,
+      result: dto.result,
+      faultType: dto.faultType,
+      faultyParty: dto.faultyParty,
+      reasoning: dto.reasoning,
+      amountToFreelancer: dto.amountToFreelancer,
+      amountToClient: dto.amountToClient,
+      trustScorePenalty: dto.trustScorePenalty,
+      banUser: dto.banUser,
+      banDurationDays: dto.banDurationDays,
+      warningMessage: dto.warningMessage,
+      adminComment: dto.adminComment,
+    };
+
+    // Re-resolve: transition APPEALED → RESOLVED (via state machine)
+    dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.RESOLVED);
+    dispute.appealResolvedById = staffId;
+    dispute.appealResolution = dto.overrideReason || 'Appeal resolved with new verdict';
+    dispute.appealResolvedAt = now;
+
+    const updated = await this.disputeRepo.save(dispute);
+
+    // Issue new verdict via verdict service
+    await this.verdictService.issueVerdict(verdictPayload, staffId, staff.role);
+
+    await this.activityRepo.save(
+      this.activityRepo.create({
+        disputeId,
+        actorId: staff.id,
+        actorRole: staff.role,
+        action: DisputeAction.APPEAL_RESOLVED,
+        description: `Appeal resolved with new verdict: ${dto.result}`,
+        metadata: {
+          previousStatus,
+          overridesVerdictId: dto.overridesVerdictId,
+          newResult: dto.result,
+        },
+      }),
+    );
+
+    this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
+      disputeId: dispute.id,
+      previousStatus,
+      newStatus: updated.status,
+    });
+
+    return updated;
+  }
+
+  async resolveRejectionAppeal(
+    adminId: string,
+    disputeId: string,
+    decision: string,
+    resolution: string,
+  ): Promise<DisputeEntity> {
+    const admin = await this.userRepo.findOne({
+      where: { id: adminId },
+      select: ['id', 'role'],
+    });
+    if (!admin) {
+      throw new NotFoundException('User not found');
+    }
+    if (admin.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admin can resolve rejection appeals');
+    }
+
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    if (dispute.status !== DisputeStatus.REJECTION_APPEALED) {
+      throw new BadRequestException('Dispute is not in REJECTION_APPEALED status');
+    }
+
+    const previousStatus = dispute.status;
+    const now = new Date();
+    const isOverturn = decision === 'OVERTURN';
+
+    if (isOverturn) {
+      // Lật ngược rejection → mở lại IN_MEDIATION
+      dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.IN_MEDIATION);
+    } else {
+      // Giữ nguyên rejection
+      dispute.status = DisputeStateMachine.transition(dispute.status, DisputeStatus.REJECTED);
+    }
+
+    dispute.rejectionAppealResolvedById = adminId;
+    dispute.rejectionAppealResolution = resolution;
+    dispute.rejectionAppealResolvedAt = now;
+
+    const updated = await this.disputeRepo.save(dispute);
+
+    await this.activityRepo.save(
+      this.activityRepo.create({
+        disputeId,
+        actorId: admin.id,
+        actorRole: admin.role,
+        action: DisputeAction.REJECTION_APPEAL_RESOLVED,
+        description: isOverturn
+          ? 'Rejection overturned - dispute reopened for mediation'
+          : 'Rejection upheld',
+        metadata: {
+          previousStatus,
+          decision,
+          resolution,
+        },
+      }),
+    );
+
+    this.eventEmitter.emit(DISPUTE_EVENTS.STATUS_CHANGED, {
+      disputeId: dispute.id,
+      previousStatus,
+      newStatus: updated.status,
+    });
+
+    return updated;
+  }
+
+  // =============================================================================
+  // ADMIN UPDATE DISPUTE
+  // =============================================================================
+
+  async adminUpdateDispute(
+    staffId: string,
+    disputeId: string,
+    dto: AdminUpdateDisputeDto,
+  ): Promise<DisputeEntity> {
+    const staff = await this.userRepo.findOne({
+      where: { id: staffId },
+      select: ['id', 'role'],
+    });
+    if (!staff) {
+      throw new NotFoundException('User not found');
+    }
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(staff.role)) {
+      throw new ForbiddenException('Only staff or admin can update disputes');
+    }
+
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) {
+      throw new NotFoundException('Dispute not found');
+    }
+
+    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
+      throw new BadRequestException('Cannot update a closed dispute');
+    }
+
+    const changes: string[] = [];
+
+    if (dto.category !== undefined) {
+      dispute.category = dto.category;
+      changes.push(`category → ${dto.category}`);
+    }
+    if (dto.priority !== undefined) {
+      dispute.priority = dto.priority;
+      changes.push(`priority → ${dto.priority}`);
+    }
+    if (dto.disputedAmount !== undefined) {
+      dispute.disputedAmount = dto.disputedAmount;
+      changes.push(`disputedAmount → ${dto.disputedAmount}`);
+    }
+    if (dto.extendResponseDeadlineDays) {
+      const now = new Date();
+      dispute.responseDeadline = new Date(
+        now.getTime() + dto.extendResponseDeadlineDays * 24 * 60 * 60 * 1000,
+      );
+      changes.push(`responseDeadline extended by ${dto.extendResponseDeadlineDays} days`);
+    }
+    if (dto.extendResolutionDeadlineDays) {
+      const now = new Date();
+      dispute.resolutionDeadline = new Date(
+        now.getTime() + dto.extendResolutionDeadlineDays * 24 * 60 * 60 * 1000,
+      );
+      changes.push(`resolutionDeadline extended by ${dto.extendResolutionDeadlineDays} days`);
+    }
+
+    if (changes.length === 0) {
+      return dispute;
+    }
+
+    const updated = await this.disputeRepo.save(dispute);
+
+    await this.activityRepo.save(
+      this.activityRepo.create({
+        disputeId,
+        actorId: staff.id,
+        actorRole: staff.role,
+        action: DisputeAction.PRIORITY_CHANGED,
+        description: `Dispute updated: ${changes.join(', ')}`,
+        isInternal: true,
+        metadata: { changes },
+      }),
+    );
+
+    return updated;
+  }
+
+  // =============================================================================
   // HELPER FUNCTIONS
   // =============================================================================
 
@@ -2237,45 +3945,92 @@ export class DisputesService {
         { milestoneId: dispute.milestoneId },
         { status: EscrowStatus.FUNDED },
       );
-      await this.disputeRepo.update(dispute.id, { dismissalHoldUntil: null });
+      await this.disputeRepo.update(dispute.id, { dismissalHoldUntil: null as any });
       released += 1;
-      this.eventEmitter.emit(
-        'dispute.dismissal_hold_released',
-        {
-          disputeId: dispute.id,
-          releasedAt: asOf,
-        },
-      );
+      this.eventEmitter.emit('dispute.dismissal_hold_released', {
+        disputeId: dispute.id,
+        releasedAt: asOf,
+      });
     }
 
     return { processed: disputes.length, released };
   }
 
   /**
-   * Log activity vào database (trong transaction)
+   * Xác định các trạng thái milestone được phép dispute dựa trên loại dispute
    */
-  private getAllowedMilestoneStatusesForDispute(
-    category: DisputeCategory,
-  ): MilestoneStatus[] {
+  private getAllowedMilestoneStatusesForDispute(category: DisputeCategory): MilestoneStatus[] {
     const inProgressLike = [MilestoneStatus.IN_PROGRESS, MilestoneStatus.REVISIONS_REQUIRED];
+    const submittedLike = [MilestoneStatus.SUBMITTED, MilestoneStatus.REVISIONS_REQUIRED];
 
     switch (category) {
       case DisputeCategory.QUALITY:
-        return [MilestoneStatus.SUBMITTED, MilestoneStatus.REVISIONS_REQUIRED];
-      case DisputeCategory.DEADLINE:
-      case DisputeCategory.COMMUNICATION:
+        // Chất lượng: Phải có sản phẩm để đánh giá
+        return submittedLike;
+
       case DisputeCategory.PAYMENT:
+        // Thanh toán: Thường là khi đã nộp nhưng khách không trả tiền, hoặc đang làm mà khách không chịu giải ngân
+        return [...submittedLike, MilestoneStatus.IN_PROGRESS];
+
+      case DisputeCategory.DEADLINE:
+        // Trễ hạn: Có thể kiện ngay khi đang làm (nếu đã quá hạn) hoặc đã nộp nhưng trễ
+        return [
+          MilestoneStatus.IN_PROGRESS,
+          MilestoneStatus.SUBMITTED,
+          MilestoneStatus.REVISIONS_REQUIRED,
+        ];
+
+      case DisputeCategory.COMMUNICATION:
       case DisputeCategory.SCOPE_CHANGE:
       case DisputeCategory.CONTRACT:
       case DisputeCategory.FRAUD:
       case DisputeCategory.OTHER:
       default:
+        // Các loại khác: Có thể xảy ra bất cứ lúc nào trong quá trình thực hiện
         return [MilestoneStatus.SUBMITTED, ...inProgressLike];
     }
   }
 
   /**
-   * X?c ??nh role c?a user trong project
+   * Xác định địa chỉ ví nhận tiền cho "Phía Client" và "Phía Freelancer".
+   * Điều này quan trọng vì "Phía Client" không phải lúc nào cũng là Client của dự án (ví dụ: Broker kiện Freelancer).
+   */
+  private determineTransferRecipients(
+    disputeType: DisputeType,
+    project: ProjectEntity,
+  ): { clientSideRecipient: string; freelancerSideRecipient: string } {
+    let clientSideRecipient = project.clientId;
+    let freelancerSideRecipient = project.freelancerId;
+
+    switch (disputeType) {
+      case DisputeType.CLIENT_VS_BROKER:
+      case DisputeType.BROKER_VS_CLIENT:
+        // Client vs Broker: Phía Freelancer thực chất là Broker
+        freelancerSideRecipient = project.brokerId!;
+        break;
+
+      case DisputeType.BROKER_VS_FREELANCER:
+      case DisputeType.FREELANCER_VS_BROKER:
+        // Broker vs Freelancer: Phía Client thực chất là Broker
+        clientSideRecipient = project.brokerId!;
+        break;
+
+      case DisputeType.CLIENT_VS_FREELANCER:
+      case DisputeType.FREELANCER_VS_CLIENT:
+      default:
+        // Trường hợp chuẩn: Client vs Freelancer
+        break;
+    }
+
+    if (!clientSideRecipient || !freelancerSideRecipient) {
+      throw new Error('Cannot determine transfer recipients: Missing project members');
+    }
+
+    return { clientSideRecipient, freelancerSideRecipient };
+  }
+
+  /**
+   * Xác định role của user trong project
    */
   private determineUserRole(userId: string, project: ProjectEntity): UserRole {
     if (userId === project.clientId) return UserRole.CLIENT;
@@ -2285,7 +4040,7 @@ export class DisputesService {
   }
 
   /**
-   * X?c ??nh lo?i dispute d?a tr?n roles
+   * Xác định loại dispute dựa trên roles
    */
   private determineDisputeType(raiserRole: UserRole, defendantRole: UserRole): DisputeType {
     const typeMap: Record<string, DisputeType> = {
@@ -2297,7 +4052,10 @@ export class DisputesService {
       BROKER_FREELANCER: DisputeType.BROKER_VS_FREELANCER,
     };
 
+    // Construct key from roles (e.g., "CLIENT_FREELANCER")
     const key = `${raiserRole}_${defendantRole}`;
+
+    // Default to CLIENT_VS_FREELANCER if combination is unknown (e.g. Admin actions)
     return typeMap[key] || DisputeType.CLIENT_VS_FREELANCER;
   }
 
@@ -2315,11 +4073,11 @@ export class DisputesService {
 
     const safeAmount = Number.isFinite(amount) ? amount : 0;
     const normalizedCurrency = (currency || 'USD').toUpperCase();
+    if (normalizedCurrency !== 'USD') {
+      this.logger.warn(`Unsupported currency: ${currency}, falling back to USD thresholds`);
+    }
 
-    const thresholds =
-      normalizedCurrency === 'VND'
-        ? { low: 1_000_000, medium: 10_000_000, high: 50_000_000 }
-        : { low: 50, medium: 500, high: 2_000 };
+    const thresholds = { low: 100, medium: 500, high: 2_000 };
 
     if (safeAmount <= thresholds.low) return DisputePriority.LOW;
     if (safeAmount <= thresholds.medium) return DisputePriority.MEDIUM;
@@ -2355,9 +4113,7 @@ export class DisputesService {
       return null;
     }
 
-    const rangeStart = new Date(
-      Date.now() + DEFAULT_HEARING_MIN_NOTICE_HOURS * 60 * 60 * 1000,
-    );
+    const rangeStart = new Date(Date.now() + DEFAULT_HEARING_MIN_NOTICE_HOURS * 60 * 60 * 1000);
     const rangeEnd = this.addDays(rangeStart, DEFAULT_AVAILABILITY_LOOKAHEAD_DAYS);
     const userTimezones = await this.resolveUserTimezones(participantIds);
 
@@ -2393,7 +4149,6 @@ export class DisputesService {
 
     return map;
   }
-
 
   private async logActivity(
     queryRunner: QueryRunner,

@@ -10,7 +10,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/components/ui/Card';
 import { Badge } from '@/shared/components/ui/badge';
 import { Spinner } from '@/shared/components/ui';
 import { ROUTES } from '@/constants';
@@ -34,7 +34,7 @@ export default function KYCStatusPage() {
   const fetchKYCStatus = async (showRefreshing = false) => {
     try {
       if (showRefreshing) setRefreshing(true);
-      
+
       const response = await fetch(`${baseUrl}/kyc/me`, {
         credentials: 'include',
       });

@@ -25,7 +25,15 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([UserEntity, AuthSessionEntity, ProfileEntity, SkillDomainEntity, SkillEntity, ProjectEntity, WalletEntity]),
+    TypeOrmModule.forFeature([
+      UserEntity,
+      AuthSessionEntity,
+      ProfileEntity,
+      SkillDomainEntity,
+      SkillEntity,
+      ProjectEntity,
+      WalletEntity,
+    ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
     AuditLogsModule, // Import để dùng AuditLogsService
     JwtModule.registerAsync({
@@ -60,6 +68,6 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
     /* GoogleStrategy, */ JwtAuthGuard,
     CaptchaGuard,
   ],
-  exports: [AuthService, JwtStrategy, PassportModule, JwtModule, CaptchaService],
+  exports: [AuthService, JwtStrategy, PassportModule, JwtModule, CaptchaService, EmailService],
 })
 export class AuthModule {}

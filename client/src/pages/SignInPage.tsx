@@ -4,11 +4,11 @@ import { AuthLayout } from "../shared/components/layouts/AuthLayout";
 import { Input } from "../shared/components/custom/input";
 import { Button } from "../shared/components/custom/Button";
 // import { GoogleButton } from '../shared/components/auth/GoogleButton';
-import { Eye, EyeOff, ArrowLeft } from 'lucide-react';
-import { toast } from 'sonner';
-import { ROUTES, STORAGE_KEYS } from '@/constants';
-import { signIn } from '@/features/auth';
-import { setStoredItem } from '@/shared/utils/storage';
+import { Eye, EyeOff, ArrowLeft } from "lucide-react";
+import { toast } from "sonner";
+import { ROUTES, STORAGE_KEYS } from "@/constants";
+import { signIn } from "@/features/auth";
+import { setStoredItem } from "@/shared/utils/storage";
 
 export interface SignInPageProps {
   onNavigateToSignUp?: () => void;
@@ -69,7 +69,6 @@ export function SignInPage({
 
       // Save tokens based on remember-me choice
 
-
       // Backend returns {message, data: {user}}
       // Tokens are now stored in httpOnly cookies, not in localStorage
       const loginData = (response as any).data || response;
@@ -78,7 +77,7 @@ export function SignInPage({
       setStoredItem(
         STORAGE_KEYS.USER,
         JSON.stringify(loginData.user),
-        formData.rememberMe
+        formData.rememberMe,
       );
 
       // Dispatch event to notify Header component of user data update
@@ -94,7 +93,11 @@ export function SignInPage({
 
         if (userRole === "ADMIN") {
           navigate(ROUTES.ADMIN_DASHBOARD);
-        } else if (userRole === "CLIENT" || userRole === "SME" || userRole === "CLIENT_SME") {
+        } else if (
+          userRole === "CLIENT" ||
+          userRole === "SME" ||
+          userRole === "CLIENT_SME"
+        ) {
           navigate(ROUTES.CLIENT_DASHBOARD);
         } else if (userRole === "FREELANCER") {
           navigate(ROUTES.FREELANCER_DASHBOARD);
@@ -109,7 +112,7 @@ export function SignInPage({
       }
     } catch (error: any) {
       // Check if error is due to unverified email
-      if (error.response?.data?.error === 'EMAIL_NOT_VERIFIED') {
+      if (error.response?.data?.error === "EMAIL_NOT_VERIFIED") {
         const email = error.response?.data?.email || formData.email;
         toast.error("Email not verified. Redirecting to verification page...");
 
@@ -181,6 +184,7 @@ export function SignInPage({
             id="password"
             label="Password"
             type={showPassword ? "text" : "password"}
+            autoComplete="current-password"
             placeholder="Enter your password"
             value={formData.password}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>

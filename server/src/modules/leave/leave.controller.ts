@@ -42,10 +42,7 @@ export class LeaveController {
   @Get('requests')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
   @ApiOperation({ summary: 'List leave requests' })
-  async listLeaveRequests(
-    @Query() query: ListLeaveRequestsQueryDto,
-    @GetUser() user: UserEntity,
-  ) {
+  async listLeaveRequests(@Query() query: ListLeaveRequestsQueryDto, @GetUser() user: UserEntity) {
     return this.leaveService.listLeaveRequests(query, user);
   }
 
@@ -74,10 +71,7 @@ export class LeaveController {
   @Get('balance')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
   @ApiOperation({ summary: 'Get leave balance for month' })
-  async getLeaveBalance(
-    @Query() query: LeaveBalanceQueryDto,
-    @GetUser() user: UserEntity,
-  ) {
+  async getLeaveBalance(@Query() query: LeaveBalanceQueryDto, @GetUser() user: UserEntity) {
     return this.leaveService.getLeaveBalance(query, user, query.staffId);
   }
 

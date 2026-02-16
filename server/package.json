@@ -25,7 +25,7 @@
     "typeorm": "typeorm-ts-node-commonjs",
     "migration:create": "typeorm migration:create",
     "migration:generate": "yarn build && yarn typeorm migration:generate -d dist/data-source.js",
-    "migration:run": "yarn build && yarn typeorm migration:run -d dist/data-source.js",
+    "migration:run": "yarn build && yarn typeorm migration:run -d dist/data-source.js --transaction each",
     "migration:revert": "yarn typeorm migration:revert -d dist/data-source.js",
     "migration:show": "typeorm migration:show -d dist/data-source.js"
   },

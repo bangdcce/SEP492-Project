@@ -240,11 +240,7 @@ export class StaffAssignmentService {
   /**
    * UNIT FUNCTION: Calculate complexity from disputed amount (currency-aware)
    */
-  private getAmountComplexityScore(
-    amount: number,
-    currency: string,
-    totalBudget?: number,
-  ): number {
+  private getAmountComplexityScore(amount: number, currency: string, totalBudget?: number): number {
     const safeAmount = Number.isFinite(amount) ? amount : 0;
     const normalizedCurrency = (currency || 'USD').toUpperCase();
 
@@ -275,8 +271,7 @@ export class StaffAssignmentService {
     project?: ProjectEntity | null,
   ): number {
     let score = 20;
-    const involvesBroker =
-      dispute.disputeType?.includes('BROKER') || Boolean(project?.brokerId);
+    const involvesBroker = dispute.disputeType?.includes('BROKER') || Boolean(project?.brokerId);
     if (involvesBroker) {
       score += 30;
     }
@@ -345,13 +340,14 @@ export class StaffAssignmentService {
     };
 
     // Factor 1: Dispute Category
-    const categoryScore = this.getCategoryComplexityWeight(dispute.category);
+    const category = dispute.category || DisputeCategory.OTHER;
+    const categoryScore = this.getCategoryComplexityWeight(category);
     factors.push({
       name: 'Dispute Category',
       weight: weights.category,
       value: categoryScore,
       contribution: categoryScore * weights.category,
-      description: `${dispute.category} cases tend to be ${
+      description: `${category} cases tend to be ${
         categoryScore >= 70 ? 'high' : 'moderate'
       } effort`,
     });
@@ -385,8 +381,7 @@ export class StaffAssignmentService {
       weight: weights.description,
       value: descScore,
       contribution: descScore * weights.description,
-      description:
-        reasonLength > 600 ? 'Detailed issue narrative' : 'Concise issue summary',
+      description: reasonLength > 600 ? 'Detailed issue narrative' : 'Concise issue summary',
     });
 
     // Factor 5: Process Complexity (broker involvement, pricing model, repeat)
@@ -1167,7 +1162,16 @@ export class StaffAssignmentService {
 
     // Count pending disputes that could be assigned
     const pendingDisputes = await this.disputeRepository.count({
-      where: { assignedStaffId: IsNull(), status: In([DisputeStatus.OPEN, DisputeStatus.PENDING_REVIEW, DisputeStatus.INFO_REQUESTED]) },
+      where: {
+        assignedStaffId: IsNull(),
+        status: In([
+          DisputeStatus.OPEN,
+          DisputeStatus.TRIAGE_PENDING,
+          DisputeStatus.PREVIEW,
+          DisputeStatus.PENDING_REVIEW,
+          DisputeStatus.INFO_REQUESTED,
+        ]),
+      },
     });
 
     this.logger.log(
@@ -1301,7 +1305,13 @@ export class StaffAssignmentService {
       const pendingReview = await this.disputeRepository.count({
         where: {
           assignedStaffId: staffId,
-          status: In([DisputeStatus.OPEN, DisputeStatus.PENDING_REVIEW, DisputeStatus.INFO_REQUESTED]), // Disputes that need review
+          status: In([
+            DisputeStatus.OPEN,
+            DisputeStatus.TRIAGE_PENDING,
+            DisputeStatus.PREVIEW,
+            DisputeStatus.PENDING_REVIEW,
+            DisputeStatus.INFO_REQUESTED,
+          ]), // Disputes that need review
         },
       });
 
@@ -1539,27 +1549,27 @@ export class StaffAssignmentService {
       if (hasConflict) {
         suggestion = 'CONFLICT';
         displayColor = 'red';
-        reason = `Trﾃδｹng lﾃ｡ﾂｻﾂ議h vﾃ｡ﾂｻﾂ嬖 "${conflict.eventTitle}"`;
+        reason = `Schedule conflict with "${conflict.eventTitle}"`;
       } else if (!staff.isAvailable) {
         suggestion = 'BUSY';
         displayColor = 'red';
-        reason = staff.unavailableReason || 'Khﾃδｴng khﾃ｡ﾂｺﾂ｣ dﾃ｡ﾂｻﾂ･ng';
+        reason = staff.unavailableReason || 'Not available';
       } else if (staff.utilizationRate >= 70) {
         suggestion = 'BUSY';
         displayColor = 'yellow';
-        reason = `ﾃ・紳ng bﾃ｡ﾂｺﾂｭn (${staff.monthlyDisputeCount} vﾃ｡ﾂｻﾂ･ trong thﾃδ｡ng)`;
+        reason = `Busy (${staff.monthlyDisputeCount} cases this month)`;
       } else if (skillScore >= 70 && staff.utilizationRate < 50) {
         suggestion = 'RECOMMENDED';
         displayColor = 'green';
-        reason = `Gﾃ｡ﾂｻﾂ｣i ﾃδｽ tﾃ｡ﾂｻﾂ奏 nhﾃ｡ﾂｺﾂ･t: Rﾃ｡ﾂｺﾂ｣nh vﾃδ skill phﾃδｹ hﾃ｡ﾂｻﾂ｣p (${skillScore}%)`;
+        reason = `Best match: Available with high skill match (${skillScore}%)`;
       } else if (skillScore >= 50) {
         suggestion = 'AVAILABLE';
         displayColor = 'green';
-        reason = `Phﾃδｹ hﾃ｡ﾂｻﾂ｣p: ${staff.monthlyDisputeCount} vﾃ｡ﾂｻﾂ･ ﾃ・疎ng xﾃ｡ﾂｻﾂｭ lﾃδｽ`;
+        reason = `Suitable: ${staff.monthlyDisputeCount} cases in progress`;
       } else {
         suggestion = 'AVAILABLE';
         displayColor = 'yellow';
-        reason = `Skill match thﾃ｡ﾂｺﾂ･p (${skillScore}%)`;
+        reason = `Low skill match (${skillScore}%)`;
       }
 
       suggestions.push({
@@ -2180,15 +2190,3 @@ export class StaffAssignmentService {
     }
   }
 }
-
-
-
-
-
-
-
-
-
-
-
-
