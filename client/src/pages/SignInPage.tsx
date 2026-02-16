@@ -95,11 +95,7 @@ export function SignInPage({
 
         if (userRole === "ADMIN") {
           navigate(ROUTES.ADMIN_DASHBOARD);
-        } else if (
-          userRole === "CLIENT" ||
-          userRole === "SME" ||
-          userRole === "CLIENT_SME"
-        ) {
+        } else if (userRole === "CLIENT") {
           navigate(ROUTES.CLIENT_DASHBOARD);
         } else if (userRole === "FREELANCER") {
           navigate(ROUTES.FREELANCER_DASHBOARD);

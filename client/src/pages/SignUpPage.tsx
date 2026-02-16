@@ -86,30 +86,36 @@ export function SignUpPage({
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
+    if (!emailRegex.test(email)) return false;
 
-  const validateDisposableEmail = (email: string): boolean => {
-    const disposableDomains = [
-      '10minutemail.com', '10minutemail.net', 'guerrillamail.com', 'guerrillamail.net', 
-      'guerrillamail.org', 'guerrillamailblock.com', 'mailinator.com', 'maildrop.cc', 
-      'tempmail.com', 'temp-mail.org', 'temp-mail.io', 'throwaway.email', 'getnada.com', 
-      'fakeinbox.com', 'trashmail.com', 'yopmail.com', 'yopmail.fr', 'yopmail.net', 
-      'mytrashmail.com', 'mintemail.com', 'emailondeck.com', 'sharklasers.com', 
-      'grr.la', 'emltmp.com', 'dispostable.com', 'spambox.us', 'spam4.me', 
-      'anonymbox.com', 'sendspamhere.com', 'tempinbox.com', 'filzmail.com', 
-      'mail-temporaire.fr', 'meltmail.com', 'mytemp.email', 'fakemail.net', 
-      'throwawaymail.com', 'inboxbear.com', 'mailcatch.com', 'mailnesia.com', 
-      'dropmail.me', 'getairmail.com', 'harakirimail.com', 'incognitomail.com', 
-      'instantemailaddress.com', 'tempemail.net', 'tempsky.com', 'trashymail.com', 
-      'wegwerfmail.de', 'wegwerfemail.de', 'zehnminuten.de', 'zehnminutenmail.de', 
-      'mailsac.com', 'mohmal.com', 'tmailinator.com', 'willselfdestruct.com'
+    // Whitelist: Chỉ chấp nhận email từ các provider uy tín
+    const allowedDomains = [
+      // Google
+      'gmail.com', 'googlemail.com',
+      // Microsoft
+      'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+      // Yahoo
+      'yahoo.com', 'yahoo.com.vn', 'ymail.com',
+      // Apple
+      'icloud.com', 'me.com', 'mac.com',
+      // Proton
+      'protonmail.com', 'proton.me', 'pm.me',
+      // Other trusted providers
+      'aol.com', 'mail.com', 'zoho.com', 'gmx.com', 'tutanota.com',
+      // Vietnamese providers
+      'vnu.edu.vn', 'hust.edu.vn', 'uit.edu.vn', 'fpt.edu.vn', 'vku.udn.vn',
+      // Corporate domains (allow for staff/enterprise)
+      // Add more as needed
     ];
     
     const domain = email.toLowerCase().split('@')[1];
     if (!domain) return false;
     
-    return !disposableDomains.includes(domain);
+    // Check if domain is in whitelist OR is an educational/corporate domain
+    const isAllowedDomain = allowedDomains.includes(domain);
+    const isEducationalDomain = domain.endsWith('.edu.vn') || domain.endsWith('.edu');
+    
+    return isAllowedDomain || isEducationalDomain;
   };
 
   const validatePhone = (phone: string): boolean => {
@@ -137,7 +143,6 @@ export function SignUpPage({
   const isStep2Valid = () => {
     if (!formData.fullName || formData.fullName.length < 2) return false;
     if (!formData.email || !validateEmail(formData.email)) return false;
-    if (!validateDisposableEmail(formData.email)) return false;
     if (!formData.phoneNumber || !validatePhone(formData.phoneNumber)) return false;
     if (!formData.password || !isPasswordValid) return false;
     if (
@@ -264,9 +269,7 @@ export function SignUpPage({
     if (!formData.email) {
       newErrors.email = 'Email is required';
     } else if (!validateEmail(formData.email)) {
-      newErrors.email = 'Invalid email address';
-    } else if (!validateDisposableEmail(formData.email)) {
-      newErrors.email = 'Disposable or temporary email addresses are not allowed. Please use a permanent email address.';
+      newErrors.email = 'Please use a valid email from trusted providers (Gmail, Outlook, Yahoo, etc.) or educational institutions.';
     }
 
     if (!formData.phoneNumber) {
@@ -364,9 +367,7 @@ export function SignUpPage({
     if (!formData.email) {
       newErrors.email = "Email is required";
     } else if (!validateEmail(formData.email)) {
-      newErrors.email = 'Invalid email address';
-    } else if (!validateDisposableEmail(formData.email)) {
-      newErrors.email = 'Disposable or temporary email addresses are not allowed. Please use a permanent email address.';
+      newErrors.email = 'Please use a valid email from trusted providers (Gmail, Outlook, Yahoo, etc.) or educational institutions.';
     }
 
     if (!formData.phoneNumber) {

@@ -415,7 +415,6 @@ export class HearingController {
   @Post(':hearingId/statements')
   @Roles(
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
     UserRole.STAFF,
