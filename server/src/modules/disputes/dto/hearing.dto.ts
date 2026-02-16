@@ -12,7 +12,13 @@ import {
   IsBoolean,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { SpeakerRole, HearingTier, HearingStatementType } from 'src/database/entities';
+import {
+  SpeakerRole,
+  HearingTier,
+  HearingStatementType,
+  HearingParticipantRole,
+  DisputePhase,
+} from 'src/database/entities';
 
 /**
  * DTO để lên lịch phiên điều trần
@@ -247,4 +253,53 @@ export class RescheduleHearingDto {
   @IsOptional()
   @IsBoolean()
   isEmergency?: boolean;
+}
+
+export class TransitionHearingPhaseDto {
+  @IsUUID()
+  @IsOptional()
+  hearingId?: string;
+
+  @IsEnum(DisputePhase)
+  @IsNotEmpty()
+  phase: DisputePhase;
+}
+
+export class ExtendHearingDto {
+  @IsUUID()
+  @IsOptional()
+  hearingId?: string;
+
+  @IsInt()
+  @Min(5)
+  @Max(240)
+  additionalMinutes: number;
+
+  @IsString()
+  @IsNotEmpty()
+  reason: string;
+}
+
+export class InviteSupportStaffDto {
+  @IsUUID()
+  @IsOptional()
+  hearingId?: string;
+
+  @IsUUID()
+  @IsNotEmpty()
+  userId: string;
+
+  @IsEnum(HearingParticipantRole)
+  @IsOptional()
+  participantRole?: HearingParticipantRole;
+
+  @IsString()
+  @IsNotEmpty()
+  reason: string;
+}
+
+export class DispatchHearingRemindersDto {
+  @IsDateString()
+  @IsOptional()
+  at?: string;
 }

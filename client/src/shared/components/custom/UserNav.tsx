@@ -12,6 +12,8 @@ import { LogOut, User, Settings } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
+import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
+import { signOut } from "@/features/auth";
 
 export function UserNav() {
   const navigate = useNavigate();
@@ -27,19 +29,18 @@ export function UserNav() {
   });
 
   useEffect(() => {
-    const userStr = localStorage.getItem(STORAGE_KEYS.USER);
-    if (userStr) {
-      try {
-        const userData = JSON.parse(userStr);
-        setUser({
-          name: userData.fullName || "User",
-          email: userData.email || "",
-          initials: (userData.fullName || "U").charAt(0).toUpperCase(),
-          role: userData.role,
-        });
-      } catch (e) {
-        console.error("Failed to parse user data", e);
-      }
+    const userData = getStoredJson<{
+      fullName?: string;
+      email?: string;
+      role?: string;
+    }>(STORAGE_KEYS.USER);
+    if (userData) {
+      setUser({
+        name: userData.fullName || "User",
+        email: userData.email || "",
+        initials: (userData.fullName || "U").charAt(0).toUpperCase(),
+        role: userData.role,
+      });
     }
   }, []);
 
@@ -53,17 +54,14 @@ export function UserNav() {
 
   const handleLogout = async () => {
     try {
-      // Call backend logout to clear httpOnly cookies
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include', // Send cookies
-      });
+      await signOut();
     } catch (error) {
       console.error('Logout error:', error);
     }
     
     // Clear user info from localStorage
-    localStorage.removeItem(STORAGE_KEYS.USER);
+    removeStoredItem(STORAGE_KEYS.USER);
+    window.dispatchEvent(new Event("userDataUpdated"));
     navigate(ROUTES.LOGIN);
   };
 

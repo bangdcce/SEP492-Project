@@ -14,11 +14,7 @@ import {
   useEditor,
 } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { Color as TextColor } from "@tiptap/extension-color";
-import { TextStyle } from "@tiptap/extension-text-style";
 import { Underline } from "@tiptap/extension-underline";
-import { Subscript } from "@tiptap/extension-subscript";
-import { Superscript } from "@tiptap/extension-superscript";
 import { Node as TiptapNode, mergeAttributes } from "@tiptap/core";
 import { Image } from "@tiptap/extension-image";
 import { Link } from "@tiptap/extension-link";
@@ -51,7 +47,6 @@ import {
   ListOrdered,
   Minus,
   MoreHorizontal,
-  Palette,
   Quote,
   Plus,
   Search,
@@ -269,16 +264,6 @@ const HEADING_OPTIONS = [
   { value: "heading-6", label: "Heading 6", level: 6 },
 ] as const;
 
-const TEXT_COLOR_OPTIONS = [
-  { label: "Default", value: null, swatch: "transparent" },
-  { label: "Gray", value: "#374151", swatch: "#374151" },
-  { label: "Red", value: "#dc2626", swatch: "#dc2626" },
-  { label: "Orange", value: "#ea580c", swatch: "#ea580c" },
-  { label: "Green", value: "#16a34a", swatch: "#16a34a" },
-  { label: "Blue", value: "#2563eb", swatch: "#2563eb" },
-  { label: "Purple", value: "#7c3aed", swatch: "#7c3aed" },
-] as const;
-
 export default function RichTextEditor({
   placeholder = "Add a comment...",
   onChange,
@@ -305,11 +290,7 @@ export default function RichTextEditor({
         codeBlock: false,
         heading: { levels: [1, 2, 3, 4, 5, 6] },
       }),
-      TextStyle,
-      TextColor.configure({ types: ["textStyle"] }),
       Underline,
-      Subscript,
-      Superscript,
       InfoPanel,
       ExpandNode,
       DecisionNode,
@@ -501,23 +482,12 @@ export default function RichTextEditor({
 
   const handleSetHeading = (value: string) => {
     if (!editor) return;
-    if (value === "paragraph") {
+    const selected = HEADING_OPTIONS.find((option) => option.value === value);
+    if (!selected || selected.level === null) {
       editor.chain().focus().setParagraph().run();
       return;
     }
-    const level = Number(value.split("-")[1]);
-    if (!Number.isNaN(level)) {
-      editor.chain().focus().setHeading({ level }).run();
-    }
-  };
-
-  const handleSetTextColor = (value: string | null) => {
-    if (!editor) return;
-    if (!value) {
-      editor.chain().focus().unsetColor().run();
-      return;
-    }
-    editor.chain().focus().setColor(value).run();
+    editor.chain().focus().setHeading({ level: selected.level }).run();
   };
 
   const handleInsertInfoPanel = () => {
@@ -550,16 +520,6 @@ export default function RichTextEditor({
   const handleToggleInlineCode = () => {
     if (!editor) return;
     editor.chain().focus().toggleCode().run();
-  };
-
-  const handleToggleSubscript = () => {
-    if (!editor) return;
-    editor.chain().focus().toggleSubscript().run();
-  };
-
-  const handleToggleSuperscript = () => {
-    if (!editor) return;
-    editor.chain().focus().toggleSuperscript().run();
   };
 
   const handleClearFormatting = () => {
@@ -721,9 +681,6 @@ export default function RichTextEditor({
   const activeHeadingLabel =
     HEADING_OPTIONS.find((option) => option.value === activeHeadingValue)?.label ??
     "Normal text";
-  const activeTextColor = editor.getAttributes("textStyle").color as
-    | string
-    | undefined;
 
   return (
     <div
@@ -769,38 +726,6 @@ export default function RichTextEditor({
                 </DropdownMenuRadioItem>
               ))}
             </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <ToolbarButton label="Text color" isActive={!!activeTextColor}>
-              <Palette className="h-4 w-4" />
-            </ToolbarButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-44">
-            {TEXT_COLOR_OPTIONS.map((option) => {
-              const isActive =
-                option.value !== null
-                  ? option.value === activeTextColor
-                  : !activeTextColor;
-              return (
-                <DropdownMenuItem
-                  key={option.label}
-                  onSelect={() => handleSetTextColor(option.value)}
-                  className={cn("flex items-center gap-2", isActive && "bg-gray-100")}
-                >
-                  <span
-                    className={cn(
-                      "h-3 w-3 rounded-full border",
-                      option.value ? "border-transparent" : "border-gray-300"
-                    )}
-                    style={{ backgroundColor: option.swatch }}
-                  />
-                  <span className="text-sm text-gray-700">{option.label}</span>
-                </DropdownMenuItem>
-              );
-            })}
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -1051,30 +976,6 @@ export default function RichTextEditor({
                 <span>Code</span>
                 <span className="text-[10px] font-semibold text-gray-400">
                   Ctrl+Shift+M
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={handleToggleSubscript}
-                className={cn(
-                  "flex items-center justify-between gap-3",
-                  editor.isActive("subscript") && "bg-gray-100"
-                )}
-              >
-                <span>Subscript</span>
-                <span className="text-[10px] font-semibold text-gray-400">
-                  Ctrl+Shift+,
-                </span>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={handleToggleSuperscript}
-                className={cn(
-                  "flex items-center justify-between gap-3",
-                  editor.isActive("superscript") && "bg-gray-100"
-                )}
-              >
-                <span>Superscript</span>
-                <span className="text-[10px] font-semibold text-gray-400">
-                  Ctrl+Shift+.
                 </span>
               </DropdownMenuItem>
               <DropdownMenuSeparator />

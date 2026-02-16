@@ -33,25 +33,21 @@ if (process.env.NODE_TLS_REJECT_UNAUTHORIZED !== '1') {
 }
 
 // Create Supabase client with service role (bypass RLS)
-export const supabaseClient = createClient(
-  supabaseConfig.url,
-  serviceKeyForClient,
-  {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
+export const supabaseClient = createClient(supabaseConfig.url, serviceKeyForClient, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false,
+  },
+  global: {
+    fetch: (...args) => {
+      console.log('[Supabase Fetch] Request to:', args[0]);
+      return fetch(...args).catch((err) => {
+        console.error('[Supabase Fetch] Error:', err.message, err.cause);
+        throw err;
+      });
     },
-    global: {
-      fetch: (...args) => {
-        console.log('[Supabase Fetch] Request to:', args[0]);
-        return fetch(...args).catch(err => {
-          console.error('[Supabase Fetch] Error:', err.message, err.cause);
-          throw err;
-        });
-      },
-    },
-  }
-);
+  },
+});
 
 // Helper to get storage bucket
 export const getKycBucket = () => {

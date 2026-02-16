@@ -1,4 +1,4 @@
-import api from '@/lib/axiosClient';
+import { apiClient } from '@/shared/api/client';
 import { UserRole } from '@/shared/types/user.types';
 
 export interface UserSearchFilters {
@@ -37,41 +37,35 @@ export const discoveryApi = {
     if (filters.page) params.append('page', String(filters.page));
     if (filters.limit) params.append('limit', String(filters.limit));
 
-    const response = await api.get(`/discovery/users?${params.toString()}`);
-    return response.data;
+    return await apiClient.get(`/discovery/users?${params.toString()}`);
   },
 
   getPublicProfile: async (id: string): Promise<UserProfilePublic> => {
-    const response = await api.get(`/discovery/profile/${id}`);
-    return response.data;
+    return await apiClient.get(`/discovery/profile/${id}`);
   },
   
   // Invitation Methods
   inviteBroker: async (requestId: string, brokerId: string, message?: string) => {
-    const response = await api.post(`/project-requests/${requestId}/invite/broker`, {
+    return await apiClient.post(`/project-requests/${requestId}/invite/broker`, {
       brokerId,
       message,
     });
-    return response.data;
   },
 
   inviteFreelancer: async (requestId: string, freelancerId: string, message?: string) => {
-    const response = await api.post(`/project-requests/${requestId}/invite/freelancer`, {
+    return await apiClient.post(`/project-requests/${requestId}/invite/freelancer`, {
        freelancerId,
        message,
     });
-    return response.data;
   },
 
   getMyInvitations: async () => {
-    const response = await api.get('/project-requests/invitations/my');
-    return response.data;
+    return await apiClient.get('/project-requests/invitations/my');
   },
 
   respondToInvitation: async (invitationId: string, status: 'ACCEPTED' | 'REJECTED') => {
-    const response = await api.patch(`/project-requests/invitations/${invitationId}/respond`, {
+    return await apiClient.patch(`/project-requests/invitations/${invitationId}/respond`, {
       status,
     });
-    return response.data;
   }
 };

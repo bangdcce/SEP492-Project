@@ -4,10 +4,10 @@ import * as z from 'zod';
 import { Plus, Trash2, AlertTriangle } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import { Button } from '@/shared/components/ui/button';
-import { Input } from '@/shared/components/ui/input';
+import { Button } from '@/shared/components/ui/Button';
+import { Input } from '@/shared/components/ui/Input';
 import { Textarea } from '@/shared/components/ui/textarea';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/shared/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/shared/components/ui/Card';
 import {
   Form,
   FormControl,
@@ -32,13 +32,13 @@ import { Badge } from '@/shared/components/ui/badge';
 import { DeliverableType } from '../types';
 import type { CreateProjectSpecDTO } from '../types';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 // CONSTANTS & HELPERS
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 const BANNED_KEYWORDS = [
-  'đẹp', 'sang trọng', 'hiện đại', 'thân thiện', 'beautiful', 'modern', 'friendly', 'elegant',
-  'nhanh', 'tốt', 'mạnh mẽ', 'cao cấp', 'fast', 'good', 'powerful', 'premium', 'smooth', 'easy', 'simple'
+  'ﾄ黛ｺｹp', 'sang tr盻肱g', 'hi盻㌻ ﾄ黛ｺ｡i', 'thﾃ｢n thi盻㌻', 'beautiful', 'modern', 'friendly', 'elegant',
+  'nhanh', 't盻奏', 'm蘯｡nh m蘯ｽ', 'cao c蘯･p', 'fast', 'good', 'powerful', 'premium', 'smooth', 'easy', 'simple'
 ];
 
 const checkKeywords = (text: string): string[] => {
@@ -47,16 +47,16 @@ const checkKeywords = (text: string): string[] => {
   return BANNED_KEYWORDS.filter(k => lower.includes(k));
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 // VALIDATION SCHEMA
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 const formSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().min(10, 'Description must be at least 10 characters'),
   techStack: z.string().min(1, 'Tech stack is required'),
   totalBudget: z.coerce.number().min(0, 'Budget must be positive'),
-  
+
   // Validation: Features
   features: z.array(z.object({
     title: z.string().min(1, 'Feature title is required'),
@@ -101,14 +101,14 @@ const formSchema = z.object({
     return true;
 }, {
     message: "Final milestone must be at least 20% of total budget (Completion Guarantee)",
-    path: [`milestones`], 
+    path: [`milestones`],
 });
 
 type FormValues = z.infer<typeof formSchema>;
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 // COMPONENT
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 interface CreateProjectSpecFormProps {
   requestId: string;
@@ -130,16 +130,16 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
       totalBudget: 0,
       features: [],
       milestones: [
-        { 
-          title: 'Project Setup & Design', 
-          description: 'Initial setup and design phase', 
-          amount: 0, 
+        {
+          title: 'Project Setup & Design',
+          description: 'Initial setup and design phase',
+          amount: 0,
           deliverableType: DeliverableType.DESIGN_PROTOTYPE,
-          retentionAmount: 0 
+          retentionAmount: 0
         }
       ],
     },
-    mode: 'onChange' 
+    mode: 'onChange'
   });
 
   const { fields: milestoneFields, append: appendMilestone, remove: removeMilestone } = useFieldArray({
@@ -159,7 +159,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
 
   useEffect(() => {
     const newWarnings: string[] = [];
-    
+
     // Check Description
     if (watchedDescription) {
       const keywords = checkKeywords(watchedDescription);
@@ -186,7 +186,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
               const val = typeof m.amount === 'string' ? parseFloat(m.amount) : Number(m.amount);
               return acc + (isNaN(val) ? 0 : val);
           }, 0);
-          
+
           const currentTotal = form.getValues('totalBudget');
           if (Math.abs(sum - currentTotal) > 0.01) {
              form.setValue('totalBudget', sum, { shouldValidate: true });
@@ -223,7 +223,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
          sortOrder: index + 1
       }))
     };
-    
+
     onSubmit(payload);
   };
 
@@ -233,7 +233,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
   return (
     <Form {...form}>
       <form className="space-y-8 max-w-4xl mx-auto py-6">
-        
+
         {/* HEADER & WARNINGS */}
         <div className="space-y-2">
            <h1 className="text-2xl font-bold">Create Project Specification</h1>
@@ -263,7 +263,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
                   <FormMessage />
                 </FormItem>
              )} />
-             
+
              <FormField control={form.control} name="description" render={({ field }) => (
                 <FormItem>
                   <FormLabel>Overview Description</FormLabel>
@@ -332,14 +332,14 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
                                 </FormItem>
                              )} />
                           </div>
-                          
+
                           <FormField control={form.control} name={`features.${index}.description`} render={({ field }) => (
                              <FormItem><FormLabel>Description</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormItem>
                           )} />
 
                           {/* Acceptance Criteria Sub-List */}
                            <AcceptanceCriteriaList nestIndex={index} control={form.control} />
-                          
+
                           <Button type="button" variant="destructive" size="sm" onClick={() => removeFeature(index)} className="mt-2">
                              <Trash2 className="w-4 h-4 mr-2" /> Remove Feature
                           </Button>
@@ -358,7 +358,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
               <FormField control={form.control} name="totalBudget" render={({ field }) => (
                 <FormItem>
                   <FormLabel>
-                     Total Budget ($) 
+                     Total Budget ($)
                      {projectRequest?.budgetRange && (
                         <span className="ml-2 text-sm text-muted-foreground font-normal">
                            (Client Range: {projectRequest.budgetRange})
@@ -366,12 +366,12 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
                      )}
                   </FormLabel>
                   <FormControl>
-                     <Input 
-                        type="number" 
-                        step="10" 
-                        className="text-lg font-bold bg-muted" 
-                        readOnly 
-                        {...field} 
+                     <Input
+                        type="number"
+                        step="10"
+                        className="text-lg font-bold bg-muted"
+                        readOnly
+                        {...field}
                      />
                   </FormControl>
                   <FormDescription>Calculated automatically from sum of milestones.</FormDescription>
@@ -425,7 +425,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
                                 <FormItem><FormLabel>Retention ($) (Warranty Hold)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
                              )} />
                        </div>
-                       
+
                         <FormField control={form.control} name={`milestones.${index}.description`} render={({ field }) => (
                              <FormItem><FormLabel>Deliverables Description</FormLabel><FormControl><Textarea {...field} /></FormControl><FormMessage /></FormItem>
                         )} />
@@ -436,7 +436,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
               <Button type="button" variant="outline" className="w-full dashed" onClick={() => appendMilestone({ title: '', description: '', amount: 0, deliverableType: DeliverableType.SOURCE_CODE, retentionAmount: 0 })}>
                  <Plus className="w-4 h-4 mr-2" /> Add Milestone
               </Button>
-              
+
                {/* Budget Check Footer */}
                <div className={`p-4 rounded-md border text-sm flex justify-between items-center bg-muted`}>
                   <span>Total Budget (Calculated): <strong>${budget}</strong></span>
@@ -455,11 +455,11 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
         {/* ACTIONS */}
         <div className="flex justify-end gap-4 pb-20">
            <Button type="button" variant="outline" onClick={() => window.history.back()}>Cancel</Button>
-           
-           <Button 
-                type="button" 
-                variant="secondary" 
-                disabled={isSubmitting} 
+
+           <Button
+                type="button"
+                variant="secondary"
+                disabled={isSubmitting}
                 onClick={form.handleSubmit(
                   (d) => handleSubmit(d, 'DRAFT'),
                   (errors) => console.error('Form Validation Errors:', errors)
@@ -467,10 +467,10 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
             >
               Save Draft
            </Button>
-           
-           <Button 
-                type="button" 
-                disabled={isSubmitting} 
+
+           <Button
+                type="button"
+                disabled={isSubmitting}
                 size="lg"
                 className="bg-green-600 hover:bg-green-700"
                 onClick={form.handleSubmit(
@@ -486,9 +486,9 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 // SUB-COMPONENT: Acceptance Criteria List
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 function AcceptanceCriteriaList({ nestIndex, control }: { nestIndex: number, control: any }) {
   const { fields, append, remove } = useFieldArray({

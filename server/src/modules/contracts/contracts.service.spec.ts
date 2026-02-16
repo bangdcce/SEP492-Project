@@ -68,11 +68,11 @@ describe('ContractsService', () => {
         request: { brokerId: 'broker-uuid', clientId: 'client-uuid' },
         features: [
           {
-             title: 'Login',
-             description: 'SSO',
-             complexity: 'LOW',
-             acceptanceCriteria: ['Must support Google Auth']
-          }
+            title: 'Login',
+            description: 'SSO',
+            complexity: 'LOW',
+            acceptanceCriteria: ['Must support Google Auth'],
+          },
         ],
         milestones: [
           {
@@ -80,10 +80,10 @@ describe('ContractsService', () => {
             amount: 300,
             sortOrder: 1,
             deliverableType: DeliverableType.DESIGN_PROTOTYPE,
-            retentionAmount: 0
-          }
+            retentionAmount: 0,
+          },
         ],
-        techStack: 'NodeJS, React'
+        techStack: 'NodeJS, React',
       };
 
       mockProjectSpecsRepo.findOne.mockResolvedValue(mockSpec);
@@ -93,7 +93,9 @@ describe('ContractsService', () => {
       await service.initializeProjectAndContract(mockUser, 'spec-id');
 
       // Verify Contract Terms Generation
-      const contractCall = (queryRunner.manager.create as jest.Mock).mock.calls.find(call => call[0] === ContractEntity);
+      const contractCall = (queryRunner.manager.create as jest.Mock).mock.calls.find(
+        (call) => call[0] === ContractEntity,
+      );
       const contractData = contractCall[1];
 
       expect(contractData.termsContent).toContain('Governance Project');

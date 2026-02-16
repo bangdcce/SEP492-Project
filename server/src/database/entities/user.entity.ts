@@ -7,8 +7,6 @@ import {
   UpdateDateColumn,
   OneToOne,
   OneToMany,
-  ManyToMany,
-  JoinColumn,
 } from 'typeorm';
 
 export enum UserRole {

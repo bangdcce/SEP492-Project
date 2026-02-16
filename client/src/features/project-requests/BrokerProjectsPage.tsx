@@ -5,6 +5,8 @@ import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
 import { Loader2 } from 'lucide-react';
 import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
+import { STORAGE_KEYS } from '@/constants';
+import { getStoredJson } from '@/shared/utils/storage';
 
 export const BrokerProjectsPage: React.FC = () => {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
@@ -15,8 +17,7 @@ export const BrokerProjectsPage: React.FC = () => {
   const { checkKycStatus } = useKYCStatus();
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if(userStr) setUser(JSON.parse(userStr));
+    setUser(getStoredJson(STORAGE_KEYS.USER));
     
     // Check KYC status
     checkKycStatus().then(setKycStatus);

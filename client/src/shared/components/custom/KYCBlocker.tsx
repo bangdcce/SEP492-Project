@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { ShieldX, ArrowRight, Clock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
 import { ROUTES } from '@/constants';
 
 interface KYCBlockerProps {
@@ -87,7 +87,7 @@ export function KYCBlocker({ kycStatus, role, action }: KYCBlockerProps) {
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             )}
-            
+
             <Button
               variant="outline"
               onClick={() => navigate(getKycStatusRoute())}
@@ -99,7 +99,7 @@ export function KYCBlocker({ kycStatus, role, action }: KYCBlockerProps) {
 
           {isPending && (
             <p className="text-sm text-yellow-700 bg-yellow-50 rounded-lg p-3 mt-4">
-              💡 <strong>Tip:</strong> You'll be notified once your verification is complete.
+              庁 <strong>Tip:</strong> You'll be notified once your verification is complete.
             </p>
           )}
         </CardContent>
@@ -119,12 +119,12 @@ export function useKYCStatus() {
       const response = await fetch(`${baseUrl}/kyc/me`, {
         credentials: 'include',
       });
-      
+
       // Handle non-200 responses (401, 403, 500, etc.)
       if (!response.ok) {
         return 'NOT_STARTED';
       }
-      
+
       const data = await response.json();
       // Server returns 'NOT_STARTED' when no KYC exists
       return data.status || 'NOT_STARTED';

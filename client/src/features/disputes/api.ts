@@ -18,7 +18,10 @@ import type {
 } from "./types/dispute.types";
 import type { CreateDisputeDto } from "./types/dispute.dto";
 import type { DisputePhase } from "../staff/types/staff.types";
-import type { KanbanBoard, Milestone } from "@/features/project-workspace/types";
+import type {
+  KanbanBoard,
+  Milestone,
+} from "@/features/project-workspace/types";
 
 export interface ProjectBoard {
   tasks: KanbanBoard;
@@ -81,15 +84,22 @@ export const getDisputeDetail = async (
   );
 };
 
-export const createDispute = async (input: CreateDisputeDto): Promise<DisputeSummary> => {
+export const createDispute = async (
+  input: CreateDisputeDto,
+): Promise<DisputeSummary> => {
   return await apiClient.post<DisputeSummary>("/disputes", input);
 };
 
-export const getProjectBoard = async (projectId: string): Promise<ProjectBoard> => {
+export const getProjectBoard = async (
+  projectId: string,
+): Promise<ProjectBoard> => {
   return await apiClient.get<ProjectBoard>(`/tasks/board/${projectId}`);
 };
 
-export const updateDisputePhase = async (disputeId: string, phase: DisputePhase) => {
+export const updateDisputePhase = async (
+  disputeId: string,
+  phase: DisputePhase,
+) => {
   return await apiClient.patch(`/disputes/${disputeId}/phase`, { phase });
 };
 
@@ -136,11 +146,61 @@ export const addDisputeNote = async (
     attachments?: string[];
   },
 ): Promise<DisputeNote> => {
-  return await apiClient.post<DisputeNote>(`/disputes/${disputeId}/notes`, input);
+  return await apiClient.post<DisputeNote>(
+    `/disputes/${disputeId}/notes`,
+    input,
+  );
 };
 
 export const requestDisputeInfo = async (disputeId: string, reason: string) => {
-  return await apiClient.patch(`/disputes/${disputeId}/request-info`, { reason });
+  return await apiClient.patch(`/disputes/${disputeId}/request-info`, {
+    reason,
+  });
+};
+
+export const triageDispute = async (
+  disputeId: string,
+  input: {
+    action: "ACCEPT" | "REJECT" | "REQUEST_INFO" | "COMPLETE_PREVIEW";
+    reason?: string;
+    deadlineAt?: string;
+  },
+) => {
+  return await apiClient.patch(`/disputes/${disputeId}/triage`, input);
+};
+
+export const completeDisputePreview = async (
+  disputeId: string,
+  note?: string,
+) => {
+  return await apiClient.patch(`/disputes/${disputeId}/preview/complete`, {
+    note,
+  });
+};
+
+export const getDisputeDossier = async (disputeId: string) => {
+  return await apiClient.get(`/disputes/${disputeId}/dossier`);
+};
+
+export const getDisputeLedger = async (disputeId: string) => {
+  return await apiClient.get(`/disputes/${disputeId}/ledger`);
+};
+
+export const getDisputeEscalationPolicy = async (disputeId: string) => {
+  return await apiClient.get(`/disputes/${disputeId}/escalation-policy`);
+};
+
+export const getDisputeAutoScheduleOptions = async (
+  disputeId: string,
+  limit: number = 5,
+) => {
+  return await apiClient.get(
+    `/disputes/${disputeId}/auto-schedule/options?limit=${Math.max(1, Math.floor(limit))}`,
+  );
+};
+
+export const triggerDisputeAutoSchedule = async (disputeId: string) => {
+  return await apiClient.post(`/disputes/${disputeId}/auto-schedule`);
 };
 
 export const rejectDispute = async (disputeId: string, reason: string) => {
@@ -149,6 +209,10 @@ export const rejectDispute = async (disputeId: string, reason: string) => {
 
 export const escalateDispute = async (disputeId: string) => {
   return await apiClient.patch(`/disputes/${disputeId}/escalate`);
+};
+
+export const acceptDispute = async (disputeId: string) => {
+  return await apiClient.patch(`/disputes/${disputeId}/accept`);
 };
 
 export const getDisputeComplexity = async (
@@ -173,9 +237,12 @@ export const getDisputeComplexity = async (
 export const getDisputeComplexities = async (
   disputeIds: string[],
   options?: CacheOptions,
-): Promise<Record<string, DisputeComplexity>> => {
+): Promise<{
+  data: Record<string, DisputeComplexity>;
+  failedIds: string[];
+}> => {
   const uniqueIds = Array.from(new Set(disputeIds)).filter(Boolean);
-  if (!uniqueIds.length) return {};
+  if (!uniqueIds.length) return { data: {}, failedIds: [] };
 
   const preferCache = options?.preferCache !== false;
   const cached: Record<string, DisputeComplexity> = {};
@@ -183,7 +250,9 @@ export const getDisputeComplexities = async (
 
   uniqueIds.forEach((id) => {
     if (preferCache) {
-      const cachedValue = getCachedValue<DisputeComplexity>(`disputes:complexity:${id}`);
+      const cachedValue = getCachedValue<DisputeComplexity>(
+        `disputes:complexity:${id}`,
+      );
       if (cachedValue) {
         cached[id] = cachedValue;
         return;
@@ -193,7 +262,7 @@ export const getDisputeComplexities = async (
   });
 
   if (!missing.length) {
-    return cached;
+    return { data: cached, failedIds: [] };
   }
 
   const response = await apiClient.post<{
@@ -213,7 +282,13 @@ export const getDisputeComplexities = async (
     }
   });
 
-  return { ...cached, ...dataMap };
+  // Collect failed IDs: explicit errors + IDs not present in either data or errors
+  const errorIds = Object.keys(response?.errors ?? {});
+  const returnedIds = new Set([...Object.keys(dataMap), ...errorIds]);
+  const orphanIds = missing.filter((id) => !returnedIds.has(id));
+  const failedIds = [...errorIds, ...orphanIds];
+
+  return { data: { ...cached, ...dataMap }, failedIds };
 };
 
 export const invalidateDisputesCache = () => {
@@ -279,7 +354,14 @@ export const sendDisputeMessage = async (
   disputeId: string,
   input: {
     content: string;
-    type?: "TEXT" | "IMAGE" | "FILE" | "EVIDENCE_LINK" | "SYSTEM_LOG" | "SETTLEMENT_PROPOSAL" | "ADMIN_ANNOUNCEMENT";
+    type?:
+      | "TEXT"
+      | "IMAGE"
+      | "FILE"
+      | "EVIDENCE_LINK"
+      | "SYSTEM_LOG"
+      | "SETTLEMENT_PROPOSAL"
+      | "ADMIN_ANNOUNCEMENT";
     replyToMessageId?: string;
     relatedEvidenceId?: string;
     hearingId?: string;

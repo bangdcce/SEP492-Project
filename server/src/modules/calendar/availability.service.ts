@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, Optional, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  Optional,
+  NotFoundException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, LessThan, MoreThan, Repository } from 'typeorm';
@@ -119,9 +125,7 @@ export class AvailabilityService {
           slot.type === AvailabilityType.OUT_OF_OFFICE &&
           end.getTime() - start.getTime() > 24 * 60 * 60 * 1000
         ) {
-          throw new BadRequestException(
-            'Out of office longer than 1 day requires admin approval',
-          );
+          throw new BadRequestException('Out of office longer than 1 day requires admin approval');
         }
         return { ...slot, startTime: start, endTime: end };
       });
@@ -292,7 +296,9 @@ export class AvailabilityService {
       throw new BadRequestException('Cannot delete auto-generated availability');
     }
     if (entry.isRecurring) {
-      throw new BadRequestException('Recurring availability must be managed from schedule settings');
+      throw new BadRequestException(
+        'Recurring availability must be managed from schedule settings',
+      );
     }
     const now = new Date();
     if (entry.startTime <= now) {

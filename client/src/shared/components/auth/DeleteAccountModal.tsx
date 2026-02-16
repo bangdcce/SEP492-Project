@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { checkObligations, deleteAccount } from '@/features/auth/api';
 import { STORAGE_KEYS, ROUTES } from '@/constants';
 import { useNavigate } from 'react-router-dom';
+import { removeStoredItem } from '@/shared/utils/storage';
 
 interface DeleteAccountModalProps {
   isOpen: boolean;
@@ -67,10 +68,9 @@ export function DeleteAccountModal({ isOpen, onClose, userEmail }: DeleteAccount
       setLoading(true);
       await deleteAccount(password);
       
-      // Clear local storage
-      localStorage.removeItem(STORAGE_KEYS.ACCESS_TOKEN);
-      localStorage.removeItem(STORAGE_KEYS.REFRESH_TOKEN);
-      localStorage.removeItem(STORAGE_KEYS.USER);
+      // Clear local/session storage user snapshot
+      removeStoredItem(STORAGE_KEYS.USER);
+      window.dispatchEvent(new Event("userDataUpdated"));
       
       toast.success('Account has been deleted successfully');
       

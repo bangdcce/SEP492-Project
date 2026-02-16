@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Post,
   Body,
@@ -12,6 +12,8 @@ import {
   ValidationPipe,
   Ip,
   Query,
+  UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import {
@@ -29,8 +31,10 @@ import {
 import type { Request } from 'express';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, SkipThrottle } from '@nestjs/throttler';
+import { ConfigService } from '@nestjs/config';
 import { AuthService } from './auth.service';
 import { EmailVerificationService } from './email-verification.service';
+import { buildAuthCookiePolicy, type AuthCookiePolicy } from './auth-cookie.util';
 import { CaptchaGuard } from '../../common/guards/captcha.guard';
 import { JwtAuthGuard } from './guards';
 import {
@@ -70,34 +74,42 @@ interface AuthRequest extends Request {
 @ApiTags('auth')
 @Controller('auth')
 export class AuthController {
+  private readonly logger = new Logger(AuthController.name);
+  private readonly cookiePolicy: AuthCookiePolicy;
+
   constructor(
     private readonly authService: AuthService,
     private readonly emailVerificationService: EmailVerificationService,
-  ) {}
+    private readonly configService: ConfigService,
+  ) {
+    this.cookiePolicy = buildAuthCookiePolicy(this.configService);
+  }
 
   @Post('register')
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(CaptchaGuard)
   @Throttle({ default: { limit: 3, ttl: 60000 } }) // 3 requests per minute per IP
   @ApiOperation({
-    summary: 'Đăng ký tài khoản mới',
+    summary: 'ﾄ斉ハg kﾃｽ tﾃi kho蘯｣n m盻嬖',
     description:
-      'Tạo tài khoản mới với thông tin cơ bản. Yêu cầu CAPTCHA và giới hạn 3 lần/phút. Chỉ cho phép 3 loại role: CLIENT, BROKER, FREELANCER',
+      'T蘯｡o tﾃi kho蘯｣n m盻嬖 v盻嬖 thﾃｴng tin cﾆ｡ b蘯｣n. Yﾃｪu c蘯ｧu CAPTCHA vﾃ gi盻嬖 h蘯｡n 3 l蘯ｧn/phﾃｺt. Ch盻・cho phﾃｩp 3 lo蘯｡i role: CLIENT, BROKER, FREELANCER',
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({
     status: HttpStatus.CREATED,
-    description: 'Đăng ký thành công',
+    description: 'ﾄ斉ハg kﾃｽ thﾃnh cﾃｴng',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'Đăng ký thành công' },
+        message: { type: 'string', example: 'ﾄ斉ハg kﾃｽ thﾃnh cﾃｴng' },
         data: { $ref: '#/components/schemas/AuthResponseDto' },
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Dữ liệu đầu vào không hợp lệ hoặc CAPTCHA sai' })
-  @ApiConflictResponse({ description: 'Email đã được sử dụng' })
+  @ApiBadRequestResponse({
+    description: 'D盻ｯ li盻㎡ ﾄ黛ｺｧu vﾃo khﾃｴng h盻｣p l盻・ho蘯ｷc CAPTCHA sai',
+  })
+  @ApiConflictResponse({ description: 'Email ﾄ妥｣ ﾄ柁ｰ盻｣c s盻ｭ d盻･ng' })
   async register(
     @Body(ValidationPipe) registerDto: RegisterDto,
     @Ip() ip: string,
@@ -110,7 +122,8 @@ export class AuthController {
     const user = await this.authService.register(registerDto, ip, userAgent);
 
     return {
-      message: 'Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.',
+      message:
+        'ﾄ斉ハg kﾃｽ thﾃnh cﾃｴng. Vui lﾃｲng ki盻ノ tra email ﾄ黛ｻ・xﾃ｡c th盻ｱc tﾃi kho蘯｣n.',
       data: user,
     };
   }
@@ -118,12 +131,12 @@ export class AuthController {
   @Get('verify-email')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Xác thực email',
-    description: 'Xác thực địa chỉ email bằng token được gửi qua email',
+    summary: 'Xﾃ｡c th盻ｱc email',
+    description: 'Xﾃ｡c th盻ｱc ﾄ黛ｻ蟻 ch盻・email b蘯ｱng token ﾄ柁ｰ盻｣c g盻ｭi qua email',
   })
   @ApiQuery({ name: 'token', description: 'Email verification token', required: true })
   @ApiOkResponse({
-    description: 'Email đã được xác thực thành công',
+    description: 'Email ﾄ妥｣ ﾄ柁ｰ盻｣c xﾃ｡c th盻ｱc thﾃnh cﾃｴng',
     schema: {
       type: 'object',
       properties: {
@@ -132,7 +145,7 @@ export class AuthController {
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
+  @ApiBadRequestResponse({ description: 'Token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
   async verifyEmail(@Query('token') token: string) {
     return this.emailVerificationService.verifyEmail(token);
   }
@@ -141,8 +154,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 2, ttl: 300000 } }) // 2 requests per 5 minutes
   @ApiOperation({
-    summary: 'Gửi lại email xác thực',
-    description: 'Gửi lại email xác thực cho người dùng chưa xác thực email',
+    summary: 'G盻ｭi l蘯｡i email xﾃ｡c th盻ｱc',
+    description: 'G盻ｭi l蘯｡i email xﾃ｡c th盻ｱc cho ngﾆｰ盻拱 dﾃｹng chﾆｰa xﾃ｡c th盻ｱc email',
   })
   @ApiBody({
     schema: {
@@ -152,8 +165,10 @@ export class AuthController {
       },
     },
   })
-  @ApiOkResponse({ description: 'Email xác thực đã được gửi lại' })
-  @ApiBadRequestResponse({ description: 'Email đã được xác thực hoặc yêu cầu quá nhanh' })
+  @ApiOkResponse({ description: 'Email xﾃ｡c th盻ｱc ﾄ妥｣ ﾄ柁ｰ盻｣c g盻ｭi l蘯｡i' })
+  @ApiBadRequestResponse({
+    description: 'Email ﾄ妥｣ ﾄ柁ｰ盻｣c xﾃ｡c th盻ｱc ho蘯ｷc yﾃｪu c蘯ｧu quﾃ｡ nhanh',
+  })
   async resendVerification(@Body('email') email: string) {
     return this.emailVerificationService.resendVerificationEmail(email);
   }
@@ -161,23 +176,24 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Đăng nhập vào hệ thống',
-    description: 'Xác thực người dùng bằng email và mật khẩu, trả về access token và refresh token',
+    summary: 'ﾄ斉ハg nh蘯ｭp vﾃo h盻・th盻創g',
+    description:
+      'Xﾃ｡c th盻ｱc ngﾆｰ盻拱 dﾃｹng b蘯ｱng email vﾃ m蘯ｭt kh蘯ｩu, tr蘯｣ v盻・access token vﾃ refresh token',
   })
   @ApiBody({ type: LoginDto })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Đăng nhập thành công',
+    description: 'ﾄ斉ハg nh蘯ｭp thﾃnh cﾃｴng',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'Đăng nhập thành công' },
+        message: { type: 'string', example: 'ﾄ斉ハg nh蘯ｭp thﾃnh cﾃｴng' },
         data: { $ref: '#/components/schemas/LoginResponseDto' },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'Email hoặc mật khẩu không đúng' })
-  @ApiBadRequestResponse({ description: 'Dữ liệu đầu vào không hợp lệ' })
+  @ApiUnauthorizedResponse({ description: 'Email ho蘯ｷc m蘯ｭt kh蘯ｩu khﾃｴng ﾄ妥ｺng' })
+  @ApiBadRequestResponse({ description: 'Invalid login payload' })
   async login(
     @Body(ValidationPipe) loginDto: LoginDto,
     @Req() req: Request,
@@ -186,7 +202,7 @@ export class AuthController {
     message: string;
     data: SecureLoginResponseDto;
   }> {
-    // Lấy thông tin thiết bị từ request headers
+    // L蘯･y thﾃｴng tin thi蘯ｿt b盻・t盻ｫ request headers
     const userAgent = req.headers['user-agent'] || 'Unknown Device';
     const ipAddress = req.ip || req.connection?.remoteAddress || 'Unknown IP';
 
@@ -194,29 +210,14 @@ export class AuthController {
       typeof req.headers['x-timezone'] === 'string' ? req.headers['x-timezone'] : undefined;
     const result = await this.authService.login(loginDto, userAgent, ipAddress, timeZone);
 
-    // Set access token as httpOnly cookie
-    response.cookie('accessToken', result.accessToken, {
-      httpOnly: true, // Prevent XSS attacks
-      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
-      sameSite: 'lax', // CSRF protection while allowing cross-site navigation
-      maxAge: 15 * 60 * 1000, // 15 minutes (same as JWT expiry)
-      path: '/', // Available for all routes
-    });
-
-    // Set refresh token as httpOnly cookie
-    response.cookie('refreshToken', result.refreshToken, {
-      httpOnly: true, // Prevent XSS attacks
-      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
-      sameSite: 'lax', // CSRF protection while allowing cross-site navigation
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/', // Available for all routes
-    });
+    response.cookie('accessToken', result.accessToken, this.cookiePolicy.accessToken);
+    response.cookie('refreshToken', result.refreshToken, this.cookiePolicy.refreshToken);
 
     // Return response without tokens (they're now in cookies)
     const { refreshToken, accessToken, ...dataWithoutTokens } = result;
 
     return {
-      message: 'Đăng nhập thành công',
+      message: 'ﾄ斉ハg nh蘯ｭp thﾃnh cﾃｴng',
       data: dataWithoutTokens,
     };
   }
@@ -226,21 +227,22 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
-    summary: 'Đăng xuất khỏi hệ thống',
-    description: 'Hủy bỏ session hiện tại. Refresh token sẽ được đọc từ httpOnly cookie',
+    summary: 'ﾄ斉ハg xu蘯･t kh盻淑 h盻・th盻創g',
+    description:
+      'H盻ｧy b盻・session hi盻㌻ t蘯｡i. Refresh token s蘯ｽ ﾄ柁ｰ盻｣c ﾄ黛ｻ皇 t盻ｫ httpOnly cookie',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Đăng xuất thành công',
+    description: 'ﾄ斉ハg xu蘯･t thﾃnh cﾃｴng',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'Đăng xuất thành công' },
+        message: { type: 'string', example: 'ﾄ斉ハg xu蘯･t thﾃnh cﾃｴng' },
         data: { type: 'null', example: null },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
+  @ApiUnauthorizedResponse({ description: 'Token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
   async logout(
     @Req() req: AuthRequest,
     @Res({ passthrough: true }) response: Response,
@@ -248,24 +250,13 @@ export class AuthController {
     message: string;
     data: null;
   }> {
-    // Lấy refresh token từ cookie
+    // L蘯･y refresh token t盻ｫ cookie
     const refreshToken = req.cookies?.refreshToken;
 
     const result = await this.authService.logout(req.user.id, refreshToken);
 
-    // Clear both access token and refresh token cookies
-    response.clearCookie('accessToken', {
-      path: '/',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-    });
-    response.clearCookie('refreshToken', {
-      path: '/',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-    });
+    response.clearCookie('accessToken', this.cookiePolicy.clear);
+    response.clearCookie('refreshToken', this.cookiePolicy.clear);
 
     return {
       message: result.message,
@@ -277,21 +268,21 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
-    summary: 'Lấy thông tin tài khoản hiện tại',
-    description: 'Trả về thông tin chi tiết của người dùng đang đăng nhập',
+    summary: 'L蘯･y thﾃｴng tin tﾃi kho蘯｣n hi盻㌻ t蘯｡i',
+    description: 'Tr蘯｣ v盻・thﾃｴng tin chi ti蘯ｿt c盻ｧa ngﾆｰ盻拱 dﾃｹng ﾄ疎ng ﾄ惰ハg nh蘯ｭp',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Lấy thông tin thành công',
+    description: 'L蘯･y thﾃｴng tin thﾃnh cﾃｴng',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'Lấy thông tin tài khoản thành công' },
+        message: { type: 'string', example: 'L蘯･y thﾃｴng tin tﾃi kho蘯｣n thﾃnh cﾃｴng' },
         data: { $ref: '#/components/schemas/AuthResponseDto' },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
+  @ApiUnauthorizedResponse({ description: 'Token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
   async getProfile(@Req() req: AuthRequest): Promise<{
     message: string;
     data: AuthResponseDto;
@@ -299,7 +290,7 @@ export class AuthController {
     // Fetch user with profile to get all profile data
     const userWithProfile = await this.authService.findUserWithProfile(req.user.id);
 
-    // Service method để map user entity thành response DTO
+    // Service method ﾄ黛ｻ・map user entity thﾃnh response DTO
     const userResponse: AuthResponseDto = {
       id: req.user.id,
       email: req.user.email,
@@ -328,7 +319,7 @@ export class AuthController {
     };
 
     return {
-      message: 'Lấy thông tin tài khoản thành công',
+      message: 'L蘯･y thﾃｴng tin tﾃi kho蘯｣n thﾃnh cﾃｴng',
       data: userResponse,
     };
   }
@@ -336,18 +327,18 @@ export class AuthController {
   @Put('profile')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Cập nhật thông tin profile' })
+  @ApiOperation({ summary: 'C蘯ｭp nh蘯ｭt thﾃｴng tin profile' })
   @ApiOkResponse({
-    description: 'Cập nhật thành công',
+    description: 'C蘯ｭp nh蘯ｭt thﾃnh cﾃｴng',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'Cập nhật thông tin thành công' },
+        message: { type: 'string', example: 'C蘯ｭp nh蘯ｭt thﾃｴng tin thﾃnh cﾃｴng' },
         data: { type: 'object' },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'Token không hợp lệ hoặc đã hết hạn' })
+  @ApiUnauthorizedResponse({ description: 'Token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
   async updateProfile(
     @Req() req: AuthRequest,
     @Body() updateProfileDto: UpdateProfileDto,
@@ -358,24 +349,53 @@ export class AuthController {
     const updatedUser = await this.authService.updateProfile(req.user.id, updateProfileDto);
 
     return {
-      message: 'Cập nhật thông tin thành công',
+      message: 'C蘯ｭp nh蘯ｭt thﾃｴng tin thﾃnh cﾃｴng',
       data: updatedUser,
+    };
+  }
+
+  @Get('session')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth('access-token')
+  @ApiOperation({
+    summary: 'Get authenticated session snapshot',
+    description: 'Lightweight endpoint for frontend bootstrap to verify current signed-in session.',
+  })
+  @ApiOkResponse({
+    description: 'Session is valid',
+    schema: {
+      type: 'object',
+      properties: {
+        message: { type: 'string', example: 'Session is valid' },
+        data: { $ref: '#/components/schemas/AuthResponseDto' },
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Session is invalid or expired' })
+  async getSession(@Req() req: AuthRequest): Promise<{
+    message: string;
+    data: AuthResponseDto;
+  }> {
+    const sessionUser = await this.authService.getSessionUser(req.user.id);
+    return {
+      message: 'Session is valid',
+      data: sessionUser,
     };
   }
 
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Làm mới access token',
-    description: 'Sử dụng refresh token từ httpOnly cookie để lấy access token mới',
+    summary: 'Lﾃm m盻嬖 access token',
+    description: 'S盻ｭ d盻･ng refresh token t盻ｫ httpOnly cookie ﾄ黛ｻ・l蘯･y access token m盻嬖',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Làm mới token thành công',
+    description: 'Lﾃm m盻嬖 token thﾃnh cﾃｴng',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'Làm mới token thành công' },
+        message: { type: 'string', example: 'Lﾃm m盻嬖 token thﾃnh cﾃｴng' },
         data: {
           type: 'object',
           properties: {
@@ -385,61 +405,64 @@ export class AuthController {
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'Refresh token không hợp lệ hoặc đã hết hạn' })
+  @ApiUnauthorizedResponse({
+    description: 'Refresh token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n',
+  })
   async refreshToken(
     @Req() req: Request,
     @Res({ passthrough: true }) response: Response,
   ): Promise<{
     message: string;
-    data: { accessToken: string };
+    data: Record<string, never>;
   }> {
-    // Đọc refresh token từ cookie
     const refreshToken = req.cookies?.refreshToken;
 
     if (!refreshToken) {
-      throw new Error('Refresh token not found in cookies');
+      throw new UnauthorizedException({
+        error: 'INVALID_REFRESH',
+        message: 'Refresh token not found in cookies',
+      });
     }
 
-    const tokens = await this.authService.refreshToken(refreshToken);
+    try {
+      const tokens = await this.authService.refreshToken(refreshToken);
 
-    // Set new access token as httpOnly cookie
-    response.cookie('accessToken', tokens.accessToken, {
-      httpOnly: true,
-      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
-      sameSite: 'lax',
-      maxAge: 15 * 60 * 1000, // 15 minutes
-      path: '/',
-    });
+      response.cookie('accessToken', tokens.accessToken, this.cookiePolicy.accessToken);
+      response.cookie('refreshToken', tokens.refreshToken, this.cookiePolicy.refreshToken);
 
-    // Set new refresh token as httpOnly cookie
-    response.cookie('refreshToken', tokens.refreshToken, {
-      httpOnly: true,
-      secure: true, // Always use secure in HTTPS (both dev and prod use HTTPS)
-      sameSite: 'lax',
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-      path: '/',
-    });
+      return {
+        message: 'Làm mới token thành công',
+        data: {},
+      };
+    } catch (error) {
+      response.clearCookie('accessToken', this.cookiePolicy.clear);
+      response.clearCookie('refreshToken', this.cookiePolicy.clear);
 
-    // Không trả về tokens trong response body
-    return {
-      message: 'Làm mới token thành công',
-      data: {},
-    };
+      const responsePayload =
+        error instanceof UnauthorizedException
+          ? (error.getResponse() as Record<string, unknown>)
+          : {};
+      const authError =
+        typeof responsePayload?.error === 'string' ? responsePayload.error : 'UNKNOWN_AUTH_ERROR';
+      this.logger.warn(
+        `Refresh denied: code=${authError} ip=${req.ip || 'unknown'} ua=${req.headers['user-agent'] || 'unknown'}`,
+      );
+      throw error;
+    }
   }
-
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Gửi OTP reset password qua SMS',
-    description: 'Gửi mã OTP 6 số đến số điện thoại đã đăng ký',
+    summary: 'G盻ｭi OTP reset password qua SMS',
+    description: 'G盻ｭi mﾃ｣ OTP 6 s盻・ﾄ黛ｺｿn s盻・ﾄ訴盻㌻ tho蘯｡i ﾄ妥｣ ﾄ惰ハg kﾃｽ',
   })
   @ApiBody({
     type: ForgotPasswordDto,
-    description: 'Số điện thoại của tài khoản cần reset password',
+    description: 'S盻・ﾄ訴盻㌻ tho蘯｡i c盻ｧa tﾃi kho蘯｣n c蘯ｧn reset password',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'OTP đã được gửi qua SMS',
+    description: 'OTP ﾄ妥｣ ﾄ柁ｰ盻｣c g盻ｭi qua SMS',
     schema: {
       type: 'object',
       properties: {
@@ -455,7 +478,7 @@ export class AuthController {
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Số điện thoại không hợp lệ' })
+  @ApiBadRequestResponse({ description: 'Invalid phone number payload' })
   async forgotPassword(@Body(ValidationPipe) forgotPasswordDto: ForgotPasswordDto): Promise<{
     message: string;
     data: ForgotPasswordResponseDto;
@@ -471,16 +494,16 @@ export class AuthController {
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Xác thực mã OTP',
-    description: 'Kiểm tra mã OTP có hợp lệ không (optional, có thể bỏ qua)',
+    summary: 'Xﾃ｡c th盻ｱc mﾃ｣ OTP',
+    description: 'Ki盻ノ tra mﾃ｣ OTP cﾃｳ h盻｣p l盻・khﾃｴng (optional, cﾃｳ th盻・b盻・qua)',
   })
   @ApiBody({
     type: VerifyOtpDto,
-    description: 'Số điện thoại và mã OTP',
+    description: 'S盻・ﾄ訴盻㌻ tho蘯｡i vﾃ mﾃ｣ OTP',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Kết quả xác thực OTP',
+    description: 'K蘯ｿt qu蘯｣ xﾃ｡c th盻ｱc OTP',
   })
   async verifyOtp(@Body(ValidationPipe) verifyOtpDto: VerifyOtpDto): Promise<{
     message: string;
@@ -489,7 +512,7 @@ export class AuthController {
     const result = await this.authService.verifyOtp(verifyOtpDto);
 
     return {
-      message: result.isValid ? 'OTP hợp lệ' : 'OTP không hợp lệ',
+      message: result.isValid ? 'OTP is valid' : 'OTP is invalid',
       data: result,
     };
   }
@@ -497,34 +520,34 @@ export class AuthController {
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Đặt lại mật khẩu với OTP',
-    description: 'Sử dụng mã OTP để đặt lại mật khẩu mới',
+    summary: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu v盻嬖 OTP',
+    description: 'S盻ｭ d盻･ng mﾃ｣ OTP ﾄ黛ｻ・ﾄ黛ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu m盻嬖',
   })
   @ApiBody({
     type: ResetPasswordDto,
-    description: 'Số điện thoại, OTP và mật khẩu mới',
+    description: 'S盻・ﾄ訴盻㌻ tho蘯｡i, OTP vﾃ m蘯ｭt kh蘯ｩu m盻嬖',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Đặt lại mật khẩu thành công',
+    description: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'Đặt lại mật khẩu thành công' },
+        message: { type: 'string', example: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng' },
         data: {
           type: 'object',
           properties: {
             message: {
               type: 'string',
-              example: 'Đặt lại mật khẩu thành công. Vui lòng đăng nhập lại.',
+              example: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng. Vui lﾃｲng ﾄ惰ハg nh蘯ｭp l蘯｡i.',
             },
           },
         },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'OTP không hợp lệ hoặc đã hết hạn' })
-  @ApiBadRequestResponse({ description: 'Dữ liệu đầu vào không hợp lệ' })
+  @ApiUnauthorizedResponse({ description: 'OTP khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
+  @ApiBadRequestResponse({ description: 'Invalid reset password payload' })
   async resetPassword(@Body(ValidationPipe) resetPasswordDto: ResetPasswordDto): Promise<{
     message: string;
     data: ResetPasswordResponseDto;
@@ -532,7 +555,7 @@ export class AuthController {
     const result = await this.authService.resetPassword(resetPasswordDto);
 
     return {
-      message: 'Đặt lại mật khẩu thành công',
+      message: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng',
       data: result,
     };
   }
@@ -575,7 +598,8 @@ export class AuthController {
   @ApiBearerAuth('access-token')
   @ApiOperation({
     summary: 'Delete account',
-    description: 'Permanently delete user account after password verification. Cannot delete if there are active projects or wallet balance.',
+    description:
+      'Permanently delete user account after password verification. Cannot delete if there are active projects or wallet balance.',
   })
   @ApiBody({ type: DeleteAccountDto })
   @ApiResponse({
@@ -597,19 +621,8 @@ export class AuthController {
   ): Promise<{ message: string }> {
     const result = await this.authService.deleteAccount(req.user.id, deleteAccountDto);
 
-    // Clear both access token and refresh token cookies
-    response.clearCookie('accessToken', {
-      path: '/',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-    });
-    response.clearCookie('refreshToken', {
-      path: '/',
-      httpOnly: true,
-      secure: true,
-      sameSite: 'lax',
-    });
+    response.clearCookie('accessToken', this.cookiePolicy.clear);
+    response.clearCookie('refreshToken', this.cookiePolicy.clear);
 
     return result;
   }
@@ -667,7 +680,7 @@ export class AuthController {
   @ApiBody({ type: CompleteGoogleSignupDto })
   @ApiResponse({
     status: HttpStatus.CREATED,
-    description: 'Hoàn tất đăng ký Google OAuth thành công',
+    description: 'Hoﾃn t蘯･t ﾄ惰ハg kﾃｽ Google OAuth thﾃnh cﾃｴng',
     type: LoginResponseDto,
   })
   async completeGoogleSignup(

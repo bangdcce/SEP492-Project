@@ -103,4 +103,3 @@ export class UserAvailabilityEntity {
   @JoinColumn({ name: 'linkedLeaveRequestId' })
   leaveRequest?: StaffLeaveRequestEntity | null;
 }
-

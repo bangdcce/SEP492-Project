@@ -69,10 +69,9 @@ export const resetPassword = async (
 /**
  * Refresh access token
  */
-export const refreshToken = async (refreshToken: string): Promise<{ accessToken: string }> => {
-  return await apiClient.post<{ accessToken: string }>(
-    '/auth/refresh',
-    { refreshToken }
+export const refreshToken = async (): Promise<{ message: string; data: Record<string, never> }> => {
+  return await apiClient.post<{ message: string; data: Record<string, never> }>(
+    '/auth/refresh'
   );
 };
 
@@ -88,6 +87,13 @@ export const signOut = async (): Promise<void> => {
  */
 export const getProfile = async () => {
   return await apiClient.get('/auth/profile');
+};
+
+/**
+ * Get authenticated session snapshot
+ */
+export const getSession = async () => {
+  return await apiClient.get('/auth/session');
 };
 
 /**

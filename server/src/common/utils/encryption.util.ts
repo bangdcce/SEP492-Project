@@ -13,7 +13,7 @@ const SALT_LENGTH = 64;
 // Get encryption key from environment (should be 32 bytes for AES-256)
 const getEncryptionKey = (): Buffer => {
   const key = process.env.KYC_ENCRYPTION_KEY;
-  
+
   if (!key) {
     throw new Error('KYC_ENCRYPTION_KEY is not set in environment variables');
   }
@@ -31,16 +31,13 @@ export const encryptFile = (buffer: Buffer): Buffer => {
   try {
     const key = getEncryptionKey();
     const iv = crypto.randomBytes(IV_LENGTH);
-    
+
     const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-    
-    const encrypted = Buffer.concat([
-      cipher.update(buffer),
-      cipher.final(),
-    ]);
-    
+
+    const encrypted = Buffer.concat([cipher.update(buffer), cipher.final()]);
+
     const authTag = cipher.getAuthTag();
-    
+
     // Format: [IV (16 bytes)][Auth Tag (16 bytes)][Encrypted Data]
     return Buffer.concat([iv, authTag, encrypted]);
   } catch (error) {
@@ -57,20 +54,17 @@ export const encryptFile = (buffer: Buffer): Buffer => {
 export const decryptFile = (encryptedBuffer: Buffer): Buffer => {
   try {
     const key = getEncryptionKey();
-    
+
     // Extract IV, auth tag, and encrypted data
     const iv = encryptedBuffer.slice(0, IV_LENGTH);
     const authTag = encryptedBuffer.slice(IV_LENGTH, IV_LENGTH + AUTH_TAG_LENGTH);
     const encrypted = encryptedBuffer.slice(IV_LENGTH + AUTH_TAG_LENGTH);
-    
+
     const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
     decipher.setAuthTag(authTag);
-    
-    const decrypted = Buffer.concat([
-      decipher.update(encrypted),
-      decipher.final(),
-    ]);
-    
+
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+
     return decrypted;
   } catch (error) {
     console.error('Decryption error:', error);
@@ -97,7 +91,7 @@ export const hashDocumentNumber = (documentNumber: string): string => {
     .createHash('sha256')
     .update(documentNumber + salt)
     .digest('hex');
-  
+
   // Truncate to 20 characters to fit database constraint
   return fullHash.substring(0, 20);
 };

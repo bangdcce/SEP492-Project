@@ -112,7 +112,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     await this.ensureDisputeAccess(data.disputeId, user);
 
     const room = this.disputeRoom(data.disputeId);
-    client.join(room);
+    await client.join(room);
     return { joined: true, room };
   }
 
@@ -126,7 +126,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     }
 
     const room = this.disputeRoom(data.disputeId);
-    client.leave(room);
+    await client.leave(room);
     return { left: true, room };
   }
 
@@ -143,7 +143,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     const access = await this.ensureHearingAccess(data.hearingId, user);
 
     const room = this.hearingRoom(data.hearingId);
-    client.join(room);
+    await client.join(room);
 
     if (access.trackPresence) {
       await this.hearingService.markParticipantOnline(data.hearingId, user.id);
@@ -164,7 +164,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
     const user = this.getUser(client);
     const room = this.hearingRoom(data.hearingId);
-    client.leave(room);
+    await client.leave(room);
 
     const hearingIds = client.data.hearingIds as Set<string> | undefined;
     if (hearingIds?.has(data.hearingId)) {
@@ -185,7 +185,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     }
 
     const room = this.staffDashboardRoom();
-    client.join(room);
+    await client.join(room);
     return { joined: true, room };
   }
 
@@ -223,7 +223,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     @ConnectedSocket() client: Socket,
   ): Promise<{ left: boolean; room: string }> {
     const room = this.staffDashboardRoom();
-    client.leave(room);
+    await client.leave(room);
     return { left: true, room };
   }
 
@@ -254,11 +254,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
       throw new WsException('Missing token');
     }
 
-    const payload = this.jwtService.verify(token) as {
-      sub?: string;
-      email?: string;
-      role?: UserRole;
-    };
+    const payload = this.jwtService.verify(token);
     if (!payload?.sub) {
       throw new WsException('Invalid token payload');
     }

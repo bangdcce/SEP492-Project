@@ -16,6 +16,8 @@ import { UserRole } from './user.entity';
 
 export enum DisputeStatus {
   OPEN = 'OPEN',
+  TRIAGE_PENDING = 'TRIAGE_PENDING',
+  PREVIEW = 'PREVIEW',
   PENDING_REVIEW = 'PENDING_REVIEW',
   INFO_REQUESTED = 'INFO_REQUESTED',
   IN_MEDIATION = 'IN_MEDIATION',
@@ -140,6 +142,18 @@ export class DisputeEntity {
 
   // === PRELIMINARY REVIEW ===
   @Column({ type: 'text', nullable: true })
+  triageReason: string;
+
+  @Column({ nullable: true })
+  triageActorId: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  triageAt: Date;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  triagePreviousStatus: string;
+
+  @Column({ type: 'text', nullable: true })
   infoRequestReason: string;
 
   @Column({ nullable: true })
@@ -149,7 +163,16 @@ export class DisputeEntity {
   infoRequestedAt: Date;
 
   @Column({ type: 'timestamp', nullable: true })
+  infoRequestDeadline: Date;
+
+  @Column({ type: 'timestamp', nullable: true })
   infoProvidedAt: Date;
+
+  @Column({ nullable: true })
+  previewCompletedById: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  previewCompletedAt: Date;
 
   @Column({ type: 'timestamp', nullable: true })
   dismissalHoldUntil: Date;
@@ -162,7 +185,7 @@ export class DisputeEntity {
   @Column({
     type: 'enum',
     enum: DisputeStatus,
-    default: DisputeStatus.OPEN,
+    default: DisputeStatus.TRIAGE_PENDING,
   })
   status: DisputeStatus;
 

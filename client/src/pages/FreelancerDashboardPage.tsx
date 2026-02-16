@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Search, Filter, DollarSign, Clock, MapPin, Star, TrendingUp, CheckCircle2, AlertCircle, Settings } from 'lucide-react';
-import { Button } from '@/shared/components/ui/button';
+import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/custom/input';
 import { ROUTES, STORAGE_KEYS } from '@/constants';
 import { FreelancerDashboardLayout } from '@/shared/components/layouts/freelancer/FreelancerDashboardLayout';
@@ -35,7 +35,7 @@ export default function FreelancerDashboardPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [userSkills, setUserSkills] = useState<string[]>([]);
-  
+
   // Mock data - Replace with API calls later
   const [stats] = useState<DashboardStats>({
     activeProjects: 2,
@@ -103,10 +103,10 @@ export default function FreelancerDashboardPage() {
   const filteredJobs = jobs.filter(job => {
     const matchesSearch = job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          job.description.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesSkills = selectedSkills.length === 0 || 
+
+    const matchesSkills = selectedSkills.length === 0 ||
                          selectedSkills.some(skill => job.skills.includes(skill));
-    
+
     return matchesSearch && matchesSkills;
   });
 
@@ -310,7 +310,7 @@ export default function FreelancerDashboardPage() {
                       }`}
                     >
                       {skill}
-                      {userSkills.includes(skill) && ' ✓'}
+                      {userSkills.includes(skill) && " ✓"}
                     </span>
                   ))}
                 </div>
@@ -330,7 +330,7 @@ export default function FreelancerDashboardPage() {
                           <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
                           {job.client.rating}
                         </span>
-                        <span>•</span>
+                        <span>窶｢</span>
                         <span>{job.client.completedProjects} projects</span>
                       </div>
                     </div>

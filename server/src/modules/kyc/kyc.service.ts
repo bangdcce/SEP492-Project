@@ -10,7 +10,11 @@ import { KycVerificationEntity, KycStatus } from '../../database/entities/kyc-ve
 import { UserEntity } from '../../database/entities/user.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { SubmitKycDto, RejectKycDto } from './dto';
-import { uploadEncryptedFile, getSignedUrl, downloadWithWatermark } from '../../common/utils/supabase-storage.util';
+import {
+  uploadEncryptedFile,
+  getSignedUrl,
+  downloadWithWatermark,
+} from '../../common/utils/supabase-storage.util';
 import { hashDocumentNumber } from '../../common/utils/encryption.util';
 import { FptAiService } from '../../common/services/fpt-ai.service';
 import { v4 as uuidv4 } from 'uuid';
@@ -68,20 +72,17 @@ export class KycService {
 
     // Step 2: Validate user input against AI extracted data
     const dataValidation = this.validateDataMatch(dto, aiVerification.extractedData);
-    
+
     // Combine AI issues with data validation issues
-    const allIssues = [
-      ...(aiVerification.issues || []),
-      ...dataValidation.issues,
-    ];
+    const allIssues = [...(aiVerification.issues || []), ...dataValidation.issues];
 
     // Step 3: Determine KYC status based on AI decision AND data matching
     let kycStatus: KycStatus;
     let autoApproved = false;
-    const hasUnreadableIssue = allIssues.some(issue =>
+    const hasUnreadableIssue = allIssues.some((issue) =>
       /could not extract|cannot extract|unable to extract/i.test(issue),
     );
-    
+
     // Critical mismatch = auto-reject or manual review
     if (dataValidation.criticalMismatch) {
       kycStatus = KycStatus.PENDING; // Send to admin for review
@@ -144,12 +145,14 @@ export class KycService {
         decision: aiVerification.decision,
         confidence: aiVerification.confidence,
         // Redact PII from extractedData - only show field extraction status
-        extractedData: aiVerification.extractedData ? {
-          fullName: aiVerification.extractedData.fullName ? '[EXTRACTED]' : undefined,
-          idNumber: aiVerification.extractedData.idNumber ? '[EXTRACTED]' : undefined,
-          dateOfBirth: aiVerification.extractedData.dateOfBirth ? '[EXTRACTED]' : undefined,
-          address: aiVerification.extractedData.address ? '[EXTRACTED]' : undefined,
-        } : undefined,
+        extractedData: aiVerification.extractedData
+          ? {
+              fullName: aiVerification.extractedData.fullName ? '[EXTRACTED]' : undefined,
+              idNumber: aiVerification.extractedData.idNumber ? '[EXTRACTED]' : undefined,
+              dateOfBirth: aiVerification.extractedData.dateOfBirth ? '[EXTRACTED]' : undefined,
+              address: aiVerification.extractedData.address ? '[EXTRACTED]' : undefined,
+            }
+          : undefined,
         issues: aiVerification.issues,
       },
       dataValidation: {
@@ -248,7 +251,7 @@ export class KycService {
           documentBackUrl: backUrl,
           selfieUrl: selfieUrl,
         };
-      })
+      }),
     );
 
     return {
@@ -346,7 +349,8 @@ export class KycService {
         watermarkId,
         reviewerEmail,
         timestamp: timestamp.toISOString(),
-        warning: 'CONFIDENTIAL - This document contains forensic watermark. Any unauthorized distribution will be traced.',
+        warning:
+          'CONFIDENTIAL - This document contains forensic watermark. Any unauthorized distribution will be traced.',
       },
       auditLog: {
         id: auditLog.id,
@@ -503,11 +507,13 @@ export class KycService {
         if (str1[i - 1] === str2[j - 1]) {
           dp[i][j] = dp[i - 1][j - 1];
         } else {
-          dp[i][j] = 1 + Math.min(
-            dp[i - 1][j],     // deletion
-            dp[i][j - 1],     // insertion
-            dp[i - 1][j - 1], // substitution
-          );
+          dp[i][j] =
+            1 +
+            Math.min(
+              dp[i - 1][j], // deletion
+              dp[i][j - 1], // insertion
+              dp[i - 1][j - 1], // substitution
+            );
         }
       }
     }
@@ -522,14 +528,14 @@ export class KycService {
   private calculateSimilarity(str1: string, str2: string): number {
     const s1 = this.normalizeString(str1);
     const s2 = this.normalizeString(str2);
-    
+
     if (s1 === s2) return 1;
     if (!s1 || !s2) return 0;
 
     const len1 = s1.length;
     const len2 = s2.length;
     const maxLen = Math.max(len1, len2);
-    
+
     if (maxLen === 0) return 1;
 
     // Use Levenshtein distance for similarity calculation
@@ -541,7 +547,7 @@ export class KycService {
     // to avoid false positives with short substrings
     const minLen = Math.min(len1, len2);
     const lengthRatio = minLen / maxLen;
-    
+
     if (lengthRatio >= 0.6 && (s1.includes(s2) || s2.includes(s1))) {
       // Boost similarity but cap at 0.9 since it's not exact match
       return Math.max(similarity, 0.85);
@@ -556,10 +562,10 @@ export class KycService {
    */
   private normalizeDateString(dateStr: string | undefined | null): string {
     if (!dateStr) return '';
-    
+
     try {
       const trimmed = dateStr.trim();
-      
+
       // 1. Handle DD/MM/YYYY or DD-MM-YYYY format (common in Vietnam) FIRST
       const vnMatch = trimmed.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
       if (vnMatch) {
@@ -609,8 +615,13 @@ export class KycService {
     let criticalMismatch = false;
 
     // If no extracted data available, cannot validate - require manual review
-    if (!extractedData || (!extractedData.fullName && !extractedData.idNumber && !extractedData.dateOfBirth)) {
-      issues.push('Cannot validate: AI did not extract data from documents. Manual review required.');
+    if (
+      !extractedData ||
+      (!extractedData.fullName && !extractedData.idNumber && !extractedData.dateOfBirth)
+    ) {
+      issues.push(
+        'Cannot validate: AI did not extract data from documents. Manual review required.',
+      );
       return {
         issues,
         matchScore: 0.5, // Low score to trigger manual review
@@ -625,7 +636,7 @@ export class KycService {
         dto.fullNameOnDocument,
         extractedData.fullName,
       );
-      
+
       if (nameSimilarity >= 0.8) {
         matches++;
       } else if (nameSimilarity >= 0.6) {
@@ -642,7 +653,7 @@ export class KycService {
       totalChecks++;
       const inputId = this.normalizeString(dto.documentNumber);
       const extractedId = this.normalizeString(extractedData.idNumber);
-      
+
       if (inputId === extractedId) {
         matches++;
       } else if (inputId.includes(extractedId) || extractedId.includes(inputId)) {
@@ -659,7 +670,7 @@ export class KycService {
       totalChecks++;
       const inputDob = this.normalizeDateString(dto.dateOfBirth);
       const extractedDob = this.normalizeDateString(extractedData.dateOfBirth);
-      
+
       if (inputDob === extractedDob) {
         matches++;
       } else {
@@ -672,7 +683,7 @@ export class KycService {
     if (extractedData?.address && dto.address) {
       totalChecks++;
       const addrSimilarity = this.calculateSimilarity(dto.address, extractedData.address);
-      
+
       if (addrSimilarity >= 0.5) {
         matches++;
       } else {

@@ -37,7 +37,7 @@ export class FptAiService {
   /**
    * Verify KYC documents using FPT.AI
    * @param idCardFront - Front side of ID card buffer
-   * @param idCardBack - Back side of ID card buffer  
+   * @param idCardBack - Back side of ID card buffer
    * @param selfie - Selfie photo buffer
    * @returns Verification result with decision
    */
@@ -59,20 +59,20 @@ export class FptAiService {
     try {
       // Step 1: OCR ID card front
       const frontOcr = await this.ocrIdCard(idCardFront, 'front');
-      
+
       // Step 2: OCR ID card back
       const backOcr = await this.ocrIdCard(idCardBack, 'back');
-      
+
       // Note: Selfie is uploaded but NOT verified by AI
       // FPT.AI only has OCR API, no face comparison API
       // Selfie will be stored for manual admin review
-      
+
       // Step 3: Calculate confidence (OCR only)
       const confidence = this.calculateConfidenceOcrOnly(frontOcr, backOcr);
-      
+
       // Step 4: Make decision
       const decision = this.makeDecision(confidence);
-      
+
       // Step 5: Extract data
       const extractedData = this.extractData(frontOcr, backOcr);
 
@@ -96,7 +96,7 @@ export class FptAiService {
       };
     } catch (error) {
       this.logger.error('FPT.AI verification failed:', error);
-      
+
       // Fallback to pending review if AI fails
       return {
         success: false,
@@ -113,9 +113,9 @@ export class FptAiService {
    */
   private async ocrIdCard(imageBuffer: Buffer, side: 'front' | 'back'): Promise<any> {
     const formData = new FormData();
-    formData.append('image', imageBuffer, { 
+    formData.append('image', imageBuffer, {
       filename: `id-${side}.jpg`,
-      contentType: 'image/jpeg'
+      contentType: 'image/jpeg',
     });
 
     const response = await axios.post(
@@ -127,7 +127,7 @@ export class FptAiService {
           ...formData.getHeaders(),
         },
         timeout: 30000, // 30s timeout
-      }
+      },
     );
 
     return response.data;
@@ -151,7 +151,7 @@ export class FptAiService {
           ...formData.getHeaders(),
         },
         timeout: 30000,
-      }
+      },
     );
 
     return response.data;
@@ -267,16 +267,8 @@ export class FptAiService {
       'permanent_address',
       'residence',
     ]);
-    data.issueDate = this.getOcrField(backData, [
-      'issueDate',
-      'issue_date',
-      'issueDateTime',
-    ]);
-    data.expiryDate = this.getOcrField(backData, [
-      'expiryDate',
-      'expiry_date',
-      'expireDate',
-    ]);
+    data.issueDate = this.getOcrField(backData, ['issueDate', 'issue_date', 'issueDateTime']);
+    data.expiryDate = this.getOcrField(backData, ['expiryDate', 'expiry_date', 'expireDate']);
 
     return data;
   }
@@ -380,7 +372,7 @@ export class FptAiService {
     for (const key of keys) {
       const value = data[key];
       if (value !== undefined && value !== null && value !== '') {
-        return typeof value === 'object' ? value.value ?? value.text ?? String(value) : value;
+        return typeof value === 'object' ? (value.value ?? value.text ?? String(value)) : value;
       }
     }
 
@@ -394,7 +386,7 @@ export class FptAiService {
       if (normalizedLookup.has(normalized)) {
         const value = normalizedLookup.get(normalized);
         if (value !== undefined && value !== null && value !== '') {
-          return typeof value === 'object' ? value.value ?? value.text ?? String(value) : value;
+          return typeof value === 'object' ? (value.value ?? value.text ?? String(value)) : value;
         }
       }
     }
@@ -405,7 +397,7 @@ export class FptAiService {
       if (regexes.some((regex) => regex.test(normalized))) {
         if (rawValue !== undefined && rawValue !== null && rawValue !== '') {
           return typeof rawValue === 'object'
-            ? rawValue.value ?? rawValue.text ?? String(rawValue)
+            ? (rawValue.value ?? rawValue.text ?? String(rawValue))
             : rawValue;
         }
       }
@@ -513,8 +505,10 @@ export class FptAiService {
    * IMPORTANT: Mock mode should never auto-approve - always pending review
    */
   private mockVerification(): FptAiVerificationResult {
-    this.logger.warn('⚠️ Using MOCK verification - AI is disabled. Set FPT_AI_ENABLED=true for real verification');
-    
+    this.logger.warn(
+      '⚠️ Using MOCK verification - AI is disabled. Set FPT_AI_ENABLED=true for real verification',
+    );
+
     return {
       success: true,
       confidence: 0.5, // Low confidence to trigger manual review

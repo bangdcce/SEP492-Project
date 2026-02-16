@@ -2,15 +2,7 @@
 // RESPOND TO SETTLEMENT DTO
 // ============================================================================
 
-import {
-  IsBoolean,
-  IsString,
-  IsOptional,
-  ValidateIf,
-  IsNotEmpty,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
+import { IsBoolean, IsString, ValidateIf, IsNotEmpty, MaxLength, MinLength } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RespondToSettlementDto {

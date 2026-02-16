@@ -77,6 +77,38 @@ export class EmailService {
     }
   }
 
+  async sendPlatformNotification(input: {
+    email: string;
+    subject: string;
+    title: string;
+    body: string;
+  }): Promise<void> {
+    const appName = this.configService.get<string>('APP_NAME', 'InterDev');
+    const fromEmail = this.configService.get('FROM_EMAIL') || this.configService.get('SMTP_USER');
+    const fromName = this.configService.get('FROM_NAME', appName);
+
+    if (!this.transporter) {
+      this.logger.warn(
+        `Email service not configured. Skip notification email to ${input.email} (${input.subject})`,
+      );
+      return;
+    }
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
+        <h2 style="margin-bottom: 8px;">${input.title}</h2>
+        <p style="margin: 0 0 12px;">${input.body}</p>
+      </div>
+    `;
+
+    await this.transporter.sendMail({
+      from: `"${fromName}" <${fromEmail}>`,
+      to: input.email,
+      subject: input.subject,
+      html,
+    });
+  }
+
   /**
    * Email template for OTP
    */
