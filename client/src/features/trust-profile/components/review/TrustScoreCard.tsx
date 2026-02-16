@@ -79,19 +79,19 @@ export function TrustScoreCard({ user }: TrustScoreCardProps) {
 
         {/* Identity Verification */}
         <div className="text-center">
-          <div className="flex items-center justify-center">
-            {user.isVerified ? (
-              <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6 text-teal-600" />
-            ) : (
-              <XCircle className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400" />
-            )}
-          </div>
+        <div className="flex items-center justify-center h-6 sm:h-7">
+          {user.isVerified ? (
+            <CheckCircle className="w-5 h-5 sm:w-6 sm:h-6 text-teal-600" />
+          ) : (
+            <XCircle className="w-5 h-5 sm:w-6 sm:h-6 text-gray-400" />
+          )}
+        </div>
           <div
             className={`text-xs sm:text-sm ${
               user.isVerified ? "text-teal-600" : "text-gray-600"
             }`}
           >
-            {user.isVerified ? "Verified" : "Unverified"}
+            {user.isVerified ? "KYC Verified" : "KYC Unverified"}
           </div>
         </div>
       </div>

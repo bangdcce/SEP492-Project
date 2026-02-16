@@ -44,12 +44,13 @@ export class RegisterDto {
   })
   @IsEmail({}, { message: 'Email không hợp lệ' })
   @IsNotEmpty({ message: 'Email không được để trống' })
-  @IsNotDisposableEmail({ message: 'Không chấp nhận email tạm thời. Vui lòng sử dụng email thường xuyên.' })
+  @IsNotDisposableEmail({
+    message: 'Không chấp nhận email tạm thời. Vui lòng sử dụng email thường xuyên.',
+  })
   email: string;
 
   @ApiProperty({
-    description:
-      'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ thường và số/ký tự đặc biệt)',
+    description: 'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ thường và số/ký tự đặc biệt)',
     example: 'securepass123',
     minLength: 8,
   })

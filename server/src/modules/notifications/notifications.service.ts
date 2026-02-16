@@ -10,10 +10,7 @@ export class NotificationsService {
     private readonly notificationRepo: Repository<NotificationEntity>,
   ) {}
 
-  async list(
-    userId: string,
-    options: { page?: number; limit?: number; unreadOnly?: boolean },
-  ) {
+  async list(userId: string, options: { page?: number; limit?: number; unreadOnly?: boolean }) {
     const page = options.page && options.page > 0 ? options.page : 1;
     const limit = options.limit && options.limit > 0 ? options.limit : 20;
 

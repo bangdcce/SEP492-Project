@@ -7,8 +7,6 @@ import {
   UpdateDateColumn,
   OneToOne,
   OneToMany,
-  ManyToMany,
-  JoinColumn,
 } from 'typeorm';
 
 export enum UserRole {
@@ -18,6 +16,11 @@ export enum UserRole {
   CLIENT = 'CLIENT',
   CLIENT_SME = 'CLIENT_SME',
   FREELANCER = 'FREELANCER',
+}
+
+export enum UserStatus {
+  ACTIVE = 'ACTIVE',
+  DELETED = 'DELETED',
 }
 
 export enum BadgeType {
@@ -118,6 +121,21 @@ export class UserEntity {
 
   @Column({ type: 'uuid', nullable: true })
   bannedBy: string;
+
+  // --- SOFT DELETE FIELDS ---
+  @Column({
+    type: 'enum',
+    enum: UserStatus,
+    enumName: 'users_status_enum',
+    default: UserStatus.ACTIVE,
+  })
+  status: UserStatus;
+
+  @Column({ type: 'timestamp', nullable: true })
+  deletedAt: Date;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  deletedReason: string;
 
   @CreateDateColumn()
   createdAt: Date;

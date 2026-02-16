@@ -634,10 +634,7 @@ export class CalendarController {
   @Delete('availability/:id')
   @ApiOperation({ summary: 'Delete availability slot' })
   @HttpCode(HttpStatus.OK)
-  async deleteAvailability(
-    @Param('id', ParseUUIDPipe) id: string,
-    @GetUser() user: UserEntity,
-  ) {
+  async deleteAvailability(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
     const result = await this.availabilityService.deleteUserAvailability({
       userId: user.id,
       availabilityId: id,

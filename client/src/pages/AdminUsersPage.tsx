@@ -1,7 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Search, Ban, UserCheck, Key, Shield, AlertCircle } from 'lucide-react';
+import { Search, Ban, UserCheck, Key, Shield, AlertCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { getStoredItem } from '@/shared/utils/storage';
 
 interface User {
   id: string;
@@ -26,11 +25,26 @@ interface UserStats {
   byRole: Record<string, number>;
 }
 
+interface UserDetail extends User {
+  kyc?: {
+    id?: string;
+    status?: string;
+    documentFrontUrl?: string;
+    documentBackUrl?: string;
+    rejectionReason?: string;
+    createdAt?: string;
+    reviewedAt?: string;
+  };
+}
+
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<User[]>([]);
   const [stats, setStats] = useState<UserStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [detailUser, setDetailUser] = useState<UserDetail | null>(null);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
   
   // Filters
   const [roleFilter, setRoleFilter] = useState<string>('');
@@ -51,7 +65,6 @@ export default function AdminUsersPage() {
   const [sendEmail, setSendEmail] = useState(true);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-  const token = getStoredItem('access_token');
 
   // Fetch users
   useEffect(() => {
@@ -72,9 +85,7 @@ export default function AdminUsersPage() {
       if (banFilter) params.append('isBanned', banFilter);
 
       const response = await fetch(`${API_URL}/users?${params}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        credentials: 'include',
       });
 
       if (!response.ok) throw new Error('Failed to fetch users');
@@ -92,9 +103,7 @@ export default function AdminUsersPage() {
   const fetchStats = async () => {
     try {
       const response = await fetch(`${API_URL}/users/admin/statistics`, {
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
+        credentials: 'include',
       });
 
       if (!response.ok) throw new Error('Failed to fetch stats');
@@ -106,6 +115,58 @@ export default function AdminUsersPage() {
     }
   };
 
+  const openUserDetail = async (user: User) => {
+    try {
+      setDetailLoading(true);
+      setShowDetailModal(true);
+      const response = await fetch(`${API_URL}/users/${user.id}`, {
+        credentials: 'include',
+      });
+
+      if (!response.ok) throw new Error('Failed to load user detail');
+      const data = await response.json();
+      const baseDetail = data as UserDetail;
+
+      if (baseDetail.kyc?.id) {
+        try {
+          const kycResponse = await fetch(
+            `${API_URL}/kyc/admin/${baseDetail.kyc.id}/watermark`,
+            { credentials: 'include' }
+          );
+          if (kycResponse.ok) {
+            const kycData = await kycResponse.json();
+            setDetailUser({
+              ...baseDetail,
+              kyc: {
+                ...baseDetail.kyc,
+                status: kycData.status,
+                rejectionReason: kycData.rejectionReason,
+                documentFrontUrl: kycData.documentFrontUrl,
+                documentBackUrl: kycData.documentBackUrl,
+              },
+            });
+          } else {
+            setDetailUser(baseDetail);
+          }
+        } catch {
+          setDetailUser(baseDetail);
+        }
+      } else {
+        setDetailUser(baseDetail);
+      }
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to load user detail');
+      setShowDetailModal(false);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const closeUserDetail = () => {
+    setShowDetailModal(false);
+    setDetailUser(null);
+  };
+
   const handleBanUser = async () => {
     if (!selectedUser || !banReason.trim()) {
       toast.error('Please provide a reason');
@@ -115,9 +176,9 @@ export default function AdminUsersPage() {
     try {
       const response = await fetch(`${API_URL}/users/${selectedUser.id}/ban`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ reason: banReason }),
       });
@@ -142,9 +203,9 @@ export default function AdminUsersPage() {
     try {
       const response = await fetch(`${API_URL}/users/${selectedUser.id}/unban`, {
         method: 'PATCH',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ reason: unbanReason }),
       });
@@ -169,9 +230,9 @@ export default function AdminUsersPage() {
     try {
       const response = await fetch(`${API_URL}/users/${selectedUser.id}/reset-password`, {
         method: 'POST',
+        credentials: 'include',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({ newPassword, sendEmail }),
       });
@@ -196,6 +257,21 @@ export default function AdminUsersPage() {
       BROKER: 'bg-yellow-100 text-yellow-800',
     };
     return colors[role] || 'bg-gray-100 text-gray-800';
+  };
+
+  const getStatusText = (user: User) => {
+    if (user.isBanned) return 'Banned';
+    return 'Active';
+  };
+
+  const getKycStatusText = (status?: string, isVerified?: boolean) => {
+    if (status) return status;
+    return isVerified ? 'APPROVED' : 'NOT_STARTED';
+  };
+
+  const getPermissionLabel = (role: string) => {
+    if (role === 'ADMIN' || role === 'STAFF') return 'Admin privileges';
+    return 'Standard user permissions';
   };
 
   return (
@@ -315,7 +391,11 @@ export default function AdminUsersPage() {
                 </tr>
               ) : (
                 users.map((user) => (
-                  <tr key={user.id} className="hover:bg-gray-50">
+                  <tr
+                    key={user.id}
+                    className="hover:bg-gray-50 cursor-pointer"
+                    onClick={() => openUserDetail(user)}
+                  >
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
                         <div className="font-medium text-gray-900">{user.fullName}</div>
@@ -356,7 +436,8 @@ export default function AdminUsersPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setSelectedUser(user);
                           setShowResetPasswordModal(true);
                         }}
@@ -368,7 +449,8 @@ export default function AdminUsersPage() {
                       
                       {user.isBanned ? (
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setSelectedUser(user);
                             setShowUnbanModal(true);
                           }}
@@ -379,7 +461,8 @@ export default function AdminUsersPage() {
                         </button>
                       ) : (
                         <button
-                          onClick={() => {
+                          onClick={(e) => {
+                            e.stopPropagation();
                             setSelectedUser(user);
                             setShowBanModal(true);
                           }}
@@ -420,34 +503,221 @@ export default function AdminUsersPage() {
           )}
         </div>
 
+        {/* User Detail Modal */}
+        {showDetailModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-6">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] overflow-y-auto">
+              <div className="flex items-center justify-between px-6 py-4 border-b">
+                <div>
+                  <h3 className="text-xl font-semibold text-gray-900">User Details</h3>
+                  <p className="text-sm text-gray-500">
+                    {detailUser?.fullName || 'Loading user...'}
+                  </p>
+                </div>
+                <button
+                  onClick={closeUserDetail}
+                  className="px-3 py-1.5 text-sm text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+                >
+                  Close
+                </button>
+              </div>
+
+              <div className="p-6">
+                {detailLoading ? (
+                  <div className="text-center text-gray-500 py-12">Loading details...</div>
+                ) : detailUser ? (
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                    {/* Basic Info */}
+                    <div className="bg-gray-50 rounded-lg p-4 border">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">Basic Info</h4>
+                      <div className="space-y-2 text-sm">
+                        <div><span className="text-gray-500">Name:</span> {detailUser.fullName}</div>
+                        <div><span className="text-gray-500">Email:</span> {detailUser.email}</div>
+                        <div><span className="text-gray-500">Phone:</span> {detailUser.phoneNumber || 'N/A'}</div>
+                        <div>
+                          <span className="text-gray-500">Created At:</span>{' '}
+                          {detailUser.createdAt ? new Date(detailUser.createdAt).toLocaleString() : 'N/A'}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* KYC */}
+                    <div className="bg-gray-50 rounded-lg p-4 border">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-gray-700">KYC</h4>
+                        <span
+                          className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                            getKycStatusText(detailUser.kyc?.status, detailUser.isVerified) === 'APPROVED'
+                              ? 'bg-green-100 text-green-700'
+                              : getKycStatusText(detailUser.kyc?.status, detailUser.isVerified) === 'REJECTED'
+                              ? 'bg-red-100 text-red-700'
+                              : getKycStatusText(detailUser.kyc?.status, detailUser.isVerified) === 'PENDING'
+                              ? 'bg-yellow-100 text-yellow-700'
+                              : 'bg-gray-100 text-gray-700'
+                          }`}
+                        >
+                          {getKycStatusText(detailUser.kyc?.status, detailUser.isVerified)}
+                        </span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div className="text-xs text-gray-500">ID Card Front</div>
+                        <div className="text-xs text-gray-500">ID Card Back</div>
+                        <div className="bg-white border rounded-md p-2 flex items-center justify-center min-h-[140px]">
+                          {detailUser.kyc?.documentFrontUrl ? (
+                            <img
+                              src={detailUser.kyc.documentFrontUrl}
+                              alt="ID Card Front"
+                              className="max-h-32 object-contain"
+                            />
+                          ) : (
+                            <span className="text-xs text-gray-400">No image</span>
+                          )}
+                        </div>
+                        <div className="bg-white border rounded-md p-2 flex items-center justify-center min-h-[140px]">
+                          {detailUser.kyc?.documentBackUrl ? (
+                            <img
+                              src={detailUser.kyc.documentBackUrl}
+                              alt="ID Card Back"
+                              className="max-h-32 object-contain"
+                            />
+                          ) : (
+                            <span className="text-xs text-gray-400">No image</span>
+                          )}
+                        </div>
+                        {detailUser.kyc?.rejectionReason && (
+                          <div className="sm:col-span-2 text-xs text-red-600 bg-red-50 border border-red-100 rounded-md p-2">
+                            Rejection Reason: {detailUser.kyc.rejectionReason}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Roles & Permissions */}
+                    <div className="bg-gray-50 rounded-lg p-4 border">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">Roles & Permissions</h4>
+                      <div className="space-y-2 text-sm">
+                        <div>
+                          <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getRoleBadgeColor(detailUser.role)}`}>
+                            {detailUser.role}
+                          </span>
+                        </div>
+                        <div className="text-gray-600">{getPermissionLabel(detailUser.role)}</div>
+                      </div>
+                    </div>
+
+                    {/* Trust Score Metrics */}
+                    <div className="bg-gray-50 rounded-lg p-4 border">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">Trust Score Metrics</h4>
+                      <div className="grid grid-cols-3 gap-4 text-sm">
+                        <div>
+                          <div className="text-gray-500">Trust Score</div>
+                          <div className="font-semibold">{Number(detailUser.currentTrustScore).toFixed(2)}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">Projects Completed</div>
+                          <div className="font-semibold">{detailUser.totalProjectsFinished}</div>
+                        </div>
+                        <div>
+                          <div className="text-gray-500">Disputes Lost</div>
+                          <div className="font-semibold">{detailUser.totalDisputesLost}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Status Information */}
+                    <div className="bg-gray-50 rounded-lg p-4 border lg:col-span-2">
+                      <h4 className="text-sm font-semibold text-gray-700 mb-3">Status Information</h4>
+                      <div className="text-sm">
+                        <div>
+                          <span className="text-gray-500">Account Status:</span>{' '}
+                          <span className={detailUser.isBanned ? 'text-red-600 font-medium' : 'text-green-600 font-medium'}>
+                            {getStatusText(detailUser)}
+                          </span>
+                        </div>
+                        {detailUser.isBanned && detailUser.banReason && (
+                          <div className="mt-2 text-red-600">
+                            Ban Reason: {detailUser.banReason}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-center text-gray-500 py-12">No detail found</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Ban Modal */}
         {showBanModal && selectedUser && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full">
-              <h3 className="text-lg font-semibold mb-4">Ban User</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Ban <strong>{selectedUser.fullName}</strong> ({selectedUser.email})?
-              </p>
-              <textarea
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 mb-4"
-                placeholder="Reason for ban..."
-                rows={4}
-                value={banReason}
-                onChange={(e) => setBanReason(e.target.value)}
-              />
-              <div className="flex gap-3 justify-end">
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <Ban className="w-6 h-6 text-white" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white">Ban User</h3>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowBanModal(false);
+                      setBanReason('');
+                    }}
+                    className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-6 space-y-5">
+                <div className="bg-red-50 border border-red-100 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-red-900">You are about to ban this user</p>
+                      <p className="text-sm text-red-700 mt-1">
+                        <strong>{selectedUser.fullName}</strong>
+                        <span className="text-red-600"> ({selectedUser.email})</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Reason for ban <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all resize-none"
+                    placeholder="Enter the reason for banning this user..."
+                    rows={4}
+                    value={banReason}
+                    onChange={(e) => setBanReason(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end">
                 <button
                   onClick={() => {
                     setShowBanModal(false);
                     setBanReason('');
                   }}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleBanUser}
-                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                  className="px-5 py-2.5 bg-gradient-to-r from-red-500 to-red-600 text-white rounded-xl hover:from-red-600 hover:to-red-700 transition-all font-medium shadow-lg hover:shadow-xl"
                 >
                   Ban User
                 </button>
@@ -458,32 +728,72 @@ export default function AdminUsersPage() {
 
         {/* Unban Modal */}
         {showUnbanModal && selectedUser && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full">
-              <h3 className="text-lg font-semibold mb-4">Unban User</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Unban <strong>{selectedUser.fullName}</strong> ({selectedUser.email})?
-              </p>
-              <textarea
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 mb-4"
-                placeholder="Reason for unban..."
-                rows={4}
-                value={unbanReason}
-                onChange={(e) => setUnbanReason(e.target.value)}
-              />
-              <div className="flex gap-3 justify-end">
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-green-500 to-green-600 px-6 py-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <UserCheck className="w-6 h-6 text-white" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white">Unban User</h3>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowUnbanModal(false);
+                      setUnbanReason('');
+                    }}
+                    className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-6 space-y-5">
+                <div className="bg-green-50 border border-green-100 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <UserCheck className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-green-900">Restore user access</p>
+                      <p className="text-sm text-green-700 mt-1">
+                        <strong>{selectedUser.fullName}</strong>
+                        <span className="text-green-600"> ({selectedUser.email})</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Reason for unban <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:border-transparent transition-all resize-none"
+                    placeholder="Enter the reason for unbanning this user..."
+                    rows={4}
+                    value={unbanReason}
+                    onChange={(e) => setUnbanReason(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end">
                 <button
                   onClick={() => {
                     setShowUnbanModal(false);
                     setUnbanReason('');
                   }}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleUnbanUser}
-                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                  className="px-5 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 transition-all font-medium shadow-lg hover:shadow-xl"
                 >
                   Unban User
                 </button>
@@ -494,41 +804,82 @@ export default function AdminUsersPage() {
 
         {/* Reset Password Modal */}
         {showResetPasswordModal && selectedUser && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div className="bg-white rounded-lg p-6 max-w-md w-full">
-              <h3 className="text-lg font-semibold mb-4">Reset Password</h3>
-              <p className="text-sm text-gray-600 mb-4">
-                Reset password for <strong>{selectedUser.fullName}</strong> ({selectedUser.email})?
-              </p>
-              <input
-                type="text"
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 mb-4"
-                placeholder="New temporary password..."
-                value={newPassword}
-                onChange={(e) => setNewPassword(e.target.value)}
-              />
-              <label className="flex items-center mb-4">
-                <input
-                  type="checkbox"
-                  checked={sendEmail}
-                  onChange={(e) => setSendEmail(e.target.checked)}
-                  className="mr-2"
-                />
-                <span className="text-sm text-gray-700">Send email notification</span>
-              </label>
-              <div className="flex gap-3 justify-end">
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in duration-200">
+              {/* Header */}
+              <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 bg-white/20 rounded-lg">
+                      <Key className="w-6 h-6 text-white" />
+                    </div>
+                    <h3 className="text-xl font-bold text-white">Reset Password</h3>
+                  </div>
+                  <button
+                    onClick={() => {
+                      setShowResetPasswordModal(false);
+                      setNewPassword('');
+                    }}
+                    className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+                  >
+                    <X className="w-5 h-5 text-white" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Content */}
+              <div className="p-6 space-y-5">
+                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
+                  <div className="flex items-start gap-3">
+                    <Key className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+                    <div>
+                      <p className="text-sm font-medium text-blue-900">Reset user password</p>
+                      <p className="text-sm text-blue-700 mt-1">
+                        <strong>{selectedUser.fullName}</strong>
+                        <span className="text-blue-600"> ({selectedUser.email})</span>
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    New temporary password <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="Enter new temporary password..."
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                  />
+                </div>
+
+                <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={sendEmail}
+                    onChange={(e) => setSendEmail(e.target.checked)}
+                    className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">Send email notification to user</span>
+                </label>
+              </div>
+
+              {/* Footer */}
+              <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end">
                 <button
                   onClick={() => {
                     setShowResetPasswordModal(false);
                     setNewPassword('');
                   }}
-                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleResetPassword}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all font-medium shadow-lg hover:shadow-xl"
                 >
                   Reset Password
                 </button>

@@ -120,13 +120,13 @@ export class TasksController {
 
   @Post(':id/comments')
   addComment(
-      @Param('id') id: string,
-      @Body('content') content: string,
-      @Req() req: AuthenticatedRequest
+    @Param('id') id: string,
+    @Body('content') content: string,
+    @Req() req: AuthenticatedRequest,
   ) {
-      if (!content) throw new BadRequestException('Content is required');
-      // JwtAuthGuard ensures user exists, but TS needs reassurance or fallback
-      return this.tasksService.addComment(id, content, req.user?.id || 'SYSTEM');
+    if (!content) throw new BadRequestException('Content is required');
+    // JwtAuthGuard ensures user exists, but TS needs reassurance or fallback
+    return this.tasksService.addComment(id, content, req.user?.id || 'SYSTEM');
   }
 
   @Patch(':id/status')

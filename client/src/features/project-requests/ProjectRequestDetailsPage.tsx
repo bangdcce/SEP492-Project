@@ -12,12 +12,13 @@ import {
   UserPlus,
   FileSignature,
   CheckCircle2,
-  Check, 
-  Clock, 
+  Check,
+  Clock,
   AlertCircle
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { UserRole } from "@/shared/types/user.types";
+import { STORAGE_KEYS } from "@/constants";
 
 import type { ProjectRequest, RequestStatus } from "./types";
 import { projectRequestsApi } from "./api";
@@ -29,9 +30,10 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-} from "@/shared/components/ui/card";
+} from "@/shared/components/ui/Card";
 import { Separator } from "@/shared/components/ui/separator";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { getStoredJson } from "@/shared/utils/storage";
 
 // Helper to determine active phase for Broker (mirrors Client logic but simpler)
 const getBrokerPhase = (status: string) => {
@@ -52,10 +54,7 @@ export default function ProjectRequestDetailsPage() {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const userJson = localStorage.getItem("user");
-    if (userJson) {
-      setUser(JSON.parse(userJson));
-    }
+    setUser(getStoredJson(STORAGE_KEYS.USER));
   }, []);
 
   const isAdmin = user?.role === "ADMIN";
@@ -64,7 +63,7 @@ export default function ProjectRequestDetailsPage() {
 
   const handleBack = () => {
     if (isAdmin) {
-      navigate("/admin/specs"); 
+      navigate("/admin/specs");
     } else if (user?.role === "BROKER") {
       // If assigned to me, go to My Requests, otherwise Marketplace
       if (request?.brokerId === user?.id) {
@@ -178,7 +177,7 @@ export default function ProjectRequestDetailsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content Area */}
         <div className="lg:col-span-2 space-y-6">
-           
+
            <Tabs defaultValue="overview" className="w-full">
             <TabsList className="mb-4 w-full justify-start">
                <TabsTrigger value="overview">Overview & Status</TabsTrigger>
@@ -263,7 +262,7 @@ export default function ProjectRequestDetailsPage() {
 
             <TabsContent value="phases" className="space-y-6">
                 {/* Phase 2: Specs */}
-                <Card className={request.status === 'PROCESSING' || request.status === 'PENDING_SPECS' ? "border-2 border-primary" : ""}>
+                <Card className={request.status === 'PROCESSING' ? "border-2 border-primary" : ""}>
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                              <div className="bg-blue-100 p-2 rounded-full"><FileText className="w-5 h-5 text-blue-600"/></div>
@@ -327,8 +326,8 @@ export default function ProjectRequestDetailsPage() {
                     </CardHeader>
                     <CardContent>
                          {request.status === 'SPEC_APPROVED' || request.status === 'HIRING' ? (
-                             <Button 
-                                className="w-full" 
+                             <Button
+                                className="w-full"
                                 onClick={async () => {
                                     if(!confirm("Ready to draft contract?")) return;
                                      // Logic to trigger contract draft
@@ -379,7 +378,7 @@ export default function ProjectRequestDetailsPage() {
               )}
             </CardContent>
           </Card>
-          
+
            {/* Current Action / Status Card */}
            <Card className="bg-slate-50 border-slate-200">
                <CardHeader><CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Current Status</CardTitle></CardHeader>

@@ -4,6 +4,7 @@ import { discoveryApi } from "../discovery/api";
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Separator, Skeleton } from "@/shared/components/ui";
 import { ArrowLeft, Calendar, DollarSign, Monitor, User, Check, X } from "lucide-react";
 import { useToast } from "@/shared/hooks/use-toast";
+import { KYCBlocker, useKYCStatus } from "@/shared/components/custom/KYCBlocker";
 
 export const InvitationDetailsPage = () => {
     const { id } = useParams<{ id: string }>(); // Invitation ID
@@ -12,8 +13,12 @@ export const InvitationDetailsPage = () => {
     
     const [invitation, setInvitation] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [kycStatus, setKycStatus] = useState<string | null>(null);
+    const { checkKycStatus } = useKYCStatus();
 
     useEffect(() => {
+        checkKycStatus().then(setKycStatus);
+        
         const loadInvitation = async () => {
              try {
                 // Since we don't have a direct GET /invitation/:id, we fetch all and find.
@@ -36,6 +41,17 @@ export const InvitationDetailsPage = () => {
 
     const handleRespond = async (status: 'ACCEPTED' | 'REJECTED') => {
         if (!invitation) return;
+        
+        // Check KYC before accepting
+        if (status === 'ACCEPTED' && kycStatus !== 'APPROVED') {
+            toast({
+                title: "KYC Verification Required",
+                description: "Please complete KYC verification to accept invitations.",
+                variant: "destructive",
+            });
+            return;
+        }
+        
         try {
             await discoveryApi.respondToInvitation(invitation.id, status);
             toast({
@@ -54,6 +70,18 @@ export const InvitationDetailsPage = () => {
     };
 
     if (isLoading) return <div className="container p-10 space-y-4"><Skeleton className="h-8 w-1/3" /><Skeleton className="h-64 w-full" /></div>;
+    
+    // Show KYC blocker if not approved
+    if (kycStatus && kycStatus !== 'APPROVED') {
+        return (
+            <KYCBlocker 
+                kycStatus={kycStatus} 
+                role="freelancer" 
+                action="accept project invitations"
+            />
+        );
+    }
+    
     if (!invitation) return <div className="container p-10">Invitation not found.</div>;
 
     const { request } = invitation;

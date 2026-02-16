@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, Phone, MapPin, Edit2, Shield, ExternalLink, FileText, Download, ArrowLeft, Briefcase, X, TrendingUp } from 'lucide-react';
+import { Mail, Phone, MapPin, Edit2, Shield, ExternalLink, FileText, Download, ArrowLeft, Briefcase, X, TrendingUp, Trash2 } from 'lucide-react';
 import { toast } from "sonner";
 import { getProfile, updateProfile } from "@/features/auth/api";
 import { STORAGE_KEYS } from "@/constants";
 import { TrustScoreCard } from "@/features/trust-profile/components";
 import type { BadgeType } from "@/features/trust-profile/types";
 import { getStoredJson, setStoredJsonAuto } from "@/shared/utils/storage";
+import { DeleteAccountModal } from "@/shared/components/auth/DeleteAccountModal";
 
 interface UserProfile {
   id: string;
@@ -18,6 +19,7 @@ interface UserProfile {
   bio?: string;
   badge: BadgeType;
   isVerified: boolean;
+  isEmailVerified?: boolean;
   currentTrustScore: number;
   skills?: string[];
   linkedinUrl?: string;
@@ -35,6 +37,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -53,7 +56,6 @@ export default function ProfilePage() {
     try {
       setLoading(true);
       const response = (await getProfile()) as any;
-      console.log("Profile response:", response.data);
       const userData = response.data || response.data?.data;
       setProfile(userData);
       setFormData({
@@ -72,7 +74,6 @@ export default function ProfilePage() {
         window.dispatchEvent(new Event("userDataUpdated"));
       }
     } catch (error: any) {
-      console.error("Failed to load profile:", error);
       toast.error("Failed to load profile information");
     } finally {
       setLoading(false);
@@ -138,7 +139,6 @@ export default function ProfilePage() {
         window.dispatchEvent(new Event("userDataUpdated"));
       }
     } catch (error: any) {
-      console.error("Failed to update profile:", error);
       const errorMessage =
         error.response?.data?.message || "Failed to update profile";
       toast.error(errorMessage);
@@ -212,7 +212,6 @@ export default function ProfilePage() {
       // Clean up the URL after a delay
       setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
     } catch (error) {
-      console.error('Error viewing CV:', error);
       toast.error('Failed to open CV. Try downloading instead.');
     }
   };
@@ -251,7 +250,6 @@ export default function ProfilePage() {
       setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
       toast.success('CV downloaded successfully');
     } catch (error) {
-      console.error('Error downloading CV:', error);
       toast.error('Failed to download CV');
     }
   };
@@ -370,6 +368,7 @@ export default function ProfilePage() {
                   fullName: profile.fullName,
                   avatarUrl: profile.avatarUrl || "",
                   isVerified: profile.isVerified,
+                  isEmailVerified: profile.isEmailVerified,
                   currentTrustScore: profile.currentTrustScore,
                   badge: profile.badge,
                   stats: profile.stats || {
@@ -389,6 +388,17 @@ export default function ProfilePage() {
               >
                 <Edit2 className="w-5 h-5" />
                 Edit Profile
+              </button>
+            )}
+
+            {/* Delete Account Button */}
+            {!isEditing && (
+              <button
+                onClick={() => setShowDeleteModal(true)}
+                className="w-full mt-3 bg-white hover:bg-red-50 text-red-600 border border-red-300 font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
+              >
+                <Trash2 className="w-5 h-5" />
+                Delete Account
               </button>
             )}
           </div>
@@ -505,11 +515,11 @@ export default function ProfilePage() {
                     <div className="flex items-center gap-2 mb-1">
                       <Shield className="w-4 h-4 text-green-600" />
                       <span className="text-sm text-gray-600">
-                        Verification
+                        KYC Verification
                       </span>
                     </div>
                     <p className="text-lg font-bold text-gray-900">
-                      {profile.isVerified ? "Verified" : "Not Verified"}
+                      {profile.isVerified ? "KYC Verified" : "KYC Unverified"}
                     </p>
                   </div>
                 </div>
@@ -614,6 +624,13 @@ export default function ProfilePage() {
           </div>
         </div>
       </div>
+
+      {/* Delete Account Modal */}
+      <DeleteAccountModal
+        isOpen={showDeleteModal}
+        onClose={() => setShowDeleteModal(false)}
+        userEmail={profile?.email || ''}
+      />
     </div>
   );
 }

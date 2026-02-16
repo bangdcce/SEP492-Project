@@ -48,25 +48,26 @@ export class ContractsService {
     const contract = await this.contractsRepository.findOne({
       where: { id },
       relations: [
-        'project', 
-        'project.client', 
-        'project.broker', 
-        'project.request', 
-        'project.request.spec', 
+        'project',
+        'project.client',
+        'project.broker',
+        'project.request',
+        'project.request.spec',
         'project.request.spec.milestones',
-        'signatures'
+        'signatures',
       ],
     });
 
     if (!contract) {
-       throw new NotFoundException(`Contract with ID ${id} not found`);
+      throw new NotFoundException(`Contract with ID ${id} not found`);
     }
     return contract;
   }
 
   async listByUser(userId: string) {
     // We need to join with Project to filter by userId
-    const contracts = await this.contractsRepository.createQueryBuilder('contract')
+    const contracts = await this.contractsRepository
+      .createQueryBuilder('contract')
       .leftJoinAndSelect('contract.project', 'project')
       .leftJoinAndSelect('project.client', 'client')
       .where('project.clientId = :userId', { userId })
@@ -74,7 +75,7 @@ export class ContractsService {
       .orderBy('contract.createdAt', 'DESC')
       .getMany();
 
-    return contracts.map(c => ({
+    return contracts.map((c) => ({
       id: c.id,
       projectId: c.projectId,
       projectTitle: c.project.title,
@@ -95,9 +96,9 @@ export class ContractsService {
 
     // Only Client or Broker can initiate? Usually Broker generates contract.
     if (user.id !== spec.request.brokerId) {
-       // Allow Client to trigger too? Spec says Broker manages it.
-       // For now restrict to Broker.
-       throw new ForbiddenException('Only Broker can initialize contract');
+      // Allow Client to trigger too? Spec says Broker manages it.
+      // For now restrict to Broker.
+      throw new ForbiddenException('Only Broker can initialize contract');
     }
 
     if (spec.status !== ProjectSpecStatus.APPROVED) {
@@ -163,7 +164,7 @@ export class ContractsService {
         terms += `### 2.${idx + 1} ${feature.title} (${feature.complexity})\n`;
         terms += `${feature.description}\n`;
         terms += `**Acceptance Criteria:**\n`;
-        feature.acceptanceCriteria.forEach(ac => {
+        feature.acceptanceCriteria.forEach((ac) => {
           terms += `- ${ac}\n`;
         });
         terms += `\n`;
@@ -173,15 +174,17 @@ export class ContractsService {
     terms += `## 3. Tech Stack\n${spec.techStack || 'As specified in proposal'}\n\n`;
 
     terms += `## 4. Payment Schedule (Milestones)\n`;
-    spec.milestones.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)).forEach((m, idx) => {
-      terms += `### Milestone ${idx + 1}: ${m.title}\n`;
-      terms += `- Amount: $${m.amount}\n`;
-      terms += `- Deliverable: ${m.deliverableType}\n`;
-      if (m.retentionAmount > 0) {
-        terms += `- Retention (Warranty): $${m.retentionAmount}\n`;
-      }
-      terms += `\n`;
-    });
+    spec.milestones
+      .sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
+      .forEach((m, idx) => {
+        terms += `### Milestone ${idx + 1}: ${m.title}\n`;
+        terms += `- Amount: $${m.amount}\n`;
+        terms += `- Deliverable: ${m.deliverableType}\n`;
+        if (m.retentionAmount > 0) {
+          terms += `- Retention (Warranty): $${m.retentionAmount}\n`;
+        }
+        terms += `\n`;
+      });
 
     return terms;
   }
@@ -198,7 +201,7 @@ export class ContractsService {
     // For this prototype, we'll assume the client handles the rendering or we return a text buffer
     // const PdfPrinter = require('pdfmake');
     // const printer = new PdfPrinter(fonts); ...
-    
+
     // For now, return the terms content as a Buffer (text file)
     // To satisfy the "Certificate" requirement, we'd wrap this in formatting
     return Buffer.from(contract.termsContent);
@@ -235,32 +238,32 @@ export class ContractsService {
     ds.userId = user.id;
     ds.signatureHash = signatureHash || 'valid-signature-hash';
     ds.signedAt = new Date();
-    
+
     await this.dataSource.manager.save(ds);
 
     // Check if both parties have signed
-    // We need to count logic. 
+    // We need to count logic.
     // Since we just saved one, we look at the count + 1 (or re-query)
     const signatures = await this.dataSource.manager.find(DigitalSignatureEntity, {
       where: { contractId },
     });
 
-    const hasClientSign = signatures.some(s => s.userId === contract.project.clientId);
-    const hasBrokerSign = signatures.some(s => s.userId === contract.project.brokerId);
+    const hasClientSign = signatures.some((s) => s.userId === contract.project.clientId);
+    const hasBrokerSign = signatures.some((s) => s.userId === contract.project.brokerId);
 
     if (hasClientSign && hasBrokerSign) {
       // Activate Project
       await this.activateProject(user, contractId);
       contract.status = 'SIGNED'; // Contract is fully signed
       await this.contractsRepository.save(contract);
-      
+
       this.auditLogsService.log({
         actorId: user.id,
         action: 'CONTRACT_FULLY_SIGNED',
         entityType: 'Contract',
         entityId: contractId,
         newData: { status: 'SIGNED' },
-        req: undefined
+        req: undefined,
       });
     }
 
@@ -275,12 +278,12 @@ export class ContractsService {
    */
   async activateProject(user: UserEntity, contractId: string) {
     const contract = await this.contractsRepository.findOne({
-        where: { id: contractId },
-        relations: ['project'],
+      where: { id: contractId },
+      relations: ['project'],
     });
     if (!contract) throw new NotFoundException('Contract not found');
 
-      // Update Project Status
+    // Update Project Status
     const project = contract.project;
     project.status = ProjectStatus.IN_PROGRESS;
     await this.projectsRepository.save(project);
@@ -292,21 +295,23 @@ export class ContractsService {
     // 1. Fetch Spec Linked to this Project
     // Linkage: Project -> Request -> Spec
     if (!project.requestId) {
-        this.logger.warn(`Project ${project.id} has no requestId. Cannot clone milestones from Spec.`);
-        return { status: 'Activated', warning: 'No linked spec found' };
+      this.logger.warn(
+        `Project ${project.id} has no requestId. Cannot clone milestones from Spec.`,
+      );
+      return { status: 'Activated', warning: 'No linked spec found' };
     }
 
     const spec = await this.projectSpecsRepository.findOne({
-        where: { 
-            requestId: project.requestId,
-            status: ProjectSpecStatus.APPROVED 
-        },
-        relations: ['milestones']
+      where: {
+        requestId: project.requestId,
+        status: ProjectSpecStatus.APPROVED,
+      },
+      relations: ['milestones'],
     });
 
     if (!spec) {
-        this.logger.warn(`No APPROVED spec found for Request ${project.requestId}.`);
-        return { status: 'Activated', warning: 'Spec not found' };
+      this.logger.warn(`No APPROVED spec found for Request ${project.requestId}.`);
+      return { status: 'Activated', warning: 'Spec not found' };
     }
 
     // 2. Clone Milestones (Spec -> Project)
@@ -314,20 +319,20 @@ export class ContractsService {
     const escrows: EscrowEntity[] = [];
 
     for (const specMilestone of spec.milestones) {
-        // Clone
-        const newMilestone = new MilestoneEntity();
-        newMilestone.projectId = project.id;
-        newMilestone.projectSpecId = spec.id; // TRACEABILITY
-        newMilestone.title = specMilestone.title;
-        newMilestone.description = specMilestone.description;
-        newMilestone.amount = specMilestone.amount;
-        newMilestone.deliverableType = specMilestone.deliverableType;
-        newMilestone.retentionAmount = specMilestone.retentionAmount;
-        newMilestone.acceptanceCriteria = specMilestone.acceptanceCriteria;
-        newMilestone.sortOrder = specMilestone.sortOrder;
-        newMilestone.status = MilestoneStatus.PENDING; 
-        
-        newMilestones.push(newMilestone);
+      // Clone
+      const newMilestone = new MilestoneEntity();
+      newMilestone.projectId = project.id;
+      newMilestone.projectSpecId = spec.id; // TRACEABILITY
+      newMilestone.title = specMilestone.title;
+      newMilestone.description = specMilestone.description;
+      newMilestone.amount = specMilestone.amount;
+      newMilestone.deliverableType = specMilestone.deliverableType;
+      newMilestone.retentionAmount = specMilestone.retentionAmount;
+      newMilestone.acceptanceCriteria = specMilestone.acceptanceCriteria;
+      newMilestone.sortOrder = specMilestone.sortOrder;
+      newMilestone.status = MilestoneStatus.PENDING;
+
+      newMilestones.push(newMilestone);
     }
 
     // Save Milestones first to get IDs
@@ -335,25 +340,27 @@ export class ContractsService {
 
     // 3. Create Escrow Entries
     for (const m of savedMilestones) {
-        const escrow = new EscrowEntity();
-        escrow.projectId = project.id;
-        escrow.milestoneId = m.id;
-        escrow.totalAmount = m.amount;
-        
-        // Calculate percentages (Default 85/10/5)
-        // ideally fetch from project config or system config
-        const amount = new Decimal(m.amount);
-        escrow.developerShare = amount.times(0.85).toNumber();
-        escrow.brokerShare = amount.times(0.10).toNumber();
-        escrow.platformFee = amount.times(0.05).toNumber();
+      const escrow = new EscrowEntity();
+      escrow.projectId = project.id;
+      escrow.milestoneId = m.id;
+      escrow.totalAmount = m.amount;
 
-        escrow.status = EscrowStatus.PENDING; // Waiting for deposit
-        escrows.push(escrow);
+      // Calculate percentages (Default 85/10/5)
+      // ideally fetch from project config or system config
+      const amount = new Decimal(m.amount);
+      escrow.developerShare = amount.times(0.85).toNumber();
+      escrow.brokerShare = amount.times(0.1).toNumber();
+      escrow.platformFee = amount.times(0.05).toNumber();
+
+      escrow.status = EscrowStatus.PENDING; // Waiting for deposit
+      escrows.push(escrow);
     }
 
     await this.dataSource.manager.save(EscrowEntity, escrows);
 
-    this.logger.log(`Project ${project.id} activated! Cloned ${savedMilestones.length} milestones & escrows.`);
+    this.logger.log(
+      `Project ${project.id} activated! Cloned ${savedMilestones.length} milestones & escrows.`,
+    );
     return { status: 'Activated', clonedMilestones: savedMilestones.length };
   }
 }

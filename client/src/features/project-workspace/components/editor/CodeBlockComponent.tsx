@@ -45,7 +45,6 @@ export default function CodeBlockComponent({
       </div>
       <pre className="hljs overflow-x-auto p-3 text-[12px] leading-relaxed">
         <NodeViewContent
-          as="code"
           className={cn(
             "font-mono",
             currentLanguage !== "auto" && `language-${currentLanguage}`

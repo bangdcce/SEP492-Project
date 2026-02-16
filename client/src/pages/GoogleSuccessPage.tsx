@@ -23,7 +23,6 @@ export function GoogleSuccessPage() {
         toast.success("Welcome back!");
         navigate(ROUTES.DASHBOARD);
       } catch (error) {
-        console.error("Failed to parse user data:", error);
         toast.error("Authentication failed");
         navigate(ROUTES.LOGIN);
       }

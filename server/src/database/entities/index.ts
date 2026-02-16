@@ -44,6 +44,8 @@ export {
 } from './dispute.entity';
 export { DisputeNoteEntity } from './dispute-note.entity';
 export { DisputeActivityEntity, DisputeAction } from './dispute-activity.entity';
+export { DisputeLedgerEntity } from './dispute-ledger.entity';
+export { DisputePartyEntity, DisputePartySide } from './dispute-party.entity';
 export {
   DisputeHearingEntity,
   HearingParticipantEntity,
@@ -51,6 +53,7 @@ export {
   HearingQuestionEntity,
   HearingStatus,
   HearingStatementType,
+  HearingQuestionStatus,
   HearingParticipantRole,
   SpeakerRole,
   HearingTier,
@@ -87,6 +90,10 @@ export { ReviewEntity } from './review.entity';
 export { ReportEntity, ReportStatus, ReportReason } from './report.entity';
 export { VerificationDocumentEntity, VerificationStatus } from './verification-document.entity';
 export { NotificationEntity } from './notification.entity';
+export {
+  HearingReminderDeliveryEntity,
+  HearingReminderType,
+} from './hearing-reminder-delivery.entity';
 export { AuditLogEntity } from './audit-log.entity';
 
 // Calendar & Scheduling Entities

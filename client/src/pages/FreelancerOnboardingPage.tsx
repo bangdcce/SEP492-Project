@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Plus, X, Link as LinkIcon, Award, Code, Save, Loader2, Upload, FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/shared/components/ui/button';
+import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/custom/input';
 import { getProfile, updateProfile } from '@/features/auth/api';
 import { ROUTES } from '@/constants';
@@ -49,7 +49,7 @@ export default function FreelancerOnboardingPage() {
       // Safely access data, using optional chaining and type assertion if needed for the response structure
       // Assuming response has data property which contains the user profile
       const userData = (response as any).data || (response as any).data?.data || response;
-      
+
       setProfile({
         skills: userData.skills || [],
         portfolioLinks: userData.portfolioLinks || [],
@@ -58,12 +58,11 @@ export default function FreelancerOnboardingPage() {
         linkedinUrl: userData.linkedinUrl || '',
         cvUrl: userData.cvUrl || '',
       });
-      
+
       if (userData.cvUrl) {
         setCvPreview(userData.cvUrl);
       }
     } catch (error: any) {
-      console.error('Failed to load profile:', error);
       toast.error('Failed to load profile');
     } finally {
       setLoading(false);
@@ -175,13 +174,12 @@ export default function FreelancerOnboardingPage() {
       });
 
       toast.success('Freelancer profile created successfully! Redirecting to dashboard...');
-      
+
       // Redirect to dashboard after successful onboarding
       setTimeout(() => {
         navigate(ROUTES.FREELANCER_DASHBOARD);
       }, 1500);
     } catch (error: any) {
-      console.error('Failed to update profile:', error);
       const errorMessage = error.response?.data?.message || 'Failed to update profile';
       toast.error(errorMessage);
     } finally {
@@ -447,7 +445,7 @@ export default function FreelancerOnboardingPage() {
           {/* Hint */}
           {profile.skills.length === 0 && !profile.linkedinUrl && !cvPreview && (
             <p className="text-sm text-amber-600 text-center bg-amber-50 p-3 rounded-lg border border-amber-200">
-              ⚠️ Please add skills, LinkedIn URL, or upload your CV to enable your freelancer profile
+              笞・・Please add skills, LinkedIn URL, or upload your CV to enable your freelancer profile
             </p>
           )}
         </form>

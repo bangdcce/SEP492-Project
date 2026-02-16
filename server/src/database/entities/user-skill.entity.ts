@@ -18,7 +18,6 @@ import {
   Index,
   Unique,
 } from 'typeorm';
-import { UserRole } from './user.entity';
 
 export enum SkillPriority {
   PRIMARY = 'PRIMARY', // Thế mạnh chính - High weight in matching

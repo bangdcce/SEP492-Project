@@ -6,9 +6,10 @@ import { FreelancerDashboardLayout } from "@/shared/components/layouts/freelance
 import { AdminDashboardLayout } from "@/shared/components/layouts/admin";
 import { Spinner } from "@/shared/components/ui";
 import { RoleGuard } from "@/shared/components/auth/RoleGuard";
+import { apiClient } from "@/shared/api/client";
 
 // Lazy load pages for better performance
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 // ========== CLIENT PAGES ==========
 const ClientDashboard = lazy(() =>
@@ -98,6 +99,7 @@ const FreelancerDashboardPage = lazy(
 // ========== SHARED PAGES ==========
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const KYCPage = lazy(() => import("@/pages/KYCPage"));
+const KYCStatusPage = lazy(() => import("@/pages/KYCStatusPage"));
 
 // ========== STAFF PAGES ==========
 const StaffLayout = lazy(() =>
@@ -160,6 +162,32 @@ function PageLoader() {
 }
 
 function App() {
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      try {
+        await apiClient.bootstrapSession();
+      } finally {
+        if (!cancelled) {
+          setSessionReady(true);
+        }
+      }
+    };
+
+    bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!sessionReady) {
+    return <PageLoader />;
+  }
+
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
@@ -257,6 +285,16 @@ function App() {
             <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <InvitationDetailsPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.FREELANCER_KYC_STATUS}
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <KYCStatusPage />
               </FreelancerDashboardLayout>
             </RoleGuard>
           }
@@ -359,6 +397,16 @@ function App() {
             <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
               <ClientDashboardLayout>
                 <ContractPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_KYC_STATUS}
+          element={
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+              <ClientDashboardLayout>
+                <KYCStatusPage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -585,6 +633,16 @@ function App() {
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <BrokerProjectsPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_KYC_STATUS}
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <KYCStatusPage />
               </BrokerDashboardLayout>
             </RoleGuard>
           }

@@ -16,7 +16,12 @@ export class UsersSearchController {
   @ApiOperation({ summary: 'Search for Freelancers and Brokers' })
   @ApiQuery({ name: 'role', required: false, enumName: 'UserRole', enum: ['BROKER', 'FREELANCER'] })
   @ApiQuery({ name: 'search', required: false, description: 'Name or Bio keywords' })
-  @ApiQuery({ name: 'skills', required: false, description: 'Comma separated skill names', type: String })
+  @ApiQuery({
+    name: 'skills',
+    required: false,
+    description: 'Comma separated skill names',
+    type: String,
+  })
   @ApiQuery({ name: 'minRating', required: false, type: Number })
   @ApiQuery({ name: 'page', required: false, type: Number })
   @ApiQuery({ name: 'limit', required: false, type: Number })
@@ -28,7 +33,7 @@ export class UsersSearchController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
-    const skillList = skills ? skills.split(',').map(s => s.trim()) : undefined;
+    const skillList = skills ? skills.split(',').map((s) => s.trim()) : undefined;
     const filters: UserSearchFilters = {
       role,
       search,

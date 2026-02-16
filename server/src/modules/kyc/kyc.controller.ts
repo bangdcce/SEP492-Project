@@ -53,8 +53,6 @@ export class KycController {
       selfie?: MulterFile[];
     },
   ) {
-    console.log('🔍 DEBUG userId:', userId);
-
     // Extract single files from arrays
     const fileObjects = {
       idCardFront: files.idCardFront?.[0],

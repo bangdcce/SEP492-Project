@@ -1,7 +1,4 @@
-import {
-  DEFAULT_SCHEDULING_CONSTRAINTS,
-  parseTimeToMinutes,
-} from '../calendar/calendar.utils';
+import { DEFAULT_SCHEDULING_CONSTRAINTS, parseTimeToMinutes } from '../calendar/calendar.utils';
 
 export interface LeaveDaySlot {
   dateKey: string; // YYYY-MM-DD (local)
@@ -11,12 +8,8 @@ export interface LeaveDaySlot {
   minutes: number;
 }
 
-const WORKING_START_MINUTES = parseTimeToMinutes(
-  DEFAULT_SCHEDULING_CONSTRAINTS.workingHoursStart,
-);
-const WORKING_END_MINUTES = parseTimeToMinutes(
-  DEFAULT_SCHEDULING_CONSTRAINTS.workingHoursEnd,
-);
+const WORKING_START_MINUTES = parseTimeToMinutes(DEFAULT_SCHEDULING_CONSTRAINTS.workingHoursStart);
+const WORKING_END_MINUTES = parseTimeToMinutes(DEFAULT_SCHEDULING_CONSTRAINTS.workingHoursEnd);
 const WORKING_DAYS = new Set(DEFAULT_SCHEDULING_CONSTRAINTS.workingDays);
 
 const pad2 = (value: number): string => value.toString().padStart(2, '0');

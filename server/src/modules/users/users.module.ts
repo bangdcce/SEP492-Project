@@ -7,13 +7,12 @@ import { ProfileEntity } from '../../database/entities/profile.entity';
 import { UserSkillEntity } from '../../database/entities/user-skill.entity';
 import { UsersSearchController } from './users.search.controller';
 import { UsersSearchService } from './users.search.service';
+import { KycVerificationEntity } from '../../database/entities/kyc-verification.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([
-    UserEntity,
-    ProfileEntity,
-    UserSkillEntity,
-  ])],
+  imports: [
+    TypeOrmModule.forFeature([UserEntity, ProfileEntity, UserSkillEntity, KycVerificationEntity]),
+  ],
   controllers: [UsersController, UsersSearchController],
   providers: [UsersService, UsersSearchService],
   exports: [UsersService, UsersSearchService],

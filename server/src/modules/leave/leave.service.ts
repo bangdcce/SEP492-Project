@@ -26,9 +26,7 @@ import {
   DEFAULT_MONTHLY_ALLOWANCE_MINUTES,
   getLocalMonthKey,
 } from './leave.utils';
-import {
-  buildUtcDateFromLocalTime,
-} from '../calendar/calendar.utils';
+import { buildUtcDateFromLocalTime } from '../calendar/calendar.utils';
 import {
   CancelLeaveRequestDto,
   CreateLeaveRequestDto,
@@ -93,9 +91,7 @@ export class LeaveService {
     }
 
     if (dto.type !== LeaveType.LONG_TERM) {
-      throw new BadRequestException(
-        'Short-term leave should be handled via availability updates',
-      );
+      throw new BadRequestException('Short-term leave should be handled via availability updates');
     }
 
     const overlapping = await this.leaveRequestRepository.find({
@@ -121,12 +117,10 @@ export class LeaveService {
       timeZone,
     );
 
-    let exceedsAllowance = false;
     for (const [monthKey, requestedMinutes] of requestMinutesByMonth.entries()) {
       const usedMinutes = existingUsageByMonth.get(monthKey) ?? 0;
       const nextTotal = usedMinutes + requestedMinutes;
       if (nextTotal > allowanceMinutes) {
-        exceedsAllowance = true;
         if (dto.type === LeaveType.SHORT_TERM) {
           throw new BadRequestException(
             `Leave exceeds monthly allowance for ${monthKey}. Submit long-term request for approval.`,
@@ -200,11 +194,7 @@ export class LeaveService {
     };
   }
 
-  async processLeaveRequest(
-    id: string,
-    dto: ProcessLeaveRequestDto,
-    admin: UserEntity,
-  ) {
+  async processLeaveRequest(id: string, dto: ProcessLeaveRequestDto, admin: UserEntity) {
     if (admin.role !== UserRole.ADMIN) {
       throw new ForbiddenException('Only admin can process leave requests');
     }
@@ -521,8 +511,7 @@ export class LeaveService {
 
     const usage = await this.calculateLeaveUsage(staffId, start, end, timeZone);
     const includePending = query.includePending ?? true;
-    const countedMinutes =
-      usage.approvedMinutes + (includePending ? usage.pendingMinutes : 0);
+    const countedMinutes = usage.approvedMinutes + (includePending ? usage.pendingMinutes : 0);
 
     const remainingMinutes = Math.max(0, policy.monthlyAllowanceMinutes - countedMinutes);
     const overageMinutes = Math.max(0, countedMinutes - policy.monthlyAllowanceMinutes);
@@ -586,4 +575,3 @@ export class LeaveService {
     }
   }
 }
-

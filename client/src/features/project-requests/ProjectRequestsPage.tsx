@@ -3,16 +3,23 @@ import { ProjectRequestsTable } from './components/ProjectRequestsTable';
 import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
 import { Loader2 } from 'lucide-react';
+import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
+import { STORAGE_KEYS } from '@/constants';
+import { getStoredJson } from '@/shared/utils/storage';
 
 export const ProjectRequestsPage: React.FC = () => {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
+  const [kycStatus, setKycStatus] = useState<string | null>(null);
+  const { checkKycStatus } = useKYCStatus();
 
   useEffect(() => {
-    const userStr = localStorage.getItem('user');
-    if(userStr) setUser(JSON.parse(userStr));
+    setUser(getStoredJson(STORAGE_KEYS.USER));
+    
+    // Check KYC status
+    checkKycStatus().then(setKycStatus);
   }, []);
 
   const myProjects = requests.filter(r => 
@@ -75,6 +82,17 @@ export const ProjectRequestsPage: React.FC = () => {
       <div className="flex h-screen items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-teal-600" />
       </div>
+    );
+  }
+
+  // Block access if KYC not approved
+  if (kycStatus && kycStatus !== 'APPROVED') {
+    return (
+      <KYCBlocker 
+        kycStatus={kycStatus} 
+        role="broker" 
+        action="apply to project requests"
+      />
     );
   }
 

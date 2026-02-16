@@ -12,6 +12,7 @@ import {
   User,
   FileSignature,
   Video,
+  ShieldCheck,
 } from "lucide-react";
 
 export interface BrokerSidebarMenuItem {
@@ -106,6 +107,14 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: User,
     path: "/broker/profile",
     description: "Manage your profile",
+    section: "account",
+  },
+  {
+    id: "kyc-status",
+    label: "KYC Status",
+    icon: ShieldCheck,
+    path: "/broker/kyc-status",
+    description: "Verify your identity",
     section: "account",
   },
 ];

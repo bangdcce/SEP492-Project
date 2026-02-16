@@ -309,7 +309,9 @@ export class ProjectSpecsService {
     const spec = await this.findOne(specId);
 
     if (spec.status !== ProjectSpecStatus.DRAFT) {
-      throw new BadRequestException(`Spec must be in DRAFT status to submit. Current: ${spec.status}`);
+      throw new BadRequestException(
+        `Spec must be in DRAFT status to submit. Current: ${spec.status}`,
+      );
     }
 
     // Determine if audit is required based on Broker reputation
@@ -428,4 +430,3 @@ export class ProjectSpecsService {
     });
   }
 }
-
