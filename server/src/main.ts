@@ -9,6 +9,51 @@ import { join } from 'path';
 
 import * as fs from 'fs';
 
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+  return fallback;
+};
+
+const isLocalHostLike = (value: string): boolean => {
+  const normalized = value.trim().toLowerCase();
+  return (
+    normalized.includes('localhost') ||
+    normalized.includes('127.0.0.1') ||
+    normalized.includes('0.0.0.0')
+  );
+};
+
+const parseCorsOrigins = (): string[] => {
+  const defaults = [
+    'http://localhost:5173',
+    'https://localhost:5173',
+    'http://localhost:5174',
+    'http://localhost:3001',
+  ];
+  const raw = process.env.CORS_ORIGIN;
+  if (!raw) return defaults;
+  const parsed = raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (parsed.length === 0) {
+    return defaults;
+  }
+
+  const localHints = [process.env.FRONTEND_URL, process.env.APP_URL, ...parsed]
+    .filter((value): value is string => Boolean(value))
+    .some((value) => isLocalHostLike(value));
+
+  if (!localHints) {
+    return parsed;
+  }
+
+  return Array.from(new Set([...parsed, ...defaults]));
+};
+
 async function bootstrap() {
   const httpsOptions =
     fs.existsSync(join(__dirname, '..', 'secrets', 'private-key.pem')) &&
@@ -35,24 +80,16 @@ async function bootstrap() {
   // Enable cookie parser
   app.use(cookieParser());
 
-  // Enable CORS for frontend and tools (Figma, Make/Integromat)
+  const corsOrigins = parseCorsOrigins();
+  if (parseBoolean(process.env.CORS_ALLOW_NULL_ORIGIN, false)) {
+    corsOrigins.push('null');
+  }
+
+  // Enable CORS for frontend and trusted tools
   app.enableCors({
-    origin: [
-      'http://localhost:5173',
-      'https://localhost:5173',
-      'http://localhost:5174',
-      'http://localhost:3001',
-      'https://www.figma.com',
-      'https://www.make.com',
-      'https://eu1.make.com',
-      'https://us1.make.com',
-      'https://integromat.com',
-      'https://chantell-chemotropic-noncontroversially.ngrok-free.dev',
-      // 'null' origin is sometimes used by local plugins or sandboxed environments
-      'null',
-    ],
+    origin: corsOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    credentials: true,
+    credentials: parseBoolean(process.env.CORS_CREDENTIALS, true),
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Timezone'],
   });
 

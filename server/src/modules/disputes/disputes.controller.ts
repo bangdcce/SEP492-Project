@@ -27,6 +27,7 @@ import { AppealRejectionDto } from './dto/appeal-rejection.dto';
 import { RequestDisputeInfoDto } from './dto/request-info.dto';
 import { ResolveRejectionAppealDto } from './dto/resolve-rejection-appeal.dto';
 import { AppealVerdictDto } from './dto/verdict.dto';
+import { TriageDisputeDto } from './dto/triage-dispute.dto';
 import { AdminUpdateDisputeDto } from './dto/admin-update-dispute.dto';
 import { DisputeFilterDto } from './dto/dispute-filter.dto';
 import { SendDisputeMessageDto, HideMessageDto } from './dto/message.dto';
@@ -94,6 +95,38 @@ export class DisputesController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(':id/dossier')
+  async getDisputeDossier(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
+    return await this.disputesService.getDisputeDossier(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/ledger')
+  async getDisputeLedger(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
+    return await this.disputesService.getDisputeLedger(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/escalation-policy')
+  async getEscalationPolicy(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
+    return await this.disputesService.getEscalationPolicy(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/auto-schedule/options')
+  async getAutoScheduleOptions(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+    @Query('limit') limitRaw?: string,
+  ) {
+    const limit = limitRaw ? Number(limitRaw) : 5;
+    if (!Number.isFinite(limit) || limit <= 0) {
+      throw new BadRequestException('Invalid limit');
+    }
+    return await this.disputesService.getAutoScheduleOptions(id, user.id, user.role, limit);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('/messages/:id')
   async updateDisputes(
     @Param('id', ParseUUIDPipe) id: string,
@@ -104,7 +137,9 @@ export class DisputesController {
   }
 
   // =============================================================================
-  // DISPUTE MESSAGES (LIVE CHAT)
+  // DISPUTE MESSAGES
+  // - Dispute-level: Nộp hồ sơ, bằng chứng, comment (Async - không giới hạn lượt)
+  // - Hearing-level: Chat realtime trong phiên tòa (kiểm soát bởi SpeakerRole)
   // =============================================================================
 
   @UseGuards(JwtAuthGuard)
@@ -356,7 +391,6 @@ export class DisputesController {
     return await this.disputesService.updatePhase(id, dto.phase, user.id, user.role);
   }
 
-
   /**
    * Staff/Admin request additional info before preliminary review
    * PATCH /disputes/:id/request-info
@@ -369,7 +403,12 @@ export class DisputesController {
     @Body() dto: RequestDisputeInfoDto,
     @GetUser() user: UserEntity,
   ) {
-    return await this.disputesService.requestAdditionalInfo(user.id, id, dto.reason);
+    return await this.disputesService.requestAdditionalInfo(
+      user.id,
+      id,
+      dto.reason,
+      dto.deadlineAt,
+    );
   }
 
   /**
@@ -417,10 +456,51 @@ export class DisputesController {
     const dispute = await this.disputesService.escalateToMediation(user.id, id);
     try {
       await this.disputesService.escalateToHearing(id, user.id);
-    } catch (error) {
+    } catch {
       // Accept dispute even if auto-scheduling fails; log handled inside service/logger.
     }
     return dispute;
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Post(':id/auto-schedule')
+  async autoScheduleHearing(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
+    return await this.disputesService.escalateToHearing(id, user.id);
+  }
+
+  /**
+   * Staff chấp nhận dispute từ queue vào caseload (OPEN → PENDING_REVIEW)
+   *
+   * PATCH /disputes/:id/accept
+   */
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch(':id/accept')
+  async acceptDispute(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
+    return await this.disputesService.acceptDispute(user.id, id);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch(':id/triage')
+  async triageDispute(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: TriageDisputeDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.triageDispute(user.id, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch(':id/preview/complete')
+  async completePreview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body('note') note: string | undefined,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.completePreview(user.id, id, note);
   }
 
   /**

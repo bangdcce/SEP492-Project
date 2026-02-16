@@ -24,10 +24,7 @@ import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
 import { TaskCommentEntity } from '../../database/entities/task-comment.entity';
 import { TaskAttachmentEntity } from './entities/task-attachment.entity';
 import { TaskLinkEntity } from './entities/task-link.entity';
-import {
-  TaskSubmissionEntity,
-  TaskSubmissionStatus,
-} from './entities/task-submission.entity';
+import { TaskSubmissionEntity, TaskSubmissionStatus } from './entities/task-submission.entity';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 
 export interface KanbanBoard {
@@ -42,7 +39,11 @@ export interface BoardWithMilestones {
   milestones: MilestoneEntity[];
 }
 
-export type KanbanStatus = TaskStatus.TODO | TaskStatus.IN_PROGRESS | TaskStatus.IN_REVIEW | TaskStatus.DONE;
+export type KanbanStatus =
+  | TaskStatus.TODO
+  | TaskStatus.IN_PROGRESS
+  | TaskStatus.IN_REVIEW
+  | TaskStatus.DONE;
 
 /**
  * Response type for task status update
@@ -111,9 +112,7 @@ const COMMENT_SANITIZE_OPTIONS = {
     }),
     input: (tagName: string, attribs: Record<string, string>) => {
       const isChecked =
-        attribs.checked === 'checked' ||
-        attribs.checked === 'true' ||
-        attribs.checked === '';
+        attribs.checked === 'checked' || attribs.checked === 'true' || attribs.checked === '';
 
       return {
         tagName,
@@ -263,7 +262,10 @@ export class TasksService {
     });
   }
 
-  async addTaskLink(taskId: string, data: { url: string; title?: string }): Promise<TaskLinkEntity> {
+  async addTaskLink(
+    taskId: string,
+    data: { url: string; title?: string },
+  ): Promise<TaskLinkEntity> {
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
     if (!task) {
       throw new NotFoundException('Task not found');
@@ -396,19 +398,19 @@ export class TasksService {
       actorId,
       createdAt: new Date(), // Force Node.js UTC time
     });
-    
+
     this.logger.log(`[Adding Comment] Saving at UTC: ${comment.createdAt.toISOString()}`);
     const saved = await this.commentRepository.save(comment);
-    
+
     // Return with actor relation
     // Return with actor relation
     const fullComment = await this.commentRepository.findOne({
-        where: { id: saved.id },
-        relations: ['actor'],
+      where: { id: saved.id },
+      relations: ['actor'],
     });
-    
+
     if (!fullComment) {
-        throw new NotFoundException('Comment not found after creation');
+      throw new NotFoundException('Comment not found after creation');
     }
 
     try {
@@ -417,7 +419,7 @@ export class TasksService {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(`Failed to extract task attachments: ${message}`);
     }
-    
+
     return fullComment;
   }
 
@@ -529,9 +531,9 @@ export class TasksService {
 
     // Helper to format values
     const formatValue = (val: any) => {
-        if (val === null || val === undefined) return '';
-        if (typeof val === 'object') return JSON.stringify(val);
-        return String(val);
+      if (val === null || val === undefined) return '';
+      if (typeof val === 'object') return JSON.stringify(val);
+      return String(val);
     };
 
     const history = this.historyRepository.create({
@@ -605,7 +607,11 @@ export class TasksService {
   /**
    * Returns both the updated task AND the new milestone progress for real-time UI updates
    */
-  async updateStatus(id: string, status: KanbanStatus, actorId?: string): Promise<TaskStatusUpdateResult> {
+  async updateStatus(
+    id: string,
+    status: KanbanStatus,
+    actorId?: string,
+  ): Promise<TaskStatusUpdateResult> {
     // Step 1: Get the task to find its milestoneId
     const task = await this.taskRepository.findOne({
       where: { id },
@@ -621,8 +627,8 @@ export class TasksService {
 
     // [HISTORY] Record status change
     if (previousStatus !== status) {
-        // ideally updateStatus should accept actorId optional param
-        await this.createHistory(id, 'status', previousStatus, status, actorId); 
+      // ideally updateStatus should accept actorId optional param
+      await this.createHistory(id, 'status', previousStatus, status, actorId);
     }
 
     // Step 2: Update the task status
@@ -882,27 +888,39 @@ export class TasksService {
 
     // [HISTORY] Check for changes
     if (data.title && data.title !== task.title) {
-        await this.createHistory(id, 'title', task.title, data.title, actorId);
+      await this.createHistory(id, 'title', task.title, data.title, actorId);
     }
     if (data.priority && data.priority !== task.priority) {
-        await this.createHistory(id, 'priority', task.priority, data.priority, actorId);
+      await this.createHistory(id, 'priority', task.priority, data.priority, actorId);
     }
     if (data.storyPoints !== undefined && data.storyPoints !== task.storyPoints) {
-        await this.createHistory(id, 'story points', task.storyPoints, data.storyPoints, actorId);
+      await this.createHistory(id, 'story points', task.storyPoints, data.storyPoints, actorId);
     }
     if (data.description && data.description !== task.description) {
-         // Don't log full description, just that it changed
-         await this.createHistory(id, 'description', '...', 'Updated', actorId);
+      // Don't log full description, just that it changed
+      await this.createHistory(id, 'description', '...', 'Updated', actorId);
     }
     if (data.assignedTo && data.assignedTo !== task.assignedTo) {
-         await this.createHistory(id, 'assignee', task.assignedTo || 'Unassigned', data.assignedTo, actorId);
+      await this.createHistory(
+        id,
+        'assignee',
+        task.assignedTo || 'Unassigned',
+        data.assignedTo,
+        actorId,
+      );
     }
     if (data.labels) {
-        const oldLabels = JSON.stringify(task.labels || []);
-        const newLabels = JSON.stringify(data.labels || []);
-        if (oldLabels !== newLabels) {
-             await this.createHistory(id, 'labels', task.labels?.join(', ') || '', data.labels.join(', '), actorId);
-        }
+      const oldLabels = JSON.stringify(task.labels || []);
+      const newLabels = JSON.stringify(data.labels || []);
+      if (oldLabels !== newLabels) {
+        await this.createHistory(
+          id,
+          'labels',
+          task.labels?.join(', ') || '',
+          data.labels.join(', '),
+          actorId,
+        );
+      }
     }
 
     await this.taskRepository.update(id, data);

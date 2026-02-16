@@ -6,16 +6,20 @@
 
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
+import { AuthModule } from '../../auth/auth.module';
 
 // Entities
 import {
   DisputeEntity,
+  DisputePartyEntity,
   ProjectEntity,
   UserEntity,
   DisputeHearingEntity,
   HearingParticipantEntity,
   HearingStatementEntity,
   HearingQuestionEntity,
+  NotificationEntity,
+  HearingReminderDeliveryEntity,
   CalendarEventEntity,
   EventParticipantEntity,
   UserAvailabilityEntity,
@@ -31,16 +35,20 @@ import { HearingController } from '../controllers/hearing.controller';
   imports: [
     TypeOrmModule.forFeature([
       DisputeEntity,
+      DisputePartyEntity,
       ProjectEntity,
       UserEntity,
       DisputeHearingEntity,
       HearingParticipantEntity,
       HearingStatementEntity,
       HearingQuestionEntity,
+      NotificationEntity,
+      HearingReminderDeliveryEntity,
       CalendarEventEntity,
       EventParticipantEntity,
       UserAvailabilityEntity,
     ]),
+    AuthModule,
   ],
   controllers: [HearingController],
   providers: [HearingService],

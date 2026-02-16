@@ -1,6 +1,8 @@
 import { apiClient } from "@/shared/api/client";
 import type {
   EndHearingInput,
+  ExtendHearingInput,
+  InviteSupportInput,
   RescheduleHearingInput,
   ScheduleHearingInput,
   DisputeHearingSummary,
@@ -10,6 +12,7 @@ import type {
   HearingQuestionSummary,
   HearingStatementSummary,
   HearingTimelineEvent,
+  SupportCandidate,
 } from "./types";
 
 export const scheduleHearing = async (input: ScheduleHearingInput) => {
@@ -42,6 +45,37 @@ export const rescheduleHearing = async (
     requiredDocuments: input.requiredDocuments,
     externalMeetingLink: input.externalMeetingLink,
     isEmergency: input.isEmergency,
+  });
+};
+
+export const extendHearingDuration = async (
+  hearingId: string,
+  input: ExtendHearingInput,
+) => {
+  return await apiClient.post(`/disputes/hearings/${hearingId}/extend`, {
+    hearingId,
+    additionalMinutes: input.additionalMinutes,
+    reason: input.reason,
+  });
+};
+
+export const getHearingSupportCandidates = async (
+  hearingId: string,
+): Promise<SupportCandidate[]> => {
+  const response = await apiClient.get(`/disputes/hearings/${hearingId}/support-candidates`);
+  const payload = (response as { data?: SupportCandidate[] }).data ?? response;
+  return Array.isArray(payload) ? payload : [];
+};
+
+export const inviteSupportStaff = async (
+  hearingId: string,
+  input: InviteSupportInput,
+) => {
+  return await apiClient.post(`/disputes/hearings/${hearingId}/invite-support`, {
+    hearingId,
+    userId: input.userId,
+    participantRole: input.participantRole,
+    reason: input.reason,
   });
 };
 

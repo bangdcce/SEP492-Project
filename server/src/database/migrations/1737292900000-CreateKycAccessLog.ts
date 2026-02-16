@@ -38,13 +38,27 @@ export class CreateKycAccessLog1737292900000 implements MigrationInterface {
           {
             name: 'action',
             type: 'enum',
-            enum: ['VIEW_LIST', 'VIEW_DETAIL', 'DOWNLOAD_IMAGE', 'APPROVE', 'REJECT', 'REQUEST_ACCESS'],
+            enum: [
+              'VIEW_LIST',
+              'VIEW_DETAIL',
+              'DOWNLOAD_IMAGE',
+              'APPROVE',
+              'REJECT',
+              'REQUEST_ACCESS',
+            ],
             isNullable: false,
           },
           {
             name: 'reason',
             type: 'enum',
-            enum: ['ROUTINE_REVIEW', 'DISPUTE_INVESTIGATION', 'FRAUD_REPORT', 'LEGAL_REQUEST', 'COMPLIANCE_AUDIT', 'USER_SUPPORT'],
+            enum: [
+              'ROUTINE_REVIEW',
+              'DISPUTE_INVESTIGATION',
+              'FRAUD_REPORT',
+              'LEGAL_REQUEST',
+              'COMPLIANCE_AUDIT',
+              'USER_SUPPORT',
+            ],
             isNullable: true,
           },
           {

@@ -10,12 +10,9 @@ import { UsersSearchService } from './users.search.service';
 import { KycVerificationEntity } from '../../database/entities/kyc-verification.entity';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([
-    UserEntity,
-    ProfileEntity,
-    UserSkillEntity,
-    KycVerificationEntity,
-  ])],
+  imports: [
+    TypeOrmModule.forFeature([UserEntity, ProfileEntity, UserSkillEntity, KycVerificationEntity]),
+  ],
   controllers: [UsersController, UsersSearchController],
   providers: [UsersService, UsersSearchService],
   exports: [UsersService, UsersSearchService],

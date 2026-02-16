@@ -86,6 +86,10 @@ export class ProjectsService {
     const projectIds = projects.map((p) => p.id);
     const activeDisputeStatuses = [
       DisputeStatus.OPEN,
+      DisputeStatus.TRIAGE_PENDING,
+      DisputeStatus.PREVIEW,
+      DisputeStatus.PENDING_REVIEW,
+      DisputeStatus.INFO_REQUESTED,
       DisputeStatus.IN_MEDIATION,
       DisputeStatus.APPEALED,
     ];
@@ -157,7 +161,7 @@ export class ProjectsService {
     }
 
     // Step 2: Check user authorization (must be Client or Broker of the project)
-    let project: ProjectEntity | null = (milestone.project as unknown as ProjectEntity) || null;
+    let project: ProjectEntity | null = (milestone.project as ProjectEntity) || null;
 
     // If no project relation, try to find by projectId
     if (!project && milestone.projectId) {

@@ -217,6 +217,10 @@ export const DisputeDetailHub = ({
 
   const headerStatusStyle = (status?: DisputeStatus) => {
     switch (status) {
+      case DisputeStatus.TRIAGE_PENDING:
+        return "bg-violet-50 text-violet-700 border-violet-200";
+      case DisputeStatus.PREVIEW:
+        return "bg-sky-50 text-sky-700 border-sky-200";
       case DisputeStatus.PENDING_REVIEW:
         return "bg-amber-50 text-amber-700 border-amber-200";
       case DisputeStatus.INFO_REQUESTED:

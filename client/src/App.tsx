@@ -6,9 +6,10 @@ import { FreelancerDashboardLayout } from "@/shared/components/layouts/freelance
 import { AdminDashboardLayout } from "@/shared/components/layouts/admin";
 import { Spinner } from "@/shared/components/ui";
 import { RoleGuard } from "@/shared/components/auth/RoleGuard";
+import { apiClient } from "@/shared/api/client";
 
 // Lazy load pages for better performance
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 // ========== CLIENT PAGES ==========
 const ClientDashboard = lazy(() =>
@@ -161,6 +162,64 @@ function PageLoader() {
 }
 
 function App() {
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      try {
+        const { isAuthenticated } = await apiClient.bootstrapSession();
+        
+        // Only start proactive refresh if authenticated and session is stable
+        // Wait a bit to ensure cookies are fully set after login
+        if (isAuthenticated) {
+          // Delay proactive refresh to avoid conflict with fresh login
+          setTimeout(() => {
+            if (!cancelled) {
+              apiClient.startProactiveRefresh();
+            }
+          }, 5000); // 5 seconds after bootstrap
+        }
+      } finally {
+        if (!cancelled) {
+          setSessionReady(true);
+        }
+      }
+    };
+
+    bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Listen for authentication state changes
+  useEffect(() => {
+    const handleUserDataUpdate = () => {
+      // Check if user is still authenticated
+      const userStr = localStorage.getItem('user');
+      if (userStr && userStr !== 'null') {
+        // User logged in or session restored
+        apiClient.startProactiveRefresh();
+      } else {
+        // User logged out
+        apiClient.stopProactiveRefresh();
+      }
+    };
+
+    window.addEventListener('userDataUpdated', handleUserDataUpdate);
+
+    return () => {
+      window.removeEventListener('userDataUpdated', handleUserDataUpdate);
+    };
+  }, []);
+
+  if (!sessionReady) {
+    return <PageLoader />;
+  }
+
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>

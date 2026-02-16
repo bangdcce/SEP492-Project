@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Input } from '../shared/components/custom/input';
-import { Button } from '../shared/components/custom/Button';
+import React, { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { Input } from "../shared/components/custom/input";
+import { Button } from "../shared/components/custom/Button";
 // import { GoogleButton } from '../shared/components/auth/GoogleButton';
 import { PasswordStrength } from '../shared/components/auth/PasswordStrength';
 import { CaptchaInput } from '../shared/components/auth/CaptchaInput';
@@ -21,19 +21,22 @@ interface SignUpPageProps {
 
 type UserRole = 'client' | 'broker' | 'freelancer';
 
-export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPageProps = {}) {
+export function SignUpPage({
+  onNavigateToSignIn,
+  onSignUpSuccess,
+}: SignUpPageProps = {}) {
   const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1); // 1: Role Selection, 2: Info Form, 3: Domain (Freelancer/Broker), 4: Skills (Freelancer/Broker)
   const [formData, setFormData] = useState({
-    role: '' as UserRole | '',
-    fullName: '',
-    email: '',
-    phoneNumber: '',
-    password: '',
-    confirmPassword: '',
+    role: "" as UserRole | "",
+    fullName: "",
+    email: "",
+    phoneNumber: "",
+    password: "",
+    confirmPassword: "",
     acceptTerms: false,
     acceptPrivacy: false,
-    recaptchaToken: '',
+    recaptchaToken: "",
     domains: [] as string[], // Domain IDs (UUIDs)
     skills: [] as string[], // Skill IDs (UUIDs)
   });
@@ -55,11 +58,11 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     if (currentStep === 3 && availableDomains?.length === 0) {
       setLoadingDomains(true);
       getSkillDomains()
-        .then(domains => {
+        .then((domains) => {
           setAvailableDomains(domains || []);
         })
-        .catch(err => {
-          toast.error('Failed to load domains');
+        .catch((err) => {
+          toast.error("Failed to load domains");
           setAvailableDomains([]);
         })
         .finally(() => setLoadingDomains(false));
@@ -70,11 +73,11 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
   useEffect(() => {
     if (currentStep === 4 && availableSkills?.length === 0) {
       setLoadingSkills(true);
-      const role = formData.role === 'freelancer' ? 'FREELANCER' : 'BROKER';
+      const role = formData.role === "freelancer" ? "FREELANCER" : "BROKER";
       getSkills(role)
-        .then(skills => setAvailableSkills(skills || []))
-        .catch(err => {
-          toast.error('Failed to load skills');
+        .then((skills) => setAvailableSkills(skills || []))
+        .catch((err) => {
+          toast.error("Failed to load skills");
           setAvailableSkills([]);
         })
         .finally(() => setLoadingSkills(false));
@@ -122,10 +125,13 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
   };
 
   // Password is valid if it meets minimum length and at least 2 out of 3 character types (medium strength)
-  const isPasswordValid = passwordRequirements.minLength && (
-    [passwordRequirements.hasLowerCase, passwordRequirements.hasNumber, passwordRequirements.hasSpecial]
-      .filter(Boolean).length >= 2
-  );
+  const isPasswordValid =
+    passwordRequirements.minLength &&
+    [
+      passwordRequirements.hasLowerCase,
+      passwordRequirements.hasNumber,
+      passwordRequirements.hasSpecial,
+    ].filter(Boolean).length >= 2;
 
   // Check if Step 2 (Info Form) is valid
   const isStep2Valid = () => {
@@ -134,7 +140,11 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     if (!validateDisposableEmail(formData.email)) return false;
     if (!formData.phoneNumber || !validatePhone(formData.phoneNumber)) return false;
     if (!formData.password || !isPasswordValid) return false;
-    if (!formData.confirmPassword || formData.password !== formData.confirmPassword) return false;
+    if (
+      !formData.confirmPassword ||
+      formData.password !== formData.confirmPassword
+    )
+      return false;
     if (!formData.acceptTerms || !formData.acceptPrivacy) return false;
     if (!formData.recaptchaToken) return false;
     return true;
@@ -179,7 +189,9 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
 
       await signUp(payload);
 
-      toast.success('Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.');
+      toast.success(
+        "Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.",
+      );
 
       if (onSignUpSuccess) {
         onSignUpSuccess();
@@ -189,27 +201,40 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
       }
     } catch (error: any) {
       // Handle error message (could be string, array, or object)
-      let errorMessage = 'Failed to create account. Please try again.';
+      let errorMessage = "Failed to create account. Please try again.";
 
       if (error.response?.data?.message) {
         const msg = error.response.data.message;
-        if (typeof msg === 'string') {
+        if (typeof msg === "string") {
           errorMessage = msg;
         } else if (Array.isArray(msg)) {
-          errorMessage = msg.join(', ');
-        } else if (typeof msg === 'object') {
+          errorMessage = msg.join(", ");
+        } else if (typeof msg === "object") {
           errorMessage = JSON.stringify(msg);
         }
       }
 
       // Check if error is related to duplicate email
-      if (typeof errorMessage === 'string' && errorMessage.toLowerCase().includes('email')) {
+      if (
+        typeof errorMessage === "string" &&
+        errorMessage.toLowerCase().includes("email")
+      ) {
         setErrors({ email: errorMessage });
-      } else if (typeof errorMessage === 'string' && (errorMessage.toLowerCase().includes('captcha') || errorMessage.toLowerCase().includes('recaptcha'))) {
+      } else if (
+        typeof errorMessage === "string" &&
+        (errorMessage.toLowerCase().includes("captcha") ||
+          errorMessage.toLowerCase().includes("recaptcha"))
+      ) {
         setErrors({ recaptcha: errorMessage });
-      } else if (typeof errorMessage === 'string' && errorMessage.toLowerCase().includes('terms')) {
+      } else if (
+        typeof errorMessage === "string" &&
+        errorMessage.toLowerCase().includes("terms")
+      ) {
         setErrors({ acceptTerms: errorMessage });
-      } else if (typeof errorMessage === 'string' && errorMessage.toLowerCase().includes('privacy')) {
+      } else if (
+        typeof errorMessage === "string" &&
+        errorMessage.toLowerCase().includes("privacy")
+      ) {
         setErrors({ acceptPrivacy: errorMessage });
       } else {
         setErrors({ acceptTerms: errorMessage });
@@ -284,9 +309,9 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
   };
 
   const handleChange = (field: string, value: string | boolean) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) {
-      setErrors(prev => ({ ...prev, [field]: '' }));
+      setErrors((prev) => ({ ...prev, [field]: "" }));
     }
   };
 
@@ -316,28 +341,28 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     switch (role) {
       case 'client':
         return Store;
-      case 'broker':
+      case "broker":
         return Briefcase;
-      case 'freelancer':
+      case "freelancer":
         return Laptop;
     }
   };
   const handleRoleSelect = (role: UserRole) => {
-    handleChange('role', role);
+    handleChange("role", role);
     // Auto-advance to next step after selecting role
     setTimeout(() => {
       setCurrentStep(2);
     }, 300);
   };
 
-  const handleInfoFormNext = () => {
+  const handleInfoFormNext = async () => {
     // Validation for step 2
     const newErrors: Record<string, string> = {};
 
-    if (!formData.fullName) newErrors.fullName = 'Full name is required';
+    if (!formData.fullName) newErrors.fullName = "Full name is required";
 
     if (!formData.email) {
-      newErrors.email = 'Email is required';
+      newErrors.email = "Email is required";
     } else if (!validateEmail(formData.email)) {
       newErrors.email = 'Invalid email address';
     } else if (!validateDisposableEmail(formData.email)) {
@@ -345,26 +370,30 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     }
 
     if (!formData.phoneNumber) {
-      newErrors.phoneNumber = 'Phone number is required';
+      newErrors.phoneNumber = "Phone number is required";
     } else if (!validatePhone(formData.phoneNumber)) {
-      newErrors.phoneNumber = 'Invalid phone number. Format: 0[3|5|7|8|9]xxxxxxxx';
+      newErrors.phoneNumber =
+        "Invalid phone number. Format: 0[3|5|7|8|9]xxxxxxxx";
     }
 
     if (!formData.password) {
-      newErrors.password = 'Password is required';
+      newErrors.password = "Password is required";
     } else if (!isPasswordValid) {
-      newErrors.password = 'Password must be at least 8 characters with 2 of: lowercase, number, special character';
+      newErrors.password =
+        "Password must be at least 8 characters with 2 of: lowercase, number, special character";
     }
 
     if (!formData.confirmPassword) {
-      newErrors.confirmPassword = 'Confirm password is required';
+      newErrors.confirmPassword = "Confirm password is required";
     } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
+      newErrors.confirmPassword = "Passwords do not match";
     }
 
-    if (!formData.acceptTerms) newErrors.acceptTerms = 'You must accept Terms of Service';
-    if (!formData.acceptPrivacy) newErrors.acceptPrivacy = 'You must accept Privacy Policy';
-    if (!formData.recaptchaToken) newErrors.recaptcha = 'Complete reCAPTCHA';
+    if (!formData.acceptTerms)
+      newErrors.acceptTerms = "You must accept Terms of Service";
+    if (!formData.acceptPrivacy)
+      newErrors.acceptPrivacy = "You must accept Privacy Policy";
+    if (!formData.recaptchaToken) newErrors.recaptcha = "Complete reCAPTCHA";
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
@@ -372,7 +401,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     }
 
     // If Freelancer or Broker → go to Domain selection (Step 3)
-    if (formData.role === 'freelancer' || formData.role === 'broker') {
+    if (formData.role === "freelancer" || formData.role === "broker") {
       setCurrentStep(3);
     } else {
       // Client → submit immediately (only 2 steps: role + info)
@@ -382,7 +411,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
 
   const handleDomainNext = () => {
     if (formData.domains.length === 0) {
-      setErrors({ domains: 'Please select at least one domain' });
+      setErrors({ domains: "Please select at least one domain" });
       return;
     }
     setCurrentStep(4); // Go to Skills selection
@@ -390,31 +419,31 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
 
   const handleSkillsNext = () => {
     if (formData.skills.length === 0) {
-      setErrors({ skills: 'Please select at least one skill' });
+      setErrors({ skills: "Please select at least one skill" });
       return;
     }
     // All steps completed → submit
-    handleSubmit(new Event('submit') as any);
+    handleSubmit(new Event("submit") as any);
   };
 
   const toggleDomain = (domain: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       domains: prev.domains.includes(domain)
-        ? prev.domains.filter(d => d !== domain)
-        : [...prev.domains, domain]
+        ? prev.domains.filter((d) => d !== domain)
+        : [...prev.domains, domain],
     }));
-    if (errors.domains) setErrors(prev => ({ ...prev, domains: '' }));
+    if (errors.domains) setErrors((prev) => ({ ...prev, domains: "" }));
   };
 
   const toggleSkill = (skill: string) => {
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
       skills: prev.skills.includes(skill)
-        ? prev.skills.filter(s => s !== skill)
-        : [...prev.skills, skill]
+        ? prev.skills.filter((s) => s !== skill)
+        : [...prev.skills, skill],
     }));
-    if (errors.skills) setErrors(prev => ({ ...prev, skills: '' }));
+    if (errors.skills) setErrors((prev) => ({ ...prev, skills: "" }));
   };
 
   const handleBackToRoleSelection = () => {
@@ -438,148 +467,185 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
   };
 
   const getStepTitle = () => {
-    if (currentStep === 1) return 'Choose Your Role';
-    if (currentStep === 2) return 'Complete Your Profile';
-    if (currentStep === 3) return 'Select Your Domains';
-    if (currentStep === 4) return 'Choose Your Skills';
-    return 'Sign Up';
+    if (currentStep === 1) return "Choose Your Role";
+    if (currentStep === 2) return "Complete Your Profile";
+    if (currentStep === 3) return "Select Your Domains";
+    if (currentStep === 4) return "Choose Your Skills";
+    return "Sign Up";
   };
 
   const getStepSubtitle = () => {
-    if (currentStep === 1) return 'Tell us what brings you to our platform';
-    if (currentStep === 2) return `You're signing up as ${formData.role ? getRoleLabel(formData.role) : 'a user'}`;
-    if (currentStep === 3) return 'What industries/areas do you specialize in?';
-    if (currentStep === 4) return 'What technologies/skills do you work with?';
-    return '';
+    if (currentStep === 1) return "Tell us what brings you to our platform";
+    if (currentStep === 2)
+      return `You're signing up as ${formData.role ? getRoleLabel(formData.role) : "a user"}`;
+    if (currentStep === 3) return "What industries/areas do you specialize in?";
+    if (currentStep === 4) return "What technologies/skills do you work with?";
+    return "";
   };
 
-  const totalSteps = (formData.role === 'freelancer' || formData.role === 'broker') ? 4 : 2;
+  const totalSteps =
+    formData.role === "freelancer" || formData.role === "broker" ? 4 : 2;
 
   return (
-    <AuthLayout
-      title={getStepTitle()}
-      subtitle={getStepSubtitle()}
-    >
+    <AuthLayout title={getStepTitle()} subtitle={getStepSubtitle()}>
       {/* Progress Indicator */}
-      <div style={{ marginBottom: '2rem' }}>
+      <div style={{ marginBottom: "2rem" }}>
         {/* Progress bars */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem' }}>
+        <div style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
           {[...Array(totalSteps)].map((_, idx) => (
             <div
               key={idx}
               style={{
                 flex: 1,
-                height: '4px',
-                borderRadius: '2px',
-                backgroundColor: currentStep > idx ? '#14b8a6' : 'var(--auth-border)',
-                transition: 'background-color 0.3s ease',
+                height: "4px",
+                borderRadius: "2px",
+                backgroundColor:
+                  currentStep > idx ? "#14b8a6" : "var(--auth-border)",
+                transition: "background-color 0.3s ease",
               }}
             />
           ))}
         </div>
 
         {/* Step labels with numbers */}
-        <div style={{
-          display: 'grid',
-          gridTemplateColumns: totalSteps === 4 ? 'repeat(4, 1fr)' : 'repeat(2, 1fr)',
-          gap: '0.5rem',
-        }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns:
+              totalSteps === 4 ? "repeat(4, 1fr)" : "repeat(2, 1fr)",
+            gap: "0.5rem",
+          }}
+        >
           {/* Step 1 */}
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '0.25rem',
-          }}>
-            <div style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '50%',
-              backgroundColor: currentStep === 1 ? '#14b8a6' : currentStep > 1 ? '#14b8a6' : 'var(--auth-border)',
-              color: currentStep >= 1 ? 'white' : 'var(--auth-text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              transition: 'all 0.3s ease',
-            }}>
-              {currentStep > 1 ? '✓' : '1'}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "0.25rem",
+            }}
+          >
+            <div
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "50%",
+                backgroundColor:
+                  currentStep === 1
+                    ? "#14b8a6"
+                    : currentStep > 1
+                      ? "#14b8a6"
+                      : "var(--auth-border)",
+                color: currentStep >= 1 ? "white" : "var(--auth-text-muted)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                transition: "all 0.3s ease",
+              }}
+            >
+              {currentStep > 1 ? "✓" : "1"}
             </div>
-            <span style={{
-              fontSize: '0.75rem',
-              fontWeight: currentStep === 1 ? 600 : 400,
-              color: currentStep === 1 ? '#14b8a6' : 'var(--auth-text-muted)',
-              textAlign: 'center',
-              transition: 'all 0.3s ease',
-            }}>
+            <span
+              style={{
+                fontSize: "0.75rem",
+                fontWeight: currentStep === 1 ? 600 : 400,
+                color: currentStep === 1 ? "#14b8a6" : "var(--auth-text-muted)",
+                textAlign: "center",
+                transition: "all 0.3s ease",
+              }}
+            >
               Role
             </span>
           </div>
 
           {/* Step 2 */}
-          <div style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            gap: '0.25rem',
-          }}>
-            <div style={{
-              width: '28px',
-              height: '28px',
-              borderRadius: '50%',
-              backgroundColor: currentStep === 2 ? '#14b8a6' : currentStep > 2 ? '#14b8a6' : 'var(--auth-border)',
-              color: currentStep >= 2 ? 'white' : 'var(--auth-text-muted)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontSize: '0.75rem',
-              fontWeight: 600,
-              transition: 'all 0.3s ease',
-            }}>
-              {currentStep > 2 ? '✓' : '2'}
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: "0.25rem",
+            }}
+          >
+            <div
+              style={{
+                width: "28px",
+                height: "28px",
+                borderRadius: "50%",
+                backgroundColor:
+                  currentStep === 2
+                    ? "#14b8a6"
+                    : currentStep > 2
+                      ? "#14b8a6"
+                      : "var(--auth-border)",
+                color: currentStep >= 2 ? "white" : "var(--auth-text-muted)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.75rem",
+                fontWeight: 600,
+                transition: "all 0.3s ease",
+              }}
+            >
+              {currentStep > 2 ? "✓" : "2"}
             </div>
-            <span style={{
-              fontSize: '0.75rem',
-              fontWeight: currentStep === 2 ? 600 : 400,
-              color: currentStep === 2 ? '#14b8a6' : 'var(--auth-text-muted)',
-              textAlign: 'center',
-              transition: 'all 0.3s ease',
-            }}>
+            <span
+              style={{
+                fontSize: "0.75rem",
+                fontWeight: currentStep === 2 ? 600 : 400,
+                color: currentStep === 2 ? "#14b8a6" : "var(--auth-text-muted)",
+                textAlign: "center",
+                transition: "all 0.3s ease",
+              }}
+            >
               Details
             </span>
           </div>
 
           {/* Step 3 (only for Freelancer/Broker) */}
           {totalSteps === 4 && (
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '0.25rem',
-            }}>
-              <div style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '50%',
-                backgroundColor: currentStep === 3 ? '#14b8a6' : currentStep > 3 ? '#14b8a6' : 'var(--auth-border)',
-                color: currentStep >= 3 ? 'white' : 'var(--auth-text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                transition: 'all 0.3s ease',
-              }}>
-                {currentStep > 3 ? '✓' : '3'}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "0.25rem",
+              }}
+            >
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "50%",
+                  backgroundColor:
+                    currentStep === 3
+                      ? "#14b8a6"
+                      : currentStep > 3
+                        ? "#14b8a6"
+                        : "var(--auth-border)",
+                  color: currentStep >= 3 ? "white" : "var(--auth-text-muted)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  transition: "all 0.3s ease",
+                }}
+              >
+                {currentStep > 3 ? "✓" : "3"}
               </div>
-              <span style={{
-                fontSize: '0.75rem',
-                fontWeight: currentStep === 3 ? 600 : 400,
-                color: currentStep === 3 ? '#14b8a6' : 'var(--auth-text-muted)',
-                textAlign: 'center',
-                transition: 'all 0.3s ease',
-              }}>
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  fontWeight: currentStep === 3 ? 600 : 400,
+                  color:
+                    currentStep === 3 ? "#14b8a6" : "var(--auth-text-muted)",
+                  textAlign: "center",
+                  transition: "all 0.3s ease",
+                }}
+              >
                 Domains
               </span>
             </div>
@@ -587,34 +653,42 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
 
           {/* Step 4 (only for Freelancer/Broker) */}
           {totalSteps === 4 && (
-            <div style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'center',
-              gap: '0.25rem',
-            }}>
-              <div style={{
-                width: '28px',
-                height: '28px',
-                borderRadius: '50%',
-                backgroundColor: currentStep === 4 ? '#14b8a6' : 'var(--auth-border)',
-                color: currentStep === 4 ? 'white' : 'var(--auth-text-muted)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                fontSize: '0.75rem',
-                fontWeight: 600,
-                transition: 'all 0.3s ease',
-              }}>
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: "0.25rem",
+              }}
+            >
+              <div
+                style={{
+                  width: "28px",
+                  height: "28px",
+                  borderRadius: "50%",
+                  backgroundColor:
+                    currentStep === 4 ? "#14b8a6" : "var(--auth-border)",
+                  color: currentStep === 4 ? "white" : "var(--auth-text-muted)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: "0.75rem",
+                  fontWeight: 600,
+                  transition: "all 0.3s ease",
+                }}
+              >
                 4
               </div>
-              <span style={{
-                fontSize: '0.75rem',
-                fontWeight: currentStep === 4 ? 600 : 400,
-                color: currentStep === 4 ? '#14b8a6' : 'var(--auth-text-muted)',
-                textAlign: 'center',
-                transition: 'all 0.3s ease',
-              }}>
+              <span
+                style={{
+                  fontSize: "0.75rem",
+                  fontWeight: currentStep === 4 ? 600 : 400,
+                  color:
+                    currentStep === 4 ? "#14b8a6" : "var(--auth-text-muted)",
+                  textAlign: "center",
+                  transition: "all 0.3s ease",
+                }}
+              >
                 Skills
               </span>
             </div>
@@ -622,7 +696,12 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
         </div>
       </div>
 
-      <form onSubmit={(e) => { e.preventDefault(); }} className="space-y-6">
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+        }}
+        className="space-y-6"
+      >
         <AnimatePresence mode="wait" custom={currentStep}>
           {currentStep === 1 && (
             <motion.div
@@ -634,7 +713,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
               exit="exit"
               transition={{
                 x: { type: "spring", stiffness: 300, damping: 30 },
-                opacity: { duration: 0.2 }
+                opacity: { duration: 0.2 },
               }}
             >
               {/* Role Selection */}
@@ -642,14 +721,15 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 <label
                   htmlFor="role"
                   style={{
-                    display: 'block',
-                    marginBottom: '0.5rem',
-                    fontSize: '0.875rem',
+                    display: "block",
+                    marginBottom: "0.5rem",
+                    fontSize: "0.875rem",
                     fontWeight: 500,
-                    color: 'var(--auth-text)',
+                    color: "var(--auth-text)",
                   }}
                 >
-                  I am a... <span style={{ color: 'var(--auth-error)' }}>*</span>
+                  I am a...{" "}
+                  <span style={{ color: "var(--auth-error)" }}>*</span>
                 </label>
                 <div className="space-y-3">
                   {(['client', 'broker', 'freelancer'] as UserRole[]).map((role) => (
@@ -660,74 +740,129 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                       whileHover={{ scale: 1.02 }}
                       whileTap={{ scale: 0.98 }}
                       style={{
-                        width: '100%',
-                        padding: '1rem',
-                        borderRadius: '8px',
-                        border: `2px solid ${formData.role === role ? 'var(--auth-primary)' : 'var(--auth-border)'}`,
-                        backgroundColor: formData.role === role ? 'rgba(37, 99, 235, 0.05)' : 'var(--auth-input-bg)',
-                        textAlign: 'left',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
+                        width: "100%",
+                        padding: "1rem",
+                        borderRadius: "8px",
+                        border: `2px solid ${formData.role === role ? "var(--auth-primary)" : "var(--auth-border)"}`,
+                        backgroundColor:
+                          formData.role === role
+                            ? "rgba(37, 99, 235, 0.05)"
+                            : "var(--auth-input-bg)",
+                        textAlign: "left",
+                        cursor: "pointer",
+                        transition: "all 0.2s ease",
                       }}
                       onMouseEnter={(e) => {
                         if (formData.role !== role) {
-                          e.currentTarget.style.borderColor = 'var(--auth-primary)';
-                          e.currentTarget.style.backgroundColor = 'rgba(37, 99, 235, 0.02)';
+                          e.currentTarget.style.borderColor =
+                            "var(--auth-primary)";
+                          e.currentTarget.style.backgroundColor =
+                            "rgba(37, 99, 235, 0.02)";
                         }
                       }}
                       onMouseLeave={(e) => {
                         if (formData.role !== role) {
-                          e.currentTarget.style.borderColor = 'var(--auth-border)';
-                          e.currentTarget.style.backgroundColor = 'var(--auth-input-bg)';
+                          e.currentTarget.style.borderColor =
+                            "var(--auth-border)";
+                          e.currentTarget.style.backgroundColor =
+                            "var(--auth-input-bg)";
                         }
                       }}
                     >
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "0.75rem",
+                        }}
+                      >
                         <div
                           style={{
-                            width: '48px',
-                            height: '48px',
-                            borderRadius: '12px',
-                            backgroundColor: formData.role === role ? 'var(--auth-primary)' : 'rgba(37, 99, 235, 0.1)',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
+                            width: "48px",
+                            height: "48px",
+                            borderRadius: "12px",
+                            backgroundColor:
+                              formData.role === role
+                                ? "var(--auth-primary)"
+                                : "rgba(37, 99, 235, 0.1)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
                             flexShrink: 0,
-                            transition: 'all 0.2s ease',
+                            transition: "all 0.2s ease",
                           }}
                         >
                           {React.createElement(getRoleIcon(role), {
-                            className: 'w-6 h-6',
-                            style: { color: formData.role === role ? 'white' : 'var(--auth-primary)' },
+                            className: "w-6 h-6",
+                            style: {
+                              color:
+                                formData.role === role
+                                  ? "white"
+                                  : "var(--auth-primary)",
+                            },
                           })}
                         </div>
                         <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, color: 'var(--auth-text)', marginBottom: '0.25rem' }}>
+                          <div
+                            style={{
+                              fontWeight: 600,
+                              color: "var(--auth-text)",
+                              marginBottom: "0.25rem",
+                            }}
+                          >
                             {getRoleLabel(role)}
                           </div>
-                          <div style={{ fontSize: '0.875rem', color: 'var(--auth-text-muted)' }}>
+                          <div
+                            style={{
+                              fontSize: "0.875rem",
+                              color: "var(--auth-text-muted)",
+                            }}
+                          >
                             {getRoleDescription(role)}
                           </div>
                         </div>
-                        <ArrowRight className="w-5 h-5" style={{ color: 'var(--auth-text-muted)', opacity: formData.role === role ? 1 : 0.3 }} />
+                        <ArrowRight
+                          className="w-5 h-5"
+                          style={{
+                            color: "var(--auth-text-muted)",
+                            opacity: formData.role === role ? 1 : 0.3,
+                          }}
+                        />
                       </div>
                     </motion.button>
                   ))}
                 </div>
                 {errors.role && (
-                  <p style={{ color: 'var(--auth-error)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                  <p
+                    style={{
+                      color: "var(--auth-error)",
+                      fontSize: "0.875rem",
+                      marginTop: "0.5rem",
+                    }}
+                  >
                     {errors.role}
                   </p>
                 )}
               </div>
 
-              <p className="text-center" style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem', marginTop: '2rem' }}>
-                Already have an account?{' '}
+              <p
+                className="text-center"
+                style={{
+                  color: "var(--auth-text-muted)",
+                  fontSize: "0.875rem",
+                  marginTop: "2rem",
+                }}
+              >
+                Already have an account?{" "}
                 <button
                   type="button"
-                  onClick={() => onNavigateToSignIn ? onNavigateToSignIn() : navigate(ROUTES.LOGIN)}
+                  onClick={() =>
+                    onNavigateToSignIn
+                      ? onNavigateToSignIn()
+                      : navigate(ROUTES.LOGIN)
+                  }
                   className="hover:underline"
-                  style={{ color: 'var(--auth-primary)', fontWeight: 500 }}
+                  style={{ color: "var(--auth-primary)", fontWeight: 500 }}
                 >
                   Sign in
                 </button>
@@ -745,7 +880,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
               exit="exit"
               transition={{
                 x: { type: "spring", stiffness: 300, damping: 30 },
-                opacity: { duration: 0.2 }
+                opacity: { duration: 0.2 },
               }}
             >
               {/* Back Button */}
@@ -753,20 +888,24 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 type="button"
                 onClick={handleBackToRoleSelection}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  marginBottom: '1.5rem',
-                  color: 'var(--auth-primary)',
-                  fontSize: '0.875rem',
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  marginBottom: "1.5rem",
+                  color: "var(--auth-primary)",
+                  fontSize: "0.875rem",
                   fontWeight: 500,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0.5rem 0',
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "0.5rem 0",
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.textDecoration = 'underline'}
-                onMouseLeave={(e) => e.currentTarget.style.textDecoration = 'none'}
+                onMouseEnter={(e) =>
+                  (e.currentTarget.style.textDecoration = "underline")
+                }
+                onMouseLeave={(e) =>
+                  (e.currentTarget.style.textDecoration = "none")
+                }
               >
                 <ArrowLeft className="w-4 h-4" />
                 Change role
@@ -778,7 +917,9 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 type="text"
                 placeholder="Enter your full name"
                 value={formData.fullName}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('fullName', e.target.value)}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  handleChange("fullName", e.target.value)
+                }
                 error={errors.fullName}
                 required
               />
@@ -789,7 +930,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 type="email"
                 placeholder="Enter your email"
                 value={formData.email}
-                onChange={(e) => handleChange('email', e.target.value)}
+                onChange={(e) => handleChange("email", e.target.value)}
                 error={errors.email}
                 required
               />
@@ -800,7 +941,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 type="tel"
                 placeholder="0987654321"
                 value={formData.phoneNumber}
-                onChange={(e) => handleChange('phoneNumber', e.target.value)}
+                onChange={(e) => handleChange("phoneNumber", e.target.value)}
                 error={errors.phoneNumber}
                 required
               />
@@ -810,10 +951,13 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                   <Input
                     id="password"
                     label="Password"
-                    type={showPassword ? 'text' : 'password'}
+                    type={showPassword ? "text" : "password"}
+                    autoComplete="new-password"
                     placeholder="At least 8 characters with lowercase, number & special char"
                     value={formData.password}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('password', e.target.value)}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      handleChange("password", e.target.value)
+                    }
                     error={errors.password}
                   />
                   <button
@@ -823,9 +967,15 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                     tabIndex={-1}
                   >
                     {showPassword ? (
-                      <EyeOff className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+                      <EyeOff
+                        className="w-5 h-5"
+                        style={{ color: "var(--auth-text-muted)" }}
+                      />
                     ) : (
-                      <Eye className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+                      <Eye
+                        className="w-5 h-5"
+                        style={{ color: "var(--auth-text-muted)" }}
+                      />
                     )}
                   </button>
                 </div>
@@ -836,12 +986,21 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 <Input
                   id="confirmPassword"
                   label="Confirm password"
-                  type={showConfirmPassword ? 'text' : 'password'}
+                  type={showConfirmPassword ? "text" : "password"}
+                  autoComplete="new-password"
                   placeholder="Re-enter your password"
                   value={formData.confirmPassword}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => handleChange('confirmPassword', e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    handleChange("confirmPassword", e.target.value)
+                  }
                   error={errors.confirmPassword}
-                  success={!!(formData.confirmPassword && formData.password === formData.confirmPassword && formData.confirmPassword.length >= 8)}
+                  success={
+                    !!(
+                      formData.confirmPassword &&
+                      formData.password === formData.confirmPassword &&
+                      formData.confirmPassword.length >= 8
+                    )
+                  }
                 />
                 <button
                   type="button"
@@ -850,36 +1009,46 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                   tabIndex={-1}
                 >
                   {showConfirmPassword ? (
-                    <EyeOff className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+                    <EyeOff
+                      className="w-5 h-5"
+                      style={{ color: "var(--auth-text-muted)" }}
+                    />
                   ) : (
-                    <Eye className="w-5 h-5" style={{ color: 'var(--auth-text-muted)' }} />
+                    <Eye
+                      className="w-5 h-5"
+                      style={{ color: "var(--auth-text-muted)" }}
+                    />
                   )}
                 </button>
               </div>
 
               {/* CAPTCHA Input */}
               <CaptchaInput
-                onChange={(token) => handleChange('recaptchaToken', token || '')}
+                onChange={(token) =>
+                  handleChange("recaptchaToken", token || "")
+                }
                 error={errors.recaptcha}
               />
 
-              <div style={{ marginBottom: '1.2rem' }}>
+              <div style={{ marginBottom: "1.2rem" }}>
                 <label className="flex items-start gap-2 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={formData.acceptTerms && formData.acceptPrivacy}
                     onChange={(e) => {
                       const checked = e.target.checked;
-                      handleChange('acceptTerms', checked);
-                      handleChange('acceptPrivacy', checked);
+                      handleChange("acceptTerms", checked);
+                      handleChange("acceptPrivacy", checked);
                     }}
                     className="w-4 h-4 mt-0.5 rounded cursor-pointer"
                     style={{
-                      accentColor: '#14b8a6',
+                      accentColor: "#14b8a6",
                     }}
                   />
-                  <span style={{ color: 'var(--auth-text)', fontSize: '0.875rem' }}>
-                    I accept the{' '}
+                  <span
+                    style={{ color: "var(--auth-text)", fontSize: "0.875rem" }}
+                  >
+                    I accept the{" "}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -887,11 +1056,11 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                         setShowTermsModal(true);
                       }}
                       className="hover:underline font-medium"
-                      style={{ color: '#14b8a6' }}
+                      style={{ color: "#14b8a6" }}
                     >
                       Terms of Service
                     </button>
-                    {' and '}
+                    {" and "}
                     <button
                       type="button"
                       onClick={(e) => {
@@ -899,14 +1068,17 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                         setShowPrivacyModal(true);
                       }}
                       className="hover:underline font-medium"
-                      style={{ color: '#14b8a6' }}
+                      style={{ color: "#14b8a6" }}
                     >
                       Privacy Policy
                     </button>
                   </span>
                 </label>
                 {(errors.acceptTerms || errors.acceptPrivacy) && (
-                  <p className="mt-1.5 text-sm" style={{ color: 'var(--auth-error)' }}>
+                  <p
+                    className="mt-1.5 text-sm"
+                    style={{ color: "var(--auth-error)" }}
+                  >
                     {errors.acceptTerms || errors.acceptPrivacy}
                   </p>
                 )}
@@ -919,16 +1091,30 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 className="w-full py-3 text-base font-medium justify-center"
                 disabled={loading || !isStep2Valid()}
               >
-                {(formData.role === 'freelancer' || formData.role === 'broker') ? 'Next' : (loading ? 'Creating account...' : 'Create Account')}
+                {formData.role === "freelancer" || formData.role === "broker"
+                  ? "Next"
+                  : loading
+                    ? "Creating account..."
+                    : "Create Account"}
               </Button>
 
-              <p className="text-center" style={{ color: 'var(--auth-text-muted)', fontSize: '0.875rem' }}>
-                Already have an account?{' '}
+              <p
+                className="text-center"
+                style={{
+                  color: "var(--auth-text-muted)",
+                  fontSize: "0.875rem",
+                }}
+              >
+                Already have an account?{" "}
                 <button
                   type="button"
-                  onClick={() => onNavigateToSignIn ? onNavigateToSignIn() : navigate(ROUTES.LOGIN)}
+                  onClick={() =>
+                    onNavigateToSignIn
+                      ? onNavigateToSignIn()
+                      : navigate(ROUTES.LOGIN)
+                  }
                   className="hover:underline"
-                  style={{ color: 'var(--auth-primary)', fontWeight: 500 }}
+                  style={{ color: "var(--auth-primary)", fontWeight: 500 }}
                 >
                   Sign in
                 </button>
@@ -947,24 +1133,24 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
               exit="exit"
               transition={{
                 x: { type: "spring", stiffness: 300, damping: 30 },
-                opacity: { duration: 0.2 }
+                opacity: { duration: 0.2 },
               }}
             >
               <button
                 type="button"
                 onClick={() => setCurrentStep(2)}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  marginBottom: '1.5rem',
-                  color: 'var(--auth-primary)',
-                  fontSize: '0.875rem',
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  marginBottom: "1.5rem",
+                  color: "var(--auth-primary)",
+                  fontSize: "0.875rem",
                   fontWeight: 500,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0.5rem 0',
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "0.5rem 0",
                 }}
               >
                 <ArrowLeft className="w-4 h-4" />
@@ -972,38 +1158,79 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
               </button>
 
               <div className="space-y-4">
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--auth-text)', marginBottom: '1rem' }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                    color: "var(--auth-text)",
+                    marginBottom: "1rem",
+                  }}
+                >
                   Select domains you work in (choose at least 1)
                 </label>
                 {loadingDomains ? (
-                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--auth-text-muted)' }}>
+                  <div
+                    style={{
+                      textAlign: "center",
+                      padding: "2rem",
+                      color: "var(--auth-text-muted)",
+                    }}
+                  >
                     Loading domains...
                   </div>
                 ) : availableDomains && availableDomains.length > 0 ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '0.75rem' }}>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(2, 1fr)",
+                      gap: "0.75rem",
+                    }}
+                  >
                     {availableDomains.map((domain) => (
                       <button
                         key={domain.id}
                         type="button"
                         onClick={() => toggleDomain(domain.id)}
                         style={{
-                          padding: '1rem',
-                          border: `2px solid ${formData.domains.includes(domain.id) ? 'var(--auth-primary)' : 'var(--auth-border)'}`,
-                          borderRadius: '12px',
-                          backgroundColor: formData.domains.includes(domain.id) ? 'rgba(37, 99, 235, 0.05)' : 'var(--auth-input-bg)',
-                          textAlign: 'left',
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
+                          padding: "1rem",
+                          border: `2px solid ${formData.domains.includes(domain.id) ? "var(--auth-primary)" : "var(--auth-border)"}`,
+                          borderRadius: "12px",
+                          backgroundColor: formData.domains.includes(domain.id)
+                            ? "rgba(37, 99, 235, 0.05)"
+                            : "var(--auth-input-bg)",
+                          textAlign: "left",
+                          cursor: "pointer",
+                          transition: "all 0.2s ease",
                         }}
                       >
                         {domain.icon && (
-                          <div style={{ fontSize: '1.5rem', marginBottom: '0.5rem' }}>{domain.icon}</div>
+                          <div
+                            style={{
+                              fontSize: "1.5rem",
+                              marginBottom: "0.5rem",
+                            }}
+                          >
+                            {domain.icon}
+                          </div>
                         )}
-                        <div style={{ fontWeight: 600, color: 'var(--auth-text)', fontSize: '0.875rem' }}>
+                        <div
+                          style={{
+                            fontWeight: 600,
+                            color: "var(--auth-text)",
+                            fontSize: "0.875rem",
+                          }}
+                        >
                           {domain.name}
                         </div>
                         {domain.description && (
-                          <div style={{ fontSize: '0.75rem', color: 'var(--auth-text-muted)', marginTop: '0.25rem' }}>
+                          <div
+                            style={{
+                              fontSize: "0.75rem",
+                              color: "var(--auth-text-muted)",
+                              marginTop: "0.25rem",
+                            }}
+                          >
                             {domain.description}
                           </div>
                         )}
@@ -1011,15 +1238,33 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                     ))}
                   </div>
                 ) : (
-                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--auth-error)' }}>
+                  <div
+                    style={{
+                      textAlign: "center",
+                      padding: "2rem",
+                      color: "var(--auth-error)",
+                    }}
+                  >
                     <p>No domains available. Please contact administrator.</p>
-                    <p style={{ fontSize: '0.75rem', marginTop: '0.5rem', color: 'var(--auth-text-muted)' }}>
+                    <p
+                      style={{
+                        fontSize: "0.75rem",
+                        marginTop: "0.5rem",
+                        color: "var(--auth-text-muted)",
+                      }}
+                    >
                       Database may need to be seeded with domain data.
                     </p>
                   </div>
                 )}
                 {errors.domains && (
-                  <p style={{ color: 'var(--auth-error)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                  <p
+                    style={{
+                      color: "var(--auth-error)",
+                      fontSize: "0.875rem",
+                      marginTop: "0.5rem",
+                    }}
+                  >
                     {errors.domains}
                   </p>
                 )}
@@ -1048,24 +1293,24 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
               exit="exit"
               transition={{
                 x: { type: "spring", stiffness: 300, damping: 30 },
-                opacity: { duration: 0.2 }
+                opacity: { duration: 0.2 },
               }}
             >
               <button
                 type="button"
                 onClick={() => setCurrentStep(3)}
                 style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '0.5rem',
-                  marginBottom: '1.5rem',
-                  color: 'var(--auth-primary)',
-                  fontSize: '0.875rem',
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "0.5rem",
+                  marginBottom: "1.5rem",
+                  color: "var(--auth-primary)",
+                  fontSize: "0.875rem",
                   fontWeight: 500,
-                  background: 'none',
-                  border: 'none',
-                  cursor: 'pointer',
-                  padding: '0.5rem 0',
+                  background: "none",
+                  border: "none",
+                  cursor: "pointer",
+                  padding: "0.5rem 0",
                 }}
               >
                 <ArrowLeft className="w-4 h-4" />
@@ -1073,30 +1318,50 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
               </button>
 
               <div className="space-y-4">
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--auth-text)', marginBottom: '1rem' }}>
+                <label
+                  style={{
+                    display: "block",
+                    fontSize: "0.875rem",
+                    fontWeight: 600,
+                    color: "var(--auth-text)",
+                    marginBottom: "1rem",
+                  }}
+                >
                   Select your skills/technologies (choose at least 1)
                 </label>
                 {loadingSkills ? (
-                  <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--auth-text-muted)' }}>
+                  <div
+                    style={{
+                      textAlign: "center",
+                      padding: "2rem",
+                      color: "var(--auth-text-muted)",
+                    }}
+                  >
                     Loading skills...
                   </div>
                 ) : (
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                  <div
+                    style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}
+                  >
                     {availableSkills.map((skill) => (
                       <button
                         key={skill.id}
                         type="button"
                         onClick={() => toggleSkill(skill.id)}
                         style={{
-                          padding: '0.5rem 1rem',
-                          border: `2px solid ${formData.skills.includes(skill.id) ? 'var(--auth-primary)' : 'var(--auth-border)'}`,
-                          borderRadius: '20px',
-                          backgroundColor: formData.skills.includes(skill.id) ? 'var(--auth-primary)' : 'transparent',
-                          color: formData.skills.includes(skill.id) ? 'white' : 'var(--auth-text)',
-                          fontSize: '0.875rem',
+                          padding: "0.5rem 1rem",
+                          border: `2px solid ${formData.skills.includes(skill.id) ? "var(--auth-primary)" : "var(--auth-border)"}`,
+                          borderRadius: "20px",
+                          backgroundColor: formData.skills.includes(skill.id)
+                            ? "var(--auth-primary)"
+                            : "transparent",
+                          color: formData.skills.includes(skill.id)
+                            ? "white"
+                            : "var(--auth-text)",
+                          fontSize: "0.875rem",
                           fontWeight: 500,
-                          cursor: 'pointer',
-                          transition: 'all 0.2s ease',
+                          cursor: "pointer",
+                          transition: "all 0.2s ease",
                         }}
                       >
                         {skill.name}
@@ -1105,7 +1370,13 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                   </div>
                 )}
                 {errors.skills && (
-                  <p style={{ color: 'var(--auth-error)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+                  <p
+                    style={{
+                      color: "var(--auth-error)",
+                      fontSize: "0.875rem",
+                      marginTop: "0.5rem",
+                    }}
+                  >
                     {errors.skills}
                   </p>
                 )}
@@ -1118,7 +1389,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 className="w-full py-3 text-base font-medium justify-center mt-6"
                 disabled={loading || !isStep4Valid()}
               >
-                {loading ? 'Creating account...' : 'Create Account'}
+                {loading ? "Creating account..." : "Create Account"}
               </Button>
             </motion.div>
           )}

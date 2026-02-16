@@ -21,10 +21,7 @@ export class ContractsController {
   }
 
   @Post('initialize/:specId')
-  async initializeContract(
-    @GetUser() user: UserEntity,
-    @Param('specId') specId: string,
-  ) {
+  async initializeContract(@GetUser() user: UserEntity, @Param('specId') specId: string) {
     return this.contractsService.initializeProjectAndContract(user, specId);
   }
 
@@ -38,10 +35,7 @@ export class ContractsController {
   }
 
   @Post('activate/:contractId')
-  async activateProject(
-    @GetUser() user: UserEntity,
-    @Param('contractId') contractId: string,
-  ) {
+  async activateProject(@GetUser() user: UserEntity, @Param('contractId') contractId: string) {
     return this.contractsService.activateProject(user, contractId);
   }
 

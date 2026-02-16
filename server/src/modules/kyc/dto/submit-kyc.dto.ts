@@ -1,4 +1,14 @@
-import { IsString, IsNotEmpty, IsDateString, IsEnum, IsOptional, Validate, ValidatorConstraint, ValidatorConstraintInterface, ValidationArguments } from 'class-validator';
+import {
+  IsString,
+  IsNotEmpty,
+  IsDateString,
+  IsEnum,
+  IsOptional,
+  Validate,
+  ValidatorConstraint,
+  ValidatorConstraintInterface,
+  ValidationArguments,
+} from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { DocumentType } from '../../../database/entities/kyc-verification.entity';
 
@@ -7,24 +17,24 @@ import { DocumentType } from '../../../database/entities/kyc-verification.entity
 class IsAdultConstraint implements ValidatorConstraintInterface {
   validate(dateOfBirth: string, _args: ValidationArguments) {
     if (!dateOfBirth) return false;
-    
+
     const dob = new Date(dateOfBirth);
     const today = new Date();
-    
+
     // Check if date is valid
     if (isNaN(dob.getTime())) return false;
-    
+
     // Check if date is not in the future
     if (dob > today) return false;
-    
+
     // Calculate age
     let age = today.getFullYear() - dob.getFullYear();
     const monthDiff = today.getMonth() - dob.getMonth();
-    
+
     if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
       age--;
     }
-    
+
     // Must be at least 18 years old
     return age >= 18;
   }
@@ -39,14 +49,14 @@ class IsAdultConstraint implements ValidatorConstraintInterface {
 class IsFutureDateConstraint implements ValidatorConstraintInterface {
   validate(expiryDate: string, _args: ValidationArguments) {
     if (!expiryDate) return true; // Optional field
-    
+
     const expiry = new Date(expiryDate);
     const today = new Date();
     today.setHours(0, 0, 0, 0); // Compare dates only
-    
+
     // Check if date is valid
     if (isNaN(expiry.getTime())) return false;
-    
+
     // Must be in the future
     return expiry > today;
   }

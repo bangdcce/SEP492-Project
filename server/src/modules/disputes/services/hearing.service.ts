@@ -20,7 +20,15 @@ import { Repository, In, MoreThan, LessThan, Between, DataSource } from 'typeorm
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities
-import { DisputeEntity, DisputeStatus } from '../../../database/entities/dispute.entity';
+import {
+  DisputeEntity,
+  DisputeStatus,
+  DisputePhase,
+} from '../../../database/entities/dispute.entity';
+import {
+  DisputePartyEntity,
+  DisputePartySide,
+} from '../../../database/entities/dispute-party.entity';
 import { ProjectEntity } from '../../../database/entities/project.entity';
 import { UserEntity, UserRole } from '../../../database/entities/user.entity';
 import {
@@ -29,7 +37,6 @@ import {
   HearingParticipantRole,
   HearingStatementEntity,
   HearingStatementStatus,
-  HearingStatementType,
   HearingQuestionEntity,
   HearingQuestionStatus,
   HearingStatus,
@@ -48,12 +55,20 @@ import {
   AttendanceStatus,
 } from '../../../database/entities/event-participant.entity';
 import { UserAvailabilityEntity } from '../../../database/entities/user-availability.entity';
+import { NotificationEntity } from '../../../database/entities/notification.entity';
+import {
+  HearingReminderDeliveryEntity,
+  HearingReminderType,
+} from '../../../database/entities/hearing-reminder-delivery.entity';
+import { EmailService } from '../../auth/email.service';
 import {
   ScheduleHearingDto,
   RescheduleHearingDto,
   SubmitHearingStatementDto,
   AskHearingQuestionDto,
   EndHearingDto,
+  ExtendHearingDto,
+  InviteSupportStaffDto,
 } from '../dto/hearing.dto';
 
 // =============================================================================
@@ -127,6 +142,13 @@ const HEARING_CONFIG = {
   SPEAKER_GRACE_PERIOD_MS: 5000,
 } as const;
 
+const HEARING_REMINDER_WINDOWS = [
+  { type: HearingReminderType.T24H, minutesBefore: 24 * 60 },
+  { type: HearingReminderType.T1H, minutesBefore: 60 },
+  { type: HearingReminderType.T10M, minutesBefore: 10 },
+] as const;
+const HEARING_REMINDER_DISPATCH_GRACE_MINUTES = 2;
+
 // =============================================================================
 // SERVICE
 // =============================================================================
@@ -142,6 +164,8 @@ export class HearingService {
   constructor(
     @InjectRepository(DisputeEntity)
     private readonly disputeRepository: Repository<DisputeEntity>,
+    @InjectRepository(DisputePartyEntity)
+    private readonly disputePartyRepository: Repository<DisputePartyEntity>,
     @InjectRepository(DisputeHearingEntity)
     private readonly hearingRepository: Repository<DisputeHearingEntity>,
     @InjectRepository(HearingParticipantEntity)
@@ -160,8 +184,13 @@ export class HearingService {
     private readonly calendarRepository: Repository<CalendarEventEntity>,
     @InjectRepository(UserAvailabilityEntity)
     private readonly availabilityRepository: Repository<UserAvailabilityEntity>,
+    @InjectRepository(NotificationEntity)
+    private readonly notificationRepository: Repository<NotificationEntity>,
+    @InjectRepository(HearingReminderDeliveryEntity)
+    private readonly reminderDeliveryRepository: Repository<HearingReminderDeliveryEntity>,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
+    private readonly emailService: EmailService,
   ) {}
 
   // ===========================================================================
@@ -322,12 +351,22 @@ export class HearingService {
   ): Promise<DetermineParticipantsResult> {
     const participants: RequiredParticipant[] = [];
     const warnings: string[] = [];
+    const addedUserIds = new Set<string>();
+
+    const addParticipant = (participant: RequiredParticipant) => {
+      if (!participant.userId || addedUserIds.has(participant.userId)) {
+        return;
+      }
+      participants.push(participant);
+      addedUserIds.add(participant.userId);
+    };
 
     // 1. Load dispute with project info
     const dispute = await this.disputeRepository.findOne({
       where: { id: disputeId },
       select: [
         'id',
+        'groupId',
         'raisedById',
         'defendantId',
         'projectId',
@@ -342,7 +381,7 @@ export class HearingService {
     }
 
     // 2. Add Raiser (REQUIRED)
-    participants.push({
+    addParticipant({
       userId: dispute.raisedById,
       role: HearingParticipantRole.RAISER,
       isRequired: true,
@@ -351,7 +390,7 @@ export class HearingService {
     });
 
     // 3. Add Defendant (REQUIRED)
-    participants.push({
+    addParticipant({
       userId: dispute.defendantId,
       role: HearingParticipantRole.DEFENDANT,
       isRequired: true,
@@ -369,7 +408,7 @@ export class HearingService {
       throw new BadRequestException(`Moderator ${moderatorId} not found`);
     }
 
-    participants.push({
+    addParticipant({
       userId: moderatorId,
       role: HearingParticipantRole.MODERATOR,
       isRequired: true,
@@ -379,7 +418,7 @@ export class HearingService {
 
     // 5. Query Project to find Broker and other stakeholders
     let hasBroker = false;
-    let hasSupervisor = false;
+    const hasSupervisor = false;
 
     if (dispute.projectId) {
       const project = await this.projectRepository.findOne({
@@ -394,7 +433,7 @@ export class HearingService {
           project.brokerId !== dispute.raisedById &&
           project.brokerId !== dispute.defendantId
         ) {
-          participants.push({
+          addParticipant({
             userId: project.brokerId,
             role: HearingParticipantRole.WITNESS,
             isRequired: true, // Broker is critical - knows the Spec
@@ -411,7 +450,7 @@ export class HearingService {
           project.freelancerId !== dispute.raisedById &&
           project.freelancerId !== dispute.defendantId
         ) {
-          participants.push({
+          addParticipant({
             userId: project.freelancerId,
             role: HearingParticipantRole.OBSERVER,
             isRequired: false, // Optional observer
@@ -426,7 +465,7 @@ export class HearingService {
           project.clientId !== dispute.raisedById &&
           project.clientId !== dispute.defendantId
         ) {
-          participants.push({
+          addParticipant({
             userId: project.clientId,
             role: HearingParticipantRole.OBSERVER,
             isRequired: false,
@@ -441,7 +480,7 @@ export class HearingService {
     if (tier === HearingTier.TIER_2 && dispute.assignedStaffId) {
       // Original Staff becomes OBSERVER in Tier 2
       if (dispute.assignedStaffId !== moderatorId) {
-        participants.push({
+        addParticipant({
           userId: dispute.assignedStaffId,
           role: HearingParticipantRole.OBSERVER,
           isRequired: false, // Optional - can provide context
@@ -451,7 +490,42 @@ export class HearingService {
       }
     }
 
-    // 7. Warnings if key people missing
+    // 7. Add explicit multi-party members from dispute group.
+    const groupId = dispute.groupId || dispute.id;
+    const groupMembers = await this.disputePartyRepository.find({
+      where: { groupId },
+      select: ['userId', 'role', 'side'],
+    });
+
+    for (const member of groupMembers) {
+      if (!member.userId || addedUserIds.has(member.userId)) {
+        continue;
+      }
+
+      let relationToProject = 'group_member';
+      let role = HearingParticipantRole.OBSERVER;
+
+      if (member.side === DisputePartySide.RAISER) {
+        relationToProject = 'raiser_side_member';
+        role = HearingParticipantRole.WITNESS;
+      } else if (member.side === DisputePartySide.DEFENDANT) {
+        relationToProject = 'defendant_side_member';
+        role = HearingParticipantRole.WITNESS;
+      } else if (member.side === DisputePartySide.THIRD_PARTY) {
+        relationToProject = 'third_party_member';
+        role = HearingParticipantRole.OBSERVER;
+      }
+
+      addParticipant({
+        userId: member.userId,
+        role,
+        isRequired: false,
+        userRole: member.role || UserRole.CLIENT,
+        relationToProject,
+      });
+    }
+
+    // 8. Warnings if key people missing
     if (!hasBroker && dispute.projectId) {
       warnings.push('⚠️ No Broker found for this project. Broker testimony may be helpful.');
     }
@@ -579,8 +653,8 @@ export class HearingService {
       this.speakerGracePeriod.delete(hearingId);
     }
     const graceActive = grace && grace.expiresAtMs > nowMs;
-    const effectiveRole = graceActive ? grace!.previousRole : hearing.currentSpeakerRole;
-    const gracePeriodUntil = graceActive ? new Date(grace!.expiresAtMs) : undefined;
+    const effectiveRole = graceActive ? grace.previousRole : hearing.currentSpeakerRole;
+    const gracePeriodUntil = graceActive ? new Date(grace.expiresAtMs) : undefined;
 
     if (!this.isSpeakerAllowed(effectiveRole, participant.role)) {
       return {
@@ -845,15 +919,10 @@ export class HearingService {
     }
 
     const isModerator = hearing.moderatorId === user.id;
-    const isParticipant = (hearing.participants || []).some(
-      (participant) => participant.userId === user.id,
-    );
+    const isParticipant = hearing.participants?.some((p) => p.userId === user.id);
     const dispute = hearing.dispute;
-    const isParty =
-      dispute &&
-      (user.id === dispute.raisedById || user.id === dispute.defendantId);
-    const isAssignedStaff =
-      user.role === UserRole.STAFF && dispute?.assignedStaffId === user.id;
+    const isParty = dispute && (user.id === dispute.raisedById || user.id === dispute.defendantId);
+    const isAssignedStaff = user.role === UserRole.STAFF && dispute?.assignedStaffId === user.id;
     const isEscalatedAdmin = dispute?.escalatedToAdminId === user.id;
 
     if (!isModerator && !isParticipant && !isParty && !isAssignedStaff && !isEscalatedAdmin) {
@@ -891,13 +960,10 @@ export class HearingService {
         where: { hearingId, userId: user.id },
       });
       if (participant) {
-        qb.andWhere(
-          '(statement.status = :submitted OR statement.participantId = :participantId)',
-          {
-            submitted: HearingStatementStatus.SUBMITTED,
-            participantId: participant.id,
-          },
-        );
+        qb.andWhere('(statement.status = :submitted OR statement.participantId = :participantId)', {
+          submitted: HearingStatementStatus.SUBMITTED,
+          participantId: participant.id,
+        });
       } else {
         qb.andWhere('statement.status = :submitted', {
           submitted: HearingStatementStatus.SUBMITTED,
@@ -1653,6 +1719,130 @@ export class HearingService {
   }
 
   // ===========================================================================
+  // COMPOSE FUNCTION: transitionHearingPhase()
+  // Chuyển phase phiên tòa (mapping DisputePhase -> SpeakerRole)
+  // Nghịp vụ tòa án:
+  //   PRESENTATION      -> RAISER_ONLY      (Nguyên đơn trình bày)
+  //   CROSS_EXAMINATION -> DEFENDANT_ONLY   (Bị đơn phản bác/bào chữa)
+  //   INTERROGATION     -> MODERATOR_ONLY   (Thẩm phán thẩm vấn)
+  //   DELIBERATION      -> MUTED_ALL        (Nghị án - khóa chat toàn bộ)
+  // ===========================================================================
+
+  /**
+   * Mapping từ DisputePhase sang SpeakerRole.
+   * Được sử dụng để Admin/Staff dễ dàng chuyển phase phiên tòa
+   * mà không cần nhớ tên SpeakerRole cụ thể.
+   */
+  private mapPhaseToSpeakerRole(phase: DisputePhase): SpeakerRole {
+    switch (phase) {
+      case DisputePhase.PRESENTATION:
+        return SpeakerRole.RAISER_ONLY;
+      case DisputePhase.CROSS_EXAMINATION:
+        return SpeakerRole.DEFENDANT_ONLY;
+      case DisputePhase.INTERROGATION:
+        return SpeakerRole.MODERATOR_ONLY;
+      case DisputePhase.DELIBERATION:
+        return SpeakerRole.MUTED_ALL;
+      default:
+        return SpeakerRole.ALL;
+    }
+  }
+
+  /**
+   * Chuyển phase phiên tòa.
+   * Tự động map DisputePhase -> SpeakerRole và cập nhật speaker control,
+   * đồng thời cập nhật trường phase trên DisputeEntity để giữ đồng bộ trạng thái tổng quan.
+   *
+   * @param hearingId - ID phiên tòa
+   * @param phase - Phase mới (PRESENTATION, CROSS_EXAMINATION, INTERROGATION, DELIBERATION)
+   * @param actorId - ID người thực hiện (Staff/Admin)
+   */
+  async transitionHearingPhase(
+    hearingId: string,
+    phase: DisputePhase,
+    actorId: string,
+  ): Promise<{
+    success: boolean;
+    hearing: DisputeHearingEntity;
+    previousPhase: DisputePhase | null;
+    newPhase: DisputePhase;
+    previousSpeakerRole: SpeakerRole;
+    newSpeakerRole: SpeakerRole;
+  }> {
+    // 1. Tìm hearing và validate
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: hearingId },
+      select: ['id', 'status', 'isChatRoomActive', 'currentSpeakerRole', 'disputeId'],
+    });
+
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${hearingId} not found`);
+    }
+
+    if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
+      throw new BadRequestException('Hearing is not in progress or chat room is not active');
+    }
+
+    // 2. Kiểm tra quyền điều khiển speaker
+    const check = await this.canControlSpeaker(hearingId, actorId);
+    if (!check.canControl) {
+      throw new ForbiddenException(check.reason);
+    }
+
+    // 3. Mapping phase -> speakerRole
+    const newSpeakerRole = this.mapPhaseToSpeakerRole(phase);
+    const previousSpeakerRole = hearing.currentSpeakerRole;
+
+    // 4. Cập nhật speaker control trên Hearing
+    this.speakerGracePeriod.delete(hearingId);
+    await this.hearingRepository.update(hearingId, {
+      currentSpeakerRole: newSpeakerRole,
+    });
+
+    // 5. Cập nhật phase trên Dispute để đồng bộ trạng thái tổng quan
+    const dispute = await this.disputeRepository.findOne({
+      where: { id: hearing.disputeId },
+      select: ['id', 'phase'],
+    });
+    const previousPhase = dispute?.phase ?? null;
+    if (dispute) {
+      await this.disputeRepository.update(dispute.id, { phase });
+    }
+
+    // 6. Emit event để Gateway bắn realtime
+    this.eventEmitter.emit('hearing.phaseTransitioned', {
+      hearingId,
+      disputeId: hearing.disputeId,
+      changedBy: actorId,
+      previousPhase,
+      newPhase: phase,
+      previousSpeakerRole,
+      newSpeakerRole,
+    });
+
+    this.eventEmitter.emit('hearing.speakerControlChanged', {
+      hearingId,
+      changedBy: actorId,
+      previousRole: previousSpeakerRole,
+      newRole: newSpeakerRole,
+      gracePeriodMs: 0,
+    });
+
+    const updatedHearing = await this.hearingRepository.findOne({
+      where: { id: hearingId },
+    });
+
+    return {
+      success: true,
+      hearing: updatedHearing || hearing,
+      previousPhase,
+      newPhase: phase,
+      previousSpeakerRole,
+      newSpeakerRole,
+    };
+  }
+
+  // ===========================================================================
   // COMPOSE FUNCTION: submitHearingStatement()
   // ===========================================================================
 
@@ -1685,8 +1875,6 @@ export class HearingService {
     if (!isDraft && (!dto.content || dto.content.trim().length === 0)) {
       throw new BadRequestException('Content is required for submitted statements');
     }
-
-    const now = new Date();
 
     if (dto.draftId) {
       const existingDraft = await this.statementRepository.findOne({
@@ -1737,9 +1925,8 @@ export class HearingService {
       return saved;
     }
 
-    let retractionOfStatementId: string | undefined = dto.retractionOfStatementId;
+    const retractionOfStatementId: string | undefined = dto.retractionOfStatementId;
     let title = dto.title;
-
     if (retractionOfStatementId) {
       const targetStatement = await this.statementRepository.findOne({
         where: { id: retractionOfStatementId, hearingId: hearing.id },
@@ -2257,6 +2444,449 @@ export class HearingService {
         warnings: scheduleValidation.warnings,
       };
     });
+  }
+
+  private async assertModeratorOrAdmin(
+    hearing: Pick<DisputeHearingEntity, 'moderatorId'>,
+    requesterId: string,
+  ): Promise<UserEntity> {
+    const requester = await this.userRepository.findOne({
+      where: { id: requesterId },
+      select: ['id', 'role', 'isBanned'],
+    });
+
+    if (!requester || requester.isBanned) {
+      throw new NotFoundException('Requester not found');
+    }
+
+    if (requester.id !== hearing.moderatorId && requester.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only the assigned moderator or admin can perform this action');
+    }
+
+    return requester;
+  }
+
+  async extendHearingDuration(
+    dto: ExtendHearingDto,
+    requesterId: string,
+  ): Promise<{
+    hearing: DisputeHearingEntity;
+    previousDurationMinutes: number;
+    newDurationMinutes: number;
+    calendarEventUpdated: boolean;
+  }> {
+    if (!dto.reason?.trim() || dto.reason.trim().length < 8) {
+      throw new BadRequestException('Extension reason must be at least 8 characters');
+    }
+
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: dto.hearingId },
+      select: [
+        'id',
+        'disputeId',
+        'status',
+        'moderatorId',
+        'estimatedDurationMinutes',
+        'scheduledAt',
+        'startedAt',
+      ],
+    });
+
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${dto.hearingId} not found`);
+    }
+
+    if (![HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS].includes(hearing.status)) {
+      throw new BadRequestException('Only scheduled or in-progress hearings can be extended');
+    }
+
+    await this.assertModeratorOrAdmin(hearing, requesterId);
+
+    const previousDurationMinutes = hearing.estimatedDurationMinutes || 60;
+    const newDurationMinutes = previousDurationMinutes + dto.additionalMinutes;
+
+    if (newDurationMinutes > 600) {
+      throw new BadRequestException('Extended hearing duration exceeds 600-minute safety limit');
+    }
+
+    let calendarEventUpdated = false;
+    await this.dataSource.transaction(async (manager) => {
+      await manager.getRepository(DisputeHearingEntity).update(hearing.id, {
+        estimatedDurationMinutes: newDurationMinutes,
+      });
+
+      const calendarEventRepo = manager.getRepository(CalendarEventEntity);
+      const calendarEvent = await calendarEventRepo.findOne({
+        where: { referenceType: 'DisputeHearing', referenceId: hearing.id },
+        select: ['id', 'startTime', 'durationMinutes'],
+      });
+
+      if (calendarEvent) {
+        const baseStart = calendarEvent.startTime || hearing.scheduledAt || hearing.startedAt;
+        if (baseStart) {
+          const nextEndTime = new Date(baseStart.getTime() + newDurationMinutes * 60 * 1000);
+          await calendarEventRepo.update(calendarEvent.id, {
+            durationMinutes: newDurationMinutes,
+            endTime: nextEndTime,
+          });
+          calendarEventUpdated = true;
+        }
+      }
+    });
+
+    const updated = await this.hearingRepository.findOne({
+      where: { id: hearing.id },
+    });
+
+    this.eventEmitter.emit('hearing.extended', {
+      hearingId: hearing.id,
+      disputeId: hearing.disputeId,
+      extendedBy: requesterId,
+      reason: dto.reason.trim(),
+      additionalMinutes: dto.additionalMinutes,
+      previousDurationMinutes,
+      newDurationMinutes,
+      calendarEventUpdated,
+    });
+
+    return {
+      hearing: updated || hearing,
+      previousDurationMinutes,
+      newDurationMinutes,
+      calendarEventUpdated,
+    };
+  }
+
+  async inviteSupportStaff(
+    dto: InviteSupportStaffDto,
+    requesterId: string,
+  ): Promise<{
+    hearing: DisputeHearingEntity;
+    participant: HearingParticipantEntity;
+    invitedUser: Pick<UserEntity, 'id' | 'email' | 'fullName' | 'role'>;
+    alreadyParticipant: boolean;
+  }> {
+    if (!dto.reason?.trim() || dto.reason.trim().length < 8) {
+      throw new BadRequestException('Support invite reason must be at least 8 characters');
+    }
+
+    const requestedRole = dto.participantRole || HearingParticipantRole.OBSERVER;
+    if (requestedRole === HearingParticipantRole.MODERATOR) {
+      throw new BadRequestException('Support invite cannot assign MODERATOR role directly');
+    }
+
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: dto.hearingId },
+      relations: ['participants'],
+    });
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${dto.hearingId} not found`);
+    }
+
+    if (![HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS].includes(hearing.status)) {
+      throw new BadRequestException(
+        'Support can only be invited for scheduled/in-progress hearings',
+      );
+    }
+
+    await this.assertModeratorOrAdmin(hearing, requesterId);
+
+    const invitedUser = await this.userRepository.findOne({
+      where: { id: dto.userId },
+      select: ['id', 'email', 'fullName', 'role', 'isBanned'],
+    });
+    if (!invitedUser || invitedUser.isBanned) {
+      throw new NotFoundException('Support user not found');
+    }
+    if (![UserRole.STAFF, UserRole.ADMIN].includes(invitedUser.role)) {
+      throw new BadRequestException('Only STAFF or ADMIN can be invited as support');
+    }
+
+    const existing = hearing.participants?.find((item) => item.userId === invitedUser.id);
+    if (existing) {
+      return {
+        hearing,
+        participant: existing,
+        invitedUser,
+        alreadyParticipant: true,
+      };
+    }
+
+    const now = new Date();
+    const responseDeadline = this.calculateResponseDeadline(
+      hearing.scheduledAt,
+      hearing.status === HearingStatus.IN_PROGRESS,
+    );
+
+    const participant = await this.dataSource.transaction(async (manager) => {
+      const participantRepo = manager.getRepository(HearingParticipantEntity);
+      const eventParticipantRepo = manager.getRepository(EventParticipantEntity);
+      const calendarEventRepo = manager.getRepository(CalendarEventEntity);
+
+      const created = await participantRepo.save(
+        participantRepo.create({
+          hearingId: hearing.id,
+          userId: invitedUser.id,
+          role: requestedRole,
+          invitedAt: now,
+          isRequired: false,
+          responseDeadline,
+        }),
+      );
+
+      const calendarEvent = await calendarEventRepo.findOne({
+        where: { referenceType: 'DisputeHearing', referenceId: hearing.id },
+        select: ['id'],
+      });
+      if (calendarEvent) {
+        await eventParticipantRepo.save(
+          eventParticipantRepo.create({
+            eventId: calendarEvent.id,
+            userId: invitedUser.id,
+            role: ParticipantRole.OBSERVER,
+            status: ParticipantStatus.PENDING,
+            responseDeadline,
+          }),
+        );
+      }
+
+      return created;
+    });
+
+    this.eventEmitter.emit('hearing.support_invited', {
+      hearingId: hearing.id,
+      disputeId: hearing.disputeId,
+      invitedBy: requesterId,
+      invitedUserId: invitedUser.id,
+      invitedUserRole: invitedUser.role,
+      participantRole: requestedRole,
+      reason: dto.reason.trim(),
+    });
+
+    return {
+      hearing,
+      participant,
+      invitedUser,
+      alreadyParticipant: false,
+    };
+  }
+
+  async getSupportCandidates(
+    hearingId: string,
+    requesterId: string,
+  ): Promise<Array<{ id: string; fullName: string; email: string; role: UserRole }>> {
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: hearingId },
+      relations: ['participants'],
+      select: ['id', 'moderatorId', 'status'],
+    });
+
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${hearingId} not found`);
+    }
+
+    if (![HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS].includes(hearing.status)) {
+      throw new BadRequestException(
+        'Support candidates are available for scheduled/in-progress hearings',
+      );
+    }
+
+    await this.assertModeratorOrAdmin(hearing, requesterId);
+
+    const existingIds = new Set(
+      (hearing.participants || []).map((participant) => participant.userId),
+    );
+    existingIds.add(hearing.moderatorId);
+
+    const users = await this.userRepository.find({
+      where: {
+        role: In([UserRole.STAFF, UserRole.ADMIN]),
+        isBanned: false,
+      },
+      select: ['id', 'email', 'fullName', 'role'],
+      order: { role: 'ASC', fullName: 'ASC' },
+      take: 100,
+    });
+
+    return users
+      .filter((user) => !existingIds.has(user.id))
+      .map((user) => ({
+        id: user.id,
+        fullName: user.fullName,
+        email: user.email,
+        role: user.role,
+      }));
+  }
+
+  private getReminderWindowBounds(
+    referenceAt: Date,
+    minutesBefore: number,
+  ): { from: Date; to: Date } {
+    const targetTime = new Date(referenceAt.getTime() + minutesBefore * 60 * 1000);
+    const graceMs = HEARING_REMINDER_DISPATCH_GRACE_MINUTES * 60 * 1000;
+    return {
+      from: new Date(targetTime.getTime() - graceMs),
+      to: new Date(targetTime.getTime() + graceMs),
+    };
+  }
+
+  private reminderLabel(type: HearingReminderType): string {
+    switch (type) {
+      case HearingReminderType.T24H:
+        return 'in 24 hours';
+      case HearingReminderType.T1H:
+        return 'in 1 hour';
+      case HearingReminderType.T10M:
+        return 'in 10 minutes';
+      default:
+        return 'soon';
+    }
+  }
+
+  private async sendReminderEmail(
+    email: string,
+    hearing: DisputeHearingEntity,
+    type: HearingReminderType,
+  ): Promise<boolean> {
+    try {
+      await this.emailService.sendPlatformNotification({
+        email,
+        subject: `Hearing reminder (${this.reminderLabel(type)})`,
+        title: 'Upcoming dispute hearing',
+        body: `Your hearing is scheduled ${this.reminderLabel(type)} at ${new Date(
+          hearing.scheduledAt,
+        ).toISOString()}.`,
+      });
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `Failed to send hearing reminder email to ${email}: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+      return false;
+    }
+  }
+
+  async dispatchDueHearingReminders(referenceAt: Date = new Date()): Promise<{
+    referenceAt: string;
+    sent: number;
+    skipped: number;
+    details: Array<{
+      hearingId: string;
+      userId: string;
+      reminderType: HearingReminderType;
+      notificationId: string;
+      emailSent: boolean;
+    }>;
+  }> {
+    const details: Array<{
+      hearingId: string;
+      userId: string;
+      reminderType: HearingReminderType;
+      notificationId: string;
+      emailSent: boolean;
+    }> = [];
+
+    let sent = 0;
+    let skipped = 0;
+
+    for (const window of HEARING_REMINDER_WINDOWS) {
+      const bounds = this.getReminderWindowBounds(referenceAt, window.minutesBefore);
+      const hearings = await this.hearingRepository.find({
+        where: {
+          status: HearingStatus.SCHEDULED,
+          scheduledAt: Between(bounds.from, bounds.to),
+        },
+        select: ['id', 'disputeId', 'scheduledAt'],
+      });
+
+      for (const hearing of hearings) {
+        const participants = await this.participantRepository.find({
+          where: { hearingId: hearing.id },
+          select: ['userId'],
+        });
+
+        if (!participants.length) {
+          continue;
+        }
+
+        for (const participant of participants) {
+          const existing = await this.reminderDeliveryRepository.findOne({
+            where: {
+              hearingId: hearing.id,
+              userId: participant.userId,
+              reminderType: window.type,
+            },
+            select: ['id'],
+          });
+          if (existing) {
+            skipped += 1;
+            continue;
+          }
+
+          const targetUser = await this.userRepository.findOne({
+            where: { id: participant.userId, isBanned: false },
+            select: ['id', 'email'],
+          });
+          if (!targetUser) {
+            skipped += 1;
+            continue;
+          }
+
+          const title = 'Hearing reminder';
+          const body = `Your dispute hearing starts ${this.reminderLabel(window.type)} (${new Date(
+            hearing.scheduledAt,
+          ).toISOString()}).`;
+
+          const notification = await this.notificationRepository.save(
+            this.notificationRepository.create({
+              userId: targetUser.id,
+              title,
+              body,
+              relatedType: 'DisputeHearing',
+              relatedId: hearing.id,
+            }),
+          );
+
+          const emailSent = await this.sendReminderEmail(targetUser.email, hearing, window.type);
+          await this.reminderDeliveryRepository.insert({
+            hearingId: hearing.id,
+            userId: targetUser.id,
+            reminderType: window.type,
+            scheduledFor: hearing.scheduledAt,
+            notificationId: notification.id,
+            emailSent,
+            emailSentAt: emailSent ? new Date() : undefined,
+          });
+
+          sent += 1;
+          details.push({
+            hearingId: hearing.id,
+            userId: targetUser.id,
+            reminderType: window.type,
+            notificationId: notification.id,
+            emailSent,
+          });
+
+          this.eventEmitter.emit('hearing.reminder_sent', {
+            hearingId: hearing.id,
+            disputeId: hearing.disputeId,
+            userId: targetUser.id,
+            reminderType: window.type,
+            notificationId: notification.id,
+            scheduledAt: hearing.scheduledAt,
+          });
+        }
+      }
+    }
+
+    return {
+      referenceAt: referenceAt.toISOString(),
+      sent,
+      skipped,
+      details,
+    };
   }
 
   // ===========================================================================
