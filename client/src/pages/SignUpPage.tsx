@@ -7,7 +7,7 @@ import { Button } from '../shared/components/custom/Button';
 import { PasswordStrength } from '../shared/components/auth/PasswordStrength';
 import { CaptchaInput } from '../shared/components/auth/CaptchaInput';
 import { AuthLayout } from '../shared/components/layouts/AuthLayout';
-import { Eye, EyeOff, ArrowLeft, ArrowRight, Building2, Store, Briefcase, Laptop, X } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, ArrowRight, Store, Briefcase, Laptop, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { ROUTES } from '@/constants';
 import { signUp, getSkillDomains, getSkills, type SkillDomain, type Skill } from '@/features/auth';
@@ -19,7 +19,7 @@ interface SignUpPageProps {
   onSignUpSuccess?: () => void;
 }
 
-type UserRole = 'client_large' | 'client_small' | 'broker' | 'freelancer';
+type UserRole = 'client' | 'broker' | 'freelancer';
 
 export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPageProps = {}) {
   const navigate = useNavigate();
@@ -86,18 +86,27 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     return emailRegex.test(email);
   };
 
-  const validateCorporateEmail = (email: string): boolean => {
-    const freeEmailProviders = [
-      'gmail.com', 'googlemail.com', 'yahoo.com', 'yahoo.co.uk',
-      'hotmail.com', 'outlook.com', 'live.com', 'msn.com',
-      'icloud.com', 'me.com', 'aol.com', 'mail.com',
-      'protonmail.com', 'proton.me', 'zoho.com', 'yandex.com',
-      'gmx.com', 'gmx.net', 'inbox.com', 'mail.ru'
+  const validateDisposableEmail = (email: string): boolean => {
+    const disposableDomains = [
+      '10minutemail.com', '10minutemail.net', 'guerrillamail.com', 'guerrillamail.net', 
+      'guerrillamail.org', 'guerrillamailblock.com', 'mailinator.com', 'maildrop.cc', 
+      'tempmail.com', 'temp-mail.org', 'temp-mail.io', 'throwaway.email', 'getnada.com', 
+      'fakeinbox.com', 'trashmail.com', 'yopmail.com', 'yopmail.fr', 'yopmail.net', 
+      'mytrashmail.com', 'mintemail.com', 'emailondeck.com', 'sharklasers.com', 
+      'grr.la', 'emltmp.com', 'dispostable.com', 'spambox.us', 'spam4.me', 
+      'anonymbox.com', 'sendspamhere.com', 'tempinbox.com', 'filzmail.com', 
+      'mail-temporaire.fr', 'meltmail.com', 'mytemp.email', 'fakemail.net', 
+      'throwawaymail.com', 'inboxbear.com', 'mailcatch.com', 'mailnesia.com', 
+      'dropmail.me', 'getairmail.com', 'harakirimail.com', 'incognitomail.com', 
+      'instantemailaddress.com', 'tempemail.net', 'tempsky.com', 'trashymail.com', 
+      'wegwerfmail.de', 'wegwerfemail.de', 'zehnminuten.de', 'zehnminutenmail.de', 
+      'mailsac.com', 'mohmal.com', 'tmailinator.com', 'willselfdestruct.com'
     ];
-
-    const domain = email.split('@')[1]?.toLowerCase();
+    
+    const domain = email.toLowerCase().split('@')[1];
     if (!domain) return false;
-    return !freeEmailProviders.includes(domain);
+    
+    return !disposableDomains.includes(domain);
   };
 
   const validatePhone = (phone: string): boolean => {
@@ -122,7 +131,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
   const isStep2Valid = () => {
     if (!formData.fullName || formData.fullName.length < 2) return false;
     if (!formData.email || !validateEmail(formData.email)) return false;
-    if (formData.role === 'client_large' && !validateCorporateEmail(formData.email)) return false;
+    if (!validateDisposableEmail(formData.email)) return false;
     if (!formData.phoneNumber || !validatePhone(formData.phoneNumber)) return false;
     if (!formData.password || !isPasswordValid) return false;
     if (!formData.confirmPassword || formData.password !== formData.confirmPassword) return false;
@@ -141,90 +150,34 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     return formData.skills.length > 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const newErrors: Record<string, string> = {};
-
-    // Validation
-    if (!formData.role) {
-      newErrors.role = 'Please select your role';
-    }
-
-    if (!formData.fullName) {
-      newErrors.fullName = 'Full name is required';
-    } else if (formData.fullName.length < 2) {
-      newErrors.fullName = 'Full name must be at least 2 characters';
-    }
-
-    if (!formData.email) {
-      newErrors.email = 'Email is required';
-    } else if (!validateEmail(formData.email)) {
-      newErrors.email = 'Invalid email address';
-    } else if (formData.role === 'client_large' && !validateCorporateEmail(formData.email)) {
-      newErrors.email = 'Large SMEs must use a corporate/organization email (not Gmail, Yahoo, Hotmail, etc.)';
-    }
-
-    if (!formData.phoneNumber) {
-      newErrors.phoneNumber = 'Phone number is required';
-    } else if (!validatePhone(formData.phoneNumber)) {
-      newErrors.phoneNumber = 'Invalid phone number. Format: 0[3|5|7|8|9]xxxxxxxx';
-    }
-
-    if (!formData.password) {
-      newErrors.password = 'Password is required';
-    } else if (!isPasswordValid) {
-      newErrors.password = 'Password must meet all requirements';
-    }
-
-    if (!formData.confirmPassword) {
-      newErrors.confirmPassword = 'Please confirm your password';
-    } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = 'Passwords do not match';
-    }
-
-    if (!formData.acceptTerms) {
-      newErrors.acceptTerms = 'You must accept the Terms of Service';
-    }
-
-    if (!formData.acceptPrivacy) {
-      newErrors.acceptPrivacy = 'You must accept the Privacy Policy';
-    }
-
-    if (!formData.recaptchaToken) {
-      newErrors.recaptcha = 'Please complete the reCAPTCHA verification';
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
-
+  // Shared function to perform the actual sign up API call
+  const performSignUp = async () => {
     setErrors({});
     setLoading(true);
 
     try {
       // Map frontend roles to backend roles
-      let backendRole;
-      if (formData.role === 'client_large') {
-        backendRole = 'CLIENT';
-      } else if (formData.role === 'client_small') {
-        backendRole = 'CLIENT_SME';
-      } else {
-        backendRole = formData.role.toUpperCase();
-      }
+      const backendRole = formData.role.toUpperCase();
 
-      await signUp({
+      // Only send domainIds and skillIds for FREELANCER and BROKER
+      const payload: any = {
         email: formData.email,
         password: formData.password,
         fullName: formData.fullName,
         phoneNumber: formData.phoneNumber,
-        role: backendRole as any,
+        role: backendRole,
         recaptchaToken: formData.recaptchaToken,
-        domainIds: formData.domains.length > 0 ? formData.domains : undefined,
-        skillIds: formData.skills.length > 0 ? formData.skills : undefined,
         acceptTerms: formData.acceptTerms,
         acceptPrivacy: formData.acceptPrivacy,
-      });
+      };
+
+      // Add domains and skills only for FREELANCER and BROKER
+      if (formData.role === 'freelancer' || formData.role === 'broker') {
+        if (formData.domains.length > 0) payload.domainIds = formData.domains;
+        if (formData.skills.length > 0) payload.skillIds = formData.skills;
+      }
+
+      await signUp(payload);
 
       toast.success('Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.');
 
@@ -268,6 +221,68 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const newErrors: Record<string, string> = {};
+
+    // Validation
+    if (!formData.role) {
+      newErrors.role = 'Please select your role';
+    }
+
+    if (!formData.fullName) {
+      newErrors.fullName = 'Full name is required';
+    } else if (formData.fullName.length < 2) {
+      newErrors.fullName = 'Full name must be at least 2 characters';
+    }
+
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!validateEmail(formData.email)) {
+      newErrors.email = 'Invalid email address';
+    } else if (!validateDisposableEmail(formData.email)) {
+      newErrors.email = 'Disposable or temporary email addresses are not allowed. Please use a permanent email address.';
+    }
+
+    if (!formData.phoneNumber) {
+      newErrors.phoneNumber = 'Phone number is required';
+    } else if (!validatePhone(formData.phoneNumber)) {
+      newErrors.phoneNumber = 'Invalid phone number. Format: 0[3|5|7|8|9]xxxxxxxx';
+    }
+
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (!isPasswordValid) {
+      newErrors.password = 'Password must meet all requirements';
+    }
+
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = 'Please confirm your password';
+    } else if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+
+    if (!formData.acceptTerms) {
+      newErrors.acceptTerms = 'You must accept the Terms of Service';
+    }
+
+    if (!formData.acceptPrivacy) {
+      newErrors.acceptPrivacy = 'You must accept the Privacy Policy';
+    }
+
+    if (!formData.recaptchaToken) {
+      newErrors.recaptcha = 'Please complete the reCAPTCHA verification';
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    // Perform sign up
+    await performSignUp();
+  };
+
   const handleChange = (field: string, value: string | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors[field]) {
@@ -277,10 +292,8 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
 
   const getRoleLabel = (role: UserRole) => {
     switch (role) {
-      case 'client_large':
-        return 'Business Owner (Large SME)';
-      case 'client_small':
-        return 'Business Owner (Small SME/Individual)';
+      case 'client':
+        return 'Business Owner / Client';
       case 'broker':
         return 'Broker (Project Consultant)';
       case 'freelancer':
@@ -290,10 +303,8 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
 
   const getRoleDescription = (role: UserRole) => {
     switch (role) {
-      case 'client_large':
-        return 'I need software solutions for my established business (requires corporate email)';
-      case 'client_small':
-        return 'I need software solutions for my small business or personal project';
+      case 'client':
+        return 'I need software solutions for my business or personal project';
       case 'broker':
         return 'I help translate business needs into technical requirements';
       case 'freelancer':
@@ -303,9 +314,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
 
   const getRoleIcon = (role: UserRole) => {
     switch (role) {
-      case 'client_large':
-        return Building2;
-      case 'client_small':
+      case 'client':
         return Store;
       case 'broker':
         return Briefcase;
@@ -331,8 +340,8 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
       newErrors.email = 'Email is required';
     } else if (!validateEmail(formData.email)) {
       newErrors.email = 'Invalid email address';
-    } else if (formData.role === 'client_large' && !validateCorporateEmail(formData.email)) {
-      newErrors.email = 'Large SMEs must use a corporate/organization email (not Gmail, Yahoo, Hotmail, etc.)';
+    } else if (!validateDisposableEmail(formData.email)) {
+      newErrors.email = 'Disposable or temporary email addresses are not allowed. Please use a permanent email address.';
     }
 
     if (!formData.phoneNumber) {
@@ -366,8 +375,8 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
     if (formData.role === 'freelancer' || formData.role === 'broker') {
       setCurrentStep(3);
     } else {
-      // Client roles → submit immediately
-      handleSubmit(new Event('submit') as any);
+      // Client → submit immediately (only 2 steps: role + info)
+      await performSignUp();
     }
   };
 
@@ -643,7 +652,7 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                   I am a... <span style={{ color: 'var(--auth-error)' }}>*</span>
                 </label>
                 <div className="space-y-3">
-                  {(['client_large', 'client_small', 'broker', 'freelancer'] as UserRole[]).map((role) => (
+                  {(['client', 'broker', 'freelancer'] as UserRole[]).map((role) => (
                     <motion.button
                       key={role}
                       type="button"
@@ -778,11 +787,10 @@ export function SignUpPage({ onNavigateToSignIn, onSignUpSuccess }: SignUpPagePr
                 id="email"
                 label="Email"
                 type="email"
-                placeholder={formData.role === 'client_large' ? 'company@yourbusiness.com' : 'Enter your email'}
+                placeholder="Enter your email"
                 value={formData.email}
                 onChange={(e) => handleChange('email', e.target.value)}
                 error={errors.email}
-                helperText={formData.role === 'client_large' ? 'Use your company/university email (e.g., name@company.com, student@university.edu)' : undefined}
                 required
               />
 

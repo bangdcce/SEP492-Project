@@ -22,7 +22,6 @@ import { IsNotDisposableEmail } from '../../../common/validators/disposable-emai
  */
 export type RegisterableRole =
   | UserRole.CLIENT
-  | UserRole.CLIENT_SME
   | UserRole.BROKER
   | UserRole.FREELANCER;
 
@@ -31,7 +30,6 @@ export type RegisterableRole =
  */
 export const REGISTERABLE_ROLES = {
   CLIENT: UserRole.CLIENT,
-  CLIENT_SME: UserRole.CLIENT_SME,
   BROKER: UserRole.BROKER,
   FREELANCER: UserRole.FREELANCER,
 } as const;

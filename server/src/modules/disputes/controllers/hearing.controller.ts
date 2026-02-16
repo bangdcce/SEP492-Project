@@ -87,7 +87,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -159,7 +158,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -185,7 +183,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -215,7 +212,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -241,7 +237,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
