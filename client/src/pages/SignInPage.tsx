@@ -67,10 +67,8 @@ export function SignInPage({
         password: formData.password,
       });
 
-      // Save tokens based on remember-me choice
-
       // Backend returns {message, data: {user}}
-      // Tokens are now stored in httpOnly cookies, not in localStorage
+      // Tokens are now stored in httpOnly cookies
       const loginData = (response as any).data || response;
 
       // Only save user info to localStorage (not tokens)
@@ -80,10 +78,14 @@ export function SignInPage({
         formData.rememberMe,
       );
 
-      // Dispatch event to notify Header component of user data update
-      window.dispatchEvent(new Event("userDataUpdated"));
+      // Dispatch events to notify components
+      window.dispatchEvent(new Event("userLoggedIn")); // For API client to track login time
+      window.dispatchEvent(new Event("userDataUpdated")); // For header and other components
 
       toast.success("Sign in successful!");
+
+      // Wait a bit to ensure cookies are fully propagated in browser
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       if (onSignInSuccess) {
         onSignInSuccess();
@@ -93,11 +95,7 @@ export function SignInPage({
 
         if (userRole === "ADMIN") {
           navigate(ROUTES.ADMIN_DASHBOARD);
-        } else if (
-          userRole === "CLIENT" ||
-          userRole === "SME" ||
-          userRole === "CLIENT_SME"
-        ) {
+        } else if (userRole === "CLIENT") {
           navigate(ROUTES.CLIENT_DASHBOARD);
         } else if (userRole === "FREELANCER") {
           navigate(ROUTES.FREELANCER_DASHBOARD);

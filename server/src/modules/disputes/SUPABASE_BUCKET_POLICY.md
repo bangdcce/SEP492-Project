@@ -34,7 +34,7 @@ Allowed MIME types:
 **Bảng `users`:**
 
 - `id` (uuid)
-- `role` (enum): `ADMIN`, `STAFF`, `BROKER`, `CLIENT`, `CLIENT_SME`, `FREELANCER`
+- `role` (enum): `ADMIN`, `STAFF`, `BROKER`, `CLIENT`, `FREELANCER`
 
 ---
 

@@ -4,38 +4,22 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Input } from "../shared/components/custom/input";
 import { Button } from "../shared/components/custom/Button";
 // import { GoogleButton } from '../shared/components/auth/GoogleButton';
-import { PasswordStrength } from "../shared/components/auth/PasswordStrength";
-import { CaptchaInput } from "../shared/components/auth/CaptchaInput";
-import { AuthLayout } from "../shared/components/layouts/AuthLayout";
-import {
-  Eye,
-  EyeOff,
-  ArrowLeft,
-  ArrowRight,
-  Building2,
-  Store,
-  Briefcase,
-  Laptop,
-  X,
-} from "lucide-react";
-import { toast } from "sonner";
-import { ROUTES } from "@/constants";
-import {
-  signUp,
-  getSkillDomains,
-  getSkills,
-  type SkillDomain,
-  type Skill,
-} from "@/features/auth";
-import TermsOfService from "@/components/legal/TermsOfService";
-import PrivacyPolicy from "@/components/legal/PrivacyPolicy";
+import { PasswordStrength } from '../shared/components/auth/PasswordStrength';
+import { CaptchaInput } from '../shared/components/auth/CaptchaInput';
+import { AuthLayout } from '../shared/components/layouts/AuthLayout';
+import { Eye, EyeOff, ArrowLeft, ArrowRight, Store, Briefcase, Laptop, X } from 'lucide-react';
+import { toast } from 'sonner';
+import { ROUTES } from '@/constants';
+import { signUp, getSkillDomains, getSkills, type SkillDomain, type Skill } from '@/features/auth';
+import TermsOfService from '@/components/legal/TermsOfService';
+import PrivacyPolicy from '@/components/legal/PrivacyPolicy';
 
 interface SignUpPageProps {
   onNavigateToSignIn?: () => void;
   onSignUpSuccess?: () => void;
 }
 
-type UserRole = "client_large" | "client_small" | "broker" | "freelancer";
+type UserRole = 'client' | 'broker' | 'freelancer';
 
 export function SignUpPage({
   onNavigateToSignIn,
@@ -102,36 +86,36 @@ export function SignUpPage({
 
   const validateEmail = (email: string): boolean => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
+    if (!emailRegex.test(email)) return false;
 
-  const validateCorporateEmail = (email: string): boolean => {
-    const freeEmailProviders = [
-      "gmail.com",
-      "googlemail.com",
-      "yahoo.com",
-      "yahoo.co.uk",
-      "hotmail.com",
-      "outlook.com",
-      "live.com",
-      "msn.com",
-      "icloud.com",
-      "me.com",
-      "aol.com",
-      "mail.com",
-      "protonmail.com",
-      "proton.me",
-      "zoho.com",
-      "yandex.com",
-      "gmx.com",
-      "gmx.net",
-      "inbox.com",
-      "mail.ru",
+    // Whitelist: Chỉ chấp nhận email từ các provider uy tín
+    const allowedDomains = [
+      // Google
+      'gmail.com', 'googlemail.com',
+      // Microsoft
+      'outlook.com', 'hotmail.com', 'live.com', 'msn.com',
+      // Yahoo
+      'yahoo.com', 'yahoo.com.vn', 'ymail.com',
+      // Apple
+      'icloud.com', 'me.com', 'mac.com',
+      // Proton
+      'protonmail.com', 'proton.me', 'pm.me',
+      // Other trusted providers
+      'aol.com', 'mail.com', 'zoho.com', 'gmx.com', 'tutanota.com',
+      // Vietnamese providers
+      'vnu.edu.vn', 'hust.edu.vn', 'uit.edu.vn', 'fpt.edu.vn', 'vku.udn.vn',
+      // Corporate domains (allow for staff/enterprise)
+      // Add more as needed
     ];
-
-    const domain = email.split("@")[1]?.toLowerCase();
+    
+    const domain = email.toLowerCase().split('@')[1];
     if (!domain) return false;
-    return !freeEmailProviders.includes(domain);
+    
+    // Check if domain is in whitelist OR is an educational/corporate domain
+    const isAllowedDomain = allowedDomains.includes(domain);
+    const isEducationalDomain = domain.endsWith('.edu.vn') || domain.endsWith('.edu');
+    
+    return isAllowedDomain || isEducationalDomain;
   };
 
   const validatePhone = (phone: string): boolean => {
@@ -159,13 +143,7 @@ export function SignUpPage({
   const isStep2Valid = () => {
     if (!formData.fullName || formData.fullName.length < 2) return false;
     if (!formData.email || !validateEmail(formData.email)) return false;
-    if (
-      formData.role === "client_large" &&
-      !validateCorporateEmail(formData.email)
-    )
-      return false;
-    if (!formData.phoneNumber || !validatePhone(formData.phoneNumber))
-      return false;
+    if (!formData.phoneNumber || !validatePhone(formData.phoneNumber)) return false;
     if (!formData.password || !isPasswordValid) return false;
     if (
       !formData.confirmPassword ||
@@ -187,95 +165,34 @@ export function SignUpPage({
     return formData.skills.length > 0;
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const newErrors: Record<string, string> = {};
-
-    // Validation
-    if (!formData.role) {
-      newErrors.role = "Please select your role";
-    }
-
-    if (!formData.fullName) {
-      newErrors.fullName = "Full name is required";
-    } else if (formData.fullName.length < 2) {
-      newErrors.fullName = "Full name must be at least 2 characters";
-    }
-
-    if (!formData.email) {
-      newErrors.email = "Email is required";
-    } else if (!validateEmail(formData.email)) {
-      newErrors.email = "Invalid email address";
-    } else if (
-      formData.role === "client_large" &&
-      !validateCorporateEmail(formData.email)
-    ) {
-      newErrors.email =
-        "Large SMEs must use a corporate/organization email (not Gmail, Yahoo, Hotmail, etc.)";
-    }
-
-    if (!formData.phoneNumber) {
-      newErrors.phoneNumber = "Phone number is required";
-    } else if (!validatePhone(formData.phoneNumber)) {
-      newErrors.phoneNumber =
-        "Invalid phone number. Format: 0[3|5|7|8|9]xxxxxxxx";
-    }
-
-    if (!formData.password) {
-      newErrors.password = "Password is required";
-    } else if (!isPasswordValid) {
-      newErrors.password = "Password must meet all requirements";
-    }
-
-    if (!formData.confirmPassword) {
-      newErrors.confirmPassword = "Please confirm your password";
-    } else if (formData.password !== formData.confirmPassword) {
-      newErrors.confirmPassword = "Passwords do not match";
-    }
-
-    if (!formData.acceptTerms) {
-      newErrors.acceptTerms = "You must accept the Terms of Service";
-    }
-
-    if (!formData.acceptPrivacy) {
-      newErrors.acceptPrivacy = "You must accept the Privacy Policy";
-    }
-
-    if (!formData.recaptchaToken) {
-      newErrors.recaptcha = "Please complete the reCAPTCHA verification";
-    }
-
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
-      return;
-    }
-
+  // Shared function to perform the actual sign up API call
+  const performSignUp = async () => {
     setErrors({});
     setLoading(true);
 
     try {
       // Map frontend roles to backend roles
-      let backendRole;
-      if (formData.role === "client_large") {
-        backendRole = "CLIENT";
-      } else if (formData.role === "client_small") {
-        backendRole = "CLIENT_SME";
-      } else {
-        backendRole = formData.role.toUpperCase();
-      }
+      const backendRole = formData.role.toUpperCase();
 
-      await signUp({
+      // Only send domainIds and skillIds for FREELANCER and BROKER
+      const payload: any = {
         email: formData.email,
         password: formData.password,
         fullName: formData.fullName,
         phoneNumber: formData.phoneNumber,
-        role: backendRole as any,
+        role: backendRole,
         recaptchaToken: formData.recaptchaToken,
-        domainIds: formData.domains.length > 0 ? formData.domains : undefined,
-        skillIds: formData.skills.length > 0 ? formData.skills : undefined,
         acceptTerms: formData.acceptTerms,
         acceptPrivacy: formData.acceptPrivacy,
-      });
+      };
+
+      // Add domains and skills only for FREELANCER and BROKER
+      if (formData.role === 'freelancer' || formData.role === 'broker') {
+        if (formData.domains.length > 0) payload.domainIds = formData.domains;
+        if (formData.skills.length > 0) payload.skillIds = formData.skills;
+      }
+
+      await signUp(payload);
 
       toast.success(
         "Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.",
@@ -334,6 +251,66 @@ export function SignUpPage({
     }
   };
 
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const newErrors: Record<string, string> = {};
+
+    // Validation
+    if (!formData.role) {
+      newErrors.role = 'Please select your role';
+    }
+
+    if (!formData.fullName) {
+      newErrors.fullName = 'Full name is required';
+    } else if (formData.fullName.length < 2) {
+      newErrors.fullName = 'Full name must be at least 2 characters';
+    }
+
+    if (!formData.email) {
+      newErrors.email = 'Email is required';
+    } else if (!validateEmail(formData.email)) {
+      newErrors.email = 'Please use a valid email from trusted providers (Gmail, Outlook, Yahoo, etc.) or educational institutions.';
+    }
+
+    if (!formData.phoneNumber) {
+      newErrors.phoneNumber = 'Phone number is required';
+    } else if (!validatePhone(formData.phoneNumber)) {
+      newErrors.phoneNumber = 'Invalid phone number. Format: 0[3|5|7|8|9]xxxxxxxx';
+    }
+
+    if (!formData.password) {
+      newErrors.password = 'Password is required';
+    } else if (!isPasswordValid) {
+      newErrors.password = 'Password must meet all requirements';
+    }
+
+    if (!formData.confirmPassword) {
+      newErrors.confirmPassword = 'Please confirm your password';
+    } else if (formData.password !== formData.confirmPassword) {
+      newErrors.confirmPassword = 'Passwords do not match';
+    }
+
+    if (!formData.acceptTerms) {
+      newErrors.acceptTerms = 'You must accept the Terms of Service';
+    }
+
+    if (!formData.acceptPrivacy) {
+      newErrors.acceptPrivacy = 'You must accept the Privacy Policy';
+    }
+
+    if (!formData.recaptchaToken) {
+      newErrors.recaptcha = 'Please complete the reCAPTCHA verification';
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      return;
+    }
+
+    // Perform sign up
+    await performSignUp();
+  };
+
   const handleChange = (field: string, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     if (errors[field]) {
@@ -343,35 +320,29 @@ export function SignUpPage({
 
   const getRoleLabel = (role: UserRole) => {
     switch (role) {
-      case "client_large":
-        return "Business Owner (Large SME)";
-      case "client_small":
-        return "Business Owner (Small SME/Individual)";
-      case "broker":
-        return "Broker (Project Consultant)";
-      case "freelancer":
-        return "Freelancer (Developer)";
+      case 'client':
+        return 'Business Owner / Client';
+      case 'broker':
+        return 'Broker (Project Consultant)';
+      case 'freelancer':
+        return 'Freelancer (Developer)';
     }
   };
 
   const getRoleDescription = (role: UserRole) => {
     switch (role) {
-      case "client_large":
-        return "I need software solutions for my established business (requires corporate email)";
-      case "client_small":
-        return "I need software solutions for my small business or personal project";
-      case "broker":
-        return "I help translate business needs into technical requirements";
-      case "freelancer":
-        return "I build software and deliver projects";
+      case 'client':
+        return 'I need software solutions for my business or personal project';
+      case 'broker':
+        return 'I help translate business needs into technical requirements';
+      case 'freelancer':
+        return 'I build software and deliver projects';
     }
   };
 
   const getRoleIcon = (role: UserRole) => {
     switch (role) {
-      case "client_large":
-        return Building2;
-      case "client_small":
+      case 'client':
         return Store;
       case "broker":
         return Briefcase;
@@ -387,7 +358,7 @@ export function SignUpPage({
     }, 300);
   };
 
-  const handleInfoFormNext = () => {
+  const handleInfoFormNext = async () => {
     // Validation for step 2
     const newErrors: Record<string, string> = {};
 
@@ -396,13 +367,7 @@ export function SignUpPage({
     if (!formData.email) {
       newErrors.email = "Email is required";
     } else if (!validateEmail(formData.email)) {
-      newErrors.email = "Invalid email address";
-    } else if (
-      formData.role === "client_large" &&
-      !validateCorporateEmail(formData.email)
-    ) {
-      newErrors.email =
-        "Large SMEs must use a corporate/organization email (not Gmail, Yahoo, Hotmail, etc.)";
+      newErrors.email = 'Please use a valid email from trusted providers (Gmail, Outlook, Yahoo, etc.) or educational institutions.';
     }
 
     if (!formData.phoneNumber) {
@@ -440,8 +405,8 @@ export function SignUpPage({
     if (formData.role === "freelancer" || formData.role === "broker") {
       setCurrentStep(3);
     } else {
-      // Client roles → submit immediately
-      handleSubmit(new Event("submit") as any);
+      // Client → submit immediately (only 2 steps: role + info)
+      await performSignUp();
     }
   };
 
@@ -768,14 +733,7 @@ export function SignUpPage({
                   <span style={{ color: "var(--auth-error)" }}>*</span>
                 </label>
                 <div className="space-y-3">
-                  {(
-                    [
-                      "client_large",
-                      "client_small",
-                      "broker",
-                      "freelancer",
-                    ] as UserRole[]
-                  ).map((role) => (
+                  {(['client', 'broker', 'freelancer'] as UserRole[]).map((role) => (
                     <motion.button
                       key={role}
                       type="button"
@@ -971,19 +929,10 @@ export function SignUpPage({
                 id="email"
                 label="Email"
                 type="email"
-                placeholder={
-                  formData.role === "client_large"
-                    ? "company@yourbusiness.com"
-                    : "Enter your email"
-                }
+                placeholder="Enter your email"
                 value={formData.email}
                 onChange={(e) => handleChange("email", e.target.value)}
                 error={errors.email}
-                helperText={
-                  formData.role === "client_large"
-                    ? "Use your company/university email (e.g., name@company.com, student@university.edu)"
-                    : undefined
-                }
                 required
               />
 

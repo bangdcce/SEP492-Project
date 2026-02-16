@@ -6,6 +6,7 @@ import {
   removeStoredItem,
   setStoredJsonAuto,
 } from "@/shared/utils/storage";
+import { tokenRefreshManager } from "./token-refresh-manager";
 
 type InternalRequestConfig = AxiosRequestConfig & {
   _retry?: boolean;
@@ -21,6 +22,7 @@ class ApiClient {
   private refreshPromise: Promise<void> | null = null;
   private sessionReconcilePromise: Promise<void> | null = null;
   private isRedirectingToLogin = false;
+  private lastLoginTime: number = 0;
 
   constructor() {
     this.client = axios.create({
@@ -33,6 +35,13 @@ class ApiClient {
     });
 
     this.setupInterceptors();
+
+    // Listen for login events to track last login time
+    if (typeof window !== 'undefined') {
+      window.addEventListener('userLoggedIn', () => {
+        this.lastLoginTime = Date.now();
+      });
+    }
   }
 
   private setupInterceptors() {
@@ -76,6 +85,22 @@ class ApiClient {
           return Promise.reject(error);
         }
 
+        // Avoid refresh attempts immediately after login (cookies may not be fully set)
+        const timeSinceLogin = Date.now() - this.lastLoginTime;
+        const isRecentLogin = this.lastLoginTime > 0 && timeSinceLogin < 5000; // 5 seconds
+        
+        if (isRecentLogin) {
+          // Simple retry without refresh - cookies should work on retry
+          await new Promise(resolve => setTimeout(resolve, 200));
+          originalRequest._retry = true;
+          
+          try {
+            return await this.client.request(originalRequest);
+          } catch (retryError) {
+            // If still 401 after retry, fall through to normal refresh flow
+          }
+        }
+
         try {
           await this.refreshAccessTokenSingleFlight();
           originalRequest._retry = true;
@@ -110,7 +135,12 @@ class ApiClient {
 
       this.refreshPromise = this.client
         .post("/auth/refresh", undefined, refreshConfig)
-        .then(() => undefined)
+        .then(() => {
+          return undefined;
+        })
+        .catch((error) => {
+          throw error;
+        })
         .finally(() => {
           this.refreshPromise = null;
         });
@@ -259,6 +289,24 @@ class ApiClient {
       config
     );
     return response.data;
+  }
+
+  /**
+   * Start proactive token refresh
+   * Call this when user is authenticated to prevent session interruptions
+   */
+  public startProactiveRefresh(): void {
+    tokenRefreshManager.start(async () => {
+      await this.refreshAccessTokenSingleFlight();
+    });
+  }
+
+  /**
+   * Stop proactive token refresh
+   * Call this when user logs out
+   */
+  public stopProactiveRefresh(): void {
+    tokenRefreshManager.stop();
   }
 }
 

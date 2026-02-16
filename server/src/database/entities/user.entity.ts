@@ -14,7 +14,6 @@ export enum UserRole {
   STAFF = 'STAFF',
   BROKER = 'BROKER',
   CLIENT = 'CLIENT',
-  CLIENT_SME = 'CLIENT_SME',
   FREELANCER = 'FREELANCER',
 }
 
