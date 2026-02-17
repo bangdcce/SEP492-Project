@@ -5,7 +5,7 @@ import { discoveryApi } from "./api";
 // Reusing MyRequests logic or fetching via new endpoint if created.
 // Assuming MyRequestsPage logic: api.get('/project-requests?status=...')
 // Ideally we want ALL active requests (Public/Private Drafts, Pending Specs)
-import api from "@/lib/axiosClient"; 
+import { apiClient } from "@/shared/api/client";
 import { toast } from "sonner";
 
 interface InviteModalProps {
@@ -31,8 +31,9 @@ export const InviteModal = ({ isOpen, onClose, partnerId, partnerName, partnerRo
   useEffect(() => {
       if (isOpen) {
           setIsLoadingRequests(true);
-          api.get('/project-requests')
-             .then((res: any) => setMyRequests(res.data))
+          apiClient
+             .get<any>('/project-requests')
+             .then((res: any) => setMyRequests(res?.data ?? res ?? []))
              .catch((err: any) => console.error(err))
              .finally(() => setIsLoadingRequests(false));
       }
@@ -68,7 +69,7 @@ export const InviteModal = ({ isOpen, onClose, partnerId, partnerName, partnerRo
   const eligibleRequests = myRequests?.filter((r: any) => {
       const isFinished = ["COMPLETED", "CANCELLED", "REJECTED"].includes(r.status);
       if (isFinished) return false;
-      
+
       if (partnerRole === "BROKER") {
           // Can't invite broker if one is already assigned
           // And enforce only PUBLIC_DRAFT as per requirement
@@ -90,7 +91,7 @@ export const InviteModal = ({ isOpen, onClose, partnerId, partnerName, partnerRo
         <DialogHeader>
           <DialogTitle>Invite {partnerName} to a Project</DialogTitle>
         </DialogHeader>
-        
+
         <div className="space-y-4 py-4">
             <div className="space-y-2">
                 <label className="text-sm font-medium">Select Project Request</label>
@@ -116,7 +117,7 @@ export const InviteModal = ({ isOpen, onClose, partnerId, partnerName, partnerRo
 
             <div className="space-y-2">
                 <label className="text-sm font-medium">Message (Optional)</label>
-                <Textarea 
+                <Textarea
                     placeholder={`Hi ${partnerName}, I'd like to invite you to discuss this project...`}
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}

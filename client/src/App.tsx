@@ -6,9 +6,10 @@ import { FreelancerDashboardLayout } from "@/shared/components/layouts/freelance
 import { AdminDashboardLayout } from "@/shared/components/layouts/admin";
 import { Spinner } from "@/shared/components/ui";
 import { RoleGuard } from "@/shared/components/auth/RoleGuard";
+import { apiClient } from "@/shared/api/client";
 
 // Lazy load pages for better performance
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 
 // ========== CLIENT PAGES ==========
 const ClientDashboard = lazy(() =>
@@ -100,6 +101,7 @@ const FreelancerDashboardPage = lazy(
 // ========== SHARED PAGES ==========
 const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const KYCPage = lazy(() => import("@/pages/KYCPage"));
+const KYCStatusPage = lazy(() => import("@/pages/KYCStatusPage"));
 
 // ========== STAFF PAGES ==========
 const StaffLayout = lazy(() =>
@@ -162,6 +164,64 @@ function PageLoader() {
 }
 
 function App() {
+  const [sessionReady, setSessionReady] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const bootstrap = async () => {
+      try {
+        const { isAuthenticated } = await apiClient.bootstrapSession();
+        
+        // Only start proactive refresh if authenticated and session is stable
+        // Wait a bit to ensure cookies are fully set after login
+        if (isAuthenticated) {
+          // Delay proactive refresh to avoid conflict with fresh login
+          setTimeout(() => {
+            if (!cancelled) {
+              apiClient.startProactiveRefresh();
+            }
+          }, 5000); // 5 seconds after bootstrap
+        }
+      } finally {
+        if (!cancelled) {
+          setSessionReady(true);
+        }
+      }
+    };
+
+    bootstrap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Listen for authentication state changes
+  useEffect(() => {
+    const handleUserDataUpdate = () => {
+      // Check if user is still authenticated
+      const userStr = localStorage.getItem('user');
+      if (userStr && userStr !== 'null') {
+        // User logged in or session restored
+        apiClient.startProactiveRefresh();
+      } else {
+        // User logged out
+        apiClient.stopProactiveRefresh();
+      }
+    };
+
+    window.addEventListener('userDataUpdated', handleUserDataUpdate);
+
+    return () => {
+      window.removeEventListener('userDataUpdated', handleUserDataUpdate);
+    };
+  }, []);
+
+  if (!sessionReady) {
+    return <PageLoader />;
+  }
+
   return (
     <Suspense fallback={<PageLoader />}>
       <Routes>
@@ -263,12 +323,22 @@ function App() {
             </RoleGuard>
           }
         />
+        <Route
+          path={ROUTES.FREELANCER_KYC_STATUS}
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <KYCStatusPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
 
         {/* ========== CLIENT ROUTES - /client/* ========== */}
         <Route
           path={ROUTES.CLIENT_DASHBOARD}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <ClientDashboard />
               </ClientDashboardLayout>
@@ -278,7 +348,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_WIZARD}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <WizardPage />
               </ClientDashboardLayout>
@@ -288,7 +358,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_MY_REQUESTS}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <MyRequestsPage />
               </ClientDashboardLayout>
@@ -298,7 +368,7 @@ function App() {
         <Route
           path="/client/requests/:id"
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <RequestDetailPage />
               </ClientDashboardLayout>
@@ -329,7 +399,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_PROFILE}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <ProfilePage />
               </ClientDashboardLayout>
@@ -339,7 +409,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_PROJECTS}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <ProjectListPage />
               </ClientDashboardLayout>
@@ -349,7 +419,7 @@ function App() {
         <Route
           path="/client/hearings"
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <ParticipantHearingsPage />
               </ClientDashboardLayout>
@@ -359,7 +429,7 @@ function App() {
         <Route
           path="/client/hearings/:hearingId"
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <ParticipantHearingRoomPage />
               </ClientDashboardLayout>
@@ -369,7 +439,7 @@ function App() {
         <Route
           path={ROUTES.CLIENT_WORKSPACE}
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <ProjectWorkspacePage />
               </ClientDashboardLayout>
@@ -379,9 +449,19 @@ function App() {
         <Route
           path="/client/contracts/:id"
           element={
-            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+            <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <ContractPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_KYC_STATUS}
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <KYCStatusPage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -608,6 +688,16 @@ function App() {
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <BrokerProjectsPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_KYC_STATUS}
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <KYCStatusPage />
               </BrokerDashboardLayout>
             </RoleGuard>
           }

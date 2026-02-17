@@ -3,7 +3,6 @@ export enum UserRole {
   STAFF = "STAFF",
   BROKER = "BROKER",
   CLIENT = "CLIENT",
-  CLIENT_SME = "CLIENT_SME",
   FREELANCER = "FREELANCER",
 }
 
@@ -17,6 +16,8 @@ export enum BadgeType {
 
 export enum DisputeStatus {
   OPEN = "OPEN",
+  TRIAGE_PENDING = "TRIAGE_PENDING",
+  PREVIEW = "PREVIEW",
   PENDING_REVIEW = "PENDING_REVIEW",
   INFO_REQUESTED = "INFO_REQUESTED",
   IN_MEDIATION = "IN_MEDIATION",

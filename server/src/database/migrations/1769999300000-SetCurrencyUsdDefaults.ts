@@ -33,10 +33,10 @@ export class SetCurrencyUsdDefaults1769999300000 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    await queryRunner.query(`ALTER TABLE "payout_requests" ALTER COLUMN "currency" SET DEFAULT 'VND'`);
     await queryRunner.query(
-      `ALTER TABLE "transactions" ALTER COLUMN "currency" SET DEFAULT 'VND'`,
+      `ALTER TABLE "payout_requests" ALTER COLUMN "currency" SET DEFAULT 'VND'`,
     );
+    await queryRunner.query(`ALTER TABLE "transactions" ALTER COLUMN "currency" SET DEFAULT 'VND'`);
     await queryRunner.query(`ALTER TABLE "escrows" ALTER COLUMN "currency" SET DEFAULT 'VND'`);
     await queryRunner.query(`ALTER TABLE "wallets" ALTER COLUMN "currency" SET DEFAULT 'VND'`);
     await queryRunner.query(`ALTER TABLE "projects" ALTER COLUMN "currency" SET DEFAULT 'VND'`);

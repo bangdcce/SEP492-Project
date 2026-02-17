@@ -1,5 +1,4 @@
 import { Entity, Column, PrimaryGeneratedColumn, ManyToOne, JoinColumn } from 'typeorm';
-import { WizardQuestionEntity } from './wizard-question.entity';
 
 @Entity('wizard_options')
 export class WizardOptionEntity {

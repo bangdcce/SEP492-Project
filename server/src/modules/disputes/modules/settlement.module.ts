@@ -5,7 +5,7 @@
 // Provides isolated settlement functionality with proper dependency injection.
 // ============================================================================
 
-import { Module, forwardRef } from '@nestjs/common';
+import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 

@@ -1,5 +1,5 @@
 
-import axiosClient from "@/lib/axiosClient";
+import { apiClient } from "@/shared/api/client";
 
 export interface WizardOption {
   id: string;
@@ -35,84 +35,72 @@ export interface CreateProjectRequestDto {
 
 export const wizardService = {
   getQuestions: async (): Promise<WizardQuestion[]> => {
-    const response = await axiosClient.get("/wizard/questions");
-    return response.data;
+    return await apiClient.get<WizardQuestion[]>("/wizard/questions");
   },
 
   submitRequest: async (data: CreateProjectRequestDto) => {
-    const response = await axiosClient.post("/project-requests", data);
-    return response.data;
+    return await apiClient.post("/project-requests", data);
   },
   
   uploadFile: async (file: File) => {
     const formData = new FormData();
     formData.append("attachments", file);
-    const response = await axiosClient.post("/project-requests/upload", formData, {
+    return await apiClient.post("/project-requests/upload", formData, {
       headers: {
         "Content-Type": "multipart/form-data",
       },
     });
-    return response.data;
   },
 
   updateRequest: async (id: string, data: Partial<CreateProjectRequestDto>) => {
-    const response = await axiosClient.patch(`/project-requests/${id}`, data);
-    return response.data;
+    return await apiClient.patch(`/project-requests/${id}`, data);
   },
 
   getDrafts: async () => {
-    const response = await axiosClient.get("/project-requests/drafts/mine");
-    return response.data;
+    return await apiClient.get("/project-requests/drafts/mine");
   },
 
   getMatches: async (requestId: string) => {
-    const response = await axiosClient.get(`/project-requests/${requestId}/matches`);
-    return response.data;
+    return await apiClient.get(`/project-requests/${requestId}/matches`);
   },
 
   getRequests: async () => {
-    const response = await axiosClient.get("/project-requests");
-    return response.data;
+    return await apiClient.get("/project-requests");
   },
 
   getRequestById: async (id: string) => {
-    const response = await axiosClient.get(`/project-requests/${id}`);
-    return response.data;
+    return await apiClient.get(`/project-requests/${id}`);
   },
 
   inviteBroker: async (requestId: string, brokerId: string) => {
-    const response = await axiosClient.post(`/project-requests/${requestId}/invite`, { brokerId });
-    return response.data;
+    return await apiClient.post(`/project-requests/${requestId}/invite`, { brokerId });
   },
 
   applyToRequest: async (requestId: string, coverLetter: string) => {
     // Note: This endpoint expects brokerId from token, so we only send coverLetter
-    const response = await axiosClient.post(`/project-requests/${requestId}/apply`, { coverLetter });
-    return response.data;
+    return await apiClient.post(`/project-requests/${requestId}/apply`, { coverLetter });
   },
 
   acceptBroker: async (requestId: string, brokerId: string) => {
-    const response = await axiosClient.post(`/project-requests/${requestId}/accept-broker`, { brokerId });
-    return response.data;
+    return await apiClient.post(`/project-requests/${requestId}/accept-broker`, { brokerId });
   },
 
   approveSpecs: async (requestId: string) => {
-    const response = await axiosClient.post(`/project-requests/${requestId}/approve-specs`, {});
-    return response.data;
+    return await apiClient.post(`/project-requests/${requestId}/approve-specs`, {});
   },
 
   convertToProject: async (requestId: string) => {
-     const response = await axiosClient.post(`/project-requests/${requestId}/convert`, {});
+     const response = await apiClient.post(`/project-requests/${requestId}/convert`, {});
      return response.data;
   },
 
   rejectProposal: async (proposalId: string) => {
-    const response = await axiosClient.post(`/project-requests/proposals/${proposalId}/reject`);
+    const response = await apiClient.post(`/project-requests/proposals/${proposalId}/reject`);
     return response.data;
   },
 
   cancelInvitation: async (proposalId: string) => {
-    const response = await axiosClient.post(`/project-requests/proposals/${proposalId}/cancel`);
+    const response = await apiClient.post(`/project-requests/proposals/${proposalId}/cancel`);
     return response.data;
   }
 };

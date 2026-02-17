@@ -50,7 +50,7 @@ export class EvidenceController {
   // POST /disputes/:disputeId/evidence - Upload Evidence
   // ===========================================================================
   @Post(':disputeId/evidence')
-  @Roles(UserRole.CLIENT, UserRole.CLIENT_SME, UserRole.FREELANCER, UserRole.BROKER)
+  @Roles(UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {

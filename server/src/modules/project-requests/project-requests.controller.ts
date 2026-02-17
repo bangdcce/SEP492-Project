@@ -106,7 +106,6 @@ export class ProjectRequestsController {
     return this.projectRequestsService.getInvitationsForUser(user.id, user.role);
   }
 
-
   @Get(':id/matches')
   @ApiOperation({ summary: 'Find matching brokers for a project request' })
   @ApiResponse({ status: 200 })
@@ -203,7 +202,6 @@ export class ProjectRequestsController {
   ) {
     return this.projectRequestsService.inviteFreelancer(id, freelancerId, message);
   }
-
 
   @Post(':id/apply')
   @ApiOperation({ summary: 'Broker applies to a project request' })

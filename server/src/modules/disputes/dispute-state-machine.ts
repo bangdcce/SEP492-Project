@@ -2,9 +2,35 @@ import { BadRequestException } from '@nestjs/common';
 import { DisputeResult, DisputeStatus, DisputeType } from 'src/database/entities';
 
 const VALID_TRANSITIONS: Record<DisputeStatus, DisputeStatus[]> = {
-  [DisputeStatus.OPEN]: [DisputeStatus.PENDING_REVIEW, DisputeStatus.IN_MEDIATION, DisputeStatus.INFO_REQUESTED, DisputeStatus.REJECTED],
-  [DisputeStatus.PENDING_REVIEW]: [DisputeStatus.IN_MEDIATION, DisputeStatus.INFO_REQUESTED, DisputeStatus.REJECTED],
-  [DisputeStatus.INFO_REQUESTED]: [DisputeStatus.PENDING_REVIEW, DisputeStatus.REJECTED],
+  [DisputeStatus.OPEN]: [
+    DisputeStatus.TRIAGE_PENDING,
+    DisputeStatus.PREVIEW,
+    DisputeStatus.PENDING_REVIEW,
+    DisputeStatus.IN_MEDIATION,
+    DisputeStatus.INFO_REQUESTED,
+    DisputeStatus.REJECTED,
+  ],
+  [DisputeStatus.TRIAGE_PENDING]: [
+    DisputeStatus.PREVIEW,
+    DisputeStatus.INFO_REQUESTED,
+    DisputeStatus.REJECTED,
+  ],
+  [DisputeStatus.PREVIEW]: [
+    DisputeStatus.IN_MEDIATION,
+    DisputeStatus.INFO_REQUESTED,
+    DisputeStatus.REJECTED,
+  ],
+  [DisputeStatus.PENDING_REVIEW]: [
+    DisputeStatus.PREVIEW,
+    DisputeStatus.IN_MEDIATION,
+    DisputeStatus.INFO_REQUESTED,
+    DisputeStatus.REJECTED,
+  ],
+  [DisputeStatus.INFO_REQUESTED]: [
+    DisputeStatus.PREVIEW,
+    DisputeStatus.PENDING_REVIEW,
+    DisputeStatus.REJECTED,
+  ],
   [DisputeStatus.IN_MEDIATION]: [DisputeStatus.REJECTED, DisputeStatus.RESOLVED],
   [DisputeStatus.REJECTED]: [DisputeStatus.REJECTION_APPEALED],
   [DisputeStatus.REJECTION_APPEALED]: [DisputeStatus.IN_MEDIATION, DisputeStatus.REJECTED],

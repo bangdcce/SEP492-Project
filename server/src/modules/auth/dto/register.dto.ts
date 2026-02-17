@@ -22,7 +22,6 @@ import { IsNotDisposableEmail } from '../../../common/validators/disposable-emai
  */
 export type RegisterableRole =
   | UserRole.CLIENT
-  | UserRole.CLIENT_SME
   | UserRole.BROKER
   | UserRole.FREELANCER;
 
@@ -31,25 +30,25 @@ export type RegisterableRole =
  */
 export const REGISTERABLE_ROLES = {
   CLIENT: UserRole.CLIENT,
-  CLIENT_SME: UserRole.CLIENT_SME,
   BROKER: UserRole.BROKER,
   FREELANCER: UserRole.FREELANCER,
 } as const;
 
 export class RegisterDto {
   @ApiProperty({
-    description: 'Email của người dùng',
-    example: 'user@example.com',
+    description: 'Email của người dùng (chỉ chấp nhận email từ nhà cung cấp uy tín)',
+    example: 'user@gmail.com',
     format: 'email',
   })
   @IsEmail({}, { message: 'Email không hợp lệ' })
   @IsNotEmpty({ message: 'Email không được để trống' })
-  @IsNotDisposableEmail({ message: 'Không chấp nhận email tạm thời. Vui lòng sử dụng email thường xuyên.' })
+  @IsNotDisposableEmail({
+    message: 'Vui lòng sử dụng email từ nhà cung cấp uy tín (Gmail, Outlook, Yahoo, v.v.) hoặc email trường học.',
+  })
   email: string;
 
   @ApiProperty({
-    description:
-      'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ thường và số/ký tự đặc biệt)',
+    description: 'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ thường và số/ký tự đặc biệt)',
     example: 'securepass123',
     minLength: 8,
   })

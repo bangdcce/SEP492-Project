@@ -96,8 +96,6 @@ export function ProjectWorkspace() {
       switch (role.toUpperCase()) {
         case "CLIENT":
           return "Client";
-        case "CLIENT_SME":
-          return "Client SME";
         case "BROKER":
           return "Broker";
         case "FREELANCER":

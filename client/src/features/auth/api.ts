@@ -69,10 +69,9 @@ export const resetPassword = async (
 /**
  * Refresh access token
  */
-export const refreshToken = async (refreshToken: string): Promise<{ accessToken: string }> => {
-  return await apiClient.post<{ accessToken: string }>(
-    '/auth/refresh',
-    { refreshToken }
+export const refreshToken = async (): Promise<{ message: string; data: Record<string, never> }> => {
+  return await apiClient.post<{ message: string; data: Record<string, never> }>(
+    '/auth/refresh'
   );
 };
 
@@ -88,6 +87,13 @@ export const signOut = async (): Promise<void> => {
  */
 export const getProfile = async () => {
   return await apiClient.get('/auth/profile');
+};
+
+/**
+ * Get authenticated session snapshot
+ */
+export const getSession = async () => {
+  return await apiClient.get('/auth/session');
 };
 
 /**
@@ -122,4 +128,26 @@ export const verifyEmail = async (token: string): Promise<{ message: string; ema
  */
 export const resendVerificationEmail = async (email: string): Promise<{ message: string }> => {
   return await apiClient.post<{ message: string }>('/auth/resend-verification', { email });
+};
+
+/**
+ * Check active obligations before account deletion
+ */
+export const checkObligations = async (): Promise<{
+  hasObligations: boolean;
+  activeProjects: number;
+  walletBalance: number;
+}> => {
+  return await apiClient.get<{
+    hasObligations: boolean;
+    activeProjects: number;
+    walletBalance: number;
+  }>('/auth/check-obligations');
+};
+
+/**
+ * Delete user account
+ */
+export const deleteAccount = async (password: string): Promise<{ message: string }> => {
+  return await apiClient.post<{ message: string }>('/auth/delete-account', { password });
 };

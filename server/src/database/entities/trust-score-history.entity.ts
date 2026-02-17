@@ -10,30 +10,30 @@ import {
 @Entity('trust_score_history')
 export class TrustScoreHistoryEntity {
   @PrimaryGeneratedColumn('uuid')
-  id: string;
+  id!: string;
 
   @Column()
-  userId: string;
+  userId!: string;
 
   @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
-  ratingScore: number;
+  ratingScore!: number | null;
 
   @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
-  behaviorScore: number;
+  behaviorScore!: number | null;
 
   @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
-  disputeScore: number;
+  disputeScore!: number | null;
 
   @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
-  verificationScore: number;
+  verificationScore!: number | null;
 
   @Column({ type: 'decimal', precision: 3, scale: 2, nullable: true })
-  totalScore: number;
+  totalScore!: number | null;
 
   @CreateDateColumn()
-  calculatedAt: Date;
+  calculatedAt!: Date;
 
   @ManyToOne('UserEntity', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'userId' })
-  user: any;
+  user!: unknown;
 }

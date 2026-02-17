@@ -1,14 +1,15 @@
 import {
   Entity,
   Column,
+  Index,
   PrimaryGeneratedColumn,
   CreateDateColumn,
-  UpdateDateColumn,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
 
 @Entity('auth_sessions')
+@Index('IDX_auth_sessions_refresh_token_fingerprint', ['refreshTokenFingerprint'])
 export class AuthSessionEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -18,6 +19,9 @@ export class AuthSessionEntity {
 
   @Column({ type: 'varchar' })
   refreshTokenHash: string;
+
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  refreshTokenFingerprint: string;
 
   @Column({ type: 'varchar', nullable: true })
   userAgent: string;

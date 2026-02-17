@@ -20,6 +20,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   DisputeEvidenceEntity,
   DisputeEntity,
+  DisputePartyEntity,
   DisputeActivityEntity,
   DisputeAction,
   UserRole,
@@ -166,6 +167,8 @@ export class EvidenceService {
     private readonly evidenceRepo: Repository<DisputeEvidenceEntity>,
     @InjectRepository(DisputeEntity)
     private readonly disputeRepo: Repository<DisputeEntity>,
+    @InjectRepository(DisputePartyEntity)
+    private readonly disputePartyRepo: Repository<DisputePartyEntity>,
     @InjectRepository(DisputeActivityEntity)
     private readonly activityRepo: Repository<DisputeActivityEntity>,
     @Inject(CACHE_MANAGER)
@@ -182,6 +185,18 @@ export class EvidenceService {
     }
 
     this.supabase = createClient(supabaseUrl, supabaseKey);
+  }
+
+  private async isDisputePartyMember(dispute: DisputeEntity, userId: string): Promise<boolean> {
+    if (dispute.raisedById === userId || dispute.defendantId === userId) {
+      return true;
+    }
+    const groupId = dispute.groupId || dispute.id;
+    const membership = await this.disputePartyRepo.findOne({
+      where: { groupId, userId },
+      select: ['id'],
+    });
+    return Boolean(membership);
   }
 
   // ===========================================================================
@@ -454,9 +469,12 @@ export class EvidenceService {
     // Remove path components
     const baseName = fileName.split(/[\\/]/).pop() || '';
 
-    // Replace dangerous characters
-    const sanitized = baseName
-      .replace(/[<>:"/\\|?*\x00-\x1f]/g, '_')
+    // Remove control characters first, then replace file-system-dangerous characters.
+    const withoutControlChars = Array.from(baseName)
+      .filter((char) => char.charCodeAt(0) >= 32)
+      .join('');
+    const sanitized = withoutControlChars
+      .replace(/[<>:"/\\|?*]/g, '_')
       .replace(/\.{2,}/g, '.')
       .trim();
 
@@ -628,7 +646,7 @@ export class EvidenceService {
       return { success: false, error: 'Staff cannot upload evidence for disputes' };
     }
 
-    const isParticipant = dispute.raisedById === uploaderId || dispute.defendantId === uploaderId;
+    const isParticipant = await this.isDisputePartyMember(dispute, uploaderId);
     if (!isParticipant) {
       return { success: false, error: 'Only dispute participants can upload evidence' };
     }
@@ -729,7 +747,7 @@ export class EvidenceService {
         uploadedAt: savedEvidence.uploadedAt,
       });
       if (dispute.status === DisputeStatus.INFO_REQUESTED && uploaderId === dispute.raisedById) {
-        dispute.status = DisputeStatus.PENDING_REVIEW;
+        dispute.status = DisputeStatus.PREVIEW;
         dispute.infoProvidedAt = new Date();
         await this.disputeRepo.save(dispute);
 
@@ -750,7 +768,6 @@ export class EvidenceService {
           providedAt: dispute.infoProvidedAt,
         });
       }
-
 
       // Upload successful
       return {
@@ -814,7 +831,7 @@ export class EvidenceService {
     }
 
     // 2. Check access permission
-    const isParticipant = dispute.raisedById === requesterId || dispute.defendantId === requesterId;
+    const isParticipant = await this.isDisputePartyMember(dispute, requesterId);
     const isStaffOrAdmin = requesterRole === UserRole.STAFF || requesterRole === UserRole.ADMIN;
 
     if (!isParticipant && !isStaffOrAdmin) {
@@ -859,7 +876,7 @@ export class EvidenceService {
 
     // Check access
     const dispute = evidence.dispute as DisputeEntity;
-    const isParticipant = dispute.raisedById === requesterId || dispute.defendantId === requesterId;
+    const isParticipant = await this.isDisputePartyMember(dispute, requesterId);
     const isStaffOrAdmin = requesterRole === UserRole.STAFF || requesterRole === UserRole.ADMIN;
 
     if (!isParticipant && !isStaffOrAdmin) {
@@ -913,8 +930,13 @@ export class EvidenceService {
           .createSignedUrls(paths, 3600); // 1 hour expiry
 
         if (error) {
-          console.error('Error generating signed URLs:', error);
-          // Add items without signed URLs
+          console.error(
+            `[EvidenceService] Failed to generate signed URLs for ${paths.length} file(s):`,
+            error.message,
+            'Paths:',
+            paths,
+          );
+          // Add items without signed URLs — frontend will show "URL Unavailable"
           for (const evidence of chunk) {
             results.push({ ...evidence, signedUrl: undefined });
           }
@@ -956,7 +978,7 @@ export class EvidenceService {
   // a different approach - perhaps a separate tracking table or
   // checking Supabase storage directly
   // ===========================================================================
-  async cleanupOrphanEvidenceRecords(): Promise<number> {
+  cleanupOrphanEvidenceRecords(): number {
     // This is a placeholder - actual implementation would depend on
     // how you track failed uploads (e.g., comparing DB records with
     // actual files in Supabase storage)

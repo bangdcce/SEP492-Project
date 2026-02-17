@@ -30,7 +30,8 @@ export class UsersSearchService {
     const limit = filters.limit || 10;
     const skip = (page - 1) * limit;
 
-    const query = this.userRepo.createQueryBuilder('user')
+    const query = this.userRepo
+      .createQueryBuilder('user')
       .leftJoinAndSelect('user.profile', 'profile')
       .leftJoinAndSelect('user.userSkills', 'userSkill') // Assuming relation exists or will be added
       .leftJoinAndSelect('userSkill.skill', 'skill')
@@ -40,16 +41,20 @@ export class UsersSearchService {
     if (filters.role) {
       query.andWhere('user.role = :role', { role: filters.role });
     } else {
-        // Default to finding Brokers and Freelancers if no role specified, or allow all?
-        // Usually Discovery is for Partners.
-        query.andWhere('user.role IN (:...roles)', { roles: [UserRole.BROKER, UserRole.FREELANCER] });
+      // Default to finding Brokers and Freelancers if no role specified, or allow all?
+      // Usually Discovery is for Partners.
+      query.andWhere('user.role IN (:...roles)', { roles: [UserRole.BROKER, UserRole.FREELANCER] });
     }
 
     if (filters.search) {
-      query.andWhere(new Brackets(qb => {
-        qb.where('user.fullName ILIKE :search', { search: `%${filters.search}%` })
-          .orWhere('profile.bio ILIKE :search', { search: `%${filters.search}%` });
-      }));
+      query.andWhere(
+        new Brackets((qb) => {
+          qb.where('user.fullName ILIKE :search', { search: `%${filters.search}%` }).orWhere(
+            'profile.bio ILIKE :search',
+            { search: `%${filters.search}%` },
+          );
+        }),
+      );
     }
 
     if (filters.minRating) {
@@ -61,17 +66,18 @@ export class UsersSearchService {
     // Ideally we want users who have ALL skills or at least some.
     // Let's implement ANY for now.
     if (filters.skills && filters.skills.length > 0) {
-        // This logic might need refinement for "ALL" skills
-        // For now, check if user has at least one matching skill
-         query.innerJoin('user.userSkills', 'filterSkill')
-              .innerJoin('filterSkill.skill', 's')
-              .andWhere('s.name IN (:...skills)', { skills: filters.skills });
-         // Distinct bc multiple skills might match same user
-         query.distinct(true); 
+      // This logic might need refinement for "ALL" skills
+      // For now, check if user has at least one matching skill
+      query
+        .innerJoin('user.userSkills', 'filterSkill')
+        .innerJoin('filterSkill.skill', 's')
+        .andWhere('s.name IN (:...skills)', { skills: filters.skills });
+      // Distinct bc multiple skills might match same user
+      query.distinct(true);
     }
 
     query.skip(skip).take(limit);
-    
+
     // Order by Trust Score desc by default
     query.orderBy('user.currentTrustScore', 'DESC');
 
@@ -92,18 +98,18 @@ export class UsersSearchService {
     const user = await this.userRepo.findOne({
       where: { id: userId, isBanned: false },
       relations: [
-        'profile', 
-        'userSkills', 
-        'userSkills.skill', 
+        'profile',
+        'userSkills',
+        'userSkills.skill',
         // Add other relations like portfolio, reviews if needed
-      ]
+      ],
     });
 
     if (!user) return null;
 
-    // Sanitize? 
+    // Sanitize?
     // We can rely on @Exclude in Entity or just return what's safe.
-    // UserEntity has passwordHash but it shouldn't be serialized if we use ClassSerializerInterceptor, 
+    // UserEntity has passwordHash but it shouldn't be serialized if we use ClassSerializerInterceptor,
     // but explicit DTO mapping is better. For now returning entity.
     return user;
   }

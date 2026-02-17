@@ -12,6 +12,7 @@ import {
   Briefcase,
   User,
   Video,
+  ShieldCheck,
 } from "lucide-react";
 
 export interface FreelancerSidebarMenuItem {
@@ -79,6 +80,14 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     icon: User,
     path: "/freelancer/profile",
     description: "Manage your profile",
+    section: "account",
+  },
+  {
+    id: "kyc-status",
+    label: "KYC Status",
+    icon: ShieldCheck,
+    path: "/freelancer/kyc-status",
+    description: "Verify your identity",
     section: "account",
   },
 ];

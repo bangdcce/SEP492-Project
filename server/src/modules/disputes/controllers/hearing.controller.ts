@@ -37,6 +37,10 @@ import {
   AskHearingQuestionDto,
   EndHearingDto,
   RescheduleHearingDto,
+  TransitionHearingPhaseDto,
+  ExtendHearingDto,
+  InviteSupportStaffDto,
+  DispatchHearingRemindersDto,
 } from '../dto/hearing.dto';
 
 @ApiTags('Dispute Hearings')
@@ -51,12 +55,12 @@ export class HearingController {
   // ===========================================================================
 
   @Post('schedule')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({
     summary: 'Schedule a new hearing',
     description: `
       Creates a new dispute hearing session.
-      
+
       **Edge Cases Handled:**
       - **Emergency Hearing**: If isEmergency=true, bypasses 24h notice rule.
       - **Required Participants**: Automatically adding Raiser, Defendant, and Broker/Supervisor.
@@ -87,7 +91,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -159,7 +162,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -185,7 +187,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -215,7 +216,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -241,7 +241,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -281,13 +280,13 @@ export class HearingController {
   // PARTICIPANT CHECK
   // ===========================================================================
 
-  @Get('validate-schedule')
-  @Roles(UserRole.ADMIN)
+  @Post('validate-schedule')
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({
     summary: 'Validate hearing schedule',
     description: 'Checks for conflicts and rule violations before scheduling.',
   })
-  async validateSchedule(@Body() dto: ScheduleHearingDto) {
+  validateSchedule(@Body() _dto: ScheduleHearingDto) {
     // Only implemented validation logic exposed
     // Need list of participant IDs to call validateHearingSchedule
     // This endpoint might need to fetch participants first
@@ -307,7 +306,7 @@ export class HearingController {
     summary: 'Start a hearing session',
     description: `
       Starts a hearing session.
-      
+
       **Rules:**
       - Cannot start before scheduled time unless all required participants are online and ready
       - Chat room is activated on start
@@ -332,13 +331,55 @@ export class HearingController {
   // SPEAKER CONTROL
   // ===========================================================================
 
+  /**
+   * Chuyển phase phiên tòa (PRESENTATION -> CROSS_EXAMINATION -> INTERROGATION -> DELIBERATION)
+   * Tự động mapping DisputePhase sang SpeakerRole phù hợp.
+   * Nghịp vụ tòa án:
+   *   PRESENTATION      -> Chỉ Nguyên đơn được nói
+   *   CROSS_EXAMINATION -> Chỉ Bị đơn được nói
+   *   INTERROGATION     -> Chỉ Thẩm phán (Staff/Admin) được nói
+   *   DELIBERATION      -> Khóa chat toàn bộ (Nghị án)
+   */
+  @Patch(':hearingId/phase')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Transition hearing phase',
+    description: `
+      Transitions the hearing to a new phase, automatically mapping to the correct speaker role.
+
+      **Phase -> Speaker Role Mapping:**
+      - PRESENTATION -> RAISER_ONLY (Only raiser can speak)
+      - CROSS_EXAMINATION -> DEFENDANT_ONLY (Only defendant can speak)
+      - INTERROGATION -> MODERATOR_ONLY (Only moderator/staff can speak)
+      - DELIBERATION -> MUTED_ALL (All muted, deliberation in progress)
+    `,
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async transitionHearingPhase(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @Body() dto: TransitionHearingPhaseDto,
+    @GetUser() user: UserEntity,
+  ) {
+    if (dto.hearingId && dto.hearingId !== hearingId) {
+      throw new BadRequestException('hearingId in body does not match URL');
+    }
+
+    const result = await this.hearingService.transitionHearingPhase(hearingId, dto.phase, user.id);
+    return {
+      success: true,
+      message: `Phase transitioned to ${dto.phase}`,
+      data: result,
+    };
+  }
+
   @Patch(':hearingId/speaker-control')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary: 'Update speaker control',
     description: `
       Update who is allowed to speak during the hearing.
-      
+
       **Grace period:**
       - 5 seconds grace when switching from ALL to MODERATOR_ONLY
     `,
@@ -372,7 +413,13 @@ export class HearingController {
   // ===========================================================================
 
   @Post(':hearingId/statements')
-  @Roles(UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER, UserRole.STAFF, UserRole.ADMIN)
+  @Roles(
+    UserRole.CLIENT,
+    UserRole.FREELANCER,
+    UserRole.BROKER,
+    UserRole.STAFF,
+    UserRole.ADMIN,
+  )
   @ApiOperation({
     summary: 'Submit hearing statement (draft or submit)',
   })
@@ -479,6 +526,105 @@ export class HearingController {
     return {
       success: true,
       message: 'Hearing rescheduled',
+      data: result,
+    };
+  }
+
+  // ===========================================================================
+  // EXTEND HEARING
+  // ===========================================================================
+
+  @Post(':hearingId/extend')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Extend hearing duration',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async extendHearing(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @Body() dto: ExtendHearingDto,
+    @GetUser() user: UserEntity,
+  ) {
+    if (dto.hearingId && dto.hearingId !== hearingId) {
+      throw new BadRequestException('hearingId in body does not match URL');
+    }
+
+    const result = await this.hearingService.extendHearingDuration({ ...dto, hearingId }, user.id);
+
+    return {
+      success: true,
+      message: 'Hearing duration extended',
+      data: result,
+    };
+  }
+
+  // ===========================================================================
+  // SUPPORT STAFF
+  // ===========================================================================
+
+  @Get(':hearingId/support-candidates')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get support candidates for hearing escalation',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async getSupportCandidates(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingService.getSupportCandidates(hearingId, user.id);
+    return { success: true, data };
+  }
+
+  @Post(':hearingId/invite-support')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Invite support staff/admin into hearing',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async inviteSupport(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @Body() dto: InviteSupportStaffDto,
+    @GetUser() user: UserEntity,
+  ) {
+    if (dto.hearingId && dto.hearingId !== hearingId) {
+      throw new BadRequestException('hearingId in body does not match URL');
+    }
+
+    const result = await this.hearingService.inviteSupportStaff({ ...dto, hearingId }, user.id);
+    return {
+      success: true,
+      message: 'Support invited',
+      data: result,
+    };
+  }
+
+  // ===========================================================================
+  // REMINDER DISPATCH
+  // ===========================================================================
+
+  @Post('reminders/dispatch')
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @ApiOperation({
+    summary: 'Dispatch due hearing reminders (manual trigger)',
+  })
+  @HttpCode(HttpStatus.OK)
+  async dispatchDueReminders(
+    @Body() dto: DispatchHearingRemindersDto,
+    @GetUser() _user: UserEntity,
+  ) {
+    const referenceAt = dto?.at ? new Date(dto.at) : new Date();
+    if (Number.isNaN(referenceAt.getTime())) {
+      throw new BadRequestException('Invalid reminder reference time');
+    }
+
+    const result = await this.hearingService.dispatchDueHearingReminders(referenceAt);
+    return {
+      success: true,
+      message: 'Reminder dispatch completed',
       data: result,
     };
   }

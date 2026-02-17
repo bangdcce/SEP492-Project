@@ -95,4 +95,3 @@ export class ProjectSpecEntity {
   @OneToMany('MilestoneEntity', 'projectSpec')
   milestones: MilestoneEntity[];
 }
-

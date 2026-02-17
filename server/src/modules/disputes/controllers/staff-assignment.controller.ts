@@ -8,7 +8,6 @@ import {
   Controller,
   Post,
   Get,
-  Patch,
   Body,
   Param,
   Query,
@@ -41,7 +40,6 @@ import { UserEntity, UserRole } from '../../../database/entities/user.entity';
 import {
   EarlyReleaseDto,
   EmergencyReassignDto,
-  ScheduleHearingDto,
   ReassignDisputeDto,
   BatchDisputeComplexityDto,
 } from '../dto/staff-assignment.dto';
@@ -517,13 +515,13 @@ export class StaffAssignmentController {
     status: HttpStatus.OK,
     description: 'Activity recorded',
   })
-  async recordActivity(
+  recordActivity(
     @Param('eventId', ParseUUIDPipe) eventId: string,
     @Body() body: { lastActivityAt?: string },
   ) {
     const lastActivity = body.lastActivityAt ? new Date(body.lastActivityAt) : new Date();
 
-    const idleResult = await this.staffAssignmentService.checkSessionIdle(eventId, lastActivity);
+    const idleResult = this.staffAssignmentService.checkSessionIdle(eventId, lastActivity);
 
     return {
       success: true,

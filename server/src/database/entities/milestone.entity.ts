@@ -120,4 +120,3 @@ export class MilestoneEntity {
   @JoinColumn({ name: 'projectSpecId' })
   projectSpec: ProjectSpecEntity;
 }
-

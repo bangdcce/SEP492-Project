@@ -18,6 +18,7 @@ import {
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { Logo } from "../../custom/Logo";
 import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
+import { signOut } from "@/features/auth";
 
 interface ClientHeaderProps {
   userName?: string;
@@ -75,17 +76,14 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
 
   const handleLogout = async () => {
     try {
-      // Call backend logout to clear httpOnly cookies
-      await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/auth/logout`, {
-        method: 'POST',
-        credentials: 'include', // Send cookies
-      });
+      await signOut();
     } catch (error) {
       console.error('Logout error:', error);
     }
     
     // Clear user info from storage (tokens are in httpOnly cookies)
     removeStoredItem(STORAGE_KEYS.USER);
+    window.dispatchEvent(new Event("userDataUpdated"));
     navigate(ROUTES.LOGIN);
   };
 

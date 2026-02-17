@@ -1,13 +1,17 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Eye,
   Ban,
   CheckCircle,
-  Filter,
   Search,
   Loader2,
   AlertTriangle,
+  Clock,
+  SlidersHorizontal,
+  X,
+  Sparkles,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { DisputeComplexityBadge } from "./DisputeComplexityBadge";
@@ -18,6 +22,8 @@ import {
   UserRole,
 } from "../../../staff/types/staff.types";
 import {
+  acceptDispute,
+  completeDisputePreview,
   escalateDispute,
   getDisputeComplexities,
   getDisputes,
@@ -40,6 +46,7 @@ import {
 } from "@/shared/components/ui/dialog";
 import { useStaffDashboardRealtime } from "@/features/staff/hooks/useStaffDashboardRealtime";
 import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 
 interface StaffDisputeBoardProps {
   mode?: "queue" | "caseload";
@@ -50,13 +57,7 @@ export const StaffDisputeBoard = ({
 }: StaffDisputeBoardProps) => {
   const navigate = useNavigate();
   const currentUser = useMemo(() => {
-    const raw = localStorage.getItem(STORAGE_KEYS.USER);
-    if (!raw) return null;
-    try {
-      return JSON.parse(raw) as { id?: string; role?: UserRole };
-    } catch {
-      return null;
-    }
+    return getStoredJson<{ id?: string; role?: UserRole }>(STORAGE_KEYS.USER);
   }, []);
   const isStaffUser = currentUser?.role === UserRole.STAFF;
   const [disputes, setDisputes] = useState<DisputeSummary[]>([]);
@@ -69,9 +70,13 @@ export const StaffDisputeBoard = ({
   const [loading, setLoading] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [viewFilter, setViewFilter] = useState<
-    "ACTIVE" | "APPEALS" | "RESOLVED" | "ALL"
-  >(mode === "queue" ? "ACTIVE" : "ACTIVE");
+  type ViewFilter =
+    | "ACTIVE"
+    | "PENDING_REVIEW"
+    | "APPEALS"
+    | "RESOLVED"
+    | "ALL";
+  const [viewFilter, setViewFilter] = useState<ViewFilter>("ACTIVE");
   const [priorityFilter, setPriorityFilter] = useState<DisputePriority | "ALL">(
     "ALL",
   );
@@ -85,6 +90,15 @@ export const StaffDisputeBoard = ({
   const [complexityById, setComplexityById] = useState<
     Record<string, DisputeComplexity>
   >({});
+  const [complexityFailedIds, setComplexityFailedIds] = useState<Set<string>>(
+    new Set(),
+  );
+  // Refs to read current state inside useEffect without adding to deps
+  const complexityByIdRef = useRef(complexityById);
+  complexityByIdRef.current = complexityById;
+  const complexityFailedIdsRef = useRef(complexityFailedIds);
+  complexityFailedIdsRef.current = complexityFailedIds;
+  const fetchingComplexityIdsRef = useRef(new Set<string>());
   const [complexityFilter, setComplexityFilter] = useState<
     DisputeComplexity["level"] | "ALL"
   >("ALL");
@@ -98,16 +112,37 @@ export const StaffDisputeBoard = ({
   const [rowActionLoadingId, setRowActionLoadingId] = useState<string | null>(
     null,
   );
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const statusIn = useMemo(() => {
+    if (mode === "queue") {
+      switch (viewFilter) {
+        case "ACTIVE":
+          return [DisputeStatus.TRIAGE_PENDING, DisputeStatus.OPEN];
+        case "PENDING_REVIEW":
+          return [DisputeStatus.PREVIEW, DisputeStatus.PENDING_REVIEW];
+        case "RESOLVED":
+          return [DisputeStatus.RESOLVED, DisputeStatus.REJECTED];
+        default:
+          // Queue "All"  Escoped to queue-relevant statuses only
+          // (NOT same as caseload  Equeue only sees triage pipeline)
+          return [
+            DisputeStatus.TRIAGE_PENDING,
+            DisputeStatus.OPEN,
+            DisputeStatus.PREVIEW,
+            DisputeStatus.PENDING_REVIEW,
+            DisputeStatus.REJECTED,
+            DisputeStatus.REJECTION_APPEALED,
+          ];
+      }
+    }
+    // Caseload mode  Escoped to staff's assigned disputes (via assignedStaffId)
     switch (viewFilter) {
       case "ACTIVE":
-        if (mode === "caseload") {
-          return [DisputeStatus.IN_MEDIATION];
-        }
         return [
-          DisputeStatus.OPEN,
+          DisputeStatus.PREVIEW,
           DisputeStatus.PENDING_REVIEW,
+          DisputeStatus.IN_MEDIATION,
           DisputeStatus.INFO_REQUESTED,
         ];
       case "APPEALS":
@@ -115,9 +150,105 @@ export const StaffDisputeBoard = ({
       case "RESOLVED":
         return [DisputeStatus.RESOLVED, DisputeStatus.REJECTED];
       default:
+        // Caseload "All"  Eall statuses but filtered by assignedStaffId
         return undefined;
     }
   }, [viewFilter, mode]);
+
+  // Tab definitions differ per mode
+  const statusTabs = useMemo(() => {
+    if (mode === "queue") {
+      return [
+        {
+          value: "ACTIVE" as ViewFilter,
+          label: "Pending",
+          statuses: [DisputeStatus.TRIAGE_PENDING, DisputeStatus.OPEN],
+        },
+        {
+          value: "PENDING_REVIEW" as ViewFilter,
+          label: "Preview",
+          statuses: [DisputeStatus.PREVIEW, DisputeStatus.PENDING_REVIEW],
+        },
+        {
+          value: "RESOLVED" as ViewFilter,
+          label: "Closed",
+          statuses: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED],
+        },
+        {
+          value: "ALL" as ViewFilter,
+          label: "All",
+          // Queue "All" scoped to queue-relevant statuses
+          statuses: [
+            DisputeStatus.TRIAGE_PENDING,
+            DisputeStatus.OPEN,
+            DisputeStatus.PREVIEW,
+            DisputeStatus.PENDING_REVIEW,
+            DisputeStatus.REJECTED,
+            DisputeStatus.REJECTION_APPEALED,
+          ],
+        },
+      ];
+    }
+    return [
+      {
+        value: "ACTIVE" as ViewFilter,
+        label: "In Progress",
+        statuses: [
+          DisputeStatus.PREVIEW,
+          DisputeStatus.PENDING_REVIEW,
+          DisputeStatus.IN_MEDIATION,
+          DisputeStatus.INFO_REQUESTED,
+        ],
+      },
+      {
+        value: "APPEALS" as ViewFilter,
+        label: "Appeals",
+        statuses: [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED],
+      },
+      {
+        value: "RESOLVED" as ViewFilter,
+        label: "Closed",
+        statuses: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED],
+      },
+      {
+        value: "ALL" as ViewFilter,
+        label: "All",
+        statuses: [],
+      },
+    ];
+  }, [mode]);
+
+  /** Compute per-tab count from stats.byStatus */
+  const getTabCount = useCallback(
+    (tab: (typeof statusTabs)[number]) => {
+      if (!stats?.byStatus) return null;
+      if (tab.statuses.length === 0) {
+        // "All" tab  Esum all statuses
+        return Object.values(stats.byStatus).reduce(
+          (sum, n) => sum + (n ?? 0),
+          0,
+        );
+      }
+      return tab.statuses.reduce((sum, s) => sum + (stats.byStatus[s] ?? 0), 0);
+    },
+    [stats?.byStatus],
+  );
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (weekFilter !== "ANY") count++;
+    if (categoryFilter !== "ALL") count++;
+    if (priorityFilter !== "ALL") count++;
+    if (complexityFilter !== "ALL") count++;
+    return count;
+  }, [weekFilter, categoryFilter, priorityFilter, complexityFilter]);
+
+  const clearAdvancedFilters = useCallback(() => {
+    setWeekFilter("ANY");
+    setCategoryFilter("ALL");
+    setPriorityFilter("ALL");
+    setComplexityFilter("ALL");
+  }, []);
 
   const deadlineRange = useMemo(() => {
     if (weekFilter === "OVERDUE") {
@@ -158,9 +289,10 @@ export const StaffDisputeBoard = ({
       priority: priorityFilter === "ALL" ? undefined : priorityFilter,
       category: categoryFilter === "ALL" ? undefined : categoryFilter,
       search: debouncedSearch ? debouncedSearch : undefined,
+      // Queue: don't filter by assignedStaffId  Eshow all unassigned disputes
+      // Caseload: filter by current staff's assigned disputes
       assignedStaffId:
         mode === "caseload" && isStaffUser ? currentUser?.id : undefined,
-      unassignedOnly: mode === "queue" ? true : undefined,
       ...deadlineRange,
     }),
     [
@@ -172,6 +304,7 @@ export const StaffDisputeBoard = ({
       isStaffUser,
       currentUser?.id,
       deadlineRange,
+      mode,
     ],
   );
 
@@ -188,22 +321,24 @@ export const StaffDisputeBoard = ({
 
   const fetchDisputes = useCallback(
     async (options?: { preferCache?: boolean }) => {
-    try {
-      setLoading(true);
-      const data = await getDisputes(queryFilters, {
-        preferCache: options?.preferCache,
-        ttlMs: 30_000,
-      });
-      setDisputes(data.data ?? []);
-      setMeta(data.meta);
-      setStats(data.stats ?? null);
-    } catch (error) {
-      console.error("Failed to load disputes:", error);
-      toast.error("Could not load dispute queue");
-    } finally {
-      setLoading(false);
-    }
-  }, [queryFilters]);
+      try {
+        setLoading(true);
+        const data = await getDisputes(queryFilters, {
+          preferCache: options?.preferCache,
+          ttlMs: 30_000,
+        });
+        setDisputes(data.data ?? []);
+        setMeta(data.meta);
+        setStats(data.stats ?? null);
+      } catch (error) {
+        console.error("Failed to load disputes:", error);
+        toast.error("Could not load dispute queue");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [queryFilters],
+  );
 
   useEffect(() => {
     fetchDisputes({ preferCache: true });
@@ -221,27 +356,64 @@ export const StaffDisputeBoard = ({
 
   useEffect(() => {
     if (!disputes.length) return;
-    const missing = disputes
-      .map((dispute) => dispute.id)
-      .filter((id) => !complexityById[id]);
-    if (!missing.length) return;
+
+    // Read current state via refs to avoid dependency-triggered re-runs
+    const currentComplexity = complexityByIdRef.current;
+    const currentFailed = complexityFailedIdsRef.current;
+    const fetching = fetchingComplexityIdsRef.current;
+
+    const toFetch = disputes
+      .map((d) => d.id)
+      .filter(
+        (id) =>
+          !currentComplexity[id] && !currentFailed.has(id) && !fetching.has(id),
+      );
+    if (!toFetch.length) return;
+
+    // Mark as in-flight immediately to prevent duplicate requests
+    toFetch.forEach((id) => fetching.add(id));
 
     let cancelled = false;
-    getDisputeComplexities(missing, { preferCache: true })
-      .then((resultMap) => {
+    getDisputeComplexities(toFetch, { preferCache: true })
+      .then(({ data: resultMap, failedIds }) => {
         if (cancelled) return;
-        setComplexityById((prev) => ({ ...prev, ...resultMap }));
+        if (Object.keys(resultMap).length) {
+          setComplexityById((prev) => ({ ...prev, ...resultMap }));
+        }
+
+        // Mark failed IDs (explicit errors + orphans not in resultMap)
+        const allFailed = [...failedIds];
+        toFetch.forEach((id) => {
+          if (!resultMap[id] && !failedIds.includes(id)) {
+            allFailed.push(id);
+          }
+        });
+        if (allFailed.length) {
+          setComplexityFailedIds((prev) => {
+            const next = new Set(prev);
+            allFailed.forEach((id) => next.add(id));
+            return next;
+          });
+        }
       })
       .catch((error) => {
-        if (!cancelled) {
-          console.error("Failed to load dispute complexity batch:", error);
-        }
+        if (cancelled) return;
+        console.error("Failed to load dispute complexity batch:", error);
+        setComplexityFailedIds((prev) => {
+          const next = new Set(prev);
+          toFetch.forEach((id) => next.add(id));
+          return next;
+        });
+      })
+      .finally(() => {
+        toFetch.forEach((id) => fetching.delete(id));
       });
 
     return () => {
       cancelled = true;
+      toFetch.forEach((id) => fetching.delete(id));
     };
-  }, [disputes, complexityById]);
+  }, [disputes]);
 
   const openDialog = (
     type: "reject" | "request-info",
@@ -283,12 +455,36 @@ export const StaffDisputeBoard = ({
   const handleEscalate = async (dispute: DisputeSummary) => {
     try {
       setRowActionLoadingId(dispute.id);
-      await escalateDispute(dispute.id);
-      toast.success("Dispute accepted for mediation.");
+      if (
+        [DisputeStatus.PREVIEW, DisputeStatus.PENDING_REVIEW].includes(
+          dispute.status,
+        )
+      ) {
+        await completeDisputePreview(dispute.id);
+        toast.success("Preview completed and mediation schedule triggered.");
+      } else {
+        await escalateDispute(dispute.id);
+        toast.success("Dispute escalated to mediation.");
+      }
       invalidateDisputesCache();
       await fetchDisputes({ preferCache: false });
     } catch (error) {
       console.error("Failed to escalate dispute:", error);
+      toast.error("Could not escalate dispute.");
+    } finally {
+      setRowActionLoadingId(null);
+    }
+  };
+
+  const handleAccept = async (dispute: DisputeSummary) => {
+    try {
+      setRowActionLoadingId(dispute.id);
+      await acceptDispute(dispute.id);
+      toast.success("Dispute accepted into caseload.");
+      invalidateDisputesCache();
+      await fetchDisputes({ preferCache: false });
+    } catch (error) {
+      console.error("Failed to accept dispute:", error);
       toast.error("Could not accept dispute.");
     } finally {
       setRowActionLoadingId(null);
@@ -307,6 +503,10 @@ export const StaffDisputeBoard = ({
 
   const statusPill = (status: DisputeStatus) => {
     switch (status) {
+      case DisputeStatus.TRIAGE_PENDING:
+        return "bg-violet-50 text-violet-700 border-violet-200";
+      case DisputeStatus.PREVIEW:
+        return "bg-sky-50 text-sky-700 border-sky-200";
       case DisputeStatus.PENDING_REVIEW:
         return "bg-amber-50 text-amber-700 border-amber-200";
       case DisputeStatus.INFO_REQUESTED:
@@ -349,26 +549,86 @@ export const StaffDisputeBoard = ({
   const boardTitle =
     mode === "caseload" ? "My Caseload" : "Dispute Queue (Triage)";
 
-  const canModerate = mode === "queue";
+  const canModerate = true; // actions available in both queue and caseload modes
+
+  // ── Helpers for per-row badges ──
+  const NEW_THRESHOLD_MS = 24 * 60 * 60 * 1000; // 24 hours
+  const nowMs = Date.now();
+
+  const priorityDot = (priority: DisputePriority) => {
+    switch (priority) {
+      case DisputePriority.CRITICAL:
+        return "bg-red-500";
+      case DisputePriority.HIGH:
+        return "bg-orange-400";
+      case DisputePriority.MEDIUM:
+        return "bg-yellow-400";
+      case DisputePriority.LOW:
+        return "bg-emerald-400";
+      default:
+        return "bg-gray-300";
+    }
+  };
+
+  const formatDeadline = (dispute: DisputeSummary) => {
+    const hours = dispute.hoursUntilDeadline;
+    if (hours == null) return null;
+
+    if (dispute.isOverdue) {
+      return {
+        label: "Overdue",
+        cls: "bg-red-50 text-red-600 border-red-100",
+        icon: AlertTriangle,
+      };
+    }
+    if (hours <= 48) {
+      const display =
+        hours < 1
+          ? "< 1h left"
+          : hours < 24
+            ? `${Math.round(hours)}h left`
+            : `${Math.round(hours / 24)}d left`;
+      return {
+        label: display,
+        cls: "bg-amber-50 text-amber-600 border-amber-100",
+        icon: Clock,
+      };
+    }
+    const days = Math.round(hours / 24);
+    return {
+      label: `${days}d left`,
+      cls: "bg-gray-50 text-gray-500 border-gray-100",
+      icon: Clock,
+    };
+  };
 
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full">
       {/* Toolbar */}
-      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <h3 className="font-semibold text-slate-900">{boardTitle}</h3>
-          <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
-            {totalLabel}
-          </span>
-          {stats?.urgent ? (
-            <span className="ml-2 inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded-full text-xs font-medium">
-              <AlertTriangle className="w-3 h-3" />
-              {stats.urgent} urgent
+      <div className="border-b border-gray-200">
+        {/* Row 1: Title + Stats + Search */}
+        <div className="px-4 pt-4 pb-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 min-w-0">
+            <h3 className="text-lg font-semibold text-slate-900 whitespace-nowrap">
+              {boardTitle}
+            </h3>
+            <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+              {totalLabel}
             </span>
-          ) : null}
-        </div>
-        <div className="flex gap-2">
-          <div className="relative">
+            {(stats?.urgent ?? 0) > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded-full text-xs font-medium whitespace-nowrap">
+                <AlertTriangle className="w-3 h-3" />
+                {stats!.urgent} urgent
+              </span>
+            )}
+            {(stats?.overdue ?? 0) > 0 && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-xs font-medium whitespace-nowrap">
+                <Clock className="w-3 h-3" />
+                {stats!.overdue} overdue
+              </span>
+            )}
+          </div>
+          <div className="relative shrink-0">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input
               type="text"
@@ -378,85 +638,135 @@ export const StaffDisputeBoard = ({
               onChange={(event) => setSearchValue(event.target.value)}
             />
           </div>
-          <button className="p-1.5 text-gray-500 hover:bg-gray-50 border border-gray-300 rounded-lg">
-            <Filter className="w-4 h-4" />
-          </button>
-          <select
-            value={viewFilter}
-            onChange={(event) =>
-              setViewFilter(
-                event.target.value as "ACTIVE" | "APPEALS" | "RESOLVED" | "ALL",
-              )
-            }
-            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-600"
-          >
-            <option value="ACTIVE">Active</option>
-            <option value="APPEALS">Appeals</option>
-            <option value="RESOLVED">Resolved/Rejected</option>
-            <option value="ALL">All</option>
-          </select>
-          <select
-            value={weekFilter}
-            onChange={(event) =>
-              setWeekFilter(
-                event.target.value as
-                  | "ANY"
-                  | "THIS_WEEK"
-                  | "NEXT_WEEK"
-                  | "OVERDUE",
-              )
-            }
-            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-600"
-          >
-            <option value="ANY">Any deadline</option>
-            <option value="THIS_WEEK">This week</option>
-            <option value="NEXT_WEEK">Next week</option>
-            <option value="OVERDUE">Overdue</option>
-          </select>
-          <select
-            value={categoryFilter}
-            onChange={(event) =>
-              setCategoryFilter(event.target.value as DisputeCategory | "ALL")
-            }
-            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-600"
-          >
-            <option value="ALL">All categories</option>
-            {Object.values(DisputeCategory).map((category) => (
-              <option key={category} value={category}>
-                {category.replace("_", " ")}
-              </option>
-            ))}
-          </select>
-          <select
-            value={complexityFilter}
-            onChange={(event) =>
-              setComplexityFilter(
-                event.target.value as DisputeComplexity["level"] | "ALL",
-              )
-            }
-            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-600"
-          >
-            <option value="ALL">All complexity</option>
-            <option value="LOW">Low</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="HIGH">High</option>
-            <option value="CRITICAL">Critical</option>
-          </select>
-          <select
-            value={priorityFilter}
-            onChange={(event) =>
-              setPriorityFilter(event.target.value as DisputePriority | "ALL")
-            }
-            className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-600"
-          >
-            <option value="ALL">All priorities</option>
-            {Object.values(DisputePriority).map((priority) => (
-              <option key={priority} value={priority}>
-                {priority}
-              </option>
-            ))}
-          </select>
         </div>
+
+        {/* Row 2: Status tabs + Filters toggle */}
+        <div className="px-4 pb-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-1">
+            {statusTabs.map((tab) => {
+              const count = getTabCount(tab);
+              return (
+                <button
+                  key={tab.value}
+                  onClick={() => setViewFilter(tab.value)}
+                  className={cn(
+                    "px-3 py-1.5 text-sm font-medium rounded-lg transition-colors inline-flex items-center gap-1.5",
+                    viewFilter === tab.value
+                      ? "bg-teal-50 text-teal-700 border border-teal-200"
+                      : "text-gray-500 hover:text-gray-700 hover:bg-gray-50 border border-transparent",
+                  )}
+                >
+                  {tab.label}
+                  {count != null && (
+                    <span
+                      className={cn(
+                        "text-[10px] font-semibold leading-none rounded-full px-1.5 py-0.5",
+                        viewFilter === tab.value
+                          ? "bg-teal-100 text-teal-700"
+                          : "bg-gray-100 text-gray-500",
+                      )}
+                    >
+                      {count}
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            onClick={() => setShowAdvancedFilters((prev) => !prev)}
+            className={cn(
+              "inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg transition-colors border shrink-0",
+              showAdvancedFilters
+                ? "bg-teal-50 text-teal-700 border-teal-200"
+                : "text-gray-500 hover:text-gray-700 hover:bg-gray-50 border-gray-300",
+            )}
+          >
+            <SlidersHorizontal className="w-4 h-4" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="px-1.5 py-0.5 bg-teal-100 text-teal-700 rounded-full text-xs font-semibold leading-none">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Row 3: Advanced filters (collapsible) */}
+        {showAdvancedFilters && (
+          <div className="px-4 pb-3 pt-2 border-t border-gray-100 flex flex-wrap items-center gap-3">
+            <select
+              value={weekFilter}
+              onChange={(event) =>
+                setWeekFilter(
+                  event.target.value as
+                    | "ANY"
+                    | "THIS_WEEK"
+                    | "NEXT_WEEK"
+                    | "OVERDUE",
+                )
+              }
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-600 bg-white"
+            >
+              <option value="ANY">Any deadline</option>
+              <option value="THIS_WEEK">This week</option>
+              <option value="NEXT_WEEK">Next week</option>
+              <option value="OVERDUE">Overdue</option>
+            </select>
+            <select
+              value={categoryFilter}
+              onChange={(event) =>
+                setCategoryFilter(event.target.value as DisputeCategory | "ALL")
+              }
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-600 bg-white"
+            >
+              <option value="ALL">All categories</option>
+              {Object.values(DisputeCategory).map((category) => (
+                <option key={category} value={category}>
+                  {category.replace("_", " ")}
+                </option>
+              ))}
+            </select>
+            <select
+              value={priorityFilter}
+              onChange={(event) =>
+                setPriorityFilter(event.target.value as DisputePriority | "ALL")
+              }
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-600 bg-white"
+            >
+              <option value="ALL">All priorities</option>
+              {Object.values(DisputePriority).map((priority) => (
+                <option key={priority} value={priority}>
+                  {priority}
+                </option>
+              ))}
+            </select>
+            <select
+              value={complexityFilter}
+              onChange={(event) =>
+                setComplexityFilter(
+                  event.target.value as DisputeComplexity["level"] | "ALL",
+                )
+              }
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-600 bg-white"
+            >
+              <option value="ALL">All complexity</option>
+              <option value="LOW">Low</option>
+              <option value="MEDIUM">Medium</option>
+              <option value="HIGH">High</option>
+              <option value="CRITICAL">Critical</option>
+            </select>
+            {activeFilterCount > 0 && (
+              <button
+                onClick={clearAdvancedFilters}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-sm text-gray-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+              >
+                <X className="w-3.5 h-3.5" />
+                Clear
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Table */}
@@ -472,6 +782,7 @@ export const StaffDisputeBoard = ({
               <th className="px-4 py-3">Dispute ID / Project</th>
               <th className="px-4 py-3">Raiser</th>
               <th className="px-4 py-3">Category</th>
+              <th className="px-4 py-3">Deadline</th>
               <th className="px-4 py-3">Complexity (Est.)</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -491,12 +802,18 @@ export const StaffDisputeBoard = ({
                 ? currencyFormatter.format(dispute.disputedAmount)
                 : "N/A";
               const canReview = [
+                DisputeStatus.TRIAGE_PENDING,
                 DisputeStatus.OPEN,
+                DisputeStatus.PREVIEW,
                 DisputeStatus.PENDING_REVIEW,
                 DisputeStatus.INFO_REQUESTED,
               ].includes(dispute.status);
-              const canRequestInfo =
-                dispute.status === DisputeStatus.PENDING_REVIEW;
+
+              const isNew =
+                dispute.createdAt &&
+                nowMs - new Date(dispute.createdAt).getTime() <
+                  NEW_THRESHOLD_MS;
+              const deadline = formatDeadline(dispute);
 
               return (
                 <tr
@@ -504,14 +821,30 @@ export const StaffDisputeBoard = ({
                   className="hover:bg-gray-50 group transition-colors"
                 >
                   <td className="px-4 py-3">
-                    <div className="font-medium text-slate-900">
-                      {dispute.id}
+                    <div className="flex items-center gap-1.5">
+                      {/* Priority dot */}
+                      <span
+                        className={cn(
+                          "w-2 h-2 rounded-full shrink-0",
+                          priorityDot(dispute.priority),
+                        )}
+                        title={`Priority: ${dispute.priority}`}
+                      />
+                      <span className="font-medium text-slate-900">
+                        {dispute.id}
+                      </span>
+                      {isNew && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-teal-50 text-teal-600 border border-teal-100 rounded-full text-[10px] font-semibold leading-none">
+                          <Sparkles className="w-2.5 h-2.5" />
+                          New
+                        </span>
+                      )}
                     </div>
-                    <div className="text-xs text-gray-500 truncate max-w-[200px]">
+                    <div className="text-xs text-gray-500 truncate max-w-[200px] ml-3.5">
                       {projectTitle}
                     </div>
                     <span
-                      className={`inline-flex mt-2 px-2 py-0.5 rounded text-xs font-medium border ${statusPill(
+                      className={`inline-flex mt-1 ml-3.5 px-2 py-0.5 rounded text-xs font-medium border ${statusPill(
                         dispute.status,
                       )}`}
                     >
@@ -534,7 +867,23 @@ export const StaffDisputeBoard = ({
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {complexity ? (
+                    {deadline ? (
+                      <span
+                        className={cn(
+                          "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border",
+                          deadline.cls,
+                        )}
+                      >
+                        <deadline.icon className="w-3 h-3" />
+                        {deadline.label}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-400">--</span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {complexity?.level &&
+                    complexity?.timeEstimation?.recommendedMinutes != null ? (
                       <DisputeComplexityBadge
                         level={complexity.level}
                         estMinutes={
@@ -542,6 +891,8 @@ export const StaffDisputeBoard = ({
                         }
                         confidence={complexity.confidence}
                       />
+                    ) : complexityFailedIds.has(dispute.id) ? (
+                      <span className="text-xs text-red-400">Unavailable</span>
                     ) : (
                       <span className="text-xs text-gray-400">
                         Estimating...
@@ -563,35 +914,64 @@ export const StaffDisputeBoard = ({
                       </button>
                       {canModerate && canReview ? (
                         <>
-                          <button
-                            className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"
-                            title="Reject as Invalid"
-                            onClick={() => openDialog("reject", dispute)}
-                          >
-                            <Ban className="w-4 h-4" />
-                          </button>
-                          <button
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"
-                            title="Accept to Caseload"
-                            onClick={() => handleEscalate(dispute)}
-                            disabled={rowActionLoadingId === dispute.id}
-                          >
-                            {rowActionLoadingId === dispute.id ? (
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <CheckCircle className="w-4 h-4" />
+                          {/* Queue mode: Accept / Reject for OPEN disputes */}
+                          {mode === "queue" &&
+                            [
+                              DisputeStatus.OPEN,
+                              DisputeStatus.TRIAGE_PENDING,
+                            ].includes(dispute.status) && (
+                              <>
+                                <button
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"
+                                  title="Reject as Invalid"
+                                  onClick={() => openDialog("reject", dispute)}
+                                >
+                                  <Ban className="w-4 h-4" />
+                                </button>
+                                <button
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"
+                                  title="Accept to Caseload"
+                                  onClick={() => handleAccept(dispute)}
+                                  disabled={rowActionLoadingId === dispute.id}
+                                >
+                                  {rowActionLoadingId === dispute.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <CheckCircle className="w-4 h-4" />
+                                  )}
+                                </button>
+                              </>
                             )}
-                          </button>
-                          {canRequestInfo ? (
-                            <button
-                              className="px-2 py-1 text-xs text-slate-600 border border-gray-200 rounded-md hover:bg-gray-50"
-                              onClick={() =>
-                                openDialog("request-info", dispute)
-                              }
-                            >
-                              Request Info
-                            </button>
-                          ) : null}
+
+                          {/* Caseload mode: Escalate / Request Info for PENDING_REVIEW disputes */}
+                          {mode === "caseload" &&
+                            [
+                              DisputeStatus.PENDING_REVIEW,
+                              DisputeStatus.PREVIEW,
+                            ].includes(dispute.status) && (
+                              <>
+                                <button
+                                  className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-md"
+                                  title="Escalate to Mediation"
+                                  onClick={() => handleEscalate(dispute)}
+                                  disabled={rowActionLoadingId === dispute.id}
+                                >
+                                  {rowActionLoadingId === dispute.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin" />
+                                  ) : (
+                                    <AlertTriangle className="w-4 h-4" />
+                                  )}
+                                </button>
+                                <button
+                                  className="px-2 py-1 text-xs text-slate-600 border border-gray-200 rounded-md hover:bg-gray-50"
+                                  onClick={() =>
+                                    openDialog("request-info", dispute)
+                                  }
+                                >
+                                  Request Info
+                                </button>
+                              </>
+                            )}
                         </>
                       ) : null}
                     </div>
@@ -602,7 +982,7 @@ export const StaffDisputeBoard = ({
             {emptyState && (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={6}
                   className="px-4 py-12 text-center text-sm text-gray-500"
                 >
                   No disputes found for the current filters.

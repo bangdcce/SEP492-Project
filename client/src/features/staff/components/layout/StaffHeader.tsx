@@ -4,6 +4,7 @@ import { Bell, ChevronDown, User, Settings, LogOut } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { STORAGE_KEYS, ROUTES } from "@/constants";
 import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
+import { signOut } from "@/features/auth";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,10 +67,14 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
   const userRole = user.role || "STAFF";
   const userAvatar = user.avatarUrl;
 
-  const handleLogout = () => {
-    removeStoredItem(STORAGE_KEYS.ACCESS_TOKEN);
-    removeStoredItem(STORAGE_KEYS.REFRESH_TOKEN);
+  const handleLogout = async () => {
+    try {
+      await signOut();
+    } catch {
+      // Continue with logout even if request fails
+    }
     removeStoredItem(STORAGE_KEYS.USER);
+    window.dispatchEvent(new Event("userDataUpdated"));
     navigate(ROUTES.LOGIN);
   };
 
