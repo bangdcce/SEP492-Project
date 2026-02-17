@@ -166,11 +166,12 @@ export default function WizardPage() {
              navigate(`/client/requests/${savedRequest.id}?tab=recruitment&action=find`);
         } 
 
-     } catch (error) {
+      } catch (error: any) {
+        console.error("Submission error:", error);
         toast.error("Submission Failed", {
-            description: "An error occurred. Please try again.",
+            description: error.response?.data?.message || error.message || "An error occurred. Please try again.",
         });
-     } finally {
+      } finally {
         setSubmitting(false);
      }
   };

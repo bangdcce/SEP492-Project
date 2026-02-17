@@ -24,7 +24,6 @@ export class CreateProjectRequestDto {
   title: string;
 
   @ApiProperty()
-  @IsNotEmpty()
   @IsString()
   description: string;
 

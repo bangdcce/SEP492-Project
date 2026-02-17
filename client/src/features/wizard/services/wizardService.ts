@@ -46,7 +46,7 @@ export const wizardService = {
   
   uploadFile: async (file: File) => {
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("attachments", file);
     const response = await axiosClient.post("/project-requests/upload", formData, {
       headers: {
         "Content-Type": "multipart/form-data",

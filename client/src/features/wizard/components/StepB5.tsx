@@ -31,8 +31,8 @@ export function StepB5({
     try {
       setUploading(true);
       const res = await wizardService.uploadFile(file);
-      setFileName(res.filename);
-      onFileUploaded(res.url); // Pass mock URL back
+      setFileName(res.attachments?.[0]?.filename || file.name);
+      onFileUploaded(res.attachments?.[0]?.url || ""); // Pass mock URL back
     } catch (error) {
       console.error("Upload failed", error);
     } finally {

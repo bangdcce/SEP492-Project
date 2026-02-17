@@ -11,7 +11,13 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     private config: ConfigType<typeof jwtConfig>,
   ) {
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: (req) => {
+        let token = null;
+        if (req && req.cookies) {
+          token = req.cookies['accessToken'];
+        }
+        return token || ExtractJwt.fromAuthHeaderAsBearerToken()(req);
+      },
       ignoreExpiration: false,
       secretOrKey: config.secret,
     });
