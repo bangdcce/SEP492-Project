@@ -46,7 +46,10 @@ import {
   linkSubtask,
   fetchTaskSubmissions,
   createTaskSubmission,
+  reviewSubmission,
 } from "../../api";
+import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 
 // Helper for robust date parsing (force UTC if naked ISO)
 const normalizeToUTC = (d: string | Date | undefined): Date => {
@@ -257,6 +260,16 @@ export function TaskDetailModal({
   const [isSubmittingSubmission, setIsSubmittingSubmission] = useState(false);
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [expandedSubmissions, setExpandedSubmissions] = useState<Record<string, boolean>>({});
+
+  // Review State (Client-only)
+  const [isReviewing, setIsReviewing] = useState(false);
+  const [reviewingSubmissionId, setReviewingSubmissionId] = useState<string | null>(null);
+  const [reviewNote, setReviewNote] = useState("");
+  const [isReviewNotePopoverOpen, setIsReviewNotePopoverOpen] = useState(false);
+
+  // Get current user for role-based UI
+  const currentUser = getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
+  const canReview = currentUser?.role?.toUpperCase() === "CLIENT";
 
   useEffect(() => {
     setTask(initialTask);
@@ -583,6 +596,69 @@ export function TaskDetailModal({
       ...prev,
       [submissionId]: !prev[submissionId],
     }));
+  };
+
+  // Review Handlers (Client-only)
+  const handleApproveSubmission = async (submissionId: string) => {
+    if (!task || !canReview) return;
+
+    const confirmApprove = window.confirm(
+      "Are you sure you want to approve this submission? The task will be marked as DONE."
+    );
+    if (!confirmApprove) return;
+
+    setIsReviewing(true);
+    setReviewingSubmissionId(submissionId);
+    try {
+      const result = await reviewSubmission(task.id, submissionId, {
+        status: "APPROVED",
+      });
+      // Update local state
+      setSubmissions((prev) =>
+        prev.map((s) => (s.id === submissionId ? result.submission : s))
+      );
+      setTask((prev) => (prev ? { ...prev, status: result.task.status } : prev));
+      onUpdate?.({ ...task, status: result.task.status });
+    } catch (error) {
+      console.error("Failed to approve submission:", error);
+      setSubmissionError("Failed to approve submission. Please try again.");
+    } finally {
+      setIsReviewing(false);
+      setReviewingSubmissionId(null);
+    }
+  };
+
+  const handleRequestChanges = async (submissionId: string) => {
+    if (!task || !canReview) return;
+
+    if (!reviewNote.trim()) {
+      setSubmissionError("Please provide feedback for the requested changes.");
+      return;
+    }
+
+    setIsReviewing(true);
+    setReviewingSubmissionId(submissionId);
+    try {
+      const result = await reviewSubmission(task.id, submissionId, {
+        status: "REQUEST_CHANGES",
+        reviewNote: reviewNote.trim(),
+      });
+      // Update local state
+      setSubmissions((prev) =>
+        prev.map((s) => (s.id === submissionId ? result.submission : s))
+      );
+      setTask((prev) => (prev ? { ...prev, status: result.task.status } : prev));
+      onUpdate?.({ ...task, status: result.task.status });
+      // Reset form
+      setReviewNote("");
+      setIsReviewNotePopoverOpen(false);
+    } catch (error) {
+      console.error("Failed to request changes:", error);
+      setSubmissionError("Failed to request changes. Please try again.");
+    } finally {
+      setIsReviewing(false);
+      setReviewingSubmissionId(null);
+    }
   };
 
   return (
@@ -1160,6 +1236,116 @@ export function TaskDetailModal({
                                       __html: submission.content,
                                     }}
                                   />
+                                )}
+
+                                {/* Review Note Display (if reviewed) */}
+                                {submission.reviewNote && (
+                                  <div className="mt-3 rounded-md border border-purple-200 bg-purple-50 p-3">
+                                    <div className="flex items-center gap-2 mb-1">
+                                      <span className="text-xs font-semibold text-purple-700">
+                                        Feedback from {submission.reviewer?.fullName || "Reviewer"}
+                                      </span>
+                                      {submission.reviewedAt && (
+                                        <span className="text-[10px] text-purple-500">
+                                          {formatDistanceToNow(normalizeToUTC(submission.reviewedAt), { addSuffix: true })}
+                                        </span>
+                                      )}
+                                    </div>
+                                    <p className="text-sm text-purple-900">{submission.reviewNote}</p>
+                                  </div>
+                                )}
+
+                                {/* CLIENT-ONLY: Review Actions for PENDING submissions */}
+                                {submission.status === "PENDING" && canReview && (
+                                  <div className="mt-3 pt-3 border-t border-gray-200">
+                                    <div className="flex items-center gap-2">
+                                      {/* Approve Button */}
+                                      <button
+                                        type="button"
+                                        onClick={() => handleApproveSubmission(submission.id)}
+                                        disabled={isReviewing && reviewingSubmissionId === submission.id}
+                                        className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
+                                      >
+                                        {isReviewing && reviewingSubmissionId === submission.id ? (
+                                          <Loader2 className="w-3 h-3 animate-spin" />
+                                        ) : (
+                                          <CheckCircle2 className="w-3.5 h-3.5" />
+                                        )}
+                                        Approve
+                                      </button>
+
+                                      {/* Request Changes Button with Popover */}
+                                      <Popover
+                                        open={isReviewNotePopoverOpen && reviewingSubmissionId === submission.id}
+                                        onOpenChange={(open) => {
+                                          setIsReviewNotePopoverOpen(open);
+                                          if (open) {
+                                            setReviewingSubmissionId(submission.id);
+                                            setSubmissionError(null);
+                                          } else {
+                                            setReviewNote("");
+                                          }
+                                        }}
+                                      >
+                                        <PopoverTrigger asChild>
+                                          <button
+                                            type="button"
+                                            disabled={isReviewing && reviewingSubmissionId === submission.id}
+                                            className="inline-flex items-center gap-1.5 rounded-md bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-60 transition-colors"
+                                          >
+                                            <AlertTriangle className="w-3.5 h-3.5" />
+                                            Request Changes
+                                          </button>
+                                        </PopoverTrigger>
+                                        <PopoverContent className="w-80">
+                                          <div className="space-y-3">
+                                            <div>
+                                              <h4 className="text-sm font-semibold text-gray-900">
+                                                Request Changes
+                                              </h4>
+                                              <p className="text-xs text-gray-500">
+                                                Provide feedback for the freelancer.
+                                              </p>
+                                            </div>
+                                            <div className="space-y-1">
+                                              <label className="text-xs font-semibold text-gray-600">
+                                                Feedback
+                                              </label>
+                                              <textarea
+                                                value={reviewNote}
+                                                onChange={(e) => setReviewNote(e.target.value)}
+                                                placeholder="Describe what needs to be changed..."
+                                                className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-orange-500 focus:ring-orange-500 resize-none h-24"
+                                              />
+                                            </div>
+                                            {submissionError && (
+                                              <p className="text-xs text-red-600">{submissionError}</p>
+                                            )}
+                                            <div className="flex justify-end gap-2">
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setIsReviewNotePopoverOpen(false);
+                                                  setReviewNote("");
+                                                }}
+                                                className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-50"
+                                              >
+                                                Cancel
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleRequestChanges(submission.id)}
+                                                disabled={isReviewing || !reviewNote.trim()}
+                                                className="rounded-md bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-orange-600 disabled:opacity-60"
+                                              >
+                                                {isReviewing ? "Sending..." : "Send Feedback"}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </PopoverContent>
+                                      </Popover>
+                                    </div>
+                                  </div>
                                 )}
                               </div>
                             </div>

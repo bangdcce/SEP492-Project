@@ -43,6 +43,11 @@ export type TaskSubmission = {
   version: number;
   status: TaskSubmissionStatus;
   createdAt: string;
+  // Review fields (populated when reviewed by Client)
+  reviewNote?: string | null;
+  reviewerId?: string | null;
+  reviewer?: Assignee | null;
+  reviewedAt?: string | null;
 };
 
 export type Task = {
