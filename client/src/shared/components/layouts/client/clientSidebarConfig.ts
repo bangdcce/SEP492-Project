@@ -62,10 +62,10 @@ export const clientSidebarMenuItems: ClientSidebarMenuItem[] = [
   },
   {
     id: "hearings",
-    label: "Hearings",
+    label: "Calendar & Hearings",
     icon: Video,
     path: "/client/hearings",
-    description: "Upcoming dispute hearings",
+    description: "Meetings, confirmations, and dispute hearings",
     section: "workspace",
   },
   {

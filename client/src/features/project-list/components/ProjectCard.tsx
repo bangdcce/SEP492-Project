@@ -115,18 +115,17 @@ export function ProjectCard({ project, userRole, onNavigate }: ProjectCardProps)
         <div className="mt-4 pt-3 border-t border-gray-100">
           <button
             onClick={onNavigate}
-            disabled={isDisputed}
             className={cn(
               "w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors",
               isDisputed
-                ? "bg-gray-100 text-gray-400 cursor-not-allowed"
+                ? "bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100"
                 : "bg-teal-600 text-white hover:bg-teal-700"
             )}
           >
             {isDisputed ? (
               <>
                 <AlertTriangle className="h-4 w-4" />
-                Workspace Locked
+                View Workspace (Read-only)
               </>
             ) : (
               <>
@@ -139,7 +138,7 @@ export function ProjectCard({ project, userRole, onNavigate }: ProjectCardProps)
           {/* Dispute Help Text */}
           {isDisputed && (
             <p className="mt-2 text-xs text-center text-red-600">
-              Project workspace is locked during dispute resolution
+              Task updates are locked during dispute resolution, but dispute actions remain available.
             </p>
           )}
         </div>

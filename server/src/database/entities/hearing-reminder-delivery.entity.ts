@@ -10,6 +10,7 @@ import {
 } from 'typeorm';
 
 export enum HearingReminderType {
+  T72H = 'T72H',
   T24H = 'T24H',
   T1H = 'T1H',
   T10M = 'T10M',

@@ -169,6 +169,7 @@ export function SignInPage({
           id="email"
           label="Email"
           type="email"
+          autoComplete="username"
           placeholder="Enter your email"
           value={formData.email}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) =>

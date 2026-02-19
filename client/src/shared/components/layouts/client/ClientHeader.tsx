@@ -3,10 +3,9 @@
  * Top navigation header for client dashboard
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import {
-  Bell,
   Search,
   Menu,
   X,
@@ -19,6 +18,9 @@ import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { Logo } from "../../custom/Logo";
 import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
 import { signOut } from "@/features/auth";
+import type { NotificationItem } from "@/features/notifications/types";
+import { NotificationDropdown } from "@/features/notifications/components/NotificationDropdown";
+import { resolveRoleBasePath } from "@/features/hearings/utils/hearingRouting";
 
 interface ClientHeaderProps {
   userName?: string;
@@ -73,6 +75,10 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
   const userName = propUserName || user.fullName || "User";
   const userRole = propUserRole || user.role || "Client";
   const userAvatar = propUserAvatar || user.avatarUrl;
+  const roleBasePath = useMemo(
+    () => resolveRoleBasePath(user.role || userRole),
+    [user.role, userRole],
+  );
 
   const handleLogout = async () => {
     try {
@@ -96,6 +102,32 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
       .toUpperCase()
       .slice(0, 2);
   };
+
+  const handleNotificationSelect = useCallback(
+    (item: NotificationItem) => {
+      if (item.relatedType === "Dispute" && item.relatedId) {
+        if (roleBasePath === "/staff") {
+          navigate(`/staff/caseload?disputeId=${item.relatedId}`);
+          return;
+        }
+        if (roleBasePath === "/admin") {
+          navigate("/admin/dashboard");
+          return;
+        }
+        navigate(`${roleBasePath}/hearings?disputeId=${item.relatedId}`);
+        return;
+      }
+
+      if (item.relatedType === "DisputeHearing") {
+        if (roleBasePath === "/admin") {
+          navigate("/admin/dashboard");
+          return;
+        }
+        navigate(`${roleBasePath}/hearings`);
+      }
+    },
+    [navigate, roleBasePath],
+  );
 
   return (
     <header className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-slate-200/60">
@@ -152,17 +184,10 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
               <Search className="w-5 h-5 text-gray-900" />
             </button>
 
-            {/* Notifications */}
-            <div className="relative">
-              <button
-                className="p-2 hover:bg-gray-100 rounded-md transition-colors relative"
-                aria-label="Notifications"
-              >
-                <Bell className="w-5 h-5 text-gray-900" />
-                {/* Notification Badge */}
-                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full ring-2 ring-white" />
-              </button>
-            </div>
+            <NotificationDropdown
+              onSelect={handleNotificationSelect}
+              buttonClassName="hover:bg-gray-100 rounded-md"
+            />
 
             {/* User Profile Dropdown */}
             <div className="relative">

@@ -294,7 +294,7 @@ export const DisputeDetailHub = ({
       ) : null,
     },
     {
-      name: "Discussion",
+      name: "Case Discussion (Async)",
       icon: MessageSquare,
       component: disputeId ? (
         <DiscussionPanel
@@ -413,6 +413,11 @@ export const DisputeDetailHub = ({
           </div>
 
           <div className="flex-1 overflow-y-auto p-6" role="tabpanel">
+            {selectedIndex === 3 && (
+              <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                Hearing live chat is available only inside Hearing Room at scheduled time.
+              </div>
+            )}
             {loading ? (
               <div className="text-sm text-gray-500">Loading dispute...</div>
             ) : (

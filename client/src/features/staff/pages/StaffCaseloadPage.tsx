@@ -1,7 +1,7 @@
 import { useLocation, useSearchParams } from "react-router-dom";
 import { DisputeDetailHub } from "@/features/disputes/components/dashboard/DisputeDetailHub";
 import type { DisputeSummary } from "@/features/disputes/types/dispute.types";
-import { StaffDisputeBoard } from "@/features/disputes/components/dashboard/StaffDisputeBoard";
+import { StaffCaseloadBoard } from "@/features/disputes/components/dashboard/StaffCaseloadBoard";
 
 export const StaffCaseloadPage = () => {
   const location = useLocation();
@@ -20,7 +20,7 @@ export const StaffCaseloadPage = () => {
             Disputes assigned to you. Pick a case to review in detail.
           </p>
         </div>
-        <StaffDisputeBoard mode="caseload" />
+        <StaffCaseloadBoard />
       </div>
     );
   }

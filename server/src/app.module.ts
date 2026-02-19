@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module';
@@ -84,6 +85,8 @@ import { LeaveModule } from './modules/leave/leave.module';
         limit: 100, // 100 requests per minute
       },
     ]),
+
+    ScheduleModule.forRoot(),
 
     AuditLogsModule,
     AuthModule,

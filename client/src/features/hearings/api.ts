@@ -6,6 +6,7 @@ import type {
   RescheduleHearingInput,
   ScheduleHearingInput,
   DisputeHearingSummary,
+  HearingScheduleResult,
   HearingStatus,
   SpeakerRole,
   HearingAttendanceSummary,
@@ -15,8 +16,31 @@ import type {
   SupportCandidate,
 } from "./types";
 
-export const scheduleHearing = async (input: ScheduleHearingInput) => {
-  return await apiClient.post("/disputes/hearings/schedule", input);
+type ApiEnvelope<T> = {
+  success?: boolean;
+  message?: string;
+  data?: T;
+};
+
+const unwrapData = <T>(response: ApiEnvelope<T> | T): T => {
+  if (
+    response &&
+    typeof response === "object" &&
+    "data" in (response as ApiEnvelope<T>)
+  ) {
+    return ((response as ApiEnvelope<T>).data ?? response) as T;
+  }
+  return response as T;
+};
+
+export const scheduleHearing = async (
+  input: ScheduleHearingInput,
+): Promise<HearingScheduleResult> => {
+  const response = await apiClient.post<ApiEnvelope<HearingScheduleResult>>(
+    "/disputes/hearings/schedule",
+    input,
+  );
+  return unwrapData<HearingScheduleResult>(response);
 };
 
 export const startHearing = async (hearingId: string) => {
@@ -36,16 +60,20 @@ export const endHearing = async (hearingId: string, input?: EndHearingInput) => 
 export const rescheduleHearing = async (
   hearingId: string,
   input: RescheduleHearingInput,
-) => {
-  return await apiClient.post(`/disputes/hearings/${hearingId}/reschedule`, {
-    hearingId,
-    scheduledAt: input.scheduledAt,
-    estimatedDurationMinutes: input.estimatedDurationMinutes,
-    agenda: input.agenda,
-    requiredDocuments: input.requiredDocuments,
-    externalMeetingLink: input.externalMeetingLink,
-    isEmergency: input.isEmergency,
-  });
+): Promise<HearingScheduleResult> => {
+  const response = await apiClient.post<ApiEnvelope<HearingScheduleResult>>(
+    `/disputes/hearings/${hearingId}/reschedule`,
+    {
+      hearingId,
+      scheduledAt: input.scheduledAt,
+      estimatedDurationMinutes: input.estimatedDurationMinutes,
+      agenda: input.agenda,
+      requiredDocuments: input.requiredDocuments,
+      externalMeetingLink: input.externalMeetingLink,
+      isEmergency: input.isEmergency,
+    },
+  );
+  return unwrapData<HearingScheduleResult>(response);
 };
 
 export const extendHearingDuration = async (
@@ -183,4 +211,29 @@ export const askHearingQuestion = async (
     question: input.question,
     deadlineMinutes: input.deadlineMinutes,
   });
+};
+
+export const dispatchHearingReminders = async (at?: string): Promise<{
+  referenceAt?: string;
+  dispatched?: number;
+  skipped?: number;
+  dispatches?: Array<{
+    hearingId: string;
+    userId: string;
+    reminderType: string;
+  }>;
+}> => {
+  const response = await apiClient.post<
+    ApiEnvelope<{
+      referenceAt?: string;
+      dispatched?: number;
+      skipped?: number;
+      dispatches?: Array<{
+        hearingId: string;
+        userId: string;
+        reminderType: string;
+      }>;
+    }>
+  >("/disputes/hearings/reminders/dispatch", at ? { at } : {});
+  return unwrapData(response);
 };

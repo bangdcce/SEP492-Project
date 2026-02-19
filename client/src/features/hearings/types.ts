@@ -21,6 +21,37 @@ export type HearingParticipantRole =
   | "MODERATOR"
   | "OBSERVER";
 
+export type HearingParticipantResponseStatus =
+  | "PENDING"
+  | "NO_RESPONSE"
+  | "ACCEPTED"
+  | "DECLINED"
+  | "TENTATIVE";
+
+export interface HearingParticipantConfirmationItem {
+  userId: string;
+  role: string;
+  status: HearingParticipantResponseStatus | string;
+  isRequired: boolean;
+  respondedAt?: string | null;
+  responseDeadline?: string | null;
+}
+
+export interface HearingParticipantConfirmationSummary {
+  totalParticipants: number;
+  requiredParticipants: number;
+  accepted: number;
+  declined: number;
+  tentative: number;
+  pending: number;
+  requiredAccepted: number;
+  requiredDeclined: number;
+  requiredTentative: number;
+  requiredPending: number;
+  allRequiredAccepted: boolean;
+  participants: HearingParticipantConfirmationItem[];
+}
+
 export interface HearingParticipantSummary {
   id: string;
   userId: string;
@@ -68,7 +99,33 @@ export interface DisputeHearingSummary {
   hearingNumber?: number;
   tier?: HearingTier;
   participants?: HearingParticipantSummary[];
+  participantConfirmationSummary?: HearingParticipantConfirmationSummary;
   dispute?: HearingDisputeSummary;
+}
+
+export interface HearingScheduleResult {
+  manualRequired: boolean;
+  reason?: string;
+  reasonCode?:
+    | "NO_STAFF_AVAILABLE"
+    | "NO_REQUIRED_PARTICIPANTS"
+    | "NO_COMMON_SLOT"
+    | "REQUIRED_DECLINED"
+    | "CONFIRMATION_TIMEOUT"
+    | "MANUAL_REVIEW_REQUIRED";
+  hearing: DisputeHearingSummary;
+  calendarEvent: {
+    id: string;
+    status: string;
+    startTime: string;
+    endTime: string;
+    referenceId?: string;
+  };
+  participants: HearingParticipantSummary[];
+  scheduledAt: string;
+  responseDeadline: string;
+  participantConfirmationSummary: HearingParticipantConfirmationSummary;
+  warnings: string[];
 }
 
 export interface HearingStatementSummary {

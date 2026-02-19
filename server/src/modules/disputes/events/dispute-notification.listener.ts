@@ -12,6 +12,7 @@ import {
   NotificationEntity,
 } from 'src/database/entities';
 import { DISPUTE_EVENTS } from './dispute.events';
+import { DisputeGateway } from '../gateways/dispute.gateway';
 
 @Injectable()
 export class DisputeNotificationListener {
@@ -30,6 +31,7 @@ export class DisputeNotificationListener {
     private readonly hearingRepo: Repository<DisputeHearingEntity>,
     @InjectRepository(HearingParticipantEntity)
     private readonly hearingParticipantRepo: Repository<HearingParticipantEntity>,
+    private readonly disputeGateway: DisputeGateway,
   ) {}
 
   @OnEvent(DISPUTE_EVENTS.REJECTED)
@@ -149,6 +151,54 @@ export class DisputeNotificationListener {
       'Mediation is starting. Hearing scheduling will follow.',
       'Dispute',
       dispute.id,
+    );
+  }
+
+  @OnEvent(DISPUTE_EVENTS.URGENT_CREATED)
+  async handleUrgentDisputeCreated(payload: {
+    disputeId?: string;
+    category?: string;
+    priority?: string;
+    assignedStaffId?: string | null;
+    resolutionDeadline?: Date;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const admins = await this.getAdminIds();
+    const recipients = new Set<string>(admins);
+
+    if (payload.assignedStaffId) {
+      recipients.add(payload.assignedStaffId);
+    } else {
+      const staffUsers = await this.userRepo.find({
+        where: { role: UserRole.STAFF, isBanned: false },
+        select: ['id'],
+      });
+      staffUsers.forEach((staff) => recipients.add(staff.id));
+    }
+
+    if (recipients.size === 0) {
+      return;
+    }
+
+    const deadlineLabel = payload.resolutionDeadline
+      ? `SLA deadline: ${new Date(payload.resolutionDeadline).toISOString()}`
+      : 'Urgent SLA attention required.';
+
+    const parts = [
+      payload.priority ? `Priority ${payload.priority}` : null,
+      payload.category ? `Category ${payload.category}` : null,
+      deadlineLabel,
+    ].filter(Boolean);
+
+    await this.createNotifications(
+      Array.from(recipients),
+      'Urgent dispute requires attention',
+      parts.join(' | '),
+      'Dispute',
+      payload.disputeId,
     );
   }
 
@@ -329,7 +379,13 @@ export class DisputeNotificationListener {
     );
 
     try {
-      await this.notificationRepo.save(notifications);
+      const savedNotifications = await this.notificationRepo.save(notifications);
+      savedNotifications.forEach((notification) => {
+        this.disputeGateway.emitUserEvent(notification.userId, 'NOTIFICATION_CREATED', {
+          notification,
+          serverTimestamp: new Date().toISOString(),
+        });
+      });
     } catch (error) {
       this.logger.warn(
         `Failed to persist notifications for ${uniqueIds.length} users: ${
