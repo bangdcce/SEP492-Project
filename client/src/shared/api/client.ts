@@ -71,7 +71,11 @@ class ApiClient {
         const status = error.response?.status;
         const originalRequest = (error.config || {}) as InternalRequestConfig;
 
-        if (status !== 401 || originalRequest._skipAuthRefresh) {
+        if (
+          status !== 401 ||
+          originalRequest._skipAuthRefresh ||
+          this.isPublicAuthEndpoint(originalRequest.url)
+        ) {
           return Promise.reject(error);
         }
 
@@ -125,6 +129,21 @@ class ApiClient {
   private isRefreshEndpoint(url?: string): boolean {
     if (!url) return false;
     return url.includes("/auth/refresh");
+  }
+
+  private isPublicAuthEndpoint(url?: string): boolean {
+    if (!url) return false;
+    const normalizedUrl = url.toLowerCase();
+    const publicAuthPaths = [
+      "/auth/login",
+      "/auth/register",
+      "/auth/forgot-password",
+      "/auth/reset-password",
+      "/auth/verify-otp",
+      "/auth/verify-email",
+      "/auth/resend-verification",
+    ];
+    return publicAuthPaths.some((path) => normalizedUrl.includes(path));
   }
 
   private async refreshAccessTokenSingleFlight(): Promise<void> {

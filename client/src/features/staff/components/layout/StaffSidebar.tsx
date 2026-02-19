@@ -1,15 +1,19 @@
+import { useCallback, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
   Inbox,
   Briefcase,
   Calendar,
+  CalendarDays,
   Video,
   User,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
 import Logo from "@/assets/logo/logo.png";
+import { getDisputeQueueCount } from "@/features/disputes/api";
+import { useStaffDashboardRealtime } from "../../hooks/useStaffDashboardRealtime";
 
 interface StaffSidebarProps {
   collapsed: boolean;
@@ -17,12 +21,52 @@ interface StaffSidebarProps {
 }
 
 export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
+  const [queueCount, setQueueCount] = useState(0);
+
+  const refreshQueueCount = useCallback(async () => {
+    try {
+      const response = await getDisputeQueueCount();
+      const nextCount =
+        typeof response?.count === "number"
+          ? response.count
+          : typeof (response as { data?: { count?: number } })?.data?.count ===
+                "number"
+            ? ((response as { data?: { count?: number } }).data?.count ?? 0)
+            : 0;
+      setQueueCount(Math.max(0, nextCount));
+    } catch {
+      // Keep last known value if request fails.
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshQueueCount();
+    const timer = window.setInterval(() => {
+      void refreshQueueCount();
+    }, 30_000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [refreshQueueCount]);
+
+  const handleRealtimeRefresh = useCallback(() => {
+    void refreshQueueCount();
+  }, [refreshQueueCount]);
+
+  useStaffDashboardRealtime({
+    onDisputeCreated: handleRealtimeRefresh,
+    onHearingEnded: handleRealtimeRefresh,
+    onVerdictIssued: handleRealtimeRefresh,
+    onStaffOverloaded: handleRealtimeRefresh,
+  });
+
   const menuItems = [
     { label: "Dashboard", icon: LayoutDashboard, path: "/staff/dashboard" },
     { label: "Dispute Queue", icon: Inbox, path: "/staff/queue" },
     { label: "My Caseload", icon: Briefcase, path: "/staff/caseload" },
     { label: "Calendar", icon: Calendar, path: "/staff/calendar" },
-    { label: "Leave", icon: Calendar, path: "/staff/leave" },
+    { label: "Leave", icon: CalendarDays, path: "/staff/leave" },
     { label: "Hearings", icon: Video, path: "/staff/hearings" },
     { label: "Profile", icon: User, path: "/staff/profile" },
   ];
@@ -54,7 +98,7 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
             key={item.path}
             to={item.path}
             className={({ isActive }) => `
-              flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group font-medium
+              relative flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group font-medium
               ${
                 isActive
                   ? "bg-teal-50 text-teal-700 shadow-sm"
@@ -72,6 +116,16 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
             />
 
             {!collapsed && <span className="">{item.label}</span>}
+            {!collapsed && item.path === "/staff/queue" && queueCount > 0 && (
+              <span className="ml-auto inline-flex min-w-5 items-center justify-center rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700">
+                {queueCount > 99 ? "99+" : queueCount}
+              </span>
+            )}
+            {collapsed && item.path === "/staff/queue" && queueCount > 0 && (
+              <span className="absolute right-1.5 top-1.5 inline-flex min-w-5 items-center justify-center rounded-full bg-red-500 px-1 py-0.5 text-[10px] font-semibold text-white shadow-sm">
+                {queueCount > 9 ? "9+" : queueCount}
+              </span>
+            )}
 
             {/* Tooltip for collapsed state */}
             {collapsed && (

@@ -27,6 +27,7 @@ import {
 
 // Services
 import { HearingService } from '../services/hearing.service';
+import { HearingReminderScheduler } from '../services/hearing-reminder.scheduler';
 
 // Controllers
 import { HearingController } from '../controllers/hearing.controller';
@@ -51,7 +52,7 @@ import { HearingController } from '../controllers/hearing.controller';
     AuthModule,
   ],
   controllers: [HearingController],
-  providers: [HearingService],
+  providers: [HearingService, HearingReminderScheduler],
   exports: [HearingService],
 })
 export class HearingModule {}

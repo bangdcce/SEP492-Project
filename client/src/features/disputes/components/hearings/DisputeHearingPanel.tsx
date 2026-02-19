@@ -12,13 +12,21 @@ import {
 import { toast } from "sonner";
 import {
   endHearing,
+  dispatchHearingReminders,
   getHearingsByDispute,
   rescheduleHearing,
   scheduleHearing,
   startHearing,
 } from "@/features/hearings/api";
+import {
+  completeDisputePreview,
+  getDisputeDetail,
+  getDisputeAutoScheduleOptions,
+  triggerDisputeAutoSchedule,
+} from "@/features/disputes/api";
 import type {
   DisputeHearingSummary,
+  HearingParticipantConfirmationSummary,
   HearingStatus,
   SpeakerRole,
 } from "@/features/hearings/types";
@@ -31,8 +39,9 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { STORAGE_KEYS } from "@/constants";
-import { UserRole } from "@/features/staff/types/staff.types";
+import { DisputeStatus, UserRole } from "@/features/staff/types/staff.types";
 import { getStoredJson } from "@/shared/utils/storage";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
 
 interface DisputeHearingPanelProps {
   disputeId: string;
@@ -67,6 +76,8 @@ export const DisputeHearingPanel = ({
   const [endSummary, setEndSummary] = useState("");
   const [endFindings, setEndFindings] = useState("");
   const [endPendingActions, setEndPendingActions] = useState("");
+  const [testActionLoading, setTestActionLoading] = useState<string | null>(null);
+  const [testScheduleHint, setTestScheduleHint] = useState<string>("");
   const navigate = useNavigate();
 
   const loadHearings = useCallback(async () => {
@@ -86,14 +97,19 @@ export const DisputeHearingPanel = ({
     loadHearings();
   }, [loadHearings, refreshToken]);
 
-  const currentUserRole = useMemo(() => {
-    const parsed = getStoredJson<{ role?: UserRole }>(STORAGE_KEYS.USER);
-    return parsed?.role ?? null;
+  const currentUser = useMemo(() => {
+    return getStoredJson<{ id?: string; role?: UserRole }>(STORAGE_KEYS.USER);
   }, []);
+  const currentUserRole = currentUser?.role ?? null;
 
   const canManageSchedule = currentUserRole === UserRole.ADMIN;
   const canModerate =
     currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF;
+  const isDisputeTestToolsEnabled = useMemo(() => {
+    const raw = (import.meta.env.VITE_DISPUTE_TEST_TOOLS || "").toLowerCase();
+    return import.meta.env.DEV || raw === "true" || raw === "1";
+  }, []);
+  const canUseTestTools = isDisputeTestToolsEnabled && canModerate;
 
   const toIsoString = (value: string) => {
     const date = new Date(value);
@@ -111,7 +127,7 @@ export const DisputeHearingPanel = ({
 
     try {
       setScheduleLoading(true);
-      await scheduleHearing({
+      const result = await scheduleHearing({
         disputeId,
         scheduledAt: toIsoString(scheduleAt),
         estimatedDurationMinutes: duration,
@@ -122,7 +138,13 @@ export const DisputeHearingPanel = ({
         externalMeetingLink: undefined,
         isEmergency,
       });
-      toast.success("Hearing scheduled.");
+      if (result.manualRequired) {
+        toast.error(
+          result.reason || "No feasible slot found. Manual scheduling is required.",
+        );
+      } else {
+        toast.success("Hearing scheduled.");
+      }
       setScheduleAt("");
       setAgenda("");
       setRequiredDocs("");
@@ -179,6 +201,16 @@ export const DisputeHearingPanel = ({
     }
   };
 
+  const confirmationSummaryLabel = (
+    summary?: HearingParticipantConfirmationSummary,
+  ) => {
+    if (!summary) return "No confirmation data";
+    if (summary.allRequiredAccepted) {
+      return "All required participants confirmed";
+    }
+    return `${summary.requiredAccepted}/${summary.requiredParticipants} required confirmed`;
+  };
+
   const handleStart = async (hearing: DisputeHearingSummary) => {
     if (hearing.status !== "SCHEDULED") return;
 
@@ -213,7 +245,7 @@ export const DisputeHearingPanel = ({
 
     try {
       setActionLoadingId(rescheduleHearingTarget.id);
-      await rescheduleHearing(rescheduleHearingTarget.id, {
+      const result = await rescheduleHearing(rescheduleHearingTarget.id, {
         hearingId: rescheduleHearingTarget.id,
         scheduledAt: toIsoString(rescheduleAt),
         estimatedDurationMinutes: rescheduleDuration,
@@ -223,7 +255,13 @@ export const DisputeHearingPanel = ({
           : undefined,
         externalMeetingLink: undefined,
       });
-      toast.success("Hearing rescheduled.");
+      if (result.manualRequired) {
+        toast.error(
+          result.reason || "No feasible slot found. Manual scheduling is required.",
+        );
+      } else {
+        toast.success("Hearing rescheduled.");
+      }
       setRescheduleOpen(false);
       await loadHearings();
     } catch (error) {
@@ -290,8 +328,191 @@ export const DisputeHearingPanel = ({
     );
   }, [hearings]);
 
+  const handleRunAutoScheduleTest = useCallback(async () => {
+    try {
+      setTestActionLoading("autoschedule");
+      setTestScheduleHint("");
+      const result = await triggerDisputeAutoSchedule(disputeId, {
+        minNoticeMinutes: 5,
+        lookaheadDays: 2,
+        forceNearTermMinutes: 5,
+        bypassReason: "UI test quick auto-schedule",
+      });
+      if (result.manualRequired) {
+        toast.warning(result.reason || "No slot found. Manual scheduling required.");
+      } else {
+        toast.success("Auto-schedule test completed.");
+      }
+      const selectedSlot = result.selectedSlot;
+      if (selectedSlot?.start && selectedSlot?.end) {
+        setTestScheduleHint(
+          `Selected ${format(new Date(selectedSlot.start), "MMM d, h:mm a")} - ${format(
+            new Date(selectedSlot.end),
+            "h:mm a",
+          )}`,
+        );
+      }
+      await loadHearings();
+    } catch (error) {
+      console.error("Auto-schedule test failed:", error);
+      toast.error("Auto-schedule test failed.");
+    } finally {
+      setTestActionLoading(null);
+    }
+  }, [disputeId, loadHearings]);
+
+  const handleLoadScheduleOptionsTest = useCallback(async () => {
+    try {
+      setTestActionLoading("options");
+      const result = await getDisputeAutoScheduleOptions(disputeId, 3);
+      if (result.manualRequired) {
+        setTestScheduleHint(result.reason || "No schedule options available.");
+        toast.warning(result.reason || "No schedule options available.");
+      } else {
+        const firstSlot = result.slots?.[0];
+        setTestScheduleHint(
+          firstSlot
+            ? `Top slot ${format(new Date(firstSlot.start), "MMM d, h:mm a")} - ${format(
+                new Date(firstSlot.end),
+                "h:mm a",
+              )}`
+            : "Slots loaded.",
+        );
+        toast.success(`Loaded ${result.slots?.length ?? 0} schedule option(s).`);
+      }
+    } catch (error) {
+      console.error("Failed to load schedule options:", error);
+      toast.error("Could not load schedule options.");
+    } finally {
+      setTestActionLoading(null);
+    }
+  }, [disputeId]);
+
+  const handleCompletePreviewTest = useCallback(async () => {
+    try {
+      setTestActionLoading("preview");
+      const dispute = await getDisputeDetail(disputeId, { preferCache: false });
+      if (
+        ![DisputeStatus.PREVIEW, DisputeStatus.PENDING_REVIEW].includes(
+          dispute.status,
+        )
+      ) {
+        toast.warning(
+          `Preview completion is only allowed from PREVIEW/PENDING_REVIEW. Current status: ${dispute.status}.`,
+        );
+        return;
+      }
+
+      if (
+        currentUserRole === UserRole.STAFF &&
+        dispute.assignedStaffId &&
+        dispute.assignedStaffId !== currentUser?.id
+      ) {
+        toast.error(
+          "This dispute is assigned to another staff member. Re-open the case list to refresh ownership.",
+        );
+        return;
+      }
+
+      const result = await completeDisputePreview(
+        disputeId,
+        "Test mode: complete preview and trigger auto-schedule",
+      );
+      const scheduleResult =
+        (result as { scheduleResult?: { manualRequired?: boolean; reason?: string } })
+          ?.scheduleResult || null;
+      if (scheduleResult?.manualRequired) {
+        toast.warning(scheduleResult.reason || "Preview completed. Manual scheduling required.");
+      } else {
+        toast.success("Preview completed and scheduling triggered.");
+      }
+      await loadHearings();
+    } catch (error) {
+      console.error("Preview completion test failed:", error);
+      const details = getApiErrorDetails(
+        error,
+        "Could not complete preview in test mode.",
+      );
+      toast.error(
+        details.code ? `[${details.code}] ${details.message}` : details.message,
+      );
+    } finally {
+      setTestActionLoading(null);
+    }
+  }, [currentUser?.id, currentUserRole, disputeId, loadHearings]);
+
+  const handleDispatchRemindersTest = useCallback(async () => {
+    try {
+      setTestActionLoading("reminders");
+      const result = await dispatchHearingReminders();
+      toast.success(
+        `Reminder dispatch done. Sent ${result.dispatched ?? 0}, skipped ${result.skipped ?? 0}.`,
+      );
+    } catch (error) {
+      console.error("Reminder dispatch test failed:", error);
+      toast.error("Could not dispatch reminders.");
+    } finally {
+      setTestActionLoading(null);
+    }
+  }, []);
+
   return (
     <div className="space-y-6">
+      {canUseTestTools && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <h3 className="text-sm font-semibold text-amber-900">
+            Dispute Flow Test Tools
+          </h3>
+          <p className="mt-1 text-xs text-amber-800">
+            Dev/Test only shortcuts to validate scheduling, reminders, and preview flow quickly.
+          </p>
+          <p className="mt-1 text-[11px] text-amber-700">
+            Scheduling bypass requires backend `DISPUTE_TEST_MODE=true` (non-production).
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              className="px-3 py-1.5 text-xs rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
+              onClick={handleRunAutoScheduleTest}
+              disabled={Boolean(testActionLoading)}
+            >
+              {testActionLoading === "autoschedule"
+                ? "Running..."
+                : "Force auto-schedule (5m)"}
+            </button>
+            <button
+              className="px-3 py-1.5 text-xs rounded-md border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
+              onClick={handleLoadScheduleOptionsTest}
+              disabled={Boolean(testActionLoading)}
+            >
+              {testActionLoading === "options"
+                ? "Loading..."
+                : "Load top schedule options"}
+            </button>
+            <button
+              className="px-3 py-1.5 text-xs rounded-md border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
+              onClick={handleCompletePreviewTest}
+              disabled={Boolean(testActionLoading)}
+            >
+              {testActionLoading === "preview"
+                ? "Running..."
+                : "Complete preview + schedule"}
+            </button>
+            <button
+              className="px-3 py-1.5 text-xs rounded-md border border-slate-300 text-slate-700 bg-white hover:bg-slate-50 disabled:opacity-50"
+              onClick={handleDispatchRemindersTest}
+              disabled={Boolean(testActionLoading)}
+            >
+              {testActionLoading === "reminders"
+                ? "Dispatching..."
+                : "Dispatch reminders now"}
+            </button>
+          </div>
+          {testScheduleHint ? (
+            <p className="mt-2 text-xs text-slate-700">{testScheduleHint}</p>
+          ) : null}
+        </div>
+      )}
+
       <div className="bg-white border border-gray-200 rounded-xl p-4">
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
@@ -340,6 +561,12 @@ export const DisputeHearingPanel = ({
                         </div>
                         <div>
                           Chat: {hearing.isChatRoomActive ? "Active" : "Inactive"}
+                        </div>
+                        <div className="sm:col-span-2">
+                          Confirmation:{" "}
+                          {confirmationSummaryLabel(
+                            hearing.participantConfirmationSummary,
+                          )}
                         </div>
                       </div>
 

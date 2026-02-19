@@ -19,6 +19,8 @@ import {
   DisputeMessageEntity,
   DisputeNoteEntity,
   DisputePartyEntity,
+  DisputeScheduleProposalEntity,
+  DisputeViewStateEntity,
   DisputeHearingEntity,
   HearingReminderDeliveryEntity,
   DisputeSettlementEntity,
@@ -29,11 +31,13 @@ import {
   LegalSignatureEntity,
   EscrowEntity,
   MilestoneEntity,
+  TaskEntity,
   ProjectEntity,
   TransactionEntity,
   UserEntity,
   WalletEntity,
   NotificationEntity,
+  EventParticipantEntity,
 } from 'src/database/entities';
 import { StaffAssignmentModule } from './modules/staff-assignment.module';
 import { HearingModule } from './modules/hearing.module';
@@ -53,6 +57,8 @@ import { DisputeNotificationListener } from './events/dispute-notification.liste
       DisputeMessageEntity,
       DisputeLedgerEntity,
       DisputePartyEntity,
+      DisputeScheduleProposalEntity,
+      DisputeViewStateEntity,
       // Hearing Room entities
       DisputeHearingEntity,
       HearingReminderDeliveryEntity,
@@ -64,11 +70,13 @@ import { DisputeNotificationListener } from './events/dispute-notification.liste
       // Payment entities
       EscrowEntity,
       MilestoneEntity,
+      TaskEntity,
       ProjectEntity,
       UserEntity,
       WalletEntity,
       TransactionEntity,
       NotificationEntity,
+      EventParticipantEntity,
     ]),
     EventEmitterModule.forRoot(), // Enable EventEmitter
     EvidenceModule, // ← Evidence có module riêng

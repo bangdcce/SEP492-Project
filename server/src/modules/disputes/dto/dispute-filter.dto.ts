@@ -93,6 +93,10 @@ export class DisputeFilterDto {
 
   @IsOptional()
   @IsString()
+  milestoneId?: string;
+
+  @IsOptional()
+  @IsString()
   raisedById?: string;
 
   @IsOptional()
@@ -102,6 +106,11 @@ export class DisputeFilterDto {
   @IsOptional()
   @IsString()
   assignedStaffId?: string;
+
+  @IsOptional()
+  @Transform(({ value }) => value === 'true' || value === true)
+  @IsBoolean()
+  includeUnassignedForStaff?: boolean;
 
   @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)

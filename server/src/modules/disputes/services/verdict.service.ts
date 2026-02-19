@@ -1,4 +1,5 @@
 import {
+  ConflictException,
   Injectable,
   BadRequestException,
   NotFoundException,
@@ -13,6 +14,7 @@ import Decimal from 'decimal.js';
 import {
   DisputeEntity,
   DisputeEvidenceEntity,
+  DisputeHearingEntity,
   DisputeResult,
   DisputeStatus,
   DisputeType,
@@ -22,6 +24,9 @@ import {
   FaultType,
   LegalActionType,
   LegalSignatureEntity,
+  HearingParticipantEntity,
+  HearingParticipantRole,
+  HearingStatus,
   MilestoneEntity,
   MilestoneStatus,
   ProjectEntity,
@@ -987,6 +992,109 @@ export class VerdictService {
     }
   }
 
+  private async ensureVerdictHearingGate(
+    queryRunner: QueryRunner,
+    disputeId: string,
+  ): Promise<void> {
+    const gateEnabled = ['true', '1', 'yes', 'y', 'on'].includes(
+      (process.env.DISPUTE_VERDICT_HEARING_GATE || 'true').trim().toLowerCase(),
+    );
+    if (!gateEnabled) {
+      return;
+    }
+
+    const completedHearing = await queryRunner.manager.findOne(DisputeHearingEntity, {
+      where: { disputeId, status: HearingStatus.COMPLETED },
+      order: { endedAt: 'DESC', updatedAt: 'DESC', createdAt: 'DESC' },
+      select: ['id', 'scheduledAt', 'startedAt', 'endedAt', 'summary', 'findings'],
+    });
+
+    const checklist = {
+      completedHearing: Boolean(completedHearing),
+      hearingMinutes: false,
+      attendanceEvidence: false,
+      moderatorPresent: false,
+      bothSidesRepresented: false,
+      noShowDocumented: false,
+    };
+
+    if (completedHearing) {
+      const summary = completedHearing.summary?.trim() || '';
+      const findings = completedHearing.findings?.trim() || '';
+      checklist.hearingMinutes = summary.length > 0 && findings.length > 0;
+
+      const participants = await queryRunner.manager.find(HearingParticipantEntity, {
+        where: { hearingId: completedHearing.id },
+        select: ['role', 'isRequired', 'joinedAt', 'confirmedAt'],
+      });
+
+      const isPresent = (participant: Pick<HearingParticipantEntity, 'joinedAt' | 'confirmedAt'>) =>
+        Boolean(participant.joinedAt || participant.confirmedAt);
+
+      checklist.moderatorPresent =
+        participants.some(
+          (participant) =>
+            participant.role === HearingParticipantRole.MODERATOR && isPresent(participant),
+        ) || Boolean(completedHearing.startedAt);
+
+      const raiserPresent = participants.some(
+        (participant) =>
+          participant.role === HearingParticipantRole.RAISER && isPresent(participant),
+      );
+      const defendantPresent = participants.some(
+        (participant) =>
+          participant.role === HearingParticipantRole.DEFENDANT && isPresent(participant),
+      );
+      checklist.bothSidesRepresented = raiserPresent && defendantPresent;
+
+      if (!checklist.bothSidesRepresented && completedHearing.endedAt) {
+        const endedAfterGrace =
+          completedHearing.endedAt.getTime() >=
+          completedHearing.scheduledAt.getTime() + 15 * 60 * 1000;
+        const text = `${summary} ${findings}`.toLowerCase();
+        const mentionsNoShow =
+          text.includes('no-show') || text.includes('no show') || text.includes('absent');
+        const missingRaiser = participants.some(
+          (participant) =>
+            participant.role === HearingParticipantRole.RAISER &&
+            participant.isRequired &&
+            !isPresent(participant),
+        );
+        const missingDefendant = participants.some(
+          (participant) =>
+            participant.role === HearingParticipantRole.DEFENDANT &&
+            participant.isRequired &&
+            !isPresent(participant),
+        );
+        checklist.noShowDocumented =
+          endedAfterGrace && mentionsNoShow && (missingRaiser || missingDefendant);
+      }
+
+      checklist.attendanceEvidence =
+        checklist.moderatorPresent &&
+        (checklist.bothSidesRepresented || checklist.noShowDocumented);
+    }
+
+    const unmetChecklist: string[] = [];
+    if (!checklist.completedHearing) {
+      unmetChecklist.push('completedHearing');
+    }
+    if (!checklist.hearingMinutes) {
+      unmetChecklist.push('hearingMinutes');
+    }
+    if (!checklist.attendanceEvidence) {
+      unmetChecklist.push('attendanceEvidence');
+    }
+
+    if (unmetChecklist.length > 0) {
+      throw new ConflictException({
+        message: 'Verdict is blocked until hearing completion and minutes checklist is satisfied.',
+        checklist,
+        unmetChecklist,
+      });
+    }
+  }
+
   async issueVerdict(
     dto: AdminVerdictDto,
     adjudicatorId: string,
@@ -1014,6 +1122,8 @@ export class VerdictService {
       if (!dispute) {
         throw new NotFoundException(`Dispute ${dto.disputeId} not found`);
       }
+
+      await this.ensureVerdictHearingGate(queryRunner, dispute.id);
 
       if (!DisputeStateMachine.canTransition(dispute.status, DisputeStatus.RESOLVED)) {
         throw new BadRequestException(

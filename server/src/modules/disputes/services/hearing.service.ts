@@ -54,7 +54,10 @@ import {
   ParticipantStatus,
   AttendanceStatus,
 } from '../../../database/entities/event-participant.entity';
-import { UserAvailabilityEntity } from '../../../database/entities/user-availability.entity';
+import {
+  UserAvailabilityEntity,
+  AvailabilityType,
+} from '../../../database/entities/user-availability.entity';
 import { NotificationEntity } from '../../../database/entities/notification.entity';
 import {
   HearingReminderDeliveryEntity,
@@ -79,8 +82,44 @@ export interface HearingScheduleValidation {
   valid: boolean;
   conflicts: string[];
   warnings: string[];
+  conflictDetails: HearingScheduleConflictDetail[];
   isEmergency?: boolean;
   requiresAdminApproval?: boolean;
+}
+
+export type HearingScheduleConflictSourceType = 'CALENDAR_EVENT' | 'AVAILABILITY_BLOCK' | 'RULE';
+
+export interface HearingScheduleConflictDetail {
+  sourceType: HearingScheduleConflictSourceType;
+  blockingType: string;
+  startTime: Date;
+  endTime: Date;
+  userId?: string;
+  eventId?: string;
+  availabilityId?: string;
+  title?: string;
+}
+
+export interface HearingParticipantConfirmationSummary {
+  totalParticipants: number;
+  requiredParticipants: number;
+  accepted: number;
+  declined: number;
+  tentative: number;
+  pending: number;
+  requiredAccepted: number;
+  requiredDeclined: number;
+  requiredTentative: number;
+  requiredPending: number;
+  allRequiredAccepted: boolean;
+  participants: Array<{
+    userId: string;
+    role: ParticipantRole;
+    status: ParticipantStatus;
+    isRequired: boolean;
+    respondedAt?: Date;
+    responseDeadline?: Date;
+  }>;
 }
 
 export interface RequiredParticipant {
@@ -143,6 +182,7 @@ const HEARING_CONFIG = {
 } as const;
 
 const HEARING_REMINDER_WINDOWS = [
+  { type: HearingReminderType.T72H, minutesBefore: 72 * 60 },
   { type: HearingReminderType.T24H, minutesBefore: 24 * 60 },
   { type: HearingReminderType.T1H, minutesBefore: 60 },
   { type: HearingReminderType.T10M, minutesBefore: 10 },
@@ -218,105 +258,270 @@ export class HearingService {
   ): Promise<HearingScheduleValidation> {
     const conflicts: string[] = [];
     const warnings: string[] = [];
+    const conflictDetails: HearingScheduleConflictDetail[] = [];
     const now = new Date();
 
     // 1. Check minimum notice period
     const hoursUntilHearing = (scheduledAt.getTime() - now.getTime()) / (1000 * 60 * 60);
 
     if (isEmergency) {
-      // Emergency: Minimum 1 hour notice
       if (hoursUntilHearing < HEARING_CONFIG.EMERGENCY_MIN_NOTICE_HOURS) {
         conflicts.push(
           `Emergency hearings require at least ${HEARING_CONFIG.EMERGENCY_MIN_NOTICE_HOURS} hour notice`,
         );
+        conflictDetails.push({
+          sourceType: 'RULE',
+          blockingType: 'EMERGENCY_MIN_NOTICE',
+          startTime: now,
+          endTime: scheduledAt,
+        });
       }
-      warnings.push('⚠️ Emergency hearing: Requires Admin approval to bypass 24h rule');
-    } else {
-      // Normal: Minimum 24 hours notice
-      if (hoursUntilHearing < HEARING_CONFIG.MIN_NOTICE_HOURS) {
-        conflicts.push(
-          `Hearings require at least ${HEARING_CONFIG.MIN_NOTICE_HOURS} hours notice. ` +
-            `Use isEmergency=true for urgent cases (requires Admin approval).`,
-        );
-      }
+      warnings.push('Emergency hearing: Requires Admin approval to bypass 24h rule');
+    } else if (hoursUntilHearing < HEARING_CONFIG.MIN_NOTICE_HOURS) {
+      conflicts.push(
+        `Hearings require at least ${HEARING_CONFIG.MIN_NOTICE_HOURS} hours notice. ` +
+          `Use isEmergency=true for urgent cases (requires Admin approval).`,
+      );
+      conflictDetails.push({
+        sourceType: 'RULE',
+        blockingType: 'MIN_NOTICE',
+        startTime: now,
+        endTime: scheduledAt,
+      });
     }
 
     // 2. Check if scheduled in the past
     if (scheduledAt <= now) {
       conflicts.push('Cannot schedule hearing in the past');
+      conflictDetails.push({
+        sourceType: 'RULE',
+        blockingType: 'PAST_TIME',
+        startTime: scheduledAt,
+        endTime: scheduledAt,
+      });
     }
 
     // 3. Check each participant's availability
     const endTime = new Date(scheduledAt.getTime() + durationMinutes * 60 * 1000);
-
-    for (const participantId of participantIds) {
-      // Check calendar conflicts (existing events)
-      const conflictingEvents = await this.calendarRepository.find({
-        where: [
-          {
-            organizerId: participantId,
-            startTime: LessThan(endTime),
-            endTime: MoreThan(scheduledAt),
-            status: In([
-              EventStatus.SCHEDULED,
-              EventStatus.PENDING_CONFIRMATION,
-              EventStatus.IN_PROGRESS,
-            ]),
-          },
-        ],
-      });
-
-      // Also check if participant is in other events
-      // This would require EventParticipantEntity query
-
-      if (conflictingEvents.length > 0) {
-        const user = await this.userRepository.findOne({
-          where: { id: participantId },
+    const normalizedParticipantIds = Array.from(new Set(participantIds.filter(Boolean)));
+    const participants = normalizedParticipantIds.length
+      ? await this.userRepository.find({
+          where: { id: In(normalizedParticipantIds) },
           select: ['id', 'email'],
-        });
-        const eventTitles = conflictingEvents.map((e) => e.title).join(', ');
-        conflicts.push(
-          `User ${user?.email || participantId} has conflicting event(s): ${eventTitles}`,
-        );
-      }
+        })
+      : [];
+    const userEmailById = new Map(participants.map((user) => [user.id, user.email]));
+    const conflictStatuses = [
+      EventStatus.SCHEDULED,
+      EventStatus.PENDING_CONFIRMATION,
+      EventStatus.IN_PROGRESS,
+    ];
+    const blockingAvailabilityTypes = [
+      AvailabilityType.BUSY,
+      AvailabilityType.OUT_OF_OFFICE,
+      AvailabilityType.DO_NOT_DISTURB,
+    ];
 
-      // Check user availability (blocked time, leave, etc.)
-      const blockedAvailability = await this.availabilityRepository.find({
+    for (const participantId of normalizedParticipantIds) {
+      const userLabel = userEmailById.get(participantId) || participantId;
+
+      const organizerEvents = await this.calendarRepository.find({
         where: {
-          userId: participantId,
+          organizerId: participantId,
           startTime: LessThan(endTime),
           endTime: MoreThan(scheduledAt),
-          type: In(['BLOCKED', 'ON_LEAVE']),
+          status: In(conflictStatuses),
         },
       });
 
-      if (blockedAvailability.length > 0) {
-        const user = await this.userRepository.findOne({
-          where: { id: participantId },
-          select: ['id', 'email'],
+      const participantEventLinks = await this.eventParticipantRepository
+        .createQueryBuilder('participant')
+        .innerJoinAndSelect('participant.event', 'event')
+        .where('participant.userId = :participantId', { participantId })
+        .andWhere('event.startTime < :endTime', { endTime })
+        .andWhere('event.endTime > :scheduledAt', { scheduledAt })
+        .andWhere('event.status IN (:...statuses)', { statuses: conflictStatuses })
+        .getMany();
+
+      const participantEvents = participantEventLinks
+        .map((link) => link.event as CalendarEventEntity | null)
+        .filter((event): event is CalendarEventEntity => Boolean(event));
+
+      const allConflictingEvents = Array.from(
+        new Map(
+          [...organizerEvents, ...participantEvents].map((event) => [event.id, event]),
+        ).values(),
+      );
+
+      if (allConflictingEvents.length > 0) {
+        const eventTitles = allConflictingEvents.map((event) => event.title).join(', ');
+        conflicts.push(`User ${userLabel} has conflicting event(s): ${eventTitles}`);
+
+        allConflictingEvents.forEach((event) => {
+          conflictDetails.push({
+            sourceType: 'CALENDAR_EVENT',
+            blockingType: event.status,
+            startTime: event.startTime,
+            endTime: event.endTime,
+            userId: participantId,
+            eventId: event.id,
+            title: event.title,
+          });
         });
-        warnings.push(`User ${user?.email || participantId} has marked this time as unavailable`);
+      }
+
+      const oneTimeAvailability = await this.availabilityRepository.find({
+        where: {
+          userId: participantId,
+          isRecurring: false,
+          startTime: LessThan(endTime),
+          endTime: MoreThan(scheduledAt),
+          type: In(blockingAvailabilityTypes),
+        },
+      });
+
+      const recurringAvailability = await this.availabilityRepository.find({
+        where: {
+          userId: participantId,
+          isRecurring: true,
+          dayOfWeek: scheduledAt.getDay(),
+          type: In(blockingAvailabilityTypes),
+        },
+      });
+
+      const recurringBlocks = recurringAvailability
+        .map((availability) =>
+          this.resolveRecurringAvailabilityWindow({
+            availability,
+            referenceDate: scheduledAt,
+          }),
+        )
+        .filter(
+          (
+            item,
+          ): item is {
+            availability: UserAvailabilityEntity;
+            startTime: Date;
+            endTime: Date;
+          } => Boolean(item),
+        )
+        .filter((item) => item.startTime < endTime && item.endTime > scheduledAt);
+
+      if (oneTimeAvailability.length > 0 || recurringBlocks.length > 0) {
+        conflicts.push(`User ${userLabel} has blocked availability in this time range`);
+
+        oneTimeAvailability.forEach((availability) => {
+          conflictDetails.push({
+            sourceType: 'AVAILABILITY_BLOCK',
+            blockingType: availability.type,
+            startTime: availability.startTime,
+            endTime: availability.endTime,
+            userId: participantId,
+            availabilityId: availability.id,
+            title: availability.note || undefined,
+          });
+        });
+
+        recurringBlocks.forEach((item) => {
+          conflictDetails.push({
+            sourceType: 'AVAILABILITY_BLOCK',
+            blockingType: item.availability.type,
+            startTime: item.startTime,
+            endTime: item.endTime,
+            userId: participantId,
+            availabilityId: item.availability.id,
+            title: item.availability.note || undefined,
+          });
+        });
       }
     }
 
     // 4. Check working hours (optional - add warning for outside hours)
     const hours = scheduledAt.getHours();
     if (hours < 8 || hours >= 18) {
-      warnings.push('⚠️ Hearing is scheduled outside normal working hours (8:00-18:00)');
+      warnings.push('Hearing is scheduled outside normal working hours (8:00-18:00)');
     }
 
     // 5. Check weekend
     const dayOfWeek = scheduledAt.getDay();
     if (dayOfWeek === 0 || dayOfWeek === 6) {
-      warnings.push('⚠️ Hearing is scheduled on a weekend');
+      warnings.push('Hearing is scheduled on a weekend');
     }
 
     return {
       valid: conflicts.length === 0,
       conflicts,
       warnings,
+      conflictDetails,
       isEmergency,
       requiresAdminApproval: isEmergency,
+    };
+  }
+
+  private resolveRecurringAvailabilityWindow(input: {
+    availability: UserAvailabilityEntity;
+    referenceDate: Date;
+  }): {
+    availability: UserAvailabilityEntity;
+    startTime: Date;
+    endTime: Date;
+  } | null {
+    const { availability, referenceDate } = input;
+    if (!availability.recurringStartTime || !availability.recurringEndTime) {
+      return null;
+    }
+
+    const referenceDay = new Date(referenceDate);
+    referenceDay.setHours(0, 0, 0, 0);
+
+    if (availability.recurringStartDate) {
+      const recurringStartDate = new Date(availability.recurringStartDate);
+      recurringStartDate.setHours(0, 0, 0, 0);
+      if (referenceDay < recurringStartDate) {
+        return null;
+      }
+    }
+
+    if (availability.recurringEndDate) {
+      const recurringEndDate = new Date(availability.recurringEndDate);
+      recurringEndDate.setHours(23, 59, 59, 999);
+      if (referenceDay > recurringEndDate) {
+        return null;
+      }
+    }
+
+    const parseTime = (
+      value: string,
+    ): { hours: number; minutes: number; seconds: number } | null => {
+      const [hourRaw, minuteRaw, secondRaw] = value.split(':');
+      const hours = Number(hourRaw);
+      const minutes = Number(minuteRaw ?? '0');
+      const seconds = Number(secondRaw ?? '0');
+      if ([hours, minutes, seconds].some((part) => Number.isNaN(part))) {
+        return null;
+      }
+      return { hours, minutes, seconds };
+    };
+
+    const startTimeParts = parseTime(availability.recurringStartTime);
+    const endTimeParts = parseTime(availability.recurringEndTime);
+    if (!startTimeParts || !endTimeParts) {
+      return null;
+    }
+
+    const startTime = new Date(referenceDate);
+    startTime.setHours(startTimeParts.hours, startTimeParts.minutes, startTimeParts.seconds, 0);
+
+    const endTime = new Date(referenceDate);
+    endTime.setHours(endTimeParts.hours, endTimeParts.minutes, endTimeParts.seconds, 0);
+    if (endTime <= startTime) {
+      endTime.setDate(endTime.getDate() + 1);
+    }
+
+    return {
+      availability,
+      startTime,
+      endTime,
     };
   }
 
@@ -527,7 +732,7 @@ export class HearingService {
 
     // 8. Warnings if key people missing
     if (!hasBroker && dispute.projectId) {
-      warnings.push('⚠️ No Broker found for this project. Broker testimony may be helpful.');
+      warnings.push('笞・・No Broker found for this project. Broker testimony may be helpful.');
     }
 
     // Note: Supervisor logic would require additional entity/field
@@ -819,7 +1024,142 @@ export class HearingService {
     };
   }
 
-  private mapHearingSummary(hearing: DisputeHearingEntity) {
+  private buildParticipantConfirmationSummary(
+    eventParticipants: Array<
+      Pick<
+        EventParticipantEntity,
+        'userId' | 'role' | 'status' | 'respondedAt' | 'responseDeadline'
+      >
+    >,
+  ): HearingParticipantConfirmationSummary {
+    const initial: HearingParticipantConfirmationSummary = {
+      totalParticipants: eventParticipants.length,
+      requiredParticipants: 0,
+      accepted: 0,
+      declined: 0,
+      tentative: 0,
+      pending: 0,
+      requiredAccepted: 0,
+      requiredDeclined: 0,
+      requiredTentative: 0,
+      requiredPending: 0,
+      allRequiredAccepted: false,
+      participants: [],
+    };
+
+    const requiredRoles = new Set<ParticipantRole>([
+      ParticipantRole.MODERATOR,
+      ParticipantRole.REQUIRED,
+    ]);
+
+    for (const participant of eventParticipants) {
+      const isRequired = requiredRoles.has(participant.role);
+      if (isRequired) {
+        initial.requiredParticipants += 1;
+      }
+
+      switch (participant.status) {
+        case ParticipantStatus.ACCEPTED:
+          initial.accepted += 1;
+          if (isRequired) initial.requiredAccepted += 1;
+          break;
+        case ParticipantStatus.DECLINED:
+          initial.declined += 1;
+          if (isRequired) initial.requiredDeclined += 1;
+          break;
+        case ParticipantStatus.TENTATIVE:
+          initial.tentative += 1;
+          if (isRequired) initial.requiredTentative += 1;
+          break;
+        case ParticipantStatus.PENDING:
+        case ParticipantStatus.NO_RESPONSE:
+        default:
+          initial.pending += 1;
+          if (isRequired) initial.requiredPending += 1;
+          break;
+      }
+
+      initial.participants.push({
+        userId: participant.userId,
+        role: participant.role,
+        status: participant.status,
+        isRequired,
+        respondedAt: participant.respondedAt,
+        responseDeadline: participant.responseDeadline,
+      });
+    }
+
+    initial.allRequiredAccepted =
+      initial.requiredParticipants > 0 &&
+      initial.requiredAccepted === initial.requiredParticipants &&
+      initial.requiredDeclined === 0 &&
+      initial.requiredTentative === 0 &&
+      initial.requiredPending === 0;
+
+    return initial;
+  }
+
+  private async loadConfirmationSummaryByHearingIds(
+    hearingIds: string[],
+  ): Promise<Map<string, HearingParticipantConfirmationSummary>> {
+    const normalizedIds = Array.from(new Set(hearingIds.filter(Boolean)));
+    if (!normalizedIds.length) {
+      return new Map();
+    }
+
+    const hearingEvents = await this.calendarRepository.find({
+      where: {
+        referenceType: 'DisputeHearing',
+        referenceId: In(normalizedIds),
+      },
+      select: ['id', 'referenceId'],
+    });
+
+    if (!hearingEvents.length) {
+      return new Map();
+    }
+
+    const eventIds = hearingEvents.map((event) => event.id);
+    const participants = await this.eventParticipantRepository.find({
+      where: { eventId: In(eventIds) },
+      select: ['eventId', 'userId', 'role', 'status', 'respondedAt', 'responseDeadline'],
+    });
+
+    const participantsByEventId = new Map<
+      string,
+      Array<
+        Pick<
+          EventParticipantEntity,
+          'userId' | 'role' | 'status' | 'respondedAt' | 'responseDeadline'
+        >
+      >
+    >();
+    for (const participant of participants) {
+      const existing = participantsByEventId.get(participant.eventId);
+      if (existing) {
+        existing.push(participant);
+      } else {
+        participantsByEventId.set(participant.eventId, [participant]);
+      }
+    }
+
+    const summariesByHearingId = new Map<string, HearingParticipantConfirmationSummary>();
+    for (const event of hearingEvents) {
+      const eventParticipants = participantsByEventId.get(event.id) || [];
+      summariesByHearingId.set(
+        event.referenceId,
+        this.buildParticipantConfirmationSummary(eventParticipants),
+      );
+    }
+
+    return summariesByHearingId;
+  }
+
+  private mapHearingSummary(
+    hearing: DisputeHearingEntity,
+    confirmationSummaryByHearingId?: Map<string, HearingParticipantConfirmationSummary>,
+  ) {
+    const participantConfirmationSummary = confirmationSummaryByHearingId?.get(hearing.id);
     return {
       id: hearing.id,
       disputeId: hearing.disputeId,
@@ -842,6 +1182,7 @@ export class HearingService {
       participants: (hearing.participants || []).map((participant) =>
         this.mapParticipantSummary(participant),
       ),
+      participantConfirmationSummary,
       dispute: hearing.dispute
         ? {
             id: hearing.dispute.id,
@@ -862,8 +1203,13 @@ export class HearingService {
       relations: ['participants', 'participants.user'],
       order: { hearingNumber: 'ASC', scheduledAt: 'ASC' },
     });
+    const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds(
+      hearings.map((hearing) => hearing.id),
+    );
 
-    return hearings.map((hearing) => this.mapHearingSummary(hearing));
+    return hearings.map((hearing) =>
+      this.mapHearingSummary(hearing, confirmationSummaryByHearingId),
+    );
   }
 
   async getHearingsForUser(
@@ -898,7 +1244,12 @@ export class HearingService {
     qb.orderBy('hearing.scheduledAt', 'ASC');
 
     const hearings = await qb.getMany();
-    return hearings.map((hearing) => this.mapHearingSummary(hearing));
+    const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds(
+      hearings.map((hearing) => hearing.id),
+    );
+    return hearings.map((hearing) =>
+      this.mapHearingSummary(hearing, confirmationSummaryByHearingId),
+    );
   }
 
   private async ensureHearingAccess(
@@ -934,7 +1285,10 @@ export class HearingService {
 
   async getHearingById(hearingId: string, user: UserEntity) {
     const hearing = await this.ensureHearingAccess(hearingId, user);
-    return this.mapHearingSummary(hearing);
+    const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds([
+      hearing.id,
+    ]);
+    return this.mapHearingSummary(hearing, confirmationSummaryByHearingId);
   }
 
   async getHearingStatements(
@@ -1358,10 +1712,14 @@ export class HearingService {
     dto: ScheduleHearingDto,
     moderatorId: string,
   ): Promise<{
+    manualRequired: boolean;
+    reason?: string;
     hearing: DisputeHearingEntity;
     calendarEvent: CalendarEventEntity;
     participants: HearingParticipantEntity[];
+    scheduledAt: Date;
     responseDeadline: Date;
+    participantConfirmationSummary: HearingParticipantConfirmationSummary;
     warnings: string[];
   }> {
     const dispute = await this.disputeRepository.findOne({
@@ -1414,6 +1772,7 @@ export class HearingService {
         message: 'Hearing schedule conflicts detected',
         conflicts: scheduleValidation.conflicts,
         warnings: scheduleValidation.warnings,
+        conflictDetails: scheduleValidation.conflictDetails,
       });
     }
 
@@ -1505,7 +1864,7 @@ export class HearingService {
         });
       });
 
-      await eventParticipantRepo.save(eventParticipants);
+      const savedEventParticipants = await eventParticipantRepo.save(eventParticipants);
 
       this.eventEmitter.emit('hearing.scheduled', {
         hearingId: savedHearing.id,
@@ -1516,10 +1875,14 @@ export class HearingService {
       });
 
       return {
+        manualRequired: false,
         hearing: savedHearing,
         calendarEvent: savedEvent,
         participants: savedParticipants,
+        scheduledAt: savedHearing.scheduledAt,
         responseDeadline,
+        participantConfirmationSummary:
+          this.buildParticipantConfirmationSummary(savedEventParticipants),
         warnings: scheduleValidation.warnings,
       };
     });
@@ -1720,18 +2083,18 @@ export class HearingService {
 
   // ===========================================================================
   // COMPOSE FUNCTION: transitionHearingPhase()
-  // Chuyển phase phiên tòa (mapping DisputePhase -> SpeakerRole)
-  // Nghịp vụ tòa án:
-  //   PRESENTATION      -> RAISER_ONLY      (Nguyên đơn trình bày)
-  //   CROSS_EXAMINATION -> DEFENDANT_ONLY   (Bị đơn phản bác/bào chữa)
-  //   INTERROGATION     -> MODERATOR_ONLY   (Thẩm phán thẩm vấn)
-  //   DELIBERATION      -> MUTED_ALL        (Nghị án - khóa chat toàn bộ)
+  // Chuy盻ハ phase phiﾃｪn tﾃｲa (mapping DisputePhase -> SpeakerRole)
+  // Ngh盻却 v盻･ tﾃｲa ﾃ｡n:
+  //   PRESENTATION      -> RAISER_ONLY      (Nguyﾃｪn ﾄ柁｡n trﾃｬnh bﾃy)
+  //   CROSS_EXAMINATION -> DEFENDANT_ONLY   (B盻・ﾄ柁｡n ph蘯｣n bﾃ｡c/bﾃo ch盻ｯa)
+  //   INTERROGATION     -> MODERATOR_ONLY   (Th蘯ｩm phﾃ｡n th蘯ｩm v蘯･n)
+  //   DELIBERATION      -> MUTED_ALL        (Ngh盻・ﾃ｡n - khﾃｳa chat toﾃn b盻・
   // ===========================================================================
 
   /**
-   * Mapping từ DisputePhase sang SpeakerRole.
-   * Được sử dụng để Admin/Staff dễ dàng chuyển phase phiên tòa
-   * mà không cần nhớ tên SpeakerRole cụ thể.
+   * Mapping t盻ｫ DisputePhase sang SpeakerRole.
+   * ﾄ脆ｰ盻｣c s盻ｭ d盻･ng ﾄ黛ｻ・Admin/Staff d盻・dﾃng chuy盻ハ phase phiﾃｪn tﾃｲa
+   * mﾃ khﾃｴng c蘯ｧn nh盻・tﾃｪn SpeakerRole c盻･ th盻・
    */
   private mapPhaseToSpeakerRole(phase: DisputePhase): SpeakerRole {
     switch (phase) {
@@ -1749,13 +2112,13 @@ export class HearingService {
   }
 
   /**
-   * Chuyển phase phiên tòa.
-   * Tự động map DisputePhase -> SpeakerRole và cập nhật speaker control,
-   * đồng thời cập nhật trường phase trên DisputeEntity để giữ đồng bộ trạng thái tổng quan.
+   * Chuy盻ハ phase phiﾃｪn tﾃｲa.
+   * T盻ｱ ﾄ黛ｻ冢g map DisputePhase -> SpeakerRole vﾃ c蘯ｭp nh蘯ｭt speaker control,
+   * ﾄ黛ｻ渡g th盻拱 c蘯ｭp nh蘯ｭt trﾆｰ盻拵g phase trﾃｪn DisputeEntity ﾄ黛ｻ・gi盻ｯ ﾄ黛ｻ渡g b盻・tr蘯｡ng thﾃ｡i t盻貧g quan.
    *
-   * @param hearingId - ID phiên tòa
-   * @param phase - Phase mới (PRESENTATION, CROSS_EXAMINATION, INTERROGATION, DELIBERATION)
-   * @param actorId - ID người thực hiện (Staff/Admin)
+   * @param hearingId - ID phiﾃｪn tﾃｲa
+   * @param phase - Phase m盻嬖 (PRESENTATION, CROSS_EXAMINATION, INTERROGATION, DELIBERATION)
+   * @param actorId - ID ngﾆｰ盻拱 th盻ｱc hi盻㌻ (Staff/Admin)
    */
   async transitionHearingPhase(
     hearingId: string,
@@ -1769,7 +2132,7 @@ export class HearingService {
     previousSpeakerRole: SpeakerRole;
     newSpeakerRole: SpeakerRole;
   }> {
-    // 1. Tìm hearing và validate
+    // 1. Tﾃｬm hearing vﾃ validate
     const hearing = await this.hearingRepository.findOne({
       where: { id: hearingId },
       select: ['id', 'status', 'isChatRoomActive', 'currentSpeakerRole', 'disputeId'],
@@ -1783,7 +2146,7 @@ export class HearingService {
       throw new BadRequestException('Hearing is not in progress or chat room is not active');
     }
 
-    // 2. Kiểm tra quyền điều khiển speaker
+    // 2. Ki盻ノ tra quy盻］ ﾄ訴盻「 khi盻ハ speaker
     const check = await this.canControlSpeaker(hearingId, actorId);
     if (!check.canControl) {
       throw new ForbiddenException(check.reason);
@@ -1793,13 +2156,13 @@ export class HearingService {
     const newSpeakerRole = this.mapPhaseToSpeakerRole(phase);
     const previousSpeakerRole = hearing.currentSpeakerRole;
 
-    // 4. Cập nhật speaker control trên Hearing
+    // 4. C蘯ｭp nh蘯ｭt speaker control trﾃｪn Hearing
     this.speakerGracePeriod.delete(hearingId);
     await this.hearingRepository.update(hearingId, {
       currentSpeakerRole: newSpeakerRole,
     });
 
-    // 5. Cập nhật phase trên Dispute để đồng bộ trạng thái tổng quan
+    // 5. C蘯ｭp nh蘯ｭt phase trﾃｪn Dispute ﾄ黛ｻ・ﾄ黛ｻ渡g b盻・tr蘯｡ng thﾃ｡i t盻貧g quan
     const dispute = await this.disputeRepository.findOne({
       where: { id: hearing.disputeId },
       select: ['id', 'phase'],
@@ -1809,7 +2172,7 @@ export class HearingService {
       await this.disputeRepository.update(dispute.id, { phase });
     }
 
-    // 6. Emit event để Gateway bắn realtime
+    // 6. Emit event ﾄ黛ｻ・Gateway b蘯ｯn realtime
     this.eventEmitter.emit('hearing.phaseTransitioned', {
       hearingId,
       disputeId: hearing.disputeId,
@@ -2243,11 +2606,15 @@ export class HearingService {
     dto: RescheduleHearingDto,
     requesterId: string,
   ): Promise<{
+    manualRequired: boolean;
+    reason?: string;
     oldHearing: DisputeHearingEntity;
     newHearing: DisputeHearingEntity;
     calendarEvent: CalendarEventEntity;
     participants: HearingParticipantEntity[];
+    scheduledAt: Date;
     responseDeadline: Date;
+    participantConfirmationSummary: HearingParticipantConfirmationSummary;
     warnings: string[];
   }> {
     const hearing = await this.hearingRepository.findOne({
@@ -2310,6 +2677,7 @@ export class HearingService {
         message: 'Hearing schedule conflicts detected',
         conflicts: scheduleValidation.conflicts,
         warnings: scheduleValidation.warnings,
+        conflictDetails: scheduleValidation.conflictDetails,
       });
     }
 
@@ -2424,7 +2792,7 @@ export class HearingService {
         });
       });
 
-      await eventParticipantRepo.save(eventParticipants);
+      const savedEventParticipants = await eventParticipantRepo.save(eventParticipants);
 
       this.eventEmitter.emit('hearing.rescheduled', {
         previousHearingId: hearing.id,
@@ -2436,11 +2804,15 @@ export class HearingService {
       });
 
       return {
+        manualRequired: false,
         oldHearing: hearing,
         newHearing: savedHearing,
         calendarEvent: savedEvent,
         participants: savedParticipants,
+        scheduledAt: savedHearing.scheduledAt,
         responseDeadline,
+        participantConfirmationSummary:
+          this.buildParticipantConfirmationSummary(savedEventParticipants),
         warnings: scheduleValidation.warnings,
       };
     });
@@ -2732,6 +3104,8 @@ export class HearingService {
 
   private reminderLabel(type: HearingReminderType): string {
     switch (type) {
+      case HearingReminderType.T72H:
+        return 'in 72 hours';
       case HearingReminderType.T24H:
         return 'in 24 hours';
       case HearingReminderType.T1H:
@@ -3033,7 +3407,7 @@ export class HearingService {
       previousSpeakerRole: previousRole,
       newSpeakerRole: SpeakerRole.MUTED_ALL,
       message:
-        '⚠️ Moderator has disconnected. Chat is temporarily muted. Please wait for reconnection.',
+        '笞・・Moderator has disconnected. Chat is temporarily muted. Please wait for reconnection.',
     });
 
     this.logger.warn(`Auto-muted hearing ${hearingId} due to moderator ${moderatorId} disconnect`);
@@ -3073,7 +3447,7 @@ export class HearingService {
       hearingId,
       moderatorId,
       newSpeakerRole: roleToRestore,
-      message: '✅ Moderator has reconnected. Session is resuming.',
+      message: '笨・Moderator has reconnected. Session is resuming.',
     });
 
     this.logger.log(`Moderator ${moderatorId} reconnected to hearing ${hearingId}`);

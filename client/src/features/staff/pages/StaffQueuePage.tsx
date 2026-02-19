@@ -1,4 +1,4 @@
-import { StaffDisputeBoard } from "@/features/disputes/components/dashboard/StaffDisputeBoard";
+import { StaffQueueBoard } from "@/features/disputes/components/dashboard/StaffQueueBoard";
 
 export const StaffQueuePage = () => {
   return (
@@ -9,7 +9,7 @@ export const StaffQueuePage = () => {
           <p className="text-gray-500">Triage incoming reports effectively.</p>
         </div>
       </div>
-      <StaffDisputeBoard mode="queue" />
+      <StaffQueueBoard />
     </div>
   );
 };

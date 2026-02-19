@@ -74,17 +74,22 @@ export function ProjectWorkspace() {
 
   // Get current user for role-based UI restrictions
   const currentUser = useMemo(() => getCurrentUser(), []);
-  
-  // CLIENT users should have read-only access (no creating tasks/milestones)
+
+  const isProjectDisputed = useMemo(() => {
+    const status = project?.status?.toUpperCase();
+    return status === "DISPUTED" || Boolean(project?.hasActiveDispute);
+  }, [project]);
+
+  // CLIENT users and disputed projects are read-only for task mutations.
   const isReadOnly = useMemo(() => {
     const role = currentUser?.role?.toUpperCase();
-    return role === "CLIENT";
-  }, [currentUser]);
+    return role === "CLIENT" || isProjectDisputed;
+  }, [currentUser, isProjectDisputed]);
 
   const canApproveMilestone = useMemo(() => {
     const role = currentUser?.role?.toUpperCase();
-    return role === "CLIENT" || role === "BROKER";
-  }, [currentUser]);
+    return (role === "CLIENT" || role === "BROKER") && !isProjectDisputed;
+  }, [currentUser, isProjectDisputed]);
 
   const projectMembers = useMemo(() => {
     if (!project) return [];
@@ -195,6 +200,10 @@ export function ProjectWorkspace() {
   const handleSelectMilestone = (id: string) => setSelectedMilestoneId(id);
 
   const handleCreateMilestone = async () => {
+    if (isProjectDisputed) {
+      setError("Project is under dispute. Milestone changes are locked in read-only mode.");
+      return;
+    }
     if (!projectId) {
       setError("No project selected. Please choose a project from the list.");
       return;
@@ -370,6 +379,9 @@ export function ProjectWorkspace() {
     milestoneId: string,
     feedback?: string
   ) => {
+    if (isProjectDisputed) {
+      throw new Error("Project is under dispute. Milestone approval is locked.");
+    }
     try {
       setError(null);
       const result = await approveMilestone(milestoneId, feedback);
@@ -426,6 +438,9 @@ export function ProjectWorkspace() {
     taskId: string,
     data: { submissionNote?: string; proofLink: string }
   ) => {
+    if (isProjectDisputed) {
+      throw new Error("Project is under dispute. Task submission is locked.");
+    }
     try {
       setError(null);
       const result = await submitTask(taskId, data);
@@ -479,6 +494,13 @@ export function ProjectWorkspace() {
   };
 
   const handleDragEnd = async (result: DropResult) => {
+    if (isReadOnly) {
+      if (isProjectDisputed) {
+        toast.warning("Task movement is locked while this project is in dispute.");
+      }
+      return;
+    }
+
     const { destination, source, draggableId } = result;
     if (!destination) return;
 
@@ -548,6 +570,10 @@ export function ProjectWorkspace() {
   };
 
   const handleCreateTask = async () => {
+    if (isProjectDisputed) {
+      setError("Project is under dispute. Task creation is locked in read-only mode.");
+      return;
+    }
     const title = newTitle.trim();
     if (!title) {
       setError("Title is required");
@@ -659,7 +685,7 @@ export function ProjectWorkspace() {
               Calendar
             </button>
           </div>
-          {/* Hide New Task button for CLIENT users (read-only mode) */}
+          {/* Hide New Task button in read-only mode */}
           {!isReadOnly && (
             <button
               onClick={openCreateModal}
@@ -670,6 +696,12 @@ export function ProjectWorkspace() {
           )}
         </div>
       </div>
+
+      {isProjectDisputed && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          This project has active dispute cases. Workspace is read-only for task changes, but dispute workflows remain available.
+        </div>
+      )}
 
       {loading ? (
         <div className="flex items-center justify-center py-16">
@@ -689,7 +721,7 @@ export function ProjectWorkspace() {
               ? "The team will create milestones soon. Check back later."
               : "Create your first milestone to start adding tasks for this project."}
           </p>
-          {/* Hide Create Milestone button for CLIENT users (read-only mode) */}
+          {/* Hide Create Milestone button in read-only mode */}
           {!isReadOnly && (
             <button
               onClick={handleCreateMilestone}

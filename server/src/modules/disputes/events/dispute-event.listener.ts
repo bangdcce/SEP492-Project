@@ -101,10 +101,10 @@ export class DisputeEventListener {
     await this.ledgerRepo.insert({
       disputeId,
       eventType,
-      actorId: payload.actorId || null,
-      reason: payload.reason || null,
+      actorId: payload.actorId || undefined,
+      reason: payload.reason || undefined,
       payload: payload.metadata || {},
-      previousHash: latest?.hash || null,
+      previousHash: latest?.hash || undefined,
       canonicalPayload,
       hash,
     });
@@ -129,7 +129,11 @@ export class DisputeEventListener {
       return;
     }
 
-    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
+    if (
+      [DisputeStatus.RESOLVED, DisputeStatus.REJECTED, DisputeStatus.CANCELED].includes(
+        dispute.status,
+      )
+    ) {
       return;
     }
 

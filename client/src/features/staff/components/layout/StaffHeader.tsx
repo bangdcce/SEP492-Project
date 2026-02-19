@@ -1,24 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
-import { Bell, ChevronDown, User, Settings, LogOut } from "lucide-react";
-import { formatDistanceToNow } from "date-fns";
+import { ChevronDown, User, Settings, LogOut } from "lucide-react";
 import { STORAGE_KEYS, ROUTES } from "@/constants";
 import { getStoredJson, removeStoredItem } from "@/shared/utils/storage";
 import { signOut } from "@/features/auth";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/shared/components/ui/dropdown-menu";
-import {
-  getNotifications,
-  markAllNotificationsRead,
-  markNotificationRead,
-} from "@/features/notifications/api";
 import type { NotificationItem } from "@/features/notifications/types";
+import { NotificationDropdown } from "@/features/notifications/components/NotificationDropdown";
 
 interface StaffHeaderProps {
   collapsed: boolean;
@@ -27,9 +14,6 @@ interface StaffHeaderProps {
 
 export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
   const navigate = useNavigate();
-  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
-  const [loadingNotifications, setLoadingNotifications] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
 
   // Get user from storage
@@ -88,58 +72,13 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
       .slice(0, 2);
   };
 
-  const unreadCount = useMemo(
-    () => notifications.filter((item) => !item.isRead).length,
-    [notifications],
-  );
-
-  const loadNotifications = useCallback(async () => {
-    try {
-      setLoadingNotifications(true);
-      const data = await getNotifications({ page: 1, limit: 10 });
-      setNotifications(data.items ?? []);
-    } catch (error) {
-      console.error("Failed to load notifications:", error);
-    } finally {
-      setLoadingNotifications(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
-
-  const handleNotificationClick = async (item: NotificationItem) => {
-    try {
-      if (!item.isRead) {
-        await markNotificationRead(item.id);
-        setNotifications((prev) =>
-          prev.map((entry) =>
-            entry.id === item.id ? { ...entry, isRead: true } : entry,
-          ),
-        );
-      }
-    } catch (error) {
-      console.error("Failed to mark notification as read:", error);
-    }
-
+  const handleNotificationSelect = useCallback((item: NotificationItem) => {
     if (item.relatedType === "Dispute" && item.relatedId) {
       navigate(`/staff/caseload?disputeId=${item.relatedId}`);
     } else if (item.relatedType === "DisputeHearing") {
       navigate("/staff/calendar");
     }
-  };
-
-  const handleMarkAllRead = async () => {
-    try {
-      await markAllNotificationsRead();
-      setNotifications((prev) =>
-        prev.map((entry) => ({ ...entry, isRead: true })),
-      );
-    } catch (error) {
-      console.error("Failed to mark all notifications as read:", error);
-    }
-  };
+  }, [navigate]);
 
   return (
     <header
@@ -160,80 +99,7 @@ export const StaffHeader = ({ collapsed, title }: StaffHeaderProps) => {
 
         {/* Right: Actions */}
         <div className="flex items-center gap-4">
-          <DropdownMenu
-            open={menuOpen}
-            onOpenChange={(open) => {
-              setMenuOpen(open);
-              if (open) {
-                loadNotifications();
-              }
-            }}
-          >
-            <DropdownMenuTrigger asChild>
-              <button className="p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors relative">
-                <Bell className="w-5 h-5" />
-                {unreadCount > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 rounded-full border border-white text-[10px] text-white flex items-center justify-center">
-                    {unreadCount > 9 ? "9+" : unreadCount}
-                  </span>
-                )}
-              </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent className="w-96 p-0">
-              <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
-                <DropdownMenuLabel className="p-0 text-sm font-semibold text-slate-900">
-                  Notifications
-                </DropdownMenuLabel>
-                <button
-                  onClick={handleMarkAllRead}
-                  className="text-xs text-teal-600 hover:text-teal-700"
-                >
-                  Mark all read
-                </button>
-              </div>
-              <div className="max-h-80 overflow-y-auto">
-                {loadingNotifications ? (
-                  <div className="px-4 py-6 text-sm text-gray-500">
-                    Loading notifications...
-                  </div>
-                ) : notifications.length === 0 ? (
-                  <div className="px-4 py-6 text-sm text-gray-500">
-                    No notifications yet.
-                  </div>
-                ) : (
-                  notifications.map((item) => (
-                    <div key={item.id}>
-                      <DropdownMenuItem
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          handleNotificationClick(item);
-                        }}
-                        className="flex flex-col items-start gap-1 px-4 py-3"
-                      >
-                        <div className="flex items-center justify-between w-full">
-                          <span className="text-sm font-medium text-slate-900">
-                            {item.title}
-                          </span>
-                          <span className="text-xs text-gray-400">
-                            {formatDistanceToNow(new Date(item.createdAt), {
-                              addSuffix: true,
-                            })}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-500">{item.body}</p>
-                        {!item.isRead && (
-                          <span className="text-[10px] text-teal-600 font-medium">
-                            Unread
-                          </span>
-                        )}
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                    </div>
-                  ))
-                )}
-              </div>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <NotificationDropdown onSelect={handleNotificationSelect} />
 
           <div className="h-8 w-px bg-gray-200 mx-1"></div>
 

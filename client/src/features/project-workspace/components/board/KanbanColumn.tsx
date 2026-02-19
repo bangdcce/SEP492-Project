@@ -56,6 +56,7 @@ export function KanbanColumn({
                   task={task} 
                   index={index} 
                   onClick={onTaskClick}
+                  isReadOnly={isReadOnly}
                 />
               ))
             )}

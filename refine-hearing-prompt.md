@@ -55,6 +55,44 @@ Implement this exact flow:
 - Persist immutable timeline and decision log.
 - Expose transparent case history for authorized roles.
 
+### 3.1) Mediation Scheduling Flow (Decision-Locked)
+This flow is mandatory and must be implemented exactly:
+1. On `PREVIEW_COMPLETED`, transition dispute status to `IN_MEDIATION`.
+2. Trigger hearing scheduling immediately after that transition (idempotent, exactly once per active dispute cycle).
+3. Compute required/optional participants from dispute parties and role matrix:
+- required: assigned `STAFF` moderator, core disputing parties.
+- optional/escalation: `ADMIN` or additional senior `STAFF` when policy requires.
+4. Search candidate slots with:
+- minimum notice window
+- configurable lookahead window
+- participant timezone normalization
+5. Exclude all candidate slots that overlap:
+- active calendar events
+- blocking availability types: `BUSY`, `OUT_OF_OFFICE`, `DO_NOT_DISTURB`
+- recurring blocking entries after expansion.
+6. Create hearing + calendar event using tentative confirmation flow (`PENDING_CONFIRMATION` at event layer).
+7. Required participants confirm/decline:
+- if all required participants accept, keep hearing scheduled.
+- if any required participant declines or confirmation deadline expires, auto-reschedule.
+- if no feasible slot exists, return `manualRequired=true` with explicit reason.
+8. Before start time, prepare hearing room context and invitations for all entitled participants.
+9. Send reminders at `T-72h`, `T-24h`, `T-1h`, `T-10m` and skip windows already passed.
+10. At hearing start time, invite/join participants into live hearing workspace and begin moderation.
+
+### 3.2) Calendar Availability Semantics (Busy-First)
+Enforce these scheduling semantics:
+1. Calendar UX primary action is marking busy/unavailable time.
+2. Default manual availability type should be `BUSY`.
+3. `AVAILABLE` and `PREFERRED` are optional optimization hints, not mandatory for normal operation.
+4. Scheduler must treat `BUSY`, `OUT_OF_OFFICE`, and `DO_NOT_DISTURB` as hard constraints.
+5. Recurring busy/unavailable entries must be expanded and enforced during slot search.
+6. Do not schedule hearings if any required participant has a blocked overlap.
+
+### 3.3) Mandatory Consistency Fixes
+1. Replace legacy blocked labels (`BLOCKED`, `ON_LEAVE`) with enum-safe types (`BUSY`, `OUT_OF_OFFICE`, `DO_NOT_DISTURB`) in scheduling validation paths.
+2. Keep event names backward-compatible; additions must be additive and documented.
+3. Reuse existing endpoints first; only add additive API fields/endpoints when required.
+
 ### 4) Role and Permission Matrix
 Enforce role-safe behavior:
 1. `ADMIN`
@@ -107,7 +145,8 @@ Implement backend logic with NestJS best practices:
 - Store hash chain for key hearing actions.
 - Persist signed resolution snapshot (summary, findings, evidence references, attendance, participants).
 7. Notifications
-- Trigger reminders at T-24h, T-1h, T-10m.
+- Trigger reminders at T-72h, T-24h, T-1h, T-10m.
+- Skip reminder windows already passed and deduplicate reminder deliveries.
 - Send role-specific notification content.
 
 ### 6) Required Frontend Enhancements
@@ -180,6 +219,24 @@ For each new endpoint provide:
 3. Guard and permission logic
 4. Audit event emitted
 5. Realtime event emitted if needed
+
+Mandatory contract details:
+1. `POST /disputes/hearings/schedule` response must include:
+- `manualRequired`
+- `reason` (when no feasible slot)
+- `scheduledAt`
+- `responseDeadline`
+- participant confirmation status summary
+2. Reminder contract must include `T72H` as an additive reminder type (keep existing `T24H`, `T1H`, `T10M`).
+3. Availability conflict responses must include:
+- blocking source type
+- blocking time range
+- conflicting participant/user id
+4. Mediation auto-scheduling result contract must include:
+- selected slot
+- fallback/manual-required reason
+- required participants list
+- timezone-normalized date-time fields
 
 ### 11) Engineering Quality Bar
 1. Follow NestJS modular architecture and TypeORM transaction safety.
@@ -255,6 +312,27 @@ Your implementation must eliminate this class of failures, not just hide error m
 - frontend types
 - UI labels and filters
 - tests
+
+### 15) Mediation Scheduling Test Matrix (Must Pass)
+1. `PREVIEW -> IN_MEDIATION` triggers hearing auto-scheduling exactly once.
+2. Busy block overlap for any required participant prevents scheduling.
+3. Recurring `OUT_OF_OFFICE` entries block candidate slots correctly.
+4. Tentative hearing confirmation flow:
+- all required participants accept -> hearing remains scheduled.
+- one required participant declines -> auto-reschedule is triggered.
+- no feasible slot exists -> `manualRequired=true` with explicit reason.
+5. Reminder deduplication for `72h`, `24h`, `1h`, `10m` windows.
+6. Multi-party dispute combinations (`CLIENT`, `BROKER`, `FREELANCER`) schedule correctly with permission-safe participants.
+7. Timezone correctness across staff and all involved participants.
+8. Regression checks: existing hearing room/chat/moderation flow remains functional.
+9. Enum safety regression: no scheduling path relies on non-existent availability labels.
+
+### 16) Assumptions and Defaults (Locked)
+1. Confirmation model: `Tentative then confirm`.
+2. Reminder windows: `72h + 24h + 1h + 10m`.
+3. Scheduling trigger: immediately after `PREVIEW_COMPLETED` moves dispute to `IN_MEDIATION`.
+4. Calendar behavior: busy/unavailable marking is the primary scheduling signal.
+5. Existing architecture is reused first; changes are additive and backward-compatible.
 
 ---
 
