@@ -22,6 +22,8 @@ import {
   DisputeEntity,
   DisputePartyEntity,
   DisputeActivityEntity,
+  DisputeHearingEntity,
+  HearingStatus,
   DisputeAction,
   UserRole,
   DisputeStatus,
@@ -145,6 +147,10 @@ export interface UploadEvidenceResult {
   success: boolean;
   evidence?: DisputeEvidenceEntity;
   error?: string;
+  errorCode?:
+    | 'STAFF_UPLOAD_FORBIDDEN'
+    | 'HEARING_EVIDENCE_WINDOW_CLOSED'
+    | 'EVIDENCE_UPLOAD_FORBIDDEN';
   isDuplicate?: boolean;
   existingEvidenceId?: string;
   warning?: string;
@@ -171,6 +177,8 @@ export class EvidenceService {
     private readonly disputePartyRepo: Repository<DisputePartyEntity>,
     @InjectRepository(DisputeActivityEntity)
     private readonly activityRepo: Repository<DisputeActivityEntity>,
+    @InjectRepository(DisputeHearingEntity)
+    private readonly hearingRepo: Repository<DisputeHearingEntity>,
     @Inject(CACHE_MANAGER)
     private readonly cacheManager: Cache,
     private readonly configService: ConfigService,
@@ -643,12 +651,38 @@ export class EvidenceService {
     }
 
     if (uploaderRole === UserRole.STAFF || uploaderRole === UserRole.ADMIN) {
-      return { success: false, error: 'Staff cannot upload evidence for disputes' };
+      return {
+        success: false,
+        error: 'Staff cannot upload evidence for disputes',
+        errorCode: 'STAFF_UPLOAD_FORBIDDEN',
+      };
     }
 
     const isParticipant = await this.isDisputePartyMember(dispute, uploaderId);
     if (!isParticipant) {
-      return { success: false, error: 'Only dispute participants can upload evidence' };
+      return {
+        success: false,
+        error: 'Only dispute participants can upload evidence',
+        errorCode: 'EVIDENCE_UPLOAD_FORBIDDEN',
+      };
+    }
+
+    const activeLiveHearing = await this.hearingRepo.findOne({
+      where: {
+        disputeId,
+        status: HearingStatus.IN_PROGRESS,
+      },
+      select: ['id', 'isEvidenceIntakeOpen'],
+      order: { startedAt: 'DESC' },
+    });
+
+    if (activeLiveHearing && !activeLiveHearing.isEvidenceIntakeOpen) {
+      return {
+        success: false,
+        error:
+          'Live hearing evidence intake is closed. Ask moderator to open intake before uploading.',
+        errorCode: 'HEARING_EVIDENCE_WINDOW_CLOSED',
+      };
     }
 
     // 2. Validate file

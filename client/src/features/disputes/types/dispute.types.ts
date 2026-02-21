@@ -145,6 +145,7 @@ export interface DisputeMessage {
   hearingId?: string | null;
   senderId?: string | null;
   senderRole?: UserRole | string;
+  senderHearingRole?: "RAISER" | "DEFENDANT" | "WITNESS" | "MODERATOR" | "OBSERVER" | string;
   type?: string;
   content?: string | null;
   replyToMessageId?: string | null;
@@ -182,6 +183,27 @@ export interface DisputeEvidenceQuota {
   remaining: number;
   used: number;
   total: number;
+}
+
+export interface SettlementAttemptsSummary {
+  raiserRemaining: number;
+  defendantRemaining: number;
+  maxAttemptsPerSide?: number;
+}
+
+export interface DisputeSettlement {
+  id: string;
+  disputeId: string;
+  proposerId?: string;
+  proposerRole?: UserRole | string;
+  amountToFreelancer: number;
+  amountToClient: number;
+  terms?: string | null;
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "EXPIRED" | string;
+  rejectedReason?: string | null;
+  expiresAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface DisputeComplexity {

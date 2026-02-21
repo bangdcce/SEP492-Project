@@ -303,3 +303,9 @@ export class DispatchHearingRemindersDto {
   @IsOptional()
   at?: string;
 }
+
+export class OpenEvidenceIntakeDto {
+  @IsString()
+  @IsNotEmpty()
+  reason: string;
+}

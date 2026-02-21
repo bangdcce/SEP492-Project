@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+﻿import { Logger, Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -25,64 +25,76 @@ import { ContractsModule } from './modules/contracts/contracts.module';
 import { CalendarModule } from './modules/calendar/calendar.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { LeaveModule } from './modules/leave/leave.module';
+import { HealthModule } from './modules/health/health.module';
+
+const parseNumberEnv = (value: string | undefined, fallback: number): number => {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 
 @Module({
   imports: [
-    // 1. Cấu hình ConfigModule đọc file .env tại thư mục gốc
     ConfigModule.forRoot({
-      envFilePath: '.env', // Sửa từ '../.env' thành '.env'
+      envFilePath: '.env',
       isGlobal: true,
-      load: [jwtConfig], // Load JWT config
+      load: [jwtConfig],
     }),
 
-    // 2. Cấu hình TypeORM lấy đúng key từ .env
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        type: 'postgres',
+      useFactory: (configService: ConfigService) => {
+        const logger = new Logger('TypeOrmConfig');
+        const poolMax = parseNumberEnv(configService.get<string>('DB_POOL_MAX'), 20);
+        const poolIdleMs = parseNumberEnv(configService.get<string>('DB_POOL_IDLE_MS'), 30000);
+        const poolConnTimeoutMs = parseNumberEnv(
+          configService.get<string>('DB_POOL_CONN_TIMEOUT_MS'),
+          10000,
+        );
+        const dbLogging = configService.get<string>('DB_LOGGING') === 'true';
 
-        // Sửa: Lấy host từ env, không hardcode localhost
-        host: configService.get<string>('DB_HOST'),
+        logger.log(
+          `DB pool config: max=${poolMax}, idleTimeoutMillis=${poolIdleMs}, connectionTimeoutMillis=${poolConnTimeoutMs}`,
+        );
+        logger.log(`DB logging: ${dbLogging ? 'enabled' : 'disabled'}`);
 
-        port: parseInt(configService.get<string>('DB_PORT') || '5432'),
-
-        // Sửa: Key đúng là DB_USERNAME (khớp với .env)
-        username: configService.get<string>('DB_USERNAME'),
-
-        // Password
-        password: configService.get<string>('DB_PASSWORD'),
-
-        // Sửa: Key đúng là DB_DATABASE (khớp với .env)
-        database: configService.get<string>('DB_DATABASE'),
-
-        entities: [__dirname + '/**/*.entity{.ts,.js}'],
-
-        // Development settings
-        synchronize: configService.get<string>('DB_SYNCHRONIZE') === 'true',
-        logging: true,
-
-        // Sửa: Supabase BẮT BUỘC phải có SSL
-        ssl: false,
-      }),
+        return {
+          type: 'postgres',
+          host: configService.get<string>('DB_HOST'),
+          port: parseNumberEnv(configService.get<string>('DB_PORT'), 5432),
+          username: configService.get<string>('DB_USERNAME'),
+          password: configService.get<string>('DB_PASSWORD'),
+          database: configService.get<string>('DB_DATABASE'),
+          entities: [__dirname + '/**/*.entity{.ts,.js}'],
+          synchronize: configService.get<string>('DB_SYNCHRONIZE') === 'true',
+          logging: dbLogging,
+          ssl: false,
+          extra: {
+            max: poolMax,
+            idleTimeoutMillis: poolIdleMs,
+            connectionTimeoutMillis: poolConnTimeoutMs,
+            keepAlive: true,
+          },
+        };
+      },
     }),
 
-    // 3. Rate Limiting - Chống spam
     ThrottlerModule.forRoot([
       {
         name: 'short',
-        ttl: 1000, // 1 second
-        limit: 3, // 3 requests per second
+        ttl: 1000,
+        limit: 3,
       },
       {
         name: 'medium',
-        ttl: 10000, // 10 seconds
-        limit: 20, // 20 requests per 10 seconds
+        ttl: 10000,
+        limit: 20,
       },
       {
         name: 'long',
-        ttl: 60000, // 1 minute
-        limit: 100, // 100 requests per minute
+        ttl: 60000,
+        limit: 100,
       },
     ]),
 
@@ -107,6 +119,7 @@ import { LeaveModule } from './modules/leave/leave.module';
     KycModule,
     UsersModule,
     ContractsModule,
+    HealthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -231,7 +231,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
       await this.ensureHearingAccess(dto.hearingId, user);
     }
 
-    const saved = await this.disputesService.sendDisputeMessage(dto, user.id, user.role);
+    const saved = await this.disputesService.sendDisputeMessage(dto, user.id, user.role, user);
 
     return {
       success: true,
