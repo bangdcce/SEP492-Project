@@ -16,7 +16,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In, MoreThan, LessThan, Between, DataSource } from 'typeorm';
+import { Repository, In, MoreThan, LessThan, Between, DataSource, Brackets } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 
 // Entities
@@ -30,6 +30,12 @@ import {
   DisputePartySide,
 } from '../../../database/entities/dispute-party.entity';
 import { ProjectEntity } from '../../../database/entities/project.entity';
+import { MilestoneEntity } from '../../../database/entities/milestone.entity';
+import { ContractEntity } from '../../../database/entities/contract.entity';
+import {
+  DisputeMessageEntity,
+  MessageType,
+} from '../../../database/entities/dispute-message.entity';
 import { UserEntity, UserRole } from '../../../database/entities/user.entity';
 import {
   DisputeHearingEntity,
@@ -64,6 +70,8 @@ import {
   HearingReminderType,
 } from '../../../database/entities/hearing-reminder-delivery.entity';
 import { EmailService } from '../../auth/email.service';
+import { HearingPresenceService } from './hearing-presence.service';
+import { EvidenceService } from './evidence.service';
 import {
   ScheduleHearingDto,
   RescheduleHearingDto,
@@ -154,6 +162,39 @@ export interface ChatPermissionResult {
   gracePeriodUntil?: Date;
 }
 
+export interface HearingWorkspacePermissions {
+  canSendMessage: boolean;
+  sendMessageBlockedReason?: string;
+  canUploadEvidence: boolean;
+  uploadEvidenceBlockedReason?: string;
+  canAttachEvidenceLink: boolean;
+  attachEvidenceBlockedReason?: string;
+  canManageEvidenceIntake?: boolean;
+  manageEvidenceIntakeBlockedReason?: string;
+}
+
+export interface HearingPhaseGateStatus {
+  requiredRole: HearingParticipantRole;
+  requiredCount: number;
+  submittedCount: number;
+  canTransition: boolean;
+  missingParticipants: Array<{
+    participantId: string;
+    userId: string;
+    displayName: string;
+  }>;
+  reason?: string;
+}
+
+export interface HearingEvidenceAttachPermissionResult {
+  allowed: boolean;
+  reason?: string;
+  hearing: Pick<
+    DisputeHearingEntity,
+    'id' | 'disputeId' | 'status' | 'isChatRoomActive' | 'moderatorId'
+  >;
+}
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
@@ -188,6 +229,12 @@ const HEARING_REMINDER_WINDOWS = [
   { type: HearingReminderType.T10M, minutesBefore: 10 },
 ] as const;
 const HEARING_REMINDER_DISPATCH_GRACE_MINUTES = 2;
+const HEARING_PHASE_SEQUENCE: DisputePhase[] = [
+  DisputePhase.PRESENTATION,
+  DisputePhase.CROSS_EXAMINATION,
+  DisputePhase.INTERROGATION,
+  DisputePhase.DELIBERATION,
+];
 
 // =============================================================================
 // SERVICE
@@ -218,6 +265,12 @@ export class HearingService {
     private readonly eventParticipantRepository: Repository<EventParticipantEntity>,
     @InjectRepository(ProjectEntity)
     private readonly projectRepository: Repository<ProjectEntity>,
+    @InjectRepository(MilestoneEntity)
+    private readonly milestoneRepository: Repository<MilestoneEntity>,
+    @InjectRepository(ContractEntity)
+    private readonly contractRepository: Repository<ContractEntity>,
+    @InjectRepository(DisputeMessageEntity)
+    private readonly messageRepository: Repository<DisputeMessageEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
     @InjectRepository(CalendarEventEntity)
@@ -231,6 +284,8 @@ export class HearingService {
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
     private readonly emailService: EmailService,
+    private readonly hearingPresenceService: HearingPresenceService,
+    private readonly evidenceService: EvidenceService,
   ) {}
 
   // ===========================================================================
@@ -881,6 +936,145 @@ export class HearingService {
     };
   }
 
+  private async isDisputePartyMember(
+    dispute: Pick<DisputeEntity, 'id' | 'groupId' | 'raisedById' | 'defendantId'>,
+    userId: string,
+  ): Promise<boolean> {
+    if (dispute.raisedById === userId || dispute.defendantId === userId) {
+      return true;
+    }
+
+    const groupId = dispute.groupId || dispute.id;
+    const membership = await this.disputePartyRepository.findOne({
+      where: { groupId, userId },
+      select: ['id'],
+    });
+    return Boolean(membership);
+  }
+
+  private async buildHearingWorkspacePermissions(
+    hearing: DisputeHearingEntity,
+    user: UserEntity,
+  ): Promise<HearingWorkspacePermissions> {
+    const chatPermission = await this.getChatPermission(hearing.id, user.id);
+    const permissions: HearingWorkspacePermissions = {
+      canSendMessage: chatPermission.allowed,
+      sendMessageBlockedReason: chatPermission.allowed ? undefined : chatPermission.reason,
+      canUploadEvidence: false,
+      canAttachEvidenceLink: false,
+      canManageEvidenceIntake: false,
+    };
+
+    const dispute = hearing.dispute;
+    if (!dispute) {
+      permissions.uploadEvidenceBlockedReason = 'Dispute context is missing.';
+      permissions.attachEvidenceBlockedReason = 'Dispute context is missing.';
+      permissions.manageEvidenceIntakeBlockedReason = 'Dispute context is missing.';
+      return permissions;
+    }
+
+    const isPartyMember = await this.isDisputePartyMember(dispute, user.id);
+    const isModerator = hearing.moderatorId === user.id;
+    const isAdmin = user.role === UserRole.ADMIN;
+    const isStaff = user.role === UserRole.STAFF;
+
+    if (dispute.status === DisputeStatus.RESOLVED) {
+      permissions.uploadEvidenceBlockedReason = 'Cannot upload evidence to a resolved dispute.';
+    } else if (isStaff || isAdmin) {
+      permissions.uploadEvidenceBlockedReason = 'Staff cannot upload evidence for disputes.';
+    } else if (!isPartyMember) {
+      permissions.uploadEvidenceBlockedReason = 'Only dispute participants can upload evidence.';
+    } else if (hearing.status === HearingStatus.IN_PROGRESS && !hearing.isEvidenceIntakeOpen) {
+      permissions.uploadEvidenceBlockedReason =
+        'Live hearing evidence intake is closed. Ask moderator to open intake.';
+    } else if (
+      hearing.status === HearingStatus.COMPLETED ||
+      hearing.status === HearingStatus.CANCELED
+    ) {
+      permissions.uploadEvidenceBlockedReason = 'Cannot upload evidence after hearing is closed.';
+    } else {
+      permissions.canUploadEvidence = true;
+    }
+
+    if (
+      hearing.status === HearingStatus.IN_PROGRESS &&
+      hearing.isChatRoomActive &&
+      (isAdmin || isModerator || isPartyMember)
+    ) {
+      permissions.canAttachEvidenceLink = true;
+    } else if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
+      permissions.attachEvidenceBlockedReason =
+        'Evidence links are available only while hearing chat is active.';
+    } else {
+      permissions.attachEvidenceBlockedReason =
+        'Only dispute parties or the hearing moderator can attach evidence links.';
+    }
+
+    if (!isAdmin && !isModerator) {
+      permissions.manageEvidenceIntakeBlockedReason =
+        'Only hearing moderator or admin can open/close evidence intake.';
+    } else if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
+      permissions.manageEvidenceIntakeBlockedReason =
+        'Evidence intake can be managed only while hearing is in progress.';
+    } else {
+      permissions.canManageEvidenceIntake = true;
+    }
+
+    return permissions;
+  }
+
+  async getEvidenceAttachPermission(
+    hearingId: string,
+    userId: string,
+    userRole: UserRole,
+  ): Promise<HearingEvidenceAttachPermissionResult> {
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: hearingId },
+      relations: ['dispute'],
+    });
+
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${hearingId} not found`);
+    }
+
+    if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
+      return {
+        allowed: false,
+        reason: 'Evidence links are available only while hearing chat is active.',
+        hearing,
+      };
+    }
+
+    if (userRole === UserRole.ADMIN || hearing.moderatorId === userId) {
+      return {
+        allowed: true,
+        hearing,
+      };
+    }
+
+    if (!hearing.dispute) {
+      return {
+        allowed: false,
+        reason: 'Dispute context is missing.',
+        hearing,
+      };
+    }
+
+    const isPartyMember = await this.isDisputePartyMember(hearing.dispute, userId);
+    if (!isPartyMember) {
+      return {
+        allowed: false,
+        reason: 'Only dispute parties or the hearing moderator can attach evidence links.',
+        hearing,
+      };
+    }
+
+    return {
+      allowed: true,
+      hearing,
+    };
+  }
+
   // ===========================================================================
   // LIST HEARINGS
   // ===========================================================================
@@ -1173,6 +1367,11 @@ export class HearingService {
       moderatorId: hearing.moderatorId,
       currentSpeakerRole: hearing.currentSpeakerRole,
       isChatRoomActive: hearing.isChatRoomActive,
+      isEvidenceIntakeOpen: hearing.isEvidenceIntakeOpen,
+      evidenceIntakeOpenedAt: hearing.evidenceIntakeOpenedAt,
+      evidenceIntakeClosedAt: hearing.evidenceIntakeClosedAt,
+      evidenceIntakeOpenedBy: hearing.evidenceIntakeOpenedBy,
+      evidenceIntakeReason: hearing.evidenceIntakeReason,
       estimatedDurationMinutes: hearing.estimatedDurationMinutes,
       rescheduleCount: hearing.rescheduleCount,
       previousHearingId: hearing.previousHearingId,
@@ -1221,9 +1420,13 @@ export class HearingService {
       .leftJoinAndSelect('hearing.participants', 'participant')
       .leftJoinAndSelect('participant.user', 'participantUser')
       .leftJoinAndSelect('hearing.dispute', 'dispute')
-      .where('hearing.moderatorId = :userId OR participant.userId = :userId', {
-        userId: user.id,
-      })
+      .where(
+        new Brackets((whereQb) => {
+          whereQb
+            .where('hearing.moderatorId = :userId', { userId: user.id })
+            .orWhere('participant.userId = :userId', { userId: user.id });
+        }),
+      )
       .distinct(true);
 
     if (options.statuses && options.statuses.length > 0) {
@@ -1288,7 +1491,507 @@ export class HearingService {
     const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds([
       hearing.id,
     ]);
-    return this.mapHearingSummary(hearing, confirmationSummaryByHearingId);
+    const permissions = await this.buildHearingWorkspacePermissions(hearing, user);
+    return {
+      ...this.mapHearingSummary(hearing, confirmationSummaryByHearingId),
+      permissions,
+    };
+  }
+
+  private resolveUserDisplayName(user?: Pick<UserEntity, 'fullName' | 'email' | 'id'>): string {
+    if (!user) {
+      return 'Unknown user';
+    }
+    return user.fullName || user.email || user.id;
+  }
+
+  private async getPresentationToCrossPhaseGateStatus(
+    hearingId: string,
+  ): Promise<HearingPhaseGateStatus> {
+    const raiserParticipants = await this.participantRepository.find({
+      where: {
+        hearingId,
+        role: HearingParticipantRole.RAISER,
+      },
+      relations: ['user'],
+    });
+
+    if (raiserParticipants.length === 0) {
+      return {
+        requiredRole: HearingParticipantRole.RAISER,
+        requiredCount: 0,
+        submittedCount: 0,
+        canTransition: false,
+        missingParticipants: [],
+        reason: 'No raiser participant found for this hearing.',
+      };
+    }
+
+    const submittedRows = await this.statementRepository
+      .createQueryBuilder('statement')
+      .innerJoin(HearingParticipantEntity, 'participant', 'participant.id = statement.participantId')
+      .select('statement.participantId', 'participantId')
+      .where('statement.hearingId = :hearingId', { hearingId })
+      .andWhere('statement.status = :status', { status: HearingStatementStatus.SUBMITTED })
+      .andWhere('participant.role = :role', { role: HearingParticipantRole.RAISER })
+      .groupBy('statement.participantId')
+      .getRawMany<{ participantId: string }>();
+
+    const submittedParticipantIds = new Set(
+      submittedRows.map((row) => row.participantId).filter(Boolean),
+    );
+    const submittedCount = submittedParticipantIds.size;
+    const missingParticipants = raiserParticipants
+      .filter((participant) => !submittedParticipantIds.has(participant.id))
+      .map((participant) => ({
+        participantId: participant.id,
+        userId: participant.userId,
+        displayName: this.resolveUserDisplayName(participant.user),
+      }));
+
+    const canTransition = submittedCount > 0;
+    return {
+      requiredRole: HearingParticipantRole.RAISER,
+      requiredCount: raiserParticipants.length,
+      submittedCount,
+      canTransition,
+      missingParticipants,
+      reason: canTransition
+        ? undefined
+        : 'Transition blocked: submit at least one raiser statement before cross examination.',
+    };
+  }
+
+  private async getWorkspaceMessages(
+    hearingId: string,
+    userRole: UserRole,
+    limit: number = 100,
+  ): Promise<
+    Array<{
+      id: string;
+      disputeId: string;
+      hearingId?: string | null;
+      senderId?: string | null;
+      senderRole?: string;
+      senderHearingRole?: HearingParticipantRole;
+      type?: MessageType;
+      content?: string | null;
+      replyToMessageId?: string | null;
+      relatedEvidenceId?: string | null;
+      metadata?: Record<string, unknown> | null;
+      isHidden?: boolean;
+      hiddenReason?: string | null;
+      createdAt: Date;
+      sender?: { id: string; fullName?: string; email?: string; role?: UserRole };
+    }>
+  > {
+    const isStaffOrAdmin = [UserRole.STAFF, UserRole.ADMIN].includes(userRole);
+    const cappedLimit = Math.max(1, Math.min(200, limit));
+
+    const qb = this.messageRepository
+      .createQueryBuilder('message')
+      .leftJoinAndSelect('message.sender', 'sender')
+      .where('message.hearingId = :hearingId', { hearingId })
+      .orderBy('message.createdAt', 'DESC')
+      .take(cappedLimit);
+
+    if (!isStaffOrAdmin) {
+      qb.andWhere('message.isHidden = :isHidden', { isHidden: false });
+    }
+
+    const latestMessages = await qb.getMany();
+    const orderedMessages = latestMessages.reverse();
+    const senderIds = Array.from(
+      new Set(
+        orderedMessages
+          .map((message) => message.senderId)
+          .filter((senderId): senderId is string => Boolean(senderId)),
+      ),
+    );
+
+    const hearingParticipants =
+      senderIds.length > 0
+        ? await this.participantRepository.find({
+            where: { hearingId, userId: In(senderIds) },
+          })
+        : [];
+    const hearingRoleByUserId = new Map(
+      hearingParticipants.map((participant) => [participant.userId, participant.role]),
+    );
+
+    return orderedMessages.map((message) => ({
+      id: message.id,
+      disputeId: message.disputeId,
+      hearingId: message.hearingId,
+      senderId: message.senderId,
+      senderRole: message.senderRole,
+      senderHearingRole: message.senderId
+        ? hearingRoleByUserId.get(message.senderId)
+        : undefined,
+      type: message.type,
+      content: message.content,
+      replyToMessageId: message.replyToMessageId,
+      relatedEvidenceId: message.relatedEvidenceId,
+      metadata: message.metadata,
+      isHidden: message.isHidden,
+      hiddenReason: message.hiddenReason,
+      createdAt: message.createdAt,
+      sender: message.sender
+        ? {
+            id: message.sender.id,
+            fullName: message.sender.fullName,
+            email: message.sender.email,
+            role: message.sender.role,
+          }
+        : undefined,
+    }));
+  }
+
+  private async buildWorkspaceDossier(hearing: DisputeHearingEntity) {
+    const dispute = hearing.dispute;
+    if (!dispute) {
+      return {
+        dispute: null,
+        project: null,
+        milestone: null,
+        milestoneTimeline: [],
+        contracts: [],
+        issues: [],
+      };
+    }
+
+    const [project, disputedMilestone, milestones, contracts, partyUsers] = await Promise.all([
+      dispute.projectId
+        ? this.projectRepository.findOne({
+            where: { id: dispute.projectId },
+            select: [
+              'id',
+              'title',
+              'description',
+              'status',
+              'totalBudget',
+              'currency',
+              'pricingModel',
+              'startDate',
+              'endDate',
+              'clientId',
+              'freelancerId',
+              'brokerId',
+            ],
+          })
+        : Promise.resolve(null),
+      dispute.milestoneId
+        ? this.milestoneRepository.findOne({
+            where: { id: dispute.milestoneId },
+            select: [
+              'id',
+              'projectId',
+              'title',
+              'description',
+              'status',
+              'amount',
+              'dueDate',
+              'startDate',
+              'submittedAt',
+              'proofOfWork',
+            ],
+          })
+        : Promise.resolve(null),
+      dispute.projectId
+        ? this.milestoneRepository.find({
+            where: { projectId: dispute.projectId },
+            select: ['id', 'title', 'status', 'amount', 'dueDate', 'sortOrder'],
+            order: { sortOrder: 'ASC', dueDate: 'ASC' },
+            take: 50,
+          })
+        : Promise.resolve([]),
+      dispute.projectId
+        ? this.contractRepository.find({
+            where: { projectId: dispute.projectId },
+            select: ['id', 'projectId', 'title', 'status', 'contractUrl', 'termsContent', 'createdAt'],
+            order: { createdAt: 'DESC' },
+            take: 20,
+          })
+        : Promise.resolve([]),
+      this.userRepository.find({
+        where: {
+          id: In(
+            [dispute.raisedById, dispute.defendantId, dispute.assignedStaffId].filter(
+              (value): value is string => Boolean(value),
+            ),
+          ),
+        },
+        select: ['id', 'fullName', 'email', 'role'],
+      }),
+    ]);
+
+    const partyUserById = new Map(partyUsers.map((item) => [item.id, item]));
+    const raiserUser = partyUserById.get(dispute.raisedById);
+    const defendantUser = partyUserById.get(dispute.defendantId);
+    const assignedStaffUser = dispute.assignedStaffId
+      ? partyUserById.get(dispute.assignedStaffId)
+      : null;
+
+    const issues = [
+      {
+        code: 'RAISER_CLAIM',
+        label: 'Raiser statement',
+        value: dispute.reason || null,
+      },
+      {
+        code: 'DEFENDANT_RESPONSE',
+        label: 'Defendant response',
+        value: dispute.defendantResponse || null,
+      },
+    ].filter((item) => Boolean(item.value));
+
+    return {
+      dispute: {
+        id: dispute.id,
+        status: dispute.status,
+        phase: dispute.phase,
+        category: dispute.category,
+        disputeType: dispute.disputeType,
+        priority: dispute.priority,
+        disputedAmount: dispute.disputedAmount,
+        createdAt: dispute.createdAt,
+        reason: dispute.reason,
+        defendantResponse: dispute.defendantResponse,
+        raiser: {
+          id: dispute.raisedById,
+          role: dispute.raiserRole,
+          name: this.resolveUserDisplayName(raiserUser),
+          email: raiserUser?.email,
+        },
+        defendant: {
+          id: dispute.defendantId,
+          role: dispute.defendantRole,
+          name: this.resolveUserDisplayName(defendantUser),
+          email: defendantUser?.email,
+        },
+        assignedStaff: assignedStaffUser
+          ? {
+              id: assignedStaffUser.id,
+              name: this.resolveUserDisplayName(assignedStaffUser),
+              email: assignedStaffUser.email,
+            }
+          : null,
+      },
+      project: project
+        ? {
+            id: project.id,
+            title: project.title,
+            description: project.description,
+            status: project.status,
+            totalBudget: project.totalBudget,
+            currency: project.currency,
+            pricingModel: project.pricingModel,
+            startDate: project.startDate,
+            endDate: project.endDate,
+            clientId: project.clientId,
+            freelancerId: project.freelancerId,
+            brokerId: project.brokerId,
+          }
+        : null,
+      milestone: disputedMilestone
+        ? {
+            milestoneId: disputedMilestone.id,
+            milestoneTitle: disputedMilestone.title,
+            milestoneStatus: disputedMilestone.status,
+            milestoneAmount: disputedMilestone.amount,
+            milestoneDueDate: disputedMilestone.dueDate,
+            startDate: disputedMilestone.startDate,
+            submittedAt: disputedMilestone.submittedAt,
+            proofOfWork: disputedMilestone.proofOfWork,
+            description: disputedMilestone.description,
+          }
+        : null,
+      milestoneTimeline: milestones.map((milestone) => ({
+        id: milestone.id,
+        title: milestone.title,
+        status: milestone.status,
+        amount: milestone.amount,
+        dueDate: milestone.dueDate,
+        sortOrder: milestone.sortOrder,
+      })),
+      contracts: contracts.map((contract) => ({
+        id: contract.id,
+        projectId: contract.projectId,
+        title: contract.title,
+        status: contract.status,
+        contractUrl: contract.contractUrl,
+        createdAt: contract.createdAt,
+        termsPreview: contract.termsContent ? contract.termsContent.slice(0, 280) : null,
+      })),
+      issues,
+    };
+  }
+
+  async getHearingWorkspace(hearingId: string, user: UserEntity) {
+    const hearing = await this.ensureHearingAccess(hearingId, user);
+    const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds([
+      hearing.id,
+    ]);
+    const includeDrafts =
+      user.role === UserRole.ADMIN || user.role === UserRole.STAFF || hearing.moderatorId === user.id;
+
+    const [permissions, gate, dossier, statements, questions, timeline, evidence, messages] =
+      await Promise.all([
+        this.buildHearingWorkspacePermissions(hearing, user),
+        this.getPresentationToCrossPhaseGateStatus(hearing.id),
+        this.buildWorkspaceDossier(hearing),
+        this.getHearingStatements(hearing.id, user, { includeDrafts }),
+        this.getHearingQuestions(hearing.id, user),
+        this.getHearingTimeline(hearing.id, user),
+        hearing.disputeId
+          ? this.evidenceService.getEvidenceList(hearing.disputeId, user.id, user.role)
+          : Promise.resolve([]),
+        this.getWorkspaceMessages(hearing.id, user.role, 120),
+      ]);
+
+    const attendance =
+      user.role === UserRole.ADMIN || user.role === UserRole.STAFF
+        ? await this.getHearingAttendance(hearing.id, user)
+        : null;
+
+    const hearingSummary = this.mapHearingSummary(hearing, confirmationSummaryByHearingId);
+    const currentPhase = hearing.dispute?.phase ?? DisputePhase.PRESENTATION;
+    const currentStep = Math.max(1, HEARING_PHASE_SEQUENCE.indexOf(currentPhase) + 1);
+    const totalSteps = HEARING_PHASE_SEQUENCE.length;
+
+    return {
+      hearing: {
+        ...hearingSummary,
+        permissions,
+      },
+      phase: {
+        current: currentPhase,
+        sequence: HEARING_PHASE_SEQUENCE,
+        currentStep,
+        totalSteps,
+        progressPercent: Math.round((currentStep / totalSteps) * 100),
+        gate,
+      },
+      evidenceIntake: {
+        isOpen: hearing.isEvidenceIntakeOpen,
+        openedAt: hearing.evidenceIntakeOpenedAt || null,
+        closedAt: hearing.evidenceIntakeClosedAt || null,
+        openedBy: hearing.evidenceIntakeOpenedBy || null,
+        reason: hearing.evidenceIntakeReason || null,
+      },
+      dossier,
+      evidence,
+      messages,
+      statements,
+      questions,
+      timeline,
+      attendance,
+    };
+  }
+
+  async openEvidenceIntake(hearingId: string, actorId: string, reason: string) {
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: hearingId },
+      relations: ['dispute'],
+      select: [
+        'id',
+        'status',
+        'isChatRoomActive',
+        'moderatorId',
+        'isEvidenceIntakeOpen',
+        'evidenceIntakeOpenedAt',
+        'evidenceIntakeOpenedBy',
+        'evidenceIntakeReason',
+        'disputeId',
+      ],
+    });
+
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${hearingId} not found`);
+    }
+
+    const control = await this.canControlSpeaker(hearingId, actorId);
+    if (!control.canControl) {
+      throw new ForbiddenException(control.reason);
+    }
+
+    if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
+      throw new BadRequestException('Evidence intake can be opened only while hearing is active.');
+    }
+
+    const normalizedReason = reason?.trim();
+    if (!normalizedReason) {
+      throw new BadRequestException('Evidence intake reason is required.');
+    }
+
+    const now = new Date();
+    await this.hearingRepository.update(hearingId, {
+      isEvidenceIntakeOpen: true,
+      evidenceIntakeOpenedAt: now,
+      evidenceIntakeOpenedBy: actorId,
+      evidenceIntakeClosedAt: null,
+      evidenceIntakeReason: normalizedReason,
+    });
+
+    this.eventEmitter.emit('hearing.evidenceIntakeChanged', {
+      hearingId,
+      disputeId: hearing.disputeId,
+      isOpen: true,
+      reason: normalizedReason,
+      changedBy: actorId,
+      changedAt: now,
+    });
+
+    return {
+      success: true,
+      hearingId,
+      isOpen: true,
+      reason: normalizedReason,
+      openedAt: now,
+      openedBy: actorId,
+    };
+  }
+
+  async closeEvidenceIntake(hearingId: string, actorId: string) {
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: hearingId },
+      select: ['id', 'status', 'isChatRoomActive', 'disputeId'],
+    });
+
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${hearingId} not found`);
+    }
+
+    const control = await this.canControlSpeaker(hearingId, actorId);
+    if (!control.canControl) {
+      throw new ForbiddenException(control.reason);
+    }
+
+    if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
+      throw new BadRequestException('Evidence intake can be managed only during active hearing.');
+    }
+
+    const now = new Date();
+    await this.hearingRepository.update(hearingId, {
+      isEvidenceIntakeOpen: false,
+      evidenceIntakeClosedAt: now,
+    });
+
+    this.eventEmitter.emit('hearing.evidenceIntakeChanged', {
+      hearingId,
+      disputeId: hearing.disputeId,
+      isOpen: false,
+      changedBy: actorId,
+      changedAt: now,
+    });
+
+    return {
+      success: true,
+      hearingId,
+      isOpen: false,
+      closedAt: now,
+      closedBy: actorId,
+    };
   }
 
   async getHearingStatements(
@@ -1534,6 +2237,7 @@ export class HearingService {
     const now = new Date();
     const effectiveEnd = hearing.endedAt ?? now;
     const requiredMinutes = this.getMinimumAttendanceMinutes(hearing.estimatedDurationMinutes);
+    const latenessBaseline = hearing.startedAt ?? hearing.scheduledAt;
 
     const calendarEvent = await this.calendarRepository.findOne({
       where: { referenceType: 'DisputeHearing', referenceId: hearingId },
@@ -1553,7 +2257,7 @@ export class HearingService {
       const lateMinutesRaw = participant.joinedAt
         ? Math.max(
             0,
-            (participant.joinedAt.getTime() - hearing.scheduledAt.getTime()) / (1000 * 60),
+            (participant.joinedAt.getTime() - latenessBaseline.getTime()) / (1000 * 60),
           )
         : 0;
       const computedLateMinutes = Math.floor(lateMinutesRaw);
@@ -1566,7 +2270,7 @@ export class HearingService {
             hearing.status === HearingStatus.COMPLETED
               ? AttendanceStatus.NO_SHOW
               : AttendanceStatus.NOT_STARTED;
-        } else if (!eventParticipant) {
+        } else {
           if (computedLateMinutes === 0) {
             attendanceStatus = AttendanceStatus.ON_TIME;
           } else if (computedLateMinutes <= 15) {
@@ -1577,9 +2281,7 @@ export class HearingService {
         }
       }
 
-      const isNoShow =
-        attendanceStatus === AttendanceStatus.NO_SHOW ||
-        (hearing.status === HearingStatus.COMPLETED && attendanceMinutes < requiredMinutes);
+      const isNoShow = hearing.status === HearingStatus.COMPLETED && !participant.joinedAt;
 
       const userSummary = participant.user
         ? {
@@ -1611,7 +2313,9 @@ export class HearingService {
 
     const totalParticipants = participants.length;
     const requiredParticipants = participants.filter((p) => p.isRequired).length;
-    const presentCount = participants.filter((p) => p.joinedAt).length;
+    const presentEverJoinedCount = participants.filter((p) => p.joinedAt).length;
+    const presentOnlineCount = participants.filter((p) => p.isOnline).length;
+    const presentCount = presentEverJoinedCount;
     const noShowCount = participants.filter((p) => p.isNoShow).length;
     const onTimeCount = participants.filter(
       (p) => p.attendanceStatus === AttendanceStatus.ON_TIME,
@@ -1641,6 +2345,8 @@ export class HearingService {
         totalParticipants,
         requiredParticipants,
         presentCount,
+        presentOnlineCount,
+        presentEverJoinedCount,
         noShowCount,
         onTimeCount,
         lateCount,
@@ -1664,6 +2370,11 @@ export class HearingService {
       throw new NotFoundException('Participant not found');
     }
 
+    const presenceState = await this.hearingPresenceService.incrementPresence(hearingId, userId);
+    if (!presenceState.transitioned) {
+      return;
+    }
+
     const now = new Date();
 
     if (!participant.joinedAt) {
@@ -1683,6 +2394,11 @@ export class HearingService {
 
     if (!participant) {
       throw new NotFoundException('Participant not found');
+    }
+
+    const presenceState = await this.hearingPresenceService.decrementPresence(hearingId, userId);
+    if (!presenceState.transitioned) {
+      return;
     }
 
     if (!participant.isOnline || !participant.lastOnlineAt) {
@@ -2131,6 +2847,7 @@ export class HearingService {
     newPhase: DisputePhase;
     previousSpeakerRole: SpeakerRole;
     newSpeakerRole: SpeakerRole;
+    gate?: HearingPhaseGateStatus;
   }> {
     // 1. Tﾃｬm hearing vﾃ validate
     const hearing = await this.hearingRepository.findOne({
@@ -2152,6 +2869,26 @@ export class HearingService {
       throw new ForbiddenException(check.reason);
     }
 
+    const dispute = await this.disputeRepository.findOne({
+      where: { id: hearing.disputeId },
+      select: ['id', 'phase'],
+    });
+    const previousPhase = dispute?.phase ?? null;
+
+    if (
+      previousPhase === DisputePhase.PRESENTATION &&
+      phase === DisputePhase.CROSS_EXAMINATION
+    ) {
+      const gate = await this.getPresentationToCrossPhaseGateStatus(hearingId);
+      if (!gate.canTransition) {
+        throw new BadRequestException({
+          message: gate.reason || 'Phase transition blocked by hearing gate.',
+          errorCode: 'HEARING_PHASE_GATE_BLOCKED',
+          gate,
+        });
+      }
+    }
+
     // 3. Mapping phase -> speakerRole
     const newSpeakerRole = this.mapPhaseToSpeakerRole(phase);
     const previousSpeakerRole = hearing.currentSpeakerRole;
@@ -2163,11 +2900,6 @@ export class HearingService {
     });
 
     // 5. C蘯ｭp nh蘯ｭt phase trﾃｪn Dispute ﾄ黛ｻ・ﾄ黛ｻ渡g b盻・tr蘯｡ng thﾃ｡i t盻貧g quan
-    const dispute = await this.disputeRepository.findOne({
-      where: { id: hearing.disputeId },
-      select: ['id', 'phase'],
-    });
-    const previousPhase = dispute?.phase ?? null;
     if (dispute) {
       await this.disputeRepository.update(dispute.id, { phase });
     }
@@ -2195,6 +2927,12 @@ export class HearingService {
       where: { id: hearingId },
     });
 
+    const gate =
+      previousPhase === DisputePhase.PRESENTATION &&
+      phase === DisputePhase.CROSS_EXAMINATION
+        ? await this.getPresentationToCrossPhaseGateStatus(hearingId)
+        : undefined;
+
     return {
       success: true,
       hearing: updatedHearing || hearing,
@@ -2202,6 +2940,7 @@ export class HearingService {
       newPhase: phase,
       previousSpeakerRole,
       newSpeakerRole,
+      gate,
     };
   }
 
@@ -2520,10 +3259,8 @@ export class HearingService {
       where: { hearingId: hearing.id },
     });
 
-    const minimumAttendanceMinutes = this.getMinimumAttendanceMinutes(
-      hearing.estimatedDurationMinutes,
-    );
     const absentParticipants: string[] = [];
+    const latenessBaseline = hearing.startedAt || hearing.scheduledAt;
 
     const calendarEvent = await this.calendarRepository.findOne({
       where: { referenceType: 'DisputeHearing', referenceId: hearing.id },
@@ -2543,16 +3280,14 @@ export class HearingService {
           continue;
         }
 
-        const onlineMinutes = this.getParticipantOnlineMinutes(hearingParticipant, now);
-        const isAbsent = onlineMinutes < minimumAttendanceMinutes;
-
-        if (isAbsent) {
+        const neverJoined = !hearingParticipant.joinedAt;
+        if (neverJoined) {
           eventParticipant.attendanceStatus = AttendanceStatus.NO_SHOW;
           absentParticipants.push(hearingParticipant.userId);
         } else if (hearingParticipant.joinedAt) {
           const lateMinutes = Math.max(
             0,
-            (hearingParticipant.joinedAt.getTime() - hearing.scheduledAt.getTime()) / (1000 * 60),
+            (hearingParticipant.joinedAt.getTime() - latenessBaseline.getTime()) / (1000 * 60),
           );
           eventParticipant.lateMinutes = Math.floor(lateMinutes);
 

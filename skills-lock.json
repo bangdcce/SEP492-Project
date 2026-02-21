@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "restored": true,
+  "note": "Placeholder lock file recreated after accidental cleanup",
+  "createdAt": "2026-02-21T00:00:00.000Z",
+  "skills": [
+    "brainstorming",
+    "find-skills",
+    "frontend-design",
+    "nestjs-best-practices",
+    "supabase-postgres-best-practices",
+    "typeorm",
+    "ui-ux-pro-max",
+    "vercel-react-best-practices",
+    "web-design-guidelines"
+  ]
+}

@@ -354,11 +354,17 @@ export class DisputesService {
     }
   >();
 
-  private async buildMessageEventPayload(message: DisputeMessageEntity) {
-    let senderSummary:
-      | { id: string; fullName?: string; email?: string; role?: UserRole }
-      | undefined;
-    if (message.senderId) {
+  private async buildMessageEventPayload(
+    message: DisputeMessageEntity,
+    options: {
+      senderSummary?: { id: string; fullName?: string; email?: string; role?: UserRole };
+      senderHearingRole?: HearingParticipantRole;
+    } = {},
+  ) {
+    let senderSummary = options.senderSummary;
+    let senderHearingRole: HearingParticipantRole | undefined = options.senderHearingRole;
+
+    if (!senderSummary && message.senderId) {
       const sender = await this.userRepo.findOne({
         where: { id: message.senderId },
         select: ['id', 'fullName', 'email', 'role'],
@@ -373,12 +379,21 @@ export class DisputesService {
       }
     }
 
+    if (!senderHearingRole && message.hearingId && message.senderId) {
+      const hearingParticipant = await this.hearingParticipantRepo.findOne({
+        where: { hearingId: message.hearingId, userId: message.senderId },
+        select: ['role'],
+      });
+      senderHearingRole = hearingParticipant?.role;
+    }
+
     return {
       messageId: message.id,
       disputeId: message.disputeId,
       hearingId: message.hearingId,
       senderId: message.senderId || undefined,
       senderRole: message.senderRole,
+      senderHearingRole,
       type: message.type,
       content: message.content,
       metadata: message.metadata,
@@ -4090,6 +4105,7 @@ export class DisputesService {
     dto: SendDisputeMessageDto,
     senderId: string,
     senderRole: UserRole,
+    senderContext?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'>,
   ): Promise<DisputeMessageEntity> {
     const dispute = await this.disputeRepo.findOne({
       where: { id: dto.disputeId },
@@ -4108,6 +4124,7 @@ export class DisputesService {
     const isGroupParty = isPrimaryParty ? true : await this.isGroupPartyMember(dispute, senderId);
     const isParty = isPrimaryParty || isGroupParty;
     let isHearingParticipant = false;
+    let senderHearingRole: HearingParticipantRole | undefined;
 
     // =========================================================================
     // LUỒNG 1: HEARING MESSAGE (Phiên tòa - Realtime, có phase/speaker control)
@@ -4115,14 +4132,35 @@ export class DisputesService {
     // dựa trên currentSpeakerRole của Hearing (ALL, RAISER_ONLY, DEFENDANT_ONLY, etc.)
     // =========================================================================
     if (dto.hearingId) {
-      const chatPermission = await this.hearingService.getChatPermission(dto.hearingId, senderId);
-      if (!chatPermission.allowed) {
-        throw new ForbiddenException(chatPermission.reason);
+      const isEvidenceLinkMessage = dto.type === MessageType.EVIDENCE_LINK;
+
+      if (isEvidenceLinkMessage) {
+        const attachPermission = await this.hearingService.getEvidenceAttachPermission(
+          dto.hearingId,
+          senderId,
+          senderRole,
+        );
+        if (!attachPermission.allowed) {
+          throw new ForbiddenException(attachPermission.reason);
+        }
+        if (attachPermission.hearing.disputeId !== dispute.id) {
+          throw new BadRequestException('Hearing does not belong to this dispute');
+        }
+        isHearingParticipant = true;
+        if (attachPermission.hearing.moderatorId === senderId) {
+          senderHearingRole = HearingParticipantRole.MODERATOR;
+        }
+      } else {
+        const chatPermission = await this.hearingService.getChatPermission(dto.hearingId, senderId);
+        if (!chatPermission.allowed) {
+          throw new ForbiddenException(chatPermission.reason);
+        }
+        if (chatPermission.hearing.disputeId !== dispute.id) {
+          throw new BadRequestException('Hearing does not belong to this dispute');
+        }
+        isHearingParticipant = true;
+        senderHearingRole = chatPermission.participantRole;
       }
-      if (chatPermission.hearing.disputeId !== dispute.id) {
-        throw new BadRequestException('Hearing does not belong to this dispute');
-      }
-      isHearingParticipant = true;
     }
 
     // =========================================================================
@@ -4207,10 +4245,22 @@ export class DisputesService {
     });
 
     const savedMessage = await this.messageRepo.save(message);
+    const senderSummary =
+      senderContext && senderContext.id === senderId
+        ? {
+            id: senderContext.id,
+            fullName: senderContext.fullName,
+            email: senderContext.email,
+            role: senderContext.role,
+          }
+        : undefined;
 
     this.eventEmitter.emit(
       DISPUTE_EVENTS.MESSAGE_SENT,
-      await this.buildMessageEventPayload(savedMessage),
+      await this.buildMessageEventPayload(savedMessage, {
+        senderSummary,
+        senderHearingRole,
+      }),
     );
 
     return savedMessage;

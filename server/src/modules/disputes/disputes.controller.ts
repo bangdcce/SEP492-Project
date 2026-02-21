@@ -299,6 +299,7 @@ export class DisputesController {
       { ...dto, disputeId },
       user.id,
       user.role,
+      user,
     );
 
     return {

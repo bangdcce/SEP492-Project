@@ -14,6 +14,7 @@ import type {
   HearingStatementSummary,
   HearingTimelineEvent,
   SupportCandidate,
+  HearingWorkspaceSummary,
 } from "./types";
 
 type ApiEnvelope<T> = {
@@ -145,6 +146,14 @@ export const getHearingById = async (
   return payload as DisputeHearingSummary;
 };
 
+export const getHearingWorkspace = async (
+  hearingId: string,
+): Promise<HearingWorkspaceSummary> => {
+  const response = await apiClient.get(`/disputes/hearings/${hearingId}/workspace`);
+  const payload = (response as { data?: HearingWorkspaceSummary }).data ?? response;
+  return payload as HearingWorkspaceSummary;
+};
+
 export const updateSpeakerControl = async (
   hearingId: string,
   speakerRole: SpeakerRole,
@@ -153,6 +162,19 @@ export const updateSpeakerControl = async (
     hearingId,
     speakerRole,
   });
+};
+
+export const openHearingEvidenceIntake = async (
+  hearingId: string,
+  reason: string,
+) => {
+  return await apiClient.post(`/disputes/hearings/${hearingId}/evidence-intake/open`, {
+    reason,
+  });
+};
+
+export const closeHearingEvidenceIntake = async (hearingId: string) => {
+  return await apiClient.post(`/disputes/hearings/${hearingId}/evidence-intake/close`, {});
 };
 
 export const getHearingStatements = async (

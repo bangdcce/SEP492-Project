@@ -27,7 +27,8 @@
     "migration:generate": "yarn build && yarn typeorm migration:generate -d dist/data-source.js",
     "migration:run": "yarn build && yarn typeorm migration:run -d dist/data-source.js --transaction each",
     "migration:revert": "yarn typeorm migration:revert -d dist/data-source.js",
-    "migration:show": "typeorm migration:show -d dist/data-source.js"
+    "migration:show": "typeorm migration:show -d dist/data-source.js",
+    "migration:check": "ts-node src/scripts/check-pending-migrations.ts"
   },
   "dependencies": {
     "@nestjs/cache-manager": "^3.1.0",
@@ -45,6 +46,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@nestjs/typeorm": "^11.0.0",
     "@nestjs/websockets": "^11.0.1",
+    "@socket.io/redis-adapter": "^8.3.0",
     "@supabase/supabase-js": "^2.90.1",
     "@types/multer": "^2.0.0",
     "@types/pdfmake": "^0.2.12",
@@ -59,6 +61,7 @@
     "dotenv": "^17.2.3",
     "event-emitter": "^0.3.5",
     "file-type": "^16.5.4",
+    "ioredis": "^5.8.1",
     "keyv": "^5.5.5",
     "nodemailer": "^7.0.12",
     "passport": "^0.7.0",

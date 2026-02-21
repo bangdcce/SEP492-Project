@@ -1,3 +1,8 @@
+import type {
+  DisputeEvidence,
+  DisputeMessage,
+} from "@/features/disputes/types/dispute.types";
+
 export type HearingTier = "TIER_1" | "TIER_2";
 
 export type HearingStatus =
@@ -92,6 +97,11 @@ export interface DisputeHearingSummary {
   moderatorId?: string | null;
   currentSpeakerRole?: SpeakerRole | null;
   isChatRoomActive?: boolean;
+  isEvidenceIntakeOpen?: boolean;
+  evidenceIntakeOpenedAt?: string | null;
+  evidenceIntakeClosedAt?: string | null;
+  evidenceIntakeOpenedBy?: string | null;
+  evidenceIntakeReason?: string | null;
   estimatedDurationMinutes?: number | null;
   rescheduleCount?: number;
   previousHearingId?: string | null;
@@ -101,6 +111,133 @@ export interface DisputeHearingSummary {
   participants?: HearingParticipantSummary[];
   participantConfirmationSummary?: HearingParticipantConfirmationSummary;
   dispute?: HearingDisputeSummary;
+  permissions?: {
+    canSendMessage?: boolean;
+    sendMessageBlockedReason?: string;
+    canUploadEvidence?: boolean;
+    uploadEvidenceBlockedReason?: string;
+    canAttachEvidenceLink?: boolean;
+    attachEvidenceBlockedReason?: string;
+    canManageEvidenceIntake?: boolean;
+    manageEvidenceIntakeBlockedReason?: string;
+  };
+}
+
+export interface HearingPhaseGateStatus {
+  requiredRole: HearingParticipantRole;
+  requiredCount: number;
+  submittedCount: number;
+  canTransition: boolean;
+  missingParticipants: Array<{
+    participantId: string;
+    userId: string;
+    displayName: string;
+  }>;
+  reason?: string;
+}
+
+export interface HearingWorkspaceDossier {
+  dispute: {
+    id: string;
+    status?: string;
+    phase?: string;
+    priority?: string;
+    category?: string;
+    disputedAmount?: number;
+    reason?: string | null;
+    defendantResponse?: string | null;
+    raisedAt?: string | null;
+    raisedBy: {
+      id: string;
+      role?: string;
+      name?: string;
+      email?: string;
+    };
+    defendant: {
+      id: string;
+      role?: string;
+      name?: string;
+      email?: string;
+    };
+    assignedStaff?: {
+      id: string;
+      name?: string;
+      email?: string;
+    } | null;
+  } | null;
+  project: {
+    id: string;
+    title?: string;
+    description?: string;
+    status?: string;
+    totalBudget?: number;
+    currency?: string;
+    pricingModel?: string;
+    startDate?: string | null;
+    endDate?: string | null;
+    clientId?: string;
+    freelancerId?: string;
+    brokerId?: string;
+  } | null;
+  milestone: {
+    milestoneId: string;
+    milestoneTitle?: string;
+    milestoneStatus?: string;
+    milestoneAmount?: number;
+    milestoneDueDate?: string | null;
+    startDate?: string | null;
+    submittedAt?: string | null;
+    description?: string | null;
+    proofOfWork?: string | null;
+  } | null;
+  milestoneTimeline: Array<{
+    id: string;
+    title?: string;
+    status?: string;
+    amount?: number;
+    dueDate?: string | null;
+    sortOrder?: number;
+  }>;
+  contracts: Array<{
+    id: string;
+    projectId: string;
+    title?: string;
+    status?: string;
+    contractUrl?: string | null;
+    createdAt?: string;
+    termsPreview?: string | null;
+  }>;
+  issues: Array<{
+    code: string;
+    label: string;
+    value?: string | number | null;
+  }>;
+}
+
+export interface HearingWorkspaceSummary {
+  hearing: DisputeHearingSummary;
+  phase: {
+    current: string;
+    sequence: string[];
+    currentStep: number;
+    totalSteps: number;
+    progressPercent: number;
+    gate: HearingPhaseGateStatus;
+  };
+  evidenceIntake: {
+    isOpen: boolean;
+    openedAt?: string | null;
+    closedAt?: string | null;
+    openedBy?: string | null;
+    reason?: string | null;
+  };
+  dossier: HearingWorkspaceDossier;
+  evidence: DisputeEvidence[];
+  messages: DisputeMessage[];
+  statements: HearingStatementSummary[];
+  questions: HearingQuestionSummary[];
+  timeline: HearingTimelineEvent[];
+  attendance: HearingAttendanceSummary | null;
 }
 
 export interface HearingScheduleResult {
@@ -251,6 +388,8 @@ export interface HearingAttendanceSummary {
     totalParticipants: number;
     requiredParticipants: number;
     presentCount: number;
+    presentOnlineCount?: number;
+    presentEverJoinedCount?: number;
     noShowCount: number;
     onTimeCount: number;
     lateCount: number;
