@@ -41,6 +41,7 @@ import {
   ExtendHearingDto,
   InviteSupportStaffDto,
   DispatchHearingRemindersDto,
+  OpenEvidenceIntakeDto,
 } from '../dto/hearing.dto';
 
 @ApiTags('Dispute Hearings')
@@ -91,7 +92,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -163,7 +163,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -180,6 +179,27 @@ export class HearingController {
     return { success: true, data };
   }
 
+  @Get(':hearingId/workspace')
+  @Roles(
+    UserRole.ADMIN,
+    UserRole.STAFF,
+    UserRole.CLIENT,
+    UserRole.FREELANCER,
+    UserRole.BROKER,
+  )
+  @ApiOperation({
+    summary: 'Get hearing workspace snapshot',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async getHearingWorkspace(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingService.getHearingWorkspace(hearingId, user);
+    return { success: true, data };
+  }
+
   // ===========================================================================
   // HEARING STATEMENTS
   // ===========================================================================
@@ -189,7 +209,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -219,7 +238,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -245,7 +263,6 @@ export class HearingController {
     UserRole.ADMIN,
     UserRole.STAFF,
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
   )
@@ -378,6 +395,41 @@ export class HearingController {
     };
   }
 
+  @Post(':hearingId/evidence-intake/open')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Open hearing evidence intake window',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async openEvidenceIntake(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @Body() dto: OpenEvidenceIntakeDto,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingService.openEvidenceIntake(
+      hearingId,
+      user.id,
+      dto.reason.trim(),
+    );
+    return { success: true, data };
+  }
+
+  @Post(':hearingId/evidence-intake/close')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Close hearing evidence intake window',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async closeEvidenceIntake(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingService.closeEvidenceIntake(hearingId, user.id);
+    return { success: true, data };
+  }
+
   @Patch(':hearingId/speaker-control')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
   @ApiOperation({
@@ -420,7 +472,6 @@ export class HearingController {
   @Post(':hearingId/statements')
   @Roles(
     UserRole.CLIENT,
-    UserRole.CLIENT_SME,
     UserRole.FREELANCER,
     UserRole.BROKER,
     UserRole.STAFF,

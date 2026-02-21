@@ -24,6 +24,34 @@ import { HearingService } from '../services/hearing.service';
 import { DisputesService } from '../disputes.service';
 import { SendDisputeMessageDto } from '../dto/message.dto';
 
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'n'].includes(normalized)) return false;
+  return fallback;
+};
+
+const parseWsCorsOrigins = (): string[] => {
+  const defaults = [
+    'http://localhost:5173',
+    'https://localhost:5173',
+    'http://localhost:5174',
+    'https://localhost:5174',
+    'http://localhost:3001',
+  ];
+  const raw = process.env.CORS_ORIGIN;
+  if (!raw) return defaults;
+  const parsed = raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+  if (parsed.length === 0) {
+    return defaults;
+  }
+  return Array.from(new Set([...defaults, ...parsed]));
+};
+
 type WsUser = {
   id: string;
   role: UserRole;
@@ -33,13 +61,8 @@ type WsUser = {
 @WebSocketGateway({
   namespace: '/ws',
   cors: {
-    origin: [
-      'http://localhost:5173',
-      'http://localhost:5174',
-      'http://localhost:3001',
-      'https://chantell-chemotropic-noncontroversially.ngrok-free.dev',
-    ],
-    credentials: true,
+    origin: parseWsCorsOrigins(),
+    credentials: parseBoolean(process.env.CORS_CREDENTIALS, true),
   },
   pingInterval: 25000,
   pingTimeout: 30000,
@@ -69,6 +92,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
       const user = await this.authenticate(client);
       client.data.user = user;
       client.data.hearingIds = new Set<string>();
+      await client.join(this.userRoom(user.id));
     } catch (error) {
       this.logger.warn(`WS auth failed: ${error instanceof Error ? error.message : 'unknown'}`);
       client.disconnect(true);
@@ -207,7 +231,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
       await this.ensureHearingAccess(dto.hearingId, user);
     }
 
-    const saved = await this.disputesService.sendDisputeMessage(dto, user.id, user.role);
+    const saved = await this.disputesService.sendDisputeMessage(dto, user.id, user.role, user);
 
     return {
       success: true,
@@ -248,6 +272,13 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     this.server.to(this.staffDashboardRoom()).emit(event, payload);
   }
 
+  emitUserEvent(userId: string, event: string, payload: Record<string, any>): void {
+    if (!this.server || !userId) {
+      return;
+    }
+    this.server.to(this.userRoom(userId)).emit(event, payload);
+  }
+
   private async authenticate(client: Socket): Promise<WsUser> {
     const token = this.extractToken(client);
     if (!token) {
@@ -275,9 +306,13 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     const authToken = (client.handshake.auth as { token?: string } | undefined)?.token;
     const queryToken = (client.handshake.query as { token?: string } | undefined)?.token;
     const header = client.handshake.headers?.authorization;
+    const cookieToken = this.extractTokenFromCookie(client.handshake.headers?.cookie);
 
     if (authToken) {
       return authToken;
+    }
+    if (cookieToken) {
+      return cookieToken;
     }
     if (queryToken) {
       return queryToken;
@@ -285,6 +320,32 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     if (typeof header === 'string' && header.toLowerCase().startsWith('bearer ')) {
       return header.slice(7);
     }
+    return undefined;
+  }
+
+  private extractTokenFromCookie(cookieHeader: string | string[] | undefined): string | undefined {
+    const rawCookie = Array.isArray(cookieHeader) ? cookieHeader.join(';') : cookieHeader;
+    if (!rawCookie) {
+      return undefined;
+    }
+
+    const cookies = rawCookie
+      .split(';')
+      .map((segment) => segment.trim())
+      .filter(Boolean);
+
+    for (const cookie of cookies) {
+      const separatorIndex = cookie.indexOf('=');
+      if (separatorIndex <= 0) {
+        continue;
+      }
+      const name = cookie.slice(0, separatorIndex).trim();
+      const value = cookie.slice(separatorIndex + 1).trim();
+      if (name === 'accessToken' && value) {
+        return decodeURIComponent(value);
+      }
+    }
+
     return undefined;
   }
 
@@ -357,6 +418,10 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   private staffDashboardRoom(): string {
     return '/ws/staff/dashboard';
+  }
+
+  private userRoom(userId: string): string {
+    return `/ws/users/${userId}`;
   }
 
   private trackHearing(client: Socket, hearingId: string): void {

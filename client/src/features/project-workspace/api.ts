@@ -22,6 +22,9 @@ interface BoardWithMilestones {
 export interface WorkspaceProject {
   id: string;
   title?: string;
+  status?: string;
+  hasActiveDispute?: boolean;
+  activeDisputeCount?: number;
   contracts?: { id: string; status: string }[];
   brokerId: string;
   clientId: string;

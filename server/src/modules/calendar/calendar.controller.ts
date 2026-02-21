@@ -90,6 +90,21 @@ export class CalendarController {
   @HttpCode(HttpStatus.CREATED)
   @ApiResponse({ status: HttpStatus.CREATED, description: 'Event created' })
   async createEvent(@Body() dto: CreateCalendarEventDto, @GetUser() user: UserEntity) {
+    const scopeLockEnabled = this.isDisputeCalendarScopeLockEnabled();
+    const isParticipantRole = [UserRole.CLIENT, UserRole.BROKER, UserRole.FREELANCER].includes(
+      user.role,
+    );
+    const isDisputeContext = this.isDisputeContextEvent(dto);
+
+    if (
+      (dto.type === 'DISPUTE_HEARING' && user.role !== UserRole.ADMIN && user.role !== UserRole.STAFF) ||
+      (scopeLockEnabled && isParticipantRole && isDisputeContext)
+    ) {
+      throw new ForbiddenException(
+        'Participants cannot create dispute events directly. Use availability/proposals/invite response flow.',
+      );
+    }
+
     if (dto.useAutoSchedule) {
       if (!dto.startTime || !dto.endTime) {
         throw new BadRequestException('startTime/endTime are required for auto-schedule range');
@@ -647,6 +662,90 @@ export class CalendarController {
     };
   }
 
+  @Get('availability/me')
+  @ApiOperation({ summary: 'Get availability and events for current user' })
+  @ApiQuery({ name: 'startDate', required: false })
+  @ApiQuery({ name: 'endDate', required: false })
+  async getMyAvailability(
+    @GetUser() user: UserEntity,
+    @Query('startDate') startDateRaw?: string,
+    @Query('endDate') endDateRaw?: string,
+  ) {
+    const rangeStart = startDateRaw
+      ? this.parseDate(startDateRaw, 'startDate')
+      : this.startOfDay(new Date());
+    const rangeEnd = endDateRaw
+      ? this.parseDate(endDateRaw, 'endDate')
+      : this.addDays(rangeStart, 7);
+
+    if (rangeStart >= rangeEnd) {
+      throw new BadRequestException('startDate must be before endDate');
+    }
+
+    const availabilities = await this.availabilityRepository
+      .createQueryBuilder('availability')
+      .where('availability.userId = :userId', { userId: user.id })
+      .andWhere(
+        new Brackets((qb) => {
+          qb.where('availability.isRecurring = true').orWhere(
+            '(availability.startTime < :rangeEnd AND availability.endTime > :rangeStart)',
+            { rangeStart, rangeEnd },
+          );
+        }),
+      )
+      .orderBy('availability.createdAt', 'DESC')
+      .getMany();
+
+    const organizerEvents = await this.calendarRepository.find({
+      where: {
+        organizerId: user.id,
+        startTime: LessThan(rangeEnd),
+        endTime: MoreThan(rangeStart),
+        status: In([
+          EventStatus.SCHEDULED,
+          EventStatus.PENDING_CONFIRMATION,
+          EventStatus.IN_PROGRESS,
+          EventStatus.RESCHEDULING,
+        ]),
+      },
+    });
+
+    const participantLinks = await this.participantRepository
+      .createQueryBuilder('participant')
+      .innerJoinAndSelect('participant.event', 'event')
+      .where('participant.userId = :userId', { userId: user.id })
+      .andWhere('event.startTime < :rangeEnd AND event.endTime > :rangeStart', {
+        rangeStart,
+        rangeEnd,
+      })
+      .andWhere('event.status IN (:...statuses)', {
+        statuses: [
+          EventStatus.SCHEDULED,
+          EventStatus.PENDING_CONFIRMATION,
+          EventStatus.IN_PROGRESS,
+          EventStatus.RESCHEDULING,
+        ],
+      })
+      .getMany();
+
+    const events = Array.from(
+      new Map(
+        [...organizerEvents, ...participantLinks.map((item) => item.event).filter(Boolean)].map(
+          (event) => [event.id, event],
+        ),
+      ).values(),
+    );
+
+    return {
+      success: true,
+      data: {
+        userId: user.id,
+        availability: availabilities,
+        events,
+      },
+    };
+  }
+
   @Get('availability/common')
   @ApiOperation({ summary: 'Find common availability slots for users' })
   @ApiQuery({ name: 'userIds', required: true, description: 'Comma-separated user IDs' })
@@ -845,5 +944,27 @@ export class CalendarController {
     const next = new Date(date);
     next.setDate(next.getDate() + days);
     return next;
+  }
+
+  private isDisputeCalendarScopeLockEnabled(): boolean {
+    const raw = process.env.DISPUTE_CALENDAR_SCOPE_LOCK;
+    if (raw === undefined) {
+      return false;
+    }
+    return ['true', '1', 'yes', 'y', 'on'].includes(raw.trim().toLowerCase());
+  }
+
+  private isDisputeContextEvent(dto: CreateCalendarEventDto): boolean {
+    const referenceType = dto.referenceType?.toLowerCase() || '';
+    const metadata = dto.metadata || {};
+    const hasDisputeMetadata = Boolean(
+      typeof metadata.disputeId === 'string' || typeof metadata.hearingId === 'string',
+    );
+    return (
+      dto.type === 'DISPUTE_HEARING' ||
+      referenceType.includes('dispute') ||
+      referenceType.includes('hearing') ||
+      hasDisputeMetadata
+    );
   }
 }

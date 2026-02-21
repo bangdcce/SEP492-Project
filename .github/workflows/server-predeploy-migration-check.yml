@@ -1,0 +1,41 @@
+name: Server Predeploy Migration Check
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  migration-check:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    env:
+      DB_HOST: ${{ secrets.DB_HOST }}
+      DB_PORT: ${{ secrets.DB_PORT }}
+      DB_USERNAME: ${{ secrets.DB_USERNAME }}
+      DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+      DB_DATABASE: ${{ secrets.DB_DATABASE }}
+      DB_LOGGING: 'false'
+      DB_POOL_MAX: '20'
+      DB_POOL_IDLE_MS: '30000'
+      DB_POOL_CONN_TIMEOUT_MS: '10000'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'yarn'
+          cache-dependency-path: server/yarn.lock
+
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
+
+      - name: Build
+        run: yarn build
+
+      - name: Check pending migrations
+        run: yarn migration:check

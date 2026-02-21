@@ -292,9 +292,13 @@ export class CalendarService {
         scoreReasons.push('preferred-slot');
       }
 
-      if (preferredSlots.some((slot) => slotStart >= slot.start && slotEnd <= slot.end)) {
-        score += 50;
-        scoreReasons.push('preferred-input');
+      const preferredInputOverlapCount = preferredSlots.reduce((count, slot) => {
+        return slotStart >= slot.start && slotEnd <= slot.end ? count + 1 : count;
+      }, 0);
+      if (preferredInputOverlapCount > 0) {
+        // Weight stronger when more participant proposals overlap this candidate slot.
+        score += Math.min(120, preferredInputOverlapCount * 20);
+        scoreReasons.push(`preferred-input:${preferredInputOverlapCount}`);
       }
 
       if (perUserScores.length > 0) {

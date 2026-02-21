@@ -7,12 +7,16 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AuthModule } from '../../auth/auth.module';
+import { EvidenceModule } from '../evidence.module';
 
 // Entities
 import {
   DisputeEntity,
   DisputePartyEntity,
   ProjectEntity,
+  MilestoneEntity,
+  ContractEntity,
+  DisputeMessageEntity,
   UserEntity,
   DisputeHearingEntity,
   HearingParticipantEntity,
@@ -27,6 +31,8 @@ import {
 
 // Services
 import { HearingService } from '../services/hearing.service';
+import { HearingReminderScheduler } from '../services/hearing-reminder.scheduler';
+import { HearingPresenceService } from '../services/hearing-presence.service';
 
 // Controllers
 import { HearingController } from '../controllers/hearing.controller';
@@ -37,6 +43,9 @@ import { HearingController } from '../controllers/hearing.controller';
       DisputeEntity,
       DisputePartyEntity,
       ProjectEntity,
+      MilestoneEntity,
+      ContractEntity,
+      DisputeMessageEntity,
       UserEntity,
       DisputeHearingEntity,
       HearingParticipantEntity,
@@ -49,9 +58,10 @@ import { HearingController } from '../controllers/hearing.controller';
       UserAvailabilityEntity,
     ]),
     AuthModule,
+    EvidenceModule,
   ],
   controllers: [HearingController],
-  providers: [HearingService],
+  providers: [HearingService, HearingReminderScheduler, HearingPresenceService],
   exports: [HearingService],
 })
 export class HearingModule {}

@@ -7,6 +7,11 @@ export * from './defendant-response.dto';
 export * from './appeal.dto';
 export * from './admin-update-dispute.dto';
 export * from './dispute-filter.dto';
+export * from './cancel-dispute.dto';
+export * from './auto-schedule-tuning.dto';
+export * from './provide-dispute-info.dto';
+export * from './schedule-proposal.dto';
+export * from './schedule-worklist.dto';
 
 // New DTOs
 export * from './evidence.dto';

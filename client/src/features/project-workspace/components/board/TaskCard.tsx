@@ -39,11 +39,12 @@ type TaskCardProps = {
   task: Task;
   index: number;
   onClick: (taskId: string) => void;
+  isReadOnly?: boolean;
 };
 
-export function TaskCard({ task, index, onClick }: TaskCardProps) {
+export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardProps) {
   return (
-    <Draggable draggableId={task.id} index={index}>
+    <Draggable draggableId={task.id} index={index} isDragDisabled={isReadOnly}>
       {(dragProvided, snapshot) => (
         <div
           ref={dragProvided.innerRef}
@@ -51,16 +52,19 @@ export function TaskCard({ task, index, onClick }: TaskCardProps) {
           {...dragProvided.dragHandleProps}
           onClick={() => onClick(task.id)}
           className={cn(
-            "group bg-white border border-gray-300 rounded-[3px] p-3 shadow-sm hover:bg-gray-50 transition-colors cursor-pointer",
+            "group bg-white border border-gray-300 rounded-[3px] p-3 shadow-sm hover:bg-gray-50 transition-colors",
+            isReadOnly ? "cursor-default" : "cursor-pointer",
             snapshot.isDragging
               ? "shadow-lg border-teal-500 ring-1 ring-teal-400/50 z-50 rotate-2"
               : "hover:border-gray-400"
           )}
         >
           <div className="flex items-start gap-3">
-            <div className="hidden group-hover:flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors absolute top-2 right-2">
-              <GripVertical className="h-3 w-3" />
-            </div>
+            {!isReadOnly && (
+              <div className="hidden group-hover:flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors absolute top-2 right-2">
+                <GripVertical className="h-3 w-3" />
+              </div>
+            )}
             <div className="flex-1 space-y-1.5">
               <div className="flex items-start justify-between gap-2">
                 <div>

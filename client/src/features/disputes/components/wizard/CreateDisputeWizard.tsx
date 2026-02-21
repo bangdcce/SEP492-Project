@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import axios from "axios";
+import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,9 +9,19 @@ import {
   X,
 } from "lucide-react";
 import { toast } from "sonner";
-import { createDispute, uploadDisputeEvidence } from "../../api";
-import { DisputeCategory } from "../../../staff/types/staff.types";
+import {
+  createDispute,
+  getMyDisputes,
+  uploadDisputeEvidence,
+} from "../../api";
+import {
+  DisputeCategory,
+  DisputeStatus,
+} from "../../../staff/types/staff.types";
 import type { CreateDisputeDto } from "../../types/dispute.dto";
+import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
+import { resolveRoleBasePath } from "@/features/hearings/utils/hearingRouting";
 
 interface CreateDisputeWizardProps {
   onClose: () => void;
@@ -43,11 +54,6 @@ const REPORT_REASONS = [
     desc: "Disagreement about payment amounts or release status.",
   },
   {
-    id: DisputeCategory.SCOPE_CHANGE,
-    title: "Scope Change",
-    desc: "Work requested is outside original agreement.",
-  },
-  {
     id: DisputeCategory.OTHER,
     title: "Other Issue",
     desc: "Something else not listed here.",
@@ -62,6 +68,7 @@ export const CreateDisputeWizard = ({
   currentUserId,
   projectMembers,
 }: CreateDisputeWizardProps) => {
+  const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedCategory, setSelectedCategory] =
     useState<DisputeCategory | null>(null);
@@ -69,6 +76,12 @@ export const CreateDisputeWizard = ({
   const [selectedDefendant, setSelectedDefendant] = useState<string>("");
   const [files, setFiles] = useState<File[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [existingParentDisputes, setExistingParentDisputes] = useState<
+    Array<{ id: string; label: string }>
+  >([]);
+  const [loadingParentDisputes, setLoadingParentDisputes] = useState(false);
+  const [addToExistingCase, setAddToExistingCase] = useState(false);
+  const [selectedParentDisputeId, setSelectedParentDisputeId] = useState("");
 
   const normalizedStatus = useMemo(
     () => milestoneStatus?.toUpperCase() ?? "UNKNOWN",
@@ -131,6 +144,11 @@ export const CreateDisputeWizard = ({
     [],
   );
 
+  const roleBasePath = useMemo(() => {
+    const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+    return resolveRoleBasePath(user?.role);
+  }, []);
+
   const isCategoryAllowed = useCallback(
     (category: DisputeCategory) =>
       allowedCategories.includes(category) && !blockedCategories.has(category),
@@ -153,12 +171,78 @@ export const CreateDisputeWizard = ({
     [projectMembers, currentUserId],
   );
 
+  useEffect(() => {
+    let cancelled = false;
+    const loadParentDisputes = async () => {
+      if (!milestoneId) {
+        if (!cancelled) {
+          setExistingParentDisputes([]);
+          setAddToExistingCase(false);
+          setSelectedParentDisputeId("");
+        }
+        return;
+      }
+
+      try {
+        setLoadingParentDisputes(true);
+        const response = await getMyDisputes(
+          {
+            page: 1,
+            limit: 30,
+            projectId,
+            milestoneId,
+            asInvolved: true,
+            statusIn: [
+              DisputeStatus.TRIAGE_PENDING,
+              DisputeStatus.PREVIEW,
+              DisputeStatus.PENDING_REVIEW,
+              DisputeStatus.INFO_REQUESTED,
+              DisputeStatus.IN_MEDIATION,
+            ],
+          },
+          { preferCache: false },
+        );
+
+        if (cancelled) return;
+
+        const options = (response.data ?? [])
+          .filter((dispute) => dispute.id)
+          .map((dispute) => ({
+            id: dispute.id,
+            label: `#${dispute.id.slice(0, 8)} - ${dispute.category} (${dispute.status})`,
+          }));
+
+        setExistingParentDisputes(options);
+        if (options.length === 0) {
+          setAddToExistingCase(false);
+          setSelectedParentDisputeId("");
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setExistingParentDisputes([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingParentDisputes(false);
+        }
+      }
+    };
+
+    loadParentDisputes();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [milestoneId, projectId]);
+
   const resetForm = useCallback(() => {
     setStep(1);
     setSelectedCategory(null);
     setCustomReason("");
     setSelectedDefendant("");
     setFiles([]);
+    setAddToExistingCase(false);
+    setSelectedParentDisputeId("");
   }, []);
 
   const getErrorMessage = (error: unknown) => {
@@ -197,6 +281,10 @@ export const CreateDisputeWizard = ({
       toast.error("Please select a category and defendant.");
       return;
     }
+    if (addToExistingCase && !selectedParentDisputeId) {
+      toast.error("Please choose an existing dispute case to add a new party.");
+      return;
+    }
     if (!isCategoryAllowed(selectedCategory)) {
       toast.error("Selected dispute category is not allowed for this milestone status.");
       return;
@@ -224,6 +312,10 @@ export const CreateDisputeWizard = ({
       category: selectedCategory,
       defendantId: selectedDefendant,
       evidence: evidenceLabels,
+      parentDisputeId:
+        addToExistingCase && selectedParentDisputeId
+          ? selectedParentDisputeId
+          : undefined,
     };
 
     try {
@@ -243,6 +335,9 @@ export const CreateDisputeWizard = ({
       toast.success("Dispute submitted successfully.");
       resetForm();
       onClose();
+      navigate(
+        `${roleBasePath}/hearings?createdDisputeId=${encodeURIComponent(disputeId)}&projectId=${encodeURIComponent(projectId)}`,
+      );
     } catch (error: unknown) {
       const message = getErrorMessage(error);
       toast.error(message);
@@ -288,6 +383,49 @@ export const CreateDisputeWizard = ({
               </div>
             )}
           </div>
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            Scope changes are not a dispute category. Use the Change Request flow
+            for scope negotiations.
+          </div>
+
+          {loadingParentDisputes ? (
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-500">
+              Checking existing disputes on this milestone...
+            </div>
+          ) : existingParentDisputes.length > 0 ? (
+            <div className="rounded-lg border border-teal-200 bg-teal-50/50 px-4 py-3 space-y-3">
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={addToExistingCase}
+                  onChange={(event) => {
+                    const checked = event.target.checked;
+                    setAddToExistingCase(checked);
+                    if (!checked) {
+                      setSelectedParentDisputeId("");
+                    }
+                  }}
+                />
+                Add another party to an existing dispute case on this milestone
+              </label>
+              {addToExistingCase && (
+                <select
+                  className="block w-full rounded-md border border-teal-200 bg-white p-2 text-sm"
+                  value={selectedParentDisputeId}
+                  onChange={(event) =>
+                    setSelectedParentDisputeId(event.target.value)
+                  }
+                >
+                  <option value="">Select existing case...</option>
+                  {existingParentDisputes.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          ) : null}
           <h4 className="text-base font-medium text-slate-900">
             Why do you want to open a dispute?
           </h4>

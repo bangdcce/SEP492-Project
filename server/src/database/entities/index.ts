@@ -47,6 +47,11 @@ export { DisputeActivityEntity, DisputeAction } from './dispute-activity.entity'
 export { DisputeLedgerEntity } from './dispute-ledger.entity';
 export { DisputePartyEntity, DisputePartySide } from './dispute-party.entity';
 export {
+  DisputeScheduleProposalEntity,
+  DisputeScheduleProposalStatus,
+} from './dispute-schedule-proposal.entity';
+export { DisputeViewStateEntity } from './dispute-view-state.entity';
+export {
   DisputeHearingEntity,
   HearingParticipantEntity,
   HearingStatementEntity,

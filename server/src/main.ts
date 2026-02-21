@@ -1,13 +1,14 @@
+﻿import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
-import { AppModule } from './app.module';
 import { json, urlencoded } from 'express';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
-
 import * as fs from 'fs';
+
+import { AppModule } from './app.module';
+import { RedisIoAdapter } from './realtime/redis-io.adapter';
 
 const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (value === undefined) return fallback;
@@ -15,6 +16,12 @@ const parseBoolean = (value: string | undefined, fallback: boolean): boolean => 
   if (['true', '1', 'yes', 'y'].includes(normalized)) return true;
   if (['false', '0', 'no', 'n'].includes(normalized)) return false;
   return fallback;
+};
+
+const parseNumber = (value: string | undefined, fallback: number): number => {
+  if (!value) return fallback;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
 };
 
 const isLocalHostLike = (value: string): boolean => {
@@ -35,10 +42,12 @@ const parseCorsOrigins = (): string[] => {
   ];
   const raw = process.env.CORS_ORIGIN;
   if (!raw) return defaults;
+
   const parsed = raw
     .split(',')
     .map((origin) => origin.trim())
     .filter(Boolean);
+
   if (parsed.length === 0) {
     return defaults;
   }
@@ -55,6 +64,8 @@ const parseCorsOrigins = (): string[] => {
 };
 
 async function bootstrap() {
+  const logger = new Logger('Bootstrap');
+
   const httpsOptions =
     fs.existsSync(join(__dirname, '..', 'secrets', 'private-key.pem')) &&
     fs.existsSync(join(__dirname, '..', 'secrets', 'public-certificate.pem'))
@@ -68,16 +79,84 @@ async function bootstrap() {
     httpsOptions,
   });
 
-  // Serve static files from uploads directory
+  app.enableShutdownHooks();
+
+  let redisAdapter: RedisIoAdapter | null = null;
+  let redisAdapterClosed = false;
+
+  const closeRedisAdapter = async (): Promise<void> => {
+    if (redisAdapterClosed || !redisAdapter) {
+      return;
+    }
+
+    redisAdapterClosed = true;
+    try {
+      await redisAdapter.close();
+      logger.log('Socket.IO Redis adapter clients closed');
+    } catch (error) {
+      logger.warn(
+        `Failed closing Socket.IO Redis adapter clients: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+    }
+  };
+
+  const socketRedisEnabled = parseBoolean(process.env.SOCKET_REDIS_ENABLED, false);
+  const redisUrl = process.env.REDIS_URL?.trim();
+
+  if (socketRedisEnabled && redisUrl) {
+    try {
+      redisAdapter = new RedisIoAdapter(app);
+      await redisAdapter.connectToRedis(redisUrl);
+      app.useWebSocketAdapter(redisAdapter);
+      logger.log('Socket.IO Redis adapter enabled (multi-instance mode)');
+    } catch (error) {
+      logger.warn(
+        `Socket.IO Redis adapter connection failed, fallback to single-instance mode: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+
+      if (redisAdapter) {
+        await closeRedisAdapter();
+        redisAdapter = null;
+      }
+    }
+  } else if (socketRedisEnabled && !redisUrl) {
+    logger.warn(
+      'SOCKET_REDIS_ENABLED=true but REDIS_URL is missing. Fallback to single-instance mode.',
+    );
+  } else {
+    logger.log('Socket.IO Redis adapter disabled. Using single-instance mode.');
+  }
+
+  process.once('SIGINT', () => {
+    void closeRedisAdapter();
+  });
+  process.once('SIGTERM', () => {
+    void closeRedisAdapter();
+  });
+  process.once('SIGQUIT', () => {
+    void closeRedisAdapter();
+  });
+  process.once('beforeExit', () => {
+    void closeRedisAdapter();
+  });
+
+  const dbPoolMax = parseNumber(process.env.DB_POOL_MAX, 20);
+  const dbPoolIdleMs = parseNumber(process.env.DB_POOL_IDLE_MS, 30000);
+  const dbPoolConnTimeoutMs = parseNumber(process.env.DB_POOL_CONN_TIMEOUT_MS, 10000);
+  logger.log(
+    `DB pool env: max=${dbPoolMax}, idleTimeoutMillis=${dbPoolIdleMs}, connectionTimeoutMillis=${dbPoolConnTimeoutMs}`,
+  );
+
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads/',
   });
 
-  // Increase payload size limit for file uploads (CV, avatars)
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ limit: '10mb', extended: true }));
-
-  // Enable cookie parser
   app.use(cookieParser());
 
   const corsOrigins = parseCorsOrigins();
@@ -85,7 +164,6 @@ async function bootstrap() {
     corsOrigins.push('null');
   }
 
-  // Enable CORS for frontend and trusted tools
   app.enableCors({
     origin: corsOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
@@ -93,7 +171,6 @@ async function bootstrap() {
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Timezone'],
   });
 
-  // Global validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
       transform: true,
@@ -105,7 +182,6 @@ async function bootstrap() {
     }),
   );
 
-  // Swagger configuration
   const config = new DocumentBuilder()
     .setTitle('InterDev API')
     .setDescription('API documentation for InterDev - Freelancing Platform')
@@ -136,7 +212,8 @@ async function bootstrap() {
   await app.listen(port);
 
   const protocol = httpsOptions ? 'https' : 'http';
-  console.log(`🚀 Application is running on: ${protocol}://localhost:${port}`);
-  console.log(`📚 Swagger documentation: ${protocol}://localhost:${port}/api-docs`);
+  logger.log(`Application is running on: ${protocol}://localhost:${port}`);
+  logger.log(`Swagger documentation: ${protocol}://localhost:${port}/api-docs`);
 }
-bootstrap();
+
+void bootstrap();

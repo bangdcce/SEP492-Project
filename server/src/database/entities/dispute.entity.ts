@@ -1,4 +1,4 @@
-import {
+﻿import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -23,8 +23,9 @@ export enum DisputeStatus {
   IN_MEDIATION = 'IN_MEDIATION',
   RESOLVED = 'RESOLVED',
   REJECTED = 'REJECTED',
+  CANCELED = 'CANCELED',
   REJECTION_APPEALED = 'REJECTION_APPEALED',
-  APPEALED = 'APPEALED', // Đang khiếu nại lại
+  APPEALED = 'APPEALED', // ﾄ紳ng khi蘯ｿu n蘯｡i l蘯｡i
 }
 
 export enum DisputeResult {
@@ -35,13 +36,13 @@ export enum DisputeResult {
 }
 
 export enum DisputeCategory {
-  QUALITY = 'QUALITY', // Chất lượng công việc kém
-  DEADLINE = 'DEADLINE', // Trễ deadline
-  PAYMENT = 'PAYMENT', // Vấn đề thanh toán
-  COMMUNICATION = 'COMMUNICATION', // Mất liên lạc
-  SCOPE_CHANGE = 'SCOPE_CHANGE', // Thay đổi yêu cầu
-  FRAUD = 'FRAUD', // Lừa đảo
-  CONTRACT = 'CONTRACT', // Vi phạm hợp đồng
+  QUALITY = 'QUALITY', // Ch蘯･t lﾆｰ盻｣ng cﾃｴng vi盻㌘ kﾃｩm
+  DEADLINE = 'DEADLINE', // Tr盻・deadline
+  PAYMENT = 'PAYMENT', // V蘯･n ﾄ黛ｻ・thanh toﾃ｡n
+  COMMUNICATION = 'COMMUNICATION', // M蘯･t liﾃｪn l蘯｡c
+  SCOPE_CHANGE = 'SCOPE_CHANGE', // Thay ﾄ黛ｻ品 yﾃｪu c蘯ｧu
+  FRAUD = 'FRAUD', // L盻ｫa ﾄ黛ｺ｣o
+  CONTRACT = 'CONTRACT', // Vi ph蘯｡m h盻｣p ﾄ黛ｻ渡g
   OTHER = 'OTHER',
 }
 
@@ -83,19 +84,19 @@ export class DisputeEntity {
   @Column()
   milestoneId: string;
 
-  // === RAISER (Nguyên đơn) ===
+  // === RAISER (Nguyﾃｪn ﾄ柁｡n) ===
   @Column()
   raisedById: string;
 
   @Column({ type: 'enum', enum: UserRole, nullable: true })
-  raiserRole: UserRole; // Role của người kiện
+  raiserRole: UserRole; // Role c盻ｧa ngﾆｰ盻拱 ki盻㌻
 
-  // === DEFENDANT (Bị đơn) ===
+  // === DEFENDANT (B盻・ﾄ柁｡n) ===
   @Column()
   defendantId: string;
 
   @Column({ type: 'enum', enum: UserRole, nullable: true })
-  defendantRole: UserRole; // Role của bị đơn
+  defendantRole: UserRole; // Role c盻ｧa b盻・ﾄ柁｡n
 
   // === DISPUTE CLASSIFICATION ===
   @Column({ type: 'enum', enum: DisputeType, nullable: true })
@@ -108,7 +109,7 @@ export class DisputeEntity {
   priority: DisputePriority;
 
   @Column({ type: 'decimal', precision: 15, scale: 2, nullable: true })
-  disputedAmount: number; // Số tiền tranh chấp
+  disputedAmount: number; // S盻・ti盻］ tranh ch蘯･p
 
   // === RAISER'S CLAIM ===
   @Column({ type: 'text' })
@@ -118,24 +119,24 @@ export class DisputeEntity {
   messages: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  evidence: string[]; // URLs bằng chứng
+  evidence: string[]; // URLs b蘯ｱng ch盻ｩng
 
   // === DEFENDANT'S RESPONSE ===
   @Column({ type: 'text', nullable: true })
-  defendantResponse: string; // Lời giải trình
+  defendantResponse: string; // L盻拱 gi蘯｣i trﾃｬnh
 
   @Column({ type: 'jsonb', nullable: true })
-  defendantEvidence: string[]; // Bằng chứng phản bác
+  defendantEvidence: string[]; // B蘯ｱng ch盻ｩng ph蘯｣n bﾃ｡c
 
   @Column({ type: 'timestamp', nullable: true })
   defendantRespondedAt: Date;
 
   // === DEADLINES & SLA ===
   @Column({ type: 'timestamp', nullable: true })
-  responseDeadline: Date; // Hạn bị đơn phản hồi (VD: 7 ngày)
+  responseDeadline: Date; // H蘯｡n b盻・ﾄ柁｡n ph蘯｣n h盻妬 (VD: 7 ngﾃy)
 
   @Column({ type: 'timestamp', nullable: true })
-  resolutionDeadline: Date; // Hạn Admin xử lý (VD: 14 ngày)
+  resolutionDeadline: Date; // H蘯｡n Admin x盻ｭ lﾃｽ (VD: 14 ngﾃy)
 
   @Column({ default: false })
   isOverdue: boolean;
@@ -198,7 +199,7 @@ export class DisputeEntity {
 
   // === RESOLUTION ===
   @Column({ type: 'text', nullable: true })
-  adminComment: string; // Public comment (user thấy được)
+  adminComment: string; // Public comment (user th蘯･y ﾄ柁ｰ盻｣c)
 
   @Column({ nullable: true })
   resolvedById: string;
@@ -224,39 +225,39 @@ export class DisputeEntity {
 
   // === MULTI-DEFENDANT SUPPORT (Linked Disputes) ===
   @Column({ nullable: true })
-  parentDisputeId: string; // Link dispute con với dispute cha
+  parentDisputeId: string; // Link dispute con v盻嬖 dispute cha
 
-  @Column({ nullable: true })
-  groupId: string; // Nhóm các dispute cùng vụ việc
+  @Column({ type: 'uuid', nullable: true })
+  groupId: string; // Nhﾃｳm cﾃ｡c dispute cﾃｹng v盻･ vi盻㌘
 
   // === STAFF ASSIGNMENT & TIER SYSTEM ===
-  @Column({ nullable: true, comment: 'Staff được gán xử lý' })
+  @Column({ nullable: true, comment: 'Staff ﾄ柁ｰ盻｣c gﾃ｡n x盻ｭ lﾃｽ' })
   assignedStaffId: string;
 
   @Column({ type: 'timestamp', nullable: true })
   assignedAt: Date;
 
-  @Column({ default: 1, comment: '1 = Staff xử lý, 2 = Admin phúc thẩm' })
+  @Column({ default: 1, comment: '1 = Staff x盻ｭ lﾃｽ, 2 = Admin phﾃｺc th蘯ｩm' })
   currentTier: number;
 
-  @Column({ nullable: true, comment: 'Admin phúc thẩm (nếu escalate)' })
+  @Column({ nullable: true, comment: 'Admin phﾃｺc th蘯ｩm (n蘯ｿu escalate)' })
   escalatedToAdminId: string;
 
   @Column({ type: 'timestamp', nullable: true })
   escalatedAt: Date;
 
-  @Column({ type: 'text', nullable: true, comment: 'Lý do escalate lên Admin' })
+  @Column({ type: 'text', nullable: true, comment: 'Lﾃｽ do escalate lﾃｪn Admin' })
   escalationReason: string;
 
   // === SETTLEMENT LINK ===
-  @Column({ nullable: true, comment: 'Settlement đã được accept (nếu có)' })
+  @Column({ nullable: true, comment: 'Settlement ﾄ妥｣ ﾄ柁ｰ盻｣c accept (n蘯ｿu cﾃｳ)' })
   acceptedSettlementId: string;
 
   // === AUTO-RESOLUTION ===
-  @Column({ default: false, comment: 'TRUE = Auto-win do bị đơn không phản hồi' })
+  @Column({ default: false, comment: 'TRUE = Auto-win do b盻・ﾄ柁｡n khﾃｴng ph蘯｣n h盻妬' })
   isAutoResolved: boolean;
 
-  @Column({ default: 0, comment: 'Số lần đề xuất hòa giải bị reject (max 3)' })
+  @Column({ default: 0, comment: 'S盻・l蘯ｧn ﾄ黛ｻ・xu蘯･t hﾃｲa gi蘯｣i b盻・reject (max 3)' })
   settlementAttempts: number;
 
   // === APPEAL SYSTEM ===
@@ -269,7 +270,7 @@ export class DisputeEntity {
   @Column({ type: 'timestamp', nullable: true })
   appealedAt: Date;
 
-  @Column({ type: 'timestamp', nullable: true, comment: 'Hạn kháng cáo (3 ngày sau resolve)' })
+  @Column({ type: 'timestamp', nullable: true, comment: 'H蘯｡n khﾃ｡ng cﾃ｡o (3 ngﾃy sau resolve)' })
   appealDeadline: Date;
 
   @Column({ nullable: true })
@@ -327,3 +328,5 @@ export class DisputeEntity {
   @JoinColumn({ name: 'escalatedToAdminId' })
   escalatedToAdmin: any;
 }
+
+

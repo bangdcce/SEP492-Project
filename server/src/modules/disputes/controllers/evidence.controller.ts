@@ -8,6 +8,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ForbiddenException,
   ParseUUIDPipe,
   HttpStatus,
   HttpCode,
@@ -50,7 +51,7 @@ export class EvidenceController {
   // POST /disputes/:disputeId/evidence - Upload Evidence
   // ===========================================================================
   @Post(':disputeId/evidence')
-  @Roles(UserRole.CLIENT, UserRole.CLIENT_SME, UserRole.FREELANCER, UserRole.BROKER)
+  @Roles(UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: {
@@ -143,6 +144,21 @@ export class EvidenceController {
           statusCode: HttpStatus.CONFLICT,
           message: result.error,
           existingEvidenceId: result.existingEvidenceId,
+          errorCode: 'DUPLICATE_EVIDENCE',
+        });
+      }
+
+      if (result.errorCode === 'STAFF_UPLOAD_FORBIDDEN') {
+        throw new ForbiddenException({
+          message: result.error,
+          errorCode: result.errorCode,
+        });
+      }
+
+      if (result.errorCode) {
+        throw new BadRequestException({
+          message: result.error,
+          errorCode: result.errorCode,
         });
       }
       throw new BadRequestException(result.error);

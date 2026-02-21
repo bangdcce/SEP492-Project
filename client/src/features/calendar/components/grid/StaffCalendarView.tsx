@@ -678,11 +678,11 @@ export const StaffCalendarView = () => {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h3 className="text-sm font-semibold text-slate-900">
-              Mark availability / blocks
+              Mark busy / unavailable blocks
             </h3>
             <p className="text-xs text-gray-500 mt-1">
-              Set preferred/available time for auto-scheduling or block time
-              from hearings.
+              Primary action is to block unavailable time so auto-scheduling
+              avoids conflicts. Available/Preferred are optional hints.
             </p>
           </div>
           <button
@@ -691,7 +691,7 @@ export const StaffCalendarView = () => {
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-slate-900 text-white text-sm hover:bg-slate-800 disabled:opacity-50"
           >
             <PlusCircle className="w-4 h-4" />
-            {availabilitySaving ? "Saving..." : "Add availability"}
+            {availabilitySaving ? "Saving..." : "Add time block"}
           </button>
         </div>
 
@@ -705,18 +705,18 @@ export const StaffCalendarView = () => {
               }
               className="mt-1 w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:ring-teal-500 focus:border-teal-500"
             >
-              <option value={AvailabilityType.AVAILABLE}>
-                Available (auto-assign)
-              </option>
-              <option value={AvailabilityType.PREFERRED}>
-                Preferred (auto-assign)
-              </option>
               <option value={AvailabilityType.BUSY}>Busy</option>
               <option value={AvailabilityType.OUT_OF_OFFICE}>
                 Out of office
               </option>
               <option value={AvailabilityType.DO_NOT_DISTURB}>
                 Do not disturb
+              </option>
+              <option value={AvailabilityType.AVAILABLE}>
+                Available (optional hint)
+              </option>
+              <option value={AvailabilityType.PREFERRED}>
+                Preferred (optional hint)
               </option>
             </select>
           </div>
@@ -782,12 +782,6 @@ export const StaffCalendarView = () => {
             <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-100">
               Event
             </span>
-            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
-              Available
-            </span>
-            <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
-              Preferred
-            </span>
             <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 border border-slate-200">
               Busy
             </span>
@@ -796,6 +790,12 @@ export const StaffCalendarView = () => {
             </span>
             <span className="px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
               Do not disturb
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+              Available (hint)
+            </span>
+            <span className="px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
+              Preferred (hint)
             </span>
           </div>
           <div className="flex items-center gap-2 shrink-0">

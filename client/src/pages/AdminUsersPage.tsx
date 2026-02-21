@@ -252,7 +252,6 @@ export default function AdminUsersPage() {
       ADMIN: 'bg-red-100 text-red-800',
       STAFF: 'bg-purple-100 text-purple-800',
       CLIENT: 'bg-blue-100 text-blue-800',
-      CLIENT_SME: 'bg-cyan-100 text-cyan-800',
       FREELANCER: 'bg-green-100 text-green-800',
       BROKER: 'bg-yellow-100 text-yellow-800',
     };
@@ -337,7 +336,6 @@ export default function AdminUsersPage() {
               >
                 <option value="">All Roles</option>
                 <option value="CLIENT">Client</option>
-                <option value="CLIENT_SME">Client SME</option>
                 <option value="FREELANCER">Freelancer</option>
                 <option value="BROKER">Broker</option>
                 <option value="STAFF">Staff</option>
