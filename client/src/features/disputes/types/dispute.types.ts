@@ -13,11 +13,17 @@ export interface DisputeUserSummary {
   fullName?: string;
   email?: string;
   role?: UserRole;
+  trustScore?: number;
+  riskLevel?: string;
+  totalReviews?: number;
 }
 
 export interface DisputeProjectSummary {
   id: string;
   title?: string;
+  clientId?: string;
+  brokerId?: string;
+  freelancerId?: string;
 }
 
 export interface DisputeSummary {
@@ -40,6 +46,10 @@ export interface DisputeSummary {
   responseDeadline?: string;
   resolutionDeadline?: string;
   assignedStaffId?: string;
+  infoRequestReason?: string;
+  infoRequestDeadline?: string;
+  infoRequestedAt?: string;
+  infoProvidedAt?: string;
   createdAt: string;
   updatedAt: string;
   isOverdue?: boolean;
@@ -79,9 +89,11 @@ export interface DisputeFilters {
   priority?: DisputePriority;
   disputeType?: DisputeType;
   projectId?: string;
+  milestoneId?: string;
   raisedById?: string;
   defendantId?: string;
   assignedStaffId?: string;
+  includeUnassignedForStaff?: boolean;
   unassignedOnly?: boolean;
   createdFrom?: string;
   createdTo?: string;
@@ -133,6 +145,7 @@ export interface DisputeMessage {
   hearingId?: string | null;
   senderId?: string | null;
   senderRole?: UserRole | string;
+  senderHearingRole?: "RAISER" | "DEFENDANT" | "WITNESS" | "MODERATOR" | "OBSERVER" | string;
   type?: string;
   content?: string | null;
   replyToMessageId?: string | null;
@@ -172,6 +185,27 @@ export interface DisputeEvidenceQuota {
   total: number;
 }
 
+export interface SettlementAttemptsSummary {
+  raiserRemaining: number;
+  defendantRemaining: number;
+  maxAttemptsPerSide?: number;
+}
+
+export interface DisputeSettlement {
+  id: string;
+  disputeId: string;
+  proposerId?: string;
+  proposerRole?: UserRole | string;
+  amountToFreelancer: number;
+  amountToClient: number;
+  terms?: string | null;
+  status: "PENDING" | "ACCEPTED" | "REJECTED" | "EXPIRED" | string;
+  rejectedReason?: string | null;
+  expiresAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 export interface DisputeComplexity {
   level: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   timeEstimation: {
@@ -180,4 +214,71 @@ export interface DisputeComplexity {
     maxMinutes: number;
   };
   confidence: number;
+}
+
+export interface DisputeScheduleProposal {
+  id: string;
+  disputeId: string;
+  userId: string;
+  startTime: string;
+  endTime: string;
+  status: "ACTIVE" | "SUBMITTED" | "WITHDRAWN" | string;
+  note?: string | null;
+  submittedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SchedulingWorklistActionType =
+  | "PROPOSE_SLOT"
+  | "PROVIDE_INFO"
+  | "CONFIRM_HEARING"
+  | "NONE";
+
+export type SchedulingWorklistPerspective = "RAISER" | "DEFENDANT" | "OTHER";
+
+export type SchedulingWorklistNotEligibleReasonCode =
+  | "TRIAGE_NOT_ACCEPTED"
+  | "HEARING_ALREADY_SCHEDULED"
+  | "DISPUTE_CLOSED"
+  | "NO_PERMISSION"
+  | "NONE";
+
+export interface SchedulingWorklistItem {
+  disputeId: string;
+  displayCode: string;
+  projectId?: string | null;
+  projectTitle?: string | null;
+  category?: string | null;
+  status: DisputeStatus;
+  perspective: SchedulingWorklistPerspective;
+  raiserName?: string | null;
+  raiserRole?: UserRole | string | null;
+  defendantName?: string | null;
+  defendantRole?: UserRole | string | null;
+  counterpartyName?: string | null;
+  counterpartyRole?: UserRole | string | null;
+  assignedStaffId?: string | null;
+  assignedStaffName?: string | null;
+  assignedStaffEmail?: string | null;
+  updatedAt: string;
+  isNew: boolean;
+  isSeen: boolean;
+  requiresAction: boolean;
+  actionType: SchedulingWorklistActionType;
+  canProposeSlots: boolean;
+  canCancel: boolean;
+  notEligibleReasonCode: SchedulingWorklistNotEligibleReasonCode;
+  notEligibleReasonText: string;
+  infoRequestReason?: string | null;
+  infoRequestDeadline?: string | null;
+}
+
+export interface SchedulingWorklistResponse {
+  enabled: boolean;
+  items: SchedulingWorklistItem[];
+  generatedAt: string;
+  degraded?: boolean;
+  reasonCode?: "MIGRATION_REQUIRED" | "PARTIAL_DATA" | "NONE";
+  message?: string;
 }

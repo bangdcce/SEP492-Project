@@ -18,7 +18,7 @@ const STORAGE_KEY = 'last_token_refresh';
 const START_TIME_KEY = 'token_refresh_start_time';
 
 export class TokenRefreshManager {
-  private refreshTimer: NodeJS.Timeout | null = null;
+  private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private lastActivityTime: number = Date.now();
   private activityListeners: (() => void)[] = [];
   private isActive = false;

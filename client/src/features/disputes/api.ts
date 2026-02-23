@@ -5,6 +5,8 @@ import {
   invalidateCacheByPrefix,
   setCachedValue,
 } from "@/shared/utils/requestCache";
+import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 import type {
   DisputeActivity,
   DisputeEvidence,
@@ -15,6 +17,8 @@ import type {
   PaginatedDisputesResponse,
   DisputeComplexity,
   DisputeMessage,
+  DisputeScheduleProposal,
+  SchedulingWorklistResponse,
 } from "./types/dispute.types";
 import type { CreateDisputeDto } from "./types/dispute.dto";
 import type { DisputePhase } from "../staff/types/staff.types";
@@ -38,6 +42,14 @@ const DISPUTE_DETAIL_TTL_MS = 60_000;
 const DISPUTE_ACTIVITY_TTL_MS = 30_000;
 const DISPUTE_COMPLEXITY_TTL_MS = 5 * 60_000;
 
+const getDisputesCacheScope = () => {
+  const user = getStoredJson<{ id?: string; role?: string }>(STORAGE_KEYS.USER);
+  if (!user?.id) {
+    return "anonymous";
+  }
+  return `${user.role || "unknown"}:${user.id}`;
+};
+
 const buildQueryParams = (filters?: DisputeFilters) => {
   const params = new URLSearchParams();
   if (!filters) return params;
@@ -55,9 +67,63 @@ export const getDisputes = async (
   options?: CacheOptions,
 ): Promise<PaginatedDisputesResponse> => {
   const params = buildQueryParams(filters);
-  const key = `disputes:list:${params.toString() || "all"}`;
+  const key = `disputes:list:${getDisputesCacheScope()}:${params.toString() || "all"}`;
   const fetcher = () =>
     apiClient.get<PaginatedDisputesResponse>(`/disputes?${params.toString()}`);
+  if (options?.preferCache === false) {
+    return await fetcher();
+  }
+  return await cachedFetch(
+    key,
+    fetcher,
+    options?.ttlMs ?? DISPUTES_LIST_TTL_MS,
+  );
+};
+
+export const getQueueDisputes = async (
+  filters?: DisputeFilters,
+  options?: CacheOptions,
+): Promise<PaginatedDisputesResponse> => {
+  const params = buildQueryParams(filters);
+  const key = `disputes:queue:${getDisputesCacheScope()}:${params.toString() || "all"}`;
+  const fetcher = () =>
+    apiClient.get<PaginatedDisputesResponse>(`/disputes/queue?${params.toString()}`);
+  if (options?.preferCache === false) {
+    return await fetcher();
+  }
+  return await cachedFetch(
+    key,
+    fetcher,
+    options?.ttlMs ?? DISPUTES_LIST_TTL_MS,
+  );
+};
+
+export const getCaseloadDisputes = async (
+  filters?: DisputeFilters,
+  options?: CacheOptions,
+): Promise<PaginatedDisputesResponse> => {
+  const params = buildQueryParams(filters);
+  const key = `disputes:caseload:${getDisputesCacheScope()}:${params.toString() || "all"}`;
+  const fetcher = () =>
+    apiClient.get<PaginatedDisputesResponse>(`/disputes/caseload?${params.toString()}`);
+  if (options?.preferCache === false) {
+    return await fetcher();
+  }
+  return await cachedFetch(
+    key,
+    fetcher,
+    options?.ttlMs ?? DISPUTES_LIST_TTL_MS,
+  );
+};
+
+export const getMyDisputes = async (
+  filters?: DisputeFilters,
+  options?: CacheOptions,
+): Promise<PaginatedDisputesResponse> => {
+  const params = buildQueryParams(filters);
+  const key = `disputes:mine:${getDisputesCacheScope()}:${params.toString() || "all"}`;
+  const fetcher = () =>
+    apiClient.get<PaginatedDisputesResponse>(`/disputes/my?${params.toString()}`);
   if (options?.preferCache === false) {
     return await fetcher();
   }
@@ -158,6 +224,13 @@ export const requestDisputeInfo = async (disputeId: string, reason: string) => {
   });
 };
 
+export const provideDisputeInfo = async (
+  disputeId: string,
+  input: { message?: string; evidenceIds?: string[] },
+) => {
+  return await apiClient.patch(`/disputes/${disputeId}/provide-info`, input);
+};
+
 export const triageDispute = async (
   disputeId: string,
   input: {
@@ -199,8 +272,74 @@ export const getDisputeAutoScheduleOptions = async (
   );
 };
 
-export const triggerDisputeAutoSchedule = async (disputeId: string) => {
-  return await apiClient.post(`/disputes/${disputeId}/auto-schedule`);
+export const getSchedulingWorklist = async (): Promise<SchedulingWorklistResponse> => {
+  return await apiClient.get<SchedulingWorklistResponse>("/disputes/scheduling/worklist");
+};
+
+export const markDisputeViewed = async (disputeId: string) => {
+  return await apiClient.patch(`/disputes/${disputeId}/viewed`);
+};
+
+export const getSchedulingProposals = async (
+  disputeId: string,
+): Promise<DisputeScheduleProposal[]> => {
+  const response = await apiClient.get(`/disputes/${disputeId}/scheduling/proposals`);
+  const payload =
+    (response as { items?: DisputeScheduleProposal[]; data?: { items?: DisputeScheduleProposal[] } })
+      .data ?? response;
+  if (Array.isArray((payload as { items?: DisputeScheduleProposal[] }).items)) {
+    return (payload as { items: DisputeScheduleProposal[] }).items;
+  }
+  return [];
+};
+
+export const createSchedulingProposal = async (
+  disputeId: string,
+  input: { startTime: string; endTime: string; note?: string },
+): Promise<DisputeScheduleProposal> => {
+  const response = await apiClient.post(`/disputes/${disputeId}/scheduling/proposals`, input);
+  const payload =
+    (response as { proposal?: DisputeScheduleProposal; data?: { proposal?: DisputeScheduleProposal } })
+      .data ?? response;
+  return (payload as { proposal: DisputeScheduleProposal }).proposal;
+};
+
+export const deleteSchedulingProposal = async (
+  disputeId: string,
+  proposalId: string,
+) => {
+  return await apiClient.delete(`/disputes/${disputeId}/scheduling/proposals/${proposalId}`);
+};
+
+export const submitSchedulingProposals = async (
+  disputeId: string,
+): Promise<{ submitted: number }> => {
+  const response = await apiClient.post(`/disputes/${disputeId}/scheduling/proposals/submit`, {});
+  const payload = (response as { data?: { submitted?: number } }).data ?? response;
+  return { submitted: (payload as { submitted?: number }).submitted ?? 0 };
+};
+
+export const triggerDisputeAutoSchedule = async (
+  disputeId: string,
+  tuning?: {
+    minNoticeMinutes?: number;
+    lookaheadDays?: number;
+    forceNearTermMinutes?: number;
+    bypassReason?: string;
+  },
+) => {
+  return await apiClient.post(`/disputes/${disputeId}/auto-schedule`, tuning);
+};
+
+export const cancelDispute = async (disputeId: string, reason?: string) => {
+  return await apiClient.patch(`/disputes/${disputeId}/cancel`, { reason });
+};
+
+export const getDisputeQueueCount = async (): Promise<{
+  count: number;
+  statuses: string[];
+}> => {
+  return await apiClient.get(`/disputes/queue/count`);
 };
 
 export const rejectDispute = async (disputeId: string, reason: string) => {
@@ -293,6 +432,8 @@ export const getDisputeComplexities = async (
 
 export const invalidateDisputesCache = () => {
   invalidateCacheByPrefix("disputes:list:");
+  invalidateCacheByPrefix("disputes:queue:");
+  invalidateCacheByPrefix("disputes:caseload:");
 };
 
 export const invalidateDisputeDetailCache = (disputeId?: string) => {

@@ -1,592 +1,418 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { format } from "date-fns";
+
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import {
-  Activity,
-  Clock,
+  CircleAlert,
+  Download,
+  ExternalLink,
   FileText,
+  Gavel,
   HelpCircle,
   MessageSquare,
   RefreshCw,
-  UserCheck,
+  Timer,
   Users,
   Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   askHearingQuestion,
-  getHearingAttendance,
-  getHearingById,
-  getHearingQuestions,
-  getHearingStatements,
-  getHearingTimeline,
+  closeHearingEvidenceIntake,
+  getHearingWorkspace,
+  openHearingEvidenceIntake,
   updateSpeakerControl,
 } from "@/features/hearings/api";
 import type {
-  DisputeHearingSummary,
-  HearingAttendanceSummary,
   HearingParticipantRole,
-  HearingQuestionSummary,
-  HearingStatementSummary,
-  HearingTimelineEvent,
+  HearingWorkspaceSummary,
   SpeakerRole,
 } from "@/features/hearings/types";
 import { useHearingRealtime } from "@/features/hearings/hooks/useHearingRealtime";
-import {
-  getDisputeMessages,
-  sendDisputeMessage,
-} from "@/features/disputes/api";
+import { sendDisputeMessage, uploadDisputeEvidence } from "@/features/disputes/api";
 import { sendDisputeMessageRealtime } from "@/features/disputes/realtime";
 import type { DisputeMessage } from "@/features/disputes/types/dispute.types";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { UserRole } from "@/features/staff/types/staff.types";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/shared/components/ui/resizable";
+import { Badge } from "@/shared/components/ui/badge";
 
 interface HearingRoomProps {
   hearingId: string;
 }
 
-type LocalMessage = DisputeMessage & {
-  status?: "sending" | "sent" | "delivered" | "error";
-};
+type LocalMessage = DisputeMessage & { status?: "sending" | "sent" | "delivered" | "error" };
+type MobilePane = "dossier" | "conversation" | "control";
+type HearingPaneId = "dossier" | "conversation" | "control";
+type HearingLayout = Record<HearingPaneId, number>;
 
-const speakerOptions: Array<{
-  role: SpeakerRole;
-  label: string;
-  helper: string;
-}> = [
-  { role: "ALL", label: "Open floor", helper: "Everyone can speak" },
-  {
-    role: "MODERATOR_ONLY",
-    label: "Moderator only",
-    helper: "Only moderator can speak",
-  },
-  {
-    role: "RAISER_ONLY",
-    label: "Raiser only",
-    helper: "Only raiser can speak",
-  },
-  {
-    role: "DEFENDANT_ONLY",
-    label: "Defendant only",
-    helper: "Only defendant can speak",
-  },
-  { role: "MUTED_ALL", label: "Mute all", helper: "Chat paused" },
-];
+const LEGACY_LAYOUT_KEY = "hearing-room-layout-v2";
+const LAYOUT_KEY = "hearing-room-layout-v3";
+const PANE_IDS = ["dossier", "conversation", "control"] as const;
+const DEFAULT_LAYOUT: HearingLayout = { dossier: 25, conversation: 50, control: 25 };
+const LAYOUT_MIN: HearingLayout = { dossier: 20, conversation: 35, control: 20 };
+const EVIDENCE_TAG_REGEX = /#EVD-([A-Za-z0-9-]+)/g;
+const PREVIEWABLE_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+const isPreviewableImage = (mimeType?: string | null) =>
+  Boolean(mimeType && PREVIEWABLE_IMAGE_TYPES.has(mimeType));
+const isPreviewablePdf = (mimeType?: string | null) => mimeType === "application/pdf";
 
-const roleLabel = (role?: HearingParticipantRole) => {
-  switch (role) {
-    case "RAISER":
-      return "Raiser";
-    case "DEFENDANT":
-      return "Defendant";
-    case "MODERATOR":
-      return "Moderator";
-    case "WITNESS":
-      return "Witness";
-    case "OBSERVER":
-      return "Observer";
-    default:
-      return "Participant";
-  }
-};
+const roleLabel = (role?: HearingParticipantRole | string) =>
+  role ? role.replace(/_/g, " ") : "Participant";
+
+const systemRoleLabel = (role?: string | null) =>
+  role ? role.replace(/_/g, " ") : "Unknown role";
 
 const speakerLabel = (role?: SpeakerRole | null) => {
+  if (!role) return "Not set";
+  const map: Record<string, string> = {
+    ALL: "Open floor",
+    MODERATOR_ONLY: "Moderator only",
+    RAISER_ONLY: "Raiser only",
+    DEFENDANT_ONLY: "Defendant only",
+    MUTED_ALL: "Muted",
+  };
+  return map[role] || role;
+};
+
+const roleBadgeClass = (role?: string) => {
   switch (role) {
-    case "ALL":
-      return "Open floor";
-    case "MODERATOR_ONLY":
-      return "Moderator only";
-    case "RAISER_ONLY":
-      return "Raiser only";
-    case "DEFENDANT_ONLY":
-      return "Defendant only";
-    case "MUTED_ALL":
-      return "Muted";
+    case "MODERATOR":
+      return "border-teal-300 bg-teal-100 text-teal-800";
+    case "RAISER":
+      return "border-blue-300 bg-blue-100 text-blue-800";
+    case "DEFENDANT":
+      return "border-rose-300 bg-rose-100 text-rose-800";
+    case "OBSERVER":
+      return "border-indigo-300 bg-indigo-100 text-indigo-800";
     default:
-      return "Not set";
+      return "border-slate-300 bg-slate-100 text-slate-700";
   }
 };
 
-const formatEnumLabel = (value?: string | null) => {
-  if (!value) return "N/A";
-  return value.replace(/_/g, " ");
+const systemRoleBadgeClass = (role?: string | null) => {
+  if (role === "STAFF" || role === "ADMIN") return "border-teal-300 bg-teal-100 text-teal-800";
+  if (role === "CLIENT") return "border-blue-300 bg-blue-100 text-blue-800";
+  if (role === "FREELANCER") return "border-violet-300 bg-violet-100 text-violet-800";
+  if (role === "BROKER") return "border-amber-300 bg-amber-100 text-amber-800";
+  return "border-slate-300 bg-slate-100 text-slate-700";
 };
 
-const attendanceBadgeClass = (status?: string | null) => {
-  switch (status) {
-    case "ON_TIME":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    case "LATE":
-    case "VERY_LATE":
-      return "bg-amber-50 text-amber-700 border-amber-200";
-    case "NO_SHOW":
-      return "bg-red-50 text-red-700 border-red-200";
-    case "NOT_STARTED":
-      return "bg-slate-100 text-slate-600 border-slate-200";
-    default:
-      return "bg-slate-100 text-slate-600 border-slate-200";
-  }
+const hearingStatusBadgeClass = (status?: string | null) => {
+  if (status === "IN_PROGRESS") return "border-emerald-300 bg-emerald-100 text-emerald-800";
+  if (status === "SCHEDULED") return "border-blue-300 bg-blue-100 text-blue-800";
+  if (status === "COMPLETED") return "border-slate-300 bg-slate-100 text-slate-700";
+  if (status === "CANCELED") return "border-rose-300 bg-rose-100 text-rose-800";
+  return "border-slate-300 bg-slate-100 text-slate-700";
 };
 
-const questionBadgeClass = (status?: string | null) => {
-  switch (status) {
-    case "ANSWERED":
-      return "bg-emerald-50 text-emerald-700 border-emerald-200";
-    case "PENDING_ANSWER":
-      return "bg-amber-50 text-amber-700 border-amber-200";
-    case "CANCELLED_BY_MODERATOR":
-      return "bg-slate-100 text-slate-600 border-slate-200";
-    default:
-      return "bg-slate-100 text-slate-600 border-slate-200";
-  }
+const questionStatusBadgeClass = (status?: string | null) => {
+  if (status === "ANSWERED") return "border-emerald-300 bg-emerald-100 text-emerald-800";
+  if (status === "PENDING_ANSWER") return "border-amber-300 bg-amber-100 text-amber-800";
+  return "border-slate-300 bg-slate-100 text-slate-700";
 };
 
-const speakerAllows = (
-  speakerRole?: SpeakerRole | null,
-  participantRole?: HearingParticipantRole,
-) => {
-  if (!speakerRole || !participantRole) return false;
-  switch (speakerRole) {
-    case "ALL":
-      return true;
-    case "MODERATOR_ONLY":
-      return participantRole === "MODERATOR";
-    case "RAISER_ONLY":
-      return participantRole === "RAISER";
-    case "DEFENDANT_ONLY":
-      return participantRole === "DEFENDANT";
-    case "MUTED_ALL":
-      return false;
-    default:
-      return false;
+const statementStatusBadgeClass = (status?: string | null) => {
+  if (status === "SUBMITTED") return "border-emerald-300 bg-emerald-100 text-emerald-800";
+  return "border-slate-300 bg-slate-100 text-slate-700";
+};
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value);
+
+const persistLayout = (layout: HearingLayout) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(LAYOUT_KEY, JSON.stringify(layout));
+};
+
+const normalizeLayout = (layout: HearingLayout | null): HearingLayout | null => {
+  if (!layout) return null;
+  const total = PANE_IDS.reduce((sum, id) => sum + layout[id], 0);
+  if (!Number.isFinite(total) || total <= 0) return null;
+  const normalized = PANE_IDS.reduce(
+    (acc, id) => ({ ...acc, [id]: Number(((layout[id] / total) * 100).toFixed(3)) }),
+    {} as HearingLayout,
+  );
+  if (PANE_IDS.some((id) => normalized[id] < LAYOUT_MIN[id])) return null;
+  return normalized;
+};
+
+const parseLayoutRecord = (value: unknown): HearingLayout | null => {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  if (!PANE_IDS.every((id) => isFiniteNumber(raw[id]))) return null;
+  return {
+    dossier: Number(raw.dossier),
+    conversation: Number(raw.conversation),
+    control: Number(raw.control),
+  };
+};
+
+const parseLegacyLayout = (value: unknown): HearingLayout | null => {
+  if (!Array.isArray(value) || value.length !== 3 || !value.every(isFiniteNumber)) return null;
+  return {
+    dossier: Number(value[0]),
+    conversation: Number(value[1]),
+    control: Number(value[2]),
+  };
+};
+
+const loadLayout = (): {
+  layout: HearingLayout;
+  recoveredFromInvalid: boolean;
+  migratedLegacy: boolean;
+} => {
+  if (typeof window === "undefined") {
+    return { layout: DEFAULT_LAYOUT, recoveredFromInvalid: false, migratedLegacy: false };
   }
+
+  let recoveredFromInvalid = false;
+  try {
+    const raw = window.localStorage.getItem(LAYOUT_KEY);
+    if (raw) {
+      const parsed = parseLayoutRecord(JSON.parse(raw));
+      const normalized = normalizeLayout(parsed);
+      if (normalized) {
+        return { layout: normalized, recoveredFromInvalid: false, migratedLegacy: false };
+      }
+      recoveredFromInvalid = true;
+    }
+  } catch {
+    recoveredFromInvalid = true;
+  }
+
+  try {
+    const legacyRaw = window.localStorage.getItem(LEGACY_LAYOUT_KEY);
+    if (legacyRaw) {
+      const parsedLegacy = parseLegacyLayout(JSON.parse(legacyRaw));
+      const normalizedLegacy = normalizeLayout(parsedLegacy);
+      if (normalizedLegacy) {
+        persistLayout(normalizedLegacy);
+        window.localStorage.removeItem(LEGACY_LAYOUT_KEY);
+        return { layout: normalizedLegacy, recoveredFromInvalid: false, migratedLegacy: true };
+      }
+      recoveredFromInvalid = true;
+    }
+  } catch {
+    recoveredFromInvalid = true;
+  }
+
+  persistLayout(DEFAULT_LAYOUT);
+  return { layout: DEFAULT_LAYOUT, recoveredFromInvalid, migratedLegacy: false };
+};
+
+const extractEvidenceId = (response: unknown): string | null => {
+  if (!response || typeof response !== "object") return null;
+  const root = response as Record<string, unknown>;
+  const data = root.data && typeof root.data === "object" ? (root.data as Record<string, unknown>) : null;
+  const evidence = root.evidence && typeof root.evidence === "object" ? (root.evidence as Record<string, unknown>) : null;
+  const dataEvidence = data?.evidence && typeof data.evidence === "object" ? (data.evidence as Record<string, unknown>) : null;
+  const candidates = [root.id, data?.id, evidence?.id, dataEvidence?.id];
+  const hit = candidates.find((x) => typeof x === "string" && x.trim().length > 0);
+  return typeof hit === "string" ? hit : null;
+};
+
+const apiCode = (error: unknown): string | undefined => {
+  if (!error || typeof error !== "object") return undefined;
+  const root = error as Record<string, unknown>;
+  const response = root.response && typeof root.response === "object" ? (root.response as Record<string, unknown>) : null;
+  const data = response?.data && typeof response.data === "object" ? (response.data as Record<string, unknown>) : null;
+  const msg = data?.message && typeof data.message === "object" ? (data.message as Record<string, unknown>) : null;
+  return (data?.errorCode as string) || (msg?.errorCode as string) || undefined;
+};
+
+const parseTags = (content?: string | null) => {
+  if (!content) return [] as string[];
+  const ids = new Set<string>();
+  for (const m of content.matchAll(EVIDENCE_TAG_REGEX)) if (m[1]) ids.add(m[1]);
+  return Array.from(ids);
+};
+
+const Countdown = ({ workspace, nowMs }: { workspace: HearingWorkspaceSummary | null; nowMs: number }) => {
+  const hearing = workspace?.hearing;
+  if (!hearing) return null;
+  const scheduled = new Date(hearing.scheduledAt).getTime();
+  const started = hearing.startedAt ? new Date(hearing.startedAt).getTime() : scheduled;
+  const end = started + (hearing.estimatedDurationMinutes ?? 60) * 60_000;
+  if (hearing.status === "SCHEDULED") {
+    const diff = scheduled - nowMs;
+    return (
+      <Badge className="border-blue-300 bg-blue-100 text-blue-800">
+        {diff > 0 ? `Starts in ${Math.ceil(diff / 60_000)}m` : "Starting now"}
+      </Badge>
+    );
+  }
+  if (hearing.status === "IN_PROGRESS") {
+    const diff = end - nowMs;
+    return (
+      <Badge
+        className={
+          diff < 0
+            ? "border-rose-300 bg-rose-100 text-rose-800"
+            : "border-emerald-300 bg-emerald-100 text-emerald-800"
+        }
+      >
+        {diff < 0 ? `Overtime ${Math.ceil(Math.abs(diff) / 60_000)}m` : `${Math.ceil(diff / 60_000)}m left`}
+      </Badge>
+    );
+  }
+  return <Badge className="border-slate-300 bg-slate-100 text-slate-700">Ended</Badge>;
 };
 
 export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
-  const [hearing, setHearing] = useState<DisputeHearingSummary | null>(null);
+  const [workspace, setWorkspace] = useState<HearingWorkspaceSummary | null>(null);
   const [messages, setMessages] = useState<LocalMessage[]>([]);
   const [loading, setLoading] = useState(false);
-  const [messagesLoading, setMessagesLoading] = useState(false);
-  const [messageInput, setMessageInput] = useState("");
   const [sending, setSending] = useState(false);
   const [speakerUpdating, setSpeakerUpdating] = useState(false);
-  const [speakerGraceUntil, setSpeakerGraceUntil] = useState<string | null>(
-    null,
-  );
-  const [statements, setStatements] = useState<HearingStatementSummary[]>([]);
-  const [questions, setQuestions] = useState<HearingQuestionSummary[]>([]);
-  const [timeline, setTimeline] = useState<HearingTimelineEvent[]>([]);
-  const [attendance, setAttendance] = useState<HearingAttendanceSummary | null>(
-    null,
-  );
-  const [statementsLoading, setStatementsLoading] = useState(false);
-  const [questionsLoading, setQuestionsLoading] = useState(false);
-  const [timelineLoading, setTimelineLoading] = useState(false);
-  const [attendanceLoading, setAttendanceLoading] = useState(false);
+  const [messageInput, setMessageInput] = useState("");
+  const [selectedEvidenceId, setSelectedEvidenceId] = useState("");
+  const [previewEvidenceId, setPreviewEvidenceId] = useState<string | null>(null);
+  const [evidenceDescription, setEvidenceDescription] = useState("");
+  const [evidenceUploading, setEvidenceUploading] = useState(false);
+  const [evidenceAttaching, setEvidenceAttaching] = useState(false);
+  const [intakeReason, setIntakeReason] = useState("");
+  const [intakeUpdating, setIntakeUpdating] = useState(false);
   const [questionTargetId, setQuestionTargetId] = useState("");
   const [questionText, setQuestionText] = useState("");
-  const [questionDeadlineMinutes, setQuestionDeadlineMinutes] = useState("");
   const [questionSubmitting, setQuestionSubmitting] = useState(false);
-  const messagesContainerRef = useRef<HTMLDivElement | null>(null);
-  const isNearBottomRef = useRef(true);
-  const isInitialMessagesLoadRef = useRef(true);
-  const prevMessageCountRef = useRef(0);
+  const [mobilePane, setMobilePane] = useState<MobilePane>("conversation");
+  const [layoutState] = useState(() => loadLayout());
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  const layout = layoutState.layout;
 
-  const currentUser = useMemo(
-    () => getStoredJson<{ id?: string; role?: UserRole }>(STORAGE_KEYS.USER),
-    [],
-  );
+  const messagesRef = useRef<HTMLDivElement | null>(null);
+  const evidenceInputRef = useRef<HTMLInputElement | null>(null);
+
+  const currentUser = useMemo(() => getStoredJson<{ id?: string; role?: UserRole }>(STORAGE_KEYS.USER), []);
   const currentUserId = currentUser?.id;
   const currentUserRole = currentUser?.role;
 
-  const refreshHearing = useCallback(async () => {
+  const refreshWorkspace = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await getHearingById(hearingId);
-      setHearing(data);
+      const data = await getHearingWorkspace(hearingId);
+      setWorkspace(data);
+      setMessages((data.messages ?? []).map((m) => ({ ...m, status: "sent" })));
+      if (data.evidence?.length && !previewEvidenceId) setPreviewEvidenceId(data.evidence[0].id);
     } catch (error) {
-      console.error("Failed to load hearing:", error);
-      toast.error("Could not load hearing details");
+      console.error(error);
+      toast.error("Could not load hearing workspace");
     } finally {
       setLoading(false);
     }
-  }, [hearingId]);
-
-  const loadMessages = useCallback(async () => {
-    if (!hearing?.disputeId) return;
-    try {
-      setMessagesLoading(true);
-      const data = await getDisputeMessages(hearing.disputeId, {
-        hearingId: hearing.id,
-        limit: 100,
-      });
-      setMessages((data ?? []).map((message) => ({ ...message, status: "sent" })));
-    } catch (error) {
-      console.error("Failed to load hearing messages:", error);
-      toast.error("Could not load hearing messages");
-    } finally {
-      setMessagesLoading(false);
-    }
-  }, [hearing?.disputeId, hearing?.id]);
-
-  const loadStatements = useCallback(async () => {
-    try {
-      setStatementsLoading(true);
-      const includeDrafts =
-        currentUserRole === UserRole.ADMIN ||
-        currentUserRole === UserRole.STAFF;
-      const data = await getHearingStatements(hearingId, { includeDrafts });
-      setStatements(data ?? []);
-    } catch (error) {
-      console.error("Failed to load hearing statements:", error);
-      toast.error("Could not load hearing statements");
-    } finally {
-      setStatementsLoading(false);
-    }
-  }, [hearingId, currentUserRole]);
-
-  const loadQuestions = useCallback(async () => {
-    try {
-      setQuestionsLoading(true);
-      const data = await getHearingQuestions(hearingId);
-      setQuestions(data ?? []);
-    } catch (error) {
-      console.error("Failed to load hearing questions:", error);
-      toast.error("Could not load hearing questions");
-    } finally {
-      setQuestionsLoading(false);
-    }
-  }, [hearingId]);
-
-  const loadTimeline = useCallback(async () => {
-    try {
-      setTimelineLoading(true);
-      const data = await getHearingTimeline(hearingId);
-      setTimeline(data ?? []);
-    } catch (error) {
-      console.error("Failed to load hearing timeline:", error);
-      toast.error("Could not load hearing timeline");
-    } finally {
-      setTimelineLoading(false);
-    }
-  }, [hearingId]);
-
-  const loadAttendance = useCallback(async () => {
-    if (
-      currentUserRole !== UserRole.ADMIN &&
-      currentUserRole !== UserRole.STAFF
-    ) {
-      return;
-    }
-    try {
-      setAttendanceLoading(true);
-      const data = await getHearingAttendance(hearingId);
-      setAttendance(data);
-    } catch (error) {
-      console.error("Failed to load hearing attendance:", error);
-      toast.error("Could not load attendance analytics");
-    } finally {
-      setAttendanceLoading(false);
-    }
-  }, [hearingId, currentUserRole]);
+  }, [hearingId, previewEvidenceId]);
 
   useEffect(() => {
-    refreshHearing();
-  }, [refreshHearing]);
+    void refreshWorkspace();
+  }, [refreshWorkspace]);
 
   useEffect(() => {
-    loadMessages();
-  }, [loadMessages]);
+    if (layoutState.recoveredFromInvalid) {
+      toast.message("Saved panel layout was invalid. Restored default 25/50/25.");
+    } else if (layoutState.migratedLegacy) {
+      toast.message("Panel layout upgraded to the latest format.");
+    }
+  }, [layoutState.migratedLegacy, layoutState.recoveredFromInvalid]);
 
   useEffect(() => {
-    loadStatements();
-  }, [loadStatements]);
-
-  useEffect(() => {
-    loadQuestions();
-  }, [loadQuestions]);
-
-  useEffect(() => {
-    loadTimeline();
-  }, [loadTimeline]);
-
-  useEffect(() => {
-    loadAttendance();
-  }, [loadAttendance]);
-
-  const handleMessagesScroll = useCallback(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
-    const distanceFromBottom =
-      container.scrollHeight - container.scrollTop - container.clientHeight;
-    isNearBottomRef.current = distanceFromBottom < 120;
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    const container = messagesContainerRef.current;
-    if (!container) return;
+  const hearing = workspace?.hearing;
+  const evidence = workspace?.evidence ?? [];
+  const evidenceById = useMemo(() => new Map(evidence.map((x) => [x.id, x])), [evidence]);
+  const previewEvidence = previewEvidenceId ? evidenceById.get(previewEvidenceId) : undefined;
 
-    if (isInitialMessagesLoadRef.current && messages.length > 0) {
-      isInitialMessagesLoadRef.current = false;
-      prevMessageCountRef.current = messages.length;
-      container.scrollTop = container.scrollHeight;
-      return;
-    }
+  const participantByUser = useMemo(() => {
+    const map = new Map<string, HearingParticipantRole | string>();
+    hearing?.participants?.forEach((p) => map.set(p.userId, p.role));
+    return map;
+  }, [hearing?.participants]);
 
-    if (messages.length > prevMessageCountRef.current && isNearBottomRef.current) {
-      requestAnimationFrame(() => {
-        container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
-      });
-    }
-    prevMessageCountRef.current = messages.length;
-  }, [messages.length]);
+  const systemRoleByUser = useMemo(() => {
+    const map = new Map<string, string>();
+    hearing?.participants?.forEach((p) => {
+      if (p.user?.role) map.set(p.userId, String(p.user.role));
+    });
+    return map;
+  }, [hearing?.participants]);
 
-  const handleRealtimeSpeakerChanged = useCallback(
-    (payload: { newRole?: string; gracePeriodUntil?: string }) => {
-      if (payload?.newRole) {
-        setHearing((prev) =>
-          prev ? { ...prev, currentSpeakerRole: payload.newRole as any } : prev,
-        );
-      }
-      if (payload?.gracePeriodUntil) {
-        setSpeakerGraceUntil(payload.gracePeriodUntil);
-      } else {
-        setSpeakerGraceUntil(null);
-      }
-    },
-    [],
+  const currentParticipant = useMemo(
+    () => hearing?.participants?.find((p) => p.userId === currentUserId) ?? null,
+    [hearing?.participants, currentUserId],
   );
+
+  const canSendMessage = Boolean(hearing?.permissions?.canSendMessage);
+  const canUploadEvidence = Boolean(hearing?.permissions?.canUploadEvidence);
+  const canAttachEvidence = Boolean(hearing?.permissions?.canAttachEvidenceLink);
+  const canManageIntake = Boolean(hearing?.permissions?.canManageEvidenceIntake);
+  const canControlSpeaker = Boolean(
+    (hearing?.moderatorId && currentUserId && hearing.moderatorId === currentUserId) ||
+      currentUserRole === UserRole.ADMIN,
+  );
+  const canAskQuestions = currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF;
+  const uploadBlockedReason =
+    currentUserRole === UserRole.STAFF || currentUserRole === UserRole.ADMIN
+      ? "Staff/Admin are cite-only. New evidence uploads are disabled."
+      : hearing?.permissions?.uploadEvidenceBlockedReason || "Upload blocked";
+
+  const chatReason = hearing?.permissions?.sendMessageBlockedReason || "You cannot speak right now.";
 
   const handleRealtimeMessageSent = useCallback(
-    (payload: {
-      messageId?: string;
-      hearingId?: string;
-      disputeId?: string;
-      senderId?: string;
-      senderRole?: string;
-      type?: string;
-      content?: string;
-      metadata?: Record<string, unknown>;
-      replyToMessageId?: string;
-      relatedEvidenceId?: string;
-      isHidden?: boolean;
-      hiddenReason?: string;
-      createdAt?: string;
-      sender?: { id: string; fullName?: string; email?: string };
-    }) => {
+    (payload: any) => {
       if (!payload?.messageId || payload.hearingId !== hearingId) return;
-      const metadata = payload.metadata;
-      const clientMessageId =
-        metadata && typeof metadata === "object" && "clientMessageId" in metadata
-          ? typeof metadata.clientMessageId === "string"
-            ? metadata.clientMessageId
-            : undefined
-          : undefined;
       setMessages((prev) => {
-        const existing = prev.find((item) => item.id === payload.messageId);
-        if (existing) {
-          return prev.map((item) =>
-            item.id === payload.messageId
-              ? {
-                  ...item,
-                  status:
-                    item.senderId && item.senderId === currentUserId
-                      ? "delivered"
-                      : item.status,
-                }
-              : item,
-          );
-        }
-
-        if (clientMessageId) {
-          const optimistic = prev.find((item) => item.id === clientMessageId);
-          if (optimistic) {
-            return prev.map((item) =>
-              item.id === clientMessageId
-                ? {
-                    ...(item as DisputeMessage),
-                    id: payload.messageId!,
-                    disputeId: payload.disputeId!,
-                    hearingId: payload.hearingId!,
-                    senderId: payload.senderId,
-                    senderRole: payload.senderRole,
-                    type: payload.type,
-                    content: payload.content,
-                    metadata: payload.metadata,
-                    replyToMessageId: payload.replyToMessageId,
-                    relatedEvidenceId: payload.relatedEvidenceId,
-                    isHidden: payload.isHidden,
-                    hiddenReason: payload.hiddenReason,
-                    createdAt: payload.createdAt ?? new Date().toISOString(),
-                    sender: payload.sender,
-                    status:
-                      payload.senderId && payload.senderId === currentUserId
-                        ? "delivered"
-                        : undefined,
-                  }
-                : item,
-            );
-          }
-        }
-
-        return [
-          ...prev,
-          {
-            id: payload.messageId!,
-            disputeId: payload.disputeId!,
-            hearingId: payload.hearingId!,
-            senderId: payload.senderId,
-            senderRole: payload.senderRole,
-            type: payload.type,
-            content: payload.content,
-            metadata: payload.metadata,
-            replyToMessageId: payload.replyToMessageId,
-            relatedEvidenceId: payload.relatedEvidenceId,
-            isHidden: payload.isHidden,
-            hiddenReason: payload.hiddenReason,
-            createdAt: payload.createdAt ?? new Date().toISOString(),
-            sender: payload.sender,
-            status:
-              payload.senderId && payload.senderId === currentUserId
-                ? "delivered"
-                : undefined,
-          } as LocalMessage,
-        ];
+        if (prev.some((m) => m.id === payload.messageId)) return prev;
+        return [...prev, { ...payload, id: payload.messageId, createdAt: payload.createdAt || new Date().toISOString() }];
+      });
+      requestAnimationFrame(() => {
+        const el = messagesRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
       });
     },
-    [hearingId, currentUserId],
-  );
-
-  const handleRealtimeMessageHidden = useCallback(
-    (payload: { messageId?: string; hiddenReason?: string }) => {
-      if (!payload?.messageId) return;
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === payload.messageId
-            ? {
-                ...message,
-                isHidden: true,
-                hiddenReason: payload.hiddenReason ?? message.hiddenReason,
-              }
-            : message,
-        ),
-      );
-    },
-    [],
+    [hearingId],
   );
 
   useHearingRealtime(hearingId, {
-    onSpeakerControlChanged: handleRealtimeSpeakerChanged,
     onMessageSent: handleRealtimeMessageSent,
-    onMessageHidden: handleRealtimeMessageHidden,
+    onSpeakerControlChanged: (payload) => {
+      if (!payload?.newRole) return;
+      setWorkspace((prev) =>
+        prev ? { ...prev, hearing: { ...prev.hearing, currentSpeakerRole: payload.newRole } } : prev,
+      );
+    },
+    onEvidenceIntakeChanged: (payload) => {
+      if (typeof payload?.isOpen !== "boolean") return;
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: { ...prev.hearing, isEvidenceIntakeOpen: payload.isOpen },
+              evidenceIntake: { ...prev.evidenceIntake, isOpen: payload.isOpen, reason: payload.reason || prev.evidenceIntake.reason },
+            }
+          : prev,
+      );
+    },
   });
 
-  const currentParticipant = useMemo(() => {
-    if (!currentUserId || !hearing?.participants) return null;
-    return hearing.participants.find(
-      (participant) => participant.userId === currentUserId,
-    );
-  }, [currentUserId, hearing?.participants]);
-
-  const questionTargets = useMemo(() => {
-    if (!hearing?.participants) return [];
-    return hearing.participants.filter(
-      (participant) => participant.role !== "MODERATOR",
-    );
-  }, [hearing?.participants]);
-
-  const canControlSpeaker =
-    Boolean(
-      hearing?.moderatorId &&
-      currentUserId &&
-      hearing.moderatorId === currentUserId,
-    ) || currentUserRole === UserRole.ADMIN;
-  const canAskQuestions =
-    currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF;
-
-  const canSendMessage = useMemo(() => {
-    if (!hearing) return false;
-    if (hearing.status !== "IN_PROGRESS") return false;
-    if (!hearing.isChatRoomActive) return false;
-    if (!currentParticipant) return false;
-    return speakerAllows(hearing.currentSpeakerRole, currentParticipant.role);
-  }, [hearing, currentParticipant]);
-
-  const chatDisabledReason = useMemo(() => {
-    if (!hearing) return "Loading hearing...";
-    if (hearing.status !== "IN_PROGRESS") return "Hearing is not in progress.";
-    if (!hearing.isChatRoomActive) return "Chat room is not active.";
-    if (!currentParticipant) return "You are not a hearing participant.";
-    if (!speakerAllows(hearing.currentSpeakerRole, currentParticipant.role)) {
-      return "You do not have the floor.";
-    }
-    return "";
-  }, [hearing, currentParticipant]);
-
-  const handleSendMessage = async () => {
-    if (!hearing || !hearing.disputeId) return;
-    if (!messageInput.trim()) return;
-
+  const handleSend = async () => {
+    if (!hearing?.disputeId || !messageInput.trim()) return;
+    if (!canSendMessage) return toast.error(chatReason);
     const content = messageInput.trim();
-    const clientMessageId = `client-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
-    const optimisticMessage: LocalMessage = {
-      id: clientMessageId,
-      disputeId: hearing.disputeId,
-      hearingId: hearing.id,
-      senderId: currentUserId ?? undefined,
-      senderRole: currentUserRole ?? undefined,
-      type: "TEXT",
-      content,
-      metadata: { clientMessageId },
-      createdAt: new Date().toISOString(),
-      status: "sending",
-    };
-    setMessages((prev) => [...prev, optimisticMessage]);
     setMessageInput("");
-
     try {
       setSending(true);
-      const ack = await sendDisputeMessageRealtime({
-        disputeId: hearing.disputeId,
-        hearingId: hearing.id,
-        content,
-        metadata: { clientMessageId },
-      });
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === clientMessageId
-            ? {
-                ...message,
-                id: ack.messageId,
-                createdAt: ack.createdAt,
-                status: "sent",
-              }
-            : message,
-        ),
-      );
-    } catch (error) {
-      console.error("Failed to send hearing message:", error);
+      await sendDisputeMessageRealtime({ disputeId: hearing.disputeId, hearingId: hearing.id, content });
+    } catch {
       try {
-        await sendDisputeMessage(hearing.disputeId, {
-          content: messageInput.trim(),
-          hearingId: hearing.id,
-        });
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === clientMessageId
-              ? { ...message, status: "sent" }
-              : message,
-          ),
-        );
-      } catch (fallbackError) {
-        console.error("Fallback send failed:", fallbackError);
-        setMessages((prev) =>
-          prev.map((message) =>
-            message.id === clientMessageId
-              ? { ...message, status: "error" }
-              : message,
-          ),
-        );
+        await sendDisputeMessage(hearing.disputeId, { hearingId: hearing.id, content });
+        await refreshWorkspace();
+      } catch {
         toast.error("Could not send message");
       }
     } finally {
@@ -594,681 +420,553 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     }
   };
 
-  const handleSpeakerChange = async (role: SpeakerRole) => {
-    if (!hearing) return;
+  const attachEvidence = async (evidenceId: string) => {
+    if (!hearing?.disputeId || !evidenceId) return;
+    if (!canAttachEvidence) return toast.error(hearing?.permissions?.attachEvidenceBlockedReason || "Attach blocked");
     try {
-      setSpeakerUpdating(true);
-      await updateSpeakerControl(hearing.id, role);
-      setHearing((prev) =>
-        prev ? { ...prev, currentSpeakerRole: role } : prev,
-      );
-      toast.success(`Speaker role set to ${speakerLabel(role)}.`);
-    } catch (error) {
-      console.error("Failed to update speaker control:", error);
-      toast.error("Could not update speaker control");
+      setEvidenceAttaching(true);
+      const item = evidenceById.get(evidenceId);
+      await sendDisputeMessageRealtime({
+        disputeId: hearing.disputeId,
+        hearingId: hearing.id,
+        type: "EVIDENCE_LINK",
+        relatedEvidenceId: evidenceId,
+        content: `Attached evidence: ${item?.fileName || evidenceId} (#EVD-${evidenceId})`,
+      });
+      setSelectedEvidenceId("");
+      setPreviewEvidenceId(evidenceId);
+    } catch {
+      toast.error("Could not attach evidence link");
     } finally {
-      setSpeakerUpdating(false);
+      setEvidenceAttaching(false);
     }
   };
 
-  const handleAskQuestion = async () => {
-    if (!hearing) return;
-    if (!questionTargetId) {
-      toast.error("Select a target participant.");
+  const onUploadFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file || !hearing?.disputeId) return;
+    if (!canUploadEvidence) {
+      toast.error(hearing?.permissions?.uploadEvidenceBlockedReason || "Upload blocked");
+      event.target.value = "";
       return;
     }
-    if (!questionText.trim()) {
-      toast.error("Enter a question.");
-      return;
-    }
-
-    let deadlineMinutes: number | undefined;
-    if (questionDeadlineMinutes) {
-      const parsed = Number(questionDeadlineMinutes);
-      if (Number.isFinite(parsed) && parsed > 0) {
-        deadlineMinutes = Math.min(60, Math.max(1, Math.floor(parsed)));
+    try {
+      setEvidenceUploading(true);
+      const response = await uploadDisputeEvidence(hearing.disputeId, file, evidenceDescription.trim() || undefined);
+      const evdId = extractEvidenceId(response);
+      await refreshWorkspace();
+      if (evdId) {
+        setPreviewEvidenceId(evdId);
+        if (canAttachEvidence) await attachEvidence(evdId);
       }
+      setEvidenceDescription("");
+    } catch (error) {
+      const code = apiCode(error);
+      if (code === "HEARING_EVIDENCE_WINDOW_CLOSED") toast.error("Evidence intake is closed.");
+      else if (code === "STAFF_UPLOAD_FORBIDDEN") toast.error("Staff cannot upload new evidence.");
+      else toast.error("Could not upload evidence");
+    } finally {
+      setEvidenceUploading(false);
+      event.target.value = "";
     }
+  };
 
+  const onOpenIntake = async () => {
+    if (!hearing) return;
+    if (!canManageIntake) return toast.error(hearing.permissions?.manageEvidenceIntakeBlockedReason || "Not allowed");
+    if (!intakeReason.trim()) return toast.error("Reason is required.");
+    try {
+      setIntakeUpdating(true);
+      await openHearingEvidenceIntake(hearing.id, intakeReason.trim());
+      setIntakeReason("");
+      await refreshWorkspace();
+    } catch {
+      toast.error("Could not open intake");
+    } finally {
+      setIntakeUpdating(false);
+    }
+  };
+
+  const onCloseIntake = async () => {
+    if (!hearing) return;
+    if (!canManageIntake) return;
+    try {
+      setIntakeUpdating(true);
+      await closeHearingEvidenceIntake(hearing.id);
+      await refreshWorkspace();
+    } catch {
+      toast.error("Could not close intake");
+    } finally {
+      setIntakeUpdating(false);
+    }
+  };
+
+  const onAskQuestion = async () => {
+    if (!hearing || !questionTargetId || !questionText.trim()) return;
     try {
       setQuestionSubmitting(true);
-      await askHearingQuestion(hearing.id, {
-        targetUserId: questionTargetId,
-        question: questionText.trim(),
-        deadlineMinutes,
-      });
-      toast.success("Question sent.");
+      await askHearingQuestion(hearing.id, { targetUserId: questionTargetId, question: questionText.trim() });
       setQuestionText("");
       setQuestionTargetId("");
-      setQuestionDeadlineMinutes("");
-      await loadQuestions();
-      await loadTimeline();
-    } catch (error) {
-      console.error("Failed to ask hearing question:", error);
+      await refreshWorkspace();
+    } catch {
       toast.error("Could not send question");
     } finally {
       setQuestionSubmitting(false);
     }
   };
 
-  const scheduleLine = useMemo(() => {
-    if (!hearing) return "N/A";
-    const start = new Date(hearing.scheduledAt);
-    if (Number.isNaN(start.getTime())) return "Invalid schedule";
-    const duration = hearing.estimatedDurationMinutes ?? 60;
-    const end = new Date(start.getTime() + duration * 60 * 1000);
-    return `${format(start, "MMM d, yyyy h:mm a")} - ${format(end, "h:mm a")}`;
-  }, [hearing]);
+  const handleLayoutChange = useCallback((nextLayout: Record<string, number>) => {
+    const normalized = normalizeLayout(parseLayoutRecord(nextLayout));
+    if (normalized) persistLayout(normalized);
+  }, []);
 
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-slate-900">Hearing Room</h2>
-          <p className="text-gray-500">
-            Live hearing controls, attendance, and chat.
+  const paneCardClass =
+    "rounded-xl border border-slate-200 bg-white p-5 shadow-sm ring-1 ring-slate-100";
+
+  const dossierPane = (
+    <div className="space-y-5">
+      <div className={paneCardClass}>
+        <h3 className="text-base font-semibold text-slate-900 flex items-center gap-3">
+          <Gavel className="w-5 h-5 text-teal-600" />
+          Dispute dossier
+        </h3>
+        <div className="mt-4 flex flex-wrap gap-3">
+          <Badge className={hearingStatusBadgeClass(workspace?.dossier?.dispute?.status)}>
+            {workspace?.dossier?.dispute?.status?.replace(/_/g, " ") || "STATUS N/A"}
+          </Badge>
+          <Badge className="border-sky-300 bg-sky-100 text-sky-800">
+            {workspace?.dossier?.dispute?.phase?.replace(/_/g, " ") || "PHASE N/A"}
+          </Badge>
+        </div>
+        <div className="mt-4 text-sm text-slate-700 space-y-3 leading-6">
+          <p>
+            Project:{" "}
+            <span className="font-semibold text-slate-900">
+              {workspace?.dossier?.project?.title || "N/A"}
+            </span>
+          </p>
+          <p>
+            Milestone:{" "}
+            <span className="font-semibold text-slate-900">
+              {workspace?.dossier?.milestone?.milestoneTitle || "N/A"}
+            </span>
           </p>
         </div>
-        <button
-          onClick={refreshHearing}
-          className="px-3 py-2 text-xs rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 inline-flex items-center gap-2"
-        >
-          <RefreshCw className="w-3 h-3" />
-          Refresh
-        </button>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
-        <div className="space-y-6">
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            {loading || !hearing ? (
-              <p className="text-sm text-gray-500">
-                Loading hearing details...
-              </p>
-            ) : (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-slate-900">
-                      Hearing #{hearing.hearingNumber ?? "-"}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                      <Clock className="w-3 h-3" />
-                      {scheduleLine}
-                    </p>
-                  </div>
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-xs border ${
-                      hearing.status === "IN_PROGRESS"
-                        ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                        : hearing.status === "SCHEDULED"
-                          ? "bg-blue-50 text-blue-700 border-blue-200"
-                          : "bg-slate-100 text-slate-600 border-slate-200"
-                    }`}
-                  >
-                    {hearing.status.replace("_", " ")}
-                  </span>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-500">
-                  <div>
-                    Started:{" "}
-                    {hearing.startedAt
-                      ? format(new Date(hearing.startedAt), "MMM d, h:mm a")
-                      : "N/A"}
-                  </div>
-                  <div>
-                    Ended:{" "}
-                    {hearing.endedAt
-                      ? format(new Date(hearing.endedAt), "MMM d, h:mm a")
-                      : "N/A"}
-                  </div>
-                  <div>Speaker: {speakerLabel(hearing.currentSpeakerRole)}</div>
-                  <div>
-                    Chat: {hearing.isChatRoomActive ? "Active" : "Inactive"}
-                  </div>
-                </div>
-
-                {speakerGraceUntil ? (
-                  <p className="text-xs text-amber-700">
-                    Speaker grace active until{" "}
-                    {format(new Date(speakerGraceUntil), "h:mm a")}
-                  </p>
-                ) : null}
-
-                {hearing.agenda ? (
-                  <p className="text-xs text-gray-600">
-                    <span className="font-semibold">Agenda:</span>{" "}
-                    {hearing.agenda}
-                  </p>
-                ) : null}
-              </div>
-            )}
-          </div>
-
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-teal-600" />
-                Hearing chat
-              </h3>
-              {messagesLoading ? (
-                <span className="text-xs text-gray-400">Loading...</span>
-              ) : null}
-            </div>
-
-            <div
-              ref={messagesContainerRef}
-              onScroll={handleMessagesScroll}
-              className="mt-4 h-[320px] overflow-y-auto bg-gray-50 border border-gray-100 rounded-lg p-3 space-y-3"
-            >
-              {messages.length === 0 ? (
-                <p className="text-sm text-gray-500">No messages yet.</p>
-              ) : (
-                messages.map((message) => {
-                  const senderLabel =
-                    message.sender?.fullName ||
-                    message.sender?.email ||
-                    message.senderId ||
-                    "System";
-                  const isOwn = message.senderId === currentUserId;
-                  const statusLabel = message.status
-                    ? message.status === "sending"
-                      ? "Sending"
-                      : message.status === "delivered"
-                        ? "Delivered"
-                        : message.status === "sent"
-                          ? "Sent"
-                          : "Failed"
-                    : "Sent";
-                  return (
-                    <div key={message.id} className="text-sm text-gray-700">
-                      <div className="flex items-center gap-2 text-xs text-gray-400">
-                        <span className="font-medium text-gray-600">
-                          {senderLabel}
-                        </span>
-                        <span>
-                          {format(new Date(message.createdAt), "h:mm a")}
-                        </span>
-                        {isOwn ? (
-                          <span
-                            className={`text-[11px] font-medium ${
-                              message.status === "error"
-                                ? "text-red-500"
-                                : "text-gray-400"
-                            }`}
-                          >
-                            {statusLabel}
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-1">
-                        {message.isHidden ? (
-                          <span className="text-xs text-red-500 italic">
-                            Message hidden
-                          </span>
-                        ) : (
-                          message.content
-                        )}
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="mt-3">
-              {canSendMessage ? (
-                <form
-                  className="flex gap-2"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    handleSendMessage();
-                  }}
-                >
-                  <input
-                    value={messageInput}
-                    onChange={(event) => setMessageInput(event.target.value)}
-                    placeholder="Type a message..."
-                    className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm"
-                  />
-                  <button
-                    type="submit"
-                    disabled={sending || !messageInput.trim()}
-                    className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm hover:bg-teal-700 disabled:opacity-50"
-                  >
-                    {sending ? "Sending..." : "Send"}
-                  </button>
-                </form>
-              ) : (
-                <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2">
-                  {chatDisabledReason}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <Users className="w-4 h-4 text-teal-600" />
-              Participants
-            </h3>
-            <div className="mt-4 space-y-3">
-              {hearing?.participants?.map((participant) => {
-                const name =
-                  participant.user?.fullName ||
-                  participant.user?.email ||
-                  participant.userId;
-                return (
-                  <div
-                    key={participant.id}
-                    className="flex items-center justify-between text-sm"
-                  >
-                    <div>
-                      <p className="font-medium text-slate-900">{name}</p>
-                      <p className="text-xs text-gray-500">
-                        {roleLabel(participant.role)}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span
-                        className={`text-xs font-medium ${
-                          participant.isOnline
-                            ? "text-emerald-600"
-                            : "text-gray-400"
-                        }`}
-                      >
-                        {participant.isOnline ? "Online" : "Offline"}
-                      </span>
-                      <div className="text-[11px] text-gray-400">
-                        {participant.totalOnlineMinutes ?? 0}m online
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-              {!hearing?.participants?.length && (
-                <p className="text-xs text-gray-500">No participants loaded.</p>
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <Volume2 className="w-4 h-4 text-teal-600" />
-              Speaker control
-            </h3>
-            {canControlSpeaker ? (
-              <div className="mt-4 space-y-2">
-                {speakerOptions.map((option) => (
-                  <button
-                    key={option.role}
-                    onClick={() => handleSpeakerChange(option.role)}
-                    disabled={
-                      speakerUpdating || hearing?.status !== "IN_PROGRESS"
-                    }
-                    className={`w-full text-left px-3 py-2 rounded-lg border text-sm transition-colors ${
-                      hearing?.currentSpeakerRole === option.role
-                        ? "border-teal-500 bg-teal-50 text-teal-700"
-                        : "border-gray-200 text-gray-600 hover:bg-gray-50"
-                    } ${speakerUpdating ? "opacity-60" : ""}`}
-                  >
-                    <div className="font-medium">{option.label}</div>
-                    <div className="text-xs text-gray-400">{option.helper}</div>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="mt-3 text-xs text-gray-500">
-                Only the assigned moderator or admin can control speaker roles.
-              </p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-6 xl:grid-cols-[2fr_1fr]">
-        <div className="space-y-6">
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <FileText className="w-4 h-4 text-teal-600" />
-                Statements
-              </h3>
-              {statementsLoading ? (
-                <span className="text-xs text-gray-400">Loading...</span>
-              ) : null}
-            </div>
-            <div className="mt-4 space-y-3">
-              {statements.length === 0 ? (
-                <p className="text-sm text-gray-500">No statements yet.</p>
-              ) : (
-                statements.map((statement) => {
-                  const author =
-                    statement.participant?.user?.fullName ||
-                    statement.participant?.user?.email ||
-                    statement.participant?.userId ||
-                    "Participant";
-                  const contentPreview =
-                    statement.content && statement.content.length > 180
-                      ? `${statement.content.slice(0, 180)}...`
-                      : statement.content;
-                  return (
-                    <div
-                      key={statement.id}
-                      className="border border-gray-100 rounded-lg bg-gray-50 p-3 space-y-1"
+      <div className={paneCardClass}>
+        <h3 className="text-base font-semibold text-slate-900">Contracts</h3>
+        <div className="mt-3 space-y-3 text-sm">
+          {workspace?.dossier?.contracts?.length ? (
+            workspace.dossier.contracts.map((c) => (
+              <div key={c.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50/60">
+                <p className="font-semibold text-slate-900">{c.title || c.id}</p>
+                <div className="mt-2 flex flex-wrap gap-3">
+                  <Badge className="border-slate-300 bg-white text-slate-700">
+                    {c.status?.replace(/_/g, " ") || "Unknown status"}
+                  </Badge>
+                  {c.contractUrl ? (
+                    <a
+                      href={c.contractUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-teal-700 inline-flex items-center gap-1.5 font-medium hover:text-teal-800"
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-medium text-slate-900">
-                            {statement.title ||
-                              `${formatEnumLabel(statement.type)} statement`}
-                          </p>
-                          <p className="text-xs text-gray-500">
-                            {author} ·{" "}
-                            {format(
-                              new Date(statement.createdAt),
-                              "MMM d, h:mm a",
-                            )}
-                          </p>
-                        </div>
-                        <span
-                          className={`px-2 py-0.5 rounded-full text-[11px] border ${
-                            statement.status === "DRAFT"
-                              ? "bg-amber-50 text-amber-700 border-amber-200"
-                              : "bg-emerald-50 text-emerald-700 border-emerald-200"
-                          }`}
-                        >
-                          {formatEnumLabel(statement.status)}
-                        </span>
-                      </div>
-                      {contentPreview ? (
-                        <p className="text-xs text-gray-600">
-                          {contentPreview}
-                        </p>
-                      ) : null}
-                      {statement.isRedacted ? (
-                        <p className="text-xs text-red-500">
-                          Redacted:{" "}
-                          {statement.redactedReason || "No reason provided"}
-                        </p>
-                      ) : null}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="mt-6 border-t border-gray-100 pt-4">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                  <HelpCircle className="w-4 h-4 text-teal-600" />
-                  Questions
-                </h4>
-                {questionsLoading ? (
-                  <span className="text-xs text-gray-400">Loading...</span>
-                ) : null}
-              </div>
-              <div className="mt-4 space-y-3">
-                {questions.length === 0 ? (
-                  <p className="text-sm text-gray-500">No questions yet.</p>
-                ) : (
-                  questions.map((question) => {
-                    const askedBy =
-                      question.askedBy?.fullName ||
-                      question.askedBy?.email ||
-                      question.askedById;
-                    const target =
-                      question.targetUser?.fullName ||
-                      question.targetUser?.email ||
-                      question.targetUserId;
-                    return (
-                      <div
-                        key={question.id}
-                        className="border border-gray-100 rounded-lg bg-white p-3 space-y-2"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="text-sm font-medium text-slate-900">
-                              {askedBy} → {target}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {format(
-                                new Date(question.createdAt),
-                                "MMM d, h:mm a",
-                              )}
-                            </p>
-                          </div>
-                          <span
-                            className={`px-2 py-0.5 rounded-full text-[11px] border ${questionBadgeClass(
-                              question.status,
-                            )}`}
-                          >
-                            {formatEnumLabel(question.status)}
-                          </span>
-                        </div>
-                        <p className="text-xs text-gray-600">
-                          {question.question}
-                        </p>
-                        {question.answer ? (
-                          <div className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-md p-2">
-                            Answer: {question.answer}
-                          </div>
-                        ) : null}
-                        {question.deadline ? (
-                          <p className="text-[11px] text-gray-400">
-                            Deadline:{" "}
-                            {format(
-                              new Date(question.deadline),
-                              "MMM d, h:mm a",
-                            )}
-                          </p>
-                        ) : null}
-                      </div>
-                    );
-                  })
-                )}
-              </div>
-
-              {canAskQuestions ? (
-                <div className="mt-4 border border-dashed border-gray-200 rounded-lg p-3 space-y-2">
-                  <p className="text-xs font-medium text-gray-600">
-                    Ask a question
-                  </p>
-                  <div className="grid gap-2">
-                    <select
-                      value={questionTargetId}
-                      onChange={(event) =>
-                        setQuestionTargetId(event.target.value)
-                      }
-                      className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
-                    >
-                      <option value="">Select target</option>
-                      {questionTargets.map((participant) => {
-                        const label =
-                          participant.user?.fullName ||
-                          participant.user?.email ||
-                          participant.userId;
-                        return (
-                          <option
-                            key={participant.id}
-                            value={participant.userId}
-                          >
-                            {label} ({formatEnumLabel(participant.role)})
-                          </option>
-                        );
-                      })}
-                    </select>
-                    <textarea
-                      rows={2}
-                      value={questionText}
-                      onChange={(event) => setQuestionText(event.target.value)}
-                      className="border border-gray-200 rounded-lg px-2 py-1 text-sm"
-                      placeholder="Write a question..."
-                    />
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500">
-                      <input
-                        type="number"
-                        min={1}
-                        max={60}
-                        value={questionDeadlineMinutes}
-                        onChange={(event) =>
-                          setQuestionDeadlineMinutes(event.target.value)
-                        }
-                        className="border border-gray-200 rounded-lg px-2 py-1 text-xs w-24"
-                        placeholder="Minutes"
-                      />
-                    </div>
-                    <button
-                      onClick={handleAskQuestion}
-                      disabled={
-                        questionSubmitting ||
-                        hearing?.status !== "IN_PROGRESS" ||
-                        !questionText.trim()
-                      }
-                      className="px-3 py-2 text-xs rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
-                    >
-                      {questionSubmitting ? "Sending..." : "Send question"}
-                    </button>
-                    {hearing?.status !== "IN_PROGRESS" ? (
-                      <p className="text-[11px] text-amber-600">
-                        Questions can be asked only while the hearing is in
-                        progress.
-                      </p>
-                    ) : null}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-
-        <div className="space-y-6">
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <Activity className="w-4 h-4 text-teal-600" />
-                Timeline
-              </h3>
-              {timelineLoading ? (
-                <span className="text-xs text-gray-400">Loading...</span>
-              ) : null}
-            </div>
-            <div className="mt-4 space-y-3">
-              {timeline.length === 0 ? (
-                <p className="text-sm text-gray-500">No timeline events yet.</p>
-              ) : (
-                timeline.map((event) => (
-                  <div
-                    key={event.id}
-                    className="flex gap-3 text-sm text-gray-700"
-                  >
-                    <div className="text-xs text-gray-400 min-w-[72px]">
-                      {format(new Date(event.occurredAt), "MMM d, h:mm a")}
-                    </div>
-                    <div>
-                      <p className="font-medium text-slate-900">
-                        {event.title}
-                      </p>
-                      {event.description ? (
-                        <p className="text-xs text-gray-500">
-                          {event.description}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="bg-white border border-gray-200 rounded-xl p-4">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-                <UserCheck className="w-4 h-4 text-teal-600" />
-                Attendance
-              </h3>
-              {attendanceLoading ? (
-                <span className="text-xs text-gray-400">Loading...</span>
-              ) : null}
-            </div>
-            {!attendance && !attendanceLoading ? (
-              <p className="mt-3 text-sm text-gray-500">
-                Attendance analytics are available to staff and admin only.
-              </p>
-            ) : null}
-            {attendance ? (
-              <div className="mt-4 space-y-4">
-                <div className="grid grid-cols-2 gap-3 text-xs text-gray-600">
-                  <div className="bg-gray-50 border border-gray-100 rounded-lg p-2">
-                    Present:{" "}
-                    <span className="font-semibold text-slate-900">
-                      {attendance.totals.presentCount}
-                    </span>
-                  </div>
-                  <div className="bg-gray-50 border border-gray-100 rounded-lg p-2">
-                    No-show:{" "}
-                    <span className="font-semibold text-slate-900">
-                      {attendance.totals.noShowCount}
-                    </span>
-                  </div>
-                  <div className="bg-gray-50 border border-gray-100 rounded-lg p-2">
-                    Late:{" "}
-                    <span className="font-semibold text-slate-900">
-                      {attendance.totals.lateCount}
-                    </span>
-                  </div>
-                  <div className="bg-gray-50 border border-gray-100 rounded-lg p-2">
-                    Avg mins:{" "}
-                    <span className="font-semibold text-slate-900">
-                      {attendance.totals.averageAttendanceMinutes}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  {attendance.participants.map((participant) => {
-                    const name =
-                      participant.user?.fullName ||
-                      participant.user?.email ||
-                      participant.userId;
-                    return (
-                      <div
-                        key={participant.participantId}
-                        className="flex items-center justify-between border border-gray-100 rounded-lg px-3 py-2 text-xs"
-                      >
-                        <div>
-                          <p className="font-medium text-slate-900">{name}</p>
-                          <p className="text-[11px] text-gray-500">
-                            {formatEnumLabel(participant.role)} ·{" "}
-                            {participant.attendanceMinutes ?? 0}m attended
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <span
-                            className={`px-2 py-0.5 rounded-full border text-[11px] ${attendanceBadgeClass(
-                              participant.attendanceStatus,
-                            )}`}
-                          >
-                            {formatEnumLabel(participant.attendanceStatus)}
-                          </span>
-                          {participant.isNoShow ? (
-                            <p className="text-[10px] text-red-500 mt-1">
-                              No-show
-                            </p>
-                          ) : null}
-                        </div>
-                      </div>
-                    );
-                  })}
+                      <ExternalLink className="w-4 h-4" />
+                      Open contract
+                    </a>
+                  ) : null}
                 </div>
               </div>
-            ) : null}
-          </div>
+            ))
+          ) : (
+            <p className="text-gray-500">No contracts</p>
+          )}
         </div>
       </div>
     </div>
   );
+
+  const conversationPane = (
+    <div className="space-y-5">
+      <div className={`${paneCardClass} space-y-4`}>
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center gap-3">
+              <Badge className="border-teal-300 bg-teal-100 text-teal-800">
+                PHASE {workspace?.phase?.current?.replace(/_/g, " ") || "N/A"}
+              </Badge>
+              <Badge className={hearingStatusBadgeClass(hearing?.status)}>
+                {hearing?.status?.replace(/_/g, " ") || "UNKNOWN"}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-3 text-sm text-slate-600">
+              <span>Speaker floor:</span>
+              <Badge className="border-cyan-300 bg-cyan-100 text-cyan-800">
+                {speakerLabel(hearing?.currentSpeakerRole)}
+              </Badge>
+            </div>
+          </div>
+          <Countdown workspace={workspace} nowMs={nowMs} />
+        </div>
+        <div className="h-3 bg-slate-100 rounded-full overflow-hidden ring-1 ring-slate-200">
+          <div
+            className="h-full bg-gradient-to-r from-teal-500 to-cyan-500"
+            style={{ width: `${workspace?.phase?.progressPercent ?? 0}%` }}
+          />
+        </div>
+        {workspace?.phase?.gate && !workspace.phase.gate.canTransition ? (
+          <div className="text-sm text-amber-800 bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-300 rounded-lg p-4 space-y-3 shadow-sm">
+            <div className="flex items-start gap-3">
+              <CircleAlert className="w-5 h-5 mt-0.5 text-amber-600" />
+              <p>{workspace.phase.gate.reason}</p>
+            </div>
+            {workspace.phase.gate.missingParticipants?.length ? (
+              <div className="space-y-2">
+                <p className="font-semibold">
+                  Missing {workspace.phase.gate.requiredRole.toLowerCase()} statement submitters:
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {workspace.phase.gate.missingParticipants.map((item) => (
+                    <Badge key={item.participantId} className="border-amber-300 bg-white text-amber-800">
+                      {item.displayName}
+                    </Badge>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+
+      <div className={paneCardClass}>
+        <h3 className="text-base font-semibold text-slate-900 flex items-center gap-3">
+          <MessageSquare className="w-5 h-5 text-teal-600" />
+          Chat
+        </h3>
+        <div
+          ref={messagesRef}
+          className="mt-4 h-[380px] overflow-y-auto bg-slate-50 border border-slate-200 rounded-lg p-3 space-y-3"
+        >
+          {messages.map((m) => {
+            const sender = m.sender?.fullName || m.sender?.email || m.senderId || "System";
+            const hearingRole = m.senderHearingRole || (m.senderId ? participantByUser.get(m.senderId) : undefined);
+            const systemRole =
+              m.sender?.role || m.senderRole || (m.senderId ? systemRoleByUser.get(m.senderId) : undefined);
+            const tags = [...new Set([...parseTags(m.content), ...(m.relatedEvidenceId ? [m.relatedEvidenceId] : [])])];
+            return (
+              <div key={m.id} className="bg-white border border-slate-200 rounded-lg p-4 text-sm shadow-[0_1px_0_rgba(15,23,42,0.04)]">
+                <p className="font-semibold text-slate-900">{sender}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge className={roleBadgeClass(String(hearingRole || ""))}>
+                    {hearingRole ? roleLabel(hearingRole) : "No hearing role"}
+                  </Badge>
+                  <Badge className={systemRoleBadgeClass(String(systemRole || ""))}>
+                    {systemRoleLabel(String(systemRole || ""))}
+                  </Badge>
+                </div>
+                <p className="text-slate-600">{m.content}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {tags.map((id) => (
+                    <button
+                      key={id}
+                      onClick={() => setPreviewEvidenceId(id)}
+                      className="px-3 py-1 rounded-full border border-cyan-300 bg-cyan-50 text-cyan-800 hover:bg-cyan-100 text-xs"
+                    >
+                      #EVD-{id.slice(0, 8)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          {!messages.length ? <p className="text-sm text-gray-500">No messages yet.</p> : null}
+        </div>
+
+        <div className="mt-4 space-y-3 border border-dashed border-slate-300 rounded-lg p-4 bg-slate-50/70">
+          <p className="text-sm font-semibold text-slate-700">Evidence actions</p>
+          <div className="flex gap-3">
+            <select value={selectedEvidenceId} onChange={(e) => setSelectedEvidenceId(e.target.value)} className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="">Select existing evidence</option>
+              {evidence.map((ev) => <option key={ev.id} value={ev.id}>{ev.fileName}</option>)}
+            </select>
+            <button onClick={() => void attachEvidence(selectedEvidenceId)} disabled={!selectedEvidenceId || evidenceAttaching || !canAttachEvidence} className="px-4 py-2 rounded-lg bg-teal-600 text-white text-sm disabled:opacity-50">{evidenceAttaching ? "..." : "Attach"}</button>
+          </div>
+          {!canAttachEvidence ? (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">
+              {hearing?.permissions?.attachEvidenceBlockedReason || "Attach blocked"}
+            </p>
+          ) : null}
+
+          {canUploadEvidence ? (
+            <>
+              <input ref={evidenceInputRef} type="file" className="hidden" onChange={onUploadFile} />
+              <div className="flex gap-3">
+                <input value={evidenceDescription} onChange={(e) => setEvidenceDescription(e.target.value)} placeholder="Description (optional)" className="flex-1 border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+                <button onClick={() => evidenceInputRef.current?.click()} disabled={evidenceUploading} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-50">{evidenceUploading ? "Uploading" : "Upload"}</button>
+              </div>
+            </>
+          ) : (
+            <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md p-3">{uploadBlockedReason}</p>
+          )}
+        </div>
+
+        {canSendMessage ? (
+          <form className="mt-4 flex gap-3" onSubmit={(e) => { e.preventDefault(); void handleSend(); }}>
+            <input value={messageInput} onChange={(e) => setMessageInput(e.target.value)} placeholder="Type a message..." className="flex-1 border border-slate-300 rounded-lg px-4 py-3 text-base" />
+            <button type="submit" disabled={sending || !messageInput.trim()} className="px-5 py-3 rounded-lg bg-teal-600 text-white text-base disabled:opacity-50">Send</button>
+          </form>
+        ) : <p className="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">{chatReason}</p>}
+      </div>
+
+      <div className={paneCardClass}>
+        <h3 className="text-base font-semibold text-slate-900">Statements</h3>
+        <div className="mt-3 max-h-[280px] overflow-y-auto space-y-3">
+          {workspace?.statements?.length ? workspace.statements.slice(-40).map((statement) => {
+            const participantName =
+              statement.participant?.user?.fullName ||
+              statement.participant?.user?.email ||
+              statement.participant?.userId ||
+              statement.participantId;
+            const hearingRole = statement.participant?.role;
+            const systemRole = statement.participant?.user?.role;
+            return (
+              <div key={statement.id} className="rounded-lg border border-slate-200 p-4 text-sm bg-slate-50/60">
+                <p className="font-semibold text-slate-900">{participantName}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <Badge className={roleBadgeClass(String(hearingRole || ""))}>
+                    {hearingRole ? roleLabel(hearingRole) : "No hearing role"}
+                  </Badge>
+                  <Badge className={systemRoleBadgeClass(systemRole)}>
+                    {systemRoleLabel(systemRole)}
+                  </Badge>
+                  <Badge className="border-indigo-300 bg-indigo-100 text-indigo-800">
+                    {statement.type}
+                  </Badge>
+                  <Badge className={statementStatusBadgeClass(statement.status)}>
+                    {statement.status}
+                  </Badge>
+                </div>
+                {statement.title ? <p className="font-medium text-slate-700">{statement.title}</p> : null}
+                <p className="text-slate-600 line-clamp-3">{statement.content}</p>
+              </div>
+            );
+          }) : <p className="text-sm text-gray-500">No statements yet.</p>}
+        </div>
+      </div>
+
+      <div className={paneCardClass}>
+        <h3 className="text-base font-semibold text-slate-900 flex items-center gap-3"><HelpCircle className="w-5 h-5 text-teal-600" />Questions</h3>
+        <div className="mt-3 max-h-[280px] overflow-y-auto space-y-3">
+          {workspace?.questions?.length ? workspace.questions.slice(-40).map((question) => {
+            const askedByName =
+              question.askedBy?.fullName || question.askedBy?.email || question.askedById;
+            const targetName =
+              question.targetUser?.fullName || question.targetUser?.email || question.targetUserId;
+            const askedByHearingRole = question.askedById ? participantByUser.get(question.askedById) : undefined;
+            const targetHearingRole = question.targetUserId
+              ? participantByUser.get(question.targetUserId)
+              : undefined;
+            return (
+              <div key={question.id} className="rounded-lg border border-slate-200 p-4 text-sm space-y-2 bg-slate-50/60">
+                <p className="font-semibold text-slate-900">Q: {question.question}</p>
+                <p className="text-slate-500">Asked by {askedByName}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Badge className={roleBadgeClass(String(askedByHearingRole || ""))}>
+                    {askedByHearingRole ? roleLabel(askedByHearingRole) : "No hearing role"}
+                  </Badge>
+                  <Badge className={systemRoleBadgeClass(question.askedBy?.role)}>
+                    {systemRoleLabel(question.askedBy?.role)}
+                  </Badge>
+                </div>
+                <p className="text-slate-500">Target {targetName}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Badge className={roleBadgeClass(String(targetHearingRole || ""))}>
+                    {targetHearingRole ? roleLabel(targetHearingRole) : "No hearing role"}
+                  </Badge>
+                  <Badge className={systemRoleBadgeClass(question.targetUser?.role)}>
+                    {systemRoleLabel(question.targetUser?.role)}
+                  </Badge>
+                  <Badge className={questionStatusBadgeClass(question.status)}>
+                    {question.status}
+                  </Badge>
+                </div>
+                {question.answer ? <p className="text-emerald-700">Answer: {question.answer}</p> : null}
+              </div>
+            );
+          }) : <p className="text-sm text-gray-500">No questions yet.</p>}
+        </div>
+        {canAskQuestions ? (
+          <div className="mt-3 space-y-3">
+            <select value={questionTargetId} onChange={(e) => setQuestionTargetId(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+              <option value="">Select target</option>
+              {hearing?.participants?.filter((p) => p.role !== "MODERATOR").map((p) => <option key={p.id} value={p.userId}>{p.user?.fullName || p.user?.email || p.userId} ({roleLabel(p.role)})</option>)}
+            </select>
+            <textarea value={questionText} onChange={(e) => setQuestionText(e.target.value)} className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" rows={3} placeholder="Write a question" />
+            <button onClick={() => void onAskQuestion()} disabled={questionSubmitting || !questionTargetId || !questionText.trim()} className="px-4 py-2.5 rounded-lg bg-slate-900 text-white text-sm disabled:opacity-50">Ask</button>
+          </div>
+        ) : <p className="mt-3 text-sm text-gray-500">Only staff/admin can ask questions.</p>}
+      </div>
+    </div>
+  );
+
+  const controlPane = (
+    <div className="space-y-5">
+      <div className={paneCardClass}>
+        <h3 className="text-base font-semibold text-slate-900 flex items-center gap-3"><Users className="w-5 h-5 text-teal-600" />Participants</h3>
+        <div className="mt-3 space-y-3 text-sm">
+          {hearing?.participants?.map((p) => (
+            <div key={p.id} className="border border-slate-200 rounded-lg p-4 bg-slate-50/60">
+              <p className="font-semibold text-slate-900">{p.user?.fullName || p.user?.email || p.userId}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Badge className={roleBadgeClass(p.role)}>{roleLabel(p.role)}</Badge>
+                <Badge className={systemRoleBadgeClass(p.user?.role)}>{p.user?.role || "N/A"}</Badge>
+                <Badge
+                  className={
+                    p.isOnline
+                      ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+                      : "border-slate-300 bg-slate-100 text-slate-700"
+                  }
+                >
+                  {p.isOnline ? "ONLINE" : "OFFLINE"}
+                </Badge>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className={paneCardClass}>
+        <h3 className="text-base font-semibold text-slate-900">Attendance</h3>
+        {workspace?.attendance ? (
+          <div className="mt-3 grid grid-cols-2 gap-3 text-sm">
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3">Online: <span className="font-semibold text-slate-900">{workspace.attendance.totals.presentOnlineCount ?? 0}</span></div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">Ever joined: <span className="font-semibold text-slate-900">{workspace.attendance.totals.presentEverJoinedCount ?? workspace.attendance.totals.presentCount}</span></div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">Late: <span className="font-semibold text-slate-900">{workspace.attendance.totals.lateCount + workspace.attendance.totals.veryLateCount}</span></div>
+            <div className="rounded-lg border border-rose-200 bg-rose-50 p-3">No-show: <span className="font-semibold text-slate-900">{workspace.attendance.totals.noShowCount}</span></div>
+          </div>
+        ) : (
+          <p className="mt-3 text-sm text-gray-500">Attendance visible for staff/admin only.</p>
+        )}
+      </div>
+
+      <div className={`${paneCardClass} space-y-3`}>
+        <h3 className="text-base font-semibold text-slate-900 flex items-center gap-3"><Volume2 className="w-5 h-5 text-teal-600" />Speaker control</h3>
+        {canControlSpeaker ? (["ALL", "MODERATOR_ONLY", "RAISER_ONLY", "DEFENDANT_ONLY", "MUTED_ALL"] as SpeakerRole[]).map((role) => (
+          <button key={role} onClick={async () => { if (!hearing) return; setSpeakerUpdating(true); try { await updateSpeakerControl(hearing.id, role); setWorkspace((prev) => prev ? { ...prev, hearing: { ...prev.hearing, currentSpeakerRole: role } } : prev); } catch { toast.error("Could not update speaker control"); } finally { setSpeakerUpdating(false); } }} disabled={speakerUpdating || hearing?.status !== "IN_PROGRESS"} className={`w-full text-left px-4 py-3 rounded-lg border text-sm ${hearing?.currentSpeakerRole === role ? "border-teal-400 bg-teal-50 text-teal-700" : "border-gray-200 text-slate-600"}`}>
+            {speakerLabel(role)}
+          </button>
+        )) : <p className="text-sm text-gray-500">Only moderator/admin can control floor.</p>}
+      </div>
+
+      <div className={`${paneCardClass} space-y-3`}>
+        <p className="text-base font-semibold text-slate-900 flex items-center gap-3"><Timer className="w-5 h-5 text-teal-600" />Evidence intake</p>
+        <Badge
+          className={
+            workspace?.evidenceIntake?.isOpen
+              ? "border-emerald-300 bg-emerald-100 text-emerald-800"
+              : "border-slate-300 bg-slate-100 text-slate-700"
+          }
+        >
+          {workspace?.evidenceIntake?.isOpen ? "OPEN" : "CLOSED"}
+        </Badge>
+        {workspace?.evidenceIntake?.reason ? <p className="text-sm text-slate-500">Reason: {workspace.evidenceIntake.reason}</p> : null}
+        {canManageIntake ? (
+          workspace?.evidenceIntake?.isOpen ? (
+            <button onClick={() => void onCloseIntake()} disabled={intakeUpdating} className="px-4 py-2.5 rounded-lg bg-slate-900 text-white text-sm">Close intake</button>
+          ) : (
+            <>
+              <textarea value={intakeReason} onChange={(e) => setIntakeReason(e.target.value)} rows={3} placeholder="Reason to open intake" className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm" />
+              <button onClick={() => void onOpenIntake()} disabled={intakeUpdating || !intakeReason.trim()} className="px-4 py-2.5 rounded-lg bg-emerald-600 text-white text-sm">Open intake</button>
+            </>
+          )
+        ) : <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">{hearing?.permissions?.manageEvidenceIntakeBlockedReason}</p>}
+      </div>
+
+      <div className={paneCardClass}>
+        <h3 className="text-base font-semibold text-slate-900 flex items-center gap-3"><FileText className="w-5 h-5 text-teal-600" />Evidence preview</h3>
+        <select value={previewEvidenceId ?? ""} onChange={(e) => setPreviewEvidenceId(e.target.value || null)} className="mt-3 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm">
+          <option value="">Select evidence</option>
+          {evidence.map((ev) => <option key={ev.id} value={ev.id}>{ev.fileName}</option>)}
+        </select>
+        {previewEvidence ? (
+          <div className="mt-3 space-y-3 text-sm">
+            <p className="font-semibold text-slate-900">{previewEvidence.fileName}</p>
+            <p className="text-slate-500">{previewEvidence.mimeType}</p>
+            {isPreviewableImage(previewEvidence.mimeType) && previewEvidence.signedUrl ? (
+              <img
+                src={previewEvidence.signedUrl}
+                alt={previewEvidence.fileName}
+                className="max-h-[280px] w-full object-contain rounded-lg border border-gray-200 bg-slate-50"
+              />
+            ) : isPreviewablePdf(previewEvidence.mimeType) && previewEvidence.signedUrl ? (
+              <iframe
+                src={previewEvidence.signedUrl}
+                title={previewEvidence.fileName}
+                className="h-[320px] w-full rounded-lg border border-gray-200 bg-white"
+              />
+            ) : null}
+            <div className="flex gap-3">
+              <button onClick={async () => { if (!previewEvidence) return; if (!previewEvidence.signedUrl) return; const res = await fetch(previewEvidence.signedUrl); const blob = await res.blob(); const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url; a.download = previewEvidence.fileName; a.click(); URL.revokeObjectURL(url); }} className="px-4 py-2 rounded-lg bg-slate-900 text-white text-sm inline-flex items-center gap-2"><Download className="w-4 h-4" />Download</button>
+              {previewEvidence.signedUrl ? <a href={previewEvidence.signedUrl} target="_blank" rel="noreferrer" className="px-4 py-2 rounded-lg border border-gray-200 text-sm inline-flex items-center gap-2"><ExternalLink className="w-4 h-4" />Open</a> : null}
+            </div>
+          </div>
+        ) : <p className="mt-3 text-sm text-gray-500">Select evidence to preview.</p>}
+      </div>
+    </div>
+  );
+
+  if (loading && !workspace) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm text-gray-500 shadow-sm ring-1 ring-slate-100">
+        Loading hearing workspace...
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-2">
+          <h2 className="text-2xl font-bold text-slate-900">Hearing Room</h2>
+          <p className="text-base text-gray-500">3-pane courtroom workspace</p>
+          <div className="flex flex-wrap gap-3">
+            <Badge className="border-teal-300 bg-teal-100 text-teal-800">Live workspace</Badge>
+            {currentParticipant?.role ? (
+              <Badge className={roleBadgeClass(currentParticipant.role)}>
+                Your hearing role: {roleLabel(currentParticipant.role)}
+              </Badge>
+            ) : null}
+          </div>
+        </div>
+        <button onClick={() => void refreshWorkspace()} className="px-4 py-2.5 text-sm rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 inline-flex items-center gap-2"><RefreshCw className="w-4 h-4" />Refresh</button>
+      </div>
+
+      <div className="xl:hidden rounded-xl border border-slate-200 bg-white p-3 flex gap-3 shadow-sm ring-1 ring-slate-100">
+        {(["dossier", "conversation", "control"] as MobilePane[]).map((pane) => <button key={pane} onClick={() => setMobilePane(pane)} className={`flex-1 rounded-lg px-4 py-2.5 text-sm font-semibold capitalize ${mobilePane === pane ? "bg-gradient-to-r from-teal-600 to-cyan-600 text-white" : "bg-slate-100 text-slate-600"}`}>{pane}</button>)}
+      </div>
+
+      <div className="xl:hidden">
+        {mobilePane === "dossier" && dossierPane}
+        {mobilePane === "conversation" && conversationPane}
+        {mobilePane === "control" && controlPane}
+      </div>
+
+      <div className="hidden xl:block">
+        <ResizablePanelGroup
+          orientation="horizontal"
+          onLayoutChange={handleLayoutChange}
+          className="min-h-[860px] h-[calc(100vh-200px)] rounded-xl border border-slate-200 bg-gradient-to-b from-white to-slate-100 shadow-sm ring-1 ring-slate-100"
+        >
+          <ResizablePanel id="dossier" defaultSize={layout.dossier} minSize={20}><div className="h-full overflow-y-auto p-5">{dossierPane}</div></ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="conversation" defaultSize={layout.conversation} minSize={35}><div className="h-full overflow-y-auto p-5">{conversationPane}</div></ResizablePanel>
+          <ResizableHandle withHandle />
+          <ResizablePanel id="control" defaultSize={layout.control} minSize={20}><div className="h-full overflow-y-auto p-5">{controlPane}</div></ResizablePanel>
+        </ResizablePanelGroup>
+      </div>
+    </div>
+  );
 };
+

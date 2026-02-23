@@ -30,6 +30,18 @@ interface VerdictWizardProps {
   disputedAmount?: number;
 }
 
+type VerdictGateErrorPayload = {
+  message?: string;
+  checklist?: Record<string, boolean>;
+  unmetChecklist?: string[];
+};
+
+const VERDICT_GATE_LABELS: Record<string, string> = {
+  completedHearing: "At least one completed hearing",
+  hearingMinutes: "Hearing minutes (summary + findings)",
+  attendanceEvidence: "Attendance evidence",
+};
+
 export const VerdictWizard = ({ disputeId, disputedAmount }: VerdictWizardProps) => {
   const [verdict, setVerdict] = useState<DisputeResult | null>(null);
   const [faultType, setFaultType] = useState<string>("");
@@ -41,6 +53,8 @@ export const VerdictWizard = ({ disputeId, disputedAmount }: VerdictWizardProps)
   const [adminComment, setAdminComment] = useState<string>("");
   const [splitRatioClient, setSplitRatioClient] = useState<number>(50);
   const [submitting, setSubmitting] = useState(false);
+  const [verdictGateError, setVerdictGateError] =
+    useState<VerdictGateErrorPayload | null>(null);
 
   const totalAmount = useMemo(() => disputedAmount ?? 0, [disputedAmount]);
 
@@ -69,6 +83,7 @@ export const VerdictWizard = ({ disputeId, disputedAmount }: VerdictWizardProps)
 
     try {
       setSubmitting(true);
+      setVerdictGateError(null);
       await resolveDispute(disputeId, {
         verdict,
         adminComment: adminComment.trim(),
@@ -85,7 +100,26 @@ export const VerdictWizard = ({ disputeId, disputedAmount }: VerdictWizardProps)
       toast.success("Verdict submitted.");
     } catch (error) {
       console.error("Failed to submit verdict:", error);
-      toast.error("Could not submit verdict.");
+      const apiError = error as {
+        response?: {
+          status?: number;
+          data?: VerdictGateErrorPayload;
+        };
+      };
+      const isGateBlocked =
+        apiError?.response?.status === 409 &&
+        Array.isArray(apiError?.response?.data?.unmetChecklist);
+
+      if (isGateBlocked) {
+        const payload = apiError.response?.data ?? {};
+        setVerdictGateError(payload);
+        toast.error(
+          payload.message ||
+            "Verdict is blocked until hearing completion and minutes requirements are met.",
+        );
+      } else {
+        toast.error("Could not submit verdict.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -251,6 +285,23 @@ export const VerdictWizard = ({ disputeId, disputedAmount }: VerdictWizardProps)
           />
         </div>
       </div>
+
+      {verdictGateError && (
+        <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">
+            {verdictGateError.message ||
+              "Verdict is blocked until required hearing checks are complete."}
+          </p>
+          {Array.isArray(verdictGateError.unmetChecklist) &&
+            verdictGateError.unmetChecklist.length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-xs">
+                {verdictGateError.unmetChecklist.map((item) => (
+                  <li key={item}>{VERDICT_GATE_LABELS[item] || item}</li>
+                ))}
+              </ul>
+            )}
+        </div>
+      )}
 
       <div className="mt-6 pt-6 border-t border-gray-100 flex justify-end">
         <button

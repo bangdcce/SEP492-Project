@@ -34,6 +34,19 @@ export enum RescheduleRequestStatus {
   WITHDRAWN = "WITHDRAWN",
 }
 
+export type EventInviteResponse = "accept" | "decline" | "tentative";
+
+export interface CalendarEventParticipant {
+  id: string;
+  eventId: string;
+  userId: string;
+  role: string;
+  status: string;
+  responseDeadline?: string | null;
+  respondedAt?: string | null;
+  responseNote?: string | null;
+}
+
 export interface CalendarEvent {
   id: string;
   type: EventType;
@@ -49,7 +62,7 @@ export interface CalendarEvent {
   referenceType?: string;
   referenceId?: string;
   metadata?: Record<string, any>;
-  participants?: any[];
+  participants?: CalendarEventParticipant[];
   createdAt: string;
   updatedAt: string;
 }
@@ -84,6 +97,13 @@ export interface CreateEventRequest {
   endTime: string;
   description?: string;
   participantUserIds?: string[];
+  referenceType?: string;
+  referenceId?: string;
+  location?: string;
+  externalMeetingLink?: string;
+  reminderMinutes?: number;
+  notes?: string;
+  metadata?: Record<string, any>;
   useAutoSchedule?: boolean;
 }
 

@@ -101,10 +101,10 @@ export class DisputeEventListener {
     await this.ledgerRepo.insert({
       disputeId,
       eventType,
-      actorId: payload.actorId || null,
-      reason: payload.reason || null,
+      actorId: payload.actorId || undefined,
+      reason: payload.reason || undefined,
       payload: payload.metadata || {},
-      previousHash: latest?.hash || null,
+      previousHash: latest?.hash || undefined,
       canonicalPayload,
       hash,
     });
@@ -129,7 +129,11 @@ export class DisputeEventListener {
       return;
     }
 
-    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
+    if (
+      [DisputeStatus.RESOLVED, DisputeStatus.REJECTED, DisputeStatus.CANCELED].includes(
+        dispute.status,
+      )
+    ) {
       return;
     }
 
@@ -397,6 +401,7 @@ export class DisputeEventListener {
     messageId?: string;
     senderId?: string;
     senderRole?: string;
+    senderHearingRole?: string;
     type?: string;
     createdAt?: Date;
   }): void {
@@ -510,6 +515,35 @@ export class DisputeEventListener {
         newPhase: payload.newPhase || null,
         previousSpeakerRole: payload.previousSpeakerRole || null,
         newSpeakerRole: payload.newSpeakerRole || null,
+      },
+    });
+  }
+
+  @OnEvent('hearing.evidenceIntakeChanged')
+  async handleHearingEvidenceIntakeChanged(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    isOpen?: boolean;
+    reason?: string;
+    changedBy?: string;
+    changedAt?: Date;
+  }): Promise<void> {
+    if (!payload?.hearingId || !payload?.disputeId) {
+      return;
+    }
+
+    this.gateway.emitHearingEvent(payload.hearingId, 'EVIDENCE_INTAKE_CHANGED', {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    });
+
+    await this.appendLedger(payload.disputeId, 'HEARING_EVIDENCE_INTAKE_CHANGED', {
+      actorId: payload.changedBy || null,
+      reason: payload.reason || null,
+      metadata: {
+        hearingId: payload.hearingId,
+        isOpen: Boolean(payload.isOpen),
+        changedAt: payload.changedAt ? this.toIsoString(payload.changedAt) : this.toIsoString(),
       },
     });
   }

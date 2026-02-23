@@ -8,6 +8,7 @@ import {
   DisputeActivityEntity,
   DisputeEvidenceEntity,
   DisputeEntity,
+  DisputeHearingEntity,
   DisputePartyEntity,
   UserEntity,
 } from 'src/database/entities';
@@ -30,6 +31,7 @@ import {
     TypeOrmModule.forFeature([
       DisputeEvidenceEntity,
       DisputeEntity,
+      DisputeHearingEntity,
       DisputePartyEntity,
       DisputeActivityEntity,
       UserEntity,

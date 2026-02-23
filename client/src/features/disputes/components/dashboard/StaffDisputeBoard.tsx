@@ -26,7 +26,8 @@ import {
   completeDisputePreview,
   escalateDispute,
   getDisputeComplexities,
-  getDisputes,
+  getQueueDisputes,
+  getCaseloadDisputes,
   invalidateDisputesCache,
   rejectDispute,
   requestDisputeInfo,
@@ -47,6 +48,7 @@ import {
 import { useStaffDashboardRealtime } from "@/features/staff/hooks/useStaffDashboardRealtime";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
 
 interface StaffDisputeBoardProps {
   mode?: "queue" | "caseload";
@@ -112,31 +114,18 @@ export const StaffDisputeBoard = ({
   const [rowActionLoadingId, setRowActionLoadingId] = useState<string | null>(
     null,
   );
+  const [quickViewDispute, setQuickViewDispute] = useState<DisputeSummary | null>(
+    null,
+  );
+  const [quickViewOpen, setQuickViewOpen] = useState(false);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
 
   const statusIn = useMemo(() => {
     if (mode === "queue") {
-      switch (viewFilter) {
-        case "ACTIVE":
-          return [DisputeStatus.TRIAGE_PENDING, DisputeStatus.OPEN];
-        case "PENDING_REVIEW":
-          return [DisputeStatus.PREVIEW, DisputeStatus.PENDING_REVIEW];
-        case "RESOLVED":
-          return [DisputeStatus.RESOLVED, DisputeStatus.REJECTED];
-        default:
-          // Queue "All"  Escoped to queue-relevant statuses only
-          // (NOT same as caseload  Equeue only sees triage pipeline)
-          return [
-            DisputeStatus.TRIAGE_PENDING,
-            DisputeStatus.OPEN,
-            DisputeStatus.PREVIEW,
-            DisputeStatus.PENDING_REVIEW,
-            DisputeStatus.REJECTED,
-            DisputeStatus.REJECTION_APPEALED,
-          ];
-      }
+      return [DisputeStatus.TRIAGE_PENDING, DisputeStatus.OPEN];
     }
-    // Caseload mode  Escoped to staff's assigned disputes (via assignedStaffId)
+
+    // Caseload mode - scoped to staff's assigned disputes.
     switch (viewFilter) {
       case "ACTIVE":
         return [
@@ -150,7 +139,7 @@ export const StaffDisputeBoard = ({
       case "RESOLVED":
         return [DisputeStatus.RESOLVED, DisputeStatus.REJECTED];
       default:
-        // Caseload "All"  Eall statuses but filtered by assignedStaffId
+        // Caseload "All" includes all statuses in assigned scope.
         return undefined;
     }
   }, [viewFilter, mode]);
@@ -163,29 +152,6 @@ export const StaffDisputeBoard = ({
           value: "ACTIVE" as ViewFilter,
           label: "Pending",
           statuses: [DisputeStatus.TRIAGE_PENDING, DisputeStatus.OPEN],
-        },
-        {
-          value: "PENDING_REVIEW" as ViewFilter,
-          label: "Preview",
-          statuses: [DisputeStatus.PREVIEW, DisputeStatus.PENDING_REVIEW],
-        },
-        {
-          value: "RESOLVED" as ViewFilter,
-          label: "Closed",
-          statuses: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED],
-        },
-        {
-          value: "ALL" as ViewFilter,
-          label: "All",
-          // Queue "All" scoped to queue-relevant statuses
-          statuses: [
-            DisputeStatus.TRIAGE_PENDING,
-            DisputeStatus.OPEN,
-            DisputeStatus.PREVIEW,
-            DisputeStatus.PENDING_REVIEW,
-            DisputeStatus.REJECTED,
-            DisputeStatus.REJECTION_APPEALED,
-          ],
         },
       ];
     }
@@ -283,9 +249,9 @@ export const StaffDisputeBoard = ({
     () => ({
       page,
       limit: 20,
-      sortBy: "urgency",
+      sortBy: mode === "queue" ? "createdAt" : "urgency",
       sortOrder: "DESC" as const,
-      statusIn,
+      statusIn: mode === "caseload" ? statusIn : undefined,
       priority: priorityFilter === "ALL" ? undefined : priorityFilter,
       category: categoryFilter === "ALL" ? undefined : categoryFilter,
       search: debouncedSearch ? debouncedSearch : undefined,
@@ -323,26 +289,36 @@ export const StaffDisputeBoard = ({
     async (options?: { preferCache?: boolean }) => {
       try {
         setLoading(true);
-        const data = await getDisputes(queryFilters, {
-          preferCache: options?.preferCache,
-          ttlMs: 30_000,
-        });
+        const data =
+          mode === "queue"
+            ? await getQueueDisputes(queryFilters, {
+                preferCache: options?.preferCache,
+                ttlMs: 30_000,
+              })
+            : await getCaseloadDisputes(queryFilters, {
+                preferCache: options?.preferCache,
+                ttlMs: 30_000,
+              });
         setDisputes(data.data ?? []);
         setMeta(data.meta);
         setStats(data.stats ?? null);
       } catch (error) {
         console.error("Failed to load disputes:", error);
-        toast.error("Could not load dispute queue");
+        toast.error(
+          mode === "queue"
+            ? "Could not load dispute queue"
+            : "Could not load assigned caseload",
+        );
       } finally {
         setLoading(false);
       }
     },
-    [queryFilters],
+    [mode, queryFilters],
   );
 
   useEffect(() => {
-    fetchDisputes({ preferCache: true });
-  }, [fetchDisputes]);
+    fetchDisputes({ preferCache: mode !== "queue" });
+  }, [fetchDisputes, mode]);
 
   const handleRealtimeRefresh = useCallback(() => {
     fetchDisputes({ preferCache: false });
@@ -452,6 +428,16 @@ export const StaffDisputeBoard = ({
     }
   };
 
+  const isAssignedConflictError = (details: {
+    code?: string;
+    message: string;
+  }) => {
+    return (
+      details.code === "DISPUTE_ASSIGNED_TO_OTHER_STAFF" ||
+      /assigned to another staff member/i.test(details.message)
+    );
+  };
+
   const handleEscalate = async (dispute: DisputeSummary) => {
     try {
       setRowActionLoadingId(dispute.id);
@@ -470,7 +456,16 @@ export const StaffDisputeBoard = ({
       await fetchDisputes({ preferCache: false });
     } catch (error) {
       console.error("Failed to escalate dispute:", error);
-      toast.error("Could not escalate dispute.");
+      const details = getApiErrorDetails(error, "Could not escalate dispute.");
+      if (isAssignedConflictError(details)) {
+        toast.error("Case is now assigned to another staff. Refreshing queue.");
+        invalidateDisputesCache();
+        await fetchDisputes({ preferCache: false });
+        return;
+      }
+      toast.error(
+        details.code ? `[${details.code}] ${details.message}` : details.message,
+      );
     } finally {
       setRowActionLoadingId(null);
     }
@@ -485,11 +480,25 @@ export const StaffDisputeBoard = ({
       await fetchDisputes({ preferCache: false });
     } catch (error) {
       console.error("Failed to accept dispute:", error);
-      toast.error("Could not accept dispute.");
+      const details = getApiErrorDetails(error, "Could not accept dispute.");
+      if (isAssignedConflictError(details)) {
+        toast.error("Case is now assigned to another staff. Refreshing queue.");
+        invalidateDisputesCache();
+        await fetchDisputes({ preferCache: false });
+        return;
+      }
+      toast.error(
+        details.code ? `[${details.code}] ${details.message}` : details.message,
+      );
     } finally {
       setRowActionLoadingId(null);
     }
   };
+
+  const openQuickView = useCallback((dispute: DisputeSummary) => {
+    setQuickViewDispute(dispute);
+    setQuickViewOpen(true);
+  }, []);
 
   const currencyFormatter = useMemo(
     () =>
@@ -808,6 +817,13 @@ export const StaffDisputeBoard = ({
                 DisputeStatus.PENDING_REVIEW,
                 DisputeStatus.INFO_REQUESTED,
               ].includes(dispute.status);
+              const isAssignedToAnotherStaff =
+                isStaffUser &&
+                Boolean(dispute.assignedStaffId) &&
+                dispute.assignedStaffId !== currentUser?.id;
+              const assignmentLockedTitle = isAssignedToAnotherStaff
+                ? "Assigned to another staff member"
+                : undefined;
 
               const isNew =
                 dispute.createdAt &&
@@ -904,11 +920,15 @@ export const StaffDisputeBoard = ({
                       <button
                         className="p-1.5 text-teal-600 hover:bg-teal-50 rounded-md"
                         title="Quick Look"
-                        onClick={() =>
+                        onClick={() => {
+                          if (mode === "queue") {
+                            openQuickView(dispute);
+                            return;
+                          }
                           navigate(`/staff/caseload?disputeId=${dispute.id}`, {
                             state: { dispute },
-                          })
-                        }
+                          });
+                        }}
                       >
                         <Eye className="w-4 h-4" />
                       </button>
@@ -922,17 +942,21 @@ export const StaffDisputeBoard = ({
                             ].includes(dispute.status) && (
                               <>
                                 <button
-                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-md"
+                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
                                   title="Reject as Invalid"
                                   onClick={() => openDialog("reject", dispute)}
+                                  disabled={isAssignedToAnotherStaff}
                                 >
                                   <Ban className="w-4 h-4" />
                                 </button>
                                 <button
-                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"
-                                  title="Accept to Caseload"
+                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title={assignmentLockedTitle || "Accept to Caseload"}
                                   onClick={() => handleAccept(dispute)}
-                                  disabled={rowActionLoadingId === dispute.id}
+                                  disabled={
+                                    rowActionLoadingId === dispute.id ||
+                                    isAssignedToAnotherStaff
+                                  }
                                 >
                                   {rowActionLoadingId === dispute.id ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -951,10 +975,13 @@ export const StaffDisputeBoard = ({
                             ].includes(dispute.status) && (
                               <>
                                 <button
-                                  className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-md"
-                                  title="Escalate to Mediation"
+                                  className="p-1.5 text-orange-600 hover:bg-orange-50 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                                  title={assignmentLockedTitle || "Escalate to Mediation"}
                                   onClick={() => handleEscalate(dispute)}
-                                  disabled={rowActionLoadingId === dispute.id}
+                                  disabled={
+                                    rowActionLoadingId === dispute.id ||
+                                    isAssignedToAnotherStaff
+                                  }
                                 >
                                   {rowActionLoadingId === dispute.id ? (
                                     <Loader2 className="w-4 h-4 animate-spin" />
@@ -963,10 +990,12 @@ export const StaffDisputeBoard = ({
                                   )}
                                 </button>
                                 <button
-                                  className="px-2 py-1 text-xs text-slate-600 border border-gray-200 rounded-md hover:bg-gray-50"
+                                  className="px-2 py-1 text-xs text-slate-600 border border-gray-200 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
                                   onClick={() =>
                                     openDialog("request-info", dispute)
                                   }
+                                  disabled={isAssignedToAnotherStaff}
+                                  title={assignmentLockedTitle}
                                 >
                                   Request Info
                                 </button>
@@ -1015,6 +1044,115 @@ export const StaffDisputeBoard = ({
           </button>
         </div>
       </div>
+
+      <Dialog
+        open={quickViewOpen}
+        onOpenChange={(open) => {
+          setQuickViewOpen(open);
+          if (!open) {
+            setQuickViewDispute(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {quickViewDispute
+                ? `Triage Summary #${quickViewDispute.id.slice(0, 8)}`
+                : "Triage Summary"}
+            </DialogTitle>
+            <DialogDescription>
+              Queue review is limited to spam/noise screening and initial risk scoring.
+            </DialogDescription>
+          </DialogHeader>
+          {quickViewDispute && (
+            <div className="space-y-3 text-sm text-slate-700">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-slate-500">Project</p>
+                  <p className="font-medium text-slate-900">
+                    {quickViewDispute.project?.title ||
+                      quickViewDispute.projectId}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Category</p>
+                  <p className="font-medium text-slate-900">
+                    {quickViewDispute.category}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Priority</p>
+                  <p className="font-medium text-slate-900">
+                    {quickViewDispute.priority}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Status</p>
+                  <p className="font-medium text-slate-900">
+                    {quickViewDispute.status.replaceAll("_", " ")}
+                  </p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Raiser</p>
+                <p className="font-medium text-slate-900">
+                  {quickViewDispute.raiser?.fullName ||
+                    quickViewDispute.raiser?.email ||
+                    quickViewDispute.raisedById}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Defendant</p>
+                <p className="font-medium text-slate-900">
+                  {quickViewDispute.defendant?.fullName ||
+                    quickViewDispute.defendant?.email ||
+                    quickViewDispute.defendantId}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-500">Reason Summary</p>
+                <p className="text-slate-800 whitespace-pre-wrap break-words">
+                  {quickViewDispute.reason || "No reason provided."}
+                </p>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <button
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+              onClick={() => setQuickViewOpen(false)}
+            >
+              Close
+            </button>
+            {quickViewDispute && mode === "queue" && (
+              <>
+                <button
+                  className="px-4 py-2 rounded-lg border border-red-200 text-red-700 hover:bg-red-50"
+                  onClick={() => {
+                    setQuickViewOpen(false);
+                    openDialog("reject", quickViewDispute);
+                  }}
+                >
+                  Reject
+                </button>
+                <button
+                  className="px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-50"
+                  onClick={async () => {
+                    await handleAccept(quickViewDispute);
+                    setQuickViewOpen(false);
+                  }}
+                  disabled={rowActionLoadingId === quickViewDispute.id}
+                >
+                  {rowActionLoadingId === quickViewDispute.id
+                    ? "Accepting..."
+                    : "Accept to Caseload"}
+                </button>
+              </>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
         <DialogContent className="sm:max-w-md">

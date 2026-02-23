@@ -127,6 +127,24 @@ export class DisputeHearingEntity {
   @Column({ default: false, comment: 'TRUE = Phòng chat đang hoạt động' })
   isChatRoomActive: boolean;
 
+  @Column({
+    default: false,
+    comment: 'TRUE = Moderator opened a controlled intake window for new evidence uploads',
+  })
+  isEvidenceIntakeOpen: boolean;
+
+  @Column({ type: 'timestamp', nullable: true, comment: 'When intake window was opened' })
+  evidenceIntakeOpenedAt: Date;
+
+  @Column({ type: 'timestamp', nullable: true, comment: 'When intake window was closed' })
+  evidenceIntakeClosedAt: Date;
+
+  @Column({ nullable: true, comment: 'Moderator/Admin user who opened intake window' })
+  evidenceIntakeOpenedBy: string;
+
+  @Column({ type: 'text', nullable: true, comment: 'Reason for opening intake window' })
+  evidenceIntakeReason: string;
+
   // === DURATION & SCHEDULING ===
   @Column({ type: 'int', default: 60, comment: 'Thời lượng dự kiến (phút)' })
   estimatedDurationMinutes: number;

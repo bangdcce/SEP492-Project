@@ -8,6 +8,7 @@ import {
   UseInterceptors,
   UploadedFile,
   BadRequestException,
+  ForbiddenException,
   ParseUUIDPipe,
   HttpStatus,
   HttpCode,
@@ -143,6 +144,21 @@ export class EvidenceController {
           statusCode: HttpStatus.CONFLICT,
           message: result.error,
           existingEvidenceId: result.existingEvidenceId,
+          errorCode: 'DUPLICATE_EVIDENCE',
+        });
+      }
+
+      if (result.errorCode === 'STAFF_UPLOAD_FORBIDDEN') {
+        throw new ForbiddenException({
+          message: result.error,
+          errorCode: result.errorCode,
+        });
+      }
+
+      if (result.errorCode) {
+        throw new BadRequestException({
+          message: result.error,
+          errorCode: result.errorCode,
         });
       }
       throw new BadRequestException(result.error);

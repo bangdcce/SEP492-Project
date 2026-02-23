@@ -29,9 +29,13 @@ import { ResolveRejectionAppealDto } from './dto/resolve-rejection-appeal.dto';
 import { AppealVerdictDto } from './dto/verdict.dto';
 import { TriageDisputeDto } from './dto/triage-dispute.dto';
 import { AdminUpdateDisputeDto } from './dto/admin-update-dispute.dto';
-import { DisputeFilterDto } from './dto/dispute-filter.dto';
+import { DisputeFilterDto, DisputeSortBy } from './dto/dispute-filter.dto';
 import { SendDisputeMessageDto, HideMessageDto } from './dto/message.dto';
-import { UserRole, UserEntity } from 'src/database/entities';
+import { CancelDisputeDto } from './dto/cancel-dispute.dto';
+import { AutoScheduleTuningDto } from './dto/auto-schedule-tuning.dto';
+import { ProvideDisputeInfoDto } from './dto/provide-dispute-info.dto';
+import { CreateDisputeScheduleProposalDto } from './dto/schedule-proposal.dto';
+import { DisputeStatus, UserRole, UserEntity } from 'src/database/entities';
 
 @Controller('disputes')
 export class DisputesController {
@@ -58,10 +62,31 @@ export class DisputesController {
   async getListDisputes(@GetUser() user: UserEntity, @Query() filters: DisputeFilterDto) {
     const effectiveFilters: DisputeFilterDto = { ...filters };
     if (user.role === UserRole.STAFF) {
+      const queueStatuses = new Set<DisputeStatus>([
+        DisputeStatus.OPEN,
+        DisputeStatus.TRIAGE_PENDING,
+      ]);
+      const requestedStatuses = effectiveFilters.statusIn?.length
+        ? effectiveFilters.statusIn
+        : effectiveFilters.status
+          ? [effectiveFilters.status]
+          : [];
+      const isQueueScopedRequest =
+        effectiveFilters.includeUnassignedForStaff === true ||
+        (requestedStatuses.length > 0 &&
+          requestedStatuses.every((status) => queueStatuses.has(status)));
+
       if (effectiveFilters.assignedStaffId && effectiveFilters.assignedStaffId !== user.id) {
         throw new ForbiddenException('Staff can only view their own caseload.');
       }
-      if (!effectiveFilters.assignedStaffId && !effectiveFilters.unassignedOnly) {
+
+      if (isQueueScopedRequest) {
+        if (!effectiveFilters.unassignedOnly) {
+          effectiveFilters.assignedStaffId = user.id;
+          effectiveFilters.includeUnassignedForStaff = true;
+        }
+      } else if (!effectiveFilters.assignedStaffId && !effectiveFilters.unassignedOnly) {
+        // Default staff scope is personal caseload unless queue scope is explicitly requested.
         effectiveFilters.assignedStaffId = user.id;
       }
     }
@@ -87,6 +112,61 @@ export class DisputesController {
   @Get('stats')
   async getDisputeStats() {
     return await this.disputesService.getDisputeStats();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Get('queue/count')
+  async getQueueCount(@GetUser() user: UserEntity) {
+    return await this.disputesService.getQueueCount(user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Get('queue')
+  async getQueueDisputes(@GetUser() user: UserEntity, @Query() filters: DisputeFilterDto) {
+    const effectiveFilters: DisputeFilterDto = {
+      ...filters,
+      status: undefined,
+      statusIn: [DisputeStatus.TRIAGE_PENDING, DisputeStatus.OPEN],
+      sortBy: filters.sortBy || DisputeSortBy.CREATED_AT,
+      includeUnassignedForStaff: true,
+    };
+
+    if (user.role === UserRole.STAFF) {
+      if (effectiveFilters.assignedStaffId && effectiveFilters.assignedStaffId !== user.id) {
+        throw new ForbiddenException('Staff can only view their own queue scope.');
+      }
+      effectiveFilters.assignedStaffId = user.id;
+    }
+
+    return await this.disputesService.getQueueDisputes(effectiveFilters);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Get('caseload')
+  async getCaseloadDisputes(@GetUser() user: UserEntity, @Query() filters: DisputeFilterDto) {
+    const effectiveFilters: DisputeFilterDto = {
+      ...filters,
+      includeUnassignedForStaff: false,
+      unassignedOnly: false,
+    };
+
+    if (user.role === UserRole.STAFF) {
+      if (effectiveFilters.assignedStaffId && effectiveFilters.assignedStaffId !== user.id) {
+        throw new ForbiddenException('Staff can only view their own caseload.');
+      }
+      effectiveFilters.assignedStaffId = user.id;
+    }
+
+    return await this.disputesService.getCaseloadDisputes(effectiveFilters);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('scheduling/worklist')
+  async getSchedulingWorklist(@GetUser() user: UserEntity) {
+    return await this.disputesService.getSchedulingWorklist(user.id, user.role);
   }
 
   @Get(':id')
@@ -127,6 +207,49 @@ export class DisputesController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Get(':id/scheduling/proposals')
+  async getSchedulingProposals(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.getSchedulingProposals(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/scheduling/proposals')
+  async createSchedulingProposal(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateDisputeScheduleProposalDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.createSchedulingProposal(id, user.id, user.role, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id/scheduling/proposals/:proposalId')
+  async deleteSchedulingProposal(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('proposalId', ParseUUIDPipe) proposalId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.deleteSchedulingProposal(
+      id,
+      proposalId,
+      user.id,
+      user.role,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/scheduling/proposals/submit')
+  async submitSchedulingProposals(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.submitSchedulingProposals(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Post('/messages/:id')
   async updateDisputes(
     @Param('id', ParseUUIDPipe) id: string,
@@ -134,6 +257,25 @@ export class DisputesController {
     @GetUser() user: UserEntity,
   ) {
     return await this.disputesService.updateDisputes(user.id, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/provide-info')
+  async provideAdditionalInfo(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ProvideDisputeInfoDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.provideAdditionalInfo(user.id, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/viewed')
+  async markDisputeViewed(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.markDisputeViewed(id, user.id, user.role);
   }
 
   // =============================================================================
@@ -157,6 +299,7 @@ export class DisputesController {
       { ...dto, disputeId },
       user.id,
       user.role,
+      user,
     );
 
     return {
@@ -175,8 +318,11 @@ export class DisputesController {
     @Query('includeHidden') includeHiddenRaw: string | undefined,
     @GetUser() user: UserEntity,
   ) {
-    const limit = limitRaw ? Number(limitRaw) : undefined;
-    if (limitRaw && (!Number.isFinite(limit) || limit <= 0)) {
+    const parsedLimit = limitRaw ? Number(limitRaw) : undefined;
+    if (
+      limitRaw &&
+      (parsedLimit === undefined || !Number.isFinite(parsedLimit) || parsedLimit <= 0)
+    ) {
       throw new BadRequestException('Invalid limit');
     }
 
@@ -184,7 +330,7 @@ export class DisputesController {
 
     const data = await this.disputesService.getDisputeMessages(disputeId, user.id, user.role, {
       hearingId,
-      limit,
+      limit: parsedLimit,
       includeHidden,
     });
 
@@ -454,19 +600,37 @@ export class DisputesController {
   @Patch(':id/escalate')
   async escalateDispute(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
     const dispute = await this.disputesService.escalateToMediation(user.id, id);
+    let scheduleResult;
     try {
-      await this.disputesService.escalateToHearing(id, user.id);
-    } catch {
-      // Accept dispute even if auto-scheduling fails; log handled inside service/logger.
+      scheduleResult = await this.disputesService.escalateToHearing(id, user.id);
+    } catch (error) {
+      scheduleResult = {
+        manualRequired: true,
+        reason: error instanceof Error ? error.message : 'Auto-schedule failed',
+      };
     }
-    return dispute;
+    return { dispute, scheduleResult };
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.STAFF)
   @Post(':id/auto-schedule')
-  async autoScheduleHearing(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
-    return await this.disputesService.escalateToHearing(id, user.id);
+  async autoScheduleHearing(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+    @Body() tuning?: AutoScheduleTuningDto,
+  ) {
+    return await this.disputesService.escalateToHearing(id, user.id, tuning);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/cancel')
+  async cancelDispute(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CancelDisputeDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.cancelDispute(user.id, id, dto.reason);
   }
 
   /**
@@ -500,7 +664,7 @@ export class DisputesController {
     @Body('note') note: string | undefined,
     @GetUser() user: UserEntity,
   ) {
-    return await this.disputesService.completePreview(user.id, id, note);
+    return await this.disputesService.completePreviewWithScheduling(user.id, id, note);
   }
 
   /**

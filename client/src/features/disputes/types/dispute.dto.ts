@@ -7,6 +7,7 @@ export interface CreateDisputeDto {
   category: DisputeCategory;
   defendantId: string;
   evidence: string[];
+  parentDisputeId?: string;
   evidenceFiles?: File[]; // For upload (client-side only)
   disputedAmount?: number; // Optional override, usually defaults to escrow funded
 }

@@ -3,6 +3,7 @@
 export const DISPUTE_EVENTS = {
   // Core events
   CREATED: 'dispute.created',
+  URGENT_CREATED: 'dispute.urgent_created',
   ESCALATED: 'dispute.escalated',
   RESOLVED: 'dispute.resolved',
   REJECTED: 'dispute.rejected',
