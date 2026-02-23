@@ -122,7 +122,7 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
                         })()
                     )}
 
-                    <Link to={`/project-requests/${request.id}`}>
+                    <Link to={`/broker/project-requests/${request.id}`}>
                         <Button variant="secondary" className="h-8 text-xs">
                             <Eye className="w-3.5 h-3.5 mr-1.5" />
                             View Details

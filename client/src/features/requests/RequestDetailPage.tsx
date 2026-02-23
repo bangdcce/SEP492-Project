@@ -20,7 +20,7 @@ import {
 } from "@/shared/components/ui";
 import { wizardService } from "../wizard/services/wizardService";
 import { format } from "date-fns";
-import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, ExternalLink, FolderOpen, Users } from "lucide-react";
+import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, ExternalLink, FolderOpen, Users, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
@@ -59,6 +59,8 @@ export default function RequestDetailPage() {
   const [viewMode, setViewMode] = useState("workflow");
   const [activeTab, setActiveTab] = useState("phase1");
   const [showDraftAlert, setShowDraftAlert] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [isRejectingProposals, setIsRejectingProposals] = useState(false);
 
   // Invite Modal State
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -190,8 +192,11 @@ export default function RequestDetailPage() {
           await wizardService.cancelInvitation(proposalId);
           toast.success("Invitation Cancelled");
           fetchData(request.id);
-      } catch (error) {
-          toast.error("Failed to cancel invitation");
+      } catch (error: any) {
+          console.error("Cancel invitation error:", error?.response?.data || error);
+          toast.error("Failed to cancel invitation", {
+              description: error?.response?.data?.message || error?.message || "Unknown error",
+          });
       }
   };
 
@@ -206,6 +211,34 @@ export default function RequestDetailPage() {
 
   const handleInvite = async (brokerId: string, brokerName: string) => {
     handleOpenInviteModal(brokerId, brokerName, "BROKER");
+  };
+
+  // Edit Request Logic
+  const activeProposalCount = request?.brokerProposals?.filter(
+    (p: any) => p.status === 'PENDING' || p.status === 'INVITED' || p.status === 'ACCEPTED'
+  ).length || 0;
+
+  const handleEditRequest = () => {
+    if (activeProposalCount > 0) {
+      setShowEditModal(true);
+    } else {
+      // No active proposals, go directly to wizard
+      navigate(`/client/wizard?draftId=${id}`);
+    }
+  };
+
+  const handleConfirmEdit = async () => {
+    try {
+      setIsRejectingProposals(true);
+      await wizardService.rejectAllProposals(id!);
+      toast.success("All proposals rejected", { description: "Redirecting to wizard for editing..." });
+      setShowEditModal(false);
+      navigate(`/client/wizard?draftId=${id}`);
+    } catch (_error) {
+      toast.error("Failed to reject proposals");
+    } finally {
+      setIsRejectingProposals(false);
+    }
   };
 
   if (loading)
@@ -240,6 +273,41 @@ export default function RequestDetailPage() {
   return (
     <div className="container mx-auto p-4 md:p-6 max-w-7xl relative">
       {showDraftAlert && <DraftAlertDialog />}
+
+      {/* Edit Request Confirmation Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <Card className="w-full max-w-md p-6 shadow-2xl border-2 border-indigo-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 bg-orange-100 rounded-full">
+                <Pencil className="w-5 h-5 text-orange-600" />
+              </div>
+              <h3 className="text-lg font-bold">Edit Request?</h3>
+            </div>
+            <p className="text-muted-foreground mb-3 text-sm">
+              Editing this request will allow you to change the project details (budget, timeline, description, etc.) in the wizard.
+            </p>
+            {activeProposalCount > 0 && (
+              <div className="bg-orange-50 border border-orange-200 rounded-lg p-3 mb-4">
+                <p className="text-sm text-orange-800 font-medium mb-1">⚠️ Active Proposals Will Be Rejected</p>
+                <p className="text-xs text-orange-700">
+                  There {activeProposalCount === 1 ? 'is' : 'are'} <strong>{activeProposalCount}</strong> active proposal{activeProposalCount !== 1 ? 's' : ''} (applications/invitations) that will be <strong>automatically rejected</strong> to ensure fairness. Brokers will need to re-apply or be re-invited after your edits.
+                </p>
+              </div>
+            )}
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setShowEditModal(false)} disabled={isRejectingProposals}>Cancel</Button>
+              <Button 
+                className="bg-indigo-600 hover:bg-indigo-700 text-white"
+                onClick={handleConfirmEdit}
+                disabled={isRejectingProposals}
+              >
+                {isRejectingProposals ? 'Processing...' : 'Confirm & Edit'}
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="flex justify-between items-center mb-4">
         <Button
@@ -391,7 +459,7 @@ export default function RequestDetailPage() {
                                 Proceed to the next phase to finalize specifications.
                             </p>
                             <div className="flex justify-center gap-4">
-                                <Button variant="outline" className="border-green-600 text-green-600 hover:bg-green-100 bg-white">
+                                <Button variant="outline" className="border-green-600 text-green-600 hover:bg-green-100 bg-white" onClick={() => navigate(`/profile/${request.brokerId}`)}>
                                     View Broker Profile
                                 </Button>
                                 <Button onClick={() => setActiveTab('phase2')}>
@@ -840,7 +908,19 @@ export default function RequestDetailPage() {
 
               <Card>
                 <CardHeader>
-                  <h2 className="text-xl font-semibold">Project Details</h2>
+                  <div className="flex justify-between items-center">
+                    <h2 className="text-xl font-semibold">Project Details</h2>
+                    {(request.status === RequestStatus.PUBLIC_DRAFT || request.status === RequestStatus.PRIVATE_DRAFT) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2 border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                        onClick={handleEditRequest}
+                      >
+                        <Pencil className="w-4 h-4" /> Edit Request
+                      </Button>
+                    )}
+                  </div>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -909,20 +989,34 @@ export default function RequestDetailPage() {
                         </div>
                         
                         <div className="bg-muted/30 rounded-xl p-6 border space-y-6">
-                            {request.answers?.map((ans: any) => (
-                                <div key={ans.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 border-b border-border/50 pb-4 last:border-0 last:pb-0">
-                                    <div className="md:col-span-4 lg:col-span-3">
-                                        <h4 className="text-sm font-medium text-muted-foreground">
-                                            {ans.question?.text || "Requirement"}
-                                        </h4>
+                            {(() => {
+                                // Group answers by question code to merge FEATURES multi-select
+                                const grouped = new Map<string, { label: string; values: string[] }>();
+                                request.answers?.forEach((ans: any) => {
+                                    const key = ans.question?.code || ans.id;
+                                    const label = ans.question?.label || 'Requirement';
+                                    const value = ans.option?.label || ans.valueText || 'N/A';
+                                    if (grouped.has(key)) {
+                                        grouped.get(key)!.values.push(value);
+                                    } else {
+                                        grouped.set(key, { label, values: [value] });
+                                    }
+                                });
+                                return Array.from(grouped.entries()).map(([key, { label, values }]) => (
+                                    <div key={key} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 border-b border-border/50 pb-4 last:border-0 last:pb-0">
+                                        <div className="md:col-span-4 lg:col-span-3">
+                                            <h4 className="text-sm font-medium text-muted-foreground">
+                                                {label}
+                                            </h4>
+                                        </div>
+                                        <div className="md:col-span-8 lg:col-span-9">
+                                            <p className="font-medium text-base text-foreground leading-relaxed">
+                                                {values.join(', ')}
+                                            </p>
+                                        </div>
                                     </div>
-                                    <div className="md:col-span-8 lg:col-span-9">
-                                        <p className="font-medium text-base text-foreground leading-relaxed">
-                                            {ans.option?.label || ans.valueText || "N/A"}
-                                        </p>
-                                    </div>
-                                </div>
-                            ))}
+                                ));
+                            })()}
                             {(!request.answers || request.answers.length === 0) && (
                                 <div className="text-center py-8 text-muted-foreground italic">
                                     No initial specification data provided in the wizard.

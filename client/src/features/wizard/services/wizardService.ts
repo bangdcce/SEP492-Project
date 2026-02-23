@@ -102,5 +102,10 @@ export const wizardService = {
   cancelInvitation: async (proposalId: string) => {
     const response = await apiClient.post(`/project-requests/proposals/${proposalId}/cancel`);
     return response.data;
-  }
+  },
+
+  rejectAllProposals: async (requestId: string) => {
+    const response = await apiClient.post(`/project-requests/${requestId}/reject-all-proposals`);
+    return response.data;
+  },
 };

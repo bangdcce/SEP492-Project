@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Plus, X, Link as LinkIcon, Award, Code, Save, Loader2, Upload, FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/shared/components/ui/Button';
+import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/custom/input';
 import { getProfile, updateProfile } from '@/features/auth/api';
 import { ROUTES } from '@/constants';

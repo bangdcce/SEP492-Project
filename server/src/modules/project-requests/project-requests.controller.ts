@@ -258,4 +258,18 @@ export class ProjectRequestsController {
   async cancelInvitation(@Param('id') id: string, @GetUser('id') clientId: string) {
     return this.projectRequestsService.cancelInvitation(id, clientId);
   }
+
+  @Post(':id/reject-all-proposals')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Reject all active proposals and cancel all invitations for a request (used before editing)' })
+  @ApiResponse({ status: 200, description: 'All active proposals rejected and invitations cancelled' })
+  async rejectAllProposals(@Param('id') id: string, @GetUser('id') clientId: string) {
+    // Verify the request belongs to this client
+    const request = await this.projectRequestsService.findOne(id);
+    if (!request || request.clientId !== clientId) {
+      throw new Error('You can only manage your own requests');
+    }
+    await this.projectRequestsService.cancelAllActiveProposals(id);
+    return { message: 'All active proposals rejected and invitations cancelled' };
+  }
 }

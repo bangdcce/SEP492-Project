@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Button, Card, CardContent, CardFooter, CardHeader, Progress, Spinner } from "@/shared/components/ui";
 import { StepB1 } from "./components/StepB1";
 import { StepB2 } from "./components/StepB2";
@@ -15,6 +15,8 @@ import { KYCBlocker } from "@/shared/components/custom/KYCBlocker";
 
 export default function WizardPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const draftId = searchParams.get('draftId');
   
   const [currentStep, setCurrentStep] = useState(1);
   const [questions, setQuestions] = useState<WizardQuestion[]>([]);
@@ -22,7 +24,7 @@ export default function WizardPage() {
   const [submitting, setSubmitting] = useState(false);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
 
-  const [requestId, setRequestId] = useState<string | null>(null);
+  const [requestId, setRequestId] = useState<string | null>(draftId);
   
   // Form State
   const [productType, setProductType] = useState<string>("");
@@ -62,7 +64,40 @@ export default function WizardPage() {
 
     fetchQuestions();
     checkKycStatus();
-  }, []);
+
+    // Load existing draft if draftId is present
+    if (draftId) {
+      const loadDraft = async () => {
+        try {
+          const existingRequest = await wizardService.getRequestById(draftId);
+          if (existingRequest) {
+            setTitle(existingRequest.title || '');
+            setDescription(existingRequest.description || '');
+            setBudget(existingRequest.budgetRange || '');
+            setTimeline(existingRequest.intendedTimeline || '');
+            setRequestId(existingRequest.id);
+
+            // Map answers back to wizard step values
+            if (existingRequest.answers && existingRequest.answers.length > 0) {
+              const featuresArr: string[] = [];
+              for (const ans of existingRequest.answers) {
+                const qCode = ans.question?.code || '';
+                const val = ans.option?.label || ans.valueText || '';
+                if (qCode === 'PRODUCT_TYPE') setProductType(val);
+                else if (qCode === 'INDUSTRY') setIndustry(val);
+                else if (qCode === 'FEATURES') featuresArr.push(val);
+              }
+              if (featuresArr.length > 0) setFeatures(featuresArr);
+            }
+          }
+        } catch (err) {
+          console.error('Failed to load draft:', err);
+          toast.error('Failed to load draft data');
+        }
+      };
+      loadDraft();
+    }
+  }, [draftId]);
 
   const totalSteps = 5;
   const progress = (currentStep / totalSteps) * 100;
@@ -106,7 +141,8 @@ export default function WizardPage() {
             description: description + (fileUrl ? `\n\nAttachments: ${fileUrl}` : ""),
             budgetRange: budget,
             intendedTimeline: timeline,
-            isDraft: isDraftMode,
+            // When editing an existing request, don't send isDraft to preserve current status
+            ...(requestId ? {} : { isDraft: isDraftMode }),
             answers: []
         };
         // Find IDs for questions

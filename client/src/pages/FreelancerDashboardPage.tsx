@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Briefcase, Search, Filter, DollarSign, Clock, MapPin, Star, TrendingUp, CheckCircle2, AlertCircle, Settings } from 'lucide-react';
-import { Button } from '@/shared/components/ui/Button';
+import { Button } from '@/shared/components/ui/button';
 import { Input } from '@/shared/components/custom/input';
 import { ROUTES, STORAGE_KEYS } from '@/constants';
 import { FreelancerDashboardLayout } from '@/shared/components/layouts/freelancer/FreelancerDashboardLayout';

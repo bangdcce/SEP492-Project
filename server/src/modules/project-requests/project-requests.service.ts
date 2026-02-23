@@ -190,6 +190,7 @@ export class ProjectRequestsService {
             'answers.question',
             'answers.option',
             'client',
+            'broker',
             'brokerProposals',
             'brokerProposals.broker',
             'spec',
@@ -673,21 +674,29 @@ export class ProjectRequestsService {
   }
 
   async cancelInvitation(proposalId: string, clientId: string) {
-    const proposal = await this.brokerProposalRepo.findOne({
-      where: { id: proposalId },
-      relations: ['request'],
-    });
+  console.log(`[cancelInvitation] proposalId=${proposalId}, clientId=${clientId}`);
+  const proposal = await this.brokerProposalRepo.findOne({
+    where: { id: proposalId },
+    relations: ['request'],
+  });
 
-    if (!proposal) throw new NotFoundException('Invitation not found');
-    if (proposal.request.clientId !== clientId) {
-      throw new ForbiddenException('You can only cancel invitations for your own requests');
-    }
-
-    if (proposal.status !== ProposalStatus.INVITED) {
-        throw new BadRequestException('Can only cancel INVITED proposals');
-    }
-
-    proposal.status = ProposalStatus.CANCELLED;
-    return this.brokerProposalRepo.save(proposal);
+  if (!proposal) {
+    console.error(`[cancelInvitation] Proposal not found: ${proposalId}`);
+    throw new NotFoundException('Invitation not found');
   }
+  
+  console.log(`[cancelInvitation] proposal.status=${proposal.status}, proposal.request.clientId=${proposal.request?.clientId}`);
+
+  if (proposal.request.clientId !== clientId) {
+    console.error(`[cancelInvitation] ClientId mismatch: request.clientId=${proposal.request.clientId}, provided=${clientId}`);
+    throw new ForbiddenException('You can only cancel invitations for your own requests');
+  }
+
+  if (proposal.status !== ProposalStatus.INVITED) {
+      throw new BadRequestException('Can only cancel INVITED proposals');
+  }
+
+  proposal.status = ProposalStatus.CANCELLED;
+  return this.brokerProposalRepo.save(proposal);
+}
 }
