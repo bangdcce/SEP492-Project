@@ -687,11 +687,11 @@ export function TaskDetailModal({
         </div>
 
         {/* MAIN SCROLLABLE CONTENT */}
-        <div className="flex-1 overflow-y-auto">
-          <div className="grid grid-cols-1 md:grid-cols-12 min-h-full">
+        <div className="flex-1 overflow-y-auto md:overflow-hidden">
+          <div className="grid grid-cols-1 md:grid-cols-12 h-full">
             
             {/* LEFT COLUMN: MAIN CONTENT (8 cols) */}
-            <div className="md:col-span-8 p-6 md:pr-8 border-r border-gray-200 space-y-8">
+            <div className="md:col-span-8 p-6 pr-4 border-r border-gray-200 space-y-8 md:max-h-[calc(100vh-12rem)] md:overflow-y-auto md:custom-scrollbar">
               
               {/* TITLE */}
               <div>
@@ -1519,7 +1519,7 @@ export function TaskDetailModal({
               </div>
 
             {/* RIGHT COLUMN: SIDEBAR (4 cols) */}
-            <div className="md:col-span-4 p-6 space-y-6 bg-gray-50/50">
+            <div className="md:col-span-4 p-6 space-y-6 bg-gray-50/50 md:sticky md:top-0 md:self-start">
               
               {/* STATUS SELECTOR */}
               <div>

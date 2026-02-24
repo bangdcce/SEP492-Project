@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DragDropContext, type DropResult } from "@hello-pangea/dnd";
-import { LayoutGrid, Calendar as CalendarIcon, BarChart2, Search, XCircle, FileSignature } from "lucide-react";
+import { LayoutGrid, Calendar as CalendarIcon, BarChart2, Search, XCircle, FileSignature, MessageSquare } from "lucide-react";
 import { useNavigate, useParams } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
 import { STORAGE_KEYS } from "@/constants";
@@ -25,8 +25,10 @@ import { MilestoneTabs } from "./components/milestone/MilestoneTabs";
 import { CalendarView } from "./components/calendar/CalendarView";
 import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
 import { ProjectOverview } from "./components/overview/ProjectOverview";
+import { WorkspaceChatDrawer } from "./components/chat/WorkspaceChatDrawer";
 import { calculateProgress } from "./utils";
 import { CreateDisputeModal } from "@/features/disputes/components/wizard/CreateDisputeModal";
+import { disconnectNamespacedSocket, getNamespacedSocket } from "@/shared/realtime/socket";
 
 const initialBoard: KanbanBoard = {
   TODO: [],
@@ -34,6 +36,7 @@ const initialBoard: KanbanBoard = {
   IN_REVIEW: [],
   DONE: [],
 };
+const WORKSPACE_CHAT_NAMESPACE = "/ws/workspace";
 
 // Helper to get current user from storage (session/local)
 const getCurrentUser = (): { id: string; role?: string } | null => {
@@ -60,6 +63,9 @@ export function ProjectWorkspace() {
   const [viewMode, setViewMode] = useState<"summary" | "board" | "calendar">("summary");
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [disputeMilestone, setDisputeMilestone] = useState<Milestone | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const isChatOpenRef = useRef(false);
 
   // Filter State
   const [searchQuery, setSearchQuery] = useState("");
@@ -73,7 +79,71 @@ export function ProjectWorkspace() {
   const { projectId } = useParams();
 
   // Get current user for role-based UI restrictions
-  const currentUser = useMemo(() => getCurrentUser(), []);
+  const [currentUser, setCurrentUser] = useState<{ id: string; role?: string } | null>(
+    () => getCurrentUser(),
+  );
+
+  useEffect(() => {
+    const syncCurrentUser = () => {
+      setCurrentUser(getCurrentUser());
+    };
+
+    window.addEventListener("userDataUpdated", syncCurrentUser);
+    return () => {
+      window.removeEventListener("userDataUpdated", syncCurrentUser);
+    };
+  }, []);
+
+  useEffect(() => {
+    isChatOpenRef.current = isChatOpen;
+    if (isChatOpen) {
+      setUnreadCount(0);
+    }
+  }, [isChatOpen]);
+
+  useEffect(() => {
+    if (!projectId || !currentUser?.id) {
+      return;
+    }
+
+    const socket = getNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
+
+    const joinWorkspaceChatRoom = () => {
+      socket.emit("joinProjectChat", { projectId });
+    };
+
+    const handleNewProjectMessage = (payload: unknown) => {
+      const incomingProjectId =
+        typeof payload === "object" &&
+        payload !== null &&
+        typeof (payload as { projectId?: unknown }).projectId === "string"
+          ? (payload as { projectId: string }).projectId
+          : null;
+
+      if (incomingProjectId !== projectId) {
+        return;
+      }
+
+      if (!isChatOpenRef.current) {
+        setUnreadCount((previous) => previous + 1);
+      }
+    };
+
+    socket.on("connect", joinWorkspaceChatRoom);
+    socket.on("newProjectMessage", handleNewProjectMessage);
+
+    if (!socket.connected) {
+      socket.connect();
+    } else {
+      joinWorkspaceChatRoom();
+    }
+
+    return () => {
+      socket.off("connect", joinWorkspaceChatRoom);
+      socket.off("newProjectMessage", handleNewProjectMessage);
+      disconnectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
+    };
+  }, [currentUser?.id, projectId]);
 
   const isProjectDisputed = useMemo(() => {
     const status = project?.status?.toUpperCase();
@@ -373,6 +443,30 @@ export function ProjectWorkspace() {
       return newBoard;
     });
   };
+
+  const handleTaskCreatedFromChat = useCallback((incomingTask: Task) => {
+    const normalizedTask: Task = {
+      ...incomingTask,
+      status: incomingTask.status ?? "TODO",
+    };
+
+    setBoard((prevBoard) => {
+      const columnKeys: KanbanColumnKey[] = ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"];
+      const cleanedBoard = columnKeys.reduce<KanbanBoard>((acc, columnKey) => {
+        acc[columnKey] = prevBoard[columnKey].filter((task) => task.id !== normalizedTask.id);
+        return acc;
+      }, { TODO: [], IN_PROGRESS: [], IN_REVIEW: [], DONE: [] });
+
+      return {
+        ...cleanedBoard,
+        [normalizedTask.status]: [normalizedTask, ...cleanedBoard[normalizedTask.status]],
+      };
+    });
+
+    setSelectedTask((currentTask) =>
+      currentTask?.id === normalizedTask.id ? normalizedTask : currentTask,
+    );
+  }, []);
 
   // Handle milestone approval (Client/Broker only)
   const handleApproveMilestone = async (
@@ -684,6 +778,18 @@ export function ProjectWorkspace() {
               <CalendarIcon className="h-4 w-4" />
               Calendar
             </button>
+            <button
+              onClick={() => setIsChatOpen(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors text-gray-600 hover:text-gray-900"
+            >
+              <MessageSquare className="h-4 w-4" />
+              <span>Chat</span>
+              {unreadCount > 0 && (
+                <span className="ml-1 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-red-100">
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </button>
           </div>
           {/* Hide New Task button in read-only mode */}
           {!isReadOnly && (
@@ -956,6 +1062,18 @@ export function ProjectWorkspace() {
           projectMembers={projectMembers}
         />
       )}
+
+      <WorkspaceChatDrawer
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
+        projectId={projectId}
+        currentUserId={currentUser?.id}
+        currentUserRole={currentUser?.role}
+        defaultMilestoneId={selectedMilestoneId}
+        projectTitle="Workspace Chat"
+        showCommandPopover={true}
+        onTaskCreated={handleTaskCreatedFromChat}
+      />
 
     </div>
   );
