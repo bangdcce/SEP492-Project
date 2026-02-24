@@ -1,4 +1,3 @@
-
 import { apiClient } from "@/shared/api/client";
 
 export interface WizardOption {
@@ -25,7 +24,7 @@ export interface CreateProjectRequestDto {
   intendedTimeline?: string;
   techPreferences?: string;
   isDraft?: boolean;
-  status?: string; // Allowing string to support new enum values
+  status?: string; 
   answers: {
     questionId: string;
     optionId?: string;
@@ -77,7 +76,6 @@ export const wizardService = {
   },
 
   applyToRequest: async (requestId: string, coverLetter: string) => {
-    // Note: This endpoint expects brokerId from token, so we only send coverLetter
     return await apiClient.post(`/project-requests/${requestId}/apply`, { coverLetter });
   },
 
@@ -89,9 +87,10 @@ export const wizardService = {
     return await apiClient.post(`/project-requests/${requestId}/approve-specs`, {});
   },
 
+  // --- Proposal & Project Flow ---
   convertToProject: async (requestId: string) => {
-     const response = await apiClient.post(`/project-requests/${requestId}/convert`, {});
-     return response.data;
+    const response = await apiClient.post(`/project-requests/${requestId}/convert`, {});
+    return response.data;
   },
 
   rejectProposal: async (proposalId: string) => {
@@ -106,6 +105,35 @@ export const wizardService = {
 
   rejectAllProposals: async (requestId: string) => {
     const response = await apiClient.post(`/project-requests/${requestId}/reject-all-proposals`);
+    return response.data;
+  },
+
+  // ── AI Matching Engine ──
+  getFreelancerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+    const params = new URLSearchParams();
+    params.set('role', 'FREELANCER');
+    if (options?.enableAi !== undefined) params.set('enableAi', String(options.enableAi));
+    if (options?.topN !== undefined) params.set('topN', String(options.topN));
+    const response = await apiClient.get(`/matching/${requestId}?${params.toString()}`);
+    return response.data;
+  },
+
+  getFreelancerMatchesQuick: async (requestId: string) => {
+    const response = await apiClient.get(`/matching/${requestId}/quick?role=FREELANCER`);
+    return response.data;
+  },
+
+  getBrokerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+    const params = new URLSearchParams();
+    params.set('role', 'BROKER');
+    if (options?.enableAi !== undefined) params.set('enableAi', String(options.enableAi));
+    if (options?.topN !== undefined) params.set('topN', String(options.topN));
+    const response = await apiClient.get(`/matching/${requestId}?${params.toString()}`);
+    return response.data;
+  },
+
+  getBrokerMatchesQuick: async (requestId: string) => {
+    const response = await apiClient.get(`/matching/${requestId}/quick?role=BROKER`);
     return response.data;
   },
 };

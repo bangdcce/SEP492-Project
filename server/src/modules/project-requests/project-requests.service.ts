@@ -20,6 +20,7 @@ import {
   ProposalStatus,
 } from '../../database/entities/broker-proposal.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { MatchingService } from '../matching/matching.service';
 
 
 @Injectable()
@@ -34,6 +35,7 @@ export class ProjectRequestsService {
     @InjectRepository(ProjectRequestProposalEntity)
     private readonly freelancerProposalRepo: Repository<ProjectRequestProposalEntity>,
     private readonly auditLogsService: AuditLogsService,
+    private readonly matchingService: MatchingService,
   ) {}
 
   // ... (existing create/update methods)
@@ -181,66 +183,70 @@ export class ProjectRequestsService {
     });
   }
 
-  async findOne(id: string, user?: UserEntity) {
-    try {
-        const request = await this.requestRepo.findOne({
-        where: { id },
-        relations: [
-            'answers',
-            'answers.question',
-            'answers.option',
-            'client',
-            'broker',
-            'brokerProposals',
-            'brokerProposals.broker',
-            'spec',
-            'spec.milestones',
-        ],
-        });
+async findOne(id: string, user?: UserEntity) {
+  const request = await this.requestRepo.findOne({
+    where: { id },
+    relations: [
+      'answers',
+      'answers.question',
+      'answers.option',
+      'client',
+      'broker',
+      'brokerProposals',
+      'brokerProposals.broker',
+      'spec',
+      'spec.milestones',
+    ],
+  });
 
-        if (!request) {
-            console.warn(`Request not found: ${id}`);
-            return null; // Controller will handle 404 if needed, or we can throw NotFoundException here if we want strictness.
-            // For now, let's keep return null to be safe with existing logic, 
-            // OR consistent with other frameworks, returning null is fine if controller checks it.
-            // But usually findOne throws if not found in REST.
-            // Let's throw NotFoundException to be explicit.
-            // throw new NotFoundException('Request not found');
-        }
+  if (!request) {
+    throw new NotFoundException('Request not found');
+  }
 
-        if (user) {
-        if (user.role === UserRole.CLIENT && request.clientId !== user.id) {
-            console.warn(`Forbidden access to request ${id} by user ${user.id}`);
-            throw new ForbiddenException('You can only view your own requests');
-        }
-        }
+  if (user) {
+    if (user.role === UserRole.CLIENT && request.clientId !== user.id) {
+      throw new ForbiddenException('You can only view your own requests');
+    }
 
-        return request;
-    } catch (error) {
-        console.error(`Error loading request ${id}:`, error);
-        throw error;
+    if (user.role === UserRole.BROKER) {
+      if (
+        request.status === RequestStatus.PROCESSING &&
+        request.brokerId &&
+        request.brokerId !== user.id
+      ) {
+        throw new ForbiddenException(
+          'Request is assigned to another broker',
+        );
+      }
+
+      if (request.status === RequestStatus.PENDING && request.client) {
+        request.client.email = '********';
+        request.client.phoneNumber = '********';
+      }
     }
   }
 
+  return request;
+}
   async findMatches(id: string) {
-    // For now, return all brokers. In future, implement matching logic based on techPreferences vs Broker Skills.
-    // Query UserEntity where role = BROKER
-    // Since we don't have UserRepo injected here, we might need to inject it or use QueryBuilder if possible.
-    // Or simpler, just return empty list or mock if we can't access Users easily.
-    // Actually, let's just use a raw query or try to inject UserRepo if possible.
-    // Wait, UserEntity IS imported. We should InjectRepository(UserEntity).
+    const request = await this.findOne(id);
+    if (!request) {
+      throw new Error('Request not found');
+    }
 
-    // Instead of changing constructor too much (risk breaking tests/module),
-    // I will try to use `this.requestRepo.manager.getRepository(UserEntity)`.
-    const userRepo = this.requestRepo.manager.getRepository(UserEntity);
-    const brokers = await userRepo.find({ where: { role: UserRole.BROKER } });
+    const techStack = request.techPreferences 
+      ? request.techPreferences.split(',').map(s => s.trim()).filter(s => s.length > 0)
+      : [];
 
-    // Exclude already invited/applied
-    // Fetch proposals
-    const existingProposals = await this.brokerProposalRepo.find({ where: { requestId: id } });
-    const involvedBrokerIds = new Set(existingProposals.map((p) => p.brokerId));
+    const input = {
+      requestId: request.id,
+      specDescription: request.description,
+      requiredTechStack: techStack,
+      budgetRange: request.budgetRange,
+      estimatedDuration: request.intendedTimeline,
+    };
 
-    return brokers.filter((b) => !involvedBrokerIds.has(b.id));
+    return this.matchingService.findMatches(input, { role: 'BROKER' });
   }
 
   async inviteBroker(requestId: string, brokerId: string, message?: string) {
