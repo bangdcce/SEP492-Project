@@ -20,7 +20,7 @@ import {
 } from "@/shared/components/ui";
 import { wizardService } from "../wizard/services/wizardService";
 import { format } from "date-fns";
-import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, ExternalLink, FolderOpen, Users } from "lucide-react";
+import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, ExternalLink, FolderOpen, Users, Star, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
@@ -28,6 +28,8 @@ import { CommentsSection } from "./components/CommentsSection";
 import { RequestStatus } from "./types";
 import { InviteModal } from "../discovery/InviteModal";
 import { UserRole } from "@/shared/types/user.types";
+import { CandidateProfileModal } from "./components/CandidateProfileModal";
+import { ScoreExplanationModal } from "./components/ScoreExplanationModal";
 
 // Helper for safe date formatting
 const safeFormatDate = (dateStr: any, fmt: string) => {
@@ -51,9 +53,14 @@ export default function RequestDetailPage() {
 
   const [request, setRequest] = useState<any>(null);
   const [matches, setMatches] = useState<any[]>([]);
+  const [freelancerMatches, setFreelancerMatches] = useState<any[]>([]);
+  const [freelancerMatchesLoading, setFreelancerMatchesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [specsAccepted, setSpecsAccepted] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isScoreExplanationOpen, setIsScoreExplanationOpen] = useState(false);
   
   // Tabs State
   const [viewMode, setViewMode] = useState("workflow");
@@ -79,6 +86,21 @@ export default function RequestDetailPage() {
     return 1; // Default
   }, []);
 
+  const fetchFreelancerMatches = useCallback(async (requestId: string, useAi: boolean = false) => {
+    try {
+      setFreelancerMatchesLoading(true);
+      const data = useAi
+        ? await wizardService.getFreelancerMatches(requestId, { enableAi: true, topN: 10 })
+        : await wizardService.getFreelancerMatchesQuick(requestId);
+      setFreelancerMatches(data || []);
+    } catch (error) {
+      console.error('Freelancer matching failed', error);
+      setFreelancerMatches([]);
+    } finally {
+      setFreelancerMatchesLoading(false);
+    }
+  }, []);
+
   const fetchData = useCallback(async (requestId: string) => {
     try {
       setLoading(true);
@@ -94,6 +116,11 @@ export default function RequestDetailPage() {
         // Auto-select main tab based on phase
         const phase = getPhase(reqData.status);
         if (phase > 0) setActiveTab(`phase${phase}`);
+
+        // Auto-fetch freelancer matches for Phase 3+
+        if (phase >= 3) {
+          fetchFreelancerMatches(requestId, false);
+        }
       }
 
       if (
@@ -108,7 +135,7 @@ export default function RequestDetailPage() {
     } finally {
       setLoading(false);
     }
-  }, [getPhase]);
+  }, [getPhase, fetchFreelancerMatches]);
 
   useEffect(() => {
     if (id) {
@@ -512,8 +539,11 @@ export default function RequestDetailPage() {
                                                 <UserPlus className="w-5 h-5" /> Find & Invite Brokers
                                             </h3>
                                             <div className="flex gap-2 items-center">
-                                                <span className="text-xs text-muted-foreground mr-2">
+                                                <span className="text-xs text-muted-foreground mr-1 flex items-center gap-1">
                                                     {matches?.length || 0} Top Matches
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted" onClick={() => setIsScoreExplanationOpen(true)}>
+                                                        <HelpCircle className="w-5 h-5 text-muted-foreground" />
+                                                    </Button>
                                                 </span>
                                                 <Button size="sm" variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.BROKER}`)}>
                                                     Search Marketplace
@@ -533,15 +563,55 @@ export default function RequestDetailPage() {
                                                 </div>
                                                 <div>
                                                 <h4 className="font-semibold text-lg">{broker.fullName || "Unknown Broker"}</h4>
-                                                <div className="text-sm text-muted-foreground flex gap-3 mt-1">
-                                                    <span className="bg-secondary px-2 py-0.5 rounded text-xs">Score: N/A</span>
-                                                    <span>•</span>
-                                                    <span>Matching Skills</span>
+                                                
+                                                {/* AI Score Rendering */}
+                                                <div className="flex items-center gap-2 mt-1 mb-1">
+                                                    {broker.classificationLabel && (
+                                                        <Badge variant={broker.classificationLabel === 'PERFECT_MATCH' ? 'default' : 'outline'}
+                                                            className={`text-[10px] ${
+                                                                broker.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-600' :
+                                                                broker.classificationLabel === 'POTENTIAL' ? 'border-amber-400 text-amber-700' :
+                                                                broker.classificationLabel === 'HIGH_RISK' ? 'border-red-400 text-red-700' : ''
+                                                            }`}
+                                                        >
+                                                            {broker.classificationLabel === 'PERFECT_MATCH' && '🟢 '}
+                                                            {broker.classificationLabel === 'POTENTIAL' && '🟡 '}
+                                                            {broker.classificationLabel === 'HIGH_RISK' && '🔴 '}
+                                                            {broker.classificationLabel?.replace('_', ' ')}
+                                                        </Badge>
+                                                    )}
+                                                    
+                                                    {broker.matchScore !== undefined && (
+                                                        <div className="flex gap-3 text-sm text-muted-foreground">
+                                                            <span className="flex items-center gap-1">
+                                                                <Star className="w-3 h-3" /> Score: {broker.matchScore}
+                                                            </span>
+                                                            {broker.aiRelevanceScore !== null && broker.aiRelevanceScore !== undefined && (
+                                                                <span className="flex items-center gap-1">
+                                                                    <Sparkles className="w-3 h-3 text-indigo-500" /> AI: {broker.aiRelevanceScore}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
+
+                                                {/* Matched Skills */}
+                                                {broker.matchedSkills && broker.matchedSkills.length > 0 && (
+                                                    <div className="flex gap-1 flex-wrap mb-1">
+                                                        {broker.matchedSkills.map((skill: string) => (
+                                                            <Badge key={skill} variant="secondary" className="text-[10px] px-2 py-0.5">{skill}</Badge>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Reasoning */}
+                                                {broker.reasoning && (
+                                                    <p className="text-xs text-muted-foreground italic line-clamp-2 mt-1">{broker.reasoning}</p>
+                                                )}
                                                 </div>
                                             </div>
                                             <div className="flex gap-2">
-                                                <Button size="sm" variant="outline">Profile</Button>
+                                                <Button size="sm" variant="outline" onClick={() => { setSelectedCandidate(broker); setIsProfileModalOpen(true); }}>Profile</Button>
                                                 <Button size="sm" onClick={() => handleInvite(broker.id, broker.fullName)}>
                                                 <UserPlus className="w-4 h-4 mr-2" /> Invite
                                                 </Button>
@@ -629,11 +699,37 @@ export default function RequestDetailPage() {
               </Card>
             </TabsContent>
 
-            {/* PHASE 3: HIRE FREELANCER */}
+            {/* PHASE 3: HIRE FREELANCER — AI Matching Engine */}
             <TabsContent value="phase3">
                 <Card>
                     <CardHeader>
-                        <h2 className="text-xl font-semibold">Freelancer Recruitment</h2>
+                        <div className="flex justify-between items-center">
+                            <h2 className="text-xl font-semibold flex items-center gap-2">
+                                <Sparkles className="w-5 h-5 text-indigo-500" /> Freelancer Recruitment
+                            </h2>
+                            {currentPhase >= 3 && (
+                                <div className="flex gap-2">
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        onClick={() => id && fetchFreelancerMatches(id, false)}
+                                        disabled={freelancerMatchesLoading}
+                                    >
+                                        {freelancerMatchesLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                                        Quick Match
+                                    </Button>
+                                    <Button
+                                        size="sm"
+                                        className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white"
+                                        onClick={() => id && fetchFreelancerMatches(id, true)}
+                                        disabled={freelancerMatchesLoading}
+                                    >
+                                        {freelancerMatchesLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Sparkles className="w-4 h-4 mr-1" />}
+                                        AI Match
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
                     </CardHeader>
                     <CardContent>
                         {currentPhase < 3 ? (
@@ -642,40 +738,98 @@ export default function RequestDetailPage() {
                             </div>
                         ) : (
                             <div className="space-y-6">
-                                <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 flex gap-3 text-blue-800">
-                                    <div className="font-bold whitespace-nowrap">Broker Suggestion:</div>
+                                {/* Search marketplace link */}
+                                <div className="flex justify-between items-center bg-muted/20 p-4 rounded-lg">
                                     <div>
-                                        We need <strong>2 Frontend Devs</strong> and <strong>1 Backend Dev</strong> for this scope.
+                                        <h4 className="font-semibold flex items-center gap-2">
+                                            Find Freelancers
+                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted" onClick={() => setIsScoreExplanationOpen(true)}>
+                                                <HelpCircle className="w-5 h-5 text-muted-foreground" />
+                                            </Button>
+                                        </h4>
+                                        <p className="text-sm text-muted-foreground">AI-matched candidates or search the marketplace.</p>
                                     </div>
+                                    <Button variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>
+                                        Search Marketplace
+                                    </Button>
                                 </div>
-                                
-                                {/* Mock Freelancer List */}
-                                <div className="space-y-4">
-                                    <div className="flex justify-between items-center bg-muted/20 p-4 rounded-lg">
-                                        <div>
-                                            <h4 className="font-semibold">Find Freelancers</h4>
-                                            <p className="text-sm text-muted-foreground">Search and invite freelancers to the project.</p>
-                                        </div>
-                                        <Button onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>
-                                            Search Candidates
-                                        </Button>
+
+                                {/* Results */}
+                                {freelancerMatchesLoading ? (
+                                    <div className="text-center py-12">
+                                        <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-500 mb-3" />
+                                        <p className="text-muted-foreground">Running matching pipeline...</p>
                                     </div>
-                                    {[1, 2].map((i) => (
-                                        <div key={i} className="flex items-center justify-between p-4 border rounded-lg bg-background">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 rounded-full bg-orange-100 flex items-center justify-center text-orange-600 font-bold">F{i}</div>
-                                                <div>
-                                                    <h4 className="font-semibold">Freelancer Candidate {i}</h4>
-                                                    <p className="text-sm text-muted-foreground">Full Stack Developer • 5 Years Exp</p>
+                                ) : freelancerMatches.length === 0 ? (
+                                    <div className="text-center py-8 bg-muted/10 border-2 border-dashed rounded-lg">
+                                        <p className="text-muted-foreground">No freelancer matches found. Click "Quick Match" or "AI Match" above.</p>
+                                    </div>
+                                ) : (
+                                    <div className="space-y-4">
+                                        <p className="text-sm text-muted-foreground">{freelancerMatches.length} candidates ranked</p>
+                                        {freelancerMatches.map((match: any) => (
+                                            <div key={match.userId} className="border rounded-xl p-4 bg-background hover:bg-muted/10 transition-all shadow-sm">
+                                                <div className="flex items-start justify-between">
+                                                    <div className="flex items-start gap-4">
+                                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg border-2 ${
+                                                            match.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                            match.classificationLabel === 'POTENTIAL' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                            match.classificationLabel === 'HIGH_RISK' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                            'bg-gray-50 text-gray-700 border-gray-200'
+                                                        }`}>
+                                                            {match.fullName?.charAt(0) || '?'}
+                                                        </div>
+                                                        <div>
+                                                            <div className="flex items-center gap-2 mb-1">
+                                                                <h4 className="font-semibold text-lg">{match.fullName}</h4>
+                                                                <Badge variant={match.classificationLabel === 'PERFECT_MATCH' ? 'default' : 'outline'}
+                                                                    className={`text-[10px] ${
+                                                                        match.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-600' :
+                                                                        match.classificationLabel === 'POTENTIAL' ? 'border-amber-400 text-amber-700' :
+                                                                        match.classificationLabel === 'HIGH_RISK' ? 'border-red-400 text-red-700' : ''
+                                                                    }`}
+                                                                >
+                                                                    {match.classificationLabel === 'PERFECT_MATCH' && '🟢 '}
+                                                                    {match.classificationLabel === 'POTENTIAL' && '🟡 '}
+                                                                    {match.classificationLabel === 'HIGH_RISK' && '🔴 '}
+                                                                    {match.classificationLabel?.replace('_', ' ')}
+                                                                </Badge>
+                                                            </div>
+                                                            <div className="flex gap-3 text-sm text-muted-foreground mb-2">
+                                                                <span className="flex items-center gap-1">
+                                                                    <Star className="w-3 h-3" /> Score: {match.matchScore}
+                                                                </span>
+                                                                {match.aiRelevanceScore !== null && (
+                                                                    <span className="flex items-center gap-1">
+                                                                        <Sparkles className="w-3 h-3 text-indigo-500" /> AI: {match.aiRelevanceScore}
+                                                                    </span>
+                                                                )}
+                                                                <span>Tag: {match.tagOverlapScore}</span>
+                                                                <span>Trust: {match.normalizedTrust}</span>
+                                                            </div>
+                                                            {match.matchedSkills?.length > 0 && (
+                                                                <div className="flex gap-1 flex-wrap mb-2">
+                                                                    {match.matchedSkills.map((skill: string) => (
+                                                                        <Badge key={skill} variant="secondary" className="text-[10px] px-2 py-0.5">{skill}</Badge>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                            {match.reasoning && (
+                                                                <p className="text-xs text-muted-foreground italic line-clamp-2">{match.reasoning}</p>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex gap-2 shrink-0">
+                                                        <Button size="sm" variant="outline" onClick={() => { setSelectedCandidate(match); setIsProfileModalOpen(true); }}>Profile</Button>
+                                                        <Button size="sm" onClick={() => handleOpenInviteModal(match.userId, match.fullName, 'FREELANCER')}>
+                                                            <UserPlus className="w-4 h-4 mr-1" /> Invite
+                                                        </Button>
+                                                    </div>
                                                 </div>
                                             </div>
-                                            <div className="flex gap-2">
-                                                <Button size="sm" variant="outline">View Profile</Button>
-                                                <Button size="sm">Invite to Project</Button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                </div>
+                                        ))}
+                                    </div>
+                                )}
                             </div>
                         )}
                     </CardContent>
@@ -919,6 +1073,15 @@ export default function RequestDetailPage() {
             onInviteSuccess={() => id && fetchData(id)}
         />
       )}
+      <CandidateProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        candidate={selectedCandidate}
+      />
+      <ScoreExplanationModal
+        isOpen={isScoreExplanationOpen}
+        onClose={() => setIsScoreExplanationOpen(false)}
+      />
     </div>
   );
 }

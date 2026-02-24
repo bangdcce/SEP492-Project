@@ -9,6 +9,10 @@ import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { DataSource } from 'typeorm';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ProjectRequestAnswerEntity } from '../../database/entities/project-request-answer.entity';
+import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { MatchingService } from '../matching/matching.service';
 
 describe('ProjectRequestsService', () => {
   let service: ProjectRequestsService;
@@ -27,6 +31,10 @@ describe('ProjectRequestsService', () => {
     createQueryRunner: jest.fn(),
   };
 
+  const mockMatchingService = {
+    findMatches: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -42,6 +50,22 @@ describe('ProjectRequestsService', () => {
         {
           provide: DataSource,
           useValue: mockDataSource,
+        },
+        {
+          provide: getRepositoryToken(ProjectRequestAnswerEntity),
+          useValue: { find: jest.fn(), save: jest.fn(), create: jest.fn() },
+        },
+        {
+          provide: getRepositoryToken(BrokerProposalEntity),
+          useValue: { find: jest.fn(), save: jest.fn(), create: jest.fn() },
+        },
+        {
+          provide: getRepositoryToken(ProjectRequestProposalEntity),
+          useValue: { find: jest.fn(), save: jest.fn(), create: jest.fn() },
+        },
+        {
+          provide: MatchingService,
+          useValue: mockMatchingService,
         },
       ],
     }).compile();
