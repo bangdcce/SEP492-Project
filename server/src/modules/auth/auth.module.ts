@@ -6,6 +6,7 @@ import { PassportModule } from '@nestjs/passport';
 
 import { AuthController } from './auth.controller';
 import { PublicSkillsController } from './public-skills.controller';
+import { ProfileController } from './profile.controller';
 import { AuthService } from './auth.service';
 import { EmailService } from './email.service';
 import { EmailVerificationService } from './email-verification.service';
@@ -17,6 +18,7 @@ import { CaptchaGuard } from '../../common/guards/captcha.guard';
 import { UserEntity } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
+import { UserSkillEntity } from '../../database/entities/user-skill.entity';
 import { SkillDomainEntity } from '../../database/entities/skill-domain.entity';
 import { SkillEntity } from '../../database/entities/skill.entity';
 import { ProjectEntity } from '../../database/entities/project.entity';
@@ -29,6 +31,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
       UserEntity,
       AuthSessionEntity,
       ProfileEntity,
+      UserSkillEntity,
       SkillDomainEntity,
       SkillEntity,
       ProjectEntity,
@@ -58,7 +61,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
       inject: [ConfigService],
     }),
   ],
-  controllers: [AuthController, PublicSkillsController],
+  controllers: [AuthController, PublicSkillsController, ProfileController],
   providers: [
     AuthService,
     EmailService,

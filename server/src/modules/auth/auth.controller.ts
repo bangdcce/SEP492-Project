@@ -431,7 +431,7 @@ export class AuthController {
       response.cookie('refreshToken', tokens.refreshToken, this.cookiePolicy.refreshToken);
 
       return {
-        message: 'Làm mới token thành công',
+        message: 'Token refreshed successfully',
         data: {},
       };
     } catch (error) {

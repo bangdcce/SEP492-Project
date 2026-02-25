@@ -91,9 +91,6 @@ const ParticipantHearingRoomPage = lazy(() =>
 );
 
 // ========== FREELANCER PAGES ==========
-const FreelancerOnboardingPage = lazy(
-  () => import("@/pages/FreelancerOnboardingPage"),
-);
 const FreelancerDashboardPage = lazy(
   () => import("@/pages/FreelancerDashboardPage"),
 );
@@ -236,14 +233,6 @@ function App() {
         <Route path="/kyc" element={<KYCPage />} />
 
         {/* ========== FREELANCER ROUTES - /freelancer/* ========== */}
-        <Route
-          path={ROUTES.FREELANCER_ONBOARDING}
-          element={
-            <RoleGuard allowedRoles={["FREELANCER"]}>
-              <FreelancerOnboardingPage />
-            </RoleGuard>
-          }
-        />
         <Route
           path={ROUTES.FREELANCER_DASHBOARD}
           element={
