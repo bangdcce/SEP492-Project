@@ -28,6 +28,8 @@ const RequestDetailPage = lazy(
 );
 const MyInvitationsPage = lazy(() => import("@/features/dashboard/MyInvitationsPage").then(m => ({ default: m.MyInvitationsPage })));
 const InvitationDetailsPage = lazy(() => import("@/features/dashboard/InvitationDetailsPage").then(m => ({ default: m.InvitationDetailsPage })));
+const DiscoveryPage = lazy(() => import("@/features/discovery/DiscoveryPage").then(m => ({ default: m.DiscoveryPage })));
+const PartnerProfilePage = lazy(() => import("@/features/discovery/PartnerProfilePage").then(m => ({ default: m.PartnerProfilePage })));
 
 // ========== PROJECT PAGES ==========
 const ProjectListPage = lazy(
@@ -439,6 +441,27 @@ function App() {
             <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <KYCStatusPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+
+        <Route
+          path="/client/discovery"
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <DiscoveryPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/client/discovery/profile/:id"
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <PartnerProfilePage />
               </ClientDashboardLayout>
             </RoleGuard>
           }

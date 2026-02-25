@@ -12,6 +12,7 @@ import { ProjectsModule } from './modules/projects/projects.module';
 import jwtConfig from './config/jwt.config';
 import { WizardModule } from './modules/wizard/wizard.module';
 import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
+import { MatchingModule } from './modules/matching/matching.module';
 import { ReviewModule } from './modules/review/review.module';
 import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
@@ -106,6 +107,7 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
     ProjectsModule,
     WizardModule,
     ProjectRequestsModule,
+    MatchingModule,
     ReviewModule,
     TrustScoreModule,
     ReportModule,

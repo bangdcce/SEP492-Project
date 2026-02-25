@@ -91,5 +91,31 @@ export const wizardService = {
 
   convertToProject: async (requestId: string) => {
      return await apiClient.post(`/project-requests/${requestId}/convert`, {});
+  },
+
+  getBrokerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+    const params = new URLSearchParams();
+    params.set('role', 'BROKER');
+    if (options?.enableAi !== undefined) params.set('enableAi', String(options.enableAi));
+    if (options?.topN !== undefined) params.set('topN', String(options.topN));
+    const qs = params.toString();
+    return await apiClient.get(`/matching/${requestId}?${qs}`);
+  },
+
+  getBrokerMatchesQuick: async (requestId: string) => {
+    return await apiClient.get(`/matching/${requestId}?role=BROKER&enableAi=true`);
+  },
+
+  getFreelancerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+    const params = new URLSearchParams();
+    params.set('role', 'FREELANCER');
+    if (options?.enableAi !== undefined) params.set('enableAi', String(options.enableAi));
+    if (options?.topN !== undefined) params.set('topN', String(options.topN));
+    const qs = params.toString();
+    return await apiClient.get(`/matching/${requestId}?${qs}`);
+  },
+
+  getFreelancerMatchesQuick: async (requestId: string) => {
+    return await apiClient.get(`/matching/${requestId}?role=FREELANCER&enableAi=true`);
   }
 };

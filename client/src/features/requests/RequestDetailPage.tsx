@@ -20,7 +20,7 @@ import {
 } from "@/shared/components/ui";
 import { wizardService } from "../wizard/services/wizardService";
 import { format } from "date-fns";
-import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, ExternalLink, FolderOpen, Users } from "lucide-react";
+import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, ExternalLink, FolderOpen, Users, Star, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
@@ -28,6 +28,8 @@ import { CommentsSection } from "./components/CommentsSection";
 import { RequestStatus } from "./types";
 import { InviteModal } from "../discovery/InviteModal";
 import { UserRole } from "@/shared/types/user.types";
+import { CandidateProfileModal } from "./components/CandidateProfileModal";
+import { ScoreExplanationModal } from "./components/ScoreExplanationModal";
 
 // Helper for safe date formatting
 const safeFormatDate = (dateStr: any, fmt: string) => {
@@ -54,6 +56,9 @@ export default function RequestDetailPage() {
   const [loading, setLoading] = useState(true);
   const [specsAccepted, setSpecsAccepted] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+  const [isScoreExplanationOpen, setIsScoreExplanationOpen] = useState(false);
   
   // Tabs State
   const [viewMode, setViewMode] = useState("workflow");
@@ -84,7 +89,7 @@ export default function RequestDetailPage() {
       setLoading(true);
       const [reqData, matchData] = await Promise.all([
         wizardService.getRequestById(requestId),
-        wizardService.getMatches(requestId),
+        wizardService.getBrokerMatchesQuick(requestId),
       ]);
       setRequest(reqData);
 
@@ -512,8 +517,11 @@ export default function RequestDetailPage() {
                                                 <UserPlus className="w-5 h-5" /> Find & Invite Brokers
                                             </h3>
                                             <div className="flex gap-2 items-center">
-                                                <span className="text-xs text-muted-foreground mr-2">
+                                                <span className="text-xs text-muted-foreground mr-1 flex items-center gap-1">
                                                     {matches?.length || 0} Top Matches
+                                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted" onClick={() => setIsScoreExplanationOpen(true)}>
+                                                        <HelpCircle className="w-5 h-5 text-muted-foreground" />
+                                                    </Button>
                                                 </span>
                                                 <Button size="sm" variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.BROKER}`)}>
                                                     Search Marketplace
@@ -526,23 +534,65 @@ export default function RequestDetailPage() {
                                             </p>
                                         ) : (
                                         matches.map((broker: any) => (
-                                            <div key={broker.id} className="flex items-center justify-between p-4 border rounded-lg bg-background hover:bg-muted/30 transition-colors">
+                                            <div key={broker.candidateId || broker.id} className="flex items-center justify-between p-4 border rounded-lg bg-background hover:bg-muted/30 transition-colors">
                                             <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
-                                                {broker.fullName?.charAt(0) || "B"}
+                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg border-2 ${
+                                                        broker.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                        broker.classificationLabel === 'POTENTIAL' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                        broker.classificationLabel === 'HIGH_RISK' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                        'bg-gray-50 text-gray-700 border-gray-200'
+                                                    }`}>
+                                                    {broker.fullName?.charAt(0) || '?'}
                                                 </div>
                                                 <div>
                                                 <h4 className="font-semibold text-lg">{broker.fullName || "Unknown Broker"}</h4>
-                                                <div className="text-sm text-muted-foreground flex gap-3 mt-1">
-                                                    <span className="bg-secondary px-2 py-0.5 rounded text-xs">Score: N/A</span>
-                                                    <span>•</span>
-                                                    <span>Matching Skills</span>
+                                                
+                                                {/* AI Score Rendering */}
+                                                <div className="flex items-center gap-2 mt-1 mb-1">
+                                                    {broker.classificationLabel && (
+                                                        <Badge variant={broker.classificationLabel === 'PERFECT_MATCH' ? 'default' : 'outline'}
+                                                            className={`text-[10px] ${
+                                                                broker.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-600' :
+                                                                broker.classificationLabel === 'POTENTIAL' ? 'border-amber-400 text-amber-700' :
+                                                                broker.classificationLabel === 'HIGH_RISK' ? 'border-red-400 text-red-700' : ''
+                                                            }`}
+                                                        >
+                                                            {broker.classificationLabel?.replace('_', ' ')}
+                                                        </Badge>
+                                                    )}
+                                                    
+                                                    {broker.matchScore !== undefined && (
+                                                        <div className="flex gap-3 text-sm text-muted-foreground">
+                                                            <span className="flex items-center gap-1">
+                                                                <Star className="w-3 h-3" /> Score: {broker.matchScore}
+                                                            </span>
+                                                            {broker.aiRelevanceScore !== null && broker.aiRelevanceScore !== undefined && (
+                                                                <span className="flex items-center gap-1">
+                                                                    <Sparkles className="w-3 h-3 text-indigo-500" /> AI: {broker.aiRelevanceScore}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    )}
                                                 </div>
-                                                </div>
+
+                                                {/* Matched Skills */}
+                                                {broker.matchedSkills && broker.matchedSkills.length > 0 && (
+                                                    <div className="flex gap-1 flex-wrap mb-1">
+                                                        {broker.matchedSkills.map((skill: string) => (
+                                                            <Badge key={skill} variant="secondary" className="text-[10px] px-2 py-0.5">{skill}</Badge>
+                                                        ))}
+                                                    </div>
+                                                )}
+
+                                                {/* Reasoning */}
+                                                {broker.reasoning && (
+                                                    <p className="text-xs text-muted-foreground italic line-clamp-2 mt-1">{broker.reasoning}</p>
+                                                )}
+                                                 </div>
                                             </div>
                                             <div className="flex gap-2">
-                                                <Button size="sm" variant="outline">Profile</Button>
-                                                <Button size="sm" onClick={() => handleInvite(broker.id, broker.fullName)}>
+                                                <Button size="sm" variant="outline" onClick={() => { setSelectedCandidate(broker); setIsProfileModalOpen(true); }}>Profile</Button>
+                                                <Button size="sm" onClick={() => handleInvite(broker.id || broker.candidateId, broker.fullName)}>
                                                 <UserPlus className="w-4 h-4 mr-2" /> Invite
                                                 </Button>
                                             </div>
@@ -919,6 +969,17 @@ export default function RequestDetailPage() {
             onInviteSuccess={() => id && fetchData(id)}
         />
       )}
+
+      <CandidateProfileModal
+        isOpen={isProfileModalOpen}
+        onClose={() => setIsProfileModalOpen(false)}
+        candidate={selectedCandidate}
+      />
+
+      <ScoreExplanationModal
+        isOpen={isScoreExplanationOpen}
+        onClose={() => setIsScoreExplanationOpen(false)}
+      />
     </div>
   );
 }
