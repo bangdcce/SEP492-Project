@@ -4,28 +4,19 @@ import {
   Param,
   Query,
   UseGuards,
-  NotFoundException,
   Logger,
 } from '@nestjs/common';
-import {
-  ApiBearerAuth,
-  ApiOperation,
-  ApiResponse,
-  ApiTags,
-} from '@nestjs/swagger';
+import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-
-import { MatchingService } from './matching.service';
-import { MatchQueryDto } from './dto/match-query.dto';
-import { MatchingInput } from './interfaces/match.interfaces';
+import { MatchingService, MatchingInput } from './matching.service';
 import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
-import { JwtAuthGuard, Roles, RolesGuard } from '../auth';
-import { UserRole } from '../../database/entities/user.entity';
+import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
-@ApiTags('Matching Engine')
+@ApiTags('Matching')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
+@UseGuards(JwtAuthGuard)
 @Controller('matching')
 export class MatchingController {
   private readonly logger = new Logger(MatchingController.name);
@@ -34,87 +25,56 @@ export class MatchingController {
     private readonly matchingService: MatchingService,
     @InjectRepository(ProjectRequestEntity)
     private readonly requestRepo: Repository<ProjectRequestEntity>,
+    @InjectRepository(BrokerProposalEntity)
+    private readonly brokerProposalRepo: Repository<BrokerProposalEntity>,
   ) {}
 
   @Get(':requestId')
-  @Roles(UserRole.CLIENT, UserRole.ADMIN, UserRole.BROKER)
-  @ApiOperation({ summary: 'Find highly relevant freelancers for a project request (uses AI if enabled)' })
-  @ApiResponse({ status: 200, description: 'Returns a ranked, classified list of matched freelancers.' })
-  @ApiResponse({ status: 404, description: 'Project request not found.' })
-  async getMatches(
+  @ApiOperation({ summary: 'Find matching candidates for a project request' })
+  async findMatches(
     @Param('requestId') requestId: string,
-    @Query() query: MatchQueryDto,
+    @Query('role') role: 'BROKER' | 'FREELANCER' = 'BROKER',
+    @Query('enableAi') enableAi?: string,
+    @Query('topN') topN?: string,
   ) {
-    this.logger.log(`Full matching pipeline requested for ${requestId}`);
-    const enableAi = query.enableAi ?? true;
-    const topN = query.topN ?? 10;
-    const requireKyc = query.requireKyc ?? true;
-    const role = query.role ?? 'FREELANCER';
+    this.logger.log(
+      `Finding matches: requestId=${requestId}, role=${role}, enableAi=${enableAi}, topN=${topN}`,
+    );
 
-    // 1. Build context
-    const input = await this.buildMatchingInput(requestId);
-
-    // 2. Execute matching pipeline
-    return this.matchingService.findMatches(input, {
-      enableAi,
-      topN,
-      requireKyc,
-      role,
-    });
-  }
-
-  @Get(':requestId/quick')
-  @Roles(UserRole.CLIENT, UserRole.ADMIN, UserRole.BROKER)
-  @ApiOperation({ summary: 'Instant deterministic matching (bypasses AI Layer 3)' })
-  @ApiResponse({ status: 200, description: 'Returns a list of freelancers ranked strictly by deterministic tag overlap.' })
-  @ApiResponse({ status: 404, description: 'Project request not found.' })
-  async findMatchesQuick(
-    @Param('requestId') requestId: string,
-    @Query() query: MatchQueryDto,
-  ) {
-    this.logger.log(`Quick matching pipeline requested for ${requestId}`);
-    const topN = query.topN ?? 10;
-    const requireKyc = query.requireKyc ?? true;
-    const role = query.role ?? 'FREELANCER';
-
-    const input = await this.buildMatchingInput(requestId);
-    
-    return this.matchingService.findMatches(input, {
-      enableAi: false,
-      topN,
-      requireKyc,
-      role,
-    });
-  }
-
-  /**
-   * Helper to load the request and parse its fields into the MatchingInput interface
-   */
-  private async buildMatchingInput(requestId: string): Promise<MatchingInput> {
     const request = await this.requestRepo.findOne({
       where: { id: requestId },
-      relations: ['spec'],
     });
 
     if (!request) {
-      throw new NotFoundException(`Project request ${requestId} not found.`);
+      return [];
     }
 
-    const specDescription = request.spec?.description || request.description;
-    
-    // Parse tech preferences from string (comma, slash, or pipe separated)
-    const techStackRaw = request.spec?.techStack || request.techPreferences || '';
-    const requiredTechStack = techStackRaw
-      .split(/[,/|]/)
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0);
+    // Get already invited broker IDs to exclude
+    const existingProposals = await this.brokerProposalRepo.find({
+      where: { requestId },
+    });
+    const excludeUserIds = existingProposals.map((p) => p.brokerId);
 
-    return {
-      requestId,
-      specDescription,
-      requiredTechStack,
+    const techStack = request.techPreferences
+      ? request.techPreferences
+          .split(',')
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0)
+      : [];
+
+    const input: MatchingInput = {
+      requestId: request.id,
+      specDescription: request.description || '',
+      requiredTechStack: techStack,
       budgetRange: request.budgetRange,
       estimatedDuration: request.intendedTimeline,
+      excludeUserIds,
     };
+
+    return this.matchingService.findMatches(input, {
+      role,
+      enableAi: enableAi !== undefined ? enableAi === 'true' : undefined,
+      topN: topN ? parseInt(topN, 10) : undefined,
+    });
   }
 }

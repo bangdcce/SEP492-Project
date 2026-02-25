@@ -83,7 +83,6 @@ export function ScoreExplanationModal({ isOpen, onClose }: ScoreExplanationModal
                      <p className="text-sm font-semibold">Score &gt; 85 and AI Score &gt; 80</p>
                    </div>
                 </div>
-
                 <div className="flex gap-4 p-3 border rounded-lg bg-card items-start">
                    <div className="shrink-0">
                       <Badge className="bg-amber-100 text-amber-800 border-amber-300">🟡 POTENTIAL</Badge>
@@ -92,7 +91,6 @@ export function ScoreExplanationModal({ isOpen, onClose }: ScoreExplanationModal
                      <p className="text-sm font-semibold">Score &gt; 50</p>
                    </div>
                 </div>
-
                 <div className="flex gap-4 p-3 border rounded-lg bg-card items-start">
                    <div className="shrink-0">
                       <Badge className="bg-red-100 text-red-800 border-red-300">🔴 HIGH RISK</Badge>
@@ -101,7 +99,6 @@ export function ScoreExplanationModal({ isOpen, onClose }: ScoreExplanationModal
                      <p className="text-sm font-semibold">Score &lt; 50 or AI Score &lt; 40</p>
                    </div>
                 </div>
-                
                  <div className="flex gap-4 p-3 border rounded-lg bg-card items-start">
                    <div className="shrink-0">
                       <Badge className="bg-gray-100 text-gray-800 border-gray-300">⚪ NORMAL</Badge>

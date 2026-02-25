@@ -1,86 +1,97 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { HardFilterService } from './hard-filter.service';
+import { ConfigService } from '@nestjs/config';
+import { HardFilterService, HardFilterInput } from './hard-filter.service';
 import { TagScorerService } from './tag-scorer.service';
-import { AiRankerService } from './ai-ranker.service';
-import { ClassifierService } from './classifier.service';
-import { MatchingInput, MatchResult } from './interfaces/match.interfaces';
+import { AiRankerService, AiRankerInput } from './ai-ranker.service';
+import { ClassifierService, ClassifiedResult } from './classifier.service';
+
+export interface MatchingInput {
+  requestId: string;
+  specDescription: string;
+  requiredTechStack: string[];
+  budgetRange?: string;
+  estimatedDuration?: string;
+  excludeUserIds?: string[];
+}
+
+export interface MatchingOptions {
+  role: 'BROKER' | 'FREELANCER';
+  enableAi?: boolean;
+  topN?: number;
+}
 
 @Injectable()
 export class MatchingService {
   private readonly logger = new Logger(MatchingService.name);
 
   constructor(
-    private readonly hardFilterService: HardFilterService,
-    private readonly tagScorerService: TagScorerService,
-    private readonly aiRankerService: AiRankerService,
-    private readonly classifierService: ClassifierService,
+    private readonly hardFilter: HardFilterService,
+    private readonly tagScorer: TagScorerService,
+    private readonly aiRanker: AiRankerService,
+    private readonly classifier: ClassifierService,
+    private readonly configService: ConfigService,
   ) {}
 
-  /**
-   * Orchestrates the 4-layer matching pipeline.
-   * Receives parsed MatchingInput from the caller (domain separation).
-   */
   async findMatches(
     input: MatchingInput,
-    options?: {
-      enableAi?: boolean;
-      topN?: number;
-      requireKyc?: boolean;
-      role?: 'FREELANCER' | 'BROKER';
-    },
-  ): Promise<MatchResult[]> {
-    const enableAi = options?.enableAi ?? true;
-    const topN = options?.topN ?? 10;
-    const requireKyc = options?.requireKyc ?? true;
-    const role = options?.role ?? 'FREELANCER';
+    options: MatchingOptions,
+  ): Promise<ClassifiedResult[]> {
+    const aiEnabled =
+      options.enableAi ??
+      this.configService.get<string>('MATCHING_AI_ENABLED') === 'true';
+    const topN =
+      options.topN ??
+      parseInt(this.configService.get<string>('MATCHING_AI_TOP_N') || '10', 10);
 
-    this.logger.log(`Starting matching pipeline for Request ${input.requestId} (AI enabled: ${enableAi})`);
-
-    // Layer 1: Hard Filter
-    const eligibleCandidates = await this.hardFilterService.filterEligibleCandidates(
-      input.requestId,
-      role,
-      { requireKyc, maxActiveProjects: 3 },
+    this.logger.log(
+      `Finding matches for request ${input.requestId} | role=${options.role} | ai=${aiEnabled} | topN=${topN}`,
     );
 
-    if (eligibleCandidates.length === 0) {
-      this.logger.log(`No eligible candidates found after Layer 1 for Request ${input.requestId}`);
-      return [];
-    }
+    // Step 1: Hard Filter
+    const filterInput: HardFilterInput = {
+      requestId: input.requestId,
+      excludeUserIds: input.excludeUserIds,
+    };
+    const eligible = await this.hardFilter.filter(filterInput, {
+      role: options.role,
+    });
+    this.logger.log(`Hard filter: ${eligible.length} candidates passed.`);
 
-    // Layer 2: Deterministic Tag Scoring
-    const scoredCandidates = this.tagScorerService.scoreAll(
-      input.requiredTechStack,
-      eligibleCandidates,
-    );
+    if (eligible.length === 0) return [];
 
-    let candidatesForClassification = scoredCandidates;
+    // Step 2: Tag Scorer
+    const tagged = this.tagScorer.score(eligible, input.requiredTechStack);
+    this.logger.log(`Tag scorer: scored ${tagged.length} candidates.`);
 
-    // Layer 3: AI Ranker (Optional)
-    if (enableAi) {
-      // Take top N strictly from Layer 2
-      const topCandidates = scoredCandidates.slice(0, topN);
-      const remainingCandidates = scoredCandidates.slice(topN);
+    // Step 3: AI Ranker (optional)
+    const topCandidates = tagged
+      .sort((a, b) => b.tagOverlapScore - a.tagOverlapScore)
+      .slice(0, topN);
 
-      const aiRankedCandidates = await this.aiRankerService.rankBatch(
-        input,
-        topCandidates,
-      );
-
-      // Re-merge
-      candidatesForClassification = [...aiRankedCandidates, ...remainingCandidates];
+    let ranked;
+    if (aiEnabled) {
+      const aiInput: AiRankerInput = {
+        specDescription: input.specDescription,
+        requiredTechStack: input.requiredTechStack,
+        budgetRange: input.budgetRange,
+        estimatedDuration: input.estimatedDuration,
+      };
+      ranked = await this.aiRanker.rank(aiInput, topCandidates);
+      this.logger.log(`AI ranker: ranked ${ranked.length} candidates.`);
     } else {
-      // Ensure aiRelevanceScore is explicitly null if AI was bypassed
-      candidatesForClassification = scoredCandidates.map(c => ({
+      ranked = topCandidates.map((c) => ({
         ...c,
-        aiRelevanceScore: null,
+        aiRelevanceScore: null as number | null,
+        reasoning: 'AI analysis was not enabled for this search.',
       }));
     }
 
-    // Layer 4: Classification
-    const finalResults = this.classifierService.classifyAll(candidatesForClassification);
+    // Step 4: Classifier
+    const classified = this.classifier.classify(ranked, aiEnabled);
+    this.logger.log(
+      `Classifier: classified ${classified.length} candidates. Top score: ${classified[0]?.matchScore}`,
+    );
 
-    this.logger.log(`Matching pipeline completed for Request ${input.requestId}. Returning ${finalResults.length} candidates.`);
-    return finalResults;
+    return classified;
   }
 }
