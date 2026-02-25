@@ -58,7 +58,7 @@ export class HardFilterService {
           yearsExp: us.yearsOfExperience ?? 0,
         })),
         bio: profile?.bio || '',
-        trustScore: Number(u.currentTrustScore) || 50,
+        trustScore: Number(u.currentTrustScore) || 0,
         completedProjects: u.totalProjectsFinished || 0,
         candidateProfile: {
           companyName: profile?.companyName || null,
