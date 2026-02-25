@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions } from 'typeorm';
 import {
@@ -14,6 +14,7 @@ import {
   ProposalStatus,
 } from '../../database/entities/broker-proposal.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { MatchingService } from '../matching/matching.service';
 
 @Injectable()
 export class ProjectRequestsService {
@@ -27,6 +28,7 @@ export class ProjectRequestsService {
     @InjectRepository(ProjectRequestProposalEntity)
     private readonly freelancerProposalRepo: Repository<ProjectRequestProposalEntity>,
     private readonly auditLogsService: AuditLogsService,
+    private readonly matchingService: MatchingService,
   ) {}
 
   // ... (existing create/update methods)
@@ -189,11 +191,27 @@ export class ProjectRequestsService {
       ],
     });
 
-    if (!request) return null;
+    if (!request) {
+      throw new NotFoundException('Request not found');
+    }
 
     if (user) {
       if (user.role === UserRole.CLIENT && request.clientId !== user.id) {
-        throw new Error('Forbidden: You can only view your own requests');
+        throw new ForbiddenException('Forbidden: You can only view your own requests');
+      }
+
+      if (user.role === UserRole.BROKER) {
+        // If request is ASSIGNED to someone else, broker cannot view it
+        // Except maybe if they are an admin, but Role is BROKER so they are not admin
+        if (request.status === RequestStatus.PROCESSING && request.brokerId && request.brokerId !== user.id) {
+          throw new ForbiddenException('Forbidden: Request is assigned to another broker');
+        }
+
+        // If PENDING (unassigned), mask client data
+        if (request.status === RequestStatus.PENDING && request.client) {
+          request.client.email = '********';
+          request.client.phoneNumber = '********';
+        }
       }
     }
 
@@ -201,24 +219,24 @@ export class ProjectRequestsService {
   }
 
   async findMatches(id: string) {
-    // For now, return all brokers. In future, implement matching logic based on techPreferences vs Broker Skills.
-    // Query UserEntity where role = BROKER
-    // Since we don't have UserRepo injected here, we might need to inject it or use QueryBuilder if possible.
-    // Or simpler, just return empty list or mock if we can't access Users easily.
-    // Actually, let's just use a raw query or try to inject UserRepo if possible.
-    // Wait, UserEntity IS imported. We should InjectRepository(UserEntity).
+    const request = await this.findOne(id);
+    if (!request) {
+      throw new Error('Request not found');
+    }
 
-    // Instead of changing constructor too much (risk breaking tests/module),
-    // I will try to use `this.requestRepo.manager.getRepository(UserEntity)`.
-    const userRepo = this.requestRepo.manager.getRepository(UserEntity);
-    const brokers = await userRepo.find({ where: { role: UserRole.BROKER } });
+    const techStack = request.techPreferences 
+      ? request.techPreferences.split(',').map(s => s.trim()).filter(s => s.length > 0)
+      : [];
 
-    // Exclude already invited/applied
-    // Fetch proposals
-    const existingProposals = await this.brokerProposalRepo.find({ where: { requestId: id } });
-    const involvedBrokerIds = new Set(existingProposals.map((p) => p.brokerId));
+    const input = {
+      requestId: request.id,
+      specDescription: request.description,
+      requiredTechStack: techStack,
+      budgetRange: request.budgetRange,
+      estimatedDuration: request.intendedTimeline,
+    };
 
-    return brokers.filter((b) => !involvedBrokerIds.has(b.id));
+    return this.matchingService.findMatches(input, { role: 'BROKER' });
   }
 
   async inviteBroker(requestId: string, brokerId: string, message?: string) {

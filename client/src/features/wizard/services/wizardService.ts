@@ -96,6 +96,13 @@ export const wizardService = {
   getBrokerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
     const params = new URLSearchParams();
     params.set('role', 'BROKER');
+     return await apiClient.get(`/project-requests/${requestId}/convert`);
+  },
+
+  // ── AI Matching Engine ──
+  getFreelancerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+    const params = new URLSearchParams();
+    params.set('role', 'FREELANCER');
     if (options?.enableAi !== undefined) params.set('enableAi', String(options.enableAi));
     if (options?.topN !== undefined) params.set('topN', String(options.topN));
     const qs = params.toString();
@@ -109,6 +116,13 @@ export const wizardService = {
   getFreelancerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
     const params = new URLSearchParams();
     params.set('role', 'FREELANCER');
+  getFreelancerMatchesQuick: async (requestId: string) => {
+    return await apiClient.get(`/matching/${requestId}/quick?role=FREELANCER`);
+  },
+
+  getBrokerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+    const params = new URLSearchParams();
+    params.set('role', 'BROKER');
     if (options?.enableAi !== undefined) params.set('enableAi', String(options.enableAi));
     if (options?.topN !== undefined) params.set('topN', String(options.topN));
     const qs = params.toString();
@@ -118,4 +132,7 @@ export const wizardService = {
   getFreelancerMatchesQuick: async (requestId: string) => {
     return await apiClient.get(`/matching/${requestId}?role=FREELANCER&enableAi=true`);
   }
+  getBrokerMatchesQuick: async (requestId: string) => {
+    return await apiClient.get(`/matching/${requestId}/quick?role=BROKER`);
+  },
 };

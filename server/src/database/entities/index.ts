@@ -19,6 +19,7 @@ export { ProjectEntity, ProjectStatus, PricingModel } from './project.entity';
 export { ProjectCategoryEntity } from './project-category.entity';
 export { MilestoneEntity, MilestoneStatus } from './milestone.entity';
 export { TaskEntity, TaskStatus } from './task.entity';
+export { WorkspaceMessageEntity } from './workspace-message.entity';
 export { ContractEntity } from './contract.entity';
 export { DigitalSignatureEntity } from './digital-signature.entity';
 export { DocumentEntity, DocType } from './document.entity';
