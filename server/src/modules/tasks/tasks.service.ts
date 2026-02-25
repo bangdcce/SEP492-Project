@@ -26,6 +26,19 @@ import { TaskAttachmentEntity } from './entities/task-attachment.entity';
 import { TaskLinkEntity } from './entities/task-link.entity';
 import { TaskSubmissionEntity, TaskSubmissionStatus } from './entities/task-submission.entity';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
+import { ReviewSubmissionDto } from './dto/review-submission.dto';
+
+/**
+ * Response type for submission review
+ */
+export interface SubmissionReviewResult {
+  submission: TaskSubmissionEntity;
+  task: TaskEntity;
+  milestoneId: string;
+  milestoneProgress: number;
+  totalTasks: number;
+  completedTasks: number;
+}
 
 export interface KanbanBoard {
   TODO: TaskEntity[];
@@ -457,6 +470,133 @@ export class TasksService {
     });
 
     return saved;
+  }
+
+  /**
+   * Review a task submission (Approve or Request Changes)
+   * Only CLIENT users can review submissions
+   * 
+   * Business Logic:
+   * - If APPROVED: Task status → DONE
+   * - If REQUEST_CHANGES: Task status → IN_PROGRESS (sent back to freelancer)
+   * 
+   * @param taskId - Task ID
+   * @param submissionId - Submission ID to review
+   * @param dto - ReviewSubmissionDto with status and optional reviewNote
+   * @param reviewerId - User ID of the reviewer (must be CLIENT)
+   */
+  async reviewSubmission(
+    taskId: string,
+    submissionId: string,
+    dto: ReviewSubmissionDto,
+    reviewerId: string,
+  ): Promise<SubmissionReviewResult> {
+    // Step 1: Find the submission
+    const submission = await this.submissionRepository.findOne({
+      where: { id: submissionId, taskId },
+      relations: ['submitter'],
+    });
+
+    if (!submission) {
+      throw new NotFoundException('Submission not found');
+    }
+
+    // Step 2: Check if submission is still pending
+    if (submission.status !== TaskSubmissionStatus.PENDING) {
+      throw new BadRequestException(
+        `Submission has already been reviewed (status: ${submission.status})`,
+      );
+    }
+
+    // Step 3: Get the task
+    const task = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['assignee'],
+    });
+
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+
+    const previousTaskStatus = task.status;
+    const milestoneId = task.milestoneId;
+
+    // Step 4: Update submission with review data
+    submission.status = dto.status;
+    submission.reviewNote = dto.reviewNote ?? null;
+    submission.reviewerId = reviewerId;
+    submission.reviewedAt = new Date();
+
+    await this.submissionRepository.save(submission);
+
+    // Step 5: Update task status based on review decision
+    let newTaskStatus: TaskStatus;
+
+    if (dto.status === TaskSubmissionStatus.APPROVED) {
+      newTaskStatus = TaskStatus.DONE;
+      this.logger.log(
+        `Submission ${submissionId} APPROVED → Task ${taskId} marked as DONE`,
+      );
+    } else {
+      // REQUEST_CHANGES - send back to freelancer
+      newTaskStatus = TaskStatus.IN_PROGRESS;
+      this.logger.log(
+        `Submission ${submissionId} REQUEST_CHANGES → Task ${taskId} sent back to IN_PROGRESS`,
+      );
+    }
+
+    await this.taskRepository.update(taskId, { status: newTaskStatus });
+
+    // Step 6: Record history
+    if (previousTaskStatus !== newTaskStatus) {
+      await this.createHistory(
+        taskId,
+        'status',
+        previousTaskStatus,
+        newTaskStatus,
+        reviewerId,
+      );
+    }
+
+    // Step 7: Refetch updated task
+    const updatedTask = await this.taskRepository.findOne({
+      where: { id: taskId },
+      relations: ['assignee', 'attachments'],
+    });
+
+    if (!updatedTask) {
+      throw new NotFoundException('Task not found after update');
+    }
+
+    this.sortAttachments(updatedTask);
+
+    // Step 8: Recalculate milestone progress
+    const { progress, totalTasks, completedTasks } =
+      await this.calculateMilestoneProgress(milestoneId);
+
+    this.logger.log(
+      `Milestone ${milestoneId} progress after review: ${completedTasks}/${totalTasks} = ${progress}%`,
+    );
+
+    // Step 9: Sync milestone status if needed
+    if (dto.status === TaskSubmissionStatus.APPROVED) {
+      await this.syncMilestoneStatus(milestoneId, progress);
+    }
+
+    // Refetch submission with reviewer relation
+    const updatedSubmission = await this.submissionRepository.findOne({
+      where: { id: submissionId },
+      relations: ['submitter', 'reviewer'],
+    });
+
+    return {
+      submission: updatedSubmission!,
+      task: updatedTask,
+      milestoneId,
+      milestoneProgress: progress,
+      totalTasks,
+      completedTasks,
+    };
   }
 
   private extractImageUrls(html: string): string[] {
