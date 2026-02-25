@@ -11,6 +11,7 @@ import {
   Req,
   Body,
   Patch,
+  Put,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiBody } from '@nestjs/swagger';
@@ -18,9 +19,10 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RolesGuard } from './guards/roles.guard';
 import { supabaseClient } from '../../config/supabase.config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In } from 'typeorm';
 import { ProfileEntity } from '../../database/entities/profile.entity';
-import { UserSkillEntity } from '../../database/entities/user-skill.entity';
+import { UserSkillEntity, SkillPriority, SkillVerificationStatus } from '../../database/entities/user-skill.entity';
+import { SkillEntity } from '../../database/entities/skill.entity';
 import * as path from 'path';
 
 interface AuthRequest extends Request {
@@ -41,6 +43,8 @@ export class ProfileController {
     private readonly profileRepo: Repository<ProfileEntity>,
     @InjectRepository(UserSkillEntity)
     private readonly userSkillRepo: Repository<UserSkillEntity>,
+    @InjectRepository(SkillEntity)
+    private readonly skillRepo: Repository<SkillEntity>,
   ) {}
 
   // ==============================================
@@ -246,7 +250,7 @@ export class ProfileController {
   }
 
   // ==============================================
-  // SKILLS MANAGEMENT (Read-only for now)
+  // SKILLS MANAGEMENT
   // ==============================================
 
   @Get('skills')
@@ -275,6 +279,77 @@ export class ProfileController {
         completedProjectsCount: us.completedProjectsCount,
         lastUsedAt: us.lastUsedAt,
       })),
+    };
+  }
+
+  @Put('skills')
+  @ApiOperation({ summary: 'Update user skills (replace all)' })
+  async updateSkills(
+    @Req() req: AuthRequest,
+    @Body() body: { skillIds: string[] },
+  ): Promise<{ message: string; addedCount: number; removedCount: number }> {
+    const userId = req.user.id;
+    const { skillIds } = body;
+
+    if (!skillIds || !Array.isArray(skillIds)) {
+      throw new BadRequestException('skillIds must be an array');
+    }
+
+    if (skillIds.length === 0) {
+      throw new BadRequestException('At least one skill is required');
+    }
+
+    // Validate all skill IDs exist
+    const skills = await this.skillRepo.find({
+      where: { id: In(skillIds) },
+    });
+
+    if (skills.length !== skillIds.length) {
+      throw new BadRequestException('One or more invalid skill IDs');
+    }
+
+    // Get current skills
+    const currentSkills = await this.userSkillRepo.find({
+      where: { userId },
+    });
+
+    const currentSkillIds = currentSkills.map(us => us.skillId);
+
+    // Determine skills to add and remove
+    const skillsToAdd = skillIds.filter(id => !currentSkillIds.includes(id));
+    const skillsToRemove = currentSkillIds.filter(id => !skillIds.includes(id));
+
+    // Remove old skills
+    if (skillsToRemove.length > 0) {
+      await this.userSkillRepo.delete({
+        userId,
+        skillId: In(skillsToRemove),
+      });
+    }
+
+    // Add new skills (all as SECONDARY by default, user can set PRIMARY via other endpoint)
+    if (skillsToAdd.length > 0) {
+      const newUserSkills = skillsToAdd.map(skillId => {
+        const userSkill = new UserSkillEntity();
+        userSkill.userId = userId;
+        userSkill.skillId = skillId;
+        userSkill.priority = SkillPriority.SECONDARY;
+        userSkill.verificationStatus = SkillVerificationStatus.SELF_DECLARED;
+        userSkill.proficiencyLevel = null;
+        userSkill.yearsOfExperience = null;
+        userSkill.portfolioUrl = null;
+        userSkill.completedProjectsCount = 0;
+        userSkill.lastUsedAt = null;
+        return userSkill;
+      });
+
+      await this.userSkillRepo.save(newUserSkills);
+    }
+
+    return {
+      message: 'Skills updated successfully',
+      addedCount: skillsToAdd.length,
+      removedCount: skillsToRemove.length,
     };
   }
 }

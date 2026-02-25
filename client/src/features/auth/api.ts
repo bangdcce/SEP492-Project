@@ -212,3 +212,10 @@ export const getUserSkills = async (): Promise<{
 }> => {
   return await apiClient.get('/profile/skills');
 };
+
+/**
+ * Update user skills
+ */
+export const updateUserSkills = async (skillIds: string[]): Promise<{ message: string }> => {
+  return await apiClient.put<{ message: string }>('/profile/skills', { skillIds });
+};

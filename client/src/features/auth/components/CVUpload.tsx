@@ -20,7 +20,6 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
 
   // Sync local state with prop changes (e.g., after profile reload)
   useEffect(() => {
-    console.log('[CVUpload] currentCvUrl prop changed:', currentCvUrl);
     setCvUrl(currentCvUrl || null);
   }, [currentCvUrl]);
 
@@ -45,7 +44,6 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
     try {
       setUploading(true);
       const response = await uploadCV(file);
-      console.log('[CVUpload] Upload response:', response);
       setCvUrl(response.cvUrl);
       toast.success('CV uploaded successfully');
       onCVUpdated?.();

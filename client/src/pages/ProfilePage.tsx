@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { Mail, Phone, MapPin, Edit2, Shield, ExternalLink, FileText, Download, ArrowLeft, Briefcase, X, TrendingUp, Trash2 } from 'lucide-react';
 import { toast } from "sonner";
@@ -49,17 +49,11 @@ export default function ProfilePage() {
   const [avatarPreview, setAvatarPreview] = useState<string>("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
 
-  useEffect(() => {
-    loadProfile();
-  }, []);
-
-  const loadProfile = async () => {
+  const loadProfile = useCallback(async () => {
     try {
       setLoading(true);
       const response = (await getProfile()) as any;
       const userData = response.data || response.data?.data;
-      console.log('[ProfilePage] Loaded profile:', userData);
-      console.log('[ProfilePage] cvUrl:', userData.cvUrl);
       setProfile(userData);
       setFormData({
         fullName: userData.fullName || "",
@@ -81,7 +75,11 @@ export default function ProfilePage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadProfile();
+  }, [loadProfile]);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -510,7 +508,7 @@ export default function ProfilePage() {
                   )}
 
                   {/* Skills Display */}
-                  <SkillsDisplay />
+                  <SkillsDisplay isEditing={isEditing} userRole={profile.role} />
 
                   {/* LinkedIn */}
                   {profile.linkedinUrl && (
