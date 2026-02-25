@@ -36,107 +36,107 @@ export const REGISTERABLE_ROLES = {
 
 export class RegisterDto {
   @ApiProperty({
-    description: 'Email của người dùng (chỉ chấp nhận email từ nhà cung cấp uy tín)',
+    description: 'User email address',
     example: 'user@gmail.com',
     format: 'email',
   })
-  @IsEmail({}, { message: 'Email không hợp lệ' })
-  @IsNotEmpty({ message: 'Email không được để trống' })
+  @IsEmail({}, { message: 'Invalid email format' })
+  @IsNotEmpty({ message: 'Email is required' })
   @IsNotDisposableEmail({
-    message: 'Vui lòng sử dụng email từ nhà cung cấp uy tín (Gmail, Outlook, Yahoo, v.v.) hoặc email trường học.',
+    message: 'Please use an email from a reputable provider (Gmail, Outlook, Yahoo, etc.) or university email.',
   })
   email: string;
 
   @ApiProperty({
-    description: 'Mật khẩu của người dùng (ít nhất 8 ký tự, có chữ thường và số/ký tự đặc biệt)',
+    description: 'User password (minimum 8 characters, with lowercase and number/special character)',
     example: 'securepass123',
     minLength: 8,
   })
-  @IsString({ message: 'Mật khẩu phải là chuỗi ký tự' })
-  @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
-  @MinLength(8, { message: 'Mật khẩu phải có ít nhất 8 ký tự' })
+  @IsString({ message: 'Password must be a string' })
+  @IsNotEmpty({ message: 'Password is required' })
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
   @Matches(/^(?=.*[a-z])(?=.*[\d@$!%*?&])/, {
-    message: 'Mật khẩu phải chứa ít nhất một chữ thường và một số/ký tự đặc biệt (@$!%*?&)',
+    message: 'Password must contain at least one lowercase letter and one number or special character (@$!%*?&)',
   })
   password: string;
 
   @ApiProperty({
-    description: 'Họ và tên đầy đủ của người dùng (2-50 ký tự, chỉ chứa chữ cái và khoảng trắng)',
-    example: 'Nguyễn Văn A',
+    description: 'User full name (2-50 characters, letters and spaces only)',
+    example: 'John Doe',
     minLength: 2,
     maxLength: 50,
   })
-  @IsString({ message: 'Họ tên phải là chuỗi ký tự' })
-  @IsNotEmpty({ message: 'Họ tên không được để trống' })
-  @MinLength(2, { message: 'Họ tên phải có ít nhất 2 ký tự' })
-  @MaxLength(50, { message: 'Họ tên không được vượt quá 50 ký tự' })
+  @IsString({ message: 'Full name must be a string' })
+  @IsNotEmpty({ message: 'Full name is required' })
+  @MinLength(2, { message: 'Full name must be at least 2 characters' })
+  @MaxLength(50, { message: 'Full name must not exceed 50 characters' })
   @Matches(/^[a-zA-ZÀ-ỹ\s]+$/, {
-    message: 'Họ tên chỉ được chứa chữ cái và khoảng trắng',
+    message: 'Full name can only contain letters and spaces',
   })
   fullName: string;
 
   @ApiProperty({
-    description: 'Số điện thoại của người dùng (định dạng Việt Nam: 0[3|5|7|8|9]xxxxxxxx)',
+    description: 'Phone number (Vietnam format: 0[3|5|7|8|9]xxxxxxxx)',
     example: '0987654321',
     pattern: '^0[3|5|7|8|9][0-9]{8}$',
   })
-  @IsString({ message: 'Số điện thoại phải là chuỗi ký tự' })
-  @IsNotEmpty({ message: 'Số điện thoại không được để trống' })
+  @IsString({ message: 'Phone number must be a string' })
+  @IsNotEmpty({ message: 'Phone number is required' })
   @Matches(/^0[3|5|7|8|9][0-9]{8}$/, {
-    message: 'Số điện thoại không hợp lệ. Định dạng đúng: 0[3|5|7|8|9]xxxxxxxx (ví dụ: 0987654321)',
+    message: 'Invalid phone number format. Correct format: 0[3|5|7|8|9]xxxxxxxx (e.g., 0987654321)',
   })
   phoneNumber: string;
 
   @ApiProperty({
-    description: 'Vai trò của người dùng trong hệ thống (chỉ cho phép CLIENT, BROKER, FREELANCER)',
+    description: 'User role in the system (only CLIENT, BROKER, FREELANCER allowed)',
     enum: REGISTERABLE_ROLES,
     example: UserRole.CLIENT,
   })
-  @IsEnum(REGISTERABLE_ROLES, { message: 'Role phải là CLIENT, BROKER hoặc FREELANCER' })
-  @IsNotEmpty({ message: 'Role không được để trống' })
+  @IsEnum(REGISTERABLE_ROLES, { message: 'Role must be CLIENT, BROKER, or FREELANCER' })
+  @IsNotEmpty({ message: 'Role is required' })
   role: RegisterableRole;
 
   @ApiPropertyOptional({
-    description: 'Google reCAPTCHA token từ frontend',
+    description: 'Google reCAPTCHA token from frontend',
     example: 'recaptcha_response_token',
   })
   @IsOptional()
-  @IsString({ message: 'reCAPTCHA token phải là chuỗi ký tự' })
+  @IsString({ message: 'reCAPTCHA token must be a string' })
   recaptchaToken?: string;
 
   @ApiPropertyOptional({
-    description: 'Domain IDs (UUIDs) cho BROKER và FREELANCER',
+    description: 'Domain IDs (UUIDs) for BROKER and FREELANCER',
     example: ['uuid-1', 'uuid-2'],
     type: [String],
   })
   @IsOptional()
-  @IsArray({ message: 'Domain IDs phải là mảng' })
-  @IsString({ each: true, message: 'Mỗi domain ID phải là chuỗi UUID' })
+  @IsArray({ message: 'Domain IDs must be an array' })
+  @IsString({ each: true, message: 'Each domain ID must be a UUID string' })
   domainIds?: string[];
 
   @ApiPropertyOptional({
-    description: 'Skill IDs (UUIDs) cho BROKER và FREELANCER',
+    description: 'Skill IDs (UUIDs) for BROKER and FREELANCER',
     example: ['uuid-1', 'uuid-2', 'uuid-3'],
     type: [String],
   })
   @IsOptional()
-  @IsArray({ message: 'Skill IDs phải là mảng' })
-  @IsString({ each: true, message: 'Mỗi skill ID phải là chuỗi UUID' })
+  @IsArray({ message: 'Skill IDs must be an array' })
+  @IsString({ each: true, message: 'Each skill ID must be a UUID string' })
   skillIds?: string[];
 
   @ApiProperty({
-    description: 'Xác nhận chấp nhận Điều khoản Dịch vụ',
+    description: 'Confirm acceptance of Terms of Service',
     example: true,
   })
-  @IsBoolean({ message: 'acceptTerms phải là boolean' })
-  @IsNotEmpty({ message: 'Bạn phải chấp nhận Điều khoản Dịch vụ' })
+  @IsBoolean({ message: 'acceptTerms must be a boolean' })
+  @IsNotEmpty({ message: 'You must accept the Terms of Service' })
   acceptTerms: boolean;
 
   @ApiProperty({
-    description: 'Xác nhận chấp nhận Chính sách Bảo mật',
+    description: 'Confirm acceptance of Privacy Policy',
     example: true,
   })
-  @IsBoolean({ message: 'acceptPrivacy phải là boolean' })
-  @IsNotEmpty({ message: 'Bạn phải chấp nhận Chính sách Bảo mật' })
+  @IsBoolean({ message: 'acceptPrivacy must be a boolean' })
+  @IsNotEmpty({ message: 'You must accept the Privacy Policy' })
   acceptPrivacy: boolean;
 }

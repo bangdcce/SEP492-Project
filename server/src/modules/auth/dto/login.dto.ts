@@ -3,22 +3,22 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class LoginDto {
   @ApiProperty({
-    description: 'Email của người dùng',
+    description: 'User email address',
     example: 'user@example.com',
     format: 'email',
   })
-  @IsEmail({}, { message: 'Email không hợp lệ' })
-  @IsNotEmpty({ message: 'Email không được để trống' })
+  @IsEmail({}, { message: 'Invalid email format' })
+  @IsNotEmpty({ message: 'Email is required' })
   email: string;
 
   @ApiProperty({
-    description: 'Mật khẩu của người dùng',
+    description: 'User password',
     example: 'SecurePass123!',
     minLength: 8,
     type: 'string',
   })
-  @IsString({ message: 'Mật khẩu phải là chuỗi ký tự' })
-  @IsNotEmpty({ message: 'Mật khẩu không được để trống' })
-  @MinLength(8, { message: 'Mật khẩu phải có ít nhất 8 ký tự' })
+  @IsString({ message: 'Password must be a string' })
+  @IsNotEmpty({ message: 'Password is required' })
+  @MinLength(8, { message: 'Password must be at least 8 characters' })
   password: string;
 }
