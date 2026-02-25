@@ -134,6 +134,44 @@ export const createTaskSubmission = async (
 };
 
 /**
+ * Review a task submission (Approve or Request Changes)
+ * Only CLIENT users can call this endpoint
+ * 
+ * @param taskId - Task ID
+ * @param submissionId - Submission ID to review
+ * @param payload - Review data with status and optional reviewNote
+ */
+export const reviewSubmission = async (
+  taskId: string,
+  submissionId: string,
+  payload: { 
+    status: 'APPROVED' | 'REQUEST_CHANGES'; 
+    reviewNote?: string 
+  }
+): Promise<{
+  submission: TaskSubmission;
+  task: Task;
+  milestoneId: string;
+  milestoneProgress: number;
+  totalTasks: number;
+  completedTasks: number;
+}> => {
+  console.log("[API] Reviewing submission:", { taskId, submissionId, status: payload.status });
+
+  const result = await apiClient.patch<{
+    submission: TaskSubmission;
+    task: Task;
+    milestoneId: string;
+    milestoneProgress: number;
+    totalTasks: number;
+    completedTasks: number;
+  }>(`/tasks/${taskId}/submissions/${submissionId}/review`, payload);
+
+  console.log("[API] Submission reviewed:", result);
+  return result;
+};
+
+/**
  * Submit task with proof of work
  * Marks task as DONE with evidence (required for dispute resolution)
  */

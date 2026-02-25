@@ -7,12 +7,12 @@ import {
   Badge,
   ScrollArea
 } from "@/shared/components/ui";
-import { Star, Sparkles, CheckCircle2, AlertTriangle, ShieldCheck } from "lucide-react";
+import { Star, Sparkles, CheckCircle2, ShieldCheck } from "lucide-react";
 
 interface CandidateProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
-  candidate: any | null; // MatchResult
+  candidate: any | null;
 }
 
 export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateProfileModalProps) {
@@ -121,23 +121,6 @@ export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateP
                    </div>
                 </div>
             )}
-
-            {/* Other Profile Specifics */}
-            {candidateProfile?.portfolioLinks && candidateProfile.portfolioLinks.length > 0 && (
-               <div>
-                  <h4 className="text-sm font-semibold uppercase text-muted-foreground mb-2">Portfolio Details</h4>
-                  <ul className="list-disc list-inside text-sm text-foreground space-y-1">
-                     {candidateProfile.portfolioLinks.map((link: any, idx: number) => (
-                        <li key={idx}>
-                          <a href={link.url} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                            {link.title || link.url}
-                          </a>
-                        </li>
-                     ))}
-                  </ul>
-               </div>
-            )}
-
           </div>
         </ScrollArea>
       </DialogContent>

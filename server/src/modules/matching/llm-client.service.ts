@@ -8,37 +8,40 @@ export class LlmClientService {
 
   constructor(private readonly configService: ConfigService) {}
 
-  /**
-   * Tries Gemini first, falls back to Groq if configured.
-   */
   async analyze(prompt: string): Promise<{ content: string } | null> {
-    const geminiKey = this.configService.get<string>('GEMINI_API_KEY');
-    const groqKey = this.configService.get<string>('GROQ_API_KEY');
+    try {
+      const geminiKey = this.configService.get<string>('GEMINI_API_KEY');
+      const groqKey = this.configService.get<string>('GROQ_API_KEY');
 
-    if (geminiKey) {
-      try {
-        const result = await this.callGemini(prompt, geminiKey);
-        return { content: result };
-      } catch (error: any) {
-        this.logger.warn(`Gemini API failed: ${error.message}. Falling back...`);
+      if (geminiKey) {
+        try {
+          const result = await this.callGemini(prompt, geminiKey);
+          return { content: result };
+        } catch (geminiErr) {
+          this.logger.warn('Gemini call failed, trying Groq fallback...', geminiErr);
+        }
       }
-    }
 
-    if (groqKey) {
-      try {
-        const result = await this.callGroq(prompt, groqKey);
-        return { content: result };
-      } catch (error: any) {
-        this.logger.error(`Groq API failed: ${error.message}.`);
+      if (groqKey) {
+        try {
+          const result = await this.callGroq(prompt, groqKey);
+          return { content: result };
+        } catch (groqErr) {
+          this.logger.warn('Groq call also failed.', groqErr);
+        }
       }
-    }
 
-    this.logger.error('All configured LLM providers failed.');
-    return null;
+      this.logger.warn('No LLM API key available or all calls failed.');
+      return null;
+    } catch (err) {
+      this.logger.error('LLM analyze error', err);
+      return null;
+    }
   }
 
   private async callGemini(prompt: string, key: string): Promise<string> {
-    const model = this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.5-flash';
+    const model =
+      this.configService.get<string>('GEMINI_MODEL') || 'gemini-2.0-flash';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
     const response = await axios.post(
@@ -49,49 +52,35 @@ export class LlmClientService {
             parts: [{ text: prompt }],
           },
         ],
-        // Set deterministic generation parameters
         generationConfig: {
-          temperature: 0.1,
-          topK: 1,
-          topP: 1,
+          temperature: 0.2,
+          maxOutputTokens: 1024,
         },
       },
-      { timeout: 15000 },
+      { timeout: 30000 },
     );
 
-    const text = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      throw new Error('Invalid response format from Gemini');
-    }
-
+    const text =
+      response.data?.candidates?.[0]?.content?.parts?.[0]?.text || '';
     return text;
   }
 
   private async callGroq(prompt: string, key: string): Promise<string> {
-    const model = this.configService.get<string>('GROQ_MODEL') || 'llama-3.1-8b-instant';
     const url = 'https://api.groq.com/openai/v1/chat/completions';
-
     const response = await axios.post(
       url,
       {
-        model,
+        model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: prompt }],
-        temperature: 0.1,
+        temperature: 0.2,
+        max_tokens: 1024,
       },
       {
-        headers: {
-          Authorization: `Bearer ${key}`,
-          'Content-Type': 'application/json',
-        },
-        timeout: 10000,
+        headers: { Authorization: `Bearer ${key}` },
+        timeout: 30000,
       },
     );
 
-    const text = response.data?.choices?.[0]?.message?.content;
-    if (!text) {
-      throw new Error('Invalid response format from Groq');
-    }
-
-    return text;
+    return response.data?.choices?.[0]?.message?.content || '';
   }
 }

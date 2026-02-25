@@ -43,8 +43,21 @@ export class TaskSubmissionEntity {
   @Column({ type: 'uuid' })
   taskId: string;
 
+  @Column({ type: 'text', nullable: true })
+  reviewNote: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  reviewerId: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  reviewedAt: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
+
+  @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'reviewerId' })
+  reviewer: UserEntity;
 
   @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'submitterId' })

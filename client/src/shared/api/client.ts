@@ -48,6 +48,18 @@ class ApiClient {
     // Request interceptor - add timezone header
     this.client.interceptors.request.use(
       (config) => {
+        if (typeof FormData !== "undefined" && config.data instanceof FormData) {
+          config.headers = config.headers ?? {};
+
+          // Let the browser/XHR set multipart boundary automatically for FormData payloads.
+          if (typeof (config.headers as { delete?: (name: string) => void }).delete === "function") {
+            (config.headers as { delete: (name: string) => void }).delete("Content-Type");
+          } else {
+            delete (config.headers as Record<string, unknown>)["Content-Type"];
+            delete (config.headers as Record<string, unknown>)["content-type"];
+          }
+        }
+
         // Token is now sent automatically via httpOnly cookie
         // No need to manually add Authorization header
         if (typeof Intl !== "undefined") {

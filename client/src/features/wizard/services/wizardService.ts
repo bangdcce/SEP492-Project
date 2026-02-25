@@ -90,6 +90,12 @@ export const wizardService = {
   },
 
   convertToProject: async (requestId: string) => {
+     return await apiClient.post(`/project-requests/${requestId}/convert`, {});
+  },
+
+  getBrokerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+    const params = new URLSearchParams();
+    params.set('role', 'BROKER');
      return await apiClient.get(`/project-requests/${requestId}/convert`);
   },
 
@@ -103,6 +109,13 @@ export const wizardService = {
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
 
+  getBrokerMatchesQuick: async (requestId: string) => {
+    return await apiClient.get(`/matching/${requestId}?role=BROKER&enableAi=true`);
+  },
+
+  getFreelancerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+    const params = new URLSearchParams();
+    params.set('role', 'FREELANCER');
   getFreelancerMatchesQuick: async (requestId: string) => {
     return await apiClient.get(`/matching/${requestId}/quick?role=FREELANCER`);
   },
@@ -116,6 +129,9 @@ export const wizardService = {
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
 
+  getFreelancerMatchesQuick: async (requestId: string) => {
+    return await apiClient.get(`/matching/${requestId}?role=FREELANCER&enableAi=true`);
+  }
   getBrokerMatchesQuick: async (requestId: string) => {
     return await apiClient.get(`/matching/${requestId}/quick?role=BROKER`);
   },

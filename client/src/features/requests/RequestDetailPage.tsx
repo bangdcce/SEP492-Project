@@ -106,7 +106,7 @@ export default function RequestDetailPage() {
       setLoading(true);
       const [reqData, matchData] = await Promise.all([
         wizardService.getRequestById(requestId),
-        wizardService.getMatches(requestId),
+        wizardService.getBrokerMatchesQuick(requestId),
       ]);
       setRequest(reqData);
 
@@ -556,10 +556,15 @@ export default function RequestDetailPage() {
                                             </p>
                                         ) : (
                                         matches.map((broker: any) => (
-                                            <div key={broker.id} className="flex items-center justify-between p-4 border rounded-lg bg-background hover:bg-muted/30 transition-colors">
+                                            <div key={broker.candidateId || broker.id} className="flex items-center justify-between p-4 border rounded-lg bg-background hover:bg-muted/30 transition-colors">
                                             <div className="flex items-center gap-4">
-                                                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
-                                                {broker.fullName?.charAt(0) || "B"}
+                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg border-2 ${
+                                                        broker.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
+                                                        broker.classificationLabel === 'POTENTIAL' ? 'bg-amber-50 text-amber-700 border-amber-200' :
+                                                        broker.classificationLabel === 'HIGH_RISK' ? 'bg-red-50 text-red-700 border-red-200' :
+                                                        'bg-gray-50 text-gray-700 border-gray-200'
+                                                    }`}>
+                                                    {broker.fullName?.charAt(0) || '?'}
                                                 </div>
                                                 <div>
                                                 <h4 className="font-semibold text-lg">{broker.fullName || "Unknown Broker"}</h4>
@@ -574,9 +579,6 @@ export default function RequestDetailPage() {
                                                                 broker.classificationLabel === 'HIGH_RISK' ? 'border-red-400 text-red-700' : ''
                                                             }`}
                                                         >
-                                                            {broker.classificationLabel === 'PERFECT_MATCH' && '🟢 '}
-                                                            {broker.classificationLabel === 'POTENTIAL' && '🟡 '}
-                                                            {broker.classificationLabel === 'HIGH_RISK' && '🔴 '}
                                                             {broker.classificationLabel?.replace('_', ' ')}
                                                         </Badge>
                                                     )}
@@ -608,11 +610,11 @@ export default function RequestDetailPage() {
                                                 {broker.reasoning && (
                                                     <p className="text-xs text-muted-foreground italic line-clamp-2 mt-1">{broker.reasoning}</p>
                                                 )}
-                                                </div>
+                                                 </div>
                                             </div>
                                             <div className="flex gap-2">
                                                 <Button size="sm" variant="outline" onClick={() => { setSelectedCandidate(broker); setIsProfileModalOpen(true); }}>Profile</Button>
-                                                <Button size="sm" onClick={() => handleInvite(broker.id, broker.fullName)}>
+                                                <Button size="sm" onClick={() => handleInvite(broker.id || broker.candidateId, broker.fullName)}>
                                                 <UserPlus className="w-4 h-4 mr-2" /> Invite
                                                 </Button>
                                             </div>
@@ -1073,6 +1075,7 @@ export default function RequestDetailPage() {
             onInviteSuccess={() => id && fetchData(id)}
         />
       )}
+
       <CandidateProfileModal
         isOpen={isProfileModalOpen}
         onClose={() => setIsProfileModalOpen(false)}

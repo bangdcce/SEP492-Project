@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Delete,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -21,6 +22,7 @@ import {
   BoardWithMilestones,
   KanbanStatus,
   TaskStatusUpdateResult,
+  SubmissionReviewResult,
 } from './tasks.service';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { SubmitTaskDto } from './dto/submit-task.dto';
@@ -28,10 +30,12 @@ import { CreateTaskLinkDto } from './dto/create-task-link.dto';
 import { CreateSubtaskDto } from './dto/create-subtask.dto';
 import { LinkSubtaskDto } from './dto/link-subtask.dto';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
+import { ReviewSubmissionDto } from './dto/review-submission.dto';
+import { UserRole } from '../../database/entities/user.entity';
 
 // Interface for authenticated request with user context
 interface AuthenticatedRequest {
-  user?: { id: string };
+  user?: { id: string; role?: UserRole };
   ip?: string;
   method: string;
   path: string;
@@ -187,6 +191,45 @@ export class TasksController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.tasksService.submitWork(id, dto, req.user?.id || 'SYSTEM');
+  }
+
+  /**
+   * Review a task submission (Approve or Request Changes)
+   * 
+   * SECURITY: Only CLIENT users can review submissions
+   * Freelancers cannot review their own work
+   * 
+   * @param id - Task ID
+   * @param submissionId - Submission ID to review
+   * @param dto - ReviewSubmissionDto with status and optional reviewNote
+   * @param req - Request object for user context
+   */
+  @Patch(':id/submissions/:submissionId/review')
+  async reviewSubmission(
+    @Param('id') id: string,
+    @Param('submissionId') submissionId: string,
+    @Body() dto: ReviewSubmissionDto,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<SubmissionReviewResult> {
+    const currentUser = req.user;
+
+    // Security Check: Only CLIENT can review submissions
+    if (!currentUser) {
+      throw new ForbiddenException('Authentication required');
+    }
+
+    const userRole = currentUser.role?.toUpperCase();
+    if (userRole !== 'CLIENT' && userRole !== UserRole.CLIENT) {
+      throw new ForbiddenException(
+        'Only Clients can review submissions. Freelancers cannot review their own work.',
+      );
+    }
+
+    this.logger.log(
+      `Submission review: Task ${id}, Submission ${submissionId}, Status: ${dto.status}, Reviewer: ${currentUser.id}`,
+    );
+
+    return this.tasksService.reviewSubmission(id, submissionId, dto, currentUser.id);
   }
 
   @Patch(':id')
