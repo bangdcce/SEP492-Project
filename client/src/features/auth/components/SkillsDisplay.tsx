@@ -2,9 +2,10 @@
  * SkillsDisplay Component
  * Shows user skills with verification status and proficiency
  */
-import { useState, useEffect } from 'react';
-import { Shield, Award, Loader2 } from 'lucide-react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Shield, Award, Loader2, Plus, Edit2 } from 'lucide-react';
 import { getUserSkills } from '../api';
+import { SkillSelectionModal } from './SkillSelectionModal';
 
 interface UserSkill {
   id: string;
@@ -21,28 +22,42 @@ interface UserSkill {
   lastUsedAt: string | null;
 }
 
-export function SkillsDisplay() {
+interface SkillsDisplayProps {
+  isEditing?: boolean;
+  userRole?: string;
+}
+
+export function SkillsDisplay({ isEditing = false, userRole = 'FREELANCER' }: SkillsDisplayProps) {
   const [skills, setSkills] = useState<UserSkill[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [showModal, setShowModal] = useState(false);
 
-  useEffect(() => {
-    loadSkills();
-  }, []);
+  // Memoize currentSkillIds to prevent infinite re-renders
+  const currentSkillIds = useMemo(() => skills.map(s => s.skillId), [skills]);
 
-  const loadSkills = async () => {
+  const loadSkills = useCallback(async (isInitial = false) => {
     try {
-      setLoading(true);
+      if (isInitial) setInitialLoading(true);
       const response = await getUserSkills();
       setSkills(response.skills || []);
     } catch (error: any) {
       // Silently fail - user might not have skills yet
       console.error('Failed to load skills:', error);
     } finally {
-      setLoading(false);
+      if (isInitial) setInitialLoading(false);
     }
-  };
+  }, []);
 
-  if (loading) {
+  // Callback for modal - reload without showing loading spinner
+  const handleSkillsUpdated = useCallback(() => {
+    loadSkills(false);
+  }, [loadSkills]);
+
+  useEffect(() => {
+    loadSkills(true);
+  }, [loadSkills]);
+
+  if (initialLoading) {
     return (
       <div className="mt-6 mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-2">Skills</label>
@@ -57,10 +72,30 @@ export function SkillsDisplay() {
   if (skills.length === 0) {
     return (
       <div className="mt-6 mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-2">Skills</label>
+        <div className="flex items-center justify-between mb-2">
+          <label className="block text-sm font-medium text-gray-700">Skills</label>
+          {isEditing && (
+            <button
+              type="button"
+              onClick={() => setShowModal(true)}
+              className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
+            >
+              <Plus className="w-4 h-4" />
+              Add Skills
+            </button>
+          )}
+        </div>
         <p className="text-sm text-gray-500">
-          No skills found. Add skills from your profile settings.
+          {isEditing ? 'Click "Add Skills" to select your skills' : 'No skills found'}
         </p>
+        
+        <SkillSelectionModal
+          isOpen={showModal}
+          onClose={() => setShowModal(false)}
+          currentSkillIds={currentSkillIds}
+          userRole={userRole}
+          onSkillsUpdated={handleSkillsUpdated}
+        />
       </div>
     );
   }
@@ -83,9 +118,21 @@ export function SkillsDisplay() {
 
   return (
     <div className="mt-6 mb-4">
-      <label className="block text-sm font-medium text-gray-700 mb-3">
-        Skills ({skills.length})
-      </label>
+      <div className="flex items-center justify-between mb-3">
+        <label className="block text-sm font-medium text-gray-700">
+          Skills ({skills.length})
+        </label>
+        {isEditing && (
+          <button
+            type="button"
+            onClick={() => setShowModal(true)}
+            className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-700 font-medium"
+          >
+            <Edit2 className="w-4 h-4" />
+            Edit Skills
+          </button>
+        )}
+      </div>
 
       {/* Primary Skills */}
       {primarySkills.length > 0 && (
@@ -137,6 +184,14 @@ export function SkillsDisplay() {
       <p className="text-xs text-gray-500 mt-3">
         💡 Tip: Skills are used by AI Matching to find relevant projects
       </p>
+
+      <SkillSelectionModal
+        isOpen={showModal}
+        onClose={() => setShowModal(false)}
+        currentSkillIds={currentSkillIds}
+        userRole={userRole}
+        onSkillsUpdated={handleSkillsUpdated}
+      />
     </div>
   );
 }
