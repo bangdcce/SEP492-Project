@@ -17,8 +17,11 @@ export class LlmClientService {
         try {
           const result = await this.callGemini(prompt, geminiKey);
           return { content: result };
-        } catch (geminiErr) {
-          this.logger.warn('Gemini call failed, trying Groq fallback...', geminiErr);
+        } catch (geminiErr: any) {
+          this.logger.warn(
+            `Gemini call failed: ${geminiErr?.response?.status || geminiErr.message}`,
+            geminiErr?.response?.data || '',
+          );
         }
       }
 
