@@ -3,6 +3,7 @@ import { AiRankedResult } from './ai-ranker.service';
 
 export interface ClassifiedResult extends AiRankedResult {
   matchScore: number; // 0-100 final weighted score
+  normalizedTrust: number; // 0-100 (trust score normalized)
   classificationLabel: 'PERFECT_MATCH' | 'POTENTIAL' | 'HIGH_RISK' | 'NORMAL';
 }
 
@@ -11,20 +12,21 @@ export class ClassifierService {
   classify(candidates: AiRankedResult[], aiEnabled: boolean): ClassifiedResult[] {
     return candidates
       .map((c) => {
-        const matchScore = this.calculateFinalScore(c, aiEnabled);
+        const normalizedTrust = Math.min(100, Math.max(0, Number(c.trustScore) * 20));
+        const matchScore = this.calculateFinalScore(c, aiEnabled, normalizedTrust);
         const classificationLabel = this.assignLabel(matchScore, c.aiRelevanceScore, aiEnabled);
 
         return {
           ...c,
           matchScore,
+          normalizedTrust,
           classificationLabel,
         };
       })
       .sort((a, b) => b.matchScore - a.matchScore);
   }
 
-  private calculateFinalScore(c: AiRankedResult, aiEnabled: boolean): number {
-    const normalizedTrust = Math.min(100, Math.max(0, c.trustScore));
+  private calculateFinalScore(c: AiRankedResult, aiEnabled: boolean, normalizedTrust: number): number {
 
     if (aiEnabled && c.aiRelevanceScore !== null) {
       // AI enabled: 50% AI + 30% Tag + 20% Trust

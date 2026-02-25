@@ -5,9 +5,11 @@ import {
   DialogTitle,
   DialogDescription,
   Badge,
-  ScrollArea
+  ScrollArea,
+  Button
 } from "@/shared/components/ui";
-import { Star, Sparkles, CheckCircle2, ShieldCheck } from "lucide-react";
+import { Star, Sparkles, CheckCircle2, ShieldCheck, ExternalLink } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 interface CandidateProfileModalProps {
   isOpen: boolean;
@@ -16,9 +18,12 @@ interface CandidateProfileModalProps {
 }
 
 export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateProfileModalProps) {
+  const navigate = useNavigate();
   if (!candidate) return null;
 
   const {
+    userId,
+    candidateId,
     fullName,
     classificationLabel,
     matchScore,
@@ -38,6 +43,8 @@ export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateP
   };
 
   const labelData = classificationLabel ? labelConfig[classificationLabel] || labelConfig.NORMAL : labelConfig.NORMAL;
+  
+  const targetId = userId || candidateId;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -123,6 +130,13 @@ export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateP
             )}
           </div>
         </ScrollArea>
+        <div className="p-4 border-t bg-muted/10 flex justify-end">
+          {targetId && (
+            <Button onClick={() => { onClose(); navigate(`/client/discovery/profile/${targetId}`); }} className="shadow-sm">
+              <ExternalLink className="w-4 h-4 mr-2" /> View Full Profile
+            </Button>
+          )}
+        </div>
       </DialogContent>
     </Dialog>
   );
