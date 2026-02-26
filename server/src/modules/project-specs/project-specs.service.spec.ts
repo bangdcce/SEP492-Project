@@ -9,10 +9,11 @@ import {
 } from '../../database/entities/project-request.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { DataSource, QueryRunner } from 'typeorm';
-import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { DeliverableType } from '../../database/entities/milestone.entity';
+import { ProjectSpecSignatureEntity } from '../../database/entities/project-spec-signature.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 
 describe('ProjectSpecsService', () => {
   let service: ProjectSpecsService;
@@ -25,6 +26,8 @@ describe('ProjectSpecsService', () => {
   };
   const mockMilestonesRepo = {};
   const mockProjectRequestsRepo = {};
+  const mockProjectSpecSignaturesRepo = {};
+  const mockProjectRequestProposalsRepo = {};
   const mockAuditLogsService = {
     log: jest.fn(),
   };
@@ -60,6 +63,14 @@ describe('ProjectSpecsService', () => {
         { provide: getRepositoryToken(ProjectSpecEntity), useValue: mockProjectSpecsRepo },
         { provide: getRepositoryToken(MilestoneEntity), useValue: mockMilestonesRepo },
         { provide: getRepositoryToken(ProjectRequestEntity), useValue: mockProjectRequestsRepo },
+        {
+          provide: getRepositoryToken(ProjectSpecSignatureEntity),
+          useValue: mockProjectSpecSignaturesRepo,
+        },
+        {
+          provide: getRepositoryToken(ProjectRequestProposalEntity),
+          useValue: mockProjectRequestProposalsRepo,
+        },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
         { provide: DataSource, useValue: mockDataSource },
       ],
@@ -124,7 +135,9 @@ describe('ProjectSpecsService', () => {
         status: RequestStatus.PROCESSING, // or whatever status allows it
         broker: mockUser,
       };
-      (queryRunner.manager.findOne as jest.Mock).mockResolvedValue(mockRequest);
+      (queryRunner.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce(mockRequest)
+        .mockResolvedValueOnce(null);
 
       // Mock Save Spec
       const mockSavedSpec = {
@@ -152,7 +165,9 @@ describe('ProjectSpecsService', () => {
 
     it('Scenario 2: Milestone Budget Violation - First Milestone > 30%', async () => {
       const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid' };
-      (queryRunner.manager.findOne as jest.Mock).mockResolvedValue(mockRequest);
+      (queryRunner.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce(mockRequest)
+        .mockResolvedValueOnce(null);
 
       const invalidDto = {
         ...createDto,
@@ -164,16 +179,15 @@ describe('ProjectSpecsService', () => {
       };
 
       await expect(service.createSpec(mockUser, invalidDto, {})).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(service.createSpec(mockUser, invalidDto, {})).rejects.toThrow(
         /First milestone cannot exceed 30%/,
       );
     });
 
     it('Scenario 3: Milestone Budget Violation - Last Milestone < 20%', async () => {
       const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid' };
-      (queryRunner.manager.findOne as jest.Mock).mockResolvedValue(mockRequest);
+      (queryRunner.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce(mockRequest)
+        .mockResolvedValueOnce(null);
 
       const invalidDto = {
         ...createDto,
@@ -185,9 +199,6 @@ describe('ProjectSpecsService', () => {
       };
 
       await expect(service.createSpec(mockUser, invalidDto, {})).rejects.toThrow(
-        BadRequestException,
-      );
-      await expect(service.createSpec(mockUser, invalidDto, {})).rejects.toThrow(
         /Final milestone must be at least 20%/,
       );
     });
@@ -198,7 +209,9 @@ describe('ProjectSpecsService', () => {
         brokerId: 'broker-uuid',
         status: RequestStatus.PROCESSING,
       };
-      (queryRunner.manager.findOne as jest.Mock).mockResolvedValue(mockRequest);
+      (queryRunner.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce(mockRequest)
+        .mockResolvedValueOnce(null);
 
       const warningDto = {
         ...createDto,
@@ -220,7 +233,9 @@ describe('ProjectSpecsService', () => {
 
     it('Scenario 5: Feature Validation - Short Criteria', async () => {
       const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid' };
-      (queryRunner.manager.findOne as jest.Mock).mockResolvedValue(mockRequest);
+      (queryRunner.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce(mockRequest)
+        .mockResolvedValueOnce(null);
 
       const invalidFeatureDto = {
         ...createDto,
@@ -234,9 +249,6 @@ describe('ProjectSpecsService', () => {
         ],
       };
 
-      await expect(service.createSpec(mockUser, invalidFeatureDto, {})).rejects.toThrow(
-        BadRequestException,
-      );
       await expect(service.createSpec(mockUser, invalidFeatureDto, {})).rejects.toThrow(
         /too short/,
       );

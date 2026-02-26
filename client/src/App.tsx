@@ -26,6 +26,12 @@ const MyRequestsPage = lazy(() =>
 const RequestDetailPage = lazy(
   () => import("@/features/requests/RequestDetailPage"),
 );
+const FreelancerRequestDetailPage = lazy(
+  () => import("@/features/requests/FreelancerRequestDetailPage"),
+);
+const FreelancerRequestsPage = lazy(
+  () => import("@/features/requests/FreelancerRequestsPage"),
+);
 const MyInvitationsPage = lazy(() => import("@/features/dashboard/MyInvitationsPage").then(m => ({ default: m.MyInvitationsPage })));
 const InvitationDetailsPage = lazy(() => import("@/features/dashboard/InvitationDetailsPage").then(m => ({ default: m.InvitationDetailsPage })));
 const DiscoveryPage = lazy(() => import("@/features/discovery/DiscoveryPage").then(m => ({ default: m.DiscoveryPage })));
@@ -70,6 +76,12 @@ const BrokerProjectsPage = lazy(() =>
 );
 const AuditSpecsPage = lazy(
   () => import("@/features/project-specs/AuditSpecsPage"),
+);
+const CreateClientSpecPage = lazy(
+  () => import("@/features/project-specs/CreateClientSpecPage"),
+);
+const ClientSpecReviewPage = lazy(
+  () => import("@/features/project-specs/ClientSpecReviewPage"),
 );
 const ContractPage = lazy(() => import("@/features/contracts/ContractPage"));
 const ContractListPage = lazy(
@@ -294,6 +306,26 @@ function App() {
             </RoleGuard>
           }
         />
+        <Route
+          path="/freelancer/contracts"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ContractListPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/contracts/:id"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ContractPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
 
         <Route
           path="/freelancer/invitations"
@@ -311,6 +343,36 @@ function App() {
             <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <InvitationDetailsPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/requests"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <FreelancerRequestsPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/requests/:id"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <FreelancerRequestDetailPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/spec-review/:specId"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ClientSpecReviewPage />
               </FreelancerDashboardLayout>
             </RoleGuard>
           }
@@ -408,11 +470,31 @@ function App() {
           }
         />
         <Route
+          path="/client/spec-review/:specId"
+          element={
+            <RoleGuard allowedRoles={["CLIENT", "CLIENT_SME", "SME"]}>
+              <ClientDashboardLayout>
+                <ClientSpecReviewPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.CLIENT_WORKSPACE}
           element={
             <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <ProjectWorkspacePage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/client/contracts"
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <ContractListPage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -675,11 +757,31 @@ function App() {
           }
         />
         <Route
+          path="/broker/project-requests/:id/create-client-spec"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <CreateClientSpecPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path="/broker/project-requests/:id/create-spec"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <CreateProjectSpecPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/broker/specs/:specId"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <ClientSpecReviewPage />
               </BrokerDashboardLayout>
             </RoleGuard>
           }

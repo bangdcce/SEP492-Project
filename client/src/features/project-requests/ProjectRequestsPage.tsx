@@ -2,10 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { ProjectRequestsTable } from './components/ProjectRequestsTable';
 import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
 import { STORAGE_KEYS } from '@/constants';
 import { getStoredJson } from '@/shared/utils/storage';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
+import { Input } from '@/shared/components/ui/Input';
+import { Badge } from '@/shared/components/ui/badge';
 
 export const ProjectRequestsPage: React.FC = () => {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
@@ -13,6 +16,7 @@ export const ProjectRequestsPage: React.FC = () => {
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const { checkKycStatus } = useKYCStatus();
 
   useEffect(() => {
@@ -29,6 +33,20 @@ export const ProjectRequestsPage: React.FC = () => {
       // 2. Has ACCEPTED proposal (Meaning invited and accepted)
       r.brokerProposals?.some((p: any) => p.brokerId === user?.id && p.status === 'ACCEPTED')
   );
+  const marketRequests = requests.filter((r) => r.status === 'PUBLIC_DRAFT' && !r.brokerId);
+  const filteredMarketRequests = marketRequests.filter((request) => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      request.title.toLowerCase().includes(q) ||
+      request.description.toLowerCase().includes(q) ||
+      (request.techPreferences || '').toLowerCase().includes(q) ||
+      (request.budgetRange || '').toLowerCase().includes(q)
+    );
+  });
+  const appliedCount = marketRequests.filter((request) =>
+    request.brokerProposals?.some((proposal: any) => proposal.brokerId === user?.id),
+  ).length;
 
   // TODO: Get this from real Auth Context
   // const MOCK_BROKER_ID = 'b0eebc99-9c0b-4ef8-bb6d-6bb9bd380b22';
@@ -98,18 +116,59 @@ export const ProjectRequestsPage: React.FC = () => {
 
   return (
     <div className="container mx-auto py-10">
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Marketplace Requests</h1>
+          <h1 className="text-3xl font-bold tracking-tight">Broker Marketplace</h1>
           <p className="text-muted-foreground">
-            Browse and apply to public project requests from clients.
+            Review open client requests, then assign or apply with your proposal.
           </p>
         </div>
       </div>
-      
+
+      <div className="mb-6 grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs uppercase text-muted-foreground">Open Requests</p>
+            <p className="mt-1 text-2xl font-semibold">{marketRequests.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs uppercase text-muted-foreground">Your Applications</p>
+            <p className="mt-1 text-2xl font-semibold text-indigo-600">{appliedCount}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs uppercase text-muted-foreground">Active My Requests</p>
+            <p className="mt-1 text-2xl font-semibold text-emerald-600">{myProjects.length}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="mb-4">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Search</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search by title, description, budget, tech stack..."
+                className="pl-9"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
+            </div>
+            <Badge variant="outline">{filteredMarketRequests.length} results</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="rounded-md bg-white p-4 shadow-sm">
         <ProjectRequestsTable 
-            requests={requests.filter(r => r.status === 'PUBLIC_DRAFT' && !r.brokerId)} 
+            requests={filteredMarketRequests}
             onAssign={handleAssign}
             onApply={handleApply}
             assigningId={assigningId}

@@ -1,28 +1,19 @@
 import { Layers, CalendarDays, X } from "lucide-react";
 
-/**
- * MOCK SPEC FEATURES
- * Simulates the functional requirements from ProjectSpec
- * TODO: Replace with real API data when backend is ready
- */
-export const MOCK_SPEC_FEATURES = [
-  { id: "feat-1", name: "User Authentication", category: "Core" },
-  { id: "feat-2", name: "Dashboard Analytics", category: "Core" },
-  { id: "feat-3", name: "Payment Gateway Integration", category: "Payment" },
-  { id: "feat-4", name: "Notification System", category: "Communication" },
-  { id: "feat-5", name: "File Upload & Storage", category: "Storage" },
-  { id: "feat-6", name: "Search & Filtering", category: "UX" },
-  { id: "feat-7", name: "Report Generation", category: "Reporting" },
-  { id: "feat-8", name: "API Integration (3rd Party)", category: "Integration" },
-] as const;
-
-type SpecFeature = (typeof MOCK_SPEC_FEATURES)[number];
+export type SpecFeatureOption = {
+  id: string;
+  title: string;
+  complexity?: "LOW" | "MEDIUM" | "HIGH";
+  description?: string;
+  acceptanceCriteriaCount?: number;
+};
 
 type CreateTaskModalProps = {
   open: boolean;
   title: string;
   description: string;
   milestoneId?: string;
+  specFeatures: SpecFeatureOption[];
   specFeatureId: string;
   startDate: string;
   dueDate: string;
@@ -41,6 +32,7 @@ export function CreateTaskModal({
   title,
   description,
   milestoneId,
+  specFeatures,
   specFeatureId,
   startDate,
   dueDate,
@@ -55,14 +47,22 @@ export function CreateTaskModal({
 }: CreateTaskModalProps) {
   if (!open) return null;
 
-  // Group features by category for better UX
-  const featuresByCategory = MOCK_SPEC_FEATURES.reduce((acc, feat) => {
-    if (!acc[feat.category]) acc[feat.category] = [];
-    acc[feat.category].push(feat);
+  const featuresByComplexity = specFeatures.reduce((acc, feat) => {
+    const key = feat.complexity || "UNSPECIFIED";
+    if (!acc[key]) acc[key] = [];
+    acc[key].push(feat);
     return acc;
-  }, {} as Record<string, SpecFeature[]>);
+  }, {} as Record<string, SpecFeatureOption[]>);
 
-  const selectedFeature = MOCK_SPEC_FEATURES.find(f => f.id === specFeatureId);
+  const selectedFeature = specFeatures.find((feature) => feature.id === specFeatureId);
+  const hasSpecFeatures = specFeatures.length > 0;
+
+  const complexityLabelMap: Record<string, string> = {
+    HIGH: "High Complexity",
+    MEDIUM: "Medium Complexity",
+    LOW: "Low Complexity",
+    UNSPECIFIED: "Unspecified",
+  };
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 px-4">
@@ -121,14 +121,18 @@ export function CreateTaskModal({
               value={specFeatureId}
               onChange={(e) => onChangeSpecFeature(e.target.value)}
               className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent bg-white"
-              disabled={isSubmitting}
+              disabled={isSubmitting || !hasSpecFeatures}
             >
-              <option value="">-- Select a feature from project spec --</option>
-              {Object.entries(featuresByCategory).map(([category, features]) => (
-                <optgroup key={category} label={`📁 ${category}`}>
+              <option value="">
+                {hasSpecFeatures
+                  ? "-- Select a feature from approved spec --"
+                  : "-- No features found in current spec --"}
+              </option>
+              {Object.entries(featuresByComplexity).map(([complexity, features]) => (
+                <optgroup key={complexity} label={complexityLabelMap[complexity] || complexity}>
                   {features.map((feat) => (
                     <option key={feat.id} value={feat.id}>
-                      {feat.name}
+                      {feat.title}
                     </option>
                   ))}
                 </optgroup>
@@ -137,12 +141,17 @@ export function CreateTaskModal({
             {selectedFeature && (
               <p className="mt-1.5 text-xs text-teal-600 flex items-center gap-1">
                 <span className="inline-block w-2 h-2 bg-teal-500 rounded-full"></span>
-                Task linked to: <strong>{selectedFeature.name}</strong>
+                Task linked to: <strong>{selectedFeature.title}</strong>
+                {selectedFeature.acceptanceCriteriaCount
+                  ? ` (${selectedFeature.acceptanceCriteriaCount} acceptance criteria)`
+                  : ""}
               </p>
             )}
             {!specFeatureId && (
               <p className="mt-1.5 text-xs text-amber-600">
-                ⚠️ Tasks without a linked feature may indicate scope creep
+                {hasSpecFeatures
+                  ? "Tasks without a linked feature may indicate scope creep."
+                  : "Spec feature list is empty. Broker should update final spec if needed."}
               </p>
             )}
           </div>

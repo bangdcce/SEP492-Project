@@ -1,4 +1,4 @@
-import { IsString, IsUUID, IsNotEmpty } from 'class-validator';
+import { IsString, IsUUID, IsNotEmpty, MinLength, MaxLength } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class InitializeContractDto {
@@ -21,10 +21,12 @@ export class InitializeContractDto {
 
 export class SignContractDto {
   @ApiProperty({
-    description: 'ID of the contract to sign',
-    example: '123e4567-e89b-12d3-a456-426614174000',
+    description: 'Client-generated signature hash for contract signing',
+    example: '5f2730f249cf092ec0b8ce68f99ecf251f3ccf8508df34f4c9c8e49f13fbfa6f',
   })
-  @IsUUID()
+  @IsString()
   @IsNotEmpty()
-  contractId: string;
+  @MinLength(16)
+  @MaxLength(512)
+  signatureHash: string;
 }

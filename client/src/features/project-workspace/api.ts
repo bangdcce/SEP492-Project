@@ -25,7 +25,7 @@ export interface WorkspaceProject {
   status?: string;
   hasActiveDispute?: boolean;
   activeDisputeCount?: number;
-  contracts?: { id: string; status: string }[];
+  contracts?: { id: string; status: string; activatedAt?: string | null; createdAt?: string }[];
   brokerId: string;
   clientId: string;
   freelancerId?: string | null;
@@ -247,13 +247,27 @@ export const createMilestone = async (payload: {
   description?: string;
 }): Promise<Milestone> => {
   console.log("[API] Creating milestone:", payload);
-
-  // Note: This endpoint may need to be implemented separately
-  // For now, we'll make the call to /milestones if available
-  const result = await apiClient.post<Milestone>("/milestones", payload);
+  const { projectId, ...body } = payload;
+  const result = await apiClient.post<Milestone>(
+    `/projects/${projectId}/milestones`,
+    body
+  );
 
   console.log("[API] Milestone created:", result);
   return result;
+};
+
+export const updateMilestone = async (
+  milestoneId: string,
+  payload: Partial<Pick<Milestone, "title" | "description" | "amount" | "startDate" | "dueDate" | "sortOrder">>
+): Promise<Milestone> => {
+  return apiClient.patch<Milestone>(`/projects/milestones/${milestoneId}`, payload);
+};
+
+export const deleteMilestone = async (
+  milestoneId: string
+): Promise<{ success: boolean }> => {
+  return apiClient.delete<{ success: boolean }>(`/projects/milestones/${milestoneId}`);
 };
 
 /**
@@ -285,5 +299,4 @@ export const approveMilestone = async (
   console.log("[API] Milestone approved:", result);
   return result;
 };
-
 
