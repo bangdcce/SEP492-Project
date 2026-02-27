@@ -15,6 +15,7 @@ import {
   DisputeEntity,
   DisputeEvidenceEntity,
   DisputeHearingEntity,
+  DisputePhase,
   DisputeResult,
   DisputeStatus,
   DisputeType,
@@ -41,6 +42,7 @@ import {
 import { AdminVerdictDto, AppealVerdictDto, VerdictReasoningDto } from '../dto/verdict.dto';
 import { DisputeStateMachine, determineLoser } from '../dispute-state-machine';
 import { StaffAssignmentService } from './staff-assignment.service';
+import { VerdictReadinessService } from './verdict-readiness.service';
 import type { MoneyDistribution } from '../interfaces/resolution.interface';
 
 export interface VerdictReasoningValidationResult {
@@ -136,7 +138,32 @@ export class VerdictService {
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
     private readonly staffAssignmentService: StaffAssignmentService,
+    private readonly verdictReadinessService: VerdictReadinessService,
   ) {}
+
+  /**
+   * Get the latest verdict for a dispute (public read).
+   * Returns the appeal verdict if it exists, otherwise the tier-1 verdict.
+   */
+  async getVerdictByDisputeId(disputeId: string): Promise<DisputeVerdictEntity | null> {
+    const repo = this.dataSource.getRepository(DisputeVerdictEntity);
+
+    // Prefer appeal verdict (tier 2) if it exists
+    const appealVerdict = await repo.findOne({
+      where: { disputeId, isAppealVerdict: true },
+      relations: ['adjudicator'],
+      order: { issuedAt: 'DESC' },
+    });
+    if (appealVerdict) return appealVerdict;
+
+    // Otherwise return the tier 1 verdict
+    const verdict = await repo.findOne({
+      where: { disputeId, isAppealVerdict: false },
+      relations: ['adjudicator'],
+      order: { issuedAt: 'DESC' },
+    });
+    return verdict ?? null;
+  }
 
   private determineTransferRecipients(
     disputeType: DisputeType,
@@ -1002,95 +1029,17 @@ export class VerdictService {
     if (!gateEnabled) {
       return;
     }
-
-    const completedHearing = await queryRunner.manager.findOne(DisputeHearingEntity, {
-      where: { disputeId, status: HearingStatus.COMPLETED },
-      order: { endedAt: 'DESC', updatedAt: 'DESC', createdAt: 'DESC' },
-      select: ['id', 'scheduledAt', 'startedAt', 'endedAt', 'summary', 'findings'],
-    });
-
-    const checklist = {
-      completedHearing: Boolean(completedHearing),
-      hearingMinutes: false,
-      attendanceEvidence: false,
-      moderatorPresent: false,
-      bothSidesRepresented: false,
-      noShowDocumented: false,
-    };
-
-    if (completedHearing) {
-      const summary = completedHearing.summary?.trim() || '';
-      const findings = completedHearing.findings?.trim() || '';
-      checklist.hearingMinutes = summary.length > 0 && findings.length > 0;
-
-      const participants = await queryRunner.manager.find(HearingParticipantEntity, {
-        where: { hearingId: completedHearing.id },
-        select: ['role', 'isRequired', 'joinedAt', 'confirmedAt'],
-      });
-
-      const isPresent = (participant: Pick<HearingParticipantEntity, 'joinedAt' | 'confirmedAt'>) =>
-        Boolean(participant.joinedAt || participant.confirmedAt);
-
-      checklist.moderatorPresent =
-        participants.some(
-          (participant) =>
-            participant.role === HearingParticipantRole.MODERATOR && isPresent(participant),
-        ) || Boolean(completedHearing.startedAt);
-
-      const raiserPresent = participants.some(
-        (participant) =>
-          participant.role === HearingParticipantRole.RAISER && isPresent(participant),
-      );
-      const defendantPresent = participants.some(
-        (participant) =>
-          participant.role === HearingParticipantRole.DEFENDANT && isPresent(participant),
-      );
-      checklist.bothSidesRepresented = raiserPresent && defendantPresent;
-
-      if (!checklist.bothSidesRepresented && completedHearing.endedAt) {
-        const endedAfterGrace =
-          completedHearing.endedAt.getTime() >=
-          completedHearing.scheduledAt.getTime() + 15 * 60 * 1000;
-        const text = `${summary} ${findings}`.toLowerCase();
-        const mentionsNoShow =
-          text.includes('no-show') || text.includes('no show') || text.includes('absent');
-        const missingRaiser = participants.some(
-          (participant) =>
-            participant.role === HearingParticipantRole.RAISER &&
-            participant.isRequired &&
-            !isPresent(participant),
-        );
-        const missingDefendant = participants.some(
-          (participant) =>
-            participant.role === HearingParticipantRole.DEFENDANT &&
-            participant.isRequired &&
-            !isPresent(participant),
-        );
-        checklist.noShowDocumented =
-          endedAfterGrace && mentionsNoShow && (missingRaiser || missingDefendant);
-      }
-
-      checklist.attendanceEvidence =
-        checklist.moderatorPresent &&
-        (checklist.bothSidesRepresented || checklist.noShowDocumented);
-    }
-
-    const unmetChecklist: string[] = [];
-    if (!checklist.completedHearing) {
-      unmetChecklist.push('completedHearing');
-    }
-    if (!checklist.hearingMinutes) {
-      unmetChecklist.push('hearingMinutes');
-    }
-    if (!checklist.attendanceEvidence) {
-      unmetChecklist.push('attendanceEvidence');
-    }
-
-    if (unmetChecklist.length > 0) {
+    const readiness = await this.verdictReadinessService.evaluateDisputeGate(
+      disputeId,
+      queryRunner.manager,
+    );
+    if (!readiness.canIssueVerdict) {
       throw new ConflictException({
         message: 'Verdict is blocked until hearing completion and minutes checklist is satisfied.',
-        checklist,
-        unmetChecklist,
+        checklist: readiness.checklist,
+        unmetChecklist: readiness.unmetChecklist,
+        unmetChecklistDetails: readiness.unmetChecklistDetails,
+        context: readiness.context,
       });
     }
   }
@@ -1134,7 +1083,10 @@ export class VerdictService {
       const existingVerdict = await queryRunner.manager.findOne(DisputeVerdictEntity, {
         where: { disputeId: dispute.id, isAppealVerdict: false },
       });
-      if (existingVerdict) {
+
+      // Determine if this is an appeal verdict (TIER_2)
+      const isAppeal = !!existingVerdict && dispute.status === DisputeStatus.APPEALED;
+      if (existingVerdict && !isAppeal) {
         throw new BadRequestException('Tier 1 verdict already exists for this dispute');
       }
 
@@ -1186,8 +1138,9 @@ export class VerdictService {
       );
 
       const now = new Date();
-      const appealDeadline = this.getAppealDeadline(now);
-      const tier = adjudicatorRole === UserRole.ADMIN ? 2 : 1;
+      // Appeal verdicts are final — no further appeal period
+      const appealDeadline = isAppeal ? now : this.getAppealDeadline(now);
+      const tier = isAppeal ? 2 : adjudicatorRole === UserRole.ADMIN ? 2 : 1;
 
       const verdict = queryRunner.manager.create(DisputeVerdictEntity, {
         disputeId: dispute.id,
@@ -1204,7 +1157,8 @@ export class VerdictService {
         banDurationDays: dto.banDurationDays || 0,
         warningMessage: dto.warningMessage,
         tier,
-        isAppealVerdict: false,
+        isAppealVerdict: isAppeal,
+        ...(isAppeal && existingVerdict ? { overridesVerdictId: existingVerdict.id } : {}),
       });
 
       const savedVerdict = await queryRunner.manager.save(DisputeVerdictEntity, verdict);
@@ -1215,7 +1169,7 @@ export class VerdictService {
       dispute.resolvedById = adjudicatorId;
       dispute.appealDeadline = appealDeadline;
       dispute.currentTier = tier;
-      dispute.isAppealed = false;
+      dispute.isAppealed = isAppeal;
       if (dto.adminComment) {
         dispute.adminComment = dto.adminComment;
       } else if (!dispute.adminComment && dto.reasoning?.conclusion) {
@@ -1234,7 +1188,7 @@ export class VerdictService {
           disputeId: dispute.id,
           verdictId: savedVerdict.id,
           pendingVerdict: true,
-          appealDeadline: appealDeadline.toISOString(),
+          appealDeadline: appealDeadline?.toISOString() ?? now.toISOString(),
         },
         true,
       );

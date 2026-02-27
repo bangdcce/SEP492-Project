@@ -1,4 +1,4 @@
-import {
+﻿import {
   Entity,
   Column,
   PrimaryGeneratedColumn,
@@ -16,18 +16,19 @@ import {
 export enum HearingStatus {
   SCHEDULED = 'SCHEDULED',
   IN_PROGRESS = 'IN_PROGRESS',
+  PAUSED = 'PAUSED',
   COMPLETED = 'COMPLETED',
   CANCELED = 'CANCELED',
   RESCHEDULED = 'RESCHEDULED',
 }
 
 export enum HearingStatementType {
-  OPENING = 'OPENING', // Lời khai mở đầu
-  EVIDENCE = 'EVIDENCE', // Trình bày bằng chứng
-  REBUTTAL = 'REBUTTAL', // Phản bác
-  CLOSING = 'CLOSING', // Kết luận
-  QUESTION = 'QUESTION', // Câu hỏi từ Admin
-  ANSWER = 'ANSWER', // Trả lời
+  OPENING = 'OPENING', // L盻拱 khai m盻・ﾄ黛ｺｧu
+  EVIDENCE = 'EVIDENCE', // Trﾃｬnh bﾃy b蘯ｱng ch盻ｩng
+  REBUTTAL = 'REBUTTAL', // Ph蘯｣n bﾃ｡c
+  CLOSING = 'CLOSING', // K蘯ｿt lu蘯ｭn
+  QUESTION = 'QUESTION', // Cﾃ｢u h盻淑 t盻ｫ Admin
+  ANSWER = 'ANSWER', // Tr蘯｣ l盻拱
 }
 
 export enum HearingStatementStatus {
@@ -46,26 +47,28 @@ export enum HearingParticipantRole {
   DEFENDANT = 'DEFENDANT',
   WITNESS = 'WITNESS',
   MODERATOR = 'MODERATOR',
-  OBSERVER = 'OBSERVER', // Bên thứ 3 liên quan (e.g., broker khi client vs freelancer)
+  OBSERVER = 'OBSERVER', // Bﾃｪn th盻ｩ 3 liﾃｪn quan (e.g., broker khi client vs freelancer)
 }
 
-// Enum cho Live Chat - Ai được quyền chat hiện tại
+// Enum cho Live Chat - Ai ﾄ柁ｰ盻｣c quy盻］ chat hi盻㌻ t蘯｡i
 export enum SpeakerRole {
-  ALL = 'ALL', // Mọi người đều được chat
-  MODERATOR_ONLY = 'MODERATOR_ONLY', // Chỉ Staff/Admin (Tuyên án/Khai mạc)
-  RAISER_ONLY = 'RAISER_ONLY', // Chỉ Nguyên đơn trình bày
-  DEFENDANT_ONLY = 'DEFENDANT_ONLY', // Chỉ Bị đơn trình bày
-  MUTED_ALL = 'MUTED_ALL', // Tạm dừng chat (nghỉ giải lao)
+  ALL = 'ALL', // M盻絞 ngﾆｰ盻拱 ﾄ黛ｻ「 ﾄ柁ｰ盻｣c chat
+  MODERATOR_ONLY = 'MODERATOR_ONLY', // Ch盻・Staff/Admin (Tuyﾃｪn ﾃ｡n/Khai m蘯｡c)
+  RAISER_ONLY = 'RAISER_ONLY', // Ch盻・Nguyﾃｪn ﾄ柁｡n trﾃｬnh bﾃy
+  DEFENDANT_ONLY = 'DEFENDANT_ONLY', // Ch盻・B盻・ﾄ柁｡n trﾃｬnh bﾃy
+  WITNESS_ONLY = 'WITNESS_ONLY', // Ch盻・Nhﾃ｢n ch盻ｩng trﾃｬnh bﾃy
+  OBSERVER_ONLY = 'OBSERVER_ONLY', // Ch盻・Quan sﾃ｡t viﾃｪn (bﾃｪn trung gian) trﾃｬnh bﾃy
+  MUTED_ALL = 'MUTED_ALL', // T蘯｡m d盻ｫng chat (ngh盻・gi蘯｣i lao)
 }
 
-// Enum cho Tier phiên điều trần
+// Enum cho Tier phiﾃｪn ﾄ訴盻「 tr蘯ｧn
 export enum HearingTier {
-  TIER_1 = 'TIER_1', // Staff điều trần
-  TIER_2 = 'TIER_2', // Admin phúc thẩm
+  TIER_1 = 'TIER_1', // Staff ﾄ訴盻「 tr蘯ｧn
+  TIER_2 = 'TIER_2', // Admin phﾃｺc th蘯ｩm
 }
 
 // =============================================================================
-// DISPUTE HEARING ENTITY (Phiên điều trần)
+// DISPUTE HEARING ENTITY (Phiﾃｪn ﾄ訴盻「 tr蘯ｧn)
 // =============================================================================
 
 @Entity('dispute_hearings')
@@ -93,18 +96,18 @@ export class DisputeHearingEntity {
   endedAt: Date;
 
   @Column({ type: 'text', nullable: true })
-  agenda: string; // Nội dung cần thảo luận
+  agenda: string; // N盻冓 dung c蘯ｧn th蘯｣o lu蘯ｭn
 
   @Column({
     nullable: true,
-    comment: 'Link Google Meet/Zoom nếu cần video call (optional, do bên thứ 3 cung cấp)',
+    comment: 'Link Google Meet/Zoom n蘯ｿu c蘯ｧn video call (optional, do bﾃｪn th盻ｩ 3 cung c蘯･p)',
   })
   externalMeetingLink: string;
 
   @Column({ type: 'jsonb', nullable: true })
-  requiredDocuments: string[]; // Tài liệu yêu cầu chuẩn bị
+  requiredDocuments: string[]; // Tﾃi li盻㎡ yﾃｪu c蘯ｧu chu蘯ｩn b盻・
 
-  @Column({ comment: 'Staff/Admin chủ trì phiên điều trần' })
+  @Column({ comment: 'Staff/Admin ch盻ｧ trﾃｬ phiﾃｪn ﾄ訴盻「 tr蘯ｧn' })
   moderatorId: string;
 
   // === LIVE CHAT CONTROL ===
@@ -112,7 +115,7 @@ export class DisputeHearingEntity {
     type: 'enum',
     enum: SpeakerRole,
     default: SpeakerRole.MUTED_ALL,
-    comment: 'Kiểm soát ai được quyền chat hiện tại',
+    comment: 'Ki盻ノ soﾃ｡t ai ﾄ柁ｰ盻｣c quy盻］ chat hi盻㌻ t蘯｡i',
   })
   currentSpeakerRole: SpeakerRole;
 
@@ -120,11 +123,11 @@ export class DisputeHearingEntity {
     type: 'enum',
     enum: HearingTier,
     default: HearingTier.TIER_1,
-    comment: 'Tier 1 = Staff, Tier 2 = Admin phúc thẩm',
+    comment: 'Tier 1 = Staff, Tier 2 = Admin phﾃｺc th蘯ｩm',
   })
   tier: HearingTier;
 
-  @Column({ default: false, comment: 'TRUE = Phòng chat đang hoạt động' })
+  @Column({ default: false, comment: 'TRUE = Phﾃｲng chat ﾄ疎ng ho蘯｡t ﾄ黛ｻ冢g' })
   isChatRoomActive: boolean;
 
   @Column({
@@ -132,6 +135,30 @@ export class DisputeHearingEntity {
     comment: 'TRUE = Moderator opened a controlled intake window for new evidence uploads',
   })
   isEvidenceIntakeOpen: boolean;
+
+  @Column({ type: 'timestamp', nullable: true, comment: 'When hearing was paused' })
+  pausedAt: Date;
+
+  @Column({ nullable: true, comment: 'Moderator/Admin user who paused hearing' })
+  pausedById: string;
+
+  @Column({ type: 'text', nullable: true, comment: 'Reason for pausing hearing' })
+  pauseReason: string;
+
+  @Column({
+    type: 'int',
+    default: 0,
+    comment: 'Accumulated pause duration in seconds for countdown accuracy',
+  })
+  accumulatedPauseSeconds: number;
+
+  @Column({
+    type: 'enum',
+    enum: SpeakerRole,
+    nullable: true,
+    comment: 'Speaker role before pause to restore on resume',
+  })
+  speakerRoleBeforePause: SpeakerRole;
 
   @Column({ type: 'timestamp', nullable: true, comment: 'When intake window was opened' })
   evidenceIntakeOpenedAt: Date;
@@ -146,31 +173,38 @@ export class DisputeHearingEntity {
   evidenceIntakeReason: string;
 
   // === DURATION & SCHEDULING ===
-  @Column({ type: 'int', default: 60, comment: 'Thời lượng dự kiến (phút)' })
+  @Column({ type: 'int', default: 60, comment: 'Th盻拱 lﾆｰ盻｣ng d盻ｱ ki蘯ｿn (phﾃｺt)' })
   estimatedDurationMinutes: number;
 
   // === RESCHEDULE TRACKING ===
-  @Column({ default: 0, comment: 'Số lần đã dời lịch (Max 2-3)' })
+  @Column({ default: 0, comment: 'S盻・l蘯ｧn ﾄ妥｣ d盻拱 l盻議h (Max 2-3)' })
   rescheduleCount: number;
 
-  @Column({ nullable: true, comment: 'Phiên cũ nếu đây là reschedule' })
+  @Column({ nullable: true, comment: 'Phiﾃｪn cﾅｩ n蘯ｿu ﾄ妥｢y lﾃ reschedule' })
   previousHearingId: string;
 
   @Column({ type: 'timestamp', nullable: true })
   lastRescheduledAt: Date;
 
-  // === SUMMARY (sau khi kết thúc) ===
+  // === SUMMARY (sau khi k蘯ｿt thﾃｺc) ===
   @Column({ type: 'text', nullable: true })
-  summary: string; // Tóm tắt phiên điều trần
+  summary: string; // Tﾃｳm t蘯ｯt phiﾃｪn ﾄ訴盻「 tr蘯ｧn
 
   @Column({ type: 'text', nullable: true })
-  findings: string; // Những phát hiện quan trọng
+  findings: string; // Nh盻ｯng phﾃ｡t hi盻㌻ quan tr盻肱g
 
   @Column({ type: 'jsonb', nullable: true })
-  pendingActions: string[]; // Các việc cần làm tiếp
+  pendingActions: string[];
+
+  @Column({
+    type: 'text',
+    nullable: true,
+    comment: 'Structured no-show documentation for required absent participants',
+  })
+  noShowNote: string;
 
   @Column({ default: 1 })
-  hearingNumber: number; // Phiên thứ mấy (có thể có nhiều phiên)
+  hearingNumber: number; // Phiﾃｪn th盻ｩ m蘯･y (cﾃｳ th盻・cﾃｳ nhi盻「 phiﾃｪn)
 
   @CreateDateColumn()
   createdAt: Date;
@@ -198,7 +232,7 @@ export class DisputeHearingEntity {
 }
 
 // =============================================================================
-// HEARING PARTICIPANT ENTITY (Người tham gia)
+// HEARING PARTICIPANT ENTITY (Ngﾆｰ盻拱 tham gia)
 // =============================================================================
 
 @Entity('hearing_participants')
@@ -222,10 +256,10 @@ export class HearingParticipantEntity {
   invitedAt: Date;
 
   @Column({ type: 'timestamp', nullable: true })
-  confirmedAt: Date; // Xác nhận tham gia
+  confirmedAt: Date; // Xﾃ｡c nh蘯ｭn tham gia
 
   @Column({ type: 'timestamp', nullable: true })
-  joinedAt: Date; // Thực tế vào phiên
+  joinedAt: Date; // Th盻ｱc t蘯ｿ vﾃo phiﾃｪn
 
   @Column({ type: 'timestamp', nullable: true })
   leftAt: Date;
@@ -233,23 +267,23 @@ export class HearingParticipantEntity {
   @Column({ default: false })
   isOnline: boolean;
 
-  @Column({ type: 'timestamp', nullable: true, comment: 'Lần online gần nhất' })
+  @Column({ type: 'timestamp', nullable: true, comment: 'L蘯ｧn online g蘯ｧn nh蘯･t' })
   lastOnlineAt: Date;
 
-  @Column({ type: 'int', default: 0, comment: 'Tổng phút online trong phiên' })
+  @Column({ type: 'int', default: 0, comment: 'T盻貧g phﾃｺt online trong phiﾃｪn' })
   totalOnlineMinutes: number;
 
   @Column({ default: false })
-  hasSubmittedStatement: boolean; // Đã nộp lời khai chưa
+  hasSubmittedStatement: boolean; // ﾄ静｣ n盻冪 l盻拱 khai chﾆｰa
 
   // === RESPONSE STATUS ===
-  @Column({ default: false, comment: 'Bắt buộc tham gia (Nguyên đơn, Bị đơn = true)' })
+  @Column({ default: false, comment: 'B蘯ｯt bu盻冂 tham gia (Nguyﾃｪn ﾄ柁｡n, B盻・ﾄ柁｡n = true)' })
   isRequired: boolean;
 
-  @Column({ type: 'timestamp', nullable: true, comment: 'Hạn phản hồi lời mời' })
+  @Column({ type: 'timestamp', nullable: true, comment: 'H蘯｡n ph蘯｣n h盻妬 l盻拱 m盻拱' })
   responseDeadline: Date;
 
-  @Column({ type: 'text', nullable: true, comment: 'Lý do từ chối/xin dời' })
+  @Column({ type: 'text', nullable: true, comment: 'Lﾃｽ do t盻ｫ ch盻訴/xin d盻拱' })
   declineReason: string;
 
   @CreateDateColumn()
@@ -266,7 +300,7 @@ export class HearingParticipantEntity {
 }
 
 // =============================================================================
-// HEARING STATEMENT ENTITY (Lời khai / Bằng chứng)
+// HEARING STATEMENT ENTITY (L盻拱 khai / B蘯ｱng ch盻ｩng)
 // =============================================================================
 
 @Entity('hearing_statements')
@@ -300,7 +334,7 @@ export class HearingStatementEntity {
   status: HearingStatementStatus;
 
   @Column({ type: 'jsonb', nullable: true })
-  attachments: string[]; // URLs của file đính kèm
+  attachments: string[]; // URLs c盻ｧa file ﾄ妥ｭnh kﾃｨm
 
   @Column({ nullable: true })
   replyToStatementId: string; // Reply to prior statement
@@ -309,10 +343,10 @@ export class HearingStatementEntity {
   retractionOfStatementId: string; // Correction for prior statement
 
   @Column({ default: 0 })
-  orderIndex: number; // Thứ tự trong phiên
+  orderIndex: number; // Th盻ｩ t盻ｱ trong phiﾃｪn
 
   @Column({ default: false })
-  isRedacted: boolean; // Bị admin ẩn vì không phù hợp
+  isRedacted: boolean; // B盻・admin 蘯ｩn vﾃｬ khﾃｴng phﾃｹ h盻｣p
 
   @Column({ type: 'text', nullable: true })
   redactedReason: string;
@@ -339,7 +373,7 @@ export class HearingStatementEntity {
 }
 
 // =============================================================================
-// HEARING QUESTION ENTITY (Câu hỏi từ Admin)
+// HEARING QUESTION ENTITY (Cﾃ｢u h盻淑 t盻ｫ Admin)
 // =============================================================================
 
 @Entity('hearing_questions')
@@ -351,10 +385,10 @@ export class HearingQuestionEntity {
   hearingId: string;
 
   @Column()
-  askedById: string; // Admin đặt câu hỏi
+  askedById: string; // Admin ﾄ黛ｺｷt cﾃ｢u h盻淑
 
   @Column()
-  targetUserId: string; // Người cần trả lời
+  targetUserId: string; // Ngﾆｰ盻拱 c蘯ｧn tr蘯｣ l盻拱
 
   @Column({ type: 'text' })
   question: string;
@@ -382,7 +416,7 @@ export class HearingQuestionEntity {
   cancelledById: string; // Moderator who cancelled
 
   @Column({ default: false })
-  isRequired: boolean; // Bắt buộc trả lời trước khi kết phiên
+  isRequired: boolean; // B蘯ｯt bu盻冂 tr蘯｣ l盻拱 trﾆｰ盻嫩 khi k蘯ｿt phiﾃｪn
 
   @Column({ default: 0 })
   orderIndex: number;
@@ -407,3 +441,4 @@ export class HearingQuestionEntity {
   @JoinColumn({ name: 'cancelledById' })
   cancelledBy: any;
 }
+

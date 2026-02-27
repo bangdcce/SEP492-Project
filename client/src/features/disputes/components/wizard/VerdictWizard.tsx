@@ -34,6 +34,7 @@ type VerdictGateErrorPayload = {
   message?: string;
   checklist?: Record<string, boolean>;
   unmetChecklist?: string[];
+  unmetChecklistDetails?: string[];
 };
 
 const VERDICT_GATE_LABELS: Record<string, string> = {
@@ -297,6 +298,14 @@ export const VerdictWizard = ({ disputeId, disputedAmount }: VerdictWizardProps)
               <ul className="mt-2 list-disc pl-5 text-xs">
                 {verdictGateError.unmetChecklist.map((item) => (
                   <li key={item}>{VERDICT_GATE_LABELS[item] || item}</li>
+                ))}
+              </ul>
+            )}
+          {Array.isArray(verdictGateError.unmetChecklistDetails) &&
+            verdictGateError.unmetChecklistDetails.length > 0 && (
+              <ul className="mt-2 list-disc pl-5 text-xs">
+                {verdictGateError.unmetChecklistDetails.map((item) => (
+                  <li key={item}>{item}</li>
                 ))}
               </ul>
             )}

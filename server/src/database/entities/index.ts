@@ -1,5 +1,5 @@
 // User & Auth Entities
-export { UserEntity, UserRole, BadgeType } from './user.entity';
+export { UserEntity, UserRole, UserStatus, BadgeType } from './user.entity';
 export { SocialAccountEntity } from './social-account.entity';
 export { ProfileEntity } from './profile.entity';
 export { SavedFreelancerEntity } from './saved-freelancer.entity';
@@ -52,6 +52,7 @@ export {
   DisputeScheduleProposalStatus,
 } from './dispute-schedule-proposal.entity';
 export { DisputeViewStateEntity } from './dispute-view-state.entity';
+export { DisputeInternalMembershipEntity } from './dispute-internal-membership.entity';
 export {
   DisputeHearingEntity,
   HearingParticipantEntity,

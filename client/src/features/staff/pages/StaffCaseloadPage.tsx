@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useLocation, useSearchParams } from "react-router-dom";
 import { DisputeDetailHub } from "@/features/disputes/components/dashboard/DisputeDetailHub";
 import type { DisputeSummary } from "@/features/disputes/types/dispute.types";
@@ -5,11 +6,24 @@ import { StaffCaseloadBoard } from "@/features/disputes/components/dashboard/Sta
 
 export const StaffCaseloadPage = () => {
   const location = useLocation();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const locationState = location.state as { dispute?: DisputeSummary } | undefined;
   const disputeId =
     searchParams.get("disputeId") ?? locationState?.dispute?.id ?? undefined;
-  const initialTab = searchParams.get("tab") ?? undefined;
+  const rawTab = searchParams.get("tab")?.toLowerCase();
+  const initialTab =
+    rawTab === "resolution" || rawTab === "verdict"
+      ? "hearings"
+      : rawTab === "discussion" || rawTab === "chat"
+        ? "internal-notes"
+        : rawTab ?? undefined;
+
+  useEffect(() => {
+    if (!rawTab || !initialTab || rawTab === initialTab) return;
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("tab", initialTab);
+    setSearchParams(next, { replace: true });
+  }, [rawTab, initialTab, searchParams, setSearchParams]);
 
   if (!disputeId) {
     return (

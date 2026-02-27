@@ -266,12 +266,15 @@ export class DisputeEventListener {
       return;
     }
 
-    this.gateway.emitDisputeEvent(hearing.disputeId, 'HEARING_STARTED', {
+    const startedPayload = {
       hearingId: hearing.id,
       startedAt: payload.startedAt,
       startedBy: payload.startedBy,
       serverTimestamp: this.toIsoString(),
-    });
+    };
+
+    this.gateway.emitHearingEvent(hearing.id, 'HEARING_STARTED', startedPayload);
+    this.gateway.emitDisputeEvent(hearing.disputeId, 'HEARING_STARTED', startedPayload);
 
     await this.appendLedger(hearing.disputeId, 'HEARING_STARTED', {
       actorId: payload.startedBy || null,
@@ -297,17 +300,16 @@ export class DisputeEventListener {
       return;
     }
 
-    this.gateway.emitStaffDashboardEvent('HEARING_ENDED', {
+    const endedPayload = {
       disputeId: hearing.disputeId,
       hearingId: hearing.id,
       endedById: payload.endedById,
       serverTimestamp: this.toIsoString(),
-    });
+    };
 
-    this.gateway.emitDisputeEvent(hearing.disputeId, 'HEARING_ENDED', {
-      hearingId: hearing.id,
-      serverTimestamp: this.toIsoString(),
-    });
+    this.gateway.emitHearingEvent(hearing.id, 'HEARING_ENDED', endedPayload);
+    this.gateway.emitStaffDashboardEvent('HEARING_ENDED', endedPayload);
+    this.gateway.emitDisputeEvent(hearing.disputeId, 'HEARING_ENDED', endedPayload);
 
     await this.appendLedger(hearing.disputeId, 'HEARING_ENDED', {
       actorId: payload.endedById || null,
@@ -328,18 +330,25 @@ export class DisputeEventListener {
       return;
     }
 
-    this.gateway.emitDisputeEvent(payload.disputeId, 'VERDICT_ISSUED', {
-      verdictId: payload.verdictId,
-      appealDeadline: payload.appealDeadline,
-      serverTimestamp: this.toIsoString(),
-    });
-
-    this.gateway.emitStaffDashboardEvent('VERDICT_ISSUED', {
+    const verdictPayload = {
       disputeId: payload.disputeId,
       verdictId: payload.verdictId,
       appealDeadline: payload.appealDeadline,
       serverTimestamp: this.toIsoString(),
+    };
+
+    // Emit to hearing room so participants in the hearing see it in real-time
+    const activeHearing = await this.hearingRepo.findOne({
+      where: { disputeId: payload.disputeId },
+      order: { createdAt: 'DESC' },
+      select: ['id'],
     });
+    if (activeHearing) {
+      this.gateway.emitHearingEvent(activeHearing.id, 'VERDICT_ISSUED', verdictPayload);
+    }
+
+    this.gateway.emitDisputeEvent(payload.disputeId, 'VERDICT_ISSUED', verdictPayload);
+    this.gateway.emitStaffDashboardEvent('VERDICT_ISSUED', verdictPayload);
 
     await this.appendLedger(payload.disputeId, 'VERDICT_ISSUED', {
       actorId: payload.issuedBy || null,
@@ -448,6 +457,31 @@ export class DisputeEventListener {
     this.gateway.emitDisputeEvent(payload.disputeId, 'MESSAGE_HIDDEN', hiddenPayload);
   }
 
+  @OnEvent(DISPUTE_EVENTS.MESSAGE_UNHIDDEN)
+  handleMessageUnhidden(payload: {
+    disputeId?: string;
+    hearingId?: string;
+    messageId?: string;
+    unhiddenById?: string;
+    previousReason?: string;
+  }): void {
+    if (!payload?.disputeId || !payload?.messageId) {
+      return;
+    }
+
+    const unhiddenPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    if (payload.hearingId) {
+      this.gateway.emitHearingEvent(payload.hearingId, 'MESSAGE_UNHIDDEN', unhiddenPayload);
+      return;
+    }
+
+    this.gateway.emitDisputeEvent(payload.disputeId, 'MESSAGE_UNHIDDEN', unhiddenPayload);
+  }
+
   @OnEvent('hearing.speakerControlChanged')
   async handleSpeakerControlChanged(payload: {
     hearingId?: string;
@@ -507,16 +541,24 @@ export class DisputeEventListener {
       serverTimestamp: this.toIsoString(),
     });
 
-    await this.appendLedger(payload.disputeId, 'HEARING_PHASE_TRANSITIONED', {
-      actorId: payload.changedBy || null,
-      metadata: {
-        hearingId: payload.hearingId,
-        previousPhase: payload.previousPhase || null,
-        newPhase: payload.newPhase || null,
-        previousSpeakerRole: payload.previousSpeakerRole || null,
-        newSpeakerRole: payload.newSpeakerRole || null,
-      },
-    });
+    try {
+      await this.appendLedger(payload.disputeId, 'HEARING_PHASE_TRANSITIONED', {
+        actorId: payload.changedBy || null,
+        metadata: {
+          hearingId: payload.hearingId,
+          previousPhase: payload.previousPhase || null,
+          newPhase: payload.newPhase || null,
+          previousSpeakerRole: payload.previousSpeakerRole || null,
+          newSpeakerRole: payload.newSpeakerRole || null,
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to append ledger for HEARING_PHASE_TRANSITIONED (hearing=${payload.hearingId}): ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+    }
   }
 
   @OnEvent('hearing.evidenceIntakeChanged')
@@ -537,15 +579,240 @@ export class DisputeEventListener {
       serverTimestamp: this.toIsoString(),
     });
 
-    await this.appendLedger(payload.disputeId, 'HEARING_EVIDENCE_INTAKE_CHANGED', {
-      actorId: payload.changedBy || null,
+    try {
+      await this.appendLedger(payload.disputeId, 'HEARING_EVIDENCE_INTAKE_CHANGED', {
+        actorId: payload.changedBy || null,
+        reason: payload.reason || null,
+        metadata: {
+          hearingId: payload.hearingId,
+          isOpen: Boolean(payload.isOpen),
+          changedAt: payload.changedAt ? this.toIsoString(payload.changedAt) : this.toIsoString(),
+        },
+      });
+    } catch (error) {
+      this.logger.error(
+        `Failed to append ledger for HEARING_EVIDENCE_INTAKE_CHANGED (hearing=${payload.hearingId}): ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+    }
+  }
+
+  @OnEvent('hearing.paused')
+  async handleHearingPaused(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    pausedBy?: string;
+    pausedAt?: Date;
+    reason?: string;
+    previousSpeakerRole?: string;
+    accumulatedPauseSeconds?: number;
+  }): Promise<void> {
+    if (!payload?.hearingId || !payload?.disputeId) {
+      return;
+    }
+
+    this.gateway.emitHearingEvent(payload.hearingId, 'HEARING_PAUSED', {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    });
+
+    this.gateway.emitDisputeEvent(payload.disputeId, 'HEARING_PAUSED', {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    });
+
+    await this.appendLedger(payload.disputeId, 'HEARING_PAUSED', {
+      actorId: payload.pausedBy || null,
       reason: payload.reason || null,
       metadata: {
         hearingId: payload.hearingId,
-        isOpen: Boolean(payload.isOpen),
-        changedAt: payload.changedAt ? this.toIsoString(payload.changedAt) : this.toIsoString(),
+        pausedAt: payload.pausedAt ? this.toIsoString(payload.pausedAt) : null,
+        previousSpeakerRole: payload.previousSpeakerRole || null,
+        accumulatedPauseSeconds: payload.accumulatedPauseSeconds || 0,
       },
     });
+  }
+
+  @OnEvent('hearing.resumed')
+  async handleHearingResumed(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    resumedBy?: string;
+    resumedAt?: Date;
+    restoredSpeakerRole?: string;
+    accumulatedPauseSeconds?: number;
+  }): Promise<void> {
+    if (!payload?.hearingId || !payload?.disputeId) {
+      return;
+    }
+
+    this.gateway.emitHearingEvent(payload.hearingId, 'HEARING_RESUMED', {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    });
+
+    this.gateway.emitDisputeEvent(payload.disputeId, 'HEARING_RESUMED', {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    });
+
+    await this.appendLedger(payload.disputeId, 'HEARING_RESUMED', {
+      actorId: payload.resumedBy || null,
+      metadata: {
+        hearingId: payload.hearingId,
+        resumedAt: payload.resumedAt ? this.toIsoString(payload.resumedAt) : null,
+        restoredSpeakerRole: payload.restoredSpeakerRole || null,
+        accumulatedPauseSeconds: payload.accumulatedPauseSeconds || 0,
+      },
+    });
+  }
+
+  @OnEvent('hearing.statementSubmitted')
+  handleHearingStatementSubmitted(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    statementId?: string;
+    participantId?: string;
+    createdAt?: Date;
+    statementType?: string;
+  }): void {
+    if (!payload?.hearingId || !payload?.statementId) {
+      return;
+    }
+
+    const normalizedPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(payload.createdAt),
+    };
+    this.gateway.emitHearingEvent(
+      payload.hearingId,
+      'HEARING_STATEMENT_SUBMITTED',
+      normalizedPayload,
+    );
+
+    if (payload.disputeId) {
+      this.gateway.emitDisputeEvent(
+        payload.disputeId,
+        'HEARING_STATEMENT_SUBMITTED',
+        normalizedPayload,
+      );
+    }
+  }
+
+  @OnEvent('hearing.questionAsked')
+  handleHearingQuestionAsked(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    questionId?: string;
+    askedById?: string;
+    targetUserId?: string;
+    deadline?: Date;
+    createdAt?: Date;
+  }): void {
+    if (!payload?.hearingId || !payload?.questionId) {
+      return;
+    }
+
+    const normalizedPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(payload.createdAt),
+    };
+    this.gateway.emitHearingEvent(payload.hearingId, 'HEARING_QUESTION_ASKED', normalizedPayload);
+
+    if (payload.disputeId) {
+      this.gateway.emitDisputeEvent(payload.disputeId, 'HEARING_QUESTION_ASKED', normalizedPayload);
+    }
+  }
+
+  @OnEvent('hearing.questionAnswered')
+  handleHearingQuestionAnswered(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    questionId?: string;
+    answeredById?: string;
+    answer?: string;
+    answeredAt?: Date;
+  }): void {
+    if (!payload?.hearingId || !payload?.questionId) {
+      return;
+    }
+
+    const normalizedPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(payload.answeredAt),
+    };
+    this.gateway.emitHearingEvent(
+      payload.hearingId,
+      'HEARING_QUESTION_ANSWERED',
+      normalizedPayload,
+    );
+
+    if (payload.disputeId) {
+      this.gateway.emitDisputeEvent(
+        payload.disputeId,
+        'HEARING_QUESTION_ANSWERED',
+        normalizedPayload,
+      );
+    }
+  }
+
+  @OnEvent('hearing.questionCancelled')
+  handleHearingQuestionCancelled(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    questionId?: string;
+    cancelledById?: string;
+  }): void {
+    if (!payload?.hearingId || !payload?.questionId) {
+      return;
+    }
+    const normalizedPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(),
+    };
+    this.gateway.emitHearingEvent(
+      payload.hearingId,
+      'HEARING_QUESTION_CANCELLED',
+      normalizedPayload,
+    );
+    if (payload.disputeId) {
+      this.gateway.emitDisputeEvent(
+        payload.disputeId,
+        'HEARING_QUESTION_CANCELLED',
+        normalizedPayload,
+      );
+    }
+  }
+
+  @OnEvent('hearing.presenceChanged')
+  handleHearingPresenceChanged(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    participantId?: string;
+    userId?: string;
+    isOnline?: boolean;
+    changedAt?: Date;
+    totalOnlineMinutes?: number;
+    lastLeftAt?: Date;
+  }): void {
+    if (!payload?.hearingId || !payload?.userId) {
+      return;
+    }
+
+    const normalizedPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(payload.changedAt),
+    };
+    this.gateway.emitHearingEvent(payload.hearingId, 'HEARING_PRESENCE_CHANGED', normalizedPayload);
+
+    if (payload.disputeId) {
+      this.gateway.emitDisputeEvent(
+        payload.disputeId,
+        'HEARING_PRESENCE_CHANGED',
+        normalizedPayload,
+      );
+    }
   }
 
   @OnEvent('hearing.extended')
@@ -670,24 +937,45 @@ export class DisputeEventListener {
   }
 
   @OnEvent(DISPUTE_EVENTS.EVIDENCE_ADDED)
-  handleEvidenceUploaded(payload: {
+  async handleEvidenceUploaded(payload: {
     disputeId?: string;
     evidenceId?: string;
     uploaderId?: string;
     uploaderRole?: string;
+    uploaderName?: string;
     fileName?: string;
     mimeType?: string;
     fileSize?: number;
+    description?: string;
     uploadedAt?: Date;
-  }): void {
+  }): Promise<void> {
     if (!payload?.disputeId || !payload?.evidenceId) {
       return;
     }
 
-    this.gateway.emitDisputeEvent(payload.disputeId, 'EVIDENCE_UPLOADED', {
+    const eventPayload = {
       ...payload,
       serverTimestamp: this.toIsoString(payload.uploadedAt),
-    });
+    };
+
+    // Emit to dispute room (existing behaviour)
+    this.gateway.emitDisputeEvent(payload.disputeId, 'EVIDENCE_UPLOADED', eventPayload);
+
+    // Also emit to the active hearing room so ALL participants see new evidence in real-time
+    try {
+      const activeHearing = await this.hearingRepo.findOne({
+        where: {
+          disputeId: payload.disputeId,
+          status: HearingStatus.IN_PROGRESS,
+        },
+        select: ['id'],
+      });
+      if (activeHearing) {
+        this.gateway.emitHearingEvent(activeHearing.id, 'EVIDENCE_UPLOADED', eventPayload);
+      }
+    } catch (err) {
+      this.logger.warn(`Failed to emit EVIDENCE_UPLOADED to hearing room: ${err}`);
+    }
   }
 
   private toIsoString(value?: Date): string {

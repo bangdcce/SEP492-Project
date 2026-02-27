@@ -6,7 +6,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
-  Index,
+  Unique,
 } from 'typeorm';
 
 // =============================================================================
@@ -18,7 +18,7 @@ import {
  * Dùng để đánh giá chất lượng xử lý dispute và phân bổ công việc.
  */
 @Entity('staff_performances')
-@Index(['staffId', 'period'])
+@Unique('UQ_staff_performances_staff_period', ['staffId', 'period'])
 export class StaffPerformanceEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

@@ -6,10 +6,29 @@ let socket: Socket | null = null;
 const namespaceSockets = new Map<string, Socket>();
 let activeSocketUserId: string | null = null;
 let authSyncListenersBound = false;
+let isRefreshingToken = false;
 
 const isUserLoggedIn = (): boolean => {
   const user = getStoredItem(STORAGE_KEYS.USER);
   return user !== null && user !== "null";
+};
+
+const refreshAccessTokenForSocket = async (): Promise<boolean> => {
+  if (isRefreshingToken) return false;
+  isRefreshingToken = true;
+
+  try {
+    const response = await fetch(`${API_CONFIG.BASE_URL}/auth/refresh`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+    });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    isRefreshingToken = false;
+  }
 };
 
 const isAuthSocketError = (message: string | undefined): boolean => {
@@ -91,24 +110,50 @@ const ensureAuthSyncListeners = (): void => {
 
 ensureAuthSyncListeners();
 
+const handleSocketConnectError = async (
+  namespace: string,
+  instance: Socket,
+  error: Error,
+): Promise<void> => {
+  if (!isUserLoggedIn()) {
+    clearSocketReference(namespace, instance);
+    instance.removeAllListeners();
+    instance.disconnect();
+    return;
+  }
+
+  if (!isAuthSocketError(error?.message)) {
+    return;
+  }
+
+  const refreshed = await refreshAccessTokenForSocket();
+  if (refreshed && !instance.connected) {
+    setTimeout(() => {
+      if (!instance.connected) {
+        instance.connect();
+      }
+    }, 1200);
+    return;
+  }
+
+  clearSocketReference(namespace, instance);
+  instance.removeAllListeners();
+  instance.disconnect();
+};
+
 const createSocket = (namespace: string): Socket => {
   const instance = io(`${API_CONFIG.BASE_URL}${namespace}`, {
     autoConnect: false,
-    transports: ["websocket"],
+    transports: ["polling", "websocket"],
     withCredentials: true,
-    reconnectionAttempts: 5,
+    reconnectionAttempts: 10,
     reconnectionDelay: 2000,
+    reconnectionDelayMax: 15000,
+    upgrade: true,
   });
 
   instance.on("connect_error", (error: Error) => {
-    const shouldForceDisconnect =
-      !isUserLoggedIn() || isAuthSocketError(error?.message);
-
-    if (shouldForceDisconnect) {
-      clearSocketReference(namespace, instance);
-      instance.removeAllListeners();
-      instance.disconnect();
-    }
+    void handleSocketConnectError(namespace, instance, error);
   });
 
   return instance;

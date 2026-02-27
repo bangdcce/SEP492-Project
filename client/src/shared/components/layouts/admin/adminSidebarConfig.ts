@@ -5,6 +5,7 @@
 
 import type { LucideIcon } from "lucide-react";
 import {
+  CalendarDays,
   LayoutDashboard,
   ScrollText,
   Shield,
@@ -40,6 +41,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: ScrollText,
     path: "/admin/audit-logs",
     description: "View all system activities",
+    section: "management",
+  },
+  {
+    id: "leave-approvals",
+    label: "Leave Approvals",
+    icon: CalendarDays,
+    path: "/admin/leave",
+    description: "Review leave requests and staff quotas",
     section: "management",
   },
   {

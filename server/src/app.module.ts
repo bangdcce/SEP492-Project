@@ -78,7 +78,12 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
             idleTimeoutMillis: poolIdleMs,
             connectionTimeoutMillis: poolConnTimeoutMs,
             keepAlive: true,
+            // PgBouncer transaction-mode compatibility: disable prepared statements
+            statement_timeout: 30000,
           },
+          // Retry on transient connection failures (e.g. pool exhaustion)
+          retryAttempts: 3,
+          retryDelay: 1000,
         };
       },
     }),

@@ -8,6 +8,7 @@ export type HearingTier = "TIER_1" | "TIER_2";
 export type HearingStatus =
   | "SCHEDULED"
   | "IN_PROGRESS"
+  | "PAUSED"
   | "COMPLETED"
   | "CANCELED"
   | "RESCHEDULED";
@@ -17,6 +18,8 @@ export type SpeakerRole =
   | "MODERATOR_ONLY"
   | "RAISER_ONLY"
   | "DEFENDANT_ONLY"
+  | "WITNESS_ONLY"
+  | "OBSERVER_ONLY"
   | "MUTED_ALL";
 
 export type HearingParticipantRole =
@@ -102,6 +105,11 @@ export interface DisputeHearingSummary {
   evidenceIntakeClosedAt?: string | null;
   evidenceIntakeOpenedBy?: string | null;
   evidenceIntakeReason?: string | null;
+  pausedAt?: string | null;
+  pausedById?: string | null;
+  pauseReason?: string | null;
+  accumulatedPauseSeconds?: number;
+  speakerRoleBeforePause?: SpeakerRole | null;
   estimatedDurationMinutes?: number | null;
   rescheduleCount?: number;
   previousHearingId?: string | null;
@@ -141,13 +149,21 @@ export interface HearingWorkspaceDossier {
     id: string;
     status?: string;
     phase?: string;
+    disputeType?: string;
     priority?: string;
     category?: string;
     disputedAmount?: number;
     reason?: string | null;
     defendantResponse?: string | null;
     raisedAt?: string | null;
-    raisedBy: {
+    createdAt?: string | null;
+    raiser?: {
+      id: string;
+      role?: string;
+      name?: string;
+      email?: string;
+    };
+    raisedBy?: {
       id: string;
       role?: string;
       name?: string;
@@ -179,6 +195,13 @@ export interface HearingWorkspaceDossier {
     freelancerId?: string;
     brokerId?: string;
   } | null;
+  projectSpec: {
+    id: string;
+    title?: string;
+    status?: string;
+    referenceLinks?: Array<{ label: string; url: string }>;
+    updatedAt?: string | null;
+  } | null;
   milestone: {
     milestoneId: string;
     milestoneTitle?: string;
@@ -206,6 +229,7 @@ export interface HearingWorkspaceDossier {
     contractUrl?: string | null;
     createdAt?: string;
     termsPreview?: string | null;
+    termsContent?: string | null;
   }>;
   issues: Array<{
     code: string;
@@ -331,6 +355,8 @@ export interface HearingQuestionSummary {
 export type HearingTimelineEventType =
   | "HEARING_SCHEDULED"
   | "HEARING_STARTED"
+  | "HEARING_PAUSED"
+  | "HEARING_RESUMED"
   | "HEARING_ENDED"
   | "PARTICIPANT_JOINED"
   | "PARTICIPANT_LEFT"
@@ -437,10 +463,11 @@ export interface RescheduleHearingInput {
 
 export interface EndHearingInput {
   hearingId: string;
-  summary?: string;
-  findings?: string;
+  summary: string;
+  findings: string;
   pendingActions?: string[];
   forceEnd?: boolean;
+  noShowNote?: string;
 }
 
 export interface ExtendHearingInput {
@@ -461,4 +488,91 @@ export interface SupportCandidate {
   fullName: string;
   email: string;
   role: string;
+}
+
+/* ────────── Verdict types ────────── */
+
+export interface VerdictReasoning {
+  violatedPolicies: string[];
+  supportingEvidenceIds?: string[];
+  factualFindings: string;
+  legalAnalysis: string;
+  conclusion: string;
+}
+
+export interface VerdictSummary {
+  id: string;
+  disputeId: string;
+  adjudicatorId: string;
+  adjudicatorRole: string;
+  result: string; // 'WIN_CLIENT' | 'WIN_FREELANCER' | 'SPLIT'
+  faultType: string;
+  faultyParty: string; // 'raiser' | 'defendant' | 'both' | 'none'
+  reasoning: VerdictReasoning;
+  amountToFreelancer: number;
+  amountToClient: number;
+  platformFee?: number;
+  trustScorePenalty?: number;
+  isBanTriggered?: boolean;
+  banDurationDays?: number;
+  warningMessage?: string | null;
+  tier: number; // 1 = Staff, 2 = Admin appeal
+  isAppealVerdict: boolean;
+  overridesVerdictId?: string | null;
+  appealDeadline?: string | null;
+  issuedAt: string;
+  adjudicator?: {
+    id: string;
+    fullName?: string;
+    email?: string;
+  };
+}
+
+export interface AppealInput {
+  reason: string;
+  appealType?: string;
+}
+
+export interface VerdictReadiness {
+  canIssueVerdict: boolean;
+  checklist: Record<string, boolean>;
+  blockingChecklist?: string[];
+  unmetChecklist: string[];
+  unmetChecklistDetails: string[];
+  absentRequiredParticipants?: Array<{
+    participantId: string;
+    userId: string;
+    role: HearingParticipantRole;
+  }>;
+  context: {
+    disputeId: string;
+    disputeStatus?: string;
+    disputePhase?: string;
+    hearingId?: string | null;
+    hearingStatus?: HearingStatus | null;
+  };
+}
+
+export interface HearingVerdictInput {
+  verdict: {
+    result: string;
+    adminComment: string;
+    faultType: string;
+    faultyParty: string;
+    reasoning: VerdictReasoning;
+    splitRatioClient?: number;
+    amountToFreelancer?: number;
+    amountToClient?: number;
+    trustScorePenalty?: number;
+    banUser?: boolean;
+    banDurationDays?: number;
+    warningMessage?: string;
+  };
+  closeHearing: {
+    summary: string;
+    findings: string;
+    pendingActions?: string[];
+    forceEnd?: boolean;
+    noShowNote?: string;
+  };
 }

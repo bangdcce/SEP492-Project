@@ -351,6 +351,9 @@ export const StaffLeavePage = () => {
                 {sortedRequests.map((request) => {
                   const statusStyle = STATUS_STYLES[request.status];
                   const typeStyle = TYPE_STYLES[request.type];
+                  const processedByName =
+                    request.processedBy?.fullName ?? request.processedById ?? null;
+                  const processedByEmail = request.processedBy?.email ?? null;
                   return (
                     <div
                       key={request.id}
@@ -382,9 +385,28 @@ export const StaffLeavePage = () => {
                         <div className="text-xs text-gray-500">
                           Duration: {formatMinutes(request.durationMinutes)}
                         </div>
+                        {processedByName ? (
+                          <div className="text-xs text-gray-500">
+                            Reviewed by:{" "}
+                            {processedByEmail
+                              ? `${processedByName} (${processedByEmail})`
+                              : processedByName}
+                          </div>
+                        ) : null}
+                        {request.processedAt ? (
+                          <div className="text-xs text-gray-500">
+                            Reviewed at:{" "}
+                            {format(new Date(request.processedAt), "MMM d, yyyy h:mm a")}
+                          </div>
+                        ) : null}
                         {request.reason ? (
                           <div className="text-xs text-gray-500">
                             Reason: {request.reason}
+                          </div>
+                        ) : null}
+                        {request.processedNote ? (
+                          <div className="text-xs text-gray-500">
+                            Note: {request.processedNote}
                           </div>
                         ) : null}
                       </div>

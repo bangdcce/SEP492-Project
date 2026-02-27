@@ -9,6 +9,7 @@ import * as fs from 'fs';
 
 import { AppModule } from './app.module';
 import { RedisIoAdapter } from './realtime/redis-io.adapter';
+import { HealthService } from './modules/health/health.service';
 
 const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (value === undefined) return fallback;
@@ -22,6 +23,15 @@ const parseNumber = (value: string | undefined, fallback: number): number => {
   if (!value) return fallback;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const isProductionLikeNodeEnv = (): boolean => {
+  const env = process.env.NODE_ENV?.trim().toLowerCase();
+  return env === 'production' || env === 'staging';
+};
+
+const isStartupReadinessFailFastEnabled = (): boolean => {
+  return parseBoolean(process.env.STARTUP_READINESS_FAIL_FAST, isProductionLikeNodeEnv());
 };
 
 const isLocalHostLike = (value: string): boolean => {
@@ -207,6 +217,25 @@ async function bootstrap() {
       persistAuthorization: true,
     },
   });
+
+  if (isStartupReadinessFailFastEnabled()) {
+    try {
+      await app.get(HealthService).getReadinessStatus();
+      logger.log('Startup readiness fail-fast gate passed.');
+    } catch (error) {
+      logger.error(
+        `Startup readiness fail-fast gate blocked startup: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+      await closeRedisAdapter();
+      await app.close();
+      process.exit(1);
+      return;
+    }
+  } else {
+    logger.warn('Startup readiness fail-fast gate is disabled by configuration.');
+  }
 
   const port = process.env.APP_PORT || 3000;
   await app.listen(port);

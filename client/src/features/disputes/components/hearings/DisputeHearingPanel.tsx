@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import {
@@ -41,7 +41,10 @@ import {
 import { STORAGE_KEYS } from "@/constants";
 import { DisputeStatus, UserRole } from "@/features/staff/types/staff.types";
 import { getStoredJson } from "@/shared/utils/storage";
-import { getApiErrorDetails } from "@/shared/utils/apiError";
+import {
+  getApiErrorDetails,
+  isSchemaNotReadyErrorCode,
+} from "@/shared/utils/apiError";
 
 interface DisputeHearingPanelProps {
   disputeId: string;
@@ -78,6 +81,10 @@ export const DisputeHearingPanel = ({
   const [endPendingActions, setEndPendingActions] = useState("");
   const [testActionLoading, setTestActionLoading] = useState<string | null>(null);
   const [testScheduleHint, setTestScheduleHint] = useState<string>("");
+  const [schemaErrorMessage, setSchemaErrorMessage] = useState<string | null>(
+    null,
+  );
+  const schemaToastShownRef = useRef(false);
   const navigate = useNavigate();
 
   const loadHearings = useCallback(async () => {
@@ -85,9 +92,22 @@ export const DisputeHearingPanel = ({
       setLoading(true);
       const data = await getHearingsByDispute(disputeId);
       setHearings(data ?? []);
+      setSchemaErrorMessage(null);
+      schemaToastShownRef.current = false;
     } catch (error) {
+      const details = getApiErrorDetails(error, "Could not load hearings.");
       console.error("Failed to load hearings:", error);
-      toast.error("Could not load hearings");
+      if (isSchemaNotReadyErrorCode(details.code)) {
+        setSchemaErrorMessage(details.message);
+        if (!schemaToastShownRef.current) {
+          toast.error(details.message);
+          schemaToastShownRef.current = true;
+        }
+        return;
+      }
+      setSchemaErrorMessage(null);
+      schemaToastShownRef.current = false;
+      toast.error(details.code ? `[${details.code}] ${details.message}` : details.message);
     } finally {
       setLoading(false);
     }
@@ -282,13 +302,19 @@ export const DisputeHearingPanel = ({
 
   const handleEndSubmit = async () => {
     if (!endHearingTarget) return;
+    const summary = endSummary.trim();
+    const findings = endFindings.trim();
+    if (!summary || !findings) {
+      toast.error("Summary and findings are required to end hearing.");
+      return;
+    }
 
     try {
       setActionLoadingId(endHearingTarget.id);
       await endHearing(endHearingTarget.id, {
         hearingId: endHearingTarget.id,
-        summary: endSummary.trim() || undefined,
-        findings: endFindings.trim() || undefined,
+        summary,
+        findings,
         pendingActions: endPendingActions
           ? endPendingActions.split(",").map((item) => item.trim()).filter(Boolean)
           : undefined,
@@ -458,6 +484,13 @@ export const DisputeHearingPanel = ({
 
   return (
     <div className="space-y-6">
+      {schemaErrorMessage && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Server schema is not ready</p>
+          <p className="mt-1 text-xs text-amber-800">{schemaErrorMessage}</p>
+        </div>
+      )}
+
       {canUseTestTools && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <h3 className="text-sm font-semibold text-amber-900">
