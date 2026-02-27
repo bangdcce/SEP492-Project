@@ -3,7 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
-  OneToOne,
+  ManyToOne,
   JoinColumn,
   OneToMany,
   UpdateDateColumn,
@@ -11,8 +11,17 @@ import {
 import { ProjectRequestEntity } from './project-request.entity';
 import type { MilestoneEntity } from './milestone.entity';
 
+export enum SpecPhase {
+  CLIENT_SPEC = 'CLIENT_SPEC',
+  FULL_SPEC = 'FULL_SPEC',
+}
+
 export enum ProjectSpecStatus {
   DRAFT = 'DRAFT',
+  CLIENT_REVIEW = 'CLIENT_REVIEW',
+  CLIENT_APPROVED = 'CLIENT_APPROVED',
+  FINAL_REVIEW = 'FINAL_REVIEW',
+  ALL_SIGNED = 'ALL_SIGNED',
   PENDING_APPROVAL = 'PENDING_APPROVAL',
   PENDING_AUDIT = 'PENDING_AUDIT', // Staff review required
   APPROVED = 'APPROVED',
@@ -32,6 +41,18 @@ export interface SpecFeature {
   inputOutputSpec?: string; // Optional JSON for API input/output
 }
 
+export interface ClientFeature {
+  id: string;
+  title: string;
+  description: string;
+  priority: 'MUST_HAVE' | 'SHOULD_HAVE' | 'NICE_TO_HAVE';
+}
+
+export interface ReferenceLink {
+  label: string;
+  url: string;
+}
+
 @Entity('project_specs')
 export class ProjectSpecEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -39,6 +60,16 @@ export class ProjectSpecEntity {
 
   @Column()
   requestId: string;
+
+  @Column({
+    type: 'enum',
+    enum: SpecPhase,
+    default: SpecPhase.FULL_SPEC, // Keep legacy rows as FULL_SPEC-compatible
+  })
+  specPhase: SpecPhase;
+
+  @Column({ type: 'uuid', nullable: true })
+  parentSpecId: string | null;
 
   @Column({ type: 'varchar', length: 255 })
   title: string;
@@ -54,19 +85,34 @@ export class ProjectSpecEntity {
    * This replaces free-text description for detailed specs
    */
   @Column({ type: 'jsonb', nullable: true })
-  features: SpecFeature[];
+  features: SpecFeature[] | null;
+
+  /**
+   * Client-readable feature list for c_spec phase
+   */
+  @Column({ type: 'jsonb', nullable: true })
+  clientFeatures: ClientFeature[] | null;
 
   /**
    * Technology stack definition (e.g., "NestJS, React, PostgreSQL")
    */
   @Column({ type: 'varchar', length: 500, nullable: true })
-  techStack: string;
+  techStack: string | null;
 
   /**
    * Reference links (Figma, ERD, external docs)
    */
   @Column({ type: 'jsonb', nullable: true })
-  referenceLinks: { label: string; url: string }[];
+  referenceLinks: ReferenceLink[] | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  estimatedTimeline: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  projectCategory: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  richContentJson: Record<string, unknown> | null;
 
   @Column({
     type: 'enum',
@@ -79,7 +125,10 @@ export class ProjectSpecEntity {
    * Staff rejection reason (for REJECTED status)
    */
   @Column({ type: 'text', nullable: true })
-  rejectionReason: string;
+  rejectionReason: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  clientApprovedAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;
@@ -88,10 +137,23 @@ export class ProjectSpecEntity {
   updatedAt: Date;
 
   // Relations
-  @OneToOne(() => ProjectRequestEntity, (request) => request.spec, { onDelete: 'CASCADE' })
+  @ManyToOne(() => ProjectRequestEntity, (request) => request.specs, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'requestId' })
   request: ProjectRequestEntity;
 
   @OneToMany('MilestoneEntity', 'projectSpec')
   milestones: MilestoneEntity[];
+
+  @ManyToOne(() => ProjectSpecEntity, (spec) => spec.childSpecs, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'parentSpecId' })
+  parentSpec: ProjectSpecEntity | null;
+
+  @OneToMany(() => ProjectSpecEntity, (spec) => spec.parentSpec)
+  childSpecs: ProjectSpecEntity[];
+
+  @OneToMany('ProjectSpecSignatureEntity', 'spec')
+  signatures: any[];
 }

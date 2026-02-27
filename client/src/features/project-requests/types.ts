@@ -35,6 +35,11 @@ export interface ProjectRequest {
     email: string;
     avatar?: string;
   };
+  broker?: {
+    id: string;
+    fullName: string;
+    email?: string;
+  } | null;
   answers?: {
     id: string;
     question: { id: string; label: string };
@@ -63,4 +68,28 @@ export interface GetRequestsParams {
 
 export interface AssignBrokerPayload {
   brokerId: string;
+}
+
+export interface FreelancerRequestAccessItem {
+  id: string;
+  requestId: string;
+  freelancerId: string;
+  status: string;
+  createdAt: string;
+  request?: {
+    id: string;
+    title: string;
+    description?: string | null;
+    status: string;
+    budgetRange?: string | null;
+    intendedTimeline?: string | null;
+    client?: {
+      id: string;
+      fullName?: string | null;
+    } | null;
+    broker?: {
+      id: string;
+      fullName?: string | null;
+    } | null;
+  } | null;
 }

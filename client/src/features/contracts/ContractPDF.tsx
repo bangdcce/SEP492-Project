@@ -155,11 +155,20 @@ const styles = StyleSheet.create({
   },
   signatureSection: {
     marginTop: 30,
+  },
+  signatureRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    marginBottom: 10,
   },
   signatureBox: {
-    width: '45%',
+    width: '48%',
+    padding: 15,
+    border: '1 solid #cbd5e1',
+    borderRadius: 4,
+  },
+  signatureBoxFull: {
+    width: '100%',
     padding: 15,
     border: '1 solid #cbd5e1',
     borderRadius: 4,
@@ -207,7 +216,20 @@ interface ContractPDFProps {
     title: string;
     termsContent: string;
     createdAt: string;
+    documentHash?: string | null;
+    signatures?: Array<{
+      userId: string;
+      signatureHash: string;
+      signedAt: string;
+      user?: {
+        fullName?: string;
+        email?: string;
+      };
+    }>;
     project: {
+      clientId: string;
+      brokerId: string;
+      freelancerId?: string | null;
       title: string;
       description: string;
       totalBudget: number;
@@ -216,6 +238,10 @@ interface ContractPDFProps {
         email: string;
       };
       broker?: {
+        fullName: string;
+        email: string;
+      };
+      freelancer?: {
         fullName: string;
         email: string;
       };
@@ -259,6 +285,27 @@ export const ContractPDF = ({ contract }: ContractPDFProps) => {
   const milestones = spec?.milestones?.sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0)) || [];
   const features = spec?.features || [];
   const referenceLinks = spec?.referenceLinks || [];
+  const signatures = [...(contract.signatures || [])].sort(
+    (a, b) => new Date(a.signedAt).getTime() - new Date(b.signedAt).getTime(),
+  );
+  const getSignatureByUserId = (userId?: string | null) =>
+    userId ? signatures.find((item) => item.userId === userId) : undefined;
+
+  const resolveSignerName = (userId: string) => {
+    const signature = signatures.find((item) => item.userId === userId);
+    if (signature?.user?.fullName) return signature.user.fullName;
+    if (userId === contract.project.clientId) return contract.project.client?.fullName || 'Client';
+    if (userId === contract.project.brokerId) return contract.project.broker?.fullName || 'Broker';
+    if (userId === contract.project.freelancerId) {
+      return contract.project.freelancer?.fullName || 'Freelancer';
+    }
+    return (
+      (userId === contract.project.clientId && contract.project.client?.fullName) ||
+      (userId === contract.project.brokerId && contract.project.broker?.fullName) ||
+      (userId === contract.project.freelancerId && contract.project.freelancer?.fullName) ||
+      userId
+    );
+  };
 
   const getComplexityStyle = (complexity: 'LOW' | 'MEDIUM' | 'HIGH') => {
     switch (complexity) {
@@ -283,6 +330,11 @@ export const ContractPDF = ({ contract }: ContractPDFProps) => {
               day: 'numeric',
             })}
           </Text>
+          {contract.documentHash && (
+            <Text style={[styles.subtitle, { fontSize: 9, marginTop: 6 }]}>
+              Document Hash (SHA-256): {contract.documentHash}
+            </Text>
+          )}
         </View>
 
         {/* Parties Information */}
@@ -316,6 +368,23 @@ export const ContractPDF = ({ contract }: ContractPDFProps) => {
               </Text>
             </View>
           </View>
+
+          {contract.project.freelancer && (
+            <View style={{ marginTop: 10 }}>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Freelancer:</Text>
+                <Text style={styles.infoValue}>
+                  {contract.project.freelancer.fullName || 'N/A'}
+                </Text>
+              </View>
+              <View style={styles.infoRow}>
+                <Text style={styles.infoLabel}>Email:</Text>
+                <Text style={styles.infoValue}>
+                  {contract.project.freelancer.email || 'N/A'}
+                </Text>
+              </View>
+            </View>
+          )}
         </View>
 
         {/* Scope of Work */}
@@ -478,28 +547,88 @@ export const ContractPDF = ({ contract }: ContractPDFProps) => {
 
         {/* Signature Section */}
         <View style={styles.signatureSection}>
-          <View style={styles.signatureBox}>
-            <Text style={styles.signatureLabel}>CLIENT SIGNATURE</Text>
-            <View style={styles.signatureLine}>
-              <Text style={{ fontSize: 9, color: '#64748b' }}>
-                {contract.project.client?.fullName}
-              </Text>
+          {contract.documentHash && (
+            <Text style={[styles.milestoneDetail, { marginBottom: 10 }]}>
+              Document Hash (SHA-256): {contract.documentHash}
+            </Text>
+          )}
+          <View style={styles.signatureRow}>
+            <View style={styles.signatureBox}>
+              <Text style={styles.signatureLabel}>CLIENT SIGNATURE</Text>
+              <View style={styles.signatureLine}>
+                <Text style={{ fontSize: 9, color: '#64748b' }}>
+                  {contract.project.client?.fullName}
+                </Text>
+                {getSignatureByUserId(contract.project.clientId) && (
+                  <Text style={{ fontSize: 8, color: '#15803d', marginTop: 3 }}>
+                    Signed at{" "}
+                    {new Date(
+                      getSignatureByUserId(contract.project.clientId)!.signedAt,
+                    ).toLocaleString('en-US')}
+                  </Text>
+                )}
+              </View>
+            </View>
+            <View style={styles.signatureBox}>
+              <Text style={styles.signatureLabel}>BROKER SIGNATURE</Text>
+              <View style={styles.signatureLine}>
+                <Text style={{ fontSize: 9, color: '#64748b' }}>
+                  {contract.project.broker?.fullName}
+                </Text>
+                {getSignatureByUserId(contract.project.brokerId) && (
+                  <Text style={{ fontSize: 8, color: '#15803d', marginTop: 3 }}>
+                    Signed at{" "}
+                    {new Date(
+                      getSignatureByUserId(contract.project.brokerId)!.signedAt,
+                    ).toLocaleString('en-US')}
+                  </Text>
+                )}
+              </View>
             </View>
           </View>
-          <View style={styles.signatureBox}>
-            <Text style={styles.signatureLabel}>BROKER SIGNATURE</Text>
-            <View style={styles.signatureLine}>
-              <Text style={{ fontSize: 9, color: '#64748b' }}>
-                {contract.project.broker?.fullName}
-              </Text>
+          {contract.project.freelancer && (
+            <View style={styles.signatureRow}>
+              <View style={styles.signatureBoxFull}>
+                <Text style={styles.signatureLabel}>FREELANCER SIGNATURE</Text>
+                <View style={styles.signatureLine}>
+                  <Text style={{ fontSize: 9, color: '#64748b' }}>
+                    {contract.project.freelancer.fullName}
+                  </Text>
+                  {getSignatureByUserId(contract.project.freelancerId) && (
+                    <Text style={{ fontSize: 8, color: '#15803d', marginTop: 3 }}>
+                      Signed at{" "}
+                      {new Date(
+                        getSignatureByUserId(contract.project.freelancerId)!.signedAt,
+                      ).toLocaleString('en-US')}
+                    </Text>
+                  )}
+                </View>
+              </View>
             </View>
-          </View>
+          )}
+
+          {signatures.length > 0 && (
+            <View style={{ marginTop: 10 }}>
+              <Text style={[styles.sectionTitle, { fontSize: 11 }]}>SIGNATURE AUDIT TRAIL</Text>
+              {signatures.map((signature, index) => (
+                <View key={`${signature.userId}-${signature.signedAt}-${index}`} style={{ marginBottom: 6 }}>
+                  <Text style={styles.milestoneDetail}>
+                    {resolveSignerName(signature.userId)} signed at{' '}
+                    {new Date(signature.signedAt).toLocaleString('en-US')}
+                  </Text>
+                  <Text style={[styles.milestoneDetail, { fontSize: 8 }]}>
+                    Signature Hash: {signature.signatureHash}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
 
         {/* Footer */}
         <View style={styles.footer}>
           <Text>
-            This is a legally binding agreement. Both parties agree to the terms and conditions outlined above.
+            This is a legally binding agreement. All required parties agree to the terms and conditions outlined above.
           </Text>
           <Text style={{ marginTop: 4 }}>
             Generated on {new Date().toLocaleDateString()} | InterDev Platform

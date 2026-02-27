@@ -2,6 +2,7 @@ import { apiClient } from '../../shared/api/client';
 import type {
   ProjectRequest,
   GetRequestsParams,
+  FreelancerRequestAccessItem,
 } from './types';
 
 export const projectRequestsApi = {
@@ -11,6 +12,10 @@ export const projectRequestsApi = {
 
   getById: (id: string) => {
     return apiClient.get<ProjectRequest>(`/project-requests/${id}`);
+  },
+
+  getFreelancerRequestAccessList: () => {
+    return apiClient.get<FreelancerRequestAccessItem[]>('/project-requests/freelancer/requests/my');
   },
 
   assignBroker: (id: string) => {

@@ -1,20 +1,28 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { discoveryApi } from "../discovery/api";
 import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Separator, Skeleton } from "@/shared/components/ui";
-import { ArrowLeft, Calendar, DollarSign, Monitor, User, Check, X } from "lucide-react";
+import { ArrowLeft, Calendar, DollarSign, Monitor, Check, X, AlertTriangle } from "lucide-react";
 import { useToast } from "@/shared/hooks/use-toast";
-import { KYCBlocker, useKYCStatus } from "@/shared/components/custom/KYCBlocker";
+import { useKYCStatus } from "@/shared/components/custom/KYCBlocker";
 
 export const InvitationDetailsPage = () => {
     const { id } = useParams<{ id: string }>(); // Invitation ID
     const navigate = useNavigate();
+    const location = useLocation();
     const { toast } = useToast();
     
     const [invitation, setInvitation] = useState<any>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [kycStatus, setKycStatus] = useState<string | null>(null);
     const { checkKycStatus } = useKYCStatus();
+    const roleBasePath = location.pathname.startsWith('/freelancer')
+      ? '/freelancer'
+      : location.pathname.startsWith('/broker')
+        ? '/broker'
+        : '/client';
+    const isFreelancerRoute = roleBasePath === '/freelancer';
+    const hasKycApproval = kycStatus === 'APPROVED';
 
     useEffect(() => {
         checkKycStatus().then(setKycStatus);
@@ -41,9 +49,17 @@ export const InvitationDetailsPage = () => {
 
     const handleRespond = async (status: 'ACCEPTED' | 'REJECTED') => {
         if (!invitation) return;
+        const invitationStatus = String(invitation?.status || '').toUpperCase();
+        if (invitationStatus !== 'INVITED') {
+            toast({
+                title: "Invitation is no longer pending",
+                description: `Current status: ${invitationStatus || 'UNKNOWN'}.`,
+            });
+            return;
+        }
         
         // Check KYC before accepting
-        if (status === 'ACCEPTED' && kycStatus !== 'APPROVED') {
+        if (status === 'ACCEPTED' && !hasKycApproval) {
             toast({
                 title: "KYC Verification Required",
                 description: "Please complete KYC verification to accept invitations.",
@@ -59,8 +75,12 @@ export const InvitationDetailsPage = () => {
                 description: status === 'ACCEPTED' ? "You have joined the project negotiation." : "Invitation has been removed.",
                 variant: status === 'ACCEPTED' ? "default" : "destructive",
             });
-            navigate('/dashboard/invitations');
-        } catch (error) {
+            if (status === 'ACCEPTED' && isFreelancerRoute && invitation.request?.id) {
+                navigate(`/freelancer/requests/${invitation.request.id}`);
+                return;
+            }
+            navigate(`${roleBasePath}/invitations`);
+        } catch {
             toast({
                 title: "Error",
                 description: "Failed to update invitation status.",
@@ -71,24 +91,15 @@ export const InvitationDetailsPage = () => {
 
     if (isLoading) return <div className="container p-10 space-y-4"><Skeleton className="h-8 w-1/3" /><Skeleton className="h-64 w-full" /></div>;
     
-    // Show KYC blocker if not approved
-    if (kycStatus && kycStatus !== 'APPROVED') {
-        return (
-            <KYCBlocker 
-                kycStatus={kycStatus} 
-                role="freelancer" 
-                action="accept project invitations"
-            />
-        );
-    }
-    
     if (!invitation) return <div className="container p-10">Invitation not found.</div>;
 
     const { request } = invitation;
+    const invitationStatus = String(invitation.status || 'UNKNOWN').toUpperCase();
+    const canRespond = invitationStatus === 'INVITED';
 
     return (
         <div className="container mx-auto p-6 max-w-4xl space-y-6">
-            <Button variant="ghost" onClick={() => navigate('/dashboard/invitations')} className="gap-2 pl-0">
+            <Button variant="ghost" onClick={() => navigate(`${roleBasePath}/invitations`)} className="gap-2 pl-0">
                 <ArrowLeft className="w-4 h-4" /> Back to Invitations
             </Button>
 
@@ -101,6 +112,7 @@ export const InvitationDetailsPage = () => {
                                     <CardTitle className="text-2xl">{request.title}</CardTitle>
                                     <div className="flex items-center gap-2 mt-2 text-muted-foreground">
                                         <Badge variant="secondary">{request.status.replace("_", " ")}</Badge>
+                                        <Badge variant="outline">Invitation: {invitationStatus.replace("_", " ")}</Badge>
                                         <span className="text-sm border-l pl-2 ml-2">Posted {new Date(request.createdAt).toLocaleDateString()}</span>
                                     </div>
                                 </div>
@@ -150,18 +162,38 @@ export const InvitationDetailsPage = () => {
                 <div className="md:w-80 space-y-6">
                     <Card>
                         <CardHeader>
-                            <CardTitle className="text-lg">Action Required</CardTitle>
+                            <CardTitle className="text-lg">{canRespond ? "Action Required" : "Invitation Status"}</CardTitle>
                         </CardHeader>
                         <CardContent className="space-y-3">
+                            {canRespond && !hasKycApproval && (
+                                <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 flex items-start gap-2">
+                                    <AlertTriangle className="h-4 w-4 mt-0.5" />
+                                    <span>KYC approval is required before you can accept this invitation.</span>
+                                </div>
+                            )}
                             <p className="text-sm text-muted-foreground">
-                                You have been invited to apply for this project. Accepting will move you to the candidate list.
+                                {canRespond
+                                    ? "You have been invited to this project. Accepting will move you to the candidate list."
+                                    : `This invitation is already ${invitationStatus.replace("_", " ").toLowerCase()}.`}
                             </p>
-                            <Button className="w-full bg-green-600 hover:bg-green-700 gap-2" onClick={() => handleRespond('ACCEPTED')}>
-                                <Check className="w-4 h-4" /> Accept Invitation
-                            </Button>
-                            <Button variant="outline" className="w-full text-destructive hover:bg-destructive/10 border-destructive/20 gap-2" onClick={() => handleRespond('REJECTED')}>
-                                <X className="w-4 h-4" /> Deny
-                            </Button>
+                            {canRespond ? (
+                                <>
+                                    <Button
+                                        className="w-full bg-green-600 hover:bg-green-700 gap-2"
+                                        onClick={() => handleRespond('ACCEPTED')}
+                                        disabled={!hasKycApproval}
+                                    >
+                                        <Check className="w-4 h-4" /> Accept Invitation
+                                    </Button>
+                                    <Button variant="outline" className="w-full text-destructive hover:bg-destructive/10 border-destructive/20 gap-2" onClick={() => handleRespond('REJECTED')}>
+                                        <X className="w-4 h-4" /> Deny
+                                    </Button>
+                                </>
+                            ) : (
+                                <Button variant="outline" className="w-full" onClick={() => navigate(`${roleBasePath}/invitations`)}>
+                                    Back to Invitations
+                                </Button>
+                            )}
                         </CardContent>
                     </Card>
 

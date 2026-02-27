@@ -6,7 +6,6 @@ import {
   ManyToOne,
   JoinColumn,
   OneToMany,
-  OneToOne,
 } from 'typeorm';
 import { UserEntity } from './user.entity';
 import type { ProjectSpecEntity } from './project-spec.entity';
@@ -85,8 +84,11 @@ export class ProjectRequestEntity {
   @OneToMany('ProjectRequestProposalEntity', 'request')
   proposals: any[];
 
-  @OneToOne('ProjectSpecEntity', 'request')
-  spec: ProjectSpecEntity;
+  @OneToMany('ProjectSpecEntity', 'request')
+  specs: ProjectSpecEntity[];
+
+  // Legacy field kept for API compatibility; populated manually at service layer.
+  spec?: ProjectSpecEntity | null;
 
   @OneToMany('BrokerProposalEntity', 'request')
   brokerProposals: any[];

@@ -7,11 +7,18 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ProjectEntity } from '../../database/entities/project.entity';
+import Decimal from 'decimal.js';
+import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
+import { ContractEntity } from '../../database/entities/contract.entity';
 import { DisputeEntity, DisputeStatus } from '../../database/entities/dispute.entity';
-import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
+import {
+  DeliverableType,
+  MilestoneEntity,
+  MilestoneStatus,
+} from '../../database/entities/milestone.entity';
 import { TaskEntity, TaskStatus } from '../../database/entities/task.entity';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
+import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
 
 // Response type with enriched dispute info
 export interface ProjectWithDisputeInfo {
@@ -38,6 +45,30 @@ export interface MilestoneApprovalResult {
   message: string;
 }
 
+export interface CreateProjectMilestoneInput {
+  title: string;
+  description?: string;
+  amount?: number;
+  startDate?: string;
+  dueDate?: string;
+  sortOrder?: number;
+  deliverableType?: DeliverableType;
+  retentionAmount?: number;
+  acceptanceCriteria?: string[];
+}
+
+export interface UpdateProjectMilestoneInput {
+  title?: string;
+  description?: string | null;
+  amount?: number;
+  startDate?: string | null;
+  dueDate?: string | null;
+  sortOrder?: number | null;
+  deliverableType?: DeliverableType;
+  retentionAmount?: number | null;
+  acceptanceCriteria?: string[] | null;
+}
+
 @Injectable()
 export class ProjectsService {
   private readonly logger = new Logger(ProjectsService.name);
@@ -52,7 +83,213 @@ export class ProjectsService {
     @InjectRepository(TaskEntity)
     private readonly taskRepository: Repository<TaskEntity>,
     private readonly auditLogsService: AuditLogsService,
+    private readonly milestoneLockPolicyService: MilestoneLockPolicyService,
   ) {}
+
+  private parseAmountOrDefault(input: unknown, fallback: number): number {
+    if (input === undefined || input === null || input === '') {
+      return fallback;
+    }
+    const parsed = Number(input);
+    if (!Number.isFinite(parsed) || parsed < 0) {
+      throw new BadRequestException('Amount must be a non-negative number');
+    }
+    return parsed;
+  }
+
+  private parseOptionalDate(input: unknown): Date | null {
+    if (input === undefined || input === null || input === '') {
+      return null;
+    }
+
+    const parsed = new Date(String(input));
+    if (Number.isNaN(parsed.getTime())) {
+      throw new BadRequestException('Invalid date format. Use ISO date string.');
+    }
+    return parsed;
+  }
+
+  private async assertBrokerCanMutateMilestones(
+    projectId: string,
+    userId: string,
+  ): Promise<ProjectEntity> {
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+    });
+
+    if (!project) {
+      throw new NotFoundException(`Project ${projectId} not found`);
+    }
+
+    if (project.brokerId !== userId) {
+      throw new ForbiddenException('Only the assigned broker can mutate milestone scope');
+    }
+
+    if (project.status === ProjectStatus.DISPUTED) {
+      throw new BadRequestException(
+        'Project is under dispute. Milestone scope mutation is disabled.',
+      );
+    }
+
+    return project;
+  }
+
+  async createMilestone(
+    projectId: string,
+    userId: string,
+    payload: CreateProjectMilestoneInput,
+  ): Promise<MilestoneEntity> {
+    await this.assertBrokerCanMutateMilestones(projectId, userId);
+    await this.milestoneLockPolicyService.assertCanMutateMilestoneStructure(projectId);
+
+    const title = payload.title?.trim();
+    if (!title) {
+      throw new BadRequestException('Milestone title is required');
+    }
+
+    const existingMilestoneCount = await this.milestoneRepository.count({
+      where: { projectId },
+    });
+    const nextSortOrder = payload.sortOrder ?? existingMilestoneCount + 1;
+    const amount = this.parseAmountOrDefault(payload.amount, 0);
+    const retentionAmount = this.parseAmountOrDefault(payload.retentionAmount, 0);
+    const startDate = this.parseOptionalDate(payload.startDate);
+    const dueDate = this.parseOptionalDate(payload.dueDate);
+
+    if (startDate && dueDate && dueDate < startDate) {
+      throw new BadRequestException('Milestone dueDate must be greater than or equal to startDate');
+    }
+
+    const milestone = this.milestoneRepository.create({
+      projectId,
+      title,
+      description: payload.description?.trim() || undefined,
+      amount,
+      deliverableType: payload.deliverableType ?? DeliverableType.OTHER,
+      retentionAmount,
+      acceptanceCriteria: Array.isArray(payload.acceptanceCriteria)
+        ? payload.acceptanceCriteria
+        : undefined,
+      startDate: startDate ?? undefined,
+      dueDate: dueDate ?? undefined,
+      sortOrder: nextSortOrder,
+      status: MilestoneStatus.PENDING,
+    });
+
+    return this.milestoneRepository.save(milestone);
+  }
+
+  async updateMilestoneStructure(
+    milestoneId: string,
+    userId: string,
+    payload: UpdateProjectMilestoneInput,
+  ): Promise<MilestoneEntity> {
+    const milestone = await this.milestoneRepository.findOne({
+      where: { id: milestoneId },
+    });
+    if (!milestone) {
+      throw new NotFoundException(`Milestone ${milestoneId} not found`);
+    }
+    if (!milestone.projectId) {
+      throw new BadRequestException('Milestone is not linked to a project');
+    }
+
+    await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
+    await this.milestoneLockPolicyService.assertCanMutateMilestoneStructure(milestone.projectId);
+
+    const hasAnyUpdate =
+      payload.title !== undefined ||
+      payload.description !== undefined ||
+      payload.amount !== undefined ||
+      payload.startDate !== undefined ||
+      payload.dueDate !== undefined ||
+      payload.sortOrder !== undefined ||
+      payload.deliverableType !== undefined ||
+      payload.retentionAmount !== undefined ||
+      payload.acceptanceCriteria !== undefined;
+
+    if (!hasAnyUpdate) {
+      throw new BadRequestException('No milestone structure fields provided to update');
+    }
+
+    if (payload.title !== undefined) {
+      const title = payload.title?.trim();
+      if (!title) {
+        throw new BadRequestException('Milestone title cannot be empty');
+      }
+      milestone.title = title;
+    }
+
+    if (payload.description !== undefined) {
+      milestone.description = (payload.description?.trim() || null) as unknown as string;
+    }
+
+    if (payload.amount !== undefined) {
+      milestone.amount = this.parseAmountOrDefault(payload.amount, milestone.amount);
+    }
+
+    if (payload.startDate !== undefined) {
+      milestone.startDate = this.parseOptionalDate(payload.startDate) as unknown as Date;
+    }
+
+    if (payload.dueDate !== undefined) {
+      milestone.dueDate = this.parseOptionalDate(payload.dueDate) as unknown as Date;
+    }
+
+    if (milestone.startDate && milestone.dueDate && milestone.dueDate < milestone.startDate) {
+      throw new BadRequestException('Milestone dueDate must be greater than or equal to startDate');
+    }
+
+    if (payload.sortOrder !== undefined) {
+      if (payload.sortOrder === null) {
+        milestone.sortOrder = null as unknown as number;
+      } else if (!Number.isInteger(payload.sortOrder) || payload.sortOrder < 0) {
+        throw new BadRequestException('Milestone sortOrder must be a non-negative integer');
+      } else {
+        milestone.sortOrder = payload.sortOrder;
+      }
+    }
+
+    if (payload.deliverableType !== undefined) {
+      milestone.deliverableType = payload.deliverableType;
+    }
+
+    if (payload.retentionAmount !== undefined) {
+      if (payload.retentionAmount === null) {
+        milestone.retentionAmount = 0;
+      } else {
+        milestone.retentionAmount = this.parseAmountOrDefault(
+          payload.retentionAmount,
+          milestone.retentionAmount,
+        );
+      }
+    }
+
+    if (payload.acceptanceCriteria !== undefined) {
+      milestone.acceptanceCriteria = Array.isArray(payload.acceptanceCriteria)
+        ? payload.acceptanceCriteria
+        : (null as unknown as string[]);
+    }
+
+    return this.milestoneRepository.save(milestone);
+  }
+
+  async deleteMilestoneStructure(milestoneId: string, userId: string): Promise<void> {
+    const milestone = await this.milestoneRepository.findOne({
+      where: { id: milestoneId },
+    });
+    if (!milestone) {
+      throw new NotFoundException(`Milestone ${milestoneId} not found`);
+    }
+    if (!milestone.projectId) {
+      throw new BadRequestException('Milestone is not linked to a project');
+    }
+
+    await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
+    await this.milestoneLockPolicyService.assertCanMutateMilestoneStructure(milestone.projectId);
+
+    await this.milestoneRepository.remove(milestone);
+  }
 
   /**
    * List projects for a user with dispute status enrichment
@@ -208,6 +445,23 @@ export class ProjectsService {
       );
     }
 
+    const activeContract = await this.milestoneLockPolicyService.findLatestActivatedContract(project.id);
+    const snapshot = Array.isArray(activeContract?.milestoneSnapshot)
+      ? activeContract.milestoneSnapshot
+      : [];
+    if (snapshot.length > 0) {
+      const snapshotEntry = snapshot.find((entry) => entry.projectMilestoneId === milestone.id);
+      if (!snapshotEntry) {
+        throw new BadRequestException('Milestone not found in contract snapshot');
+      }
+
+      const currentAmount = new Decimal(milestone.amount).toDecimalPlaces(2);
+      const snapshotAmount = new Decimal(snapshotEntry.amount).toDecimalPlaces(2);
+      if (!currentAmount.equals(snapshotAmount)) {
+        throw new BadRequestException('Milestone amount mismatch with contract snapshot');
+      }
+    }
+
     // Step 5: Prepare old data for audit log
     const oldData = {
       status: milestone.status,
@@ -260,9 +514,28 @@ export class ProjectsService {
     };
   }
   async findOne(id: string): Promise<ProjectEntity | null> {
-    return this.projectRepository.findOne({
+    const project = await this.projectRepository.findOne({
       where: { id },
       relations: ['contracts'],
     });
+    if (!project) {
+      return null;
+    }
+
+    if (Array.isArray(project.contracts)) {
+      project.contracts = [...project.contracts].sort((a: ContractEntity, b: ContractEntity) => {
+        const aActivated = a.activatedAt ? new Date(a.activatedAt).getTime() : 0;
+        const bActivated = b.activatedAt ? new Date(b.activatedAt).getTime() : 0;
+        if (aActivated !== bActivated) {
+          return bActivated - aActivated;
+        }
+
+        const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bCreated - aCreated;
+      });
+    }
+
+    return project;
   }
 }
