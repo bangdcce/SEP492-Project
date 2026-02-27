@@ -12,6 +12,7 @@ import type {
   DisputeEvidence,
   DisputeEvidenceQuota,
   DisputeFilters,
+  InternalMember,
   DisputeNote,
   DisputeSummary,
   PaginatedDisputesResponse,
@@ -87,7 +88,9 @@ export const getQueueDisputes = async (
   const params = buildQueryParams(filters);
   const key = `disputes:queue:${getDisputesCacheScope()}:${params.toString() || "all"}`;
   const fetcher = () =>
-    apiClient.get<PaginatedDisputesResponse>(`/disputes/queue?${params.toString()}`);
+    apiClient.get<PaginatedDisputesResponse>(
+      `/disputes/queue?${params.toString()}`,
+    );
   if (options?.preferCache === false) {
     return await fetcher();
   }
@@ -105,7 +108,9 @@ export const getCaseloadDisputes = async (
   const params = buildQueryParams(filters);
   const key = `disputes:caseload:${getDisputesCacheScope()}:${params.toString() || "all"}`;
   const fetcher = () =>
-    apiClient.get<PaginatedDisputesResponse>(`/disputes/caseload?${params.toString()}`);
+    apiClient.get<PaginatedDisputesResponse>(
+      `/disputes/caseload?${params.toString()}`,
+    );
   if (options?.preferCache === false) {
     return await fetcher();
   }
@@ -123,7 +128,9 @@ export const getMyDisputes = async (
   const params = buildQueryParams(filters);
   const key = `disputes:mine:${getDisputesCacheScope()}:${params.toString() || "all"}`;
   const fetcher = () =>
-    apiClient.get<PaginatedDisputesResponse>(`/disputes/my?${params.toString()}`);
+    apiClient.get<PaginatedDisputesResponse>(
+      `/disputes/my?${params.toString()}`,
+    );
   if (options?.preferCache === false) {
     return await fetcher();
   }
@@ -202,6 +209,14 @@ export const getDisputeNotes = async (
   );
 };
 
+export const getDisputeInternalMembers = async (
+  disputeId: string,
+): Promise<InternalMember[]> => {
+  const response = await apiClient.get(`/disputes/${disputeId}/internal-members`);
+  const payload = (response as { data?: InternalMember[] }).data ?? response;
+  return Array.isArray(payload) ? payload : [];
+};
+
 export const addDisputeNote = async (
   disputeId: string,
   input: {
@@ -272,9 +287,12 @@ export const getDisputeAutoScheduleOptions = async (
   );
 };
 
-export const getSchedulingWorklist = async (): Promise<SchedulingWorklistResponse> => {
-  return await apiClient.get<SchedulingWorklistResponse>("/disputes/scheduling/worklist");
-};
+export const getSchedulingWorklist =
+  async (): Promise<SchedulingWorklistResponse> => {
+    return await apiClient.get<SchedulingWorklistResponse>(
+      "/disputes/scheduling/worklist",
+    );
+  };
 
 export const markDisputeViewed = async (disputeId: string) => {
   return await apiClient.patch(`/disputes/${disputeId}/viewed`);
@@ -283,10 +301,16 @@ export const markDisputeViewed = async (disputeId: string) => {
 export const getSchedulingProposals = async (
   disputeId: string,
 ): Promise<DisputeScheduleProposal[]> => {
-  const response = await apiClient.get(`/disputes/${disputeId}/scheduling/proposals`);
+  const response = await apiClient.get(
+    `/disputes/${disputeId}/scheduling/proposals`,
+  );
   const payload =
-    (response as { items?: DisputeScheduleProposal[]; data?: { items?: DisputeScheduleProposal[] } })
-      .data ?? response;
+    (
+      response as {
+        items?: DisputeScheduleProposal[];
+        data?: { items?: DisputeScheduleProposal[] };
+      }
+    ).data ?? response;
   if (Array.isArray((payload as { items?: DisputeScheduleProposal[] }).items)) {
     return (payload as { items: DisputeScheduleProposal[] }).items;
   }
@@ -297,10 +321,17 @@ export const createSchedulingProposal = async (
   disputeId: string,
   input: { startTime: string; endTime: string; note?: string },
 ): Promise<DisputeScheduleProposal> => {
-  const response = await apiClient.post(`/disputes/${disputeId}/scheduling/proposals`, input);
+  const response = await apiClient.post(
+    `/disputes/${disputeId}/scheduling/proposals`,
+    input,
+  );
   const payload =
-    (response as { proposal?: DisputeScheduleProposal; data?: { proposal?: DisputeScheduleProposal } })
-      .data ?? response;
+    (
+      response as {
+        proposal?: DisputeScheduleProposal;
+        data?: { proposal?: DisputeScheduleProposal };
+      }
+    ).data ?? response;
   return (payload as { proposal: DisputeScheduleProposal }).proposal;
 };
 
@@ -308,14 +339,20 @@ export const deleteSchedulingProposal = async (
   disputeId: string,
   proposalId: string,
 ) => {
-  return await apiClient.delete(`/disputes/${disputeId}/scheduling/proposals/${proposalId}`);
+  return await apiClient.delete(
+    `/disputes/${disputeId}/scheduling/proposals/${proposalId}`,
+  );
 };
 
 export const submitSchedulingProposals = async (
   disputeId: string,
 ): Promise<{ submitted: number }> => {
-  const response = await apiClient.post(`/disputes/${disputeId}/scheduling/proposals/submit`, {});
-  const payload = (response as { data?: { submitted?: number } }).data ?? response;
+  const response = await apiClient.post(
+    `/disputes/${disputeId}/scheduling/proposals/submit`,
+    {},
+  );
+  const payload =
+    (response as { data?: { submitted?: number } }).data ?? response;
   return { submitted: (payload as { submitted?: number }).submitted ?? 0 };
 };
 
@@ -534,6 +571,20 @@ export const getDisputeMessages = async (
   );
   const payload = (response as { data?: DisputeMessage[] }).data ?? response;
   return Array.isArray(payload) ? payload : [];
+};
+
+export const hideDisputeMessage = async (
+  messageId: string,
+  hiddenReason: string,
+) => {
+  return await apiClient.patch(`/disputes/messages/${messageId}/hide`, {
+    messageId,
+    hiddenReason,
+  });
+};
+
+export const unhideDisputeMessage = async (messageId: string) => {
+  return await apiClient.patch(`/disputes/messages/${messageId}/unhide`);
 };
 
 export const resolveDispute = async (

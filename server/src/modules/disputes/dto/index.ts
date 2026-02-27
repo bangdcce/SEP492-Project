@@ -19,4 +19,5 @@ export * from './message.dto';
 export * from './settlement.dto';
 export * from './verdict.dto';
 export * from './hearing.dto';
+export * from './hearing-verdict.dto';
 export * from './feedback.dto';

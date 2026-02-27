@@ -64,6 +64,7 @@ export enum DisputeType {
 
 export enum DisputePhase {
   PRESENTATION = 'PRESENTATION', // Raiser presents claims and evidence
+  EVIDENCE_SUBMISSION = 'EVIDENCE_SUBMISSION', // Both parties submit / supplement evidence (BLTTDS 2015)
   CROSS_EXAMINATION = 'CROSS_EXAMINATION', // Defendant responds
   INTERROGATION = 'INTERROGATION', // Staff/Admin questions
   DELIBERATION = 'DELIBERATION', // Read-only while reviewing
@@ -328,5 +329,3 @@ export class DisputeEntity {
   @JoinColumn({ name: 'escalatedToAdminId' })
   escalatedToAdmin: any;
 }
-
-

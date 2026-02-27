@@ -55,7 +55,6 @@ const formSchema = z.object({
   title: z.string().min(1, 'Title is required'),
   description: z.string().min(10, 'Description must be at least 10 characters'),
   techStack: z.string().min(1, 'Tech stack is required'),
-  totalBudget: z.coerce.number().min(0, 'Budget must be positive'),
 
   // Validation: Features
   features: z.array(z.object({
@@ -79,24 +78,28 @@ const formSchema = z.object({
     })
   ).min(1, 'At least one milestone is required'),
 }).refine((data) => {
-    const milestoneSum = data.milestones.reduce((sum, m) => sum + (m.amount || 0), 0);
-    return Math.abs(milestoneSum - data.totalBudget) <= 0.01;
+    const totalBudget = data.milestones.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+    return totalBudget > 0;
 }, {
-    message: "Total budget must match the sum of milestone amounts",
-    path: ["totalBudget"],
+    message: "At least one milestone amount must be greater than 0",
+    path: ["milestones"],
 }).refine((data) => {
+    const totalBudget = data.milestones.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+    if (totalBudget <= 0 || data.milestones.length === 0) return true;
     if (data.milestones.length > 0) {
        const firstAmount = data.milestones[0].amount;
-       return (firstAmount / data.totalBudget) <= 0.30;
+       return (firstAmount / totalBudget) <= 0.30;
     }
     return true;
 }, {
     message: "First milestone cannot exceed 30% of total budget (Anti-Front-loading Rule)",
     path: ["milestones.0.amount"],
 }).refine((data) => {
+    const totalBudget = data.milestones.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+    if (totalBudget <= 0 || data.milestones.length === 0) return true;
     if (data.milestones.length > 0) {
        const lastAmount = data.milestones[data.milestones.length - 1].amount;
-       return (lastAmount / data.totalBudget) >= 0.20;
+       return (lastAmount / totalBudget) >= 0.20;
     }
     return true;
 }, {
@@ -115,10 +118,38 @@ interface CreateProjectSpecFormProps {
   projectRequest?: any; // Avoiding full type import to prevent circular deps or complex imports, or better use the type if available
   onSubmit: (data: CreateProjectSpecDTO) => void;
   isSubmitting?: boolean;
+  isPhasedFlow?: boolean;
+  initialValues?: Partial<CreateProjectSpecDTO> | null;
+  submitLabel?: string;
 }
 
-export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isSubmitting }: CreateProjectSpecFormProps) {
+const sumMilestones = (milestones: Array<{ amount?: unknown }> | undefined): number =>
+  (milestones || []).reduce((acc, milestone) => {
+    const val =
+      typeof milestone?.amount === 'string'
+        ? parseFloat(milestone.amount)
+        : Number(milestone?.amount);
+    return acc + (Number.isFinite(val) ? val : 0);
+  }, 0);
+
+export function CreateProjectSpecForm({
+  requestId,
+  projectRequest,
+  onSubmit,
+  isSubmitting,
+  isPhasedFlow = false,
+  initialValues = null,
+  submitLabel,
+}: CreateProjectSpecFormProps) {
   const [warnings, setWarnings] = useState<string[]>([]);
+  const stopNumberFieldScroll = (event: React.WheelEvent<HTMLInputElement>) => {
+    event.currentTarget.blur();
+  };
+  const preventArrowStep = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+      event.preventDefault();
+    }
+  };
 
   const form = useForm<FormValues>({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -127,7 +158,6 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
       title: '',
       description: '',
       techStack: '',
-      totalBudget: 0,
       features: [],
       milestones: [
         {
@@ -156,6 +186,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
   const watchedMilestones = form.watch('milestones');
   const watchedDescription = form.watch('description');
   const watchedFeatures = form.watch('features');
+  const calculatedBudget = sumMilestones(watchedMilestones);
 
   useEffect(() => {
     const newWarnings: string[] = [];
@@ -177,22 +208,110 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
     setWarnings(newWarnings);
   }, [watchedDescription, watchedFeatures]);
 
-  // Auto-calc Total Budget from Milestones
-  // Separate effect to ensure clean dependency on ONLY milestones
   useEffect(() => {
-      if (watchedMilestones) {
-          // Ensure we are summing numbers, handling potential string inputs
-          const sum = watchedMilestones.reduce((acc, m) => {
-              const val = typeof m.amount === 'string' ? parseFloat(m.amount) : Number(m.amount);
-              return acc + (isNaN(val) ? 0 : val);
-          }, 0);
+    if (!initialValues) return;
 
-          const currentTotal = form.getValues('totalBudget');
-          if (Math.abs(sum - currentTotal) > 0.01) {
-             form.setValue('totalBudget', sum, { shouldValidate: true });
-          }
+    const mappedFeatures =
+      initialValues.features && initialValues.features.length > 0
+        ? initialValues.features.map((feature) => ({
+            title: feature.title || '',
+            description: feature.description || '',
+            complexity: feature.complexity || 'MEDIUM',
+            acceptanceCriteria:
+              feature.acceptanceCriteria && feature.acceptanceCriteria.length > 0
+                ? feature.acceptanceCriteria.map((criteria) => ({ value: criteria || '' }))
+                : [{ value: '' }],
+          }))
+        : [];
+
+    const mappedMilestones =
+      initialValues.milestones && initialValues.milestones.length > 0
+        ? [...initialValues.milestones]
+            .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+            .map((milestone) => ({
+              title: milestone.title || '',
+              description: milestone.description || '',
+              amount: Number(milestone.amount ?? 0),
+              deliverableType: milestone.deliverableType || DeliverableType.SOURCE_CODE,
+              retentionAmount: Number(milestone.retentionAmount ?? 0),
+              duration:
+                (milestone as { duration?: number | string | null }).duration == null
+                  ? undefined
+                  : Number((milestone as { duration?: number | string }).duration),
+            }))
+        : [
+            {
+              title: 'Project Setup & Design',
+              description: 'Initial setup and design phase',
+              amount: 0,
+              deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+              retentionAmount: 0,
+            },
+          ];
+
+    form.reset({
+      title: initialValues.title || '',
+      description: initialValues.description || '',
+      techStack: initialValues.techStack || '',
+      features: mappedFeatures,
+      milestones: mappedMilestones,
+    });
+  }, [form, initialValues]);
+
+  const handleInvalidSubmit = () => {
+    const errors = form.formState.errors;
+
+    if (errors.title) {
+      form.setFocus('title');
+      return;
+    }
+    if (errors.description) {
+      form.setFocus('description');
+      return;
+    }
+    if (errors.techStack) {
+      form.setFocus('techStack');
+      return;
+    }
+
+    const featureErrors = Array.isArray(errors.features) ? errors.features : [];
+    for (let index = 0; index < featureErrors.length; index += 1) {
+      const featureError = featureErrors[index];
+      if (featureError?.title) {
+        form.setFocus(`features.${index}.title`);
+        return;
       }
-  }, [watchedMilestones, form.setValue, form.getValues]);
+      if (featureError?.description) {
+        form.setFocus(`features.${index}.description`);
+        return;
+      }
+      const criteriaErrors = Array.isArray(featureError?.acceptanceCriteria)
+        ? featureError.acceptanceCriteria
+        : [];
+      const criteriaIndex = criteriaErrors.findIndex((criterion) => !!criterion?.value);
+      if (criteriaIndex >= 0) {
+        form.setFocus(`features.${index}.acceptanceCriteria.${criteriaIndex}.value`);
+        return;
+      }
+    }
+
+    const milestoneErrors = Array.isArray(errors.milestones) ? errors.milestones : [];
+    for (let index = 0; index < milestoneErrors.length; index += 1) {
+      const milestoneError = milestoneErrors[index];
+      if (milestoneError?.title) {
+        form.setFocus(`milestones.${index}.title`);
+        return;
+      }
+      if (milestoneError?.amount) {
+        form.setFocus(`milestones.${index}.amount`);
+        return;
+      }
+      if (milestoneError?.description) {
+        form.setFocus(`milestones.${index}.description`);
+        return;
+      }
+    }
+  };
 
   // Nested Array handler helper (Acceptance Criteria) is tricky with useFieldArray at top level.
   // We will inline the Criteria list management inside the Feature map loop or create a sub-component.
@@ -205,7 +324,7 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
       status: status as any, // Cast to enum
       title: values.title,
       description: values.description,
-      totalBudget: values.totalBudget,
+      totalBudget: sumMilestones(values.milestones),
       techStack: values.techStack,
       features: values.features?.map(f => ({
          title: f.title,
@@ -227,8 +346,8 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
     onSubmit(payload);
   };
 
-  const milestoneSum = form.watch('milestones').reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
-  const budget = form.watch('totalBudget') || 0;
+  const milestoneSum = calculatedBudget;
+  const budget = calculatedBudget;
 
   return (
     <Form {...form}>
@@ -236,9 +355,18 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
 
         {/* HEADER & WARNINGS */}
         <div className="space-y-2">
-           <h1 className="text-2xl font-bold">Create Project Specification</h1>
-           <p className="text-muted-foreground">Define the scope, features, and milestones for your project. Be specific to ensure quality.</p>
+           <h1 className="text-2xl font-bold">Project Specification</h1>
+           <p className="text-muted-foreground">Define the scope, features, and milestones for the freelancer-facing specification.</p>
         </div>
+
+        {form.formState.submitCount > 0 && !form.formState.isValid && (
+          <Alert variant="destructive">
+            <AlertTitle>Form has validation errors</AlertTitle>
+            <AlertDescription>
+              Please review the highlighted fields. The first invalid field has been focused.
+            </AlertDescription>
+          </Alert>
+        )}
 
         {warnings.length > 0 && (
           <Alert variant="destructive">
@@ -319,8 +447,8 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
                                 <FormItem><FormLabel>Feature Name</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem>
                              )} />
                              <FormField control={form.control} name={`features.${index}.complexity`} render={({ field }) => (
-                                <FormItem><FormLabel>Complexity</FormLabel>
-                                   <Select onValueChange={field.onChange} defaultValue={field.value}>
+                             <FormItem><FormLabel>Complexity</FormLabel>
+                                   <Select onValueChange={field.onChange} value={field.value}>
                                       <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                                       <SelectContent>
                                          <SelectItem value="LOW">Low (Simple CRUD)</SelectItem>
@@ -355,29 +483,26 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
         <Card>
            <CardHeader><CardTitle>3. Budget & Milestones</CardTitle></CardHeader>
            <CardContent className="space-y-6">
-              <FormField control={form.control} name="totalBudget" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>
-                     Total Budget ($)
-                     {projectRequest?.budgetRange && (
-                        <span className="ml-2 text-sm text-muted-foreground font-normal">
-                           (Client Range: {projectRequest.budgetRange})
+              <div className="rounded-lg border bg-muted/40 p-4">
+                <div className="flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-sm font-medium">
+                      Total Budget (auto-calculated)
+                      {projectRequest?.budgetRange && (
+                        <span className="ml-2 text-xs text-muted-foreground font-normal">
+                          Client Range: {projectRequest.budgetRange}
                         </span>
-                     )}
-                  </FormLabel>
-                  <FormControl>
-                     <Input
-                        type="number"
-                        step="10"
-                        className="text-lg font-bold bg-muted"
-                        readOnly
-                        {...field}
-                     />
-                  </FormControl>
-                  <FormDescription>Calculated automatically from sum of milestones.</FormDescription>
-                  <FormMessage />
-                </FormItem>
-              )} />
+                      )}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Budget is computed from milestone amounts to avoid mismatch and input jumping.
+                    </p>
+                  </div>
+                  <p className="text-2xl font-bold tabular-nums">
+                    ${budget.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                  </p>
+                </div>
+              </div>
 
               <Separator />
 
@@ -400,14 +525,28 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
                              <FormItem><FormLabel>Title</FormLabel><FormControl><Input placeholder="e.g. Phase 1" {...field} /></FormControl><FormMessage /></FormItem>
                           )} />
                           <FormField control={form.control} name={`milestones.${index}.amount`} render={({ field }) => (
-                             <FormItem><FormLabel>Amount ($)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
+                             <FormItem>
+                               <FormLabel>Amount ($)</FormLabel>
+                               <FormControl>
+                                 <Input
+                                   type="number"
+                                   min="0"
+                                   step="0.01"
+                                   inputMode="decimal"
+                                   onWheel={stopNumberFieldScroll}
+                                   onKeyDown={preventArrowStep}
+                                   {...field}
+                                 />
+                               </FormControl>
+                               <FormMessage />
+                             </FormItem>
                           )} />
                        </div>
 
                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <FormField control={form.control} name={`milestones.${index}.deliverableType`} render={({ field }) => (
                                 <FormItem><FormLabel>Deliverable Type</FormLabel>
-                                   <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                   <Select onValueChange={field.onChange} value={field.value}>
                                       <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
                                       <SelectContent>
                                          <SelectItem value={DeliverableType.DESIGN_PROTOTYPE}>Design Prototype (Figma)</SelectItem>
@@ -422,7 +561,21 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
                                 </FormItem>
                              )} />
                              <FormField control={form.control} name={`milestones.${index}.retentionAmount`} render={({ field }) => (
-                                <FormItem><FormLabel>Retention ($) (Warranty Hold)</FormLabel><FormControl><Input type="number" {...field} /></FormControl><FormMessage /></FormItem>
+                                <FormItem>
+                                  <FormLabel>Retention ($) (Warranty Hold)</FormLabel>
+                                  <FormControl>
+                                    <Input
+                                      type="number"
+                                      min="0"
+                                      step="0.01"
+                                      inputMode="decimal"
+                                      onWheel={stopNumberFieldScroll}
+                                      onKeyDown={preventArrowStep}
+                                      {...field}
+                                    />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
                              )} />
                        </div>
 
@@ -456,17 +609,19 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
         <div className="flex justify-end gap-4 pb-20">
            <Button type="button" variant="outline" onClick={() => window.history.back()}>Cancel</Button>
 
-           <Button
-                type="button"
-                variant="secondary"
-                disabled={isSubmitting}
-                onClick={form.handleSubmit(
-                  (d) => handleSubmit(d, 'DRAFT'),
-                  (errors) => console.error('Form Validation Errors:', errors)
-                )}
-            >
-              Save Draft
-           </Button>
+           {!isPhasedFlow && (
+             <Button
+                  type="button"
+                  variant="secondary"
+                  disabled={isSubmitting}
+                  onClick={form.handleSubmit(
+                    (d) => handleSubmit(d, 'DRAFT'),
+                    handleInvalidSubmit
+                  )}
+              >
+                Save Draft
+             </Button>
+           )}
 
            <Button
                 type="button"
@@ -474,11 +629,13 @@ export function CreateProjectSpecForm({ requestId, projectRequest, onSubmit, isS
                 size="lg"
                 className="bg-green-600 hover:bg-green-700"
                 onClick={form.handleSubmit(
-                  (d) => handleSubmit(d, 'PENDING_APPROVAL'),
-                  (errors) => console.error('Form Validation Errors:', errors)
+                  (d) => handleSubmit(d, isPhasedFlow ? 'DRAFT' : 'PENDING_APPROVAL'),
+                  handleInvalidSubmit
                 )}
             >
-              {isSubmitting ? 'Submitting...' : 'Submit for Approval'}
+              {isSubmitting
+                ? 'Submitting...'
+                : submitLabel || (isPhasedFlow ? 'Create Full Spec Draft' : 'Submit for Approval')}
            </Button>
         </div>
       </form>

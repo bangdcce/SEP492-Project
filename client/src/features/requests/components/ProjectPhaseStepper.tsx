@@ -21,18 +21,23 @@ export function ProjectPhaseStepper({
     },
     {
       id: 2,
-      label: "Finalizing Specs",
+      label: "Client Spec Approval",
       status: currentPhase > 2 ? "completed" : currentPhase === 2 ? "current" : "upcoming",
     },
     {
       id: 3,
-      label: "Hire Freelancer",
+      label: "Freelancer Selection",
       status: currentPhase > 3 ? "completed" : currentPhase === 3 ? "current" : "upcoming",
     },
     {
       id: 4,
-      label: "Contract",
+      label: "Final Spec Sign-off",
       status: currentPhase > 4 ? "completed" : currentPhase === 4 ? "current" : "upcoming",
+    },
+    {
+      id: 5,
+      label: "Contract",
+      status: currentPhase > 5 ? "completed" : currentPhase === 5 ? "current" : "upcoming",
     },
   ];
 
@@ -68,7 +73,7 @@ export function ProjectPhaseStepper({
                 step.status === "current"
                   ? "text-primary"
                   : "text-muted-foreground"
-              }`}
+              } text-center leading-tight max-w-20`}
             >
               {step.label}
             </span>

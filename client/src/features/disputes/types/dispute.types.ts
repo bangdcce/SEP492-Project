@@ -157,6 +157,24 @@ export interface DisputeMessage {
   sender?: DisputeUserSummary;
 }
 
+export interface InternalMember {
+  userId: string;
+  role: UserRole | string;
+  fullName?: string;
+  email?: string;
+  source: "ASSIGNED_STAFF" | "ESCALATED_ADMIN" | "SUPPORT_INVITED" | "ADMIN_DEFAULT";
+  grantedBy?: string | null;
+  createdAt?: string;
+}
+
+export interface LegacyArchiveMessage extends DisputeMessage {
+  references?: Array<{
+    type: "TASK" | "MILESTONE" | "SPEC";
+    id: string;
+    label: string;
+  }>;
+}
+
 export interface DisputeEvidence {
   id: string;
   disputeId: string;

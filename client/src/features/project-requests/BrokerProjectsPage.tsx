@@ -3,10 +3,13 @@ import React, { useEffect, useState } from 'react';
 import { ProjectRequestsTable } from './components/ProjectRequestsTable';
 import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Search } from 'lucide-react';
 import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
 import { STORAGE_KEYS } from '@/constants';
 import { getStoredJson } from '@/shared/utils/storage';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
+import { Input } from '@/shared/components/ui/Input';
+import { Badge } from '@/shared/components/ui/badge';
 
 export const BrokerProjectsPage: React.FC = () => {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
@@ -14,6 +17,7 @@ export const BrokerProjectsPage: React.FC = () => {
   const [assigningId, setAssigningId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
   const { checkKycStatus } = useKYCStatus();
 
   useEffect(() => {
@@ -47,6 +51,26 @@ export const BrokerProjectsPage: React.FC = () => {
       // 2. Has ACCEPTED proposal (Meaning invited and accepted)
       r.brokerProposals?.some((p: any) => p.brokerId === user?.id && p.status === 'ACCEPTED')
   );
+  const filteredProjects = myProjects.filter((request) => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      request.title.toLowerCase().includes(q) ||
+      request.description.toLowerCase().includes(q) ||
+      (request.techPreferences || '').toLowerCase().includes(q) ||
+      (request.budgetRange || '').toLowerCase().includes(q)
+    );
+  });
+  const readyForSpecCount = filteredProjects.filter(
+    (request) =>
+      request.status === 'BROKER_ASSIGNED' ||
+      request.status === 'SPEC_SUBMITTED' ||
+      request.status === 'SPEC_APPROVED' ||
+      request.status === 'HIRING',
+  ).length;
+  const contractPendingCount = filteredProjects.filter(
+    (request) => request.status === 'CONTRACT_PENDING',
+  ).length;
 
   const handleAssign = async (requestId: string) => {
     // Re-implementation of assign logic if needed locally, although usually "My Projects" are already assigned/accepted.
@@ -99,23 +123,64 @@ export const BrokerProjectsPage: React.FC = () => {
 
   return (
     <div className="container mx-auto py-10">
-      <div className="mb-8 flex items-center justify-between">
+      <div className="mb-6 flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">My Projects</h1>
+          <h1 className="text-3xl font-bold tracking-tight">My Requests</h1>
           <p className="text-muted-foreground">
-             Projects where you are the Assigned Broker or have an Accepted Invitation.
+             Requests where you are the assigned broker or accepted proposal owner.
           </p>
         </div>
       </div>
-      
+
+      <div className="mb-6 grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs uppercase text-muted-foreground">Total</p>
+            <p className="mt-1 text-2xl font-semibold">{myProjects.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs uppercase text-muted-foreground">Spec Workflow</p>
+            <p className="mt-1 text-2xl font-semibold text-indigo-600">{readyForSpecCount}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs uppercase text-muted-foreground">Contract Pending</p>
+            <p className="mt-1 text-2xl font-semibold text-amber-600">{contractPendingCount}</p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="mb-4">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Search</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="relative w-full max-w-md">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search by title, description, budget, tech stack..."
+                className="pl-9"
+                value={searchTerm}
+                onChange={(event) => setSearchTerm(event.target.value)}
+              />
+            </div>
+            <Badge variant="outline">{filteredProjects.length} results</Badge>
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="rounded-md bg-white p-4 shadow-sm">
-         {myProjects.length === 0 ? (
+         {filteredProjects.length === 0 ? (
              <div className="text-center py-10 text-muted-foreground">
                  You don't have any active projects yet. Check the Marketplace to find work!
              </div>
          ) : (
             <ProjectRequestsTable 
-                requests={myProjects} 
+                requests={filteredProjects} 
                 onAssign={handleAssign}
                 onApply={handleApply}
                 assigningId={assigningId}

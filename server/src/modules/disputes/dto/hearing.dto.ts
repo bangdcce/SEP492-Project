@@ -1,4 +1,4 @@
-import {
+﻿import {
   IsNotEmpty,
   IsUUID,
   IsDateString,
@@ -21,7 +21,7 @@ import {
 } from 'src/database/entities';
 
 /**
- * DTO để lên lịch phiên điều trần
+ * DTO ﾄ黛ｻ・lﾃｪn l盻議h phiﾃｪn ﾄ訴盻「 tr蘯ｧn
  */
 export class ScheduleHearingDto {
   @IsUUID()
@@ -40,12 +40,12 @@ export class ScheduleHearingDto {
 
   @IsString()
   @IsOptional()
-  agenda?: string; // Nội dung cần thảo luận
+  agenda?: string; // N盻冓 dung c蘯ｧn th蘯｣o lu蘯ｭn
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  requiredDocuments?: string[]; // Tài liệu yêu cầu chuẩn bị
+  requiredDocuments?: string[]; // Tﾃi li盻㎡ yﾃｪu c蘯ｧu chu蘯ｩn b盻・
 
   @IsEnum(HearingTier)
   @IsOptional()
@@ -53,7 +53,7 @@ export class ScheduleHearingDto {
 
   @IsString()
   @IsOptional()
-  externalMeetingLink?: string; // Link Google Meet/Zoom nếu cần video call
+  externalMeetingLink?: string; // Link Google Meet/Zoom n蘯ｿu c蘯ｧn video call
 
   @ApiPropertyOptional({
     description: 'Emergency hearing flag to bypass 24h notice rule',
@@ -65,7 +65,7 @@ export class ScheduleHearingDto {
 }
 
 /**
- * DTO để Staff/Admin điều khiển Live Chat trong phiên điều trần
+ * DTO ﾄ黛ｻ・Staff/Admin ﾄ訴盻「 khi盻ハ Live Chat trong phiﾃｪn ﾄ訴盻「 tr蘯ｧn
  */
 export class ModerateHearingDto {
   @IsUUID()
@@ -78,7 +78,7 @@ export class ModerateHearingDto {
 }
 
 /**
- * DTO để bắt đầu/kết thúc phiên điều trần
+ * DTO ﾄ黛ｻ・b蘯ｯt ﾄ黛ｺｧu/k蘯ｿt thﾃｺc phiﾃｪn ﾄ訴盻「 tr蘯ｧn
  */
 export class UpdateHearingStatusDto {
   @IsUUID()
@@ -90,25 +90,29 @@ export class UpdateHearingStatusDto {
   action: 'start' | 'end' | 'cancel';
 
   @IsString()
-  @IsOptional()
-  summary?: string; // Tóm tắt (khi end)
+  @IsNotEmpty()
+  summary: string;
 
   @IsString()
-  @IsOptional()
-  findings?: string; // Phát hiện quan trọng (khi end)
+  @IsNotEmpty()
+  findings: string;
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  pendingActions?: string[]; // Việc cần làm tiếp (khi end)
+  pendingActions?: string[];
 
   @IsString()
   @IsOptional()
-  cancelReason?: string; // Lý do hủy (khi cancel)
+  noShowNote?: string;
+
+  @IsString()
+  @IsOptional()
+  cancelReason?: string; // Lﾃｽ do h盻ｧy (khi cancel)
 }
 
 /**
- * DTO để participant phản hồi lời mời
+ * DTO ﾄ黛ｻ・participant ph蘯｣n h盻妬 l盻拱 m盻拱
  */
 export class RespondHearingInviteDto {
   @IsUUID()
@@ -125,7 +129,7 @@ export class RespondHearingInviteDto {
 }
 
 /**
- * DTO nộp lời khai (draft hoặc submit)
+ * DTO n盻冪 l盻拱 khai (draft ho蘯ｷc submit)
  */
 export class SubmitHearingStatementDto {
   @IsUUID()
@@ -167,7 +171,7 @@ export class SubmitHearingStatementDto {
 }
 
 /**
- * DTO đặt câu hỏi trong hearing
+ * DTO ﾄ黛ｺｷt cﾃ｢u h盻淑 trong hearing
  */
 export class AskHearingQuestionDto {
   @IsUUID()
@@ -190,7 +194,16 @@ export class AskHearingQuestionDto {
 }
 
 /**
- * DTO kết thúc hearing
+ * DTO tr蘯｣ l盻拱 cﾃ｢u h盻淑 trong hearing
+ */
+export class AnswerHearingQuestionDto {
+  @IsString()
+  @IsNotEmpty()
+  answer: string;
+}
+
+/**
+ * DTO k蘯ｿt thﾃｺc hearing
  */
 export class EndHearingDto {
   @IsUUID()
@@ -198,17 +211,21 @@ export class EndHearingDto {
   hearingId: string;
 
   @IsString()
-  @IsOptional()
-  summary?: string;
+  @IsNotEmpty()
+  summary: string;
 
   @IsString()
-  @IsOptional()
-  findings?: string;
+  @IsNotEmpty()
+  findings: string;
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
   pendingActions?: string[];
+
+  @IsString()
+  @IsOptional()
+  noShowNote?: string;
 
   @IsOptional()
   @IsBoolean()
@@ -216,7 +233,7 @@ export class EndHearingDto {
 }
 
 /**
- * DTO dời lịch phiên điều trần
+ * DTO d盻拱 l盻議h phiﾃｪn ﾄ訴盻「 tr蘯ｧn
  */
 export class RescheduleHearingDto {
   @IsUUID()
@@ -309,3 +326,10 @@ export class OpenEvidenceIntakeDto {
   @IsNotEmpty()
   reason: string;
 }
+
+export class PauseHearingDto {
+  @IsString()
+  @IsNotEmpty()
+  reason: string;
+}
+

@@ -12,7 +12,9 @@ import {
   ParseUUIDPipe,
   HttpStatus,
   HttpCode,
+  Res,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
@@ -131,6 +133,7 @@ export class EvidenceController {
       disputeId,
       uploaderId: user.id,
       uploaderRole: user.role,
+      uploaderName: user.fullName || user.username || undefined,
       fileBuffer: file.buffer as Buffer,
       fileName: file.originalname as string,
       fileSize: file.size as number,
@@ -353,5 +356,37 @@ export class EvidenceController {
         flaggedAt: flagged.flaggedAt,
       },
     };
+  }
+
+  // ===========================================================================
+  // GET /disputes/:disputeId/evidence/export — Download evidence ZIP package
+  // ===========================================================================
+  @Get(':disputeId/evidence/export')
+  @Roles(UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER, UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Export all evidence as ZIP package with manifest',
+    description:
+      'Downloads a ZIP archive containing all non-flagged evidence files and a manifest.json ' +
+      'with SHA-256 hashes for court submission or audit purposes.',
+  })
+  @ApiParam({ name: 'disputeId', description: 'Dispute UUID' })
+  @ApiResponse({ status: 200, description: 'ZIP file stream' })
+  async exportEvidencePackage(
+    @Param('disputeId', ParseUUIDPipe) disputeId: string,
+    @GetUser() user: UserEntity,
+    @Res() res: Response,
+  ) {
+    const { stream, fileName } = await this.evidenceService.exportEvidencePackage(
+      disputeId,
+      user.id,
+      user.role,
+    );
+
+    res.set({
+      'Content-Type': 'application/zip',
+      'Content-Disposition': `attachment; filename="${fileName}"`,
+    });
+
+    (stream as NodeJS.ReadableStream).pipe(res);
   }
 }

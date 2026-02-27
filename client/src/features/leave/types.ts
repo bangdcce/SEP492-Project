@@ -10,9 +10,16 @@ export enum LeaveStatus {
   CANCELLED = "CANCELLED",
 }
 
+export interface LeaveActorSummary {
+  id: string;
+  fullName: string;
+  email: string;
+}
+
 export interface LeaveRequest {
   id: string;
   staffId: string;
+  staff?: LeaveActorSummary | null;
   type: LeaveType;
   status: LeaveStatus;
   startTime: string;
@@ -21,6 +28,7 @@ export interface LeaveRequest {
   reason?: string | null;
   isAutoApproved: boolean;
   processedById?: string | null;
+  processedBy?: LeaveActorSummary | null;
   processedAt?: string | null;
   processedNote?: string | null;
   cancelledById?: string | null;
@@ -55,6 +63,28 @@ export interface LeaveActionResponse<T = undefined> {
   success: boolean;
   message?: string;
   data?: T;
+}
+
+export interface LeavePolicyItem {
+  policyId: string | null;
+  staffId: string;
+  staff: LeaveActorSummary;
+  monthlyAllowanceMinutes: number;
+  createdAt: string | null;
+  updatedAt: string | null;
+}
+
+export interface LeavePoliciesMeta {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface LeavePoliciesResponse {
+  success: boolean;
+  data: LeavePolicyItem[];
+  meta: LeavePoliciesMeta;
 }
 
 export interface LeaveCreateResponseData {

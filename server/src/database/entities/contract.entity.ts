@@ -6,7 +6,21 @@ import {
   ManyToOne,
   JoinColumn,
   OneToMany,
+  Index,
 } from 'typeorm';
+
+export interface ContractMilestoneSnapshotItem {
+  projectMilestoneId: string;
+  sourceSpecMilestoneId: string | null;
+  title: string;
+  description?: string | null;
+  amount: number;
+  dueDate?: string | null;
+  sortOrder?: number | null;
+  deliverableType?: string | null;
+  retentionAmount?: number | null;
+  acceptanceCriteria?: string[] | null;
+}
 
 @Entity('contracts')
 export class ContractEntity {
@@ -15,6 +29,10 @@ export class ContractEntity {
 
   @Column()
   projectId: string;
+
+  @Index('IDX_contracts_sourceSpecId')
+  @Column({ nullable: true })
+  sourceSpecId: string | null;
 
   @Column({ type: 'varchar', nullable: true })
   title: string;
@@ -28,6 +46,12 @@ export class ContractEntity {
   @Column({ type: 'varchar', default: 'DRAFT' })
   status: string;
 
+  @Column({ type: 'timestamp', nullable: true })
+  activatedAt: Date | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  milestoneSnapshot: ContractMilestoneSnapshotItem[] | null;
+
   @Column()
   createdBy: string;
 
@@ -37,6 +61,10 @@ export class ContractEntity {
   @ManyToOne('ProjectEntity', 'contracts', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'projectId' })
   project: any;
+
+  @ManyToOne('ProjectSpecEntity', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'sourceSpecId' })
+  sourceSpec: any;
 
   @ManyToOne('UserEntity', { onDelete: 'RESTRICT' })
   @JoinColumn({ name: 'createdBy' })

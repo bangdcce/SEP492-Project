@@ -106,6 +106,14 @@ export class ProjectRequestsController {
     return this.projectRequestsService.getInvitationsForUser(user.id, user.role);
   }
 
+  @Get('freelancer/requests/my')
+  @Roles(UserRole.FREELANCER)
+  @ApiOperation({ summary: 'Get request access list for freelancer (invited/accepted)' })
+  @ApiResponse({ status: 200, description: 'List of freelancer-accessible requests' })
+  async getFreelancerRequestAccessList(@GetUser() user: UserEntity) {
+    return this.projectRequestsService.getFreelancerRequestAccessList(user.id);
+  }
+
   @Get(':id/matches')
   @ApiOperation({ summary: 'Find matching brokers for a project request' })
   @ApiResponse({ status: 200 })

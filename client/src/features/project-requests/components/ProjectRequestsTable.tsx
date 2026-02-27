@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { formatDistanceToNowStrict } from 'date-fns';
 import {
   Table,
   TableBody,
@@ -11,7 +12,8 @@ import {
 import { Button } from '@/shared/components/custom/Button';
 import type { ProjectRequest } from '../types';
 import { RequestStatus } from '../types';
-import { format } from 'date-fns';
+import { Badge } from '@/shared/components/ui/badge';
+import { ArrowUpRight, Clock3, DollarSign, Eye, FilePenLine, UserPlus } from 'lucide-react';
 
 interface ProjectRequestsTableProps {
   requests: ProjectRequest[];
@@ -28,15 +30,44 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
   assigningId,
   currentUserId,
 }) => {
+  const getStatusBadgeClass = (status?: string) => {
+    switch (status) {
+      case RequestStatus.PUBLIC_DRAFT:
+      case RequestStatus.PRIVATE_DRAFT:
+      case RequestStatus.PENDING:
+        return 'bg-amber-100 text-amber-800 border-amber-200';
+      case RequestStatus.BROKER_ASSIGNED:
+      case RequestStatus.SPEC_SUBMITTED:
+      case RequestStatus.SPEC_APPROVED:
+      case RequestStatus.HIRING:
+      case RequestStatus.CONTRACT_PENDING:
+      case RequestStatus.CONVERTED_TO_PROJECT:
+      case 'IN_PROGRESS':
+        return 'bg-blue-100 text-blue-800 border-blue-200';
+      case RequestStatus.COMPLETED:
+        return 'bg-emerald-100 text-emerald-800 border-emerald-200';
+      default:
+        return 'bg-muted text-muted-foreground border-border';
+    }
+  };
+
+  const formatStatus = (status?: string) => (status || 'UNKNOWN').replace(/_/g, ' ');
+
+  const getRequestVisibility = (status?: string) => {
+    if (status === RequestStatus.PUBLIC_DRAFT) return 'Public';
+    if (status === RequestStatus.PRIVATE_DRAFT) return 'Private';
+    return 'In Workflow';
+  };
+
   return (
-    <div className="rounded-md border">
+    <div className="overflow-x-auto rounded-xl border bg-white shadow-sm">
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Title</TableHead>
-            <TableHead>Description</TableHead>
-            <TableHead>Client ID</TableHead>
-            <TableHead>Created At</TableHead>
+            <TableHead>Request</TableHead>
+            <TableHead>Client</TableHead>
+            <TableHead>Budget & Timeline</TableHead>
+            <TableHead>Created</TableHead>
             <TableHead>Status</TableHead>
             <TableHead className="text-right">Action</TableHead>
           </TableRow>
@@ -44,80 +75,121 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
         <TableBody>
           {requests.map((request) => (
             <TableRow key={request.id}>
-              <TableCell className="font-medium">
-                <Link to={`/broker/project-requests/${request.id}`} className="text-teal-600 hover:underline">
-                  {request.title}
-                </Link>
+              <TableCell className="max-w-[360px]">
+                <div className="space-y-1">
+                  <Link
+                    to={`/broker/project-requests/${request.id}`}
+                    className="inline-flex items-center gap-1 font-semibold text-teal-700 hover:underline"
+                  >
+                    {request.title}
+                    <ArrowUpRight className="h-3.5 w-3.5" />
+                  </Link>
+                  <p className="line-clamp-2 text-xs text-muted-foreground">
+                    {request.description}
+                  </p>
+                  <div className="pt-1">
+                    <Badge variant="outline" className="text-[11px]">
+                      {getRequestVisibility(request.status)}
+                    </Badge>
+                  </div>
+                </div>
               </TableCell>
-              <TableCell className="max-w-xs truncate">
-                {request.description}
-              </TableCell>
-              <TableCell className="font-mono text-xs">
-                {request.clientId.slice(0, 8)}...
+              <TableCell className="max-w-[180px]">
+                <div className="text-sm">
+                  <p className="font-medium">{request.client?.fullName || "Client"}</p>
+                  <p className="text-xs text-muted-foreground">{request.client?.email || "—"}</p>
+                </div>
               </TableCell>
               <TableCell>
-                {format(new Date(request.createdAt), 'PPP')}
+                <div className="space-y-1 text-sm">
+                  <p className="flex items-center gap-1.5">
+                    <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
+                    {request.budgetRange || "Not specified"}
+                  </p>
+                  <p className="flex items-center gap-1.5 text-muted-foreground">
+                    <Clock3 className="h-3.5 w-3.5" />
+                    {request.intendedTimeline || "Timeline TBD"}
+                  </p>
+                </div>
               </TableCell>
               <TableCell>
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    request.status === RequestStatus.PENDING
-                      ? 'bg-yellow-100 text-yellow-800'
-                      : 'bg-green-100 text-green-800'
-                  }`}
-                >
-                  {request.status}
-                </span>
+                <div className="text-sm">
+                  <p>{new Date(request.createdAt).toLocaleDateString()}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {formatDistanceToNowStrict(new Date(request.createdAt), { addSuffix: true })}
+                  </p>
+                </div>
+              </TableCell>
+              <TableCell>
+                <Badge className={getStatusBadgeClass(request.status)}>
+                  {formatStatus(request.status)}
+                </Badge>
               </TableCell>
               <TableCell className="text-right">
-                {request.status === RequestStatus.PENDING && (
-                  <Button
-                    onClick={() => onAssign(request.id)}
-                    disabled={assigningId === request.id}
-                  >
-                    {assigningId === request.id ? 'Assigning...' : 'Assign'}
-                  </Button>
-                )}
-                
-                
-                {/* Apply Button for Brokers */}
-                {request.status === RequestStatus.PUBLIC_DRAFT && onApply && (
-                     (() => {
-                        const hasApplied = request.brokerProposals?.some((p: any) => p.brokerId === currentUserId);
-                        
-                        if (hasApplied) {
-                             return <Button variant="outline" className="h-8 px-3 text-xs bg-muted text-muted-foreground" disabled>Applied</Button>;
-                        }
-
-                        return (
-                             <Button
-                                variant="outline"
-                                className="h-8 px-3 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
-                                onClick={() => {
-                                    const letter = prompt("Enter a brief cover letter for your application:");
-                                    if (letter !== null) {
-                                        onApply(request.id, letter);
-                                    }
-                                }}
-                             >
-                                Apply
-                             </Button>
-                        );
-                     })()
-                )}
-
-                <Link to={`/broker/project-requests/${request.id}`}>
-                    <Button variant="outline" className="h-8 w-8 p-0 ml-1">
-                        <span className="sr-only">View Details</span>
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-4 w-4"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                <div className="flex flex-wrap justify-end gap-2">
+                  {request.status === RequestStatus.PENDING && (
+                    <Button
+                      onClick={() => onAssign(request.id)}
+                      disabled={assigningId === request.id}
+                      className="h-8 px-3 text-xs"
+                    >
+                      {assigningId === request.id ? 'Assigning...' : 'Assign'}
                     </Button>
-                </Link>
+                  )}
 
-                {request.status === RequestStatus.PROCESSING && (
-                  <span className="text-xs text-gray-500 italic">
-                    Assigned to {request.brokerId?.slice(0, 8)}...
-                  </span>
-                )}
+                  {request.status === RequestStatus.PUBLIC_DRAFT &&
+                    onApply &&
+                    (() => {
+                      const hasApplied = request.brokerProposals?.some(
+                        (p: any) => p.brokerId === currentUserId,
+                      );
+
+                      if (hasApplied) {
+                        return (
+                          <Button
+                            variant="outline"
+                            className="h-8 px-3 text-xs bg-muted text-muted-foreground"
+                            disabled
+                          >
+                            Applied
+                          </Button>
+                        );
+                      }
+
+                      return (
+                        <Button
+                          variant="outline"
+                          className="h-8 px-3 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                          onClick={() => {
+                            const letter = prompt(
+                              "Write a short proposal message:",
+                              "I'm available to handle this request and can start immediately.",
+                            );
+                            if (letter && letter.trim()) {
+                              onApply(request.id, letter.trim());
+                            }
+                          }}
+                        >
+                          <UserPlus className="mr-1.5 h-3.5 w-3.5" />
+                          Apply
+                        </Button>
+                      );
+                    })()}
+
+                  <Link to={`/broker/project-requests/${request.id}`}>
+                    <Button variant="outline" className="h-8 px-3 text-xs">
+                      <Eye className="mr-1.5 h-3.5 w-3.5" />
+                      Open
+                    </Button>
+                  </Link>
+
+                  {request.status === RequestStatus.PROCESSING && request.brokerId && (
+                    <Button variant="outline" className="h-8 px-2 text-xs text-muted-foreground" disabled>
+                      <FilePenLine className="mr-1.5 h-3.5 w-3.5" />
+                      In Progress
+                    </Button>
+                  )}
+                </div>
               </TableCell>
             </TableRow>
           ))}

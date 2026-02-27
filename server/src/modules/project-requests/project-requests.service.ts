@@ -1,6 +1,6 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, FindManyOptions } from 'typeorm';
+import { Repository, FindManyOptions, In } from 'typeorm';
 import {
   ProjectRequestEntity,
   RequestStatus,
@@ -184,10 +184,13 @@ export class ProjectRequestsService {
         'answers.question',
         'answers.option',
         'client',
+        'broker',
         'brokerProposals',
         'brokerProposals.broker',
-        'spec',
-        'spec.milestones',
+        'proposals',
+        'proposals.freelancer',
+        'specs',
+        'specs.milestones',
       ],
     });
 
@@ -213,7 +216,21 @@ export class ProjectRequestsService {
           request.client.phoneNumber = '********';
         }
       }
+
+      if (user.role === UserRole.FREELANCER) {
+        const hasProposal = request.proposals?.some(
+          (proposal) =>
+            proposal.freelancerId === user.id &&
+            ['INVITED', 'PENDING', 'ACCEPTED'].includes((proposal.status || '').toUpperCase()),
+        );
+        if (!hasProposal) {
+          throw new ForbiddenException('Forbidden: You are not invited to this request');
+        }
+      }
     }
+
+    // Frontend compatibility alias
+    (request as any).freelancerProposals = request.proposals;
 
     return request;
   }
@@ -298,7 +315,10 @@ export class ProjectRequestsService {
   async getInvitationsForUser(userId: string, role: UserRole) {
     if (role === UserRole.BROKER) {
       return this.brokerProposalRepo.find({
-        where: { brokerId: userId, status: ProposalStatus.INVITED },
+        where: {
+          brokerId: userId,
+          status: In([ProposalStatus.INVITED, ProposalStatus.PENDING, ProposalStatus.ACCEPTED]),
+        },
         relations: ['request', 'request.client'],
         order: { createdAt: 'DESC' },
       });
@@ -310,6 +330,17 @@ export class ProjectRequestsService {
       });
     }
     return [];
+  }
+
+  async getFreelancerRequestAccessList(userId: string) {
+    return this.freelancerProposalRepo.find({
+      where: {
+        freelancerId: userId,
+        status: In(['INVITED', 'ACCEPTED', 'PENDING']),
+      },
+      relations: ['request', 'request.client', 'request.broker'],
+      order: { createdAt: 'DESC' },
+    });
   }
 
   async applyToRequest(requestId: string, brokerId: string, coverLetter: string) {
@@ -580,8 +611,32 @@ export class ProjectRequestsService {
         throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
       }
 
+      const request = proposal.request;
+      if (!request) {
+        throw new Error('Request not found for this invitation');
+      }
+      if (status === 'ACCEPTED' && request.status !== RequestStatus.SPEC_APPROVED) {
+        throw new BadRequestException('Freelancer can only accept after client spec is approved');
+      }
+
       if (status === 'ACCEPTED') {
-        proposal.status = 'PENDING';
+        const existingAccepted = await this.freelancerProposalRepo.findOne({
+          where: { requestId: proposal.requestId, status: 'ACCEPTED' },
+        });
+        if (existingAccepted && existingAccepted.id !== proposal.id) {
+          throw new BadRequestException('A freelancer has already been accepted for this request');
+        }
+
+        proposal.status = 'ACCEPTED';
+
+        await this.freelancerProposalRepo
+          .createQueryBuilder()
+          .update()
+          .set({ status: 'REJECTED' })
+          .where('requestId = :requestId', { requestId: proposal.requestId })
+          .andWhere('id != :id', { id: proposal.id })
+          .andWhere('status IN (:...statuses)', { statuses: ['INVITED', 'PENDING'] })
+          .execute();
       } else {
         proposal.status = 'REJECTED';
       }

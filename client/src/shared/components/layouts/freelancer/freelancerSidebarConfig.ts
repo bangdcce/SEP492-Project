@@ -8,11 +8,14 @@ import {
   LayoutGrid,
   Search,
   FileText,
+  Inbox,
   CheckSquare,
   Briefcase,
   User,
   Video,
   ShieldCheck,
+  FileSignature,
+  FolderOpen,
 } from "lucide-react";
 
 export interface FreelancerSidebarMenuItem {
@@ -40,6 +43,22 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     icon: Search,
     path: "/freelancer/find-work",
     description: "Discover new projects",
+    section: "workspace",
+  },
+  {
+    id: "invitations",
+    label: "Invitations",
+    icon: Inbox,
+    path: "/freelancer/invitations",
+    description: "Review client invitations",
+    section: "workspace",
+  },
+  {
+    id: "invited-requests",
+    label: "Invited Requests",
+    icon: FolderOpen,
+    path: "/freelancer/requests",
+    description: "Return to request workflow before contract",
     section: "workspace",
   },
   {
@@ -72,6 +91,14 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     icon: Video,
     path: "/freelancer/hearings",
     description: "Meetings, confirmations, and dispute hearings",
+    section: "workspace",
+  },
+  {
+    id: "contracts",
+    label: "Contracts",
+    icon: FileSignature,
+    path: "/freelancer/contracts",
+    description: "Review and sign contracts",
     section: "workspace",
   },
   {

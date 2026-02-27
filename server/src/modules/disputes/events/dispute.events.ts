@@ -33,6 +33,7 @@ export const DISPUTE_EVENTS = {
   // Message events
   MESSAGE_SENT: 'dispute.message_sent',
   MESSAGE_HIDDEN: 'dispute.message_hidden',
+  MESSAGE_UNHIDDEN: 'dispute.message_unhidden',
 } as const;
 
 export type DisputeEventType = (typeof DISPUTE_EVENTS)[keyof typeof DISPUTE_EVENTS];

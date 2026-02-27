@@ -20,7 +20,7 @@ import {
 } from "@/shared/components/ui";
 import { wizardService } from "../wizard/services/wizardService";
 import { format } from "date-fns";
-import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, ExternalLink, FolderOpen, Users, Star, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, Users, Star, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
@@ -30,6 +30,20 @@ import { InviteModal } from "../discovery/InviteModal";
 import { UserRole } from "@/shared/types/user.types";
 import { CandidateProfileModal } from "./components/CandidateProfileModal";
 import { ScoreExplanationModal } from "./components/ScoreExplanationModal";
+import { projectSpecsApi } from "@/features/project-specs/api";
+import type { ProjectSpec } from "@/features/project-specs/types";
+import { ProjectSpecStatus, SpecPhase } from "@/features/project-specs/types";
+import { contractsApi } from "@/features/contracts/api";
+import type { ContractSummary } from "@/features/contracts/types";
+
+const pickLatestSpecByPhase = (specs: ProjectSpec[], phase: SpecPhase): ProjectSpec | null =>
+  [...specs]
+    .filter((spec) => spec.specPhase === phase)
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt || b.createdAt).getTime() -
+        new Date(a.updatedAt || a.createdAt).getTime(),
+    )[0] ?? null;
 
 // Helper for safe date formatting
 const safeFormatDate = (dateStr: any, fmt: string) => {
@@ -43,8 +57,14 @@ const safeFormatDate = (dateStr: any, fmt: string) => {
     }
 };
 
-// Mock Data for Spec Link (UI Test)
-const mockSpecLink = "http://localhost:5173/storage/folder/1TjCgD-iX0X7pXjQyZzZzZzZzZzZzZzZ";
+const isContractActivated = (contract?: ContractSummary | null) => {
+  if (!contract) return false;
+  const normalizedProjectStatus = String(contract.projectStatus || "").toUpperCase();
+  return (
+    Boolean(contract.activatedAt) ||
+    ["IN_PROGRESS", "TESTING", "COMPLETED", "PAID", "DISPUTED"].includes(normalizedProjectStatus)
+  );
+};
 
 export default function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -56,7 +76,11 @@ export default function RequestDetailPage() {
   const [freelancerMatches, setFreelancerMatches] = useState<any[]>([]);
   const [freelancerMatchesLoading, setFreelancerMatchesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [specsAccepted, setSpecsAccepted] = useState(false);
+  const [specFlow, setSpecFlow] = useState<{ clientSpec: ProjectSpec | null; fullSpec: ProjectSpec | null }>({
+    clientSpec: null,
+    fullSpec: null,
+  });
+  const [linkedContract, setLinkedContract] = useState<ContractSummary | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -76,15 +100,86 @@ export default function RequestDetailPage() {
     if (tabParam) setActiveTab(tabParam);
   }, [searchParams]);
 
-  // Determine current phase
+  // Legacy status-only phase mapping (fallback)
   const getPhase = useCallback((status: string) => {
     if (status === RequestStatus.DRAFT || status === RequestStatus.PUBLIC_DRAFT || status === RequestStatus.PRIVATE_DRAFT) return 1;
-    if (status === RequestStatus.BROKER_ASSIGNED || status === RequestStatus.PENDING_SPECS || status === RequestStatus.PENDING) return 2;
+    if (
+      status === RequestStatus.BROKER_ASSIGNED ||
+      status === RequestStatus.PENDING_SPECS ||
+      status === RequestStatus.PENDING ||
+      status === RequestStatus.SPEC_SUBMITTED
+    ) return 2;
     if (status === RequestStatus.SPEC_APPROVED || status === RequestStatus.HIRING) return 3;
-    if (status === RequestStatus.CONTRACT_PENDING) return 4;
+    if (status === RequestStatus.CONTRACT_PENDING) return 5;
     if (status === RequestStatus.CONVERTED_TO_PROJECT || status === RequestStatus.IN_PROGRESS || status === RequestStatus.COMPLETED) return 5;
     return 1; // Default
   }, []);
+
+  const getWorkflowPhase = useCallback((
+    reqData: any,
+    flow: { clientSpec: ProjectSpec | null; fullSpec: ProjectSpec | null },
+    linkedContractData?: ContractSummary | null,
+  ) => {
+    if (!reqData?.status) return 1;
+
+    if (isContractActivated(linkedContractData)) {
+      return 5;
+    }
+
+    const status = reqData.status as string;
+    if (
+      status === RequestStatus.CONTRACT_PENDING ||
+      status === RequestStatus.CONVERTED_TO_PROJECT ||
+      status === RequestStatus.IN_PROGRESS ||
+      status === RequestStatus.COMPLETED
+    ) {
+      return 5;
+    }
+
+    const proposals = reqData.freelancerProposals || reqData.proposals || [];
+    const acceptedFreelancerCount = proposals.filter(
+      (proposal: any) => String(proposal?.status || '').toUpperCase() === 'ACCEPTED',
+    ).length;
+    const legacyPendingFreelancerCount = proposals.filter(
+      (proposal: any) => String(proposal?.status || '').toUpperCase() === 'PENDING',
+    ).length;
+    const hasSelectedFreelancer =
+      acceptedFreelancerCount > 0 ||
+      (acceptedFreelancerCount === 0 && legacyPendingFreelancerCount === 1);
+
+    const clientSpecApproved =
+      flow.clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED ||
+      Boolean(
+        status === RequestStatus.SPEC_APPROVED ||
+        status === RequestStatus.HIRING,
+      );
+
+    const brokerAssigned =
+      Boolean(reqData.brokerId) ||
+      [
+        RequestStatus.BROKER_ASSIGNED,
+        RequestStatus.PENDING_SPECS,
+        RequestStatus.SPEC_SUBMITTED,
+        RequestStatus.SPEC_APPROVED,
+        RequestStatus.HIRING,
+      ].includes(status as any);
+
+    if (!brokerAssigned) {
+      return getPhase(status);
+    }
+    if (!clientSpecApproved) {
+      return 2;
+    }
+    if (!hasSelectedFreelancer) {
+      return 3;
+    }
+
+    if (flow.fullSpec?.status === ProjectSpecStatus.ALL_SIGNED) {
+      return 5;
+    }
+
+    return 4;
+  }, [getPhase]);
 
   const fetchFreelancerMatches = useCallback(async (requestId: string, useAi: boolean = false) => {
     try {
@@ -104,17 +199,32 @@ export default function RequestDetailPage() {
   const fetchData = useCallback(async (requestId: string) => {
     try {
       setLoading(true);
-      const [reqData, matchData] = await Promise.all([
+      const [reqData, matchData, specsData, contractList] = await Promise.all([
         wizardService.getRequestById(requestId),
         wizardService.getBrokerMatchesQuick(requestId),
+        projectSpecsApi.getSpecsByRequest(requestId).catch((error) => {
+          console.warn("Failed to load project specs for request detail page", error);
+          return [] as ProjectSpec[];
+        }),
+        contractsApi.listContracts().catch((error) => {
+          console.warn("Failed to load contracts for request detail page", error);
+          return [] as ContractSummary[];
+        }),
       ]);
       setRequest(reqData);
+      const nextSpecFlow = {
+        clientSpec: pickLatestSpecByPhase(specsData, SpecPhase.CLIENT_SPEC),
+        fullSpec: pickLatestSpecByPhase(specsData, SpecPhase.FULL_SPEC),
+      };
+      setSpecFlow(nextSpecFlow);
+      const nextLinkedContract = contractList.find((contract) => contract.requestId === requestId) || null;
+      setLinkedContract(nextLinkedContract);
 
       // Handle matches only if request found
       if (reqData) {
         setMatches(matchData || []);
         // Auto-select main tab based on phase
-        const phase = getPhase(reqData.status);
+        const phase = getWorkflowPhase(reqData, nextSpecFlow, nextLinkedContract);
         if (phase > 0) setActiveTab(`phase${phase}`);
 
         // Auto-fetch freelancer matches for Phase 3+
@@ -122,20 +232,13 @@ export default function RequestDetailPage() {
           fetchFreelancerMatches(requestId, false);
         }
       }
-
-      if (
-        reqData &&
-        (reqData.status === RequestStatus.HIRING || reqData.status === RequestStatus.IN_PROGRESS || reqData.status === RequestStatus.CONTRACT_PENDING || reqData.status === RequestStatus.SPEC_APPROVED)
-      ) {
-        setSpecsAccepted(true);
-      }
     } catch (error) {
       console.error("Failed to load request details", error);
       toast.error("Error", { description: "Could not load request details." });
     } finally {
       setLoading(false);
     }
-  }, [getPhase, fetchFreelancerMatches]);
+  }, [getWorkflowPhase, fetchFreelancerMatches]);
 
   useEffect(() => {
     if (id) {
@@ -171,23 +274,6 @@ export default function RequestDetailPage() {
       }
   };
 
-  const handleAcceptSpecs = async () => {
-    try {
-        setSpecsAccepted(true);
-        // Optimistic update
-        setRequest((prev: any) => ({ ...prev, status: RequestStatus.SPEC_APPROVED }));
-        
-        await wizardService.approveSpecs(id!);
-        
-        toast.success("Specs Approved", {
-          description: "Specifications approved. Moving to Freelancer Recruitment.",
-        });
-    } catch (_error) {
-        toast.error("Failed to approve specs");
-        setSpecsAccepted(false);
-    }
-  };
-
   const handleAcceptBroker = async (brokerId: string) => {
       try {
           await wizardService.acceptBroker(request.id, brokerId);
@@ -220,7 +306,41 @@ export default function RequestDetailPage() {
   if (!request)
     return <div className="p-10 text-center">Request not found</div>;
 
-  const currentPhase = request ? getPhase(request.status) : 0;
+  const currentPhase = request ? getWorkflowPhase(request, specFlow, linkedContract) : 0;
+  const clientSpec = specFlow.clientSpec;
+  const fullSpec = specFlow.fullSpec;
+  const freelancerProposalList = request?.freelancerProposals || request?.proposals || [];
+  const acceptedFreelancerProposal = freelancerProposalList.find(
+    (proposal: any) => String(proposal?.status || '').toUpperCase() === 'ACCEPTED',
+  );
+  const legacyPendingFreelancerProposal = freelancerProposalList.find(
+    (proposal: any) => String(proposal?.status || '').toUpperCase() === 'PENDING',
+  );
+  const selectedFreelancerProposal = acceptedFreelancerProposal || legacyPendingFreelancerProposal;
+  const hasAcceptedFreelancer = Boolean(selectedFreelancerProposal);
+  const formatSpecStatus = (status: string) => status.replace(/_/g, " ");
+  const getSpecStatusColor = (status: string) => {
+    switch (status) {
+      case ProjectSpecStatus.CLIENT_REVIEW:
+      case ProjectSpecStatus.FINAL_REVIEW:
+        return "bg-amber-100 text-amber-800";
+      case ProjectSpecStatus.CLIENT_APPROVED:
+      case ProjectSpecStatus.ALL_SIGNED:
+      case ProjectSpecStatus.APPROVED:
+        return "bg-green-100 text-green-800";
+      case ProjectSpecStatus.REJECTED:
+        return "bg-red-100 text-red-800";
+      default:
+        return "bg-gray-100 text-gray-800";
+    }
+  };
+  const clientSpecActionLabel =
+    clientSpec?.status === ProjectSpecStatus.CLIENT_REVIEW ? "Review Client Spec" : "View Client Spec";
+  const fullSpecActionLabel =
+    fullSpec?.status === ProjectSpecStatus.FINAL_REVIEW ? "Review & Sign Final Spec" : "View Final Spec";
+  const canOpenContract = Boolean(linkedContract?.id);
+  const contractActivated = isContractActivated(linkedContract);
+  const canOpenWorkspace = Boolean(linkedContract?.projectId && contractActivated);
 
   // Custom Alert Dialog Component
   const DraftAlertDialog = () => (
@@ -323,11 +443,21 @@ export default function RequestDetailPage() {
         </div>
         
         <div className="flex gap-2">
-            {/* Phase 4 Action */}
-            {request.status === RequestStatus.CONTRACT_PENDING && (
-                 <Button className="bg-green-600 hover:bg-green-700">
-                     Review Contract
-                 </Button>
+            {canOpenContract && (
+              <Button
+                className="bg-green-600 hover:bg-green-700"
+                onClick={() => navigate(`/client/contracts/${linkedContract!.id}`)}
+              >
+                Review Contract
+              </Button>
+            )}
+            {canOpenWorkspace && (
+              <Button
+                variant="outline"
+                onClick={() => navigate(`/client/workspace/${linkedContract!.projectId}`)}
+              >
+                Open Workspace
+              </Button>
             )}
         </div>
       </div>
@@ -362,11 +492,12 @@ export default function RequestDetailPage() {
           </Card>
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-4 mb-4">
+            <TabsList className="grid w-full grid-cols-5 mb-4">
               <TabsTrigger value="phase1" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">1. Hire Broker</TabsTrigger>
-              <TabsTrigger value="phase2" disabled={currentPhase < 2} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">2. Finalize Specs</TabsTrigger>
-              <TabsTrigger value="phase3" disabled={currentPhase < 3} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">3. Hire Freelancer</TabsTrigger>
-              <TabsTrigger value="phase4" disabled={currentPhase < 4} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">4. Contract</TabsTrigger>
+              <TabsTrigger value="phase2" disabled={currentPhase < 2} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">2. Client Spec Approval</TabsTrigger>
+              <TabsTrigger value="phase3" disabled={currentPhase < 3} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">3. Freelancer</TabsTrigger>
+              <TabsTrigger value="phase4" disabled={currentPhase < 4} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">4. Final Spec</TabsTrigger>
+              <TabsTrigger value="phase5" disabled={currentPhase < 5} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">5. Contract</TabsTrigger>
             </TabsList>
 
             {/* PHASE 1: HIRE BROKER */}
@@ -634,7 +765,7 @@ export default function RequestDetailPage() {
               <Card>
                 <CardHeader>
                     <div className="flex justify-between items-center">
-                        <h2 className="text-xl font-semibold">Specifications & Negotiation</h2>
+                        <h2 className="text-xl font-semibold">Client Spec Review</h2>
                         <Button variant="destructive" size="sm" onClick={() => window.alert('Report sent to Admin.')}>Report Broker</Button>
                     </div>
                 </CardHeader>
@@ -645,51 +776,53 @@ export default function RequestDetailPage() {
                         </div>
                     ) : (
                         <>
-                           {/* Chat Placeholder */}
-                           <div className="border rounded-lg h-64 bg-muted/10 flex items-center justify-center mb-6">
-                                <div className="text-center">
-                                    <p className="font-semibold text-muted-foreground">InterDev Chat Module</p>
-                                    <p className="text-xs text-muted-foreground">Chat with your Broker to finalize specs.</p>
+                           {/* Phase 2 focuses on Client Spec only. Full Spec is handled in Phase 4. */}
+                           <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-4">
+                                <div className="mb-3">
+                                    <h3 className="font-semibold text-blue-900">Phase 2 Goal: Approve Client Spec</h3>
+                                    <p className="text-sm text-blue-700">
+                                      Review the client-readable scope (Client Spec) before moving to freelancer selection. The detailed Full Spec sign-off happens in Phase 4.
+                                    </p>
+                                </div>
+                                <div className="grid gap-4 md:grid-cols-1">
+                                    <div className="rounded-lg border bg-background p-4">
+                                        <div className="mb-2 flex items-center justify-between gap-2">
+                                            <h4 className="font-medium">Client Spec (Client Review)</h4>
+                                            {clientSpec ? (
+                                              <Badge className={`${getSpecStatusColor(clientSpec.status)} border-0`}>
+                                                {formatSpecStatus(clientSpec.status)}
+                                              </Badge>
+                                            ) : (
+                                              <Badge variant="outline">Waiting broker draft</Badge>
+                                            )}
+                                        </div>
+                                        <p className="text-sm text-muted-foreground mb-3">
+                                          {clientSpec
+                                            ? "Review this simplified spec to approve or request changes before freelancer hiring."
+                                            : "Broker has not submitted the client-readable spec yet."}
+                                        </p>
+                                        {clientSpec && (
+                                          <Button
+                                            size="sm"
+                                            className="w-full"
+                                            onClick={() => navigate(`/client/spec-review/${clientSpec.id}`)}
+                                          >
+                                            {clientSpecActionLabel}
+                                          </Button>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="mt-4 rounded-md border bg-white p-3 text-sm text-blue-800">
+                                  Next phase after Client Spec approval: select freelancer, then proceed to Phase 4 for Full Spec 3-party sign-off.
                                 </div>
                            </div>
 
-                           {/* Spec Folder Access */}
-                           <div className="border rounded-lg p-4 mb-6 flex items-center justify-between bg-blue-50/50 border-blue-100">
-                               <div className="flex items-center gap-3">
-                                   <div className="bg-blue-100 p-2 rounded-lg text-blue-600">
-                                       <FolderOpen className="w-6 h-6" />
-                                   </div>
-                                   <div>
-                                       <h3 className="font-semibold text-blue-900">Requirement Specification Docs</h3>
-                                       <p className="text-sm text-blue-700">Access project storage for full documentation & assets.</p>
-                                   </div>
-                               </div>
-                               <Button 
-                                    className="bg-white text-blue-700 border-blue-200 hover:bg-blue-50 border"
-                                    onClick={() => window.open(mockSpecLink, '_blank')}
-                               >
-                                   <ExternalLink className="w-4 h-4 mr-2" /> Open Storage
-                               </Button>
-                           </div>
-
-                           {/* Docs Section */}
-                           <div className="flex justify-between items-center bg-muted/30 p-4 rounded-lg">
-                                <div>
-                                    <h3 className="font-medium">Project Specification (v1.0)</h3>
-                                    <p className="text-sm text-muted-foreground">Status: {specsAccepted ? 'Approved' : 'Drafting'}</p>
-                                </div>
-                                {specsAccepted ? (
-                                    <Badge className="bg-green-600"><Check className="w-3 h-3 mr-1"/> Approved</Badge>
-                                ) : (
-                                    <Button onClick={handleAcceptSpecs}>Approve & Lock Specs</Button>
-                                )}
-                           </div>
-                           
-                           {/* Timeline */}
+                           {/* Timeline (prefer spec-derived when available) */}
                            <div className="space-y-2">
                                 <div className="flex justify-between text-sm">
                                     <span>Estimated Timeline</span>
-                                    <span>4 Weeks</span>
+                                    <span>{clientSpec?.estimatedTimeline || "Pending broker input"}</span>
                                 </div>
                                 <div className="w-full bg-secondary h-2 rounded-full overflow-hidden">
                                     <div className="bg-primary h-full w-1/4"></div>
@@ -740,6 +873,22 @@ export default function RequestDetailPage() {
                             </div>
                         ) : (
                             <div className="space-y-6">
+                                {hasAcceptedFreelancer && (
+                                    <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <div>
+                                                <h4 className="font-semibold text-green-900">Freelancer selected</h4>
+                                                <p className="text-sm text-green-700">
+                                                    Next step: broker prepares `full_spec` for 3-party review and sign-off.
+                                                </p>
+                                            </div>
+                                            <Button size="sm" onClick={() => setActiveTab('phase4')}>
+                                                Go to Final Spec Step
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
+
                                 {/* Search marketplace link */}
                                 <div className="flex justify-between items-center bg-muted/20 p-4 rounded-lg">
                                     <div>
@@ -838,52 +987,187 @@ export default function RequestDetailPage() {
                 </Card>
             </TabsContent>
 
-            {/* PHASE 4: CONTRACT */}
+            {/* PHASE 4: FINAL SPEC SIGN-OFF */}
             <TabsContent value="phase4">
+                <Card>
+                    <CardHeader>
+                        <h2 className="text-xl font-semibold">Final Spec Sign-off (3-party)</h2>
+                    </CardHeader>
+                    <CardContent>
+                        {currentPhase < 4 ? (
+                            <div className="text-center py-12 bg-muted/20 border-2 border-dashed rounded-lg">
+                                <p className="text-muted-foreground">
+                                    Select a freelancer first to start final spec drafting and sign-off.
+                                </p>
+                            </div>
+                        ) : (
+                            <div className="space-y-6">
+                                <div className="rounded-lg border border-blue-100 bg-blue-50/50 p-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <h3 className="font-semibold text-blue-900">Phase 4 goal</h3>
+                                            <p className="text-sm text-blue-700">
+                                                Broker prepares `full_spec`, then Client + Broker + Freelancer review and sign it.
+                                            </p>
+                                        </div>
+                                        <Badge variant="outline" className="bg-white">
+                                            3-party sign required
+                                        </Badge>
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-4 md:grid-cols-2">
+                                    <div className="rounded-lg border bg-background p-4">
+                                        <div className="mb-2 flex items-center justify-between gap-2">
+                                            <h4 className="font-medium">Client Spec (reference)</h4>
+                                            {clientSpec ? (
+                                              <Badge className={`${getSpecStatusColor(clientSpec.status)} border-0`}>
+                                                {formatSpecStatus(clientSpec.status)}
+                                              </Badge>
+                                            ) : (
+                                              <Badge variant="outline">Missing</Badge>
+                                            )}
+                                        </div>
+                                        <p className="mb-3 text-sm text-muted-foreground">
+                                          Approved Client Spec is the baseline before final spec sign-off.
+                                        </p>
+                                        {clientSpec && (
+                                          <Button
+                                            size="sm"
+                                            variant="outline"
+                                            className="w-full"
+                                            onClick={() => navigate(`/client/spec-review/${clientSpec.id}`)}
+                                          >
+                                            View Client Spec
+                                          </Button>
+                                        )}
+                                    </div>
+
+                                    <div className="rounded-lg border bg-background p-4">
+                                        <div className="mb-2 flex items-center justify-between gap-2">
+                                            <h4 className="font-medium">full_spec (3-party sign)</h4>
+                                            {fullSpec ? (
+                                              <Badge className={`${getSpecStatusColor(fullSpec.status)} border-0`}>
+                                                {formatSpecStatus(fullSpec.status)}
+                                              </Badge>
+                                            ) : (
+                                              <Badge variant="outline">Draft pending</Badge>
+                                            )}
+                                        </div>
+                                        <p className="mb-3 text-sm text-muted-foreground">
+                                          {fullSpec
+                                            ? "Review/sign final technical scope, milestones, and deliverables."
+                                            : "Broker has not created the final spec yet."}
+                                        </p>
+                                        {fullSpec ? (
+                                          <div className="space-y-3">
+                                            <div className="rounded-md border p-2 text-xs text-muted-foreground">
+                                              Signatures: {fullSpec.signatures?.length || 0} / 3
+                                            </div>
+                                            <Button
+                                              size="sm"
+                                              variant={fullSpec.status === ProjectSpecStatus.FINAL_REVIEW ? "default" : "outline"}
+                                              className="w-full"
+                                              onClick={() => navigate(`/client/spec-review/${fullSpec.id}`)}
+                                            >
+                                              {fullSpecActionLabel}
+                                            </Button>
+                                          </div>
+                                        ) : null}
+                                    </div>
+                                </div>
+
+                                {fullSpec?.status === ProjectSpecStatus.ALL_SIGNED && (
+                                  <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                      <div>
+                                        <h4 className="font-semibold text-green-900">Final spec fully signed</h4>
+                                        <p className="text-sm text-green-700">
+                                          Contract generation is unlocked. Continue to the contract phase.
+                                        </p>
+                                      </div>
+                                      <Button size="sm" onClick={() => setActiveTab('phase5')}>
+                                        Go to Contract
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            </TabsContent>
+
+            {/* PHASE 5: CONTRACT */}
+            <TabsContent value="phase5">
                 <Card>
                     <CardHeader>
                         <h2 className="text-xl font-semibold">Finalize Project & Contract</h2>
                     </CardHeader>
                     <CardContent>
-                        {currentPhase < 4 ? (
+                        {currentPhase < 5 ? (
                             <div className="text-center py-12 bg-muted/20 border-2 border-dashed rounded-lg">
-                                <p className="text-muted-foreground">Hire all necessary freelancers to generate contract.</p>
+                                <p className="text-muted-foreground">Complete final spec 3-party sign-off to generate contract.</p>
                             </div>
                         ) : (
                              <div className="space-y-6">
-                                {/* AI Gen Contract Mock */}
-                                <div className="border rounded-xl overflow-hidden">
-                                    <div className="bg-muted p-3 border-b flex justify-between items-center">
-                                        <span className="font-medium text-sm">Generated Contract (AI Powered)</span>
-                                        <Badge variant="outline">Draft v1</Badge>
-                                    </div>
-                                    <div className="p-6 bg-card text-sm font-mono leading-relaxed text-muted-foreground">
-                                        <p>AGREEMENT made this {new Date().toLocaleDateString()} between Client, Broker, and Freelancers...</p>
-                                        <p className="mt-4">[...Detailed Specs Included...]</p>
-                                        <p className="mt-4">[...Payment Milestones Included...]</p>
-                                    </div>
+                                <div className="rounded-lg border bg-muted/20 p-4">
+                                  <p className="text-sm text-muted-foreground">
+                                    Phase 5 uses the actual contract record generated from the fully signed `full_spec`.
+                                  </p>
                                 </div>
 
-                                {/* Discussion Board Placeholder */}
-                                <div className="bg-muted/10 p-4 rounded-lg border">
-                                    <h3 className="font-semibold mb-2">3-Way Discussion Board</h3>
-                                    <p className="text-sm text-muted-foreground mb-4">Discuss terms with Broker and Freelancers here.</p>
-                                    <div className="flex gap-2">
-                                        <input className="flex-1 border rounded px-3 py-2 text-sm" placeholder="Type a message..." />
-                                        <Button size="sm">Send</Button>
+                                {canOpenContract ? (
+                                  <div className="rounded-lg border bg-background p-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                      <div>
+                                        <h3 className="font-semibold">{linkedContract?.title}</h3>
+                                        <p className="text-sm text-muted-foreground">
+                                          Created {safeFormatDate(linkedContract?.createdAt, "PPP")}
+                                        </p>
+                                        <p className="text-xs text-muted-foreground">
+                                          {contractActivated
+                                            ? "Project activated. Continue execution in workspace."
+                                            : "Signatures/activation are in progress."}
+                                        </p>
+                                      </div>
+                                      <Badge variant={linkedContract?.status === "SIGNED" ? "default" : "outline"}>
+                                        {linkedContract?.status || "DRAFT"}
+                                      </Badge>
                                     </div>
-                                </div>
-
-                                {/* Signatures */}
-                                <div className="flex items-center justify-end gap-4 pt-4 border-t">
-                                    <div className="flex gap-2 text-sm text-muted-foreground">
-                                        <span className="flex items-center text-green-600"><Check className="w-4 h-4 mr-1"/> Broker Signed</span>
-                                        <span className="flex items-center text-green-600"><Check className="w-4 h-4 mr-1"/> Freelancer Signed</span>
+                                    <div className="mt-4 flex flex-wrap gap-2">
+                                      <Button
+                                        onClick={() => navigate(`/client/contracts/${linkedContract!.id}`)}
+                                      >
+                                        Open Contract
+                                      </Button>
+                                      {canOpenWorkspace && (
+                                        <Button
+                                          variant="default"
+                                          onClick={() => navigate(`/client/workspace/${linkedContract!.projectId}`)}
+                                        >
+                                          Open Workspace
+                                        </Button>
+                                      )}
+                                      <Button
+                                        variant="outline"
+                                        onClick={() => void fetchData(request.id)}
+                                      >
+                                        Refresh Status
+                                      </Button>
                                     </div>
-                                    <Button size="lg" className="bg-gradient-to-r from-green-600 to-emerald-600" onClick={() => wizardService.convertToProject(request.id).then(() => { toast.success("Project Started!"); navigate(ROUTES.CLIENT_DASHBOARD); })}>
-                                        Sign & Start Project
-                                    </Button>
-                                </div>
+                                  </div>
+                                ) : (
+                                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                                    <h3 className="font-semibold text-amber-900">
+                                      Contract not initialized yet
+                                    </h3>
+                                    <p className="mt-1 text-sm text-amber-800">
+                                      Broker must click <strong>Create Contract</strong> after `full_spec` reaches
+                                      `ALL_SIGNED`.
+                                    </p>
+                                  </div>
+                                )}
                              </div>
                         )}
                     </CardContent>
@@ -1032,7 +1316,7 @@ export default function RequestDetailPage() {
                                 <div key={ans.id} className="grid grid-cols-1 md:grid-cols-12 gap-2 md:gap-4 border-b border-border/50 pb-4 last:border-0 last:pb-0">
                                     <div className="md:col-span-4 lg:col-span-3">
                                         <h4 className="text-sm font-medium text-muted-foreground">
-                                            {ans.question?.text || "Requirement"}
+                                            {ans.question?.label || ans.question?.text || "Requirement"}
                                         </h4>
                                     </div>
                                     <div className="md:col-span-8 lg:col-span-9">

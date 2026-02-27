@@ -5,7 +5,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
-  Index,
+  Unique,
 } from 'typeorm';
 
 // =============================================================================
@@ -17,7 +17,7 @@ import {
  * Dùng cho auto-assignment: Chọn Staff có workload thấp nhất.
  */
 @Entity('staff_workloads')
-@Index(['staffId', 'date'])
+@Unique('UQ_staff_workloads_staff_date', ['staffId', 'date'])
 export class StaffWorkloadEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;

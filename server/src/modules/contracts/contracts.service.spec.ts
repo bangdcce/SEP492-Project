@@ -8,6 +8,8 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { DataSource, QueryRunner } from 'typeorm';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { MilestoneEntity, DeliverableType } from '../../database/entities/milestone.entity';
+import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 
 describe('ContractsService', () => {
   let service: ContractsService;
@@ -17,6 +19,8 @@ describe('ContractsService', () => {
   const mockContractsRepo = { findOne: jest.fn(), save: jest.fn() };
   const mockProjectsRepo = { save: jest.fn() };
   const mockProjectSpecsRepo = { findOne: jest.fn() };
+  const mockProjectRequestsRepo = { findOne: jest.fn() };
+  const mockProjectRequestProposalsRepo = { findOne: jest.fn(), find: jest.fn() };
   const mockAuditLogsService = { log: jest.fn() };
 
   const mockUser: UserEntity = {
@@ -48,6 +52,11 @@ describe('ContractsService', () => {
         { provide: getRepositoryToken(ContractEntity), useValue: mockContractsRepo },
         { provide: getRepositoryToken(ProjectEntity), useValue: mockProjectsRepo },
         { provide: getRepositoryToken(ProjectSpecEntity), useValue: mockProjectSpecsRepo },
+        { provide: getRepositoryToken(ProjectRequestEntity), useValue: mockProjectRequestsRepo },
+        {
+          provide: getRepositoryToken(ProjectRequestProposalEntity),
+          useValue: mockProjectRequestProposalsRepo,
+        },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
         { provide: DataSource, useValue: mockDataSource },
       ],
@@ -61,6 +70,7 @@ describe('ContractsService', () => {
     it('Should generate contract terms with Features and Milestones', async () => {
       const mockSpec = {
         id: 'spec-id',
+        requestId: 'request-id',
         title: 'Governance Project',
         description: 'Desc',
         totalBudget: 1000,
@@ -87,6 +97,15 @@ describe('ContractsService', () => {
       };
 
       mockProjectSpecsRepo.findOne.mockResolvedValue(mockSpec);
+      mockProjectRequestProposalsRepo.find.mockResolvedValue([
+        {
+          id: 'proposal-id',
+          requestId: 'request-id',
+          freelancerId: 'freelancer-uuid',
+          status: 'ACCEPTED',
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        },
+      ]);
       (queryRunner.manager.create as jest.Mock).mockImplementation((entity, data) => data);
       (queryRunner.manager.save as jest.Mock).mockResolvedValue({ id: 'new-id' });
 

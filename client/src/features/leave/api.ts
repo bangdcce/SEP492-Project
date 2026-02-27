@@ -5,6 +5,9 @@ import type {
   LeaveBalance,
   LeaveBalanceResponse,
   LeaveCreateResponseData,
+  LeavePoliciesMeta,
+  LeavePoliciesResponse,
+  LeavePolicyItem,
   LeaveRequest,
   LeaveRequestsResponse,
   LeaveStatus,
@@ -22,6 +25,12 @@ export interface LeaveListQuery {
   staffId?: string;
   status?: LeaveStatus;
   month?: string;
+}
+
+export interface LeavePolicyListQuery {
+  search?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface CreateLeaveRequestInput {
@@ -49,6 +58,7 @@ type CacheOptions = {
 
 const LEAVE_BALANCE_TTL_MS = 30_000;
 const LEAVE_REQUESTS_TTL_MS = 30_000;
+const LEAVE_POLICIES_TTL_MS = 30_000;
 
 const extractData = <T>(payload: T | { data: T }): T => {
   if (typeof payload === "object" && payload !== null && "data" in payload) {
@@ -165,4 +175,40 @@ export const updateLeavePolicy = async (staffId: string, minutes: number) => {
     `${BASE_URL}/policy/${staffId}`,
     { monthlyAllowanceMinutes: minutes },
   );
+};
+
+export const listLeavePolicies = async (
+  query: LeavePolicyListQuery,
+  options?: CacheOptions,
+): Promise<{ data: LeavePolicyItem[]; meta: LeavePoliciesMeta }> => {
+  const params = buildParams({
+    search: query.search,
+    page: query.page ? String(query.page) : undefined,
+    limit: query.limit ? String(query.limit) : undefined,
+  });
+
+  const key = `leave:policies:${query.search ?? "all"}:${query.page ?? 1}:${query.limit ?? 20}`;
+  const fetcher = () =>
+    apiClient.get<LeavePoliciesResponse>(
+      `${BASE_URL}/policies?${params.toString()}`,
+    );
+
+  const response =
+    options?.preferCache === false
+      ? await fetcher()
+      : await cachedFetch(
+          key,
+          fetcher,
+          options?.ttlMs ?? LEAVE_POLICIES_TTL_MS,
+        );
+
+  return {
+    data: response.data ?? [],
+    meta: response.meta ?? {
+      page: query.page ?? 1,
+      limit: query.limit ?? 20,
+      total: 0,
+      totalPages: 0,
+    },
+  };
 };
