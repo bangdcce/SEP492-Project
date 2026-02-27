@@ -22,6 +22,7 @@ import {
   RequestStatus,
 } from '../../database/entities/project-request.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { NotificationEntity } from '../../database/entities/notification.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { CreateClientSpecDto } from './dto/create-client-spec.dto';
@@ -83,6 +84,8 @@ export class ProjectSpecsService {
     private readonly projectSpecSignaturesRepository: Repository<ProjectSpecSignatureEntity>,
     @InjectRepository(ProjectRequestProposalEntity)
     private readonly projectRequestProposalsRepository: Repository<ProjectRequestProposalEntity>,
+    @InjectRepository(NotificationEntity)
+    private readonly notificationsRepository: Repository<NotificationEntity>,
     private readonly auditLogsService: AuditLogsService,
     private readonly dataSource: DataSource,
   ) {}
@@ -225,6 +228,28 @@ export class ProjectSpecsService {
     }
 
     return null;
+  }
+
+  private async notifyUser(payload: {
+    userId?: string | null;
+    title: string;
+    body: string;
+    relatedType?: string;
+    relatedId?: string;
+  }): Promise<void> {
+    if (!payload.userId) {
+      return;
+    }
+
+    await this.notificationsRepository.save(
+      this.notificationsRepository.create({
+        userId: payload.userId,
+        title: payload.title,
+        body: payload.body,
+        relatedType: payload.relatedType || null,
+        relatedId: payload.relatedId || null,
+      }),
+    );
   }
 
   private async getRequiredSignerIds(spec: ProjectSpecEntity): Promise<string[]> {
@@ -568,6 +593,15 @@ export class ProjectSpecsService {
       throw new ForbiddenException('Only the project client can review this spec');
     }
 
+    const brokerId = spec.request.brokerId;
+    const requestTitle = spec.request.title || 'project request';
+    let brokerNotification:
+      | {
+          title: string;
+          body: string;
+        }
+      | undefined;
+
     if (action === 'APPROVE') {
       spec.status = ProjectSpecStatus.CLIENT_APPROVED;
       spec.clientApprovedAt = new Date();
@@ -575,15 +609,30 @@ export class ProjectSpecsService {
         spec.request.status = RequestStatus.SPEC_APPROVED;
         await this.projectRequestsRepository.save(spec.request);
       }
+      brokerNotification = {
+        title: 'Client Spec approved',
+        body: `Client approved "${spec.title}" for ${requestTitle}.`,
+      };
     } else {
       if (!reason || reason.trim().length < 10) {
         throw new BadRequestException('Rejection reason must be at least 10 characters');
       }
       spec.status = ProjectSpecStatus.REJECTED;
       spec.rejectionReason = reason;
+      brokerNotification = {
+        title: 'Client Spec rejected',
+        body: `Client rejected "${spec.title}". Reason: ${reason.trim().slice(0, 200)}`,
+      };
     }
 
     await this.projectSpecsRepository.save(spec);
+    await this.notifyUser({
+      userId: brokerId,
+      title: brokerNotification?.title || 'Client Spec updated',
+      body: brokerNotification?.body || `Client updated "${spec.title}".`,
+      relatedType: 'ProjectSpec',
+      relatedId: spec.id,
+    });
 
     await this.auditLogsService.log({
       actorId: user.id,

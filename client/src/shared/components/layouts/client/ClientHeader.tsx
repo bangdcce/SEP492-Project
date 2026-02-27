@@ -105,6 +105,21 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
 
   const handleNotificationSelect = useCallback(
     (item: NotificationItem) => {
+      if (item.relatedType === "ProjectSpec" && item.relatedId) {
+        if (roleBasePath === "/broker") {
+          navigate(`/broker/specs/${item.relatedId}`);
+          return;
+        }
+        if (roleBasePath === "/client") {
+          navigate(`/client/spec-review/${item.relatedId}`);
+          return;
+        }
+        if (roleBasePath === "/freelancer") {
+          navigate(`/freelancer/spec-review/${item.relatedId}`);
+          return;
+        }
+      }
+
       if (item.relatedType === "Dispute" && item.relatedId) {
         if (roleBasePath === "/staff") {
           navigate(`/staff/caseload?disputeId=${item.relatedId}`);

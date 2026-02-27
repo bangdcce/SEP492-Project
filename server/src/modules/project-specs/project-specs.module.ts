@@ -7,6 +7,7 @@ import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
 import { ProjectSpecSignatureEntity } from '../../database/entities/project-spec-signature.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { NotificationEntity } from '../../database/entities/notification.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
@@ -17,6 +18,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
       ProjectRequestEntity,
       ProjectSpecSignatureEntity,
       ProjectRequestProposalEntity,
+      NotificationEntity,
     ]),
     AuditLogsModule, // For logging actions
   ],
