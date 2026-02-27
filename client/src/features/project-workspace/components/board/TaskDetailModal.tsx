@@ -33,7 +33,7 @@ import type {
   TaskSubmissionStatus,
   KanbanColumnKey,
 } from "../../types";
-import { MOCK_SPEC_FEATURES } from "./CreateTaskModal";
+import type { SpecFeatureOption } from "./CreateTaskModal";
 import {
   updateTask,
   updateTaskStatus,
@@ -68,6 +68,7 @@ const normalizeToUTC = (d: string | Date | undefined): Date => {
 type TaskDetailModalProps = {
   isOpen: boolean;
   task: Task | null;
+  specFeatures?: SpecFeatureOption[];
   onClose: () => void;
   onUpdate?: (updatedTask: Task) => void;
   onSubmitTask?: (
@@ -212,6 +213,7 @@ type TimelineItem =
 export function TaskDetailModal({
   isOpen,
   task: initialTask,
+  specFeatures = [],
   onClose,
   onUpdate,
   onSubmitTask,
@@ -359,7 +361,7 @@ export function TaskDetailModal({
   if (!isOpen || !task) return null;
 
   const linkedFeature = task.specFeatureId
-    ? MOCK_SPEC_FEATURES.find((f) => f.id === task.specFeatureId)
+    ? specFeatures.find((feature) => feature.id === task.specFeatureId)
     : null;
 
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
@@ -733,8 +735,10 @@ export function TaskDetailModal({
                         <Layers className="w-4 h-4 text-teal-600" />
                         <span className="text-xs font-bold text-teal-700 uppercase">Feature Spec Compliance</span>
                      </div>
-                     <p className="text-sm text-teal-900 font-medium">{linkedFeature.name}</p>
-                     <p className="text-xs text-teal-600 mt-0.5">{linkedFeature.category}</p>
+                     <p className="text-sm text-teal-900 font-medium">{linkedFeature.title}</p>
+                     <p className="text-xs text-teal-600 mt-0.5">
+                       {linkedFeature.complexity || "UNSPECIFIED"}
+                     </p>
                  </div>
               )}
 

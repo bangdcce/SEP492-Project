@@ -13,15 +13,17 @@ import {
   FileSignature,
   CheckCircle2,
   Check,
-  Clock,
-  AlertCircle
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
-import { UserRole } from "@/shared/types/user.types";
 import { STORAGE_KEYS } from "@/constants";
 
 import type { ProjectRequest, RequestStatus } from "./types";
 import { projectRequestsApi } from "./api";
+import { contractsApi } from "@/features/contracts/api";
+import type { ContractSummary } from "@/features/contracts/types";
+import { projectSpecsApi } from "@/features/project-specs/api";
+import type { ProjectSpec } from "@/features/project-specs/types";
+import { ProjectSpecStatus, SpecPhase } from "@/features/project-specs/types";
 import { Button } from "@/shared/components/custom/Button";
 import { Badge } from "@/shared/components/ui/badge";
 import {
@@ -35,12 +37,27 @@ import { Separator } from "@/shared/components/ui/separator";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { getStoredJson } from "@/shared/utils/storage";
 
-// Helper to determine active phase for Broker (mirrors Client logic but simpler)
-const getBrokerPhase = (status: string) => {
-    if (status === 'SPEC_APPROVED') return 'phase3'; // Hiring
-    if (status === 'CONTRACT_PENDING') return 'phase4'; // Contract
-    if (status === 'PROCESSING') return 'phase2'; // Specs
-    return 'phase1'; // Default
+type BrokerSpecFlow = {
+  clientSpec: ProjectSpec | null;
+  fullSpec: ProjectSpec | null;
+};
+
+const pickLatestSpecByPhase = (specs: ProjectSpec[], phase: SpecPhase): ProjectSpec | null =>
+  [...specs]
+    .filter((spec) => spec.specPhase === phase)
+    .sort(
+      (a, b) =>
+        new Date(b.updatedAt || b.createdAt).getTime() -
+        new Date(a.updatedAt || a.createdAt).getTime(),
+    )[0] ?? null;
+
+const isContractActivated = (contract?: ContractSummary | null) => {
+  if (!contract) return false;
+  const normalizedProjectStatus = String(contract.projectStatus || "").toUpperCase();
+  return (
+    Boolean(contract.activatedAt) ||
+    ["IN_PROGRESS", "TESTING", "COMPLETED", "PAID", "DISPUTED"].includes(normalizedProjectStatus)
+  );
 };
 
 export default function ProjectRequestDetailsPage() {
@@ -48,8 +65,11 @@ export default function ProjectRequestDetailsPage() {
   const navigate = useNavigate();
 
   const [request, setRequest] = useState<ProjectRequest | null>(null);
+  const [specFlow, setSpecFlow] = useState<BrokerSpecFlow>({ clientSpec: null, fullSpec: null });
+  const [linkedContract, setLinkedContract] = useState<ContractSummary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [isCreatingContract, setIsCreatingContract] = useState(false);
 
   const [user, setUser] = useState<any>(null);
 
@@ -80,8 +100,20 @@ export default function ProjectRequestDetailsPage() {
     if (!id) return;
     try {
       setIsLoading(true);
-      const response = await projectRequestsApi.getById(id);
-      setRequest(response);
+      const [requestResponse, specs, contractList] = await Promise.all([
+        projectRequestsApi.getById(id),
+        projectSpecsApi.getSpecsByRequest(id),
+        contractsApi.listContracts().catch((error) => {
+          console.warn("Failed to load contracts for broker request details", error);
+          return [] as ContractSummary[];
+        }),
+      ]);
+      setRequest(requestResponse);
+      setSpecFlow({
+        clientSpec: pickLatestSpecByPhase(specs, SpecPhase.CLIENT_SPEC),
+        fullSpec: pickLatestSpecByPhase(specs, SpecPhase.FULL_SPEC),
+      });
+      setLinkedContract(contractList.find((contract) => contract.requestId === requestResponse.id) || null);
     } catch (err: unknown) {
       console.error("Failed to fetch request:", err);
       setError("Failed to load project request details.");
@@ -129,6 +161,53 @@ export default function ProjectRequestDetailsPage() {
     );
   }
 
+  const clientSpec = specFlow.clientSpec;
+  const fullSpec = specFlow.fullSpec;
+  const freelancerProposalList =
+    ((request as any).freelancerProposals as any[]) ||
+    ((request as any).proposals as any[]) ||
+    [];
+  const acceptedFreelancers = freelancerProposalList.filter(
+    (proposal) => String(proposal?.status || "").toUpperCase() === "ACCEPTED",
+  );
+  const legacyPendingFreelancers = freelancerProposalList.filter(
+    (proposal) => String(proposal?.status || "").toUpperCase() === "PENDING",
+  );
+  const hasSelectedFreelancer =
+    acceptedFreelancers.length > 0 ||
+    (acceptedFreelancers.length === 0 && legacyPendingFreelancers.length === 1);
+  const selectedFreelancerProposal =
+    acceptedFreelancers[0] || (acceptedFreelancers.length === 0 ? legacyPendingFreelancers[0] : null);
+
+  const brokerWorkflowPhase = (() => {
+    const contractStatuses = ["CONTRACT_PENDING", "CONVERTED_TO_PROJECT", "IN_PROGRESS", "COMPLETED"];
+    if (contractStatuses.includes(String(request.status || "").toUpperCase())) return 5;
+    if (fullSpec?.status === ProjectSpecStatus.ALL_SIGNED) return 5;
+    if (
+      fullSpec &&
+      [
+        ProjectSpecStatus.DRAFT,
+        ProjectSpecStatus.REJECTED,
+        ProjectSpecStatus.FINAL_REVIEW,
+      ].includes(fullSpec.status)
+    ) {
+      return 4;
+    }
+    if (hasSelectedFreelancer) return 4;
+    if (clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED || request.status === "SPEC_APPROVED") {
+      return 3;
+    }
+    if (clientSpec) return 2;
+    return 1;
+  })();
+
+  const canBrokerReviewFinalSpec =
+    !!fullSpec &&
+    (fullSpec.status === ProjectSpecStatus.FINAL_REVIEW || fullSpec.status === ProjectSpecStatus.ALL_SIGNED);
+  const canInitializeContract = fullSpec?.status === ProjectSpecStatus.ALL_SIGNED;
+  const contractActivated = isContractActivated(linkedContract);
+  const canOpenWorkspace = Boolean(linkedContract?.projectId && contractActivated);
+
   const getStatusColor = (status: RequestStatus) => {
     switch (status) {
       case "PENDING":
@@ -163,6 +242,27 @@ export default function ProjectRequestDetailsPage() {
     }
   };
 
+  const handleInitializeContract = async () => {
+    if (!fullSpec?.id) return;
+
+    try {
+      setIsCreatingContract(true);
+      const contract = await contractsApi.initializeContract(fullSpec.id);
+      navigate(`/broker/contracts/${contract.id}`);
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.message || "Failed to create contract from final spec.";
+      if (String(message).toLowerCase().includes("already initialized")) {
+        alert(`${message}\nOpening contracts list.`);
+        navigate("/broker/contracts");
+        return;
+      }
+      alert(message);
+    } finally {
+      setIsCreatingContract(false);
+    }
+  };
+
 
 
   return (
@@ -177,6 +277,43 @@ export default function ProjectRequestDetailsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content Area */}
         <div className="lg:col-span-2 space-y-6">
+
+           {user?.role === "BROKER" && request.brokerId === user.id && (
+             <Card className="border-blue-200 bg-blue-50/40">
+               <CardHeader className="pb-3">
+                 <CardTitle className="text-base">Broker Spec Actions</CardTitle>
+                 <CardDescription>
+                   New flow: create Client Spec first for client approval, then create Full Spec.
+                 </CardDescription>
+               </CardHeader>
+               <CardContent className="flex flex-wrap gap-3">
+                 <Button onClick={() => navigate(`/broker/project-requests/${request.id}/create-client-spec`)}>
+                   {clientSpec ? "Open Client Spec" : "Create Client Spec"}
+                 </Button>
+                 <Button
+                   variant="outline"
+                   onClick={() => navigate(`/broker/project-requests/${request.id}/create-spec`)}
+                 >
+                   {fullSpec ? "Open Full Spec" : "Create Full Spec"}
+                 </Button>
+                 {canBrokerReviewFinalSpec && fullSpec && (
+                   <Button
+                     variant={fullSpec.status === ProjectSpecStatus.FINAL_REVIEW ? "primary" : "outline"}
+                     onClick={() => navigate(`/broker/specs/${fullSpec.id}`)}
+                   >
+                     {fullSpec.status === ProjectSpecStatus.FINAL_REVIEW
+                       ? "Review & Sign Final Spec"
+                       : "View Final Spec"}
+                   </Button>
+                 )}
+                 {canInitializeContract && (
+                   <Button onClick={handleInitializeContract} disabled={isCreatingContract}>
+                     {isCreatingContract ? "Creating Contract..." : "Create Contract"}
+                   </Button>
+                 )}
+               </CardContent>
+             </Card>
+           )}
 
            <Tabs defaultValue="overview" className="w-full">
             <TabsList className="mb-4 w-full justify-start">
@@ -260,87 +397,192 @@ export default function ProjectRequestDetailsPage() {
                 )}
             </TabsContent>
 
-            <TabsContent value="phases" className="space-y-6">
-                {/* Phase 2: Specs */}
-                <Card className={request.status === 'PROCESSING' ? "border-2 border-primary" : ""}>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                             <div className="bg-blue-100 p-2 rounded-full"><FileText className="w-5 h-5 text-blue-600"/></div>
-                             Phase 2: Requirement Specifications
-                             {request.spec && <Badge variant="outline" className="ml-2">Submitted</Badge>}
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {(!request.spec && (request.status === 'PROCESSING' || request.status === 'BROKER_ASSIGNED')) ? (
-                            <div className="bg-blue-50 p-4 rounded-lg flex justify-between items-center">
-                                <div>
-                                    <p className="font-medium text-blue-900">Action Required</p>
-                                    <p className="text-sm text-blue-700">Create and submit detailed specs for client approval.</p>
-                                </div>
-                                <Button onClick={() => navigate(`/broker/project-requests/${request.id}/create-spec`)}>Create Spec</Button>
-                            </div>
-                        ) : request.spec ? (
-                            <div className="space-y-2">
-                                <div className="flex justify-between text-sm">
-                                    <span>Spec Status:</span>
-                                    <Badge>{request.spec.status}</Badge>
-                                </div>
-                                <p className="text-sm text-muted-foreground">Waiting for Client Approval.</p>
-                            </div>
-                        ) : (
-                             <p className="text-sm text-muted-foreground">Pending prerequisite phases.</p>
-                        )}
-                    </CardContent>
-                </Card>
+            <TabsContent value="phases" className="space-y-4">
+              <Card className={brokerWorkflowPhase === 1 ? "border-2 border-primary" : ""}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <div className="bg-slate-100 p-2 rounded-full">
+                      <Check className="w-5 h-5 text-slate-600" />
+                    </div>
+                    Phase 1: Broker Assignment
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Request must be assigned to a broker before spec drafting starts.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <Badge variant={request.brokerId ? "default" : "outline"}>
+                      {request.brokerId ? "Assigned" : "Unassigned"}
+                    </Badge>
+                    {request.brokerId && (
+                      <span className="text-sm text-muted-foreground">
+                        {request.broker?.fullName || "Assigned broker"}
+                      </span>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
 
-                {/* Phase 3: Hiring */}
-                <Card className={request.status === 'SPEC_APPROVED' ? "border-2 border-primary" : ""}>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                             <div className="bg-orange-100 p-2 rounded-full"><UserPlus className="w-5 h-5 text-orange-600"/></div>
-                             Phase 3: Freelancer Recruitment
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        {request.status === 'SPEC_APPROVED' ? (
-                             <div className="bg-orange-50 p-4 rounded-lg">
-                                  <p className="mb-4 text-sm text-orange-800">Specs Approved! Now you must recruit freelancers.</p>
-                                  <div className="flex gap-2">
-                                      <Button variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>Search Market</Button>
-                                      <Button onClick={() => alert("Shortcut to Freelancer Suggestion Tool (Coming Soon)")}>Suggest Team</Button>
-                                  </div>
-                             </div>
-                        ) : (
-                             <p className="text-sm text-muted-foreground">Locked until Specs are Approved.</p>
-                        )}
-                    </CardContent>
-                </Card>
+              <Card className={brokerWorkflowPhase === 2 ? "border-2 border-primary" : ""}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <div className="bg-blue-100 p-2 rounded-full">
+                      <FileText className="w-5 h-5 text-blue-600" />
+                    </div>
+                    Phase 2: Client Spec (Client Approval)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Badge variant={clientSpec ? "default" : "outline"}>
+                      {clientSpec?.status?.replace(/_/g, " ") || "NOT CREATED"}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Broker drafts client-readable spec, then client approves/rejects it.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant={clientSpec ? "outline" : "primary"}
+                      onClick={() => navigate(`/broker/project-requests/${request.id}/create-client-spec`)}
+                    >
+                      {clientSpec ? "Open Client Spec" : "Create Client Spec"}
+                    </Button>
+                    {clientSpec && (
+                      <Button
+                        variant="outline"
+                        onClick={() => navigate(`/broker/specs/${clientSpec.id}`)}
+                      >
+                        View Client Spec
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
 
-                 {/* Phase 4: Contract */}
-                <Card className={request.status === 'CONTRACT_PENDING' ? "border-2 border-primary" : ""}>
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                             <div className="bg-green-100 p-2 rounded-full"><FileSignature className="w-5 h-5 text-green-600"/></div>
-                             Phase 4: Contract
-                        </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                         {request.status === 'SPEC_APPROVED' || request.status === 'HIRING' ? (
-                             <Button
-                                className="w-full"
-                                onClick={async () => {
-                                    if(!confirm("Ready to draft contract?")) return;
-                                     // Logic to trigger contract draft
-                                     alert("Drafting contract...");
-                                }}
-                             >
-                                Draft Contract
-                             </Button>
-                         ) : (
-                            <p className="text-sm text-muted-foreground">Locked until Team is assembled.</p>
-                         )}
-                    </CardContent>
-                </Card>
+              <Card className={brokerWorkflowPhase === 3 ? "border-2 border-primary" : ""}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <div className="bg-orange-100 p-2 rounded-full">
+                      <UserPlus className="w-5 h-5 text-orange-600" />
+                    </div>
+                    Phase 3: Freelancer Selection
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={hasSelectedFreelancer ? "default" : "outline"}>
+                      {hasSelectedFreelancer ? "Freelancer Selected" : "Waiting selection"}
+                    </Badge>
+                    {selectedFreelancerProposal && (
+                      <span className="text-sm text-muted-foreground">
+                        Proposal status: {String(selectedFreelancerProposal.status || "").toUpperCase()}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    After Client Spec is approved, client invites freelancer and one accepted freelancer becomes final-spec signer.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className={brokerWorkflowPhase === 4 ? "border-2 border-primary" : ""}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <div className="bg-violet-100 p-2 rounded-full">
+                      <FileText className="w-5 h-5 text-violet-600" />
+                    </div>
+                    Phase 4: full_spec (3-Party Sign-off)
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={fullSpec ? "default" : "outline"}>
+                      {fullSpec?.status?.replace(/_/g, " ") || "NOT CREATED"}
+                    </Badge>
+                    {fullSpec && (
+                      <span className="text-sm text-muted-foreground">
+                        {fullSpec.milestones?.length || 0} milestones
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Broker drafts full_spec, submits final review, then Client + Broker + Freelancer sign.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant={fullSpec ? "outline" : "primary"}
+                      onClick={() => navigate(`/broker/project-requests/${request.id}/create-spec`)}
+                    >
+                      {fullSpec ? "Open full_spec" : "Create full_spec"}
+                    </Button>
+                    {canBrokerReviewFinalSpec && fullSpec && (
+                      <Button
+                        onClick={() => navigate(`/broker/specs/${fullSpec.id}`)}
+                        variant={fullSpec.status === ProjectSpecStatus.FINAL_REVIEW ? "primary" : "outline"}
+                      >
+                        {fullSpec.status === ProjectSpecStatus.FINAL_REVIEW
+                          ? "Review & Sign Final Spec"
+                          : "View Final Spec"}
+                      </Button>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card className={brokerWorkflowPhase === 5 ? "border-2 border-primary" : ""}>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <div className="bg-green-100 p-2 rounded-full">
+                      <FileSignature className="w-5 h-5 text-green-600" />
+                    </div>
+                    Phase 5: Contract
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2">
+                  <Badge variant="outline">{String(request.status || "").replace(/_/g, " ")}</Badge>
+                  <p className="text-sm text-muted-foreground">
+                    Contract starts after full_spec is all-signed. Contract signing and project activation happen in the contract flow.
+                  </p>
+                  {linkedContract ? (
+                    <div className="rounded-md border bg-muted/30 p-3 space-y-2">
+                      <p className="text-sm font-medium">{linkedContract.title}</p>
+                      <p className="text-xs text-muted-foreground">
+                        Status: {String(linkedContract.status || "DRAFT").replace(/_/g, " ")}
+                        {contractActivated ? " · Project activated" : ""}
+                      </p>
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        <Button onClick={() => navigate(`/broker/contracts/${linkedContract.id}`)}>
+                          Open Contract
+                        </Button>
+                        {canOpenWorkspace && (
+                          <Button
+                            variant="primary"
+                            onClick={() => navigate(`/broker/workspace/${linkedContract.projectId}`)}
+                          >
+                            Open Workspace
+                          </Button>
+                        )}
+                        <Button variant="outline" onClick={() => void fetchRequest()}>
+                          Refresh
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {canInitializeContract && (
+                        <Button onClick={handleInitializeContract} disabled={isCreatingContract}>
+                          {isCreatingContract ? "Creating Contract..." : "Create Contract"}
+                        </Button>
+                      )}
+                      <Button variant="outline" onClick={() => navigate("/broker/contracts")}>
+                        Open Contracts
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
            </Tabs>
 

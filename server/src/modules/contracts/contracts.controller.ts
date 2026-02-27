@@ -4,6 +4,7 @@ import { ContractsService } from './contracts.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserEntity } from '../../database/entities/user.entity';
+import { SignContractDto } from './dto';
 
 @Controller('contracts')
 @UseGuards(JwtAuthGuard)
@@ -29,9 +30,9 @@ export class ContractsController {
   async signContract(
     @GetUser() user: UserEntity,
     @Param('contractId') contractId: string,
-    @Body('signatureHash') signatureHash: string,
+    @Body() dto: SignContractDto,
   ) {
-    return this.contractsService.signContract(user, contractId, signatureHash);
+    return this.contractsService.signContract(user, contractId, dto.signatureHash);
   }
 
   @Post('activate/:contractId')

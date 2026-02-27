@@ -3,6 +3,7 @@ export const RequestStatus = {
   PUBLIC_DRAFT: 'PUBLIC_DRAFT',
   PRIVATE_DRAFT: 'PRIVATE_DRAFT',
   BROKER_ASSIGNED: 'BROKER_ASSIGNED',
+  SPEC_SUBMITTED: 'SPEC_SUBMITTED',
   SPEC_APPROVED: 'SPEC_APPROVED',
   CONTRACT_PENDING: 'CONTRACT_PENDING',
   PENDING_SPECS: 'PENDING_SPECS',
@@ -11,6 +12,9 @@ export const RequestStatus = {
   IN_PROGRESS: 'IN_PROGRESS',
   COMPLETED: 'COMPLETED',
   CANCELED: 'CANCELED',
+  PROCESSING: 'PROCESSING',
+  APPROVED: 'APPROVED',
+  REJECTED: 'REJECTED',
   
   // Legacy
   DRAFT: 'DRAFT',
@@ -31,4 +35,17 @@ export type ProjectRequest = {
   answers?: any[];
   createdAt: string;
   updatedAt: string;
+  client?: {
+    id: string;
+    fullName: string;
+    email?: string;
+  };
+  broker?: {
+    id: string;
+    fullName: string;
+    email?: string;
+  } | null;
+  specs?: any[];
+  freelancerProposals?: any[];
+  proposals?: any[];
 };

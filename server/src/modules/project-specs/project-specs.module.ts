@@ -5,11 +5,21 @@ import { ProjectSpecsController } from './project-specs.controller';
 import { ProjectSpecEntity } from '../../database/entities/project-spec.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
+import { ProjectSpecSignatureEntity } from '../../database/entities/project-spec-signature.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { NotificationEntity } from '../../database/entities/notification.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ProjectSpecEntity, MilestoneEntity, ProjectRequestEntity]),
+    TypeOrmModule.forFeature([
+      ProjectSpecEntity,
+      MilestoneEntity,
+      ProjectRequestEntity,
+      ProjectSpecSignatureEntity,
+      ProjectRequestProposalEntity,
+      NotificationEntity,
+    ]),
     AuditLogsModule, // For logging actions
   ],
   controllers: [ProjectSpecsController],

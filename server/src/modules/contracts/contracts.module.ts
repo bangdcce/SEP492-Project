@@ -8,6 +8,8 @@ import { ProjectSpecEntity } from '../../database/entities/project-spec.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
+import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
@@ -19,6 +21,8 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
       MilestoneEntity,
       EscrowEntity,
       DigitalSignatureEntity,
+      ProjectRequestEntity,
+      ProjectRequestProposalEntity,
     ]),
     AuditLogsModule,
   ],

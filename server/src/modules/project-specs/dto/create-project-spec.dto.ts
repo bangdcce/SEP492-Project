@@ -2,10 +2,10 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
-  IsDecimal,
   IsEnum,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -93,9 +93,12 @@ export class CreateMilestoneDto {
 }
 
 export class CreateProjectSpecDto {
-  @IsString()
-  @IsNotEmpty()
+  @IsUUID()
   requestId: string;
+
+  @IsOptional()
+  @IsUUID()
+  parentSpecId?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -130,6 +133,14 @@ export class CreateProjectSpecDto {
   @ValidateNested({ each: true })
   @Type(() => ReferenceLinkDto)
   referenceLinks?: ReferenceLinkDto[];
+
+  @IsOptional()
+  @IsObject()
+  richContentJson?: Record<string, unknown>;
+
+  @IsOptional()
+  @IsString()
+  templateCode?: string;
 
   @IsOptional()
   @IsEnum(ProjectSpecStatus)

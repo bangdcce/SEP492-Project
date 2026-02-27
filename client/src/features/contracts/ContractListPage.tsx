@@ -1,57 +1,45 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { FileSignature, Search, ArrowRight } from 'lucide-react';
+import { FileSignature, Search, ArrowRight, Clock3, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardHeader } from '@/shared/components/ui/Card';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/ui/Input';
 import { Badge } from '@/shared/components/ui/badge';
 import Spinner from '@/shared/components/ui/Spinner';
-import { apiClient } from '@/shared/api/client';
-
-interface ContractSummary {
-  id: string;
-  projectId: string;
-  projectTitle: string;
-  title: string;
-  status: 'DRAFT' | 'SENT' | 'SIGNED' | 'ACTIVE';
-  createdAt: string;
-  clientName: string;
-}
+import { contractsApi } from './api';
+import type { ContractSummary } from './types';
+import { getStoredJson } from '@/shared/utils/storage';
+import { STORAGE_KEYS } from '@/constants';
 
 export default function ContractListPage() {
   const navigate = useNavigate();
   const [contracts, setContracts] = useState<ContractSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const currentUser = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+  const roleBasePath =
+    currentUser?.role?.toUpperCase() === 'CLIENT'
+      ? '/client'
+      : currentUser?.role?.toUpperCase() === 'FREELANCER'
+        ? '/freelancer'
+        : '/broker';
+
+  const pageTitle =
+    roleBasePath === '/client'
+      ? 'My Contracts'
+      : roleBasePath === '/freelancer'
+        ? 'Assigned Contracts'
+        : 'Contracts Management';
 
   useEffect(() => {
-    // Mock fetching contracts list - In real app, create dedicated endpoint
     const fetchContracts = async () => {
       try {
         setIsLoading(true);
-        // Using existing list endpoints and mapping manually for now as per minimal change strategy
-        // Ideally: GET /contracts/list
-        // Workaround: custom filtering or new endpoint.
-        // I will assume for now we list projects and filter those with contracts.
-        // It's inefficient but works without backend changes if GET /projects/list returns contracts.
-        // Actually, backend listByUser returns ProjectWithDisputeInfo without contracts.
-        
-        // Let's create a placeholder endpoint or just fetch projects and then contracts? Too slow.
-        // I'll create a new endpoint in Backend: GET /contracts/my-contracts
-        
-        // TEMPORARY: Return empty list or mock until backend endpoint is added?
-        // OR: I add the endpoint right now.
-        
-        // Wait, I should add the endpoint. But user is waiting.
-        // Let's stub it with filtering projects.
-        // Actually, let's just make the UI and handle empty state,
-        // while clearly marking "Backend endpoint needed".
-        
-        // I'll try to hit a new endpoint I'm about to create: /contracts/list
-        const res = await apiClient.get<ContractSummary[]>('/contracts/list');
-        setContracts(res);
+        const res = await contractsApi.listContracts();
+        setContracts(Array.isArray(res) ? res : []);
       } catch (err) {
         console.error("Failed to fetch contracts", err);
+        setContracts([]);
       } finally {
         setIsLoading(false);
       }
@@ -64,16 +52,45 @@ export default function ContractListPage() {
     c.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
     c.projectTitle.toLowerCase().includes(searchTerm.toLowerCase())
   );
+  const signedCount = contracts.filter((c) => c.status === 'SIGNED' || c.status === 'ACTIVE').length;
+  const pendingCount = contracts.length - signedCount;
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-2xl font-bold bg-gradient-to-r from-teal-600 to-emerald-600 bg-clip-text text-transparent">
-            Contracts Management
+            {pageTitle}
           </h1>
-          <p className="text-gray-500">View and manage legal agreements</p>
+          <p className="text-gray-500">Review, sign, and track legal agreements</p>
         </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs uppercase text-muted-foreground">Total</p>
+            <p className="mt-2 text-2xl font-semibold">{contracts.length}</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs uppercase text-muted-foreground">Pending Signatures</p>
+            <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-amber-600">
+              <Clock3 className="h-5 w-5" />
+              {pendingCount}
+            </p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardContent className="pt-5">
+            <p className="text-xs uppercase text-muted-foreground">Signed</p>
+            <p className="mt-2 flex items-center gap-2 text-2xl font-semibold text-emerald-600">
+              <CheckCircle2 className="h-5 w-5" />
+              {signedCount}
+            </p>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -113,9 +130,33 @@ export default function ContractListPage() {
                     <Badge variant={contract.status === 'SIGNED' ? 'default' : 'outline'}>
                       {contract.status}
                     </Badge>
-                    <Button size="sm" variant="ghost" onClick={() => navigate(`/broker/contracts/${contract.id}`)}>
+                    {(Boolean(contract.activatedAt) ||
+                      ["IN_PROGRESS", "TESTING", "COMPLETED", "PAID", "DISPUTED"].includes(
+                        String(contract.projectStatus || "").toUpperCase(),
+                      )) && (
+                      <Badge variant="outline" className="border-emerald-200 text-emerald-700">
+                        Activated
+                      </Badge>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => navigate(`${roleBasePath}/contracts/${contract.id}`)}
+                    >
                       View <ArrowRight className="ml-2 h-4 w-4" />
                     </Button>
+                    {(Boolean(contract.activatedAt) ||
+                      ["IN_PROGRESS", "TESTING", "COMPLETED", "PAID", "DISPUTED"].includes(
+                        String(contract.projectStatus || "").toUpperCase(),
+                      )) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => navigate(`${roleBasePath}/workspace/${contract.projectId}`)}
+                      >
+                        Workspace
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}

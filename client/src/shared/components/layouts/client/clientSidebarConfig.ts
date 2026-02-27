@@ -12,6 +12,7 @@ import {
   Briefcase,
   Video,
   ShieldCheck,
+  FileSignature,
 } from "lucide-react";
 
 export interface ClientSidebarMenuItem {
@@ -58,6 +59,14 @@ export const clientSidebarMenuItems: ClientSidebarMenuItem[] = [
     icon: Briefcase,
     path: "/client/projects",
     description: "Manage and track projects",
+    section: "workspace",
+  },
+  {
+    id: "contracts",
+    label: "Contracts",
+    icon: FileSignature,
+    path: "/client/contracts",
+    description: "Review and sign contracts",
     section: "workspace",
   },
   {

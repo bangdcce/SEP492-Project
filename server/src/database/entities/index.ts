@@ -11,7 +11,8 @@ export { ProjectRequestEntity, RequestStatus } from './project-request.entity';
 export { WizardQuestionEntity } from './wizard-question.entity';
 export { WizardOptionEntity } from './wizard-option.entity';
 export { ProjectRequestAnswerEntity } from './project-request-answer.entity';
-export { ProjectSpecEntity, ProjectSpecStatus } from './project-spec.entity';
+export { ProjectSpecEntity, ProjectSpecStatus, SpecPhase } from './project-spec.entity';
+export { ProjectSpecSignatureEntity } from './project-spec-signature.entity';
 export { ProjectRequestProposalEntity } from './project-request-proposal.entity';
 
 // Project Management Entities

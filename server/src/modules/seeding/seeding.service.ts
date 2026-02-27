@@ -65,7 +65,7 @@ export class SeedingService {
       const specTitle = 'Corporate CRM System';
       let reqWithSpec = await this.requestRepository.findOne({
         where: { title: specTitle },
-        relations: ['spec'],
+        relations: ['specs'],
       });
 
       if (!reqWithSpec) {
@@ -79,7 +79,7 @@ export class SeedingService {
         );
       }
 
-      if (!reqWithSpec.spec) {
+      if (!reqWithSpec.specs || reqWithSpec.specs.length === 0) {
         console.log('Creating spec for request:', reqWithSpec.id);
         const spec = this.specRepository.create({
           requestId: reqWithSpec.id,

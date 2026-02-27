@@ -1,5 +1,12 @@
-﻿import { useCallback, useEffect, useRef, useState } from "react";
-import { CheckCircle2, Flag, Sparkles, X, Zap } from "lucide-react";
+﻿import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+} from "react";
+import { CheckCircle2, Flag, Send, Sparkles, X, Zap } from "lucide-react";
 import type { Socket } from "socket.io-client";
 import { toast } from "sonner";
 import { STORAGE_KEYS } from "@/constants";
@@ -602,6 +609,30 @@ export function WorkspaceChatDrawer({
     triggerSlashCommand,
   ]);
 
+  const handleComposerSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      void handleSendMessage();
+    },
+    [handleSendMessage],
+  );
+
+  const handleInputKeyDown = useCallback(
+    (event: KeyboardEvent<HTMLInputElement>) => {
+      if (event.key !== "Enter" || event.shiftKey) {
+        return;
+      }
+
+      if (event.nativeEvent.isComposing) {
+        return;
+      }
+
+      event.preventDefault();
+      void handleSendMessage();
+    },
+    [handleSendMessage],
+  );
+
   const loadOlderMessages = useCallback(async () => {
     if (
       !isOpen ||
@@ -1003,25 +1034,30 @@ export function WorkspaceChatDrawer({
             </div>
           )}
 
-          <input
-            ref={inputRef}
-            type="text"
-            value={inputValue}
-            onChange={(event) => setInputValue(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void handleSendMessage();
-              }
-            }}
-            disabled={!projectId || isSending}
-            className="h-11 w-full rounded-xl border border-slate-300 px-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100"
-            placeholder="Type message or '/' for commands"
-          />
+          <form onSubmit={handleComposerSubmit} className="flex items-center gap-2">
+            <input
+              ref={inputRef}
+              type="text"
+              value={inputValue}
+              onChange={(event) => setInputValue(event.target.value)}
+              onKeyDown={handleInputKeyDown}
+              disabled={!projectId || isSending}
+              className="h-11 flex-1 rounded-xl border border-slate-300 px-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100"
+              placeholder="Type message or '/' for commands"
+            />
+            <button
+              type="submit"
+              disabled={!projectId || isSending || inputValue.trim().length === 0}
+              className="inline-flex h-11 shrink-0 items-center gap-1 rounded-xl bg-blue-600 px-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+              aria-label="Send message"
+            >
+              <Send className="h-4 w-4" />
+              <span>Send</span>
+            </button>
+          </form>
         </div>
       </footer>
     </aside>
   );
 }
-
 
