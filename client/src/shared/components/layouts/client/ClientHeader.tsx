@@ -11,7 +11,6 @@ import {
   X,
   ChevronDown,
   User,
-  Settings,
   LogOut,
 } from "lucide-react";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
@@ -256,14 +255,6 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
                       >
                         <User className="w-4 h-4" />
                         My Profile
-                      </Link>
-                      <Link
-                        to="/settings"
-                        className="flex items-center gap-3 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors"
-                        onClick={() => setIsProfileMenuOpen(false)}
-                      >
-                        <Settings className="w-4 h-4" />
-                        Settings
                       </Link>
                     </div>
 

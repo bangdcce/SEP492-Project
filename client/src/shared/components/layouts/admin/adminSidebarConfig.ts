@@ -11,6 +11,7 @@ import {
   UserCheck,
   Users,
   User,
+  HelpCircle,
 } from "lucide-react";
 
 export interface AdminSidebarMenuItem {
@@ -72,6 +73,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: Users,
     path: "/admin/users",
     description: "Manage users, ban/unban",
+    section: "management",
+  },
+  {
+    id: "wizard-questions",
+    label: "Wizard Questions",
+    icon: HelpCircle,
+    path: "/admin/wizard-questions",
+    description: "Manage wizard questions",
     section: "management",
   },
   // Account

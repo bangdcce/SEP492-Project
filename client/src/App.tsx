@@ -77,6 +77,7 @@ const ContractListPage = lazy(
 );
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
+const AdminWizardQuestionsPage = lazy(() => import("@/pages/AdminWizardQuestionsPage"));
 
 // ========== HEARINGS (CLIENT/BROKER/FREELANCER) ==========
 const ParticipantHearingsPage = lazy(() =>
@@ -503,6 +504,16 @@ function App() {
             <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminUsersPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/admin/wizard-questions"
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminWizardQuestionsPage />
               </AdminDashboardLayout>
             </RoleGuard>
           }
