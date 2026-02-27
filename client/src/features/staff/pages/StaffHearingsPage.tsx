@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { Calendar, Clock, Video } from "lucide-react";
@@ -7,11 +7,19 @@ import { getMyHearings } from "@/features/hearings/api";
 import type { DisputeHearingSummary } from "@/features/hearings/types";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
+import {
+  getApiErrorDetails,
+  isSchemaNotReadyErrorCode,
+} from "@/shared/utils/apiError";
 
 export const StaffHearingsPage = () => {
   const [hearings, setHearings] = useState<DisputeHearingSummary[]>([]);
   const [loading, setLoading] = useState(false);
+  const [schemaErrorMessage, setSchemaErrorMessage] = useState<string | null>(
+    null,
+  );
   const navigate = useNavigate();
+  const schemaToastShownRef = useRef(false);
 
   const currentUser = useMemo(
     () => getStoredJson<{ id?: string }>(STORAGE_KEYS.USER),
@@ -26,9 +34,23 @@ export const StaffHearingsPage = () => {
         status: ["IN_PROGRESS", "SCHEDULED"],
       });
       setHearings(data ?? []);
+      setSchemaErrorMessage(null);
+      schemaToastShownRef.current = false;
     } catch (error) {
+      const details = getApiErrorDetails(error, "Could not load hearings");
       console.error("Failed to load hearings:", error);
-      toast.error("Could not load hearings");
+      if (isSchemaNotReadyErrorCode(details.code)) {
+        setSchemaErrorMessage(details.message);
+        if (!schemaToastShownRef.current) {
+          toast.error(details.message);
+          schemaToastShownRef.current = true;
+        }
+        return;
+      }
+
+      setSchemaErrorMessage(null);
+      schemaToastShownRef.current = false;
+      toast.error(details.code ? `[${details.code}] ${details.message}` : details.message);
     } finally {
       setLoading(false);
     }
@@ -147,6 +169,13 @@ export const StaffHearingsPage = () => {
 
   return (
     <div className="space-y-6">
+      {schemaErrorMessage && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Server schema is not ready</p>
+          <p className="mt-1 text-xs text-amber-800">{schemaErrorMessage}</p>
+        </div>
+      )}
+
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">My Hearings</h2>

@@ -5,6 +5,16 @@ type ApiErrorDetails = {
   message: string;
 };
 
+const SCHEMA_NOT_READY_CODES = new Set<string>([
+  "DISPUTE_INTERNAL_MEMBERSHIP_TABLE_MISSING",
+  "DISPUTE_HEARING_NOSHOWNOTE_COLUMN_MISSING",
+  "DISPUTE_SCHEMA_NOT_READY",
+]);
+
+export const isSchemaNotReadyErrorCode = (code?: string): boolean => {
+  return Boolean(code && SCHEMA_NOT_READY_CODES.has(code));
+};
+
 const resolveStringMessage = (value: unknown): string | null => {
   if (typeof value === "string" && value.trim().length > 0) {
     return value.trim();

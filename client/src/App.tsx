@@ -77,6 +77,9 @@ const ContractListPage = lazy(
 );
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
+const AdminLeaveManagementPage = lazy(
+  () => import("@/pages/AdminLeaveManagementPage"),
+);
 
 // ========== HEARINGS (CLIENT/BROKER/FREELANCER) ==========
 const ParticipantHearingsPage = lazy(() =>
@@ -265,7 +268,7 @@ function App() {
           path="/freelancer/hearings/:hearingId"
           element={
             <RoleGuard allowedRoles={["FREELANCER"]}>
-              <FreelancerDashboardLayout>
+              <FreelancerDashboardLayout showFooter={false} contentMode="hearing-room">
                 <ParticipantHearingRoomPage />
               </FreelancerDashboardLayout>
             </RoleGuard>
@@ -398,7 +401,7 @@ function App() {
           path="/client/hearings/:hearingId"
           element={
             <RoleGuard allowedRoles={["CLIENT"]}>
-              <ClientDashboardLayout>
+              <ClientDashboardLayout showFooter={false} contentMode="hearing-room">
                 <ParticipantHearingRoomPage />
               </ClientDashboardLayout>
             </RoleGuard>
@@ -508,6 +511,16 @@ function App() {
           }
         />
         <Route
+          path="/admin/leave"
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminLeaveManagementPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path="/admin/specs"
           element={
             <RoleGuard allowedRoles={["ADMIN"]}>
@@ -573,7 +586,7 @@ function App() {
           path="/broker/hearings/:hearingId"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
-              <BrokerDashboardLayout>
+              <BrokerDashboardLayout showFooter={false} contentMode="hearing-room">
                 <ParticipantHearingRoomPage />
               </BrokerDashboardLayout>
             </RoleGuard>

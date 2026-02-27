@@ -11,6 +11,7 @@ import {
   MaxLength,
   IsIn,
   IsEnum,
+  Max,
 } from 'class-validator';
 import { LeaveStatus, LeaveType } from 'src/database/entities';
 
@@ -94,4 +95,22 @@ export class UpdateLeavePolicyDto {
   @IsInt()
   @Min(0)
   monthlyAllowanceMinutes: number;
+}
+
+export class ListLeavePoliciesQueryDto {
+  @IsString()
+  @IsOptional()
+  @MaxLength(255)
+  search?: string;
+
+  @IsInt()
+  @Min(1)
+  @IsOptional()
+  page?: number;
+
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  @IsOptional()
+  limit?: number;
 }

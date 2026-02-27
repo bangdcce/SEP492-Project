@@ -27,6 +27,7 @@ import {
   DisputeAction,
   UserRole,
   DisputeStatus,
+  DisputePhase,
 } from 'src/database/entities';
 import { DISPUTE_EVENTS } from '../events/dispute.events';
 
@@ -136,6 +137,7 @@ export interface UploadEvidenceInput {
   disputeId: string;
   uploaderId: string;
   uploaderRole: UserRole;
+  uploaderName?: string;
   fileBuffer: Buffer;
   fileName: string;
   fileSize: number;
@@ -685,6 +687,20 @@ export class EvidenceService {
       };
     }
 
+    // Justification required when uploading outside EVIDENCE_SUBMISSION phase (BLTTDS 2015)
+    if (
+      activeLiveHearing &&
+      dispute.phase !== DisputePhase.EVIDENCE_SUBMISSION &&
+      (!description || description.trim().length < 10)
+    ) {
+      return {
+        success: false,
+        error:
+          'A description/justification (min 10 characters) is required when submitting evidence outside the Evidence Submission phase.',
+        errorCode: 'EVIDENCE_UPLOAD_FORBIDDEN',
+      };
+    }
+
     // 2. Validate file
     const validation = this.validateFileUpload(fileName, fileSize, mimeType);
     if (!validation.isValid) {
@@ -775,9 +791,11 @@ export class EvidenceService {
         evidenceId: savedEvidence.id,
         uploaderId,
         uploaderRole,
+        uploaderName: input.uploaderName,
         fileName: savedEvidence.fileName,
         mimeType: savedEvidence.mimeType,
         fileSize: savedEvidence.fileSize,
+        description: savedEvidence.description,
         uploadedAt: savedEvidence.uploadedAt,
       });
       if (dispute.status === DisputeStatus.INFO_REQUESTED && uploaderId === dispute.raisedById) {
@@ -1017,5 +1035,109 @@ export class EvidenceService {
     // how you track failed uploads (e.g., comparing DB records with
     // actual files in Supabase storage)
     return 0;
+  }
+
+  // ===========================================================================
+  // COMPOSE FUNCTION: exportEvidencePackage — ZIP with manifest for court
+  // ===========================================================================
+  async exportEvidencePackage(
+    disputeId: string,
+    userId: string,
+    userRole: UserRole,
+  ): Promise<{ stream: NodeJS.ReadableStream; fileName: string }> {
+    // Verify access
+    const dispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
+    if (!dispute) {
+      throw new NotFoundException(`Dispute ${disputeId} not found`);
+    }
+
+    const isStaffOrAdmin = [UserRole.ADMIN, UserRole.STAFF].includes(userRole);
+    if (!isStaffOrAdmin) {
+      const isParty = await this.disputePartyRepo.findOne({
+        where: { disputeId, userId },
+      });
+      if (!isParty && dispute.raisedById !== userId && dispute.defendantId !== userId) {
+        throw new ForbiddenException('You do not have access to this dispute');
+      }
+    }
+
+    // Load all non-flagged evidence
+    const evidenceList = await this.evidenceRepo.find({
+      where: { disputeId, isFlagged: false },
+      order: { createdAt: 'ASC' },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const archiver = require('archiver');
+    const archive = archiver('zip', { zlib: { level: 6 } });
+
+    const manifest: Array<{
+      index: number;
+      evidenceId: string;
+      fileName: string;
+      fileSize: number;
+      mimeType: string;
+      sha256: string;
+      uploadedBy: string;
+      uploaderRole: string;
+      uploadedAt: string;
+      description: string | null;
+      archivePath: string;
+    }> = [];
+
+    let index = 0;
+    for (const evidence of evidenceList) {
+      index++;
+      const ext = evidence.fileName?.split('.').pop() || 'bin';
+      const archivePath = `evidence/${String(index).padStart(3, '0')}_${evidence.id.slice(0, 8)}.${ext}`;
+
+      // Download file from Supabase
+      const { data, error } = await this.supabase.storage
+        .from(this.bucketName)
+        .download(evidence.storagePath);
+
+      if (!error && data) {
+        const buffer = Buffer.from(await data.arrayBuffer());
+        archive.append(buffer, { name: archivePath });
+      }
+
+      manifest.push({
+        index,
+        evidenceId: evidence.id,
+        fileName: evidence.fileName,
+        fileSize: evidence.fileSize,
+        mimeType: evidence.mimeType,
+        sha256: evidence.fileHash || '',
+        uploadedBy: evidence.uploaderId,
+        uploaderRole: evidence.uploaderRole,
+        uploadedAt: evidence.createdAt?.toISOString() || '',
+        description: evidence.description || null,
+        archivePath,
+      });
+    }
+
+    // Add manifest.json
+    archive.append(
+      JSON.stringify(
+        {
+          exportedAt: new Date().toISOString(),
+          disputeId,
+          totalFiles: evidenceList.length,
+          exportedBy: userId,
+          files: manifest,
+        },
+        null,
+        2,
+      ),
+      { name: 'manifest.json' },
+    );
+
+    // Finalize
+    archive.finalize();
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const fileName = `dispute_${disputeId.slice(0, 8)}_evidence_${dateStr}.zip`;
+
+    return { stream: archive, fileName };
   }
 }

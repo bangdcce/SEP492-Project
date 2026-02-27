@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, matchPath, useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { StaffSidebar } from "./StaffSidebar";
 import { StaffHeader } from "./StaffHeader";
@@ -9,6 +9,18 @@ import { getStoredItem } from "@/shared/utils/storage";
 export const StaffLayout = () => {
   const [collapsed, setCollapsed] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const isHearingRoomRoute = Boolean(
+    matchPath("/staff/hearings/:hearingId", location.pathname),
+  );
+  const contentContainerClass = isHearingRoomRoute
+    ? "w-full"
+    : "w-full max-w-[1440px] mx-auto";
+
+  const mainClass = isHearingRoomRoute
+    ? "flex-1 px-[2.5%] py-3 mt-16 overflow-x-hidden"
+    : "flex-1 p-6 mt-16 overflow-x-hidden";
 
   useEffect(() => {
     const userJson = getStoredItem(STORAGE_KEYS.USER);
@@ -48,8 +60,8 @@ export const StaffLayout = () => {
         <StaffHeader collapsed={collapsed} />
 
         {/* Page Content */}
-        <main className="flex-1 p-6 mt-16 overflow-x-hidden">
-          <div className="w-full max-w-[1440px] mx-auto">
+        <main className={mainClass}>
+          <div className={contentContainerClass}>
             <Outlet />
           </div>
         </main>

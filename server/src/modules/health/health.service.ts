@@ -10,6 +10,26 @@ type MigrationReadinessReport = {
   pending: string[];
 };
 
+type DisputePhaseEnumReport = {
+  existing: string[];
+  missing: string[];
+};
+
+type DisputeSchemaReadinessReport = {
+  hasInternalMembershipTable: boolean;
+  hasHearingNoShowNoteColumn: boolean;
+  hasStaffPerformanceUpsertConstraint: boolean;
+  hasStaffWorkloadUpsertConstraint: boolean;
+};
+
+const REQUIRED_DISPUTE_PHASE_ENUM_VALUES = [
+  'PRESENTATION',
+  'EVIDENCE_SUBMISSION',
+  'CROSS_EXAMINATION',
+  'INTERROGATION',
+  'DELIBERATION',
+] as const;
+
 @Injectable()
 export class HealthService implements OnApplicationBootstrap {
   private readonly logger = new Logger(HealthService.name);
@@ -27,6 +47,49 @@ export class HealthService implements OnApplicationBootstrap {
         );
       } else {
         this.logger.log('Migration readiness check passed (no pending migrations).');
+      }
+
+      const enumReport = await this.getDisputePhaseEnumReport();
+      if (enumReport.missing.length > 0) {
+        this.logger.warn(
+          `disputes_phase_enum is missing values: ${enumReport.missing.join(', ')}. ` +
+            'Run migrations and verify schema consistency before enabling verdict flow.',
+        );
+      } else {
+        this.logger.log('disputes_phase_enum readiness check passed.');
+      }
+
+      const schemaReport = await this.getDisputeSchemaReadinessReport();
+      if (!schemaReport.hasInternalMembershipTable) {
+        this.logger.warn(
+          'dispute_internal_memberships table is missing. Run migrations before serving dispute internal workspace.',
+        );
+      } else {
+        this.logger.log('dispute_internal_memberships schema check passed.');
+      }
+
+      if (!schemaReport.hasHearingNoShowNoteColumn) {
+        this.logger.warn(
+          'dispute_hearings.noShowNote column is missing. Run migrations before serving hearing list endpoints.',
+        );
+      } else {
+        this.logger.log('dispute_hearings.noShowNote schema check passed.');
+      }
+
+      if (!schemaReport.hasStaffPerformanceUpsertConstraint) {
+        this.logger.warn(
+          'Unique conflict target for staff_performances(staffId, period) is missing. Run migrations before serving verdict/performance upsert flows.',
+        );
+      } else {
+        this.logger.log('staff_performances upsert constraint schema check passed.');
+      }
+
+      if (!schemaReport.hasStaffWorkloadUpsertConstraint) {
+        this.logger.warn(
+          'Unique conflict target for staff_workloads(staffId, date) is missing. Run migrations before serving workload/calendar upsert flows.',
+        );
+      } else {
+        this.logger.log('staff_workloads upsert constraint schema check passed.');
       }
     } catch (error) {
       this.logger.warn(
@@ -46,6 +109,47 @@ export class HealthService implements OnApplicationBootstrap {
 
   async getReadinessStatus() {
     await this.assertDatabaseReachable();
+    const schemaReport = await this.getDisputeSchemaReadinessReport();
+    if (!schemaReport.hasInternalMembershipTable) {
+      throw new ServiceUnavailableException({
+        code: 'DISPUTE_INTERNAL_MEMBERSHIP_TABLE_MISSING',
+        message:
+          'Required table dispute_internal_memberships is missing. Apply migrations before serving dispute internal workspace.',
+        remediation:
+          'Run migration scripts (e.g. npm run migration:run in server) and verify CreateDisputeInternalMemberships1772300000000 is applied.',
+      });
+    }
+
+    if (!schemaReport.hasHearingNoShowNoteColumn) {
+      throw new ServiceUnavailableException({
+        code: 'DISPUTE_HEARING_NOSHOWNOTE_COLUMN_MISSING',
+        message:
+          'Required column dispute_hearings.noShowNote is missing. Apply migrations before serving hearing endpoints.',
+        remediation:
+          'Run migration scripts (e.g. npm run migration:run in server) and verify AddNoShowNoteToDisputeHearings1772305000000 is applied.',
+      });
+    }
+
+    if (!schemaReport.hasStaffPerformanceUpsertConstraint) {
+      throw new ServiceUnavailableException({
+        code: 'STAFF_PERFORMANCE_UPSERT_CONSTRAINT_MISSING',
+        message:
+          'Required unique conflict target for staff_performances(staffId, period) is missing. Apply migrations before serving verdict/performance updates.',
+        remediation:
+          'Run migration scripts (e.g. npm run migration:run in server) and verify EnsureStaffPerformanceUpsertConstraint1772315000000 is applied.',
+      });
+    }
+
+    if (!schemaReport.hasStaffWorkloadUpsertConstraint) {
+      throw new ServiceUnavailableException({
+        code: 'STAFF_WORKLOAD_UPSERT_CONSTRAINT_MISSING',
+        message:
+          'Required unique conflict target for staff_workloads(staffId, date) is missing. Apply migrations before serving workload/calendar updates.',
+        remediation:
+          'Run migration scripts (e.g. npm run migration:run in server) and verify EnsureStaffWorkloadUpsertConstraint1772316000000 is applied.',
+      });
+    }
+
     const report = await this.getMigrationReadinessReport();
 
     if (report.pending.length > 0) {
@@ -55,10 +159,29 @@ export class HealthService implements OnApplicationBootstrap {
       });
     }
 
+    const enumReport = await this.getDisputePhaseEnumReport();
+    if (enumReport.missing.length > 0) {
+      throw new ServiceUnavailableException({
+        code: 'DISPUTE_PHASE_ENUM_MISMATCH',
+        message:
+          'disputes_phase_enum is missing required values. Apply pending migrations before serving traffic.',
+        requiredValues: REQUIRED_DISPUTE_PHASE_ENUM_VALUES,
+        existingValues: enumReport.existing,
+        missingValues: enumReport.missing,
+        remediation:
+          'Run server migration scripts (e.g. yarn migration:run) and confirm AddEvidenceSubmissionPhase migration is applied.',
+      });
+    }
+
     return {
       status: 'ready',
       timestamp: new Date().toISOString(),
       pending: [],
+      disputePhaseEnum: 'ok',
+      disputeInternalMembershipTable: 'ok',
+      hearingNoShowNoteColumn: 'ok',
+      staffPerformanceUpsertConstraint: 'ok',
+      staffWorkloadUpsertConstraint: 'ok',
     };
   }
 
@@ -103,6 +226,165 @@ export class HealthService implements OnApplicationBootstrap {
 
       const pending = availableMigrations.filter((name) => !executed.has(name));
       return { pending };
+    } finally {
+      try {
+        await queryRunner.release();
+      } catch {
+        // Ignore release error in health check path.
+      }
+    }
+  }
+
+  private async getDisputePhaseEnumReport(): Promise<DisputePhaseEnumReport> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    try {
+      const rows = await queryRunner.query(
+        `
+          SELECT e.enumlabel
+          FROM pg_type t
+          JOIN pg_enum e ON e.enumtypid = t.oid
+          WHERE t.typname = 'disputes_phase_enum'
+          ORDER BY e.enumsortorder ASC
+        `,
+      );
+      const existing = (rows as Array<{ enumlabel?: string }>)
+        .map((row) => row?.enumlabel)
+        .filter((value): value is string => Boolean(value));
+      const missing = REQUIRED_DISPUTE_PHASE_ENUM_VALUES.filter(
+        (required) => !existing.includes(required),
+      );
+      return { existing, missing };
+    } catch {
+      return {
+        existing: [],
+        missing: [...REQUIRED_DISPUTE_PHASE_ENUM_VALUES],
+      };
+    } finally {
+      try {
+        await queryRunner.release();
+      } catch {
+        // Ignore release error in health check path.
+      }
+    }
+  }
+
+  private parseExistsResult(rows: unknown): boolean {
+    const value = (rows as Array<{ exists?: unknown }>)?.[0]?.exists;
+    if (typeof value === 'boolean') {
+      return value;
+    }
+    if (typeof value === 'number') {
+      return value === 1;
+    }
+    if (typeof value === 'string') {
+      return ['true', 't', '1', 'yes', 'y'].includes(value.toLowerCase());
+    }
+    return false;
+  }
+
+  private async runSchemaExistsQuery(
+    queryRunner: ReturnType<DataSource['createQueryRunner']>,
+    sql: string,
+    label: string,
+  ): Promise<boolean> {
+    try {
+      const rows = await queryRunner.query(sql);
+      return this.parseExistsResult(rows);
+    } catch (error) {
+      this.logger.warn(
+        `Schema readiness query failed for ${label}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+      return false;
+    }
+  }
+
+  private async getDisputeSchemaReadinessReport(): Promise<DisputeSchemaReadinessReport> {
+    const queryRunner = this.dataSource.createQueryRunner();
+    try {
+      const hasInternalMembershipTable = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'dispute_internal_memberships'
+          ) AS "exists"
+        `,
+        'dispute_internal_memberships table',
+      );
+      const hasHearingNoShowNoteColumn = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'dispute_hearings'
+              AND column_name = 'noShowNote'
+          ) AS "exists"
+        `,
+        'dispute_hearings.noShowNote column',
+      );
+      const hasStaffPerformanceUpsertConstraint = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM pg_index i
+            JOIN pg_class tbl ON tbl.oid = i.indrelid
+            JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+            JOIN LATERAL (
+              SELECT array_agg(att.attname::text ORDER BY k.ord) AS columns
+              FROM unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
+              JOIN pg_attribute att
+                ON att.attrelid = tbl.oid
+               AND att.attnum = k.attnum
+            ) keycols ON TRUE
+            WHERE ns.nspname = 'public'
+              AND tbl.relname = 'staff_performances'
+              AND i.indisunique = TRUE
+              AND i.indpred IS NULL
+              AND i.indexprs IS NULL
+              AND keycols.columns = ARRAY['staffId', 'period']::text[]
+          ) AS "exists"
+        `,
+        'staff_performances(staffId, period) unique index',
+      );
+      const hasStaffWorkloadUpsertConstraint = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM pg_index i
+            JOIN pg_class tbl ON tbl.oid = i.indrelid
+            JOIN pg_namespace ns ON ns.oid = tbl.relnamespace
+            JOIN LATERAL (
+              SELECT array_agg(att.attname::text ORDER BY k.ord) AS columns
+              FROM unnest(i.indkey) WITH ORDINALITY AS k(attnum, ord)
+              JOIN pg_attribute att
+                ON att.attrelid = tbl.oid
+               AND att.attnum = k.attnum
+            ) keycols ON TRUE
+            WHERE ns.nspname = 'public'
+              AND tbl.relname = 'staff_workloads'
+              AND i.indisunique = TRUE
+              AND i.indpred IS NULL
+              AND i.indexprs IS NULL
+              AND keycols.columns = ARRAY['staffId', 'date']::text[]
+          ) AS "exists"
+        `,
+        'staff_workloads(staffId, date) unique index',
+      );
+
+      return {
+        hasInternalMembershipTable,
+        hasHearingNoShowNoteColumn,
+        hasStaffPerformanceUpsertConstraint,
+        hasStaffWorkloadUpsertConstraint,
+      };
     } finally {
       try {
         await queryRunner.release();

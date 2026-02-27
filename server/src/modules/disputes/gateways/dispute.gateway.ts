@@ -93,6 +93,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
       client.data.user = user;
       client.data.hearingIds = new Set<string>();
       await client.join(this.userRoom(user.id));
+      this.logger.log(`WS connected: ${user.email} (${user.role}) sid=${client.id}`);
     } catch (error) {
       this.logger.warn(`WS auth failed: ${error instanceof Error ? error.message : 'unknown'}`);
       client.disconnect(true);
@@ -106,6 +107,10 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     }
 
     const hearingIds = client.data.hearingIds as Set<string> | undefined;
+    this.logger.log(
+      `WS disconnected: ${user.email} sid=${client.id} hearings=${hearingIds?.size ?? 0}`,
+    );
+
     if (!hearingIds || hearingIds.size === 0) {
       return;
     }
@@ -172,6 +177,24 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     if (access.trackPresence) {
       await this.hearingService.markParticipantOnline(data.hearingId, user.id);
       this.trackHearing(client, data.hearingId);
+    }
+
+    this.logger.log(
+      `joinHearing: ${user.email} joined ${data.hearingId.slice(0, 8)}… track=${access.trackPresence}`,
+    );
+
+    // Send the current presence state of ALL participants to the joining
+    // client so it can reconcile any stale data from the initial REST fetch.
+    try {
+      const presenceSnapshot = await this.hearingService.getParticipantsPresence(data.hearingId);
+      client.emit('HEARING_PRESENCE_SYNC', {
+        hearingId: data.hearingId,
+        participants: presenceSnapshot,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `Failed to emit HEARING_PRESENCE_SYNC: ${err instanceof Error ? err.message : 'unknown'}`,
+      );
     }
 
     return { joined: true, room };
@@ -251,32 +274,47 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     return { left: true, room };
   }
 
+  @SubscribeMessage('HEARING_TYPING')
+  handleHearingTyping(
+    @MessageBody() data: { hearingId: string; isTyping?: boolean },
+    @ConnectedSocket() client: Socket,
+  ): void {
+    if (!data?.hearingId) return;
+    const user = this.getUser(client);
+    const room = this.hearingRoom(data.hearingId);
+    // Broadcast to everyone in the room EXCEPT the sender.
+    this.emitToRoomSafely(room, 'HEARING_TYPING', {
+      userId: user.id,
+      isTyping: data.isTyping ?? true,
+    }, client.id);
+  }
+
   emitDisputeEvent(disputeId: string, event: string, payload: Record<string, any>): void {
     if (!this.server) {
       return;
     }
-    this.server.to(this.disputeRoom(disputeId)).emit(event, payload);
+    this.emitToRoomSafely(this.disputeRoom(disputeId), event, payload);
   }
 
   emitHearingEvent(hearingId: string, event: string, payload: Record<string, any>): void {
     if (!this.server) {
       return;
     }
-    this.server.to(this.hearingRoom(hearingId)).emit(event, payload);
+    this.emitToRoomSafely(this.hearingRoom(hearingId), event, payload);
   }
 
   emitStaffDashboardEvent(event: string, payload: Record<string, any>): void {
     if (!this.server) {
       return;
     }
-    this.server.to(this.staffDashboardRoom()).emit(event, payload);
+    this.emitToRoomSafely(this.staffDashboardRoom(), event, payload);
   }
 
   emitUserEvent(userId: string, event: string, payload: Record<string, any>): void {
     if (!this.server || !userId) {
       return;
     }
-    this.server.to(this.userRoom(userId)).emit(event, payload);
+    this.emitToRoomSafely(this.userRoom(userId), event, payload);
   }
 
   private async authenticate(client: Socket): Promise<WsUser> {
@@ -405,7 +443,9 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
       throw new WsException('Access denied');
     }
 
-    return { trackPresence: Boolean(participant) };
+    // Track presence for anyone who has a participant record
+    // (moderators/admins may also have one)
+    return { trackPresence: Boolean(participant) || isModerator || isAdmin };
   }
 
   private disputeRoom(disputeId: string): string {
@@ -422,6 +462,60 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
 
   private userRoom(userId: string): string {
     return `/ws/users/${userId}`;
+  }
+
+  private emitToRoomSafely(
+    room: string,
+    event: string,
+    payload: Record<string, any>,
+    excludeSocketId?: string,
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    try {
+      if (excludeSocketId) {
+        this.server.except(excludeSocketId).to(room).emit(event, payload);
+      } else {
+        this.server.to(room).emit(event, payload);
+      }
+      return;
+    } catch (error) {
+      this.logger.warn(
+        `Socket emit failed (room=${room}, event=${event}). Falling back to local sockets only: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+    }
+
+    this.emitToLocalRoom(room, event, payload, excludeSocketId);
+  }
+
+  private emitToLocalRoom(
+    room: string,
+    event: string,
+    payload: Record<string, any>,
+    excludeSocketId?: string,
+  ): void {
+    if (!this.server) {
+      return;
+    }
+
+    const socketIds = this.server.sockets.adapter.rooms.get(room);
+    if (!socketIds || socketIds.size === 0) {
+      return;
+    }
+
+    for (const socketId of socketIds) {
+      if (excludeSocketId && socketId === excludeSocketId) {
+        continue;
+      }
+      const socket = this.server.sockets.sockets.get(socketId);
+      if (socket) {
+        socket.emit(event, payload);
+      }
+    }
   }
 
   private trackHearing(client: Socket, hearingId: string): void {

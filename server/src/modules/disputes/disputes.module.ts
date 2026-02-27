@@ -19,6 +19,7 @@ import {
   DisputeMessageEntity,
   DisputeNoteEntity,
   DisputePartyEntity,
+  DisputeInternalMembershipEntity,
   DisputeScheduleProposalEntity,
   DisputeViewStateEntity,
   DisputeHearingEntity,
@@ -42,9 +43,12 @@ import {
 import { StaffAssignmentModule } from './modules/staff-assignment.module';
 import { HearingModule } from './modules/hearing.module';
 import { VerdictService } from './services/verdict.service';
+import { VerdictReadinessService } from './services/verdict-readiness.service';
+import { HearingVerdictOrchestratorService } from './services/hearing-verdict-orchestrator.service';
 import { DisputeGateway } from './gateways/dispute.gateway';
 import { DisputeEventListener } from './events/dispute-event.listener';
 import { DisputeNotificationListener } from './events/dispute-notification.listener';
+import { DisputeSchemaReadinessFilter } from './filters/dispute-schema-readiness.filter';
 
 @Module({
   imports: [
@@ -57,6 +61,7 @@ import { DisputeNotificationListener } from './events/dispute-notification.liste
       DisputeMessageEntity,
       DisputeLedgerEntity,
       DisputePartyEntity,
+      DisputeInternalMembershipEntity,
       DisputeScheduleProposalEntity,
       DisputeViewStateEntity,
       // Hearing Room entities
@@ -93,10 +98,13 @@ import { DisputeNotificationListener } from './events/dispute-notification.liste
   providers: [
     DisputesService,
     VerdictService,
+    VerdictReadinessService,
+    HearingVerdictOrchestratorService,
     DisputeGateway,
     DisputeEventListener,
     DisputeNotificationListener,
+    DisputeSchemaReadinessFilter,
   ],
-  exports: [DisputesService, VerdictService],
+  exports: [DisputesService, VerdictService, VerdictReadinessService, HearingVerdictOrchestratorService],
 })
 export class DisputesModule {}

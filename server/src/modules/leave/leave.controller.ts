@@ -19,6 +19,7 @@ import {
   CancelLeaveRequestDto,
   CreateLeaveRequestDto,
   LeaveBalanceQueryDto,
+  ListLeavePoliciesQueryDto,
   ListLeaveRequestsQueryDto,
   ProcessLeaveRequestDto,
   UpdateLeavePolicyDto,
@@ -73,6 +74,13 @@ export class LeaveController {
   @ApiOperation({ summary: 'Get leave balance for month' })
   async getLeaveBalance(@Query() query: LeaveBalanceQueryDto, @GetUser() user: UserEntity) {
     return this.leaveService.getLeaveBalance(query, user, query.staffId);
+  }
+
+  @Get('policies')
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'List leave policies for staff (admin)' })
+  async listLeavePolicies(@Query() query: ListLeavePoliciesQueryDto, @GetUser() user: UserEntity) {
+    return this.leaveService.listLeavePolicies(query, user);
   }
 
   @Patch('policy/:staffId')
