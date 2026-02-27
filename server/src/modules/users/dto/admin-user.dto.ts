@@ -4,8 +4,8 @@ import { UserRole } from '../../../database/entities/user.entity';
 
 export class BanUserDto {
   @ApiProperty({
-    description: 'Lý do ban user',
-    example: 'Vi phạm điều khoản sử dụng nhiều lần',
+    description: 'Reason for banning user',
+    example: 'Multiple violations of terms of service',
   })
   @IsString()
   reason: string;
@@ -13,8 +13,8 @@ export class BanUserDto {
 
 export class UnbanUserDto {
   @ApiProperty({
-    description: 'Lý do unban user',
-    example: 'Đã phục hồi sau khiếu nại',
+    description: 'Reason for unbanning user',
+    example: 'Restored after appeal',
   })
   @IsString()
   reason: string;
@@ -22,14 +22,14 @@ export class UnbanUserDto {
 
 export class ResetUserPasswordDto {
   @ApiProperty({
-    description: 'Mật khẩu tạm thời mới',
+    description: 'New temporary password',
     example: 'TempPass123!',
   })
   @IsString()
   newPassword: string;
 
   @ApiPropertyOptional({
-    description: 'Gửi email thông báo cho user',
+    description: 'Send notification email to user',
     default: true,
   })
   @IsBoolean()
@@ -39,7 +39,7 @@ export class ResetUserPasswordDto {
 
 export class UserFilterDto {
   @ApiPropertyOptional({
-    description: 'Filter theo role',
+    description: 'Filter by role',
     enum: UserRole,
   })
   @IsEnum(UserRole)
@@ -47,14 +47,14 @@ export class UserFilterDto {
   role?: UserRole;
 
   @ApiPropertyOptional({
-    description: 'Search theo email hoặc tên',
+    description: 'Search by email or name',
   })
   @IsString()
   @IsOptional()
   search?: string;
 
   @ApiPropertyOptional({
-    description: 'Filter theo trạng thái ban',
+    description: 'Filter by ban status',
   })
   @IsBoolean()
   @IsOptional()

@@ -26,6 +26,8 @@ import { TableCell } from "@tiptap/extension-table-cell";
 import { CodeBlockLowlight } from "@tiptap/extension-code-block-lowlight";
 import { TaskList } from "@tiptap/extension-task-list";
 import { TaskItem } from "@tiptap/extension-task-item";
+import { TextSelection } from "@tiptap/pm/state";
+import type { EditorView } from "@tiptap/pm/view";
 import { common, createLowlight } from "lowlight";
 import "highlight.js/styles/github.css";
 import {
@@ -67,6 +69,8 @@ import {
 } from "@/shared/components/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/shared/components/ui/popover";
 import { ScrollArea } from "@/shared/components/ui/scroll-area";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
+import { toast } from "sonner";
 import { uploadImageToServer } from "../../utils/file-upload.service";
 
 const lowlight = createLowlight(common);
@@ -263,6 +267,58 @@ const HEADING_OPTIONS = [
   { value: "heading-5", label: "Heading 5", level: 5 },
   { value: "heading-6", label: "Heading 6", level: 6 },
 ] as const;
+const MAX_IMAGE_UPLOAD_BYTES = 10 * 1024 * 1024;
+
+const extractImageFiles = (dataTransfer: DataTransfer | null | undefined): File[] => {
+  if (!dataTransfer) {
+    return [];
+  }
+
+  const filesFromItems = Array.from(dataTransfer.items ?? [])
+    .filter((item) => item.kind === "file")
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+    .filter((file) => file.type.startsWith("image/"));
+
+  const filesFromList = Array.from(dataTransfer.files ?? []).filter((file) =>
+    file.type.startsWith("image/")
+  );
+
+  const uniqueFiles = new Map<string, File>();
+  for (const file of [...filesFromItems, ...filesFromList]) {
+    uniqueFiles.set(`${file.name}-${file.size}-${file.lastModified}`, file);
+  }
+
+  return Array.from(uniqueFiles.values());
+};
+
+const insertImageNode = (view: EditorView, src: string, dropPosition?: number) => {
+  const { state } = view;
+  const imageNodeType = state.schema.nodes.image;
+
+  if (!imageNodeType) {
+    console.error("RichTextEditor image insertion failed: image node is not configured.");
+    return;
+  }
+
+  const imageNode = imageNodeType.create({ src });
+  let transaction = state.tr;
+
+  if (typeof dropPosition === "number") {
+    const safePosition = Math.max(0, Math.min(dropPosition, state.doc.content.size));
+    transaction = transaction.setSelection(TextSelection.near(state.doc.resolve(safePosition)));
+  }
+
+  transaction = transaction.replaceSelectionWith(imageNode).scrollIntoView();
+  view.dispatch(transaction);
+  view.focus();
+};
+
+const formatFileSize = (bytes: number): string => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
 
 export default function RichTextEditor({
   placeholder = "Add a comment...",
@@ -283,6 +339,70 @@ export default function RichTextEditor({
   const [insertSearch, setInsertSearch] = useState("");
   const [insertMenuOpen, setInsertMenuOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const uploadAndInsertImages = async (
+    files: File[],
+    view: EditorView,
+    options: { dropPosition?: number } = {}
+  ) => {
+    if (files.length === 0) {
+      console.error("RichTextEditor received an image upload request with no files.");
+      return;
+    }
+
+    setIsUploadingImage(true);
+    try {
+      for (const [index, file] of files.entries()) {
+        if (!file.type.startsWith("image/")) {
+          console.error("RichTextEditor rejected non-image file during upload.", {
+            name: file.name,
+            type: file.type,
+            size: file.size,
+          });
+          toast.error("Invalid image file", {
+            description: `${file.name} is not a supported image.`,
+          });
+          continue;
+        }
+
+        if (file.size > MAX_IMAGE_UPLOAD_BYTES) {
+          console.error("RichTextEditor rejected oversized image file.", {
+            name: file.name,
+            size: file.size,
+            maxBytes: MAX_IMAGE_UPLOAD_BYTES,
+          });
+          toast.error("Image is too large", {
+            description: `${file.name} is ${formatFileSize(file.size)}. Maximum allowed size is 10 MB.`,
+          });
+          continue;
+        }
+
+        try {
+          const url = await uploadImageToServer(file, {
+            bucket: "task-attachments",
+            pathPrefix: "comments",
+          });
+          insertImageNode(view, url, index === 0 ? options.dropPosition : undefined);
+        } catch (error) {
+          const { message } = getApiErrorDetails(
+            error,
+            "Could not upload image. Please try again."
+          );
+          console.error("RichTextEditor failed to upload and insert image.", {
+            name: file.name,
+            type: file.type,
+            size: file.size,
+            error,
+          });
+          toast.error("Image upload failed", {
+            description: `${file.name}: ${message}`,
+          });
+        }
+      }
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
 
   const editor = useEditor({
     extensions: [
@@ -330,6 +450,35 @@ export default function RichTextEditor({
     ],
     content: "",
     editorProps: {
+      handlePaste: (view, event) => {
+        const imageFiles = extractImageFiles(event.clipboardData);
+        if (imageFiles.length === 0) {
+          return false;
+        }
+
+        event.preventDefault();
+        void uploadAndInsertImages(imageFiles, view);
+        return true;
+      },
+      handleDrop: (view, event, _slice, moved) => {
+        if (moved) {
+          return false;
+        }
+
+        const imageFiles = extractImageFiles(event.dataTransfer);
+        if (imageFiles.length === 0) {
+          return false;
+        }
+
+        event.preventDefault();
+        const coordinates = view.posAtCoords({ left: event.clientX, top: event.clientY });
+        if (!coordinates) {
+          console.error("RichTextEditor could not resolve drop coordinates for image insertion.");
+        }
+
+        void uploadAndInsertImages(imageFiles, view, { dropPosition: coordinates?.pos });
+        return true;
+      },
       attributes: {
         class: cn(
           "min-h-[140px] w-full bg-white p-3 text-sm text-gray-900 focus:outline-none",
@@ -455,20 +604,8 @@ export default function RichTextEditor({
     if (!editor) return;
     const file = event.target.files?.[0];
     if (!file) return;
-
-    setIsUploadingImage(true);
-    try {
-      const url = await uploadImageToServer(file, {
-        bucket: "task-attachments",
-        pathPrefix: "comments",
-      });
-      editor.chain().focus().setImage({ src: url }).run();
-    } catch (error) {
-      console.error("Failed to upload image:", error);
-    } finally {
-      setIsUploadingImage(false);
-      event.target.value = "";
-    }
+    await uploadAndInsertImages([file], editor.view);
+    event.target.value = "";
   };
 
   const handleInsertTable = () => {

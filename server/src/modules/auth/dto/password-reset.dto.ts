@@ -65,7 +65,7 @@ export class ResetPasswordDto {
   @IsString({ message: 'Password must be a string' })
   @MinLength(8, { message: 'Password must be at least 8 characters' })
   @Matches(/^(?=.*[a-z])(?=.*[\d@$!%*?&])/, {
-    message: 'Mật khẩu phải chứa ít nhất một chữ thường và một số/ký tự đặc biệt (@$!%*?&)',
+    message: 'Password must contain at least one lowercase letter and one number or special character (@$!%*?&)',
   })
   newPassword: string;
 
@@ -95,7 +95,7 @@ export class ForgotPasswordResponseDto {
   email: string;
 
   @ApiProperty({
-    description: 'Thời gian hết hạn OTP (giây)',
+    description: 'OTP expiration time (seconds)',
     example: 300,
   })
   expiresIn: number;
@@ -103,13 +103,13 @@ export class ForgotPasswordResponseDto {
 
 export class VerifyOtpResponseDto {
   @ApiProperty({
-    description: 'Thông báo kết quả',
-    example: 'Xác thực OTP thành công',
+    description: 'Result message',
+    example: 'OTP verification successful',
   })
   message: string;
 
   @ApiProperty({
-    description: 'OTP có hợp lệ hay không',
+    description: 'Whether OTP is valid',
     example: true,
   })
   isValid: boolean;
@@ -117,8 +117,8 @@ export class VerifyOtpResponseDto {
 
 export class ResetPasswordResponseDto {
   @ApiProperty({
-    description: 'Thông báo kết quả',
-    example: 'Đặt lại mật khẩu thành công',
+    description: 'Result message',
+    example: 'Password reset successful',
   })
   message: string;
 }

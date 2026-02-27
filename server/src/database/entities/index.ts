@@ -1,5 +1,5 @@
 // User & Auth Entities
-export { UserEntity, UserRole, BadgeType } from './user.entity';
+export { UserEntity, UserRole, UserStatus, BadgeType } from './user.entity';
 export { SocialAccountEntity } from './social-account.entity';
 export { ProfileEntity } from './profile.entity';
 export { SavedFreelancerEntity } from './saved-freelancer.entity';
@@ -19,6 +19,7 @@ export { ProjectEntity, ProjectStatus, PricingModel } from './project.entity';
 export { ProjectCategoryEntity } from './project-category.entity';
 export { MilestoneEntity, MilestoneStatus } from './milestone.entity';
 export { TaskEntity, TaskStatus } from './task.entity';
+export { WorkspaceMessageEntity } from './workspace-message.entity';
 export { ContractEntity } from './contract.entity';
 export { DigitalSignatureEntity } from './digital-signature.entity';
 export { DocumentEntity, DocType } from './document.entity';
@@ -51,6 +52,7 @@ export {
   DisputeScheduleProposalStatus,
 } from './dispute-schedule-proposal.entity';
 export { DisputeViewStateEntity } from './dispute-view-state.entity';
+export { DisputeInternalMembershipEntity } from './dispute-internal-membership.entity';
 export {
   DisputeHearingEntity,
   HearingParticipantEntity,

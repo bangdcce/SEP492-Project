@@ -183,16 +183,16 @@ export class AuthService {
     });
 
     if (!user) {
-      throw new UnauthorizedException('Email ho蘯ｷc m蘯ｭt kh蘯ｩu khﾃｴng ﾄ妥ｺng');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
-    // Ki盻ノ tra password
+    // Check password
     if (!user.passwordHash) {
-      throw new UnauthorizedException('Email ho蘯ｷc m蘯ｭt kh蘯ｩu khﾃｴng ﾄ妥ｺng');
+      throw new UnauthorizedException('Invalid email or password');
     }
     const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Email ho蘯ｷc m蘯ｭt kh蘯ｩu khﾃｴng ﾄ妥ｺng');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     // Check user status

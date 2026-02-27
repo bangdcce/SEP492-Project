@@ -65,7 +65,7 @@ export class ReviewService {
     // Chỉ dự án đã Hoàn Thành mới được review (để tránh blackmailing)
 
     if (project.status !== ProjectStatus.COMPLETED) {
-      throw new BadRequestException('Chỉ có thể dánh giá khi dự án đã hoàn thành (COMPLETE).');
+      throw new BadRequestException('You can only review a completed project (COMPLETE status).');
     }
 
     // 2. Security Logic : Kiểm tra quyền thành viên
@@ -74,7 +74,7 @@ export class ReviewService {
     // Lọc bỏ null/undefined (freelancerId có thể null nếu chưa assign)
     const validMembers = [project.clientId, project.freelancerId, project.brokerId].filter(Boolean);
     if (!validMembers.includes(reviewerId)) {
-      throw new ForbiddenException('Bạn không phải thành viên dự án này.');
+      throw new ForbiddenException('You are not a member of this project.');
     }
 
     // Người được đánh giá cũng phải là thành viên dự án

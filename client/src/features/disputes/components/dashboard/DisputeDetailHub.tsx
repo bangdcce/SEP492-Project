@@ -4,7 +4,6 @@ import {
   FileText,
   MessageSquare,
   History,
-  Scale,
   ShieldAlert,
   ChevronLeft,
   Clock,
@@ -15,8 +14,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { DisputeComplexityBadge } from "./DisputeComplexityBadge";
 import { EvidenceVault } from "../evidence/EvidenceVault";
-import { DiscussionPanel } from "./DiscussionPanel";
-import { VerdictWizard } from "../wizard/VerdictWizard";
+import { InternalCaseNotesPanel } from "./InternalCaseNotesPanel";
 import { DisputeHearingPanel } from "../hearings/DisputeHearingPanel";
 import { useDisputeRealtime } from "@/features/disputes/hooks/useDisputeRealtime";
 import { STORAGE_KEYS } from "@/constants";
@@ -31,7 +29,7 @@ import type {
   DisputeComplexity,
   DisputeSummary,
 } from "../../types/dispute.types";
-import { DisputePhase, DisputeStatus, UserRole } from "../../../staff/types/staff.types";
+import { DisputeStatus, UserRole } from "../../../staff/types/staff.types";
 
 interface DisputeDetailHubProps {
   disputeId?: string;
@@ -115,11 +113,18 @@ export const DisputeDetailHub = ({
     hearing: 1,
     evidence: 2,
     "evidence-vault": 2,
+    "internal-notes": 3,
     discussion: 3,
     chat: 3,
-    resolution: 4,
-    verdict: 4,
+    resolution: 1,
+    verdict: 1,
   };
+  const migrationBanner =
+    normalizedTab === "resolution" || normalizedTab === "verdict"
+      ? "Resolution tab was removed. Verdict must be issued transparently from Hearing Room (Deliberation phase)."
+      : normalizedTab === "discussion" || normalizedTab === "chat"
+        ? "Case Discussion (Async) has been replaced by Internal Case Notes. Public async chat is now archive-only."
+        : null;
   const initialIndex =
     normalizedTab && tabIndexMap[normalizedTab] !== undefined
       ? tabIndexMap[normalizedTab]
@@ -182,6 +187,10 @@ export const DisputeDetailHub = ({
   }, [disputeId]);
 
   useEffect(() => {
+    setSelectedIndex(initialIndex);
+  }, [initialIndex, disputeId]);
+
+  useEffect(() => {
     if (initialDispute?.id && initialDispute.id === disputeId) {
       setDispute(initialDispute);
     }
@@ -204,10 +213,6 @@ export const DisputeDetailHub = ({
     fetchComplexity(false);
     setRefreshToken((prev) => prev + 1);
   }, [fetchDetail, fetchActivities, fetchComplexity]);
-
-  const handlePhaseUpdated = useCallback((phase: DisputePhase) => {
-    setDispute((prev) => (prev ? { ...prev, phase } : prev));
-  }, []);
 
   useDisputeRealtime(disputeId, {
     onEvidenceUploaded: handleRealtimeRefresh,
@@ -294,24 +299,10 @@ export const DisputeDetailHub = ({
       ) : null,
     },
     {
-      name: "Case Discussion (Async)",
+      name: "Internal Case Notes",
       icon: MessageSquare,
       component: disputeId ? (
-        <DiscussionPanel
-          disputeId={disputeId}
-          dispute={dispute}
-          onPhaseUpdated={handlePhaseUpdated}
-        />
-      ) : null,
-    },
-    {
-      name: "Resolution",
-      icon: Scale,
-      component: disputeId ? (
-        <VerdictWizard
-          disputeId={disputeId}
-          disputedAmount={dispute?.disputedAmount}
-        />
+        <InternalCaseNotesPanel disputeId={disputeId} />
       ) : null,
     },
   ];
@@ -413,9 +404,9 @@ export const DisputeDetailHub = ({
           </div>
 
           <div className="flex-1 overflow-y-auto p-6" role="tabpanel">
-            {selectedIndex === 3 && (
-              <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                Hearing live chat is available only inside Hearing Room at scheduled time.
+            {migrationBanner && (
+              <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {migrationBanner}
               </div>
             )}
             {loading ? (

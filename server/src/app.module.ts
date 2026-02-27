@@ -12,6 +12,7 @@ import { ProjectsModule } from './modules/projects/projects.module';
 import jwtConfig from './config/jwt.config';
 import { WizardModule } from './modules/wizard/wizard.module';
 import { ProjectRequestsModule } from './modules/project-requests/project-requests.module';
+import { MatchingModule } from './modules/matching/matching.module';
 import { ReviewModule } from './modules/review/review.module';
 import { TrustScoreModule } from './modules/trust-score/trust-score.module';
 import { ReportModule } from './modules/report/report.module';
@@ -26,6 +27,8 @@ import { CalendarModule } from './modules/calendar/calendar.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { HealthModule } from './modules/health/health.module';
+import { MatchingModule } from './modules/matching/matching.module';
+import { WorkspaceChatModule } from './modules/workspace-chat/workspace-chat.module';
 
 const parseNumberEnv = (value: string | undefined, fallback: number): number => {
   if (!value) return fallback;
@@ -75,7 +78,12 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
             idleTimeoutMillis: poolIdleMs,
             connectionTimeoutMillis: poolConnTimeoutMs,
             keepAlive: true,
+            // PgBouncer transaction-mode compatibility: disable prepared statements
+            statement_timeout: 30000,
           },
+          // Retry on transient connection failures (e.g. pool exhaustion)
+          retryAttempts: 3,
+          retryDelay: 1000,
         };
       },
     }),
@@ -106,6 +114,7 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
     ProjectsModule,
     WizardModule,
     ProjectRequestsModule,
+    MatchingModule,
     ReviewModule,
     TrustScoreModule,
     ReportModule,
@@ -120,6 +129,8 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
     UsersModule,
     ContractsModule,
     HealthModule,
+    MatchingModule,
+    WorkspaceChatModule,
   ],
   controllers: [AppController],
   providers: [AppService],

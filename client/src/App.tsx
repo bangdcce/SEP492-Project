@@ -28,6 +28,8 @@ const RequestDetailPage = lazy(
 );
 const MyInvitationsPage = lazy(() => import("@/features/dashboard/MyInvitationsPage").then(m => ({ default: m.MyInvitationsPage })));
 const InvitationDetailsPage = lazy(() => import("@/features/dashboard/InvitationDetailsPage").then(m => ({ default: m.InvitationDetailsPage })));
+const DiscoveryPage = lazy(() => import("@/features/discovery/DiscoveryPage").then(m => ({ default: m.DiscoveryPage })));
+const PartnerProfilePage = lazy(() => import("@/features/discovery/PartnerProfilePage").then(m => ({ default: m.PartnerProfilePage })));
 
 // ========== PROJECT PAGES ==========
 const ProjectListPage = lazy(
@@ -75,6 +77,9 @@ const ContractListPage = lazy(
 );
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
+const AdminLeaveManagementPage = lazy(
+  () => import("@/pages/AdminLeaveManagementPage"),
+);
 
 // ========== HEARINGS (CLIENT/BROKER/FREELANCER) ==========
 const ParticipantHearingsPage = lazy(() =>
@@ -89,9 +94,6 @@ const ParticipantHearingRoomPage = lazy(() =>
 );
 
 // ========== FREELANCER PAGES ==========
-const FreelancerOnboardingPage = lazy(
-  () => import("@/pages/FreelancerOnboardingPage"),
-);
 const FreelancerDashboardPage = lazy(
   () => import("@/pages/FreelancerDashboardPage"),
 );
@@ -235,14 +237,6 @@ function App() {
 
         {/* ========== FREELANCER ROUTES - /freelancer/* ========== */}
         <Route
-          path={ROUTES.FREELANCER_ONBOARDING}
-          element={
-            <RoleGuard allowedRoles={["FREELANCER"]}>
-              <FreelancerOnboardingPage />
-            </RoleGuard>
-          }
-        />
-        <Route
           path={ROUTES.FREELANCER_DASHBOARD}
           element={
             <RoleGuard allowedRoles={["FREELANCER"]}>
@@ -274,7 +268,7 @@ function App() {
           path="/freelancer/hearings/:hearingId"
           element={
             <RoleGuard allowedRoles={["FREELANCER"]}>
-              <FreelancerDashboardLayout>
+              <FreelancerDashboardLayout showFooter={false} contentMode="hearing-room">
                 <ParticipantHearingRoomPage />
               </FreelancerDashboardLayout>
             </RoleGuard>
@@ -407,7 +401,7 @@ function App() {
           path="/client/hearings/:hearingId"
           element={
             <RoleGuard allowedRoles={["CLIENT"]}>
-              <ClientDashboardLayout>
+              <ClientDashboardLayout showFooter={false} contentMode="hearing-room">
                 <ParticipantHearingRoomPage />
               </ClientDashboardLayout>
             </RoleGuard>
@@ -439,6 +433,27 @@ function App() {
             <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <KYCStatusPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+
+        <Route
+          path="/client/discovery"
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <DiscoveryPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/client/discovery/profile/:id"
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <PartnerProfilePage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -491,6 +506,16 @@ function App() {
             <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminUsersPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/admin/leave"
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminLeaveManagementPage />
               </AdminDashboardLayout>
             </RoleGuard>
           }
@@ -561,7 +586,7 @@ function App() {
           path="/broker/hearings/:hearingId"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
-              <BrokerDashboardLayout>
+              <BrokerDashboardLayout showFooter={false} contentMode="hearing-room">
                 <ParticipantHearingRoomPage />
               </BrokerDashboardLayout>
             </RoleGuard>

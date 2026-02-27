@@ -61,6 +61,7 @@ export const ROUTES = {
   ADMIN_DASHBOARD: "/admin/dashboard",
   ADMIN_AUDIT_LOGS: "/admin/audit-logs",
   ADMIN_REVIEW_MODERATION: "/admin/reviews",
+  ADMIN_LEAVE: "/admin/leave",
   ADMIN_PROFILE: "/admin/profile",
 
   // ========== STAFF ROUTES - prefix /staff ==========

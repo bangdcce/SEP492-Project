@@ -5,7 +5,7 @@ import { Building2, Handshake, Laptop } from "lucide-react";
 
 interface AuthLayoutProps {
   children: React.ReactNode;
-  title: string;
+  title?: string;
   subtitle?: string;
 }
 
@@ -51,33 +51,37 @@ export function AuthLayout({ children, title, subtitle }: AuthLayoutProps) {
           </motion.div>
 
           {/* Title & Subtitle */}
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            style={{ marginBottom: "0.5rem" }}
-          >
-            <h1
-              style={{
-                fontSize: "2rem",
-                fontWeight: 600,
-                color: "var(--auth-text)",
-                marginBottom: "0.5rem",
-              }}
+          {(title || subtitle) && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              style={{ marginBottom: "0.5rem" }}
             >
-              {title}
-            </h1>
-            {subtitle && (
-              <p
-                style={{
-                  color: "var(--auth-text-muted)",
-                  fontSize: "1rem",
-                }}
-              >
-                {subtitle}
-              </p>
-            )}
-          </motion.div>
+              {title && (
+                <h1
+                  style={{
+                    fontSize: "2rem",
+                    fontWeight: 600,
+                    color: "var(--auth-text)",
+                    marginBottom: "0.5rem",
+                  }}
+                >
+                  {title}
+                </h1>
+              )}
+              {subtitle && (
+                <p
+                  style={{
+                    color: "var(--auth-text-muted)",
+                    fontSize: "1rem",
+                  }}
+                >
+                  {subtitle}
+                </p>
+              )}
+            </motion.div>
+          )}
 
           {/* Form Content */}
           <motion.div

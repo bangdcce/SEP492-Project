@@ -151,3 +151,71 @@ export const checkObligations = async (): Promise<{
 export const deleteAccount = async (password: string): Promise<{ message: string }> => {
   return await apiClient.post<{ message: string }>('/auth/delete-account', { password });
 };
+
+/**
+ * Upload CV (PDF or DOCX, max 5MB)
+ */
+export const uploadCV = async (file: File): Promise<{ cvUrl: string; message: string }> => {
+  const formData = new FormData();
+  formData.append('file', file);
+  
+  return await apiClient.post<{ cvUrl: string; message: string }>(
+    '/profile/cv',
+    formData,
+    {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    }
+  );
+};
+
+/**
+ * Get CV download URL
+ */
+export const getCV = async (): Promise<{ cvUrl: string | null }> => {
+  return await apiClient.get<{ cvUrl: string | null }>('/profile/cv');
+};
+
+/**
+ * Delete CV
+ */
+export const deleteCV = async (): Promise<{ message: string }> => {
+  return await apiClient.delete<{ message: string }>('/profile/cv');
+};
+
+/**
+ * Update bio (max 1000 characters)
+ */
+export const updateBio = async (bio: string): Promise<{ message: string }> => {
+  return await apiClient.patch<{ message: string }>('/profile/bio', { bio });
+};
+
+/**
+ * Get user skills (with full details)
+ */
+export const getUserSkills = async (): Promise<{
+  skills: {
+    id: string;
+    skillId: string;
+    skillName: string;
+    skillSlug: string;
+    skillCategory: string;
+    priority: 'PRIMARY' | 'SECONDARY';
+    verificationStatus: string;
+    proficiencyLevel: number | null;
+    yearsOfExperience: number | null;
+    portfolioUrl: string | null;
+    completedProjectsCount: number;
+    lastUsedAt: string | null;
+  }[];
+}> => {
+  return await apiClient.get('/profile/skills');
+};
+
+/**
+ * Update user skills
+ */
+export const updateUserSkills = async (skillIds: string[]): Promise<{ message: string }> => {
+  return await apiClient.put<{ message: string }>('/profile/skills', { skillIds });
+};

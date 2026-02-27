@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, LessThan, MoreThan, Repository } from 'typeorm';
+import { DataSource, In, LessThan, MoreThan, Repository } from 'typeorm';
 
 import {
   LeaveStatus,
@@ -31,6 +31,7 @@ import {
   CancelLeaveRequestDto,
   CreateLeaveRequestDto,
   LeaveBalanceQueryDto,
+  ListLeavePoliciesQueryDto,
   ListLeaveRequestsQueryDto,
   ProcessLeaveRequestDto,
   UpdateLeavePolicyDto,
@@ -53,6 +54,21 @@ interface LeaveMetricsResult {
   leaveOverageMinutes: number;
 }
 
+interface LeaveActorSummary {
+  id: string;
+  fullName: string;
+  email: string;
+}
+
+interface LeavePolicyListItem {
+  policyId: string | null;
+  staffId: string;
+  staff: LeaveActorSummary;
+  monthlyAllowanceMinutes: number;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}
+
 @Injectable()
 export class LeaveService {
   constructor(
@@ -67,6 +83,7 @@ export class LeaveService {
     @InjectRepository(UserAvailabilityEntity)
     private readonly availabilityRepository: Repository<UserAvailabilityEntity>,
     private readonly availabilityService: AvailabilityService,
+    private readonly dataSource: DataSource,
   ) {}
 
   async createLeaveRequest(dto: CreateLeaveRequestDto, requester: UserEntity) {
@@ -187,10 +204,13 @@ export class LeaveService {
     qb.orderBy('leave.startTime', 'DESC');
 
     const items = await qb.getMany();
+    const data = canViewAll
+      ? await this.attachActorSummaries(items)
+      : await this.attachProcessedBySummaries(items);
 
     return {
       success: true,
-      data: items,
+      data,
     };
   }
 
@@ -209,14 +229,25 @@ export class LeaveService {
 
     const staff = await this.ensureStaff(request.staffId);
     const timeZone = await this.resolveTimeZone(staff);
+    const processedAt = new Date();
 
     if (dto.action === 'reject') {
-      await this.leaveRequestRepository.update(request.id, {
-        status: LeaveStatus.REJECTED,
-        processedById: admin.id,
-        processedAt: new Date(),
-        processedNote: dto.note,
-      });
+      const rejectResult = await this.leaveRequestRepository
+        .createQueryBuilder()
+        .update(StaffLeaveRequestEntity)
+        .set({
+          status: LeaveStatus.REJECTED,
+          processedById: admin.id,
+          processedAt,
+          processedNote: dto.note,
+        })
+        .where('id = :id', { id: request.id })
+        .andWhere('status = :status', { status: LeaveStatus.PENDING })
+        .execute();
+
+      if ((rejectResult.affected ?? 0) === 0) {
+        throw new BadRequestException('Leave request already processed');
+      }
 
       return {
         success: true,
@@ -230,12 +261,22 @@ export class LeaveService {
 
     await this.applyLeaveToAvailability(request, timeZone);
 
-    await this.leaveRequestRepository.update(request.id, {
-      status: LeaveStatus.APPROVED,
-      processedById: admin.id,
-      processedAt: new Date(),
-      processedNote: dto.note,
-    });
+    const approvalResult = await this.leaveRequestRepository
+      .createQueryBuilder()
+      .update(StaffLeaveRequestEntity)
+      .set({
+        status: LeaveStatus.APPROVED,
+        processedById: admin.id,
+        processedAt,
+        processedNote: dto.note,
+      })
+      .where('id = :id', { id: request.id })
+      .andWhere('status = :status', { status: LeaveStatus.PENDING })
+      .execute();
+    if ((approvalResult.affected ?? 0) === 0) {
+      await this.deleteLeaveAvailability(request.id);
+      throw new BadRequestException('Leave request already processed');
+    }
     try {
       await this.refreshLeavePerformanceForRequest(request, timeZone);
     } catch {
@@ -267,14 +308,30 @@ export class LeaveService {
       throw new BadRequestException('Cannot cancel leave that already started');
     }
 
-    await this.leaveRequestRepository.update(request.id, {
-      status: LeaveStatus.CANCELLED,
-      cancelledById: requester.id,
-      cancelledAt: new Date(),
-      processedNote: dto.note,
+    const cancelledAt = new Date();
+    await this.dataSource.transaction(async (manager) => {
+      const cancelResult = await manager
+        .createQueryBuilder()
+        .update(StaffLeaveRequestEntity)
+        .set({
+          status: LeaveStatus.CANCELLED,
+          cancelledById: requester.id,
+          cancelledAt,
+          processedNote: dto.note,
+        })
+        .where('id = :id', { id: request.id })
+        .andWhere('status IN (:...statuses)', {
+          statuses: [LeaveStatus.PENDING, LeaveStatus.APPROVED],
+        })
+        .execute();
+
+      if ((cancelResult.affected ?? 0) === 0) {
+        throw new BadRequestException('Leave request is already closed');
+      }
+
+      await manager.delete(UserAvailabilityEntity, { linkedLeaveRequestId: request.id });
     });
 
-    await this.deleteLeaveAvailability(request.id);
     const staff = await this.ensureStaff(request.staffId);
     const timeZone = await this.resolveTimeZone(staff);
     try {
@@ -336,6 +393,72 @@ export class LeaveService {
     return {
       success: true,
       message: 'Leave policy created',
+    };
+  }
+
+  async listLeavePolicies(query: ListLeavePoliciesQueryDto, admin: UserEntity) {
+    if (admin.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only admin can list leave policies');
+    }
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const skip = (page - 1) * limit;
+    const search = query.search?.trim();
+
+    const qb = this.userRepository.createQueryBuilder('user');
+    qb.where('user.role = :role', { role: UserRole.STAFF });
+    if (search) {
+      qb.andWhere(
+        '(user.id::text ILIKE :search OR user.fullName ILIKE :search OR user.email ILIKE :search)',
+        {
+          search: `%${search}%`,
+        },
+      );
+    }
+
+    qb.select(['user.id', 'user.fullName', 'user.email']);
+    qb.orderBy('user.fullName', 'ASC');
+    qb.addOrderBy('user.createdAt', 'DESC');
+    qb.skip(skip);
+    qb.take(limit);
+
+    const [staffUsers, total] = await qb.getManyAndCount();
+    const staffIds = staffUsers.map((staff) => staff.id);
+    const policies =
+      staffIds.length === 0
+        ? []
+        : await this.leavePolicyRepository.find({
+            where: { staffId: In(staffIds) },
+          });
+    const policyMap = new Map(policies.map((policy) => [policy.staffId, policy]));
+
+    const data: LeavePolicyListItem[] = staffUsers.map((staff) => {
+      const policy = policyMap.get(staff.id);
+      return {
+        policyId: policy?.id ?? null,
+        staffId: staff.id,
+        staff: {
+          id: staff.id,
+          fullName: staff.fullName,
+          email: staff.email,
+        },
+        monthlyAllowanceMinutes:
+          policy?.monthlyAllowanceMinutes ?? DEFAULT_MONTHLY_ALLOWANCE_MINUTES,
+        createdAt: policy?.createdAt ?? null,
+        updatedAt: policy?.updatedAt ?? null,
+      };
+    });
+
+    return {
+      success: true,
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: total > 0 ? Math.ceil(total / limit) : 0,
+      },
     };
   }
 
@@ -551,6 +674,55 @@ export class LeaveService {
 
   private async deleteLeaveAvailability(leaveRequestId: string) {
     await this.availabilityRepository.delete({ linkedLeaveRequestId: leaveRequestId });
+  }
+
+  private async mapUserSummaries(userIds: string[]): Promise<Map<string, LeaveActorSummary>> {
+    const uniqueIds = Array.from(new Set(userIds.filter((id): id is string => Boolean(id))));
+    if (uniqueIds.length === 0) {
+      return new Map();
+    }
+
+    const users = await this.userRepository.find({
+      where: { id: In(uniqueIds) },
+      select: ['id', 'fullName', 'email'],
+    });
+
+    return new Map(
+      users.map((user) => [
+        user.id,
+        {
+          id: user.id,
+          fullName: user.fullName,
+          email: user.email,
+        },
+      ]),
+    );
+  }
+
+  private async attachActorSummaries(items: StaffLeaveRequestEntity[]) {
+    const userIds = items.flatMap((item) => [
+      item.staffId,
+      ...(item.processedById ? [item.processedById] : []),
+    ]);
+    const summaryMap = await this.mapUserSummaries(userIds);
+
+    return items.map((item) => ({
+      ...item,
+      staff: summaryMap.get(item.staffId) ?? null,
+      processedBy: item.processedById ? summaryMap.get(item.processedById) ?? null : null,
+    }));
+  }
+
+  private async attachProcessedBySummaries(items: StaffLeaveRequestEntity[]) {
+    const processedByIds = items
+      .map((item) => item.processedById)
+      .filter((id): id is string => Boolean(id));
+    const summaryMap = await this.mapUserSummaries(processedByIds);
+
+    return items.map((item) => ({
+      ...item,
+      processedBy: item.processedById ? summaryMap.get(item.processedById) ?? null : null,
+    }));
   }
 
   private async refreshLeavePerformanceForRequest(

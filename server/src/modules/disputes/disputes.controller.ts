@@ -1,6 +1,7 @@
 import {
   Body,
   BadRequestException,
+  ConflictException,
   Controller,
   Delete,
   ForbiddenException,
@@ -12,6 +13,7 @@ import {
   Patch,
   Post,
   Query,
+  UseFilters,
   UseGuards,
 } from '@nestjs/common';
 import { DisputesService } from './disputes.service';
@@ -20,6 +22,7 @@ import { JwtAuthGuard, Roles, RolesGuard, GetUser } from '../auth';
 import { UpdateDisputeDto } from './dto/update-disputes.dto';
 import { UpdateDisputePhaseDto } from './dto/update-dispute-phase.dto';
 import { ResolveDisputeDto } from './dto/resolve-dispute.dto';
+import { IssueHearingVerdictDto } from './dto/hearing-verdict.dto';
 import { AddNoteDto } from './dto/add-note.dto';
 import { DefendantResponseDto } from './dto/defendant-response.dto';
 import { AppealDto } from './dto/appeal.dto';
@@ -36,10 +39,16 @@ import { AutoScheduleTuningDto } from './dto/auto-schedule-tuning.dto';
 import { ProvideDisputeInfoDto } from './dto/provide-dispute-info.dto';
 import { CreateDisputeScheduleProposalDto } from './dto/schedule-proposal.dto';
 import { DisputeStatus, UserRole, UserEntity } from 'src/database/entities';
+import { HearingVerdictOrchestratorService } from './services/hearing-verdict-orchestrator.service';
+import { DisputeSchemaReadinessFilter } from './filters/dispute-schema-readiness.filter';
 
 @Controller('disputes')
+@UseFilters(DisputeSchemaReadinessFilter)
 export class DisputesController {
-  constructor(private readonly disputesService: DisputesService) {}
+  constructor(
+    private readonly disputesService: DisputesService,
+    private readonly hearingVerdictOrchestrator: HearingVerdictOrchestratorService,
+  ) {}
 
   @UseGuards(JwtAuthGuard)
   @Post()
@@ -232,12 +241,7 @@ export class DisputesController {
     @Param('proposalId', ParseUUIDPipe) proposalId: string,
     @GetUser() user: UserEntity,
   ) {
-    return await this.disputesService.deleteSchedulingProposal(
-      id,
-      proposalId,
-      user.id,
-      user.role,
-    );
+    return await this.disputesService.deleteSchedulingProposal(id, proposalId, user.id, user.role);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -271,10 +275,7 @@ export class DisputesController {
 
   @UseGuards(JwtAuthGuard)
   @Patch(':id/viewed')
-  async markDisputeViewed(
-    @Param('id', ParseUUIDPipe) id: string,
-    @GetUser() user: UserEntity,
-  ) {
+  async markDisputeViewed(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
     return await this.disputesService.markDisputeViewed(id, user.id, user.role);
   }
 
@@ -365,6 +366,22 @@ export class DisputesController {
     };
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Patch('messages/:messageId/unhide')
+  async unhideMessage(
+    @Param('messageId', ParseUUIDPipe) messageId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const result = await this.disputesService.unhideMessage(messageId, user.id, user.role);
+
+    return {
+      success: true,
+      message: 'Message restored',
+      data: result,
+    };
+  }
+
   // =============================================================================
   // ACTIVITY TIMELINE
   // =============================================================================
@@ -384,7 +401,7 @@ export class DisputesController {
     // Chỉ Admin/Staff mới xem được hoạt động internal
     const canViewInternal = [UserRole.ADMIN, UserRole.STAFF].includes(user.role);
     const showInternal = includeInternal === 'true' && canViewInternal;
-    return await this.disputesService.getActivities(id, showInternal);
+    return await this.disputesService.getActivities(user.id, user.role, id, showInternal);
   }
 
   // =============================================================================
@@ -404,7 +421,14 @@ export class DisputesController {
   ) {
     const canViewInternal = [UserRole.ADMIN, UserRole.STAFF].includes(user.role);
     const showInternal = includeInternal === 'true' && canViewInternal;
-    return await this.disputesService.getNotes(id, showInternal);
+    return await this.disputesService.getNotes(user.id, user.role, id, showInternal);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Get(':id/internal-members')
+  async getInternalMembers(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
+    return await this.disputesService.getInternalMembers(id, user.id, user.role);
   }
 
   /**
@@ -452,6 +476,58 @@ export class DisputesController {
   }
 
   // =============================================================================
+  // VERDICT
+  // =============================================================================
+
+  /**
+   * Get the latest verdict for a dispute (public — any authenticated user)
+   * GET /disputes/:id/verdict
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/verdict')
+  async getVerdict(@Param('id', ParseUUIDPipe) id: string) {
+    return await this.disputesService.getVerdict(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('hearings/:hearingId/verdict-readiness')
+  async getHearingVerdictReadiness(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingVerdictOrchestrator.getVerdictReadiness(
+      hearingId,
+      user.id,
+      user.role,
+    );
+    return {
+      success: true,
+      data,
+    };
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Post('hearings/:hearingId/verdict')
+  @HttpCode(HttpStatus.OK)
+  async issueHearingVerdict(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @Body() dto: IssueHearingVerdictDto,
+    @GetUser() user: UserEntity,
+  ) {
+    const data = await this.hearingVerdictOrchestrator.issueHearingVerdict(
+      hearingId,
+      user.id,
+      user.role,
+      dto,
+    );
+    return {
+      success: true,
+      message: 'Verdict issued and hearing closed',
+      data,
+    };
+  }
+
   // APPEAL SYSTEM
   // =============================================================================
 
@@ -534,7 +610,11 @@ export class DisputesController {
     @Body() dto: UpdateDisputePhaseDto,
     @GetUser() user: UserEntity,
   ) {
-    return await this.disputesService.updatePhase(id, dto.phase, user.id, user.role);
+    throw new ConflictException({
+      code: 'PHASE_CONTROL_MOVED_TO_HEARING',
+      message: 'Dispute phase control has moved to hearing-scoped workflow.',
+      action: 'Use PATCH /disputes/hearings/:hearingId/phase instead.',
+    });
   }
 
   /**
@@ -587,7 +667,11 @@ export class DisputesController {
     @Body() dto: ResolveDisputeDto,
     @GetUser() user: UserEntity,
   ) {
-    return await this.disputesService.resolveDispute(user.id, id, dto);
+    throw new ConflictException({
+      code: 'VERDICT_ONLY_IN_HEARING',
+      message: 'Verdict can only be issued from Hearing Room.',
+      action: 'Use POST /disputes/hearings/:hearingId/verdict.',
+    });
   }
 
   /**

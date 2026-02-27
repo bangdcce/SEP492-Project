@@ -17,6 +17,7 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  UseFilters,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiParam, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
@@ -28,6 +29,7 @@ import { HearingStatus } from '../../../database/entities/dispute-hearing.entity
 
 // Service
 import { HearingService } from '../services/hearing.service';
+import { DisputeSchemaReadinessFilter } from '../filters/dispute-schema-readiness.filter';
 
 // DTOs
 import {
@@ -35,6 +37,7 @@ import {
   ModerateHearingDto,
   SubmitHearingStatementDto,
   AskHearingQuestionDto,
+  AnswerHearingQuestionDto,
   EndHearingDto,
   RescheduleHearingDto,
   TransitionHearingPhaseDto,
@@ -42,11 +45,13 @@ import {
   InviteSupportStaffDto,
   DispatchHearingRemindersDto,
   OpenEvidenceIntakeDto,
+  PauseHearingDto,
 } from '../dto/hearing.dto';
 
 @ApiTags('Dispute Hearings')
 @Controller('disputes/hearings')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@UseFilters(DisputeSchemaReadinessFilter)
 @ApiBearerAuth()
 export class HearingController {
   constructor(private readonly hearingService: HearingService) {}
@@ -88,13 +93,7 @@ export class HearingController {
   // ===========================================================================
 
   @Get('dispute/:disputeId')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.STAFF,
-    UserRole.CLIENT,
-    UserRole.FREELANCER,
-    UserRole.BROKER,
-  )
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER)
   @ApiOperation({
     summary: 'List hearings for a dispute',
   })
@@ -159,13 +158,7 @@ export class HearingController {
   // ===========================================================================
 
   @Get(':hearingId')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.STAFF,
-    UserRole.CLIENT,
-    UserRole.FREELANCER,
-    UserRole.BROKER,
-  )
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER)
   @ApiOperation({
     summary: 'Get hearing details',
   })
@@ -180,13 +173,7 @@ export class HearingController {
   }
 
   @Get(':hearingId/workspace')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.STAFF,
-    UserRole.CLIENT,
-    UserRole.FREELANCER,
-    UserRole.BROKER,
-  )
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER)
   @ApiOperation({
     summary: 'Get hearing workspace snapshot',
   })
@@ -205,13 +192,7 @@ export class HearingController {
   // ===========================================================================
 
   @Get(':hearingId/statements')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.STAFF,
-    UserRole.CLIENT,
-    UserRole.FREELANCER,
-    UserRole.BROKER,
-  )
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER)
   @ApiOperation({
     summary: 'List hearing statements',
   })
@@ -234,13 +215,7 @@ export class HearingController {
   // ===========================================================================
 
   @Get(':hearingId/questions')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.STAFF,
-    UserRole.CLIENT,
-    UserRole.FREELANCER,
-    UserRole.BROKER,
-  )
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER)
   @ApiOperation({
     summary: 'List hearing questions',
   })
@@ -259,13 +234,7 @@ export class HearingController {
   // ===========================================================================
 
   @Get(':hearingId/timeline')
-  @Roles(
-    UserRole.ADMIN,
-    UserRole.STAFF,
-    UserRole.CLIENT,
-    UserRole.FREELANCER,
-    UserRole.BROKER,
-  )
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER)
   @ApiOperation({
     summary: 'Get hearing timeline details',
   })
@@ -395,6 +364,45 @@ export class HearingController {
     };
   }
 
+  @Patch(':hearingId/pause')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Pause hearing session',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async pauseHearing(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @Body() dto: PauseHearingDto,
+    @GetUser() user: UserEntity,
+  ) {
+    const result = await this.hearingService.pauseHearing(hearingId, user.id, dto.reason.trim());
+    return {
+      success: true,
+      message: 'Hearing paused',
+      data: result,
+    };
+  }
+
+  @Patch(':hearingId/resume')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Resume paused hearing session',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  async resumeHearing(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const result = await this.hearingService.resumeHearing(hearingId, user.id);
+    return {
+      success: true,
+      message: 'Hearing resumed',
+      data: result,
+    };
+  }
+
   @Post(':hearingId/evidence-intake/open')
   @Roles(UserRole.STAFF, UserRole.ADMIN)
   @ApiOperation({
@@ -470,13 +478,7 @@ export class HearingController {
   // ===========================================================================
 
   @Post(':hearingId/statements')
-  @Roles(
-    UserRole.CLIENT,
-    UserRole.FREELANCER,
-    UserRole.BROKER,
-    UserRole.STAFF,
-    UserRole.ADMIN,
-  )
+  @Roles(UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER, UserRole.STAFF, UserRole.ADMIN)
   @ApiOperation({
     summary: 'Submit hearing statement (draft or submit)',
   })
@@ -525,6 +527,61 @@ export class HearingController {
     return {
       success: true,
       message: 'Question asked',
+      data: result,
+    };
+  }
+
+  // ===========================================================================
+  // ANSWER QUESTION
+  // ===========================================================================
+
+  @Patch(':hearingId/questions/:questionId/answer')
+  @Roles(UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER, UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Answer a hearing question',
+  })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  @ApiParam({ name: 'questionId', type: 'string', format: 'uuid' })
+  async answerQuestion(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
+    @Body() dto: AnswerHearingQuestionDto,
+    @GetUser() user: UserEntity,
+  ) {
+    const result = await this.hearingService.answerHearingQuestion(
+      hearingId,
+      questionId,
+      dto.answer,
+      user.id,
+    );
+
+    return {
+      success: true,
+      message: 'Question answered',
+      data: result,
+    };
+  }
+
+  // ===========================================================================
+  // CANCEL / SKIP QUESTION
+  // ===========================================================================
+
+  @Patch(':hearingId/questions/:questionId/cancel')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({ summary: 'Cancel / skip a pending hearing question' })
+  @HttpCode(HttpStatus.OK)
+  @ApiParam({ name: 'hearingId', type: 'string', format: 'uuid' })
+  @ApiParam({ name: 'questionId', type: 'string', format: 'uuid' })
+  async cancelQuestion(
+    @Param('hearingId', ParseUUIDPipe) hearingId: string,
+    @Param('questionId', ParseUUIDPipe) questionId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    const result = await this.hearingService.cancelHearingQuestion(hearingId, questionId, user.id);
+    return {
+      success: true,
+      message: 'Question cancelled',
       data: result,
     };
   }
