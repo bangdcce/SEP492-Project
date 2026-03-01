@@ -64,9 +64,16 @@ export class MatchingService {
     this.logger.log(`Tag scorer: scored ${tagged.length} candidates.`);
 
     // Step 3: AI Ranker (optional)
+    // Send MORE candidates to AI than we'll return — AI can re-rank candidates
+    // that had low tag overlap but great bios/experience.
+    const aiWindowSize = Math.max(topN * 2, 10);
     const topCandidates = tagged
       .sort((a, b) => b.tagOverlapScore - a.tagOverlapScore)
-      .slice(0, topN);
+      .slice(0, Math.min(aiWindowSize, tagged.length));
+
+    this.logger.log(
+      `AI window: evaluating ${topCandidates.length} candidates (will return top ${topN})`,
+    );
 
     let ranked;
     if (aiEnabled) {
@@ -86,12 +93,13 @@ export class MatchingService {
       }));
     }
 
-    // Step 4: Classifier
+    // Step 4: Classifier — then return only topN
     const classified = this.classifier.classify(ranked, aiEnabled);
+    const finalResults = classified.slice(0, topN);
     this.logger.log(
-      `Classifier: classified ${classified.length} candidates. Top score: ${classified[0]?.matchScore}`,
+      `Classifier: ${classified.length} classified → returning top ${finalResults.length}. Top score: ${finalResults[0]?.matchScore}`,
     );
 
-    return classified;
+    return finalResults;
   }
 }

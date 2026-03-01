@@ -27,8 +27,8 @@ import { CalendarModule } from './modules/calendar/calendar.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { LeaveModule } from './modules/leave/leave.module';
 import { HealthModule } from './modules/health/health.module';
-import { MatchingModule } from './modules/matching/matching.module';
 import { WorkspaceChatModule } from './modules/workspace-chat/workspace-chat.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 
 const parseNumberEnv = (value: string | undefined, fallback: number): number => {
   if (!value) return fallback;
@@ -129,8 +129,8 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
     UsersModule,
     ContractsModule,
     HealthModule,
-    MatchingModule,
     WorkspaceChatModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
