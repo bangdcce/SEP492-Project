@@ -10,6 +10,8 @@ import { getStoredJson } from '@/shared/utils/storage';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
 import { Input } from '@/shared/components/ui/Input';
 import { Badge } from '@/shared/components/ui/badge';
+import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
+import toast from 'react-hot-toast';
 
 export const BrokerProjectsPage: React.FC = () => {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
@@ -18,6 +20,7 @@ export const BrokerProjectsPage: React.FC = () => {
   const [user, setUser] = useState<any>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [upgradeModalData, setUpgradeModalData] = useState<any>(null);
   const { checkKycStatus } = useKYCStatus();
 
   useEffect(() => {
@@ -81,10 +84,15 @@ export const BrokerProjectsPage: React.FC = () => {
       setAssigningId(requestId);
       await projectRequestsApi.assignBroker(requestId);
       await fetchRequests();
-      alert('Request assigned successfully!');
+      toast.success('Request assigned successfully!');
     } catch (error: any) {
       console.error('Failed to assign request:', error);
-      alert(error.response?.data?.message || 'Failed to assign request');
+      const quotaErr = parseQuotaError(error);
+      if (quotaErr) {
+        setUpgradeModalData(quotaErr);
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to assign request');
+      }
     } finally {
       setAssigningId(null);
     }
@@ -94,11 +102,16 @@ export const BrokerProjectsPage: React.FC = () => {
      // Re-implement apply if they can re-apply or apply to others here? Unlikely but good to have signature match.
      try {
         await projectRequestsApi.applyToRequest(requestId, coverLetter);
-        alert("Application submitted successfully!");
+        toast.success("Application submitted successfully!");
         fetchRequests();
      } catch (error: any) {
         console.error(error);
-        alert(error.response?.data?.message || "Failed to apply");
+        const quotaErr = parseQuotaError(error);
+        if (quotaErr) {
+          setUpgradeModalData(quotaErr);
+        } else {
+          toast.error(error.response?.data?.message || "Failed to apply");
+        }
      }
   };
 
@@ -188,6 +201,11 @@ export const BrokerProjectsPage: React.FC = () => {
             />
          )}
       </div>
+      <UpgradeModal
+        isOpen={!!upgradeModalData}
+        onClose={() => setUpgradeModalData(null)}
+        quotaInfo={upgradeModalData}
+      />
     </div>
   );
 };

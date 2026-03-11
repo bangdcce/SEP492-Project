@@ -42,6 +42,3 @@ export {
   getMonthlyEquivalent,
   calculateSavings,
 } from './types';
-
-// Styles
-import './subscription.css';

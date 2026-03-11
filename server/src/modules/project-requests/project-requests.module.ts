@@ -7,6 +7,7 @@ import { ProjectRequestsService } from './project-requests.service';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { AuthModule } from '../auth/auth.module';
 import { MatchingModule } from '../matching/matching.module';
+import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 
 import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
@@ -22,6 +23,7 @@ import { ProjectRequestProposalEntity } from '../../database/entities/project-re
     AuditLogsModule,
     AuthModule,
     MatchingModule,
+    SubscriptionsModule,
   ],
   controllers: [ProjectRequestsController],
   providers: [ProjectRequestsService],
