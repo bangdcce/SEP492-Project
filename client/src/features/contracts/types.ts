@@ -17,7 +17,7 @@ export interface ContractSummary {
   projectStatus?: string | null;
   projectTitle: string;
   title: string;
-  status: "DRAFT" | "SENT" | "SIGNED" | "ACTIVE";
+  status: "DRAFT" | "SENT" | "SIGNED" | "ACTIVATED" | "ACTIVE" | "ARCHIVED";
   createdAt: string;
   clientName: string;
   freelancerName?: string | null;
@@ -42,7 +42,7 @@ export interface Contract {
   sourceSpecId?: string | null;
   title: string;
   termsContent: string;
-  status: 'DRAFT' | 'SENT' | 'SIGNED' | 'ACTIVE';
+  status: "DRAFT" | "SENT" | "SIGNED" | "ACTIVATED" | "ACTIVE" | "ARCHIVED";
   activatedAt?: string | null;
   documentHash?: string | null;
   milestoneSnapshot?: ContractMilestoneSnapshotItem[] | null;
@@ -72,7 +72,7 @@ export interface Contract {
           id: string;
           title: string;
           description: string;
-          complexity: 'LOW' | 'MEDIUM' | 'HIGH';
+          complexity: "LOW" | "MEDIUM" | "HIGH";
           acceptanceCriteria: string[];
           inputOutputSpec?: string;
         }>;

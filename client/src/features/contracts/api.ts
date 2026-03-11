@@ -1,18 +1,21 @@
-import { apiClient } from '../../shared/api/client';
-import type { Contract, ContractSummary } from './types';
-import { API_CONFIG } from '@/constants';
+import { apiClient } from "../../shared/api/client";
+import type { Contract, ContractSummary } from "./types";
+import { API_CONFIG } from "@/constants";
 
-const buildSignatureHash = async (contractId: string, confirmationText?: string) => {
-  const seed = `${contractId}:${Date.now()}:${confirmationText || 'acknowledged'}`;
+const buildSignatureHash = async (
+  contractId: string,
+  confirmationText?: string,
+) => {
+  const seed = `${contractId}:${Date.now()}:${confirmationText || "acknowledged"}`;
 
-  if (typeof window !== 'undefined' && window.crypto?.subtle) {
+  if (typeof window !== "undefined" && window.crypto?.subtle) {
     const digest = await window.crypto.subtle.digest(
-      'SHA-256',
+      "SHA-256",
       new TextEncoder().encode(seed),
     );
     return Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, '0'))
-      .join('');
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
   }
 
   return `${contractId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
@@ -20,7 +23,7 @@ const buildSignatureHash = async (contractId: string, confirmationText?: string)
 
 export const contractsApi = {
   listContracts: (): Promise<ContractSummary[]> => {
-    return apiClient.get('/contracts/list');
+    return apiClient.get("/contracts/list");
   },
 
   getContract: (id: string): Promise<Contract> => {
@@ -28,7 +31,7 @@ export const contractsApi = {
   },
 
   initializeContract: (specId: string): Promise<Contract> => {
-    return apiClient.post(`/contracts/initialize/${specId}`, {});
+    return apiClient.post(`/contracts/initialize`, { specId });
   },
 
   signContract: async (
@@ -44,7 +47,9 @@ export const contractsApi = {
     return apiClient.post(`/contracts/sign/${id}`, { signatureHash });
   },
 
-  activateContract: (id: string): Promise<{
+  activateContract: (
+    id: string,
+  ): Promise<{
     status: string;
     alreadyActivated?: boolean;
     activatedAt?: string | null;

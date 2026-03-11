@@ -150,6 +150,26 @@ export class ProjectSpecsService {
     );
   }
 
+  private validateFullSpecBudgetAgainstParent(
+    totalBudget: number,
+    parentSpec: ProjectSpecEntity | null,
+  ): void {
+    if (!parentSpec) {
+      return;
+    }
+
+    const fullSpecBudget = new Decimal(totalBudget);
+    const approvedClientBudget = new Decimal(parentSpec.totalBudget);
+    const budgetDiff = fullSpecBudget.minus(approvedClientBudget);
+
+    if (budgetDiff.greaterThan(GOVERNANCE_RULES.BUDGET_TOLERANCE)) {
+      throw new BadRequestException(
+        `Full spec budget cannot exceed approved client spec budget. Full spec: $${fullSpecBudget.toFixed(2)}, ` +
+          `Client approved: $${approvedClientBudget.toFixed(2)}`,
+      );
+    }
+  }
+
   /**
    * Check for banned keywords in text fields
    * Returns warnings (not errors) - per Governance doc, these are warnings not blocks
@@ -416,8 +436,10 @@ export class ProjectSpecsService {
         projectCategory: dto.projectCategory || undefined,
         clientFeatures: mappedFeatures,
         referenceLinks: dto.referenceLinks || [],
-        richContentJson: (this.sanitizeStructuredJson(dto.richContentJson) ??
-          null) as Record<string, unknown> | null,
+        richContentJson: (this.sanitizeStructuredJson(dto.richContentJson) ?? null) as Record<
+          string,
+          unknown
+        > | null,
         status: ProjectSpecStatus.DRAFT,
       });
       const savedSpec = await queryRunner.manager.save(newSpec);
@@ -498,13 +520,13 @@ export class ProjectSpecsService {
     spec.description = sanitizedDescription;
     spec.totalBudget = dto.estimatedBudget;
     spec.estimatedTimeline = this.sanitizePlainText(dto.estimatedTimeline);
-    spec.projectCategory = dto.projectCategory
-      ? this.sanitizePlainText(dto.projectCategory)
-      : null;
+    spec.projectCategory = dto.projectCategory ? this.sanitizePlainText(dto.projectCategory) : null;
     spec.clientFeatures = mappedFeatures;
     spec.referenceLinks = dto.referenceLinks || [];
-    spec.richContentJson = (this.sanitizeStructuredJson(dto.richContentJson) ??
-      null) as Record<string, unknown> | null;
+    spec.richContentJson = (this.sanitizeStructuredJson(dto.richContentJson) ?? null) as Record<
+      string,
+      unknown
+    > | null;
     // Preserve REJECTED until broker explicitly re-submits for review.
 
     await this.projectSpecsRepository.save(spec);
@@ -542,7 +564,9 @@ export class ProjectSpecsService {
       throw new BadRequestException('Only client specs can be submitted for client review');
     }
     if (spec.status !== ProjectSpecStatus.DRAFT && spec.status !== ProjectSpecStatus.REJECTED) {
-      throw new BadRequestException(`Spec must be in DRAFT or REJECTED status. Current: ${spec.status}`);
+      throw new BadRequestException(
+        `Spec must be in DRAFT or REJECTED status. Current: ${spec.status}`,
+      );
     }
     if (!spec.clientFeatures || spec.clientFeatures.length === 0) {
       throw new BadRequestException('Client spec must have at least one feature');
@@ -587,7 +611,9 @@ export class ProjectSpecsService {
       throw new BadRequestException('This action is only for client specs');
     }
     if (spec.status !== ProjectSpecStatus.CLIENT_REVIEW) {
-      throw new BadRequestException(`Spec must be in CLIENT_REVIEW status. Current: ${spec.status}`);
+      throw new BadRequestException(
+        `Spec must be in CLIENT_REVIEW status. Current: ${spec.status}`,
+      );
     }
     if (!spec.request || spec.request.clientId !== user.id) {
       throw new ForbiddenException('Only the project client can review this spec');
@@ -710,7 +736,9 @@ export class ProjectSpecsService {
         );
       }
       if (strictParent && !parentSpec) {
-        throw new BadRequestException('Cannot create full spec: Client spec must be approved first.');
+        throw new BadRequestException(
+          'Cannot create full spec: Client spec must be approved first.',
+        );
       }
 
       // Check no existing non-rejected full spec
@@ -737,17 +765,18 @@ export class ProjectSpecsService {
         acceptanceCriteria: (f.acceptanceCriteria || []).map((criteria) =>
           this.sanitizePlainText(criteria),
         ),
-        inputOutputSpec: f.inputOutputSpec
-          ? this.sanitizePlainText(f.inputOutputSpec)
-          : '',
+        inputOutputSpec: f.inputOutputSpec ? this.sanitizePlainText(f.inputOutputSpec) : '',
       }));
 
       // 4. GOVERNANCE VALIDATION
       this.validateMilestoneBudget(milestones, totalBudget);
+      this.validateFullSpecBudgetAgainstParent(totalBudget, parentSpec);
       this.validateFeatures(mappedFeatures);
 
       // 5. Check banned keywords (non-blocking)
-      warnings.push(...this.checkBannedKeywords(this.sanitizePlainText(specData.description || '')));
+      warnings.push(
+        ...this.checkBannedKeywords(this.sanitizePlainText(specData.description || '')),
+      );
       for (const feature of mappedFeatures) {
         warnings.push(...this.checkBannedKeywords(feature.description || ''));
       }
@@ -763,8 +792,10 @@ export class ProjectSpecsService {
         features: mappedFeatures,
         techStack: techStack ? this.sanitizePlainText(techStack) : '',
         referenceLinks: referenceLinks || [],
-        richContentJson: (this.sanitizeStructuredJson(richContentJson) ??
-          null) as Record<string, unknown> | null,
+        richContentJson: (this.sanitizeStructuredJson(richContentJson) ?? null) as Record<
+          string,
+          unknown
+        > | null,
         status: createSpecDto.status || ProjectSpecStatus.DRAFT,
         projectCategory: parentSpec?.projectCategory || null,
         estimatedTimeline: parentSpec?.estimatedTimeline || null,
@@ -868,6 +899,7 @@ export class ProjectSpecsService {
     }));
 
     this.validateMilestoneBudget(dto.milestones, dto.totalBudget);
+    this.validateFullSpecBudgetAgainstParent(dto.totalBudget, spec.parentSpec ?? null);
     this.validateFeatures(mappedFeatures);
 
     const sanitizedDescription = this.sanitizePlainText(dto.description);
@@ -964,7 +996,9 @@ export class ProjectSpecsService {
       throw new BadRequestException('Only full specs can be submitted for final review');
     }
     if (spec.status !== ProjectSpecStatus.DRAFT && spec.status !== ProjectSpecStatus.REJECTED) {
-      throw new BadRequestException(`Spec must be in DRAFT or REJECTED status. Current: ${spec.status}`);
+      throw new BadRequestException(
+        `Spec must be in DRAFT or REJECTED status. Current: ${spec.status}`,
+      );
     }
     if (!spec.milestones || spec.milestones.length === 0) {
       throw new BadRequestException('Full spec must have at least one milestone');
@@ -1110,9 +1144,16 @@ export class ProjectSpecsService {
     return spec;
   }
 
-  async approveSpec(user: UserEntity, specId: string, req: RequestContext): Promise<ProjectSpecEntity> {
+  async approveSpec(
+    user: UserEntity,
+    specId: string,
+    req: RequestContext,
+  ): Promise<ProjectSpecEntity> {
     const spec = await this.findOne(specId);
-    if (spec.status !== ProjectSpecStatus.PENDING_APPROVAL && spec.status !== ProjectSpecStatus.PENDING_AUDIT) {
+    if (
+      spec.status !== ProjectSpecStatus.PENDING_APPROVAL &&
+      spec.status !== ProjectSpecStatus.PENDING_AUDIT
+    ) {
       throw new BadRequestException(`Cannot approve spec in ${spec.status} status`);
     }
 
@@ -1135,7 +1176,12 @@ export class ProjectSpecsService {
     return spec;
   }
 
-  async rejectSpec(user: UserEntity, specId: string, reason: string, req: RequestContext): Promise<ProjectSpecEntity> {
+  async rejectSpec(
+    user: UserEntity,
+    specId: string,
+    reason: string,
+    req: RequestContext,
+  ): Promise<ProjectSpecEntity> {
     const spec = await this.findOne(specId);
     spec.status = ProjectSpecStatus.REJECTED;
     spec.rejectionReason = reason;

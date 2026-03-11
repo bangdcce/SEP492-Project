@@ -24,7 +24,7 @@ export class MilestoneLockPolicyService {
 
   async isMilestoneStructureLocked(projectId: string): Promise<boolean> {
     const contract = await this.findLatestActivatedContract(projectId);
-    return Array.isArray(contract?.milestoneSnapshot) && contract.milestoneSnapshot.length > 0;
+    return Boolean(contract?.activatedAt);
   }
 
   async assertCanMutateMilestoneStructure(

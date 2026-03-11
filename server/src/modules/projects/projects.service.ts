@@ -134,12 +134,43 @@ export class ProjectsService {
     return project;
   }
 
+  private assertRetentionDoesNotExceedAmount(amount: number, retentionAmount: number): void {
+    if (new Decimal(retentionAmount).greaterThan(new Decimal(amount))) {
+      throw new BadRequestException('Milestone retentionAmount cannot exceed milestone amount');
+    }
+  }
+
+  private async assertMilestoneBudgetWithinProject(project: ProjectEntity): Promise<void> {
+    const milestones = await this.milestoneRepository.find({
+      where: { projectId: project.id },
+    });
+
+    const totalMilestoneAmount = milestones.reduce(
+      (sum, milestone) => sum.plus(new Decimal(milestone.amount || 0)),
+      new Decimal(0),
+    );
+    const projectBudget = new Decimal(project.totalBudget || 0);
+
+    for (const milestone of milestones) {
+      this.assertRetentionDoesNotExceedAmount(
+        Number(milestone.amount || 0),
+        Number(milestone.retentionAmount || 0),
+      );
+    }
+
+    if (totalMilestoneAmount.greaterThan(projectBudget)) {
+      throw new BadRequestException(
+        `Milestone total exceeds project budget (${totalMilestoneAmount.toFixed(2)} > ${projectBudget.toFixed(2)}).`,
+      );
+    }
+  }
+
   async createMilestone(
     projectId: string,
     userId: string,
     payload: CreateProjectMilestoneInput,
   ): Promise<MilestoneEntity> {
-    await this.assertBrokerCanMutateMilestones(projectId, userId);
+    const project = await this.assertBrokerCanMutateMilestones(projectId, userId);
     await this.milestoneLockPolicyService.assertCanMutateMilestoneStructure(projectId);
 
     const title = payload.title?.trim();
@@ -155,6 +186,7 @@ export class ProjectsService {
     const retentionAmount = this.parseAmountOrDefault(payload.retentionAmount, 0);
     const startDate = this.parseOptionalDate(payload.startDate);
     const dueDate = this.parseOptionalDate(payload.dueDate);
+    this.assertRetentionDoesNotExceedAmount(amount, retentionAmount);
 
     if (startDate && dueDate && dueDate < startDate) {
       throw new BadRequestException('Milestone dueDate must be greater than or equal to startDate');
@@ -176,7 +208,15 @@ export class ProjectsService {
       status: MilestoneStatus.PENDING,
     });
 
-    return this.milestoneRepository.save(milestone);
+    const savedMilestone = await this.milestoneRepository.save(milestone);
+
+    try {
+      await this.assertMilestoneBudgetWithinProject(project);
+      return savedMilestone;
+    } catch (error) {
+      await this.milestoneRepository.remove(savedMilestone);
+      throw error;
+    }
   }
 
   async updateMilestoneStructure(
@@ -193,8 +233,9 @@ export class ProjectsService {
     if (!milestone.projectId) {
       throw new BadRequestException('Milestone is not linked to a project');
     }
+    const previousMilestoneState = { ...milestone };
 
-    await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
+    const project = await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
     await this.milestoneLockPolicyService.assertCanMutateMilestoneStructure(milestone.projectId);
 
     const hasAnyUpdate =
@@ -265,13 +306,26 @@ export class ProjectsService {
       }
     }
 
+    this.assertRetentionDoesNotExceedAmount(
+      Number(milestone.amount || 0),
+      Number(milestone.retentionAmount || 0),
+    );
+
     if (payload.acceptanceCriteria !== undefined) {
       milestone.acceptanceCriteria = Array.isArray(payload.acceptanceCriteria)
         ? payload.acceptanceCriteria
         : (null as unknown as string[]);
     }
 
-    return this.milestoneRepository.save(milestone);
+    const savedMilestone = await this.milestoneRepository.save(milestone);
+
+    try {
+      await this.assertMilestoneBudgetWithinProject(project);
+      return savedMilestone;
+    } catch (error) {
+      await this.milestoneRepository.save(previousMilestoneState);
+      throw error;
+    }
   }
 
   async deleteMilestoneStructure(milestoneId: string, userId: string): Promise<void> {
@@ -285,10 +339,17 @@ export class ProjectsService {
       throw new BadRequestException('Milestone is not linked to a project');
     }
 
-    await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
+    const project = await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
     await this.milestoneLockPolicyService.assertCanMutateMilestoneStructure(milestone.projectId);
 
+    const milestoneBackup = { ...milestone };
     await this.milestoneRepository.remove(milestone);
+    try {
+      await this.assertMilestoneBudgetWithinProject(project);
+    } catch (error) {
+      await this.milestoneRepository.save(milestoneBackup);
+      throw error;
+    }
   }
 
   /**
@@ -445,7 +506,9 @@ export class ProjectsService {
       );
     }
 
-    const activeContract = await this.milestoneLockPolicyService.findLatestActivatedContract(project.id);
+    const activeContract = await this.milestoneLockPolicyService.findLatestActivatedContract(
+      project.id,
+    );
     const snapshot = Array.isArray(activeContract?.milestoneSnapshot)
       ? activeContract.milestoneSnapshot
       : [];

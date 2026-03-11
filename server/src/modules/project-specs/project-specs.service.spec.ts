@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectSpecsService } from './project-specs.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ProjectSpecEntity, ProjectSpecStatus } from '../../database/entities/project-spec.entity';
+import {
+  ProjectSpecEntity,
+  ProjectSpecStatus,
+  SpecPhase,
+} from '../../database/entities/project-spec.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import {
   ProjectRequestEntity,
@@ -14,6 +18,7 @@ import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { DeliverableType } from '../../database/entities/milestone.entity';
 import { ProjectSpecSignatureEntity } from '../../database/entities/project-spec-signature.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { NotificationEntity } from '../../database/entities/notification.entity';
 
 describe('ProjectSpecsService', () => {
   let service: ProjectSpecsService;
@@ -28,6 +33,10 @@ describe('ProjectSpecsService', () => {
   const mockProjectRequestsRepo = {};
   const mockProjectSpecSignaturesRepo = {};
   const mockProjectRequestProposalsRepo = {};
+  const mockNotificationsRepo = {
+    create: jest.fn((data) => data),
+    save: jest.fn(),
+  };
   const mockAuditLogsService = {
     log: jest.fn(),
   };
@@ -71,6 +80,7 @@ describe('ProjectSpecsService', () => {
           provide: getRepositoryToken(ProjectRequestProposalEntity),
           useValue: mockProjectRequestProposalsRepo,
         },
+        { provide: getRepositoryToken(NotificationEntity), useValue: mockNotificationsRepo },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
         { provide: DataSource, useValue: mockDataSource },
       ],
@@ -252,6 +262,93 @@ describe('ProjectSpecsService', () => {
       await expect(service.createSpec(mockUser, invalidFeatureDto, {})).rejects.toThrow(
         /too short/,
       );
+    });
+  });
+
+  describe('full spec budget cap', () => {
+    const fullSpecDto: CreateProjectSpecDto = {
+      requestId: 'request-uuid',
+      parentSpecId: 'client-spec-uuid',
+      title: 'Detailed Full Spec',
+      description: 'Detailed technical scope for implementation',
+      totalBudget: 1200,
+      milestones: [
+        {
+          title: 'Phase 1',
+          description: 'Discovery and design',
+          amount: 300,
+          deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+          retentionAmount: 0,
+          sortOrder: 1,
+        },
+        {
+          title: 'Phase 2',
+          description: 'Implementation',
+          amount: 660,
+          deliverableType: DeliverableType.SOURCE_CODE,
+          retentionAmount: 0,
+          sortOrder: 2,
+        },
+        {
+          title: 'Phase 3',
+          description: 'Release',
+          amount: 240,
+          deliverableType: DeliverableType.DEPLOYMENT,
+          retentionAmount: 0,
+          sortOrder: 3,
+        },
+      ],
+      features: [
+        {
+          title: 'Feature A',
+          description: 'Detailed feature',
+          complexity: 'MEDIUM' as const,
+          acceptanceCriteria: ['System supports the approved workflow end-to-end'],
+        },
+      ],
+      techStack: 'NestJS, React',
+    };
+
+    it('rejects createFullSpec when milestone budget exceeds approved client spec budget', async () => {
+      const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid', broker: mockUser };
+      const approvedClientSpec = {
+        id: 'client-spec-uuid',
+        requestId: 'request-uuid',
+        specPhase: SpecPhase.CLIENT_SPEC,
+        status: ProjectSpecStatus.CLIENT_APPROVED,
+        totalBudget: 1000,
+      };
+
+      (queryRunner.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce(mockRequest)
+        .mockResolvedValueOnce(approvedClientSpec)
+        .mockResolvedValueOnce(null);
+
+      await expect(service.createFullSpec(mockUser, fullSpecDto, {})).rejects.toThrow(
+        /cannot exceed approved client spec budget/i,
+      );
+    });
+
+    it('rejects updateFullSpec when new budget exceeds approved client spec budget', async () => {
+      const existingSpec = {
+        id: 'full-spec-uuid',
+        requestId: 'request-uuid',
+        parentSpecId: 'client-spec-uuid',
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.DRAFT,
+        request: { brokerId: 'broker-uuid' },
+        parentSpec: {
+          id: 'client-spec-uuid',
+          totalBudget: 1000,
+        },
+        milestones: [],
+      } as unknown as ProjectSpecEntity;
+
+      jest.spyOn(service, 'findOne').mockResolvedValue(existingSpec);
+
+      await expect(
+        service.updateFullSpec(mockUser, 'full-spec-uuid', fullSpecDto, {}),
+      ).rejects.toThrow(/cannot exceed approved client spec budget/i);
     });
   });
 });

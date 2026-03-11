@@ -22,6 +22,15 @@ export interface ContractMilestoneSnapshotItem {
   acceptanceCriteria?: string[] | null;
 }
 
+export enum ContractStatus {
+  DRAFT = 'DRAFT',
+  SENT = 'SENT',
+  SIGNED = 'SIGNED',
+  ACTIVATED = 'ACTIVATED',
+  ARCHIVED = 'ARCHIVED',
+}
+
+@Index('UQ_contracts_sourceSpecId', ['sourceSpecId'], { unique: true })
 @Entity('contracts')
 export class ContractEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -30,7 +39,6 @@ export class ContractEntity {
   @Column()
   projectId: string;
 
-  @Index('IDX_contracts_sourceSpecId')
   @Column({ nullable: true })
   sourceSpecId: string | null;
 
@@ -43,8 +51,8 @@ export class ContractEntity {
   @Column({ type: 'text', nullable: true })
   termsContent: string;
 
-  @Column({ type: 'varchar', default: 'DRAFT' })
-  status: string;
+  @Column({ type: 'varchar', default: ContractStatus.DRAFT })
+  status: ContractStatus;
 
   @Column({ type: 'timestamp', nullable: true })
   activatedAt: Date | null;

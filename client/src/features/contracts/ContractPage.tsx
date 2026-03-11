@@ -70,7 +70,10 @@ export default function ContractPage() {
     if (!contract || !isAgreementChecked) return;
     try {
       setIsSigning(true);
-      const signResult = await contractsApi.signContract(contract.id, signatureNote.trim());
+      const signResult = await contractsApi.signContract(
+        contract.id,
+        signatureNote.trim(),
+      );
       let updated = await reloadContract(contract.id);
       if (signResult.allRequiredSigned && !updated.activatedAt) {
         await contractsApi.activateContract(contract.id);
@@ -148,11 +151,16 @@ export default function ContractPage() {
       </div>
     );
 
-  const isSigned = contract.status === "SIGNED" || contract.status === "ACTIVE";
+  const isSigned =
+    contract.status === "SIGNED" ||
+    contract.status === "ACTIVATED" ||
+    contract.status === "ACTIVE";
   const isActivated = Boolean(contract.activatedAt);
   const hasCurrentUserSigned = Boolean(
     currentUser?.id &&
-      contract.signatures?.some((signature) => signature.userId === currentUser.id),
+    contract.signatures?.some(
+      (signature) => signature.userId === currentUser.id,
+    ),
   );
   const snapshotCount = Array.isArray(contract.milestoneSnapshot)
     ? contract.milestoneSnapshot.length
@@ -171,17 +179,24 @@ export default function ContractPage() {
     contract.project?.brokerId,
     contract.project?.freelancerId,
   ].filter((value): value is string => Boolean(value));
-  const signedUserIds = new Set((contract.signatures || []).map((item) => item.userId));
-  const missingSignerIds = requiredSignerIds.filter((userId) => !signedUserIds.has(userId));
+  const signedUserIds = new Set(
+    (contract.signatures || []).map((item) => item.userId),
+  );
+  const missingSignerIds = requiredSignerIds.filter(
+    (userId) => !signedUserIds.has(userId),
+  );
   const hasAllRequiredSignatures = missingSignerIds.length === 0;
   const canActivateContract = hasAllRequiredSignatures && !isActivated;
 
   const resolveSignerName = (userId: string) => {
     const signature = sortedSignatures.find((item) => item.userId === userId);
     if (signature?.user?.fullName) return signature.user.fullName;
-    if (userId === contract.project?.clientId) return contract.project?.client?.fullName || "Client";
-    if (userId === contract.project?.brokerId) return contract.project?.broker?.fullName || "Broker";
-    if (userId === contract.project?.freelancerId) return contract.project?.freelancer?.fullName || "Freelancer";
+    if (userId === contract.project?.clientId)
+      return contract.project?.client?.fullName || "Client";
+    if (userId === contract.project?.brokerId)
+      return contract.project?.broker?.fullName || "Broker";
+    if (userId === contract.project?.freelancerId)
+      return contract.project?.freelancer?.fullName || "Freelancer";
     return userId;
   };
 
@@ -287,7 +302,8 @@ export default function ContractPage() {
                 </span>
                 {missingSignerIds.length > 0 && (
                   <p className="mt-1 text-[11px] text-amber-700">
-                    Waiting for: {missingSignerIds.map(resolveSignerName).join(", ")}
+                    Waiting for:{" "}
+                    {missingSignerIds.map(resolveSignerName).join(", ")}
                   </p>
                 )}
               </div>
@@ -338,9 +354,12 @@ export default function ContractPage() {
                       key={`${signature.userId}-${signature.signedAt}`}
                       className="rounded-md bg-muted/30 p-2 text-xs"
                     >
-                      <p className="font-medium">{resolveSignerName(signature.userId)}</p>
+                      <p className="font-medium">
+                        {resolveSignerName(signature.userId)}
+                      </p>
                       <p className="text-muted-foreground">
-                        Signed at: {new Date(signature.signedAt).toLocaleString()}
+                        Signed at:{" "}
+                        {new Date(signature.signedAt).toLocaleString()}
                       </p>
                       <p className="mt-1 break-all font-mono text-[10px] text-slate-600">
                         Signature hash: {signature.signatureHash}
@@ -367,7 +386,9 @@ export default function ContractPage() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-slate-600">Snapshot Total</span>
-                  <span className="font-semibold">${snapshotTotal.toFixed(2)}</span>
+                  <span className="font-semibold">
+                    ${snapshotTotal.toFixed(2)}
+                  </span>
                 </div>
               </CardContent>
             </Card>
@@ -393,7 +414,9 @@ export default function ContractPage() {
                   <Checkbox
                     id="contract-sign-consent"
                     checked={isAgreementChecked}
-                    onCheckedChange={(checked) => setIsAgreementChecked(Boolean(checked))}
+                    onCheckedChange={(checked) =>
+                      setIsAgreementChecked(Boolean(checked))
+                    }
                   />
                   <Label
                     htmlFor="contract-sign-consent"
@@ -403,7 +426,9 @@ export default function ContractPage() {
                   </Label>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="signature-note">Signature Note (optional)</Label>
+                  <Label htmlFor="signature-note">
+                    Signature Note (optional)
+                  </Label>
                   <Input
                     id="signature-note"
                     placeholder="Example: Approved by Nguyen Van A"
@@ -416,7 +441,9 @@ export default function ContractPage() {
                 <Button
                   className="w-full"
                   onClick={handleSign}
-                  disabled={!isAgreementChecked || isSigning || hasCurrentUserSigned}
+                  disabled={
+                    !isAgreementChecked || isSigning || hasCurrentUserSigned
+                  }
                 >
                   {hasCurrentUserSigned
                     ? "Already Signed"

@@ -4,7 +4,7 @@ import { ContractsService } from './contracts.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserEntity } from '../../database/entities/user.entity';
-import { SignContractDto } from './dto';
+import { InitializeContractDto, SignContractDto } from './dto';
 
 @Controller('contracts')
 @UseGuards(JwtAuthGuard)
@@ -19,6 +19,14 @@ export class ContractsController {
   @Get(':id')
   async getContract(@Param('id') id: string) {
     return this.contractsService.findOne(id);
+  }
+
+  @Post('initialize')
+  async initializeContractWithBody(
+    @GetUser() user: UserEntity,
+    @Body() dto: InitializeContractDto,
+  ) {
+    return this.contractsService.initializeProjectAndContract(user, dto.specId, dto.freelancerId);
   }
 
   @Post('initialize/:specId')

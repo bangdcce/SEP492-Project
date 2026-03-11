@@ -5,8 +5,10 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 
+@Index('UQ_digital_signatures_contract_user', ['contractId', 'userId'], { unique: true })
 @Entity('digital_signatures')
 export class DigitalSignatureEntity {
   @PrimaryGeneratedColumn('uuid')

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -11,6 +12,7 @@ import { DataSource, QueryRunner, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
 import {
   ContractEntity,
+  ContractStatus,
   ContractMilestoneSnapshotItem,
 } from '../../database/entities/contract.entity';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
@@ -22,7 +24,7 @@ import {
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
 import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
-import { UserEntity, UserRole } from '../../database/entities/user.entity';
+import { UserEntity } from '../../database/entities/user.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import {
   ProjectRequestEntity,
@@ -33,6 +35,7 @@ import { ProjectRequestProposalEntity } from '../../database/entities/project-re
 @Injectable()
 export class ContractsService {
   private readonly logger = new Logger(ContractsService.name);
+  private static readonly MONEY_TOLERANCE = new Decimal(0.01);
 
   constructor(
     @InjectRepository(ContractEntity)
@@ -48,6 +51,148 @@ export class ContractsService {
     private readonly auditLogsService: AuditLogsService,
     private readonly dataSource: DataSource,
   ) {}
+
+  private sortMilestones(milestones: MilestoneEntity[]): MilestoneEntity[] {
+    return [...milestones].sort((a, b) => {
+      const sortOrderDiff =
+        (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER);
+      if (sortOrderDiff !== 0) {
+        return sortOrderDiff;
+      }
+      return new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime();
+    });
+  }
+
+  private toMoneyDecimal(input: Decimal.Value | null | undefined): Decimal {
+    return new Decimal(input ?? 0).toDecimalPlaces(2);
+  }
+
+  private assertUserIsContractParty(
+    user: UserEntity,
+    contract: ContractEntity,
+    action: 'activate' | 'sign',
+  ) {
+    const allowedUserIds = this.getRequiredContractSignerIds(contract);
+    if (!allowedUserIds.includes(user.id)) {
+      throw new ForbiddenException(`You are not allowed to ${action} this contract`);
+    }
+  }
+
+  private assertContractCanBeActivated(contract: ContractEntity) {
+    if (contract.activatedAt) {
+      return;
+    }
+
+    if (contract.status !== ContractStatus.SIGNED) {
+      throw new BadRequestException('Contract must be SIGNED before activation.');
+    }
+  }
+
+  private assertUniqueSortOrders(milestones: MilestoneEntity[], label: string) {
+    const seenSortOrders = new Set<number>();
+    for (const milestone of milestones) {
+      if (!Number.isInteger(milestone.sortOrder)) {
+        throw new ConflictException(
+          `${label} milestone "${milestone.title}" is missing a valid sortOrder.`,
+        );
+      }
+      if (seenSortOrders.has(milestone.sortOrder)) {
+        throw new ConflictException(
+          `${label} milestones contain duplicate sortOrder ${milestone.sortOrder}.`,
+        );
+      }
+      seenSortOrders.add(milestone.sortOrder);
+    }
+  }
+
+  private sumMilestoneAmounts(milestones: MilestoneEntity[]): Decimal {
+    return milestones.reduce(
+      (total, milestone) => total.plus(this.toMoneyDecimal(milestone.amount)),
+      new Decimal(0),
+    );
+  }
+
+  private assertMilestoneBudgetMatchesProject(
+    project: ProjectEntity,
+    spec: ProjectSpecEntity,
+    sourceMilestones: MilestoneEntity[],
+  ) {
+    const sourceBudget = this.sumMilestoneAmounts(sourceMilestones);
+    const projectBudget = this.toMoneyDecimal(project.totalBudget);
+    const specBudget = this.toMoneyDecimal(spec.totalBudget);
+
+    if (!sourceBudget.minus(projectBudget).abs().lte(ContractsService.MONEY_TOLERANCE)) {
+      throw new ConflictException(
+        'Cannot activate contract: spec milestone budget does not match project totalBudget.',
+      );
+    }
+
+    if (!sourceBudget.minus(specBudget).abs().lte(ContractsService.MONEY_TOLERANCE)) {
+      throw new ConflictException(
+        'Cannot activate contract: spec milestone budget does not match spec totalBudget.',
+      );
+    }
+  }
+
+  private assertExistingMilestonesMatchSpec(
+    projectMilestones: MilestoneEntity[],
+    sourceMilestones: MilestoneEntity[],
+  ) {
+    this.assertUniqueSortOrders(projectMilestones, 'Project');
+    this.assertUniqueSortOrders(sourceMilestones, 'Spec');
+
+    const sortedProjectMilestones = this.sortMilestones(projectMilestones);
+    const sortedSourceMilestones = this.sortMilestones(sourceMilestones);
+
+    if (sortedProjectMilestones.length !== sortedSourceMilestones.length) {
+      throw new ConflictException(
+        'Cannot activate contract: project milestone count does not match source spec.',
+      );
+    }
+
+    sortedProjectMilestones.forEach((projectMilestone, index) => {
+      const sourceMilestone = sortedSourceMilestones[index];
+      const projectAmount = this.toMoneyDecimal(projectMilestone.amount);
+      const sourceAmount = this.toMoneyDecimal(sourceMilestone.amount);
+      const projectRetention = this.toMoneyDecimal(projectMilestone.retentionAmount);
+      const sourceRetention = this.toMoneyDecimal(sourceMilestone.retentionAmount);
+      const projectCriteria = JSON.stringify(projectMilestone.acceptanceCriteria ?? []);
+      const sourceCriteria = JSON.stringify(sourceMilestone.acceptanceCriteria ?? []);
+
+      if (projectMilestone.sortOrder !== sourceMilestone.sortOrder) {
+        throw new ConflictException(
+          'Cannot activate contract: project milestone sortOrder does not match source spec.',
+        );
+      }
+      if (projectMilestone.title !== sourceMilestone.title) {
+        throw new ConflictException(
+          'Cannot activate contract: project milestone title does not match source spec.',
+        );
+      }
+      if (!projectAmount.equals(sourceAmount)) {
+        throw new ConflictException(
+          'Cannot activate contract: project milestone amount does not match source spec.',
+        );
+      }
+      if (
+        (projectMilestone.deliverableType ?? null) !== (sourceMilestone.deliverableType ?? null)
+      ) {
+        throw new ConflictException(
+          'Cannot activate contract: project milestone deliverable type does not match source spec.',
+        );
+      }
+      if (!projectRetention.equals(sourceRetention)) {
+        throw new ConflictException(
+          'Cannot activate contract: project milestone retention does not match source spec.',
+        );
+      }
+      if (projectCriteria !== sourceCriteria) {
+        throw new ConflictException(
+          'Cannot activate contract: project milestone acceptance criteria does not match source spec.',
+        );
+      }
+    });
+  }
 
   private selectSpecForContract(specs: ProjectSpecEntity[], sourceSpecId: string | null) {
     if (!specs?.length) return null;
@@ -78,7 +223,18 @@ export class ContractsService {
       sourceSpecId: contract.sourceSpecId ?? null,
       title: contract.title ?? '',
       termsContent: contract.termsContent ?? '',
+      status: contract.status ?? ContractStatus.DRAFT,
+      activatedAt: contract.activatedAt?.toISOString?.() ?? null,
       milestoneSnapshot: contract.milestoneSnapshot ?? null,
+      signatures: Array.isArray(contract.signatures)
+        ? contract.signatures
+            .map((signature) => ({
+              userId: signature.userId,
+              signatureHash: signature.signatureHash,
+              signedAt: signature.signedAt,
+            }))
+            .sort((a, b) => new Date(a.signedAt).getTime() - new Date(b.signedAt).getTime())
+        : null,
     });
     return createHash('sha256').update(payload).digest('hex');
   }
@@ -202,8 +358,18 @@ export class ContractsService {
     savedMilestones: MilestoneEntity[],
     sourceMilestones: MilestoneEntity[],
   ): ContractMilestoneSnapshotItem[] {
-    return savedMilestones.map((projectMilestone, index) => {
-      const sourceMilestone = sourceMilestones[index];
+    const sourceMilestoneBySortOrder = new Map<number, MilestoneEntity>();
+    for (const sourceMilestone of sourceMilestones) {
+      if (Number.isInteger(sourceMilestone.sortOrder)) {
+        sourceMilestoneBySortOrder.set(sourceMilestone.sortOrder, sourceMilestone);
+      }
+    }
+
+    return this.sortMilestones(savedMilestones).map((projectMilestone) => {
+      const sourceMilestone =
+        projectMilestone.sortOrder !== null && projectMilestone.sortOrder !== undefined
+          ? (sourceMilestoneBySortOrder.get(projectMilestone.sortOrder) ?? null)
+          : null;
       const dueDateValue = projectMilestone.dueDate ?? sourceMilestone?.dueDate ?? null;
       return {
         projectMilestoneId: projectMilestone.id,
@@ -229,10 +395,14 @@ export class ContractsService {
   private async activateProjectInTransaction(
     queryRunner: QueryRunner,
     contractId: string,
-    options?: { requireAllSignatures?: boolean },
+    options?: { requireAllSignatures?: boolean; actor?: UserEntity },
   ) {
     const contract = await this.loadContractForUpdate(queryRunner, contractId);
     const project = contract.project as ProjectEntity;
+
+    if (options?.actor) {
+      this.assertUserIsContractParty(options.actor, contract, 'activate');
+    }
 
     const existingMilestones = await queryRunner.manager.find(MilestoneEntity, {
       where: { projectId: project.id },
@@ -243,10 +413,20 @@ export class ContractsService {
 
     if (contract.activatedAt && existingMilestones.length > 0 && !hasSnapshot) {
       const spec = await this.resolveSpecForActivation(queryRunner, contract);
-      const sourceMilestones = spec?.milestones
-        ? [...spec.milestones].sort((a, b) => (a.sortOrder || 0) - (b.sortOrder || 0))
-        : [];
-      contract.milestoneSnapshot = this.buildMilestoneSnapshot(existingMilestones, sourceMilestones);
+      if (!spec) {
+        throw new BadRequestException(
+          'Cannot activate contract: source spec could not be resolved for legacy snapshot repair.',
+        );
+      }
+
+      const sourceMilestones = this.sortMilestones(spec.milestones || []);
+      this.assertMilestoneBudgetMatchesProject(project, spec, sourceMilestones);
+      this.assertExistingMilestonesMatchSpec(existingMilestones, sourceMilestones);
+      contract.milestoneSnapshot = this.buildMilestoneSnapshot(
+        existingMilestones,
+        sourceMilestones,
+      );
+      contract.status = ContractStatus.ACTIVATED;
       await queryRunner.manager.save(ContractEntity, contract);
 
       this.logger.warn(
@@ -261,6 +441,10 @@ export class ContractsService {
     }
 
     if (contract.activatedAt && hasSnapshot) {
+      if (contract.status !== ContractStatus.ACTIVATED) {
+        contract.status = ContractStatus.ACTIVATED;
+        await queryRunner.manager.save(ContractEntity, contract);
+      }
       return {
         status: 'Already activated',
         alreadyActivated: true,
@@ -269,7 +453,15 @@ export class ContractsService {
       };
     }
 
+    if (contract.activatedAt && existingMilestones.length === 0 && !hasSnapshot) {
+      throw new ConflictException(
+        'Contract is already marked as activated but has no milestone snapshot or project milestones.',
+      );
+    }
+
     if (options?.requireAllSignatures) {
+      this.assertContractCanBeActivated(contract);
+
       const requiredSignerIds = this.getRequiredContractSignerIds(contract);
       const signatures = await queryRunner.manager.find(DigitalSignatureEntity, {
         where: { contractId },
@@ -290,12 +482,15 @@ export class ContractsService {
       : null;
 
     const spec = await this.resolveSpecForActivation(queryRunner, contract);
+    if (!spec) {
+      throw new BadRequestException('Cannot activate contract: source spec could not be resolved.');
+    }
 
-    if (spec && existingMilestones.length === 0) {
-      const sortedSourceMilestones = [...(spec.milestones || [])].sort(
-        (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0),
-      );
+    const sortedSourceMilestones = this.sortMilestones(spec.milestones || []);
+    this.assertUniqueSortOrders(sortedSourceMilestones, 'Spec');
+    this.assertMilestoneBudgetMatchesProject(project, spec, sortedSourceMilestones);
 
+    if (existingMilestones.length === 0) {
       const clonedMilestonesToSave: MilestoneEntity[] = sortedSourceMilestones.map(
         (specMilestone) => {
           const newMilestone = new MilestoneEntity();
@@ -348,13 +543,8 @@ export class ContractsService {
       if (escrows.length > 0) {
         await queryRunner.manager.save(EscrowEntity, escrows);
       }
-    } else if (!spec) {
-      warning = 'Spec not found';
-      this.logger.warn(`No eligible source spec found for Contract ${contract.id}.`);
     } else if (existingMilestones.length > 0 && !hasSnapshot) {
-      const sortedSourceMilestones = [...(spec.milestones || [])].sort(
-        (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0),
-      );
+      this.assertExistingMilestonesMatchSpec(existingMilestones, sortedSourceMilestones);
       milestoneSnapshot = this.buildMilestoneSnapshot(existingMilestones, sortedSourceMilestones);
     }
 
@@ -372,6 +562,7 @@ export class ContractsService {
     if (!contract.activatedAt) {
       contract.activatedAt = new Date();
     }
+    contract.status = ContractStatus.ACTIVATED;
     contract.milestoneSnapshot = milestoneSnapshot;
     await queryRunner.manager.save(ContractEntity, contract);
 
@@ -457,53 +648,65 @@ export class ContractsService {
     }));
   }
 
-  async initializeProjectAndContract(user: UserEntity, specId: string) {
-    const spec = await this.projectSpecsRepository.findOne({
-      where: { id: specId },
-      relations: ['milestones', 'request', 'request.client', 'request.broker'],
-    });
-
-    if (!spec) throw new NotFoundException('Spec not found');
-    if (!spec.request) throw new BadRequestException('Spec is not linked to a project request');
-
-    if (user.id !== spec.request.brokerId) {
-      throw new ForbiddenException('Only Broker can initialize contract');
-    }
-
-    const isPhasedFlowReady =
-      spec.specPhase === SpecPhase.FULL_SPEC && spec.status === ProjectSpecStatus.ALL_SIGNED;
-    const isLegacyReady = spec.status === ProjectSpecStatus.APPROVED;
-    if (!isPhasedFlowReady && !isLegacyReady) {
-      throw new BadRequestException(
-        `Spec must be ALL_SIGNED (new flow) or APPROVED (legacy). Current: ${spec.status}`,
-      );
-    }
-
-    const freelancerId = await this.resolveAcceptedFreelancerId(spec.requestId);
-    if (isPhasedFlowReady && !freelancerId) {
-      throw new BadRequestException(
-        'Cannot initialize contract: no accepted freelancer found for this request.',
-      );
-    }
-
-    const existingContract = await this.contractsRepository.findOne({
-      where: { sourceSpecId: spec.id },
-    });
-    if (existingContract) {
-      throw new BadRequestException('Contract already initialized for this spec');
-    }
-
+  async initializeProjectAndContract(user: UserEntity, specId: string, freelancerId?: string) {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
+      const spec = await queryRunner.manager.findOne(ProjectSpecEntity, {
+        where: { id: specId },
+        relations: ['milestones', 'request', 'request.client', 'request.broker'],
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!spec) {
+        throw new NotFoundException('Spec not found');
+      }
+      if (!spec.request) {
+        throw new BadRequestException('Spec is not linked to a project request');
+      }
+
+      if (user.id !== spec.request.brokerId) {
+        throw new ForbiddenException('Only Broker can initialize contract');
+      }
+
+      const isPhasedFlowReady =
+        spec.specPhase === SpecPhase.FULL_SPEC && spec.status === ProjectSpecStatus.ALL_SIGNED;
+      const isLegacyReady = spec.status === ProjectSpecStatus.APPROVED;
+      if (!isPhasedFlowReady && !isLegacyReady) {
+        throw new BadRequestException(
+          `Spec must be ALL_SIGNED (new flow) or APPROVED (legacy). Current: ${spec.status}`,
+        );
+      }
+
+      const acceptedFreelancerId = await this.resolveAcceptedFreelancerId(spec.requestId);
+      if (freelancerId && acceptedFreelancerId && freelancerId !== acceptedFreelancerId) {
+        throw new BadRequestException(
+          'freelancerId does not match the accepted freelancer for this request.',
+        );
+      }
+
+      const resolvedFreelancerId = acceptedFreelancerId ?? freelancerId ?? undefined;
+      if (isPhasedFlowReady && !resolvedFreelancerId) {
+        throw new BadRequestException(
+          'Cannot initialize contract: no accepted freelancer found for this request.',
+        );
+      }
+
+      const existingContract = await queryRunner.manager.findOne(ContractEntity, {
+        where: { sourceSpecId: spec.id },
+      });
+      if (existingContract) {
+        throw new BadRequestException('Contract already initialized for this spec');
+      }
+
       // 1. Create Project (INITIALIZING)
       const project = queryRunner.manager.create(ProjectEntity, {
         requestId: spec.requestId, // Link to Request for Spec access
         brokerId: spec.request.brokerId,
         clientId: spec.request.clientId,
-        freelancerId: freelancerId ?? undefined,
+        freelancerId: resolvedFreelancerId,
         title: spec.title,
         description: spec.description,
         totalBudget: spec.totalBudget,
@@ -522,7 +725,7 @@ export class ContractsService {
         title: `Contract for ${spec.title}`,
         contractUrl: `contracts/${savedProject.id}.pdf`, // Placeholder
         termsContent,
-        status: 'DRAFT',
+        status: ContractStatus.DRAFT,
         createdBy: user.id,
       });
       const savedContract = await queryRunner.manager.save(contract);
@@ -771,19 +974,13 @@ export class ContractsService {
     let requiredSignerCount = 0;
     let signaturesCount = 0;
     let allRequiredSigned = false;
-    let activationResult:
-      | { alreadyActivated?: boolean; activatedAt?: Date | null; clonedMilestones?: number }
-      | undefined;
 
     try {
       const contract = await this.loadContractForUpdate(queryRunner, contractId);
+      this.assertUserIsContractParty(user, contract, 'sign');
 
       const requiredSignerIds = this.getRequiredContractSignerIds(contract);
       requiredSignerCount = requiredSignerIds.length;
-
-      if (!requiredSignerIds.includes(user.id)) {
-        throw new ForbiddenException('You are not a party to this contract');
-      }
 
       const existingSig = await queryRunner.manager.findOne(DigitalSignatureEntity, {
         where: { contractId, userId: user.id },
@@ -808,11 +1005,8 @@ export class ContractsService {
       allRequiredSigned = requiredSignerIds.every((id) => signedUserIds.has(id));
 
       if (allRequiredSigned) {
-        contract.status = 'SIGNED';
+        contract.status = ContractStatus.SIGNED;
         await queryRunner.manager.save(ContractEntity, contract);
-        activationResult = await this.activateProjectInTransaction(queryRunner, contractId, {
-          requireAllSignatures: false,
-        });
       }
 
       await queryRunner.commitTransaction();
@@ -830,9 +1024,7 @@ export class ContractsService {
         entityType: 'Contract',
         entityId: contractId,
         newData: {
-          status: 'SIGNED',
-          activatedAt: activationResult?.activatedAt?.toISOString?.() ?? null,
-          alreadyActivated: Boolean(activationResult?.alreadyActivated),
+          status: ContractStatus.SIGNED,
         },
         req: undefined,
       });
@@ -853,14 +1045,13 @@ export class ContractsService {
    * - Creates Escrow
    */
   async activateProject(user: UserEntity, contractId: string) {
-    void user;
-
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
     try {
       const result = await this.activateProjectInTransaction(queryRunner, contractId, {
+        actor: user,
         requireAllSignatures: true,
       });
       await queryRunner.commitTransaction();
