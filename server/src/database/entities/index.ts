@@ -29,6 +29,12 @@ export { DocumentEntity, DocType } from './document.entity';
 export { WalletEntity, WalletStatus } from './wallet.entity';
 export { TransactionEntity, TransactionType, TransactionStatus } from './transaction.entity';
 export { EscrowEntity, EscrowStatus } from './escrow.entity';
+export { PaymentMethodEntity, PaymentMethodType } from './payment-method.entity';
+export {
+  FundingIntentEntity,
+  FundingGateway,
+  FundingIntentStatus,
+} from './funding-intent.entity';
 export { PayoutMethodEntity } from './payout-method.entity';
 export { FeeConfigEntity, FeeType } from './fee-config.entity';
 export { PayoutRequestEntity, PayoutStatus } from './payout-request.entity';
