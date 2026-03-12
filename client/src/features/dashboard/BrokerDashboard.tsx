@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { formatDistanceToNowStrict } from "date-fns";
 import {
+  AlertTriangle,
   ArrowRight,
   Briefcase,
   CheckCircle2,
@@ -139,6 +140,61 @@ export function BrokerDashboard() {
     [workspaceProjects],
   );
 
+  const attentionItems = useMemo(() => {
+    const requestItems = myRequests
+      .map((request) => {
+        const normalizedStatus = String(request.status || "").toUpperCase();
+        if (normalizedStatus === RequestStatus.SPEC_SUBMITTED) {
+          return {
+            id: `request-${request.id}`,
+            tone: "border-amber-200 bg-amber-50/70 text-amber-900",
+            title: request.title,
+            label: "Waiting on client review",
+            description: "Client Spec is out for approval. Follow up or monitor response.",
+            onClick: () => navigate(`/broker/project-requests/${request.id}`),
+          };
+        }
+        if (
+          normalizedStatus === RequestStatus.SPEC_APPROVED ||
+          normalizedStatus === RequestStatus.HIRING
+        ) {
+          return {
+            id: `request-${request.id}`,
+            tone: "border-sky-200 bg-sky-50/70 text-sky-900",
+            title: request.title,
+            label: "Freelancer / Final Spec coordination",
+            description: "Select the signer and keep Final Spec moving toward review.",
+            onClick: () => navigate(`/broker/project-requests/${request.id}`),
+          };
+        }
+        if (normalizedStatus === RequestStatus.CONTRACT_PENDING) {
+          return {
+            id: `request-${request.id}`,
+            tone: "border-emerald-200 bg-emerald-50/70 text-emerald-900",
+            title: request.title,
+            label: "Contract lane",
+            description: "Final Spec is complete. Move contract signing or activation forward.",
+            onClick: () => navigate(`/broker/project-requests/${request.id}`),
+          };
+        }
+        return null;
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+    const disputedWorkspaceItems = activeWorkspaces
+      .filter((project) => project.status?.toUpperCase() === "DISPUTED")
+      .map((project) => ({
+        id: `workspace-${project.id}`,
+        tone: "border-rose-200 bg-rose-50/70 text-rose-900",
+        title: project.title,
+        label: "Disputed workspace",
+        description: "A live project needs broker attention in workspace/dispute handling.",
+        onClick: () => navigate(`/broker/workspace/${project.id}`),
+      }));
+
+    return [...disputedWorkspaceItems, ...requestItems].slice(0, 4);
+  }, [activeWorkspaces, myRequests, navigate]);
+
   if (loading) {
     return (
       <div className="flex justify-center p-10">
@@ -201,6 +257,46 @@ export function BrokerDashboard() {
           <CardContent className="text-xs text-slate-500">Delivered and finalized</CardContent>
         </Card>
       </div>
+
+      <Card className="border-slate-200">
+        <CardHeader className="flex flex-row items-start justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <AlertTriangle className="h-5 w-5 text-amber-600" />
+              Needs Attention
+            </CardTitle>
+            <CardDescription>
+              The shortest path to unblock specs, contracts, and live work.
+            </CardDescription>
+          </div>
+          <Badge variant="outline">{attentionItems.length}</Badge>
+        </CardHeader>
+        <CardContent>
+          {attentionItems.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-5 text-sm text-slate-600">
+              Nothing is screaming for broker intervention right now. You can monitor the
+              pipeline or jump straight into marketplace/workspace.
+            </div>
+          ) : (
+            <div className="grid gap-3 lg:grid-cols-2">
+              {attentionItems.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={item.onClick}
+                  className={`rounded-2xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-sm ${item.tone}`}
+                >
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] opacity-80">
+                    {item.label}
+                  </p>
+                  <p className="mt-2 text-base font-semibold">{item.title}</p>
+                  <p className="mt-2 text-sm leading-6 opacity-90">{item.description}</p>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>

@@ -18,6 +18,7 @@ import { UserRole } from '../../database/entities/user.entity';
 import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { CreateClientSpecDto } from './dto/create-client-spec.dto';
 import { AuditSpecDto, AuditAction } from './dto/audit-spec.dto';
+import { RequestFullSpecChangesDto } from './dto/request-full-spec-changes.dto';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserEntity } from '../../database/entities/user.entity';
@@ -179,6 +180,18 @@ export class ProjectSpecsController {
     @Req() req: RequestContext,
   ) {
     return this.projectSpecsService.signSpec(user, id, req);
+  }
+
+  /** Any final-review party: request changes and return full spec to broker editing */
+  @Post(':id/request-changes')
+  @Roles(UserRole.CLIENT, UserRole.BROKER, UserRole.FREELANCER)
+  async requestFullSpecChanges(
+    @GetUser() user: UserEntity,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: RequestFullSpecChangesDto,
+    @Req() req: RequestContext,
+  ) {
+    return this.projectSpecsService.requestFullSpecChanges(user, id, body.reason, req);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

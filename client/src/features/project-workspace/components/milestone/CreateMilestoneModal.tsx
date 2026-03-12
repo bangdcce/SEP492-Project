@@ -1,4 +1,5 @@
 import { CalendarDays, Flag, X } from "lucide-react";
+import { DeliverableType } from "@/features/project-specs/types";
 
 type CreateMilestoneModalProps = {
   open: boolean;
@@ -7,6 +8,9 @@ type CreateMilestoneModalProps = {
   description: string;
   startDate: string;
   dueDate: string;
+  deliverableType: DeliverableType;
+  retentionAmount: string;
+  acceptanceCriteriaText: string;
   isSubmitting: boolean;
   onClose: () => void;
   onSubmit: () => void;
@@ -15,6 +19,9 @@ type CreateMilestoneModalProps = {
   onChangeDescription: (value: string) => void;
   onChangeStartDate: (value: string) => void;
   onChangeDueDate: (value: string) => void;
+  onChangeDeliverableType: (value: DeliverableType) => void;
+  onChangeRetentionAmount: (value: string) => void;
+  onChangeAcceptanceCriteriaText: (value: string) => void;
 };
 
 export function CreateMilestoneModal({
@@ -24,6 +31,9 @@ export function CreateMilestoneModal({
   description,
   startDate,
   dueDate,
+  deliverableType,
+  retentionAmount,
+  acceptanceCriteriaText,
   isSubmitting,
   onClose,
   onSubmit,
@@ -32,12 +42,15 @@ export function CreateMilestoneModal({
   onChangeDescription,
   onChangeStartDate,
   onChangeDueDate,
+  onChangeDeliverableType,
+  onChangeRetentionAmount,
+  onChangeAcceptanceCriteriaText,
 }: CreateMilestoneModalProps) {
   if (!open) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg space-y-5 rounded-xl bg-white p-6 shadow-xl">
+      <div className="w-full max-w-2xl space-y-5 rounded-xl bg-white p-6 shadow-xl">
         <div className="flex items-center justify-between">
           <div>
             <h3 className="text-lg font-semibold text-slate-900">Create Milestone</h3>
@@ -85,6 +98,30 @@ export function CreateMilestoneModal({
               />
             </div>
             <div>
+              <label className="text-sm font-medium text-gray-700">
+                Deliverable Type
+              </label>
+              <select
+                value={deliverableType}
+                onChange={(event) =>
+                  onChangeDeliverableType(event.target.value as DeliverableType)
+                }
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
+                disabled={isSubmitting}
+              >
+                <option value={DeliverableType.DESIGN_PROTOTYPE}>Design Prototype</option>
+                <option value={DeliverableType.API_DOCS}>API Docs</option>
+                <option value={DeliverableType.SOURCE_CODE}>Source Code</option>
+                <option value={DeliverableType.DEPLOYMENT}>Deployment</option>
+                <option value={DeliverableType.SYS_OPERATION_DOCS}>SysOps Docs</option>
+                <option value={DeliverableType.CREDENTIAL_VAULT}>Credential Vault</option>
+                <option value={DeliverableType.OTHER}>Other</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
               <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
                 <CalendarDays className="h-4 w-4 text-gray-500" />
                 Start Date
@@ -97,20 +134,34 @@ export function CreateMilestoneModal({
                 disabled={isSubmitting}
               />
             </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
-              <CalendarDays className="h-4 w-4 text-gray-500" />
-              Due Date
-            </label>
-            <input
-              type="date"
-              value={dueDate}
-              onChange={(event) => onChangeDueDate(event.target.value)}
-              className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
-              disabled={isSubmitting}
-            />
+            <div>
+              <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <CalendarDays className="h-4 w-4 text-gray-500" />
+                Due Date
+              </label>
+              <input
+                type="date"
+                value={dueDate}
+                onChange={(event) => onChangeDueDate(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
+                disabled={isSubmitting}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">
+                Retention Amount (USD)
+              </label>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={retentionAmount}
+                onChange={(event) => onChangeRetentionAmount(event.target.value)}
+                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
+                placeholder="0.00"
+                disabled={isSubmitting}
+              />
+            </div>
           </div>
 
           <div>
@@ -121,6 +172,23 @@ export function CreateMilestoneModal({
               className="mt-1 w-full resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
               rows={3}
               placeholder="Define expected outcomes for this milestone..."
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium text-gray-700">
+              Acceptance Criteria
+            </label>
+            <p className="mt-1 text-xs text-gray-500">
+              Enter one approval check per line. These become part of the frozen schedule if no live contract has locked scope yet.
+            </p>
+            <textarea
+              value={acceptanceCriteriaText}
+              onChange={(event) => onChangeAcceptanceCriteriaText(event.target.value)}
+              className="mt-2 w-full resize-none rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
+              rows={4}
+              placeholder={"Approved QA checklist\nDeployment verified in staging\nClient walkthrough completed"}
               disabled={isSubmitting}
             />
           </div>

@@ -1,3 +1,5 @@
+import type { DeliverableType } from "@/features/project-specs/types";
+
 export type KanbanColumnKey = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
 
 export type Assignee = {
@@ -85,11 +87,15 @@ export type Milestone = {
   id: string;
   projectId: string;
   projectSpecId?: string | null;
+  sourceContractMilestoneKey?: string | null;
   title: string;
   description?: string;
   amount: number;
   startDate?: string;
   dueDate?: string;
+  deliverableType?: DeliverableType | null;
+  retentionAmount?: number | null;
+  acceptanceCriteria?: string[] | null;
   status: string;
   sortOrder?: number | null;
   createdAt: string;

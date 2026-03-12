@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { ContractEntity } from '../../database/entities/contract.entity';
+import { ContractEntity, ContractStatus } from '../../database/entities/contract.entity';
 
 export type MilestoneStructureMutationContext = 'DEFAULT' | 'AMENDMENT';
 
@@ -11,6 +11,18 @@ export class MilestoneLockPolicyService {
     @InjectRepository(ContractEntity)
     private readonly contractRepository: Repository<ContractEntity>,
   ) {}
+
+  async findLatestLiveContract(projectId: string): Promise<ContractEntity | null> {
+    return this.contractRepository
+      .createQueryBuilder('contract')
+      .where('contract.projectId = :projectId', { projectId })
+      .andWhere('contract.status <> :archivedStatus', {
+        archivedStatus: ContractStatus.ARCHIVED,
+      })
+      .orderBy('contract.activatedAt', 'DESC', 'NULLS LAST')
+      .addOrderBy('contract.createdAt', 'DESC')
+      .getOne();
+  }
 
   async findLatestActivatedContract(projectId: string): Promise<ContractEntity | null> {
     return this.contractRepository
@@ -23,8 +35,8 @@ export class MilestoneLockPolicyService {
   }
 
   async isMilestoneStructureLocked(projectId: string): Promise<boolean> {
-    const contract = await this.findLatestActivatedContract(projectId);
-    return Boolean(contract?.activatedAt);
+    const liveContract = await this.findLatestLiveContract(projectId);
+    return Boolean(liveContract);
   }
 
   async assertCanMutateMilestoneStructure(
@@ -38,7 +50,7 @@ export class MilestoneLockPolicyService {
     const isLocked = await this.isMilestoneStructureLocked(projectId);
     if (isLocked) {
       throw new BadRequestException(
-        'Milestones are locked after contract activation. Use amendment flow to change milestone scope.',
+        'Milestone structure is locked while a live contract exists for this project. Review the frozen contract before activation; amendment support is not available yet.',
       );
     }
   }

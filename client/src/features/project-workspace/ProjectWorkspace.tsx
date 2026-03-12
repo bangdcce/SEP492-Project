@@ -44,6 +44,7 @@ import { CreateDisputeModal } from "@/features/disputes/components/wizard/Create
 import { disconnectNamespacedSocket, getNamespacedSocket } from "@/shared/realtime/socket";
 import { contractsApi } from "@/features/contracts/api";
 import type { Contract as ContractDetail } from "@/features/contracts/types";
+import { DeliverableType } from "@/features/project-specs/types";
 
 const initialBoard: KanbanBoard = {
   TODO: [],
@@ -78,6 +79,12 @@ export function ProjectWorkspace() {
   const [newMilestoneDescription, setNewMilestoneDescription] = useState("");
   const [newMilestoneStartDate, setNewMilestoneStartDate] = useState("");
   const [newMilestoneDueDate, setNewMilestoneDueDate] = useState("");
+  const [newMilestoneDeliverableType, setNewMilestoneDeliverableType] = useState<DeliverableType>(
+    DeliverableType.SOURCE_CODE,
+  );
+  const [newMilestoneRetentionAmount, setNewMilestoneRetentionAmount] = useState("0");
+  const [newMilestoneAcceptanceCriteriaText, setNewMilestoneAcceptanceCriteriaText] =
+    useState("");
   const [isMilestoneSubmitting, setIsMilestoneSubmitting] = useState(false);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
@@ -188,8 +195,9 @@ export function ProjectWorkspace() {
 
   const isMilestoneStructureLocked = useMemo(() => {
     return Boolean(
-      contractDetail?.activatedAt &&
-        Array.isArray(contractDetail?.milestoneSnapshot) &&
+      contractDetail &&
+        contractDetail.status !== "ARCHIVED" &&
+        Array.isArray(contractDetail.milestoneSnapshot) &&
         contractDetail.milestoneSnapshot.length > 0
     );
   }, [contractDetail]);
@@ -272,7 +280,16 @@ export function ProjectWorkspace() {
   }, [newSpecFeatureId, specFeatureOptions]);
 
   const runtimeMilestoneStatusMap = useMemo(
-    () => new Map(milestones.map((milestone) => [milestone.id, milestone.status])),
+    () =>
+      new Map(
+        milestones.flatMap((milestone) => {
+          const entries: Array<[string, string]> = [[milestone.id, milestone.status]];
+          if (milestone.sourceContractMilestoneKey) {
+            entries.push([milestone.sourceContractMilestoneKey, milestone.status]);
+          }
+          return entries;
+        }),
+      ),
     [milestones]
   );
 
@@ -324,16 +341,6 @@ export function ProjectWorkspace() {
         if (primaryContractId) {
           try {
             contractData = await contractsApi.getContract(primaryContractId);
-            if (
-              contractData.status === "SIGNED" &&
-              !contractData.activatedAt
-            ) {
-              await contractsApi.activateContract(primaryContractId);
-              contractData = await contractsApi.getContract(primaryContractId);
-              milestoneData = await fetchMilestones(projectId);
-              boardData = await fetchBoard(projectId);
-              projectData = await fetchProject(projectId);
-            }
           } catch (contractErr) {
             console.warn("Failed to load contract snapshot for workspace:", contractErr);
           }
@@ -394,7 +401,7 @@ export function ProjectWorkspace() {
   const openCreateMilestoneModal = () => {
     if (isMilestoneStructureLocked) {
       const message =
-        "Milestones are locked after contract activation. Use amendment flow to change milestone scope.";
+        "Milestone scope is locked by the contract. Amendment support is not available yet.";
       setError(message);
       toast.warning(message);
       return;
@@ -415,6 +422,9 @@ export function ProjectWorkspace() {
     setNewMilestoneDescription("");
     setNewMilestoneStartDate("");
     setNewMilestoneDueDate("");
+    setNewMilestoneDeliverableType(DeliverableType.SOURCE_CODE);
+    setNewMilestoneRetentionAmount("0");
+    setNewMilestoneAcceptanceCriteriaText("");
     setIsMilestoneModalOpen(true);
   };
   const handleSelectMilestone = (id: string) => setSelectedMilestoneId(id);
@@ -436,6 +446,17 @@ export function ProjectWorkspace() {
       return;
     }
 
+    const retentionAmount = Number(newMilestoneRetentionAmount || "0");
+    if (!Number.isFinite(retentionAmount) || retentionAmount < 0) {
+      setError("Retention amount must be a non-negative number.");
+      return;
+    }
+
+    if (retentionAmount > amount) {
+      setError("Retention amount cannot exceed the milestone amount.");
+      return;
+    }
+
     if (
       newMilestoneStartDate &&
       newMilestoneDueDate &&
@@ -444,6 +465,11 @@ export function ProjectWorkspace() {
       setError("Milestone due date must be after start date.");
       return;
     }
+
+    const acceptanceCriteria = newMilestoneAcceptanceCriteriaText
+      .split("\n")
+      .map((criterion) => criterion.trim())
+      .filter(Boolean);
 
     try {
       setIsMilestoneSubmitting(true);
@@ -454,6 +480,9 @@ export function ProjectWorkspace() {
         description: newMilestoneDescription || undefined,
         startDate: newMilestoneStartDate || undefined,
         dueDate: newMilestoneDueDate || undefined,
+        deliverableType: newMilestoneDeliverableType,
+        retentionAmount,
+        acceptanceCriteria: acceptanceCriteria.length > 0 ? acceptanceCriteria : undefined,
       });
       setMilestones((prev) => [...prev, created]);
       setSelectedMilestoneId(created.id);
@@ -474,6 +503,15 @@ export function ProjectWorkspace() {
     const date = new Date(value);
     if (Number.isNaN(date.getTime())) return value;
     return date.toLocaleDateString();
+  };
+
+  const formatDeliverableType = (value?: string | null) => {
+    if (!value) return "Other";
+    return value
+      .toLowerCase()
+      .split("_")
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
   };
 
   const filteredBoard = useMemo(() => {
@@ -1004,7 +1042,10 @@ export function ProjectWorkspace() {
 
       {isMilestoneStructureLocked && (
         <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          Milestones are locked after contract activation. Runtime progress updates remain available. Use amendment flow to change milestone scope.
+          {contractDetail?.activatedAt
+            ? "Milestone structure is locked by the activated contract. Runtime progress updates remain available."
+            : "Milestone structure is locked by the live contract review/signing flow. Review the frozen contract before activation."}{" "}
+          Amendment support is not available yet.
         </div>
       )}
 
@@ -1031,10 +1072,12 @@ export function ProjectWorkspace() {
           <div className="mt-3 space-y-2">
             {lockedPaymentSchedule.map((entry, index) => {
               const runtimeStatus =
-                runtimeMilestoneStatusMap.get(entry.projectMilestoneId) || "PENDING";
+                runtimeMilestoneStatusMap.get(
+                  entry.contractMilestoneKey,
+                ) || "PENDING";
               return (
                 <div
-                  key={entry.projectMilestoneId}
+                  key={entry.contractMilestoneKey}
                   className="grid grid-cols-1 gap-2 rounded-lg border border-slate-100 bg-slate-50/70 px-3 py-2 sm:grid-cols-[1fr_auto_auto]"
                 >
                   <div className="min-w-0">
@@ -1045,13 +1088,22 @@ export function ProjectWorkspace() {
                       {entry.title}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {entry.deliverableType || "OTHER"}
+                      {formatDeliverableType(entry.deliverableType)}
+                      {entry.startDate
+                        ? ` · Starts ${formatOptionalDate(entry.startDate)}`
+                        : ""}
                       {entry.dueDate ? ` · Due ${formatOptionalDate(entry.dueDate)}` : ""}
                       {typeof entry.retentionAmount === "number" &&
                       entry.retentionAmount > 0
                         ? ` · Retention ${currencyFormatter.format(entry.retentionAmount)}`
                         : ""}
                     </p>
+                    {Array.isArray(entry.acceptanceCriteria) &&
+                    entry.acceptanceCriteria.length > 0 ? (
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                        Approval checks: {entry.acceptanceCriteria.join(" • ")}
+                      </p>
+                    ) : null}
                   </div>
                   <div className="text-sm font-semibold text-slate-900 sm:text-right">
                     {currencyFormatter.format(Number(entry.amount || 0))}
@@ -1083,7 +1135,7 @@ export function ProjectWorkspace() {
             {isReadOnly
               ? "The team will create milestones soon. Check back later."
                 : isMilestoneStructureLocked
-                  ? "Milestones are locked after contract activation. Use amendment flow to change scope."
+                  ? "Milestone scope is locked by the contract. Amendment support is not available yet."
                 : isAssignedBroker
                   ? "Create your first milestone to start adding tasks for this project."
                   : "Waiting for broker to define milestone scope."}
@@ -1149,6 +1201,57 @@ export function ProjectWorkspace() {
               ) : (
                 <p className="text-xs text-gray-500 mb-2">No description</p>
               )}
+              <div className="mb-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Deliverable
+                  </p>
+                  <p className="text-sm font-medium text-slate-900">
+                    {formatDeliverableType(activeMilestone.deliverableType)}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Date window
+                  </p>
+                  <p className="text-sm font-medium text-slate-900">
+                    {formatOptionalDate(activeMilestone.startDate) || "Not set"}
+                    {" -> "}
+                    {formatOptionalDate(activeMilestone.dueDate) || "Not set"}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Retention
+                  </p>
+                  <p className="text-sm font-medium text-slate-900">
+                    {currencyFormatter.format(Number(activeMilestone.retentionAmount || 0))}
+                  </p>
+                </div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <p className="text-[11px] uppercase tracking-wide text-slate-500">
+                    Approval checks
+                  </p>
+                  <p className="text-sm font-medium text-slate-900">
+                    {activeMilestone.acceptanceCriteria?.length || 0}
+                  </p>
+                </div>
+              </div>
+              {Array.isArray(activeMilestone.acceptanceCriteria) &&
+              activeMilestone.acceptanceCriteria.length > 0 ? (
+                <div className="mb-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                  <p className="mb-2 text-[11px] uppercase tracking-wide text-slate-500">
+                    Acceptance criteria
+                  </p>
+                  <ul className="space-y-1 text-xs text-slate-700">
+                    {activeMilestone.acceptanceCriteria.map((criterion, criteriaIndex) => (
+                      <li key={`${activeMilestone.id}-criterion-${criteriaIndex}`}>
+                        • {criterion}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               <div className="h-2 bg-slate-200 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-teal-500 transition-all"
@@ -1290,6 +1393,9 @@ export function ProjectWorkspace() {
         description={newMilestoneDescription}
         startDate={newMilestoneStartDate}
         dueDate={newMilestoneDueDate}
+        deliverableType={newMilestoneDeliverableType}
+        retentionAmount={newMilestoneRetentionAmount}
+        acceptanceCriteriaText={newMilestoneAcceptanceCriteriaText}
         isSubmitting={isMilestoneSubmitting}
         onClose={() => setIsMilestoneModalOpen(false)}
         onSubmit={handleCreateMilestone}
@@ -1298,6 +1404,9 @@ export function ProjectWorkspace() {
         onChangeDescription={setNewMilestoneDescription}
         onChangeStartDate={setNewMilestoneStartDate}
         onChangeDueDate={setNewMilestoneDueDate}
+        onChangeDeliverableType={setNewMilestoneDeliverableType}
+        onChangeRetentionAmount={setNewMilestoneRetentionAmount}
+        onChangeAcceptanceCriteriaText={setNewMilestoneAcceptanceCriteriaText}
       />
 
       <CreateTaskModal

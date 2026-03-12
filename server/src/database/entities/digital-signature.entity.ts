@@ -24,7 +24,16 @@ export class DigitalSignatureEntity {
   signatureHash: string;
 
   @Column({ type: 'varchar', nullable: true })
+  contentHash: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  signerRole: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
   ipAddress: string;
+
+  @Column({ type: 'text', nullable: true })
+  userAgent: string | null;
 
   @CreateDateColumn()
   signedAt: Date;

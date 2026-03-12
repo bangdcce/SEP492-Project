@@ -13,6 +13,10 @@ import { ProjectSpecStatus, SpecPhase } from './types';
 import { STORAGE_KEYS } from '@/constants';
 import { getStoredJson } from '@/shared/utils/storage';
 import { SpecSignPanel } from './components/SpecSignPanel';
+import {
+  SpecNarrativeRenderer,
+  narrativeHasContent,
+} from '@/shared/components/rich-text/SpecNarrative';
 
 export default function ClientSpecReviewPage() {
   const { specId } = useParams<{ specId: string }>();
@@ -23,6 +27,7 @@ export default function ClientSpecReviewPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
+  const [changeRequestReason, setChangeRequestReason] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const loadSpec = async () => {
@@ -77,6 +82,27 @@ export default function ClientSpecReviewPage() {
     }
   };
 
+  const handleRequestFullSpecChanges = async () => {
+    if (!specId) return;
+    if (changeRequestReason.trim().length < 10) {
+      setError('Please provide a change request reason with at least 10 characters.');
+      return;
+    }
+    try {
+      setIsSubmitting(true);
+      setError(null);
+      await projectSpecsApi.requestFullSpecChanges(specId, changeRequestReason.trim());
+      setChangeRequestReason('');
+      await loadSpec();
+    } catch (submitError: any) {
+      const message =
+        submitError?.response?.data?.message || 'Failed to request changes for this full spec.';
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-[50vh] items-center justify-center">
@@ -103,6 +129,9 @@ export default function ClientSpecReviewPage() {
     spec.status === ProjectSpecStatus.CLIENT_REVIEW;
   const showFinalSignActions =
     spec.specPhase === SpecPhase.FULL_SPEC && spec.status === ProjectSpecStatus.FINAL_REVIEW;
+  const changeRequestReasonTrimmed = changeRequestReason.trim();
+  const changeRequestReasonTooShort =
+    changeRequestReasonTrimmed.length > 0 && changeRequestReasonTrimmed.length < 10;
   const sortedMilestones = [...(spec.milestones || [])].sort(
     (a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0),
   );
@@ -134,6 +163,15 @@ export default function ClientSpecReviewPage() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+
+      {spec.specPhase === SpecPhase.FULL_SPEC &&
+        spec.status === ProjectSpecStatus.REJECTED &&
+        spec.rejectionReason && (
+          <Alert>
+            <AlertTitle>Changes were requested</AlertTitle>
+            <AlertDescription>{spec.rejectionReason}</AlertDescription>
+          </Alert>
+        )}
 
       <Card>
         <CardHeader>
@@ -200,6 +238,17 @@ export default function ClientSpecReviewPage() {
 
       {spec.specPhase === SpecPhase.FULL_SPEC && (
         <>
+          {narrativeHasContent(spec.richContentJson || null) && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Detailed Scope Notes</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <SpecNarrativeRenderer value={spec.richContentJson || null} />
+              </CardContent>
+            </Card>
+          )}
+
           <Card>
             <CardHeader>
               <CardTitle>Technical Features & Acceptance Criteria</CardTitle>
@@ -296,18 +345,16 @@ export default function ClientSpecReviewPage() {
                       </div>
                     </div>
 
-                    {(milestone.startDate || milestone.dueDate) && (
-                      <div className="grid gap-3 md:grid-cols-2">
-                        <div className="rounded-md border p-3">
-                          <p className="text-xs text-muted-foreground">Start Date</p>
-                          <p className="text-sm font-medium">{milestone.startDate || '—'}</p>
-                        </div>
-                        <div className="rounded-md border p-3">
-                          <p className="text-xs text-muted-foreground">Due Date</p>
-                          <p className="text-sm font-medium">{milestone.dueDate || '—'}</p>
-                        </div>
+                    <div className="grid gap-3 md:grid-cols-2">
+                      <div className="rounded-md border p-3">
+                        <p className="text-xs text-muted-foreground">Start Date</p>
+                        <p className="text-sm font-medium">{milestone.startDate || 'Not set'}</p>
                       </div>
-                    )}
+                      <div className="rounded-md border p-3">
+                        <p className="text-xs text-muted-foreground">Due Date</p>
+                        <p className="text-sm font-medium">{milestone.dueDate || 'Not set'}</p>
+                      </div>
+                    </div>
 
                     {milestone.acceptanceCriteria && milestone.acceptanceCriteria.length > 0 && (
                       <div className="space-y-2">
@@ -385,12 +432,43 @@ export default function ClientSpecReviewPage() {
       )}
 
       {showFinalSignActions && (
-        <SpecSignPanel
-          spec={spec}
-          currentUserId={currentUser?.id}
-          isSigning={isSubmitting}
-          onSign={handleSignFullSpec}
-        />
+        <>
+          <SpecSignPanel
+            spec={spec}
+            currentUserId={currentUser?.id}
+            isSigning={isSubmitting}
+            onSign={handleSignFullSpec}
+          />
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Need changes before signing?</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                If the full spec still needs revisions, send it back to the broker with a clear
+                reason. Any existing signatures on this review round will be cleared.
+              </p>
+              <Textarea
+                placeholder="Explain what needs to change (minimum 10 characters)"
+                value={changeRequestReason}
+                onChange={(event) => setChangeRequestReason(event.target.value)}
+              />
+              {changeRequestReasonTooShort && (
+                <p className="text-sm text-amber-700">
+                  Please add a bit more detail so the broker knows exactly what to revise.
+                </p>
+              )}
+              <Button
+                variant="outline"
+                onClick={handleRequestFullSpecChanges}
+                disabled={isSubmitting || changeRequestReasonTrimmed.length < 10}
+              >
+                {isSubmitting ? 'Sending...' : 'Request Changes'}
+              </Button>
+            </CardContent>
+          </Card>
+        </>
       )}
     </div>
   );

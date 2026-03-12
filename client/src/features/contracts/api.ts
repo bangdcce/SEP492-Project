@@ -2,25 +2,6 @@ import { apiClient } from "../../shared/api/client";
 import type { Contract, ContractSummary } from "./types";
 import { API_CONFIG } from "@/constants";
 
-const buildSignatureHash = async (
-  contractId: string,
-  confirmationText?: string,
-) => {
-  const seed = `${contractId}:${Date.now()}:${confirmationText || "acknowledged"}`;
-
-  if (typeof window !== "undefined" && window.crypto?.subtle) {
-    const digest = await window.crypto.subtle.digest(
-      "SHA-256",
-      new TextEncoder().encode(seed),
-    );
-    return Array.from(new Uint8Array(digest))
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
-  }
-
-  return `${contractId}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-};
-
 export const contractsApi = {
   listContracts: (): Promise<ContractSummary[]> => {
     return apiClient.get("/contracts/list");
@@ -30,21 +11,59 @@ export const contractsApi = {
     return apiClient.get(`/contracts/${id}`);
   },
 
-  initializeContract: (specId: string): Promise<Contract> => {
-    return apiClient.post(`/contracts/initialize`, { specId });
+  initializeContract: (
+    specId: string,
+    freelancerId?: string,
+  ): Promise<Contract> => {
+    return apiClient.post(`/contracts/initialize`, { specId, freelancerId });
   },
 
-  signContract: async (
+  updateDraft: (
     id: string,
-    confirmationText?: string,
+    payload: {
+      title?: string;
+      currency?: string;
+      milestoneSnapshot?: Array<{
+        contractMilestoneKey?: string;
+        sourceSpecMilestoneId?: string | null;
+        title: string;
+        description?: string | null;
+        amount: number;
+        startDate?: string | null;
+        dueDate?: string | null;
+        sortOrder?: number | null;
+        deliverableType?: string | null;
+        retentionAmount?: number | null;
+        acceptanceCriteria?: string[] | null;
+      }>;
+    },
+  ): Promise<Contract> => {
+    return apiClient.patch(`/contracts/${id}/draft`, payload);
+  },
+
+  sendDraft: (id: string): Promise<Contract> => {
+    return apiClient.post(`/contracts/${id}/send`, {});
+  },
+
+  discardDraft: (
+    id: string,
+  ): Promise<{
+    status: string;
+    contractId: string;
+  }> => {
+    return apiClient.post(`/contracts/${id}/discard`, {});
+  },
+
+  signContract: (
+    id: string,
+    contentHash: string,
   ): Promise<{
     status: string;
     signaturesCount: number;
     requiredSignerCount: number;
     allRequiredSigned: boolean;
   }> => {
-    const signatureHash = await buildSignatureHash(id, confirmationText);
-    return apiClient.post(`/contracts/sign/${id}`, { signatureHash });
+    return apiClient.post(`/contracts/sign/${id}`, { contentHash });
   },
 
   activateContract: (

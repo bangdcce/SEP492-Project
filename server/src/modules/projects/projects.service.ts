@@ -9,7 +9,10 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import Decimal from 'decimal.js';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
-import { ContractEntity } from '../../database/entities/contract.entity';
+import {
+  ContractEntity,
+  ContractMilestoneSnapshotItem,
+} from '../../database/entities/contract.entity';
 import { DisputeEntity, DisputeStatus } from '../../database/entities/dispute.entity';
 import {
   DeliverableType,
@@ -163,6 +166,23 @@ export class ProjectsService {
         `Milestone total exceeds project budget (${totalMilestoneAmount.toFixed(2)} > ${projectBudget.toFixed(2)}).`,
       );
     }
+  }
+
+  private findSnapshotEntryForMilestone(
+    snapshot: ContractMilestoneSnapshotItem[],
+    milestone: MilestoneEntity,
+  ): ContractMilestoneSnapshotItem | undefined {
+    return (
+      (milestone.sourceContractMilestoneKey
+        ? snapshot.find(
+            (entry) => entry.contractMilestoneKey === milestone.sourceContractMilestoneKey,
+          )
+        : undefined) ??
+      snapshot.find((entry) => entry.projectMilestoneId === milestone.id) ??
+      (Number.isInteger(milestone.sortOrder)
+        ? snapshot.find((entry) => entry.sortOrder === milestone.sortOrder)
+        : undefined)
+    );
   }
 
   async createMilestone(
@@ -513,7 +533,7 @@ export class ProjectsService {
       ? activeContract.milestoneSnapshot
       : [];
     if (snapshot.length > 0) {
-      const snapshotEntry = snapshot.find((entry) => entry.projectMilestoneId === milestone.id);
+      const snapshotEntry = this.findSnapshotEntryForMilestone(snapshot, milestone);
       if (!snapshotEntry) {
         throw new BadRequestException('Milestone not found in contract snapshot');
       }
@@ -522,6 +542,9 @@ export class ProjectsService {
       const snapshotAmount = new Decimal(snapshotEntry.amount).toDecimalPlaces(2);
       if (!currentAmount.equals(snapshotAmount)) {
         throw new BadRequestException('Milestone amount mismatch with contract snapshot');
+      }
+      if (snapshotEntry.title !== milestone.title) {
+        throw new BadRequestException('Milestone title mismatch with contract snapshot');
       }
     }
 

@@ -11,8 +11,8 @@ import {
   FileText,
   UserPlus,
   FileSignature,
-  CheckCircle2,
   Check,
+  Clock3,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { STORAGE_KEYS } from "@/constants";
@@ -59,6 +59,8 @@ const isContractActivated = (contract?: ContractSummary | null) => {
     ["IN_PROGRESS", "TESTING", "COMPLETED", "PAID", "DISPUTED"].includes(normalizedProjectStatus)
   );
 };
+
+const formatHumanStatus = (status?: string | null) => String(status || "UNKNOWN").replace(/_/g, " ");
 
 export default function ProjectRequestDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -183,6 +185,7 @@ export default function ProjectRequestDetailsPage() {
     const contractStatuses = ["CONTRACT_PENDING", "CONVERTED_TO_PROJECT", "IN_PROGRESS", "COMPLETED"];
     if (contractStatuses.includes(String(request.status || "").toUpperCase())) return 5;
     if (fullSpec?.status === ProjectSpecStatus.ALL_SIGNED) return 5;
+    if (!hasSelectedFreelancer) return 3;
     if (
       fullSpec &&
       [
@@ -263,6 +266,151 @@ export default function ProjectRequestDetailsPage() {
     }
   };
 
+  const isAssignedToCurrentBroker = user?.role === "BROKER" && request.brokerId === user?.id;
+  const nextAction = (() => {
+    if (user?.role !== "BROKER") {
+      return {
+        title: "Read-only mode",
+        description: "This panel shows the broker execution flow only.",
+        ctaLabel: "Go Back",
+        onClick: handleBack,
+        ctaVariant: "outline" as const,
+      };
+    }
+
+    if (!request.brokerId) {
+      return {
+        title: "Assign request first",
+        description: "You need to assign this request to yourself before drafting specs.",
+        ctaLabel: "Assign to Me",
+        onClick: handleAssign,
+        ctaVariant: "primary" as const,
+      };
+    }
+
+    if (!isAssignedToCurrentBroker) {
+      return {
+        title: "Waiting for assigned broker",
+        description: "Only the assigned broker can continue this request's spec workflow.",
+        ctaLabel: "Open Marketplace",
+        onClick: () => navigate("/broker/marketplace"),
+        ctaVariant: "outline" as const,
+      };
+    }
+
+    if (!clientSpec) {
+      return {
+        title: "Draft Client Spec",
+        description: "Start with a client-readable spec so the client can approve scope.",
+        ctaLabel: "Create Client Spec",
+        onClick: () => navigate(`/broker/project-requests/${request.id}/create-client-spec`),
+        ctaVariant: "primary" as const,
+      };
+    }
+
+    if (clientSpec.status === ProjectSpecStatus.REJECTED) {
+      return {
+        title: "Client Spec was rejected",
+        description: "Revise the Client Spec and submit it again for client review.",
+        ctaLabel: "Edit Client Spec",
+        onClick: () => navigate(`/broker/specs/${clientSpec.id}`),
+        ctaVariant: "primary" as const,
+      };
+    }
+
+    if (
+      clientSpec.status === ProjectSpecStatus.DRAFT ||
+      clientSpec.status === ProjectSpecStatus.CLIENT_REVIEW
+    ) {
+      return {
+        title: "Complete Client Spec approval",
+        description: "Client must approve Client Spec before freelancer selection and Final Spec sign-off.",
+        ctaLabel: "Open Client Spec",
+        onClick: () => navigate(`/broker/specs/${clientSpec.id}`),
+        ctaVariant: "outline" as const,
+      };
+    }
+
+    if (!hasSelectedFreelancer) {
+      return {
+        title: "Wait for freelancer acceptance",
+        description: "Client needs to invite freelancer and get one accepted signer before final review.",
+        ctaLabel: "Refresh",
+        onClick: () => void fetchRequest(),
+        ctaVariant: "outline" as const,
+      };
+    }
+
+    if (!fullSpec) {
+      return {
+        title: "Draft Final Spec",
+        description: "Create the technical Final Spec to prepare for 3-party sign-off.",
+        ctaLabel: "Create Final Spec",
+        onClick: () => navigate(`/broker/project-requests/${request.id}/create-spec`),
+        ctaVariant: "primary" as const,
+      };
+    }
+
+    if (fullSpec.status === ProjectSpecStatus.DRAFT || fullSpec.status === ProjectSpecStatus.REJECTED) {
+      return {
+        title: "Submit Final Spec for sign-off",
+        description: "Finalize milestones and submit Final Spec for client/broker/freelancer signing.",
+        ctaLabel: "Open Final Spec",
+        onClick: () => navigate(`/broker/project-requests/${request.id}/create-spec`),
+        ctaVariant: "primary" as const,
+      };
+    }
+
+    if (fullSpec.status === ProjectSpecStatus.FINAL_REVIEW) {
+      return {
+        title: "3-party Final Spec signing in progress",
+        description: "Open Final Spec review and complete all signatures.",
+        ctaLabel: "Review & Sign Final Spec",
+        onClick: () => navigate(`/broker/specs/${fullSpec.id}`),
+        ctaVariant: "primary" as const,
+      };
+    }
+
+    if (fullSpec.status === ProjectSpecStatus.ALL_SIGNED && !linkedContract) {
+      return {
+        title: "Initialize Contract",
+        description: "Final Spec is fully signed. Generate the contract now.",
+        ctaLabel: isCreatingContract ? "Creating Contract..." : "Create Contract",
+        onClick: handleInitializeContract,
+        ctaVariant: "primary" as const,
+        disabled: isCreatingContract,
+      };
+    }
+
+    if (linkedContract && !contractActivated) {
+      return {
+        title: "Contract signing",
+        description: "Contract exists. Keep collecting signatures until project is activated.",
+        ctaLabel: "Open Contract",
+        onClick: () => navigate(`/broker/contracts/${linkedContract.id}`),
+        ctaVariant: "primary" as const,
+      };
+    }
+
+    if (linkedContract && canOpenWorkspace) {
+      return {
+        title: "Project activated",
+        description: "All contract steps are complete. Continue execution in workspace.",
+        ctaLabel: "Open Workspace",
+        onClick: () => navigate(`/broker/workspace/${linkedContract.projectId}`),
+        ctaVariant: "primary" as const,
+      };
+    }
+
+    return {
+      title: "Review workflow",
+      description: "Refresh this page to sync latest spec/contract state.",
+      ctaLabel: "Refresh",
+      onClick: () => void fetchRequest(),
+      ctaVariant: "outline" as const,
+    };
+  })();
+
 
 
   return (
@@ -279,14 +427,49 @@ export default function ProjectRequestDetailsPage() {
         <div className="lg:col-span-2 space-y-6">
 
            {user?.role === "BROKER" && request.brokerId === user.id && (
-             <Card className="border-blue-200 bg-blue-50/40">
+             <Card className="overflow-hidden border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.14),_transparent_38%),linear-gradient(135deg,_#f8fffe_0%,_#f8fafc_52%,_#eefbf8_100%)] shadow-sm">
                <CardHeader className="pb-3">
                  <CardTitle className="text-base">Broker Spec Actions</CardTitle>
                  <CardDescription>
-                   New flow: create Client Spec first for client approval, then create Full Spec.
+                   Keep the request moving from approved client scope to selected freelancer, final spec, and contract.
                  </CardDescription>
                </CardHeader>
-               <CardContent className="flex flex-wrap gap-3">
+               <CardContent className="space-y-4">
+                 <div className="grid gap-3 md:grid-cols-3">
+                   <div className="rounded-2xl border border-white/80 bg-white/85 p-4 shadow-sm">
+                     <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                       Client Spec
+                     </p>
+                     <p className="mt-2 text-sm font-semibold text-slate-950">
+                       {clientSpec ? formatHumanStatus(clientSpec.status) : "Not started"}
+                     </p>
+                   </div>
+                   <div className="rounded-2xl border border-white/80 bg-white/85 p-4 shadow-sm">
+                     <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                       Freelancer signer
+                     </p>
+                     <p className="mt-2 text-sm font-semibold text-slate-950">
+                       {hasSelectedFreelancer ? "Selected" : "Still needed"}
+                     </p>
+                   </div>
+                   <div className="rounded-2xl border border-white/80 bg-white/85 p-4 shadow-sm">
+                     <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                       Final Spec
+                     </p>
+                     <p className="mt-2 text-sm font-semibold text-slate-950">
+                       {fullSpec ? formatHumanStatus(fullSpec.status) : "Not started"}
+                     </p>
+                   </div>
+                 </div>
+
+                 {!hasSelectedFreelancer && fullSpec && (
+                   <div className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+                     Final Spec drafting can happen early, but the request is still operationally in
+                     freelancer-selection until one signer is accepted.
+                   </div>
+                 )}
+
+                 <div className="flex flex-wrap gap-3">
                  <Button onClick={() => navigate(`/broker/project-requests/${request.id}/create-client-spec`)}>
                    {clientSpec ? "Open Client Spec" : "Create Client Spec"}
                  </Button>
@@ -294,7 +477,7 @@ export default function ProjectRequestDetailsPage() {
                    variant="outline"
                    onClick={() => navigate(`/broker/project-requests/${request.id}/create-spec`)}
                  >
-                   {fullSpec ? "Open Full Spec" : "Create Full Spec"}
+                   {fullSpec ? "Open Final Spec" : "Create Final Spec"}
                  </Button>
                  {canBrokerReviewFinalSpec && fullSpec && (
                    <Button
@@ -311,6 +494,7 @@ export default function ProjectRequestDetailsPage() {
                      {isCreatingContract ? "Creating Contract..." : "Create Contract"}
                    </Button>
                  )}
+                 </div>
                </CardContent>
              </Card>
            )}
@@ -484,6 +668,16 @@ export default function ProjectRequestDetailsPage() {
                   <p className="text-sm text-muted-foreground">
                     After Client Spec is approved, client invites freelancer and one accepted freelancer becomes final-spec signer.
                   </p>
+                  {fullSpec &&
+                    [
+                      ProjectSpecStatus.DRAFT,
+                      ProjectSpecStatus.REJECTED,
+                    ].includes(fullSpec.status) &&
+                    !hasSelectedFreelancer && (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        Final Spec draft already exists, but workflow stays in Phase 3 until a freelancer is selected. Drafting early is allowed; sign-off is not.
+                      </div>
+                    )}
                 </CardContent>
               </Card>
 
@@ -493,7 +687,7 @@ export default function ProjectRequestDetailsPage() {
                     <div className="bg-violet-100 p-2 rounded-full">
                       <FileText className="w-5 h-5 text-violet-600" />
                     </div>
-                    Phase 4: full_spec (3-Party Sign-off)
+                    Phase 4: Final Spec (3-Party Sign-off)
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
@@ -508,14 +702,19 @@ export default function ProjectRequestDetailsPage() {
                     )}
                   </div>
                   <p className="text-sm text-muted-foreground">
-                    Broker drafts full_spec, submits final review, then Client + Broker + Freelancer sign.
+                    Broker drafts Final Spec, submits final review, then Client + Broker + Freelancer sign.
                   </p>
+                  {!hasSelectedFreelancer && (
+                    <div className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      You can draft the Final Spec early, but Phase 4 only becomes active after freelancer selection in Phase 3.
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant={fullSpec ? "outline" : "primary"}
                       onClick={() => navigate(`/broker/project-requests/${request.id}/create-spec`)}
                     >
-                      {fullSpec ? "Open full_spec" : "Create full_spec"}
+                      {fullSpec ? "Open Final Spec" : "Create Final Spec"}
                     </Button>
                     {canBrokerReviewFinalSpec && fullSpec && (
                       <Button
@@ -543,7 +742,7 @@ export default function ProjectRequestDetailsPage() {
                 <CardContent className="space-y-2">
                   <Badge variant="outline">{String(request.status || "").replace(/_/g, " ")}</Badge>
                   <p className="text-sm text-muted-foreground">
-                    Contract starts after full_spec is all-signed. Contract signing and project activation happen in the contract flow.
+                    Contract starts after Final Spec is all-signed. Contract signing and project activation happen in the contract flow.
                   </p>
                   {linkedContract ? (
                     <div className="rounded-md border bg-muted/30 p-3 space-y-2">
@@ -623,15 +822,29 @@ export default function ProjectRequestDetailsPage() {
 
            {/* Current Action / Status Card */}
            <Card className="bg-slate-50 border-slate-200">
-               <CardHeader><CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Current Status</CardTitle></CardHeader>
+               <CardHeader>
+                 <CardTitle className="text-sm uppercase tracking-wider text-muted-foreground">Next Action (Broker)</CardTitle>
+               </CardHeader>
                <CardContent>
-                   <div className="flex items-center gap-2 mb-4">
-                       <CheckCircle2 className="w-6 h-6 text-green-600" />
-                       <span className="font-bold text-lg">{request.status}</span>
+                 <div className="flex items-start gap-2 mb-4">
+                   <Clock3 className="mt-0.5 h-5 w-5 text-blue-600" />
+                   <div>
+                     <p className="font-semibold">{nextAction.title}</p>
+                     <p className="text-sm text-muted-foreground">{nextAction.description}</p>
                    </div>
-                   {request.status === 'PENDING' && (
-                       <Button className="w-full" onClick={handleAssign}>Assign to Me</Button>
-                   )}
+                 </div>
+                 <div className="mb-3 flex items-center gap-2">
+                   <Badge variant="outline">{`Workflow phase ${brokerWorkflowPhase}/5`}</Badge>
+                   <Badge variant="secondary">{formatHumanStatus(request.status)}</Badge>
+                 </div>
+                 <Button
+                   className="w-full"
+                   variant={nextAction.ctaVariant}
+                   onClick={nextAction.onClick}
+                   disabled={Boolean(nextAction.disabled)}
+                 >
+                   {nextAction.ctaLabel}
+                 </Button>
                </CardContent>
            </Card>
         </div>

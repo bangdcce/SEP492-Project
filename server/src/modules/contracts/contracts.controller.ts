@@ -1,10 +1,10 @@
-import { Body, Controller, Param, Post, UseGuards, Get, Res } from '@nestjs/common';
-import type { Response } from 'express';
+import { Body, Controller, Param, Post, UseGuards, Get, Res, Patch, Req } from '@nestjs/common';
+import type { Request, Response } from 'express';
 import { ContractsService } from './contracts.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserEntity } from '../../database/entities/user.entity';
-import { InitializeContractDto, SignContractDto } from './dto';
+import { InitializeContractDto, SignContractDto, UpdateContractDraftDto } from './dto';
 
 @Controller('contracts')
 @UseGuards(JwtAuthGuard)
@@ -17,8 +17,8 @@ export class ContractsController {
   }
 
   @Get(':id')
-  async getContract(@Param('id') id: string) {
-    return this.contractsService.findOne(id);
+  async getContract(@GetUser() user: UserEntity, @Param('id') id: string) {
+    return this.contractsService.findOneForUser(user, id);
   }
 
   @Post('initialize')
@@ -37,10 +37,30 @@ export class ContractsController {
   @Post('sign/:contractId')
   async signContract(
     @GetUser() user: UserEntity,
+    @Req() req: Request,
     @Param('contractId') contractId: string,
     @Body() dto: SignContractDto,
   ) {
-    return this.contractsService.signContract(user, contractId, dto.signatureHash);
+    return this.contractsService.signContract(user, contractId, dto.contentHash, req);
+  }
+
+  @Patch(':id/draft')
+  async updateDraft(
+    @GetUser() user: UserEntity,
+    @Param('id') id: string,
+    @Body() dto: UpdateContractDraftDto,
+  ) {
+    return this.contractsService.updateDraft(user, id, dto);
+  }
+
+  @Post(':id/send')
+  async sendDraft(@GetUser() user: UserEntity, @Param('id') id: string) {
+    return this.contractsService.sendDraft(user, id);
+  }
+
+  @Post(':id/discard')
+  async discardDraft(@GetUser() user: UserEntity, @Param('id') id: string) {
+    return this.contractsService.discardDraft(user, id);
   }
 
   @Post('activate/:contractId')
@@ -49,8 +69,12 @@ export class ContractsController {
   }
 
   @Get(':id/pdf')
-  async downloadPdf(@Param('id') id: string, @Res() res: Response) {
-    const buffer = await this.contractsService.generatePdf(id);
+  async downloadPdf(
+    @GetUser() user: UserEntity,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.contractsService.generatePdfForUser(user, id);
     res.set({
       'Content-Type': 'application/pdf',
       'Content-Disposition': `attachment; filename=contract-${id}.pdf`,

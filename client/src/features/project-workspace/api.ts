@@ -19,6 +19,13 @@ interface BoardWithMilestones {
   milestones: Milestone[];
 }
 
+const toIsoDateString = (value?: string) => {
+  if (!value) return undefined;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00.000Z`).toISOString()
+    : value;
+};
+
 export interface WorkspaceProject {
   id: string;
   title?: string;
@@ -245,12 +252,19 @@ export const createMilestone = async (payload: {
   startDate?: string;
   dueDate?: string;
   description?: string;
+  deliverableType?: Milestone["deliverableType"];
+  retentionAmount?: number;
+  acceptanceCriteria?: string[];
 }): Promise<Milestone> => {
   console.log("[API] Creating milestone:", payload);
   const { projectId, ...body } = payload;
   const result = await apiClient.post<Milestone>(
     `/projects/${projectId}/milestones`,
-    body
+    {
+      ...body,
+      startDate: toIsoDateString(body.startDate),
+      dueDate: toIsoDateString(body.dueDate),
+    }
   );
 
   console.log("[API] Milestone created:", result);
@@ -259,9 +273,26 @@ export const createMilestone = async (payload: {
 
 export const updateMilestone = async (
   milestoneId: string,
-  payload: Partial<Pick<Milestone, "title" | "description" | "amount" | "startDate" | "dueDate" | "sortOrder">>
+  payload: Partial<
+    Pick<
+      Milestone,
+      | "title"
+      | "description"
+      | "amount"
+      | "startDate"
+      | "dueDate"
+      | "sortOrder"
+      | "deliverableType"
+      | "retentionAmount"
+      | "acceptanceCriteria"
+    >
+  >
 ): Promise<Milestone> => {
-  return apiClient.patch<Milestone>(`/projects/milestones/${milestoneId}`, payload);
+  return apiClient.patch<Milestone>(`/projects/milestones/${milestoneId}`, {
+    ...payload,
+    startDate: toIsoDateString(payload.startDate),
+    dueDate: toIsoDateString(payload.dueDate),
+  });
 };
 
 export const deleteMilestone = async (
@@ -299,4 +330,3 @@ export const approveMilestone = async (
   console.log("[API] Milestone approved:", result);
   return result;
 };
-

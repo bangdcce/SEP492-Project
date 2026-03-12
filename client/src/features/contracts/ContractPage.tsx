@@ -1,93 +1,653 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
-  Download,
-  PenTool,
+  ArchiveX,
+  ArrowRight,
+  Briefcase,
   CheckCircle,
-  Lock,
-  FileText,
+  Clock3,
+  Download,
   Eye,
+  FileSignature,
+  Lock,
+  Receipt,
+  ScrollText,
+  ShieldCheck,
+  Users,
 } from "lucide-react";
-import { PDFViewer } from "@react-pdf/renderer";
 import { Button } from "@/shared/components/ui/Button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-  CardDescription,
-  CardFooter,
-} from "@/shared/components/ui/Card";
-import { Badge } from "@/shared/components/ui/badge";
-import Spinner from "@/shared/components/ui/Spinner";
-import { Input } from "@/shared/components/ui/Input";
-import { Label } from "@/shared/components/ui/label";
-import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
   Alert,
   AlertDescription,
   AlertTitle,
 } from "@/shared/components/ui/alert";
-import type { Contract } from "./types";
-import { contractsApi } from "./api";
-import { ContractPDF } from "./ContractPDF";
-import { getStoredJson } from "@/shared/utils/storage";
+import { Badge } from "@/shared/components/ui/badge";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/shared/components/ui/Card";
+import { Checkbox } from "@/shared/components/ui/checkbox";
+import { Label } from "@/shared/components/ui/label";
+import Spinner from "@/shared/components/ui/Spinner";
 import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
+import { contractsApi } from "./api";
+import type { Contract, ContractMilestoneSnapshotItem } from "./types";
+import {
+  SpecNarrativeRenderer,
+  narrativeHasContent,
+} from "@/shared/components/rich-text/SpecNarrative";
+
+type AgreementBlock = {
+  kind:
+    | "h1"
+    | "h2"
+    | "h3"
+    | "label"
+    | "bullet"
+    | "ordered"
+    | "task"
+    | "quote"
+    | "divider"
+    | "paragraph";
+  text?: string;
+  indent?: number;
+  order?: number;
+  checked?: boolean;
+};
+
+const stripTermsPresentationMarkers = (line: string) =>
+  line.replace(/\*\*(.*?)\*\*/g, "$1").trim();
+
+const parseAgreementTerms = (termsContent: string): AgreementBlock[] => {
+  if (!termsContent.trim()) {
+    return [{ kind: "paragraph", text: "No agreement text available." }];
+  }
+
+  const blocks: AgreementBlock[] = [];
+  const paragraphBuffer: string[] = [];
+  const flushParagraph = () => {
+    if (paragraphBuffer.length === 0) {
+      return;
+    }
+
+    blocks.push({
+      kind: "paragraph",
+      text: paragraphBuffer.join(" "),
+    });
+    paragraphBuffer.length = 0;
+  };
+
+  for (const rawLine of termsContent.split(/\r?\n/)) {
+    const line = rawLine.trimEnd();
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      flushParagraph();
+      continue;
+    }
+
+    const headingMatch = trimmed.match(/^(#{1,6})\s+(.+)$/);
+    if (headingMatch) {
+      flushParagraph();
+      const markerLength = headingMatch[1].length;
+      blocks.push({
+        kind: markerLength === 1 ? "h1" : markerLength === 2 ? "h2" : "h3",
+        text: stripTermsPresentationMarkers(headingMatch[2]),
+      });
+      continue;
+    }
+
+    const taskMatch = line.match(/^(\s*)-\s+\[(x|X| )\]\s+(.+)$/);
+    if (taskMatch) {
+      flushParagraph();
+      blocks.push({
+        kind: "task",
+        text: stripTermsPresentationMarkers(taskMatch[3]),
+        checked: taskMatch[2].toLowerCase() === "x",
+        indent: taskMatch[1].length >= 2 ? 1 : 0,
+      });
+      continue;
+    }
+
+    const orderedMatch = line.match(/^(\s*)(\d+)\.\s+(.+)$/);
+    if (orderedMatch) {
+      flushParagraph();
+      blocks.push({
+        kind: "ordered",
+        text: stripTermsPresentationMarkers(orderedMatch[3]),
+        order: Number(orderedMatch[2]),
+        indent: orderedMatch[1].length >= 2 ? 1 : 0,
+      });
+      continue;
+    }
+
+    const bulletMatch = line.match(/^(\s*)-\s+(.+)$/);
+    if (bulletMatch) {
+      flushParagraph();
+      blocks.push({
+        kind: "bullet",
+        text: stripTermsPresentationMarkers(bulletMatch[2]),
+        indent: bulletMatch[1].length >= 2 ? 1 : 0,
+      });
+      continue;
+    }
+
+    const quoteMatch = trimmed.match(/^>\s+(.+)$/);
+    if (quoteMatch) {
+      flushParagraph();
+      blocks.push({
+        kind: "quote",
+        text: stripTermsPresentationMarkers(quoteMatch[1]),
+      });
+      continue;
+    }
+
+    if (/^---+$/.test(trimmed)) {
+      flushParagraph();
+      blocks.push({
+        kind: "divider",
+      });
+      continue;
+    }
+
+    const labelMatch = trimmed.match(/^\*\*(.+?)\*\*:?\s*$/);
+    if (labelMatch) {
+      flushParagraph();
+      blocks.push({
+        kind: "label",
+        text: stripTermsPresentationMarkers(labelMatch[1]),
+      });
+      continue;
+    }
+
+    paragraphBuffer.push(stripTermsPresentationMarkers(trimmed));
+  }
+
+  flushParagraph();
+  return blocks;
+};
+
+const formatMoney = (amount: number | null | undefined, currency?: string | null) =>
+  `${Number(amount || 0).toFixed(2)} ${(currency || "USD").toUpperCase()}`;
+
+const formatDate = (value?: string | null) =>
+  value ? new Date(value).toLocaleDateString() : "Not set";
+
+const formatDateTime = (value?: string | null) =>
+  value ? new Date(value).toLocaleString() : "Not set";
+
+const getRoleBasePath = (role?: string | null) => {
+  const normalizedRole = String(role || "").toUpperCase();
+  if (normalizedRole === "CLIENT") return "/client";
+  if (normalizedRole === "FREELANCER") return "/freelancer";
+  return "/broker";
+};
+
+const AgreementText = ({ termsContent }: { termsContent: string }) => {
+  const blocks = parseAgreementTerms(termsContent);
+
+  return (
+    <div className="space-y-3 text-sm leading-7 text-slate-700">
+      {blocks.map((block, index) => {
+        const key = `${block.kind}-${index}`;
+
+        if (block.kind === "h1") {
+          return (
+            <h3 key={key} className="text-xl font-semibold tracking-tight text-slate-950">
+              {block.text}
+            </h3>
+          );
+        }
+
+        if (block.kind === "h2") {
+          return (
+            <h4 key={key} className="pt-2 text-lg font-semibold text-slate-900">
+              {block.text}
+            </h4>
+          );
+        }
+
+        if (block.kind === "h3") {
+          return (
+            <h5 key={key} className="pt-1 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+              {block.text}
+            </h5>
+          );
+        }
+
+        if (block.kind === "label") {
+          return (
+            <p key={key} className="text-sm font-semibold text-slate-900">
+              {block.text}
+            </p>
+          );
+        }
+
+        if (block.kind === "bullet") {
+          return (
+            <div
+              key={key}
+              className={`flex gap-3 ${block.indent ? "pl-6" : ""}`}
+            >
+              <span className="mt-2 h-1.5 w-1.5 rounded-full bg-teal-600" />
+              <p className="flex-1 text-sm leading-7 text-slate-700">{block.text}</p>
+            </div>
+          );
+        }
+
+        if (block.kind === "ordered") {
+          return (
+            <div
+              key={key}
+              className={`flex gap-3 ${block.indent ? "pl-6" : ""}`}
+            >
+              <span className="min-w-5 text-sm font-semibold text-teal-700">
+                {block.order}.
+              </span>
+              <p className="flex-1 text-sm leading-7 text-slate-700">
+                {block.text}
+              </p>
+            </div>
+          );
+        }
+
+        if (block.kind === "task") {
+          return (
+            <div
+              key={key}
+              className={`flex gap-3 ${block.indent ? "pl-6" : ""}`}
+            >
+              <span className="mt-1 text-sm text-teal-700">
+                {block.checked ? "☑" : "☐"}
+              </span>
+              <p className="flex-1 text-sm leading-7 text-slate-700">
+                {block.text}
+              </p>
+            </div>
+          );
+        }
+
+        if (block.kind === "quote") {
+          return (
+            <blockquote
+              key={key}
+              className="rounded-2xl border-l-4 border-teal-200 bg-teal-50/40 px-4 py-3 text-sm leading-7 text-slate-700"
+            >
+              {block.text}
+            </blockquote>
+          );
+        }
+
+        if (block.kind === "divider") {
+          return <div key={key} className="my-4 border-t border-slate-200" />;
+        }
+
+        return (
+          <p key={key} className="max-w-none text-sm leading-7 text-slate-700">
+            {block.text}
+          </p>
+        );
+      })}
+    </div>
+  );
+};
 
 export default function ContractPage() {
   const { id } = useParams<{ id: string }>();
   const [contract, setContract] = useState<Contract | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAgreementChecked, setIsAgreementChecked] = useState(false);
-  const [signatureNote, setSignatureNote] = useState("");
   const [isSigning, setIsSigning] = useState(false);
+  const [isDiscarding, setIsDiscarding] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isPreparingPdfPreview, setIsPreparingPdfPreview] = useState(false);
+  const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [showFullAgreement, setShowFullAgreement] = useState(false);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
+  const [pdfPreviewContractId, setPdfPreviewContractId] = useState<string | null>(
+    null,
+  );
   const [error, setError] = useState("");
-  const [showPDFViewer, setShowPDFViewer] = useState(false);
-  const currentUser = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
+  const currentUser = getStoredJson<{ id?: string; role?: string }>(
+    STORAGE_KEYS.USER,
+  );
+  const roleBasePath = getRoleBasePath(currentUser?.role);
+
+  const resetPdfPreview = () => {
+    setShowPdfPreview(false);
+    setPdfPreviewContractId(null);
+    setPdfPreviewUrl((current) => {
+      if (current) {
+        window.URL.revokeObjectURL(current);
+      }
+      return null;
+    });
+  };
 
   const reloadContract = async (contractId: string) => {
     const updated = await contractsApi.getContract(contractId);
+    resetPdfPreview();
     setContract(updated);
     return updated;
   };
 
-  useEffect(() => {
-    if (id) {
-      contractsApi
-        .getContract(id)
-        .then(setContract)
-        .catch((err) => {
-          console.error(err);
-          setError("Failed to load contract");
-        })
-        .finally(() => setIsLoading(false));
+  const createPdfObjectUrl = async (contractId: string) => {
+    const pdfBuffer = await contractsApi.downloadPdf(contractId);
+    const blob = new Blob([pdfBuffer], { type: "application/pdf" });
+    return window.URL.createObjectURL(blob);
+  };
+
+  const ensurePdfPreviewUrl = async () => {
+    if (!contract) {
+      throw new Error("Contract not loaded");
     }
+
+    if (pdfPreviewUrl && pdfPreviewContractId === contract.id) {
+      return pdfPreviewUrl;
+    }
+
+    const nextUrl = await createPdfObjectUrl(contract.id);
+    setPdfPreviewContractId(contract.id);
+    setPdfPreviewUrl((current) => {
+      if (current) {
+        window.URL.revokeObjectURL(current);
+      }
+      return nextUrl;
+    });
+    return nextUrl;
+  };
+
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
+
+    setIsLoading(true);
+    resetPdfPreview();
+    contractsApi
+      .getContract(id)
+      .then(setContract)
+      .catch((err) => {
+        console.error(err);
+        setError("Failed to load contract.");
+      })
+      .finally(() => setIsLoading(false));
   }, [id]);
 
-  const handleSign = async () => {
-    if (!contract || !isAgreementChecked) return;
-    try {
-      setIsSigning(true);
-      const signResult = await contractsApi.signContract(
-        contract.id,
-        signatureNote.trim(),
-      );
-      let updated = await reloadContract(contract.id);
-      if (signResult.allRequiredSigned && !updated.activatedAt) {
-        await contractsApi.activateContract(contract.id);
-        updated = await reloadContract(contract.id);
+  useEffect(() => {
+    return () => {
+      if (pdfPreviewUrl) {
+        window.URL.revokeObjectURL(pdfPreviewUrl);
       }
-      setSignatureNote("");
-      setIsAgreementChecked(false);
-      alert("Contract signed successfully!");
+    };
+  }, [pdfPreviewUrl]);
+
+  const sortedSignatures = useMemo(
+    () =>
+      [...(contract?.signatures || [])].sort(
+        (a, b) =>
+          new Date(a.signedAt).getTime() - new Date(b.signedAt).getTime(),
+      ),
+    [contract?.signatures],
+  );
+
+  const sortedSnapshot = useMemo(
+    () =>
+      [...(contract?.milestoneSnapshot || [])].sort(
+        (a, b) =>
+          (a.sortOrder ?? Number.MAX_SAFE_INTEGER) -
+          (b.sortOrder ?? Number.MAX_SAFE_INTEGER),
+      ),
+    [contract?.milestoneSnapshot],
+  );
+
+  const requiredSignerIds = useMemo(
+    () =>
+      [
+        contract?.project?.clientId,
+        contract?.project?.brokerId,
+        contract?.project?.freelancerId,
+      ].filter((value): value is string => Boolean(value)),
+    [contract],
+  );
+
+  const signedUserIds = useMemo(
+    () => new Set((contract?.signatures || []).map((item) => item.userId)),
+    [contract?.signatures],
+  );
+
+  const missingSignerIds = useMemo(
+    () => requiredSignerIds.filter((userId) => !signedUserIds.has(userId)),
+    [requiredSignerIds, signedUserIds],
+  );
+
+  const resolveSignerName = (userId: string) => {
+    const signature = sortedSignatures.find((item) => item.userId === userId);
+    if (signature?.user?.fullName) return signature.user.fullName;
+    if (userId === contract?.project?.clientId) {
+      return contract.project?.client?.fullName || "Client";
+    }
+    if (userId === contract?.project?.brokerId) {
+      return contract.project?.broker?.fullName || "Broker";
+    }
+    if (userId === contract?.project?.freelancerId) {
+      return contract.project?.freelancer?.fullName || "Freelancer";
+    }
+    return userId;
+  };
+
+  const snapshotTotal = sortedSnapshot.reduce(
+    (sum, milestone) => sum + Number(milestone.amount || 0),
+    0,
+  );
+
+  const isDraft = contract?.status === "DRAFT";
+  const isSent = contract?.status === "SENT";
+  const isSigned = contract?.status === "SIGNED";
+  const isActivated =
+    contract?.status === "ACTIVATED" ||
+    contract?.status === "ACTIVE" ||
+    Boolean(contract?.activatedAt);
+  const isBrokerOwner =
+    Boolean(currentUser?.id) && currentUser?.id === contract?.project?.brokerId;
+  const currentUserIsParty = Boolean(
+    currentUser?.id && requiredSignerIds.includes(currentUser.id),
+  );
+  const hasCurrentUserSigned = Boolean(
+    currentUser?.id &&
+      contract?.signatures?.some((signature) => signature.userId === currentUser.id),
+  );
+  const canDiscardBeforeSign = Boolean(
+    contract &&
+      isBrokerOwner &&
+      sortedSignatures.length === 0 &&
+      !isActivated &&
+      (isDraft || isSent),
+  );
+  const canActivateContract = Boolean(
+    contract && currentUserIsParty && isSigned && !isActivated,
+  );
+  const canOpenWorkspace = Boolean(isActivated && contract?.projectId);
+
+  const primaryCurrency =
+    contract?.commercialContext?.currency || contract?.project?.currency || "USD";
+  const scopeNarrativeRichContent =
+    contract?.commercialContext?.scopeNarrativeRichContent || null;
+  const scopeNarrativePlainText =
+    contract?.commercialContext?.scopeNarrativePlainText?.trim() || "";
+  const hasFrozenScopeNarrative = narrativeHasContent(scopeNarrativeRichContent);
+
+  const signatureStatusCopy = useMemo(() => {
+    if (isActivated) {
+      return "Activated. Runtime milestones and escrows now follow this frozen agreement.";
+    }
+    if (isSigned) {
+      return "All required parties have signed. One contract party can now activate the agreement.";
+    }
+    if (isSent) {
+      return missingSignerIds.length > 0
+        ? `Waiting for ${missingSignerIds.map(resolveSignerName).join(", ")}.`
+        : "All required parties have signed.";
+    }
+    if (isDraft) {
+      return "Legacy draft contract. New contracts now begin directly in SENT status.";
+    }
+    return "Review the frozen agreement, its audit hashes, and the signature trail.";
+  }, [isActivated, isDraft, isSent, isSigned, missingSignerIds, contract]);
+
+  const lifecycleSteps = useMemo(
+    () => [
+      {
+        label: "Review",
+        description: "Frozen agreement is ready for parties to inspect.",
+        state:
+          isActivated || isSigned || isSent
+            ? "done"
+            : isDraft
+              ? "active"
+              : "idle",
+      },
+      {
+        label: "Sign",
+        description: "Client, broker, and freelancer sign the same frozen version.",
+        state:
+          isActivated || isSigned ? "done" : isSent ? "active" : "idle",
+      },
+      {
+        label: "Activate",
+        description: "Clone runtime milestones and create escrows from the signed contract.",
+        state: isActivated ? "done" : isSigned ? "active" : "idle",
+      },
+    ],
+    [isActivated, isDraft, isSent, isSigned],
+  );
+
+  const requiredPartyProgress = useMemo(
+    () => [
+      {
+        label: "Client",
+        id: contract?.project?.clientId || "",
+        name: contract?.project?.client?.fullName || "Client",
+      },
+      {
+        label: "Broker",
+        id: contract?.project?.brokerId || "",
+        name: contract?.project?.broker?.fullName || "Broker",
+      },
+      {
+        label: "Freelancer",
+        id: contract?.project?.freelancerId || "",
+        name: contract?.project?.freelancer?.fullName || "Freelancer",
+      },
+    ].filter((party) => Boolean(party.id)),
+    [contract],
+  );
+
+  const handleTogglePdfPreview = async () => {
+    if (!contract) return;
+
+    if (showPdfPreview) {
+      setShowPdfPreview(false);
+      return;
+    }
+
+    try {
+      setIsPreparingPdfPreview(true);
+      setError("");
+      await ensurePdfPreviewUrl();
+      setShowPdfPreview(true);
     } catch (err: any) {
       console.error(err);
-      const message =
+      setError(
         err?.response?.data?.message ||
-        "Failed to sign contract. Please refresh and try again.";
-      alert(message);
+          "Failed to prepare the contract PDF preview. Please try again.",
+      );
+    } finally {
+      setIsPreparingPdfPreview(false);
+    }
+  };
+
+  const handleDownloadPdf = async () => {
+    if (!contract) return;
+
+    let temporaryUrl: string | null = null;
+    try {
+      setIsDownloadingPdf(true);
+      setError("");
+      const objectUrl =
+        pdfPreviewUrl && pdfPreviewContractId === contract.id
+          ? pdfPreviewUrl
+          : ((temporaryUrl = await createPdfObjectUrl(contract.id)), temporaryUrl);
+
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = `contract-${contract.id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.response?.data?.message ||
+          "Failed to download contract PDF. Please try again.",
+      );
+    } finally {
+      if (temporaryUrl) {
+        window.setTimeout(() => window.URL.revokeObjectURL(temporaryUrl!), 0);
+      }
+      setIsDownloadingPdf(false);
+    }
+  };
+
+  const handleDiscardContract = async () => {
+    if (!contract) return;
+    if (
+      !window.confirm(
+        "Discard this unsigned contract and unlock the source spec?",
+      )
+    ) {
+      return;
+    }
+
+    try {
+      setIsDiscarding(true);
+      setError("");
+      await contractsApi.discardDraft(contract.id);
+      const archived = await reloadContract(contract.id);
+      setContract(archived);
+      alert("Contract discarded. The source spec has been unlocked.");
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.response?.data?.message ||
+          "Failed to discard the contract. Please refresh and try again.",
+      );
+    } finally {
+      setIsDiscarding(false);
+    }
+  };
+
+  const handleSign = async () => {
+    if (!contract || !isAgreementChecked || !contract.contentHash) return;
+
+    try {
+      setIsSigning(true);
+      setError("");
+      await contractsApi.signContract(contract.id, contract.contentHash);
+      await reloadContract(contract.id);
+      setIsAgreementChecked(false);
+      alert("Contract signed successfully.");
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.response?.data?.message ||
+          "Failed to sign contract. Please refresh and try again.",
+      );
     } finally {
       setIsSigning(false);
     }
@@ -95,8 +655,10 @@ export default function ContractPage() {
 
   const handleActivateContract = async () => {
     if (!contract) return;
+
     try {
       setIsActivating(true);
+      setError("");
       const result = await contractsApi.activateContract(contract.id);
       await reloadContract(contract.id);
       alert(
@@ -105,386 +667,784 @@ export default function ContractPage() {
           : "Contract activated and project milestones initialized.",
       );
     } catch (err: any) {
-      const message =
+      console.error(err);
+      setError(
         err?.response?.data?.message ||
-        "Failed to activate contract. Please refresh and try again.";
-      alert(message);
+          "Failed to activate contract. Please refresh and try again.",
+      );
     } finally {
       setIsActivating(false);
     }
   };
 
-  const handleDownloadPdf = async () => {
-    if (!contract) return;
-    try {
-      setIsDownloadingPdf(true);
-      const pdfBuffer = await contractsApi.downloadPdf(contract.id);
-      const blob = new Blob([pdfBuffer], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `contract-${contract.id}.pdf`;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      window.URL.revokeObjectURL(url);
-    } catch (err: any) {
-      const message =
-        err?.response?.data?.message ||
-        "Failed to download signed PDF. Please try again.";
-      alert(message);
-    } finally {
-      setIsDownloadingPdf(false);
-    }
-  };
-
-  if (isLoading)
+  if (isLoading) {
     return (
-      <div className="h-screen flex items-center justify-center">
+      <div className="flex h-screen items-center justify-center">
         <Spinner size="lg" />
       </div>
     );
-  if (!contract)
+  }
+
+  if (!contract) {
     return (
       <div className="p-8 text-center text-red-500">
         {error || "Contract not found"}
       </div>
     );
-
-  const isSigned =
-    contract.status === "SIGNED" ||
-    contract.status === "ACTIVATED" ||
-    contract.status === "ACTIVE";
-  const isActivated = Boolean(contract.activatedAt);
-  const hasCurrentUserSigned = Boolean(
-    currentUser?.id &&
-    contract.signatures?.some(
-      (signature) => signature.userId === currentUser.id,
-    ),
-  );
-  const snapshotCount = Array.isArray(contract.milestoneSnapshot)
-    ? contract.milestoneSnapshot.length
-    : 0;
-  const snapshotTotal = Array.isArray(contract.milestoneSnapshot)
-    ? contract.milestoneSnapshot.reduce(
-        (sum, milestone) => sum + Number(milestone.amount || 0),
-        0,
-      )
-    : 0;
-  const sortedSignatures = [...(contract.signatures || [])].sort(
-    (a, b) => new Date(a.signedAt).getTime() - new Date(b.signedAt).getTime(),
-  );
-  const requiredSignerIds = [
-    contract.project?.clientId,
-    contract.project?.brokerId,
-    contract.project?.freelancerId,
-  ].filter((value): value is string => Boolean(value));
-  const signedUserIds = new Set(
-    (contract.signatures || []).map((item) => item.userId),
-  );
-  const missingSignerIds = requiredSignerIds.filter(
-    (userId) => !signedUserIds.has(userId),
-  );
-  const hasAllRequiredSignatures = missingSignerIds.length === 0;
-  const canActivateContract = hasAllRequiredSignatures && !isActivated;
-
-  const resolveSignerName = (userId: string) => {
-    const signature = sortedSignatures.find((item) => item.userId === userId);
-    if (signature?.user?.fullName) return signature.user.fullName;
-    if (userId === contract.project?.clientId)
-      return contract.project?.client?.fullName || "Client";
-    if (userId === contract.project?.brokerId)
-      return contract.project?.broker?.fullName || "Broker";
-    if (userId === contract.project?.freelancerId)
-      return contract.project?.freelancer?.fullName || "Freelancer";
-    return userId;
-  };
-
-  // Identify missing signatures (Mock logic as we don't have current user ID easily here without context)
-  // We rely on backend to tell us if WE signed based on error or status.
-  // Actually, for this view, we just show the list.
+  }
 
   return (
-    <div className="container mx-auto py-8 max-w-6xl space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">{contract.title}</h1>
-          <p className="text-muted-foreground">
-            Project ID: {contract.projectId}
-          </p>
-          {contract.activatedAt && (
-            <p className="text-sm text-slate-500">
-              Activated: {new Date(contract.activatedAt).toLocaleString()}
-            </p>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <Badge
-            variant={isSigned ? "default" : "outline"}
-            className="text-lg px-4 py-1"
-          >
-            {contract.status}
-          </Badge>
-          <Button
-            variant="outline"
-            onClick={() => setShowPDFViewer(!showPDFViewer)}
-          >
-            <Eye className="w-4 h-4 mr-2" />{" "}
-            {showPDFViewer ? "Hide" : "Preview"} PDF
-          </Button>
-          <Button
-            variant="outline"
-            onClick={handleDownloadPdf}
-            disabled={isDownloadingPdf}
-          >
-            <Download className="w-4 h-4 mr-2" />
-            {isDownloadingPdf ? "Downloading..." : "Download Signed PDF"}
-          </Button>
-        </div>
-      </div>
+    <div className="container mx-auto max-w-7xl space-y-6 py-8">
+      <Card className="overflow-hidden border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.16),_transparent_48%),linear-gradient(135deg,_#f8fffe_0%,_#f8fafc_55%,_#ecfeff_100%)] shadow-sm">
+        <CardContent className="space-y-6 p-6 md:p-8">
+          <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+            <div className="space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <Badge
+                  variant={isActivated ? "default" : "outline"}
+                  className="px-3 py-1 text-xs uppercase tracking-[0.24em]"
+                >
+                  {contract.status}
+                </Badge>
+                <span className="text-xs font-medium uppercase tracking-[0.24em] text-slate-500">
+                  Contract {contract.id}
+                </span>
+              </div>
+              <div>
+                <h1 className="max-w-4xl text-3xl font-semibold tracking-tight text-slate-950 md:text-4xl">
+                  {contract.title}
+                </h1>
+                <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+                  Review the frozen commercial agreement that now governs project
+                  activation, milestone cloning, and escrow creation.
+                </p>
+              </div>
+            </div>
 
-      {/* PDF Viewer */}
-      {showPDFViewer && (
-        <Card className="mb-6">
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                onClick={handleTogglePdfPreview}
+                disabled={isPreparingPdfPreview}
+              >
+                <Eye className="mr-2 h-4 w-4" />
+                {showPdfPreview
+                  ? "Hide PDF"
+                  : isPreparingPdfPreview
+                    ? "Preparing PDF..."
+                    : "Preview PDF"}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={handleDownloadPdf}
+                disabled={isDownloadingPdf}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                {isDownloadingPdf ? "Downloading..." : "Download PDF"}
+              </Button>
+              {canDiscardBeforeSign && (
+                <Button
+                  variant="outline"
+                  onClick={handleDiscardContract}
+                  disabled={isDiscarding}
+                  className="border-amber-200 text-amber-700 hover:bg-amber-50"
+                >
+                  <ArchiveX className="mr-2 h-4 w-4" />
+                  {isDiscarding ? "Discarding..." : "Discard Before Sign"}
+                </Button>
+              )}
+              {canOpenWorkspace && (
+                <Button
+                  onClick={() =>
+                    window.location.assign(
+                      `${roleBasePath}/workspace/${contract.projectId}`,
+                    )
+                  }
+                >
+                  <Briefcase className="mr-2 h-4 w-4" />
+                  Open Workspace
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Signature progress
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {sortedSignatures.length}/{requiredSignerIds.length}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">{signatureStatusCopy}</p>
+            </div>
+            <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Frozen budget
+              </p>
+              <p className="mt-2 text-2xl font-semibold text-slate-950">
+                {formatMoney(
+                  contract.commercialContext?.totalBudget ?? contract.project.totalBudget,
+                  primaryCurrency,
+                )}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                {sortedSnapshot.length} milestone
+                {sortedSnapshot.length === 1 ? "" : "s"} in the locked payment
+                schedule
+              </p>
+            </div>
+            <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Project reference
+              </p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">
+                {contract.project.title}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">Project ID: {contract.projectId}</p>
+            </div>
+            <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Lifecycle
+              </p>
+              <p className="mt-2 text-lg font-semibold text-slate-950">
+                Created {formatDateTime(contract.createdAt)}
+              </p>
+              <p className="mt-1 text-sm text-slate-600">
+                Activated {formatDateTime(contract.activatedAt)}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid gap-3 lg:grid-cols-3">
+            {lifecycleSteps.map((step) => (
+              <div
+                key={step.label}
+                className={`rounded-2xl border p-4 shadow-sm ${
+                  step.state === "done"
+                    ? "border-emerald-200 bg-emerald-50/80"
+                    : step.state === "active"
+                      ? "border-teal-200 bg-white/90"
+                      : "border-white/70 bg-white/70"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-slate-950">
+                    {step.label}
+                  </p>
+                  <Badge
+                    variant="outline"
+                    className={
+                      step.state === "done"
+                        ? "border-emerald-200 text-emerald-700"
+                        : step.state === "active"
+                          ? "border-teal-200 text-teal-700"
+                          : "border-slate-200 text-slate-500"
+                    }
+                  >
+                    {step.state === "done"
+                      ? "Done"
+                      : step.state === "active"
+                        ? "Current"
+                        : "Upcoming"}
+                  </Badge>
+                </div>
+                <p className="mt-2 text-sm leading-6 text-slate-600">
+                  {step.description}
+                </p>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertTitle>Contract Flow Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {showPdfPreview && pdfPreviewUrl && (
+        <Card className="border-slate-200 shadow-sm">
           <CardHeader>
-            <CardTitle>PDF Preview</CardTitle>
+            <CardTitle className="flex items-center gap-2">
+              <ScrollText className="h-5 w-5 text-teal-600" />
+              Canonical PDF Preview
+            </CardTitle>
+            <CardDescription>
+              This preview is the exact backend-generated PDF artifact used by
+              the download action.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="w-full h-[600px] border rounded">
-              <PDFViewer width="100%" height="100%">
-                <ContractPDF contract={contract} />
-              </PDFViewer>
+            <div className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950/5">
+              <iframe
+                title="Contract PDF Preview"
+                src={pdfPreviewUrl}
+                className="h-[760px] w-full bg-white"
+              />
             </div>
           </CardContent>
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Contract Content (Left) */}
-        <div className="md:col-span-2">
-          <Card className="h-full flex flex-col">
+      <div className="grid gap-6 xl:grid-cols-[1.65fr_0.95fr]">
+        <div className="space-y-6">
+          <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <FileText className="w-5 h-5" /> Terms & Conditions
+                <Users className="h-5 w-5 text-teal-600" />
+                Agreement Snapshot
               </CardTitle>
+              <CardDescription>
+                Parties, frozen commercial context, and the scope that this
+                contract version governs.
+              </CardDescription>
             </CardHeader>
-            <CardContent className="flex-1 overflow-auto max-h-[70vh] bg-muted/20 p-6 rounded-md font-mono text-sm whitespace-pre-wrap">
-              {contract.termsContent}
+            <CardContent className="space-y-6">
+              <div className="grid gap-4 md:grid-cols-3">
+                {[
+                  {
+                    label: "Client",
+                    name: contract.project.client?.fullName || "N/A",
+                    meta: contract.project.client?.email || "No email",
+                  },
+                  {
+                    label: "Broker",
+                    name: contract.project.broker?.fullName || "N/A",
+                    meta: contract.project.broker?.email || "No email",
+                  },
+                  {
+                    label: "Freelancer",
+                    name: contract.project.freelancer?.fullName || "N/A",
+                    meta: contract.project.freelancer?.email || "No email",
+                  },
+                ].map((party) => (
+                  <div
+                    key={party.label}
+                    className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4"
+                  >
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                      {party.label}
+                    </p>
+                    <p className="mt-2 text-base font-semibold text-slate-950">
+                      {party.name}
+                    </p>
+                    <p className="mt-1 text-sm text-slate-600">{party.meta}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Total budget
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                    {formatMoney(
+                      contract.commercialContext?.totalBudget ?? contract.project.totalBudget,
+                      primaryCurrency,
+                    )}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Currency
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">
+                    {primaryCurrency}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Source spec
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {contract.commercialContext?.sourceSpecId || contract.sourceSpecId || "N/A"}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-slate-200 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Spec frozen at
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-slate-950">
+                    {formatDateTime(contract.commercialContext?.sourceSpecUpdatedAt || undefined)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                      Commercial summary
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">
+                      {contract.commercialContext?.description ||
+                        contract.project.description ||
+                        "No additional commercial summary captured for this agreement."}
+                    </p>
+                  </div>
+                  {contract.commercialContext?.escrowSplit && (
+                    <div className="rounded-xl bg-teal-50 px-4 py-3 text-xs text-teal-800">
+                      Escrow split:
+                      <div className="mt-2 space-y-1">
+                        <p>
+                          Developer {contract.commercialContext.escrowSplit.developerPercentage}%
+                        </p>
+                        <p>
+                          Broker {contract.commercialContext.escrowSplit.brokerPercentage}%
+                        </p>
+                        <p>
+                          Platform {contract.commercialContext.escrowSplit.platformPercentage}%
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </div>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                    <span className="font-medium text-slate-900">Tech stack:</span>{" "}
+                    {contract.commercialContext?.techStack || "As agreed in the signed spec"}
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                    <span className="font-medium text-slate-900">Feature count:</span>{" "}
+                    {contract.commercialContext?.features?.length || 0}
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {(hasFrozenScopeNarrative || scopeNarrativePlainText) && (
+            <Card className="border-slate-200 shadow-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <ScrollText className="h-5 w-5 text-teal-600" />
+                  Scope Notes
+                </CardTitle>
+                <CardDescription>
+                  These detailed notes were frozen from the full spec and travel
+                  with the agreement that parties sign.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {hasFrozenScopeNarrative ? (
+                  <SpecNarrativeRenderer value={scopeNarrativeRichContent} />
+                ) : (
+                  <AgreementText termsContent={scopeNarrativePlainText} />
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Receipt className="h-5 w-5 text-teal-600" />
+                Frozen Milestone & Payment Schedule
+              </CardTitle>
+              <CardDescription>
+                This schedule is the frozen source for project milestone cloning
+                and escrow creation.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Snapshot total
+                  </p>
+                  <p className="mt-1 text-lg font-semibold text-slate-950">
+                    {formatMoney(snapshotTotal, primaryCurrency)}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Milestones
+                  </p>
+                  <p className="mt-1 text-lg font-semibold text-slate-950">
+                    {sortedSnapshot.length}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                {sortedSnapshot.map((milestone: ContractMilestoneSnapshotItem) => (
+                  <div
+                    key={milestone.contractMilestoneKey}
+                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                  >
+                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div className="space-y-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline" className="border-slate-300 text-slate-700">
+                            #{milestone.sortOrder ?? "—"}
+                          </Badge>
+                          <h3 className="text-lg font-semibold text-slate-950">
+                            {milestone.title}
+                          </h3>
+                        </div>
+                        <p className="text-sm leading-6 text-slate-600">
+                          {milestone.description || "No milestone description provided."}
+                        </p>
+                      </div>
+
+                      <div className="rounded-2xl bg-teal-50 px-4 py-3 text-right text-sm text-teal-900">
+                        <p className="text-xs uppercase tracking-[0.18em] text-teal-700">
+                          Amount
+                        </p>
+                        <p className="mt-1 text-lg font-semibold">
+                          {formatMoney(milestone.amount, primaryCurrency)}
+                        </p>
+                        {!!milestone.retentionAmount && (
+                          <p className="mt-1 text-xs text-teal-800">
+                            Retention {formatMoney(milestone.retentionAmount, primaryCurrency)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-3">
+                      <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                        <span className="font-medium text-slate-900">Deliverable:</span>{" "}
+                        {milestone.deliverableType || "OTHER"}
+                      </div>
+                      <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                        <span className="font-medium text-slate-900">Start:</span>{" "}
+                        {formatDate(milestone.startDate)}
+                      </div>
+                      <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                        <span className="font-medium text-slate-900">Due:</span>{" "}
+                        {formatDate(milestone.dueDate)}
+                      </div>
+                    </div>
+
+                    {milestone.acceptanceCriteria &&
+                      milestone.acceptanceCriteria.length > 0 && (
+                        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                            Acceptance criteria
+                          </p>
+                          <div className="mt-3 space-y-2">
+                            {milestone.acceptanceCriteria.map((criterion) => (
+                              <div key={criterion} className="flex gap-3">
+                                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-teal-600" />
+                                <p className="text-sm leading-6 text-slate-700">
+                                  {criterion}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ScrollText className="h-5 w-5 text-teal-600" />
+                Full Agreement Text
+              </CardTitle>
+              <CardDescription>
+                The canonical stored agreement text remains the signable payload,
+                but it is shown here in a readable presentation layer.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <button
+                type="button"
+                onClick={() => setShowFullAgreement((value) => !value)}
+                className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-left transition hover:border-teal-200 hover:bg-teal-50/40"
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-900">
+                    {showFullAgreement ? "Hide full agreement text" : "Show full agreement text"}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Review the exact legal text behind this frozen agreement version.
+                  </p>
+                </div>
+                <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                  {showFullAgreement ? "Collapse" : "Expand"}
+                </span>
+              </button>
+
+              {showFullAgreement && (
+                <div className="mt-4 rounded-3xl border border-slate-200 bg-white p-6 shadow-inner">
+                  <AgreementText termsContent={contract.termsContent || ""} />
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Actions (Right) */}
         <div className="space-y-6">
-          <Card>
+          <Card className="border-slate-200 shadow-sm">
             <CardHeader>
-              <CardTitle>Signatures</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <FileSignature className="h-5 w-5 text-teal-600" />
+                Signature Flow
+              </CardTitle>
               <CardDescription>
-                All required parties must sign to activate.
+                Track signer progress and take the next valid contract action.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {contract.documentHash && (
-                <div className="rounded-md border bg-slate-50 p-3">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-600">
-                    Document Hash (SHA-256)
-                  </p>
-                  <p className="mt-1 break-all font-mono text-xs text-slate-800">
-                    {contract.documentHash}
-                  </p>
-                </div>
-              )}
-
-              <div className="rounded-md border bg-white p-3 text-xs text-slate-600">
-                Signature progress:{" "}
-                <span className="font-semibold text-slate-900">
-                  {sortedSignatures.length}/{requiredSignerIds.length}
-                </span>
-                {missingSignerIds.length > 0 && (
-                  <p className="mt-1 text-[11px] text-amber-700">
-                    Waiting for:{" "}
-                    {missingSignerIds.map(resolveSignerName).join(", ")}
-                  </p>
-                )}
-              </div>
-
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center ${contract.signatures?.some((s) => s.userId === contract.project?.clientId) ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"}`}
-                >
-                  <CheckCircle className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="font-semibold">Client</p>
-                  {contract.project?.client?.fullName || "Client"}
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <div
-                  className={`w-8 h-8 rounded-full flex items-center justify-center ${contract.signatures?.some((s) => s.userId === contract.project?.brokerId) ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"}`}
-                >
-                  <CheckCircle className="w-5 h-5" />
-                </div>
-                <div>
-                  <p className="font-semibold">Broker (Lead)</p>
-                  {contract.project?.broker?.fullName || "Broker"}
-                </div>
-              </div>
-              {contract.project?.freelancerId && (
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`w-8 h-8 rounded-full flex items-center justify-center ${contract.signatures?.some((s) => s.userId === contract.project?.freelancerId) ? "bg-green-100 text-green-600" : "bg-gray-100 text-gray-400"}`}
-                  >
-                    <CheckCircle className="w-5 h-5" />
-                  </div>
+              <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4">
+                <div className="flex items-center justify-between gap-3">
                   <div>
-                    <p className="font-semibold">Freelancer</p>
-                    {contract.project?.freelancer?.fullName || "Freelancer"}
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                      Current progress
+                    </p>
+                    <p className="mt-2 text-2xl font-semibold text-slate-950">
+                      {sortedSignatures.length}/{requiredSignerIds.length}
+                    </p>
                   </div>
+                  <Clock3 className="h-6 w-6 text-slate-400" />
                 </div>
-              )}
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  {signatureStatusCopy}
+                </p>
+              </div>
+
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Required parties
+                  </p>
+                  <Badge variant="outline" className="border-slate-300 text-slate-700">
+                    {sortedSignatures.length}/{requiredPartyProgress.length} signed
+                  </Badge>
+                </div>
+                <div className="mt-4 space-y-3">
+                  {requiredPartyProgress.map((party) => {
+                    const isSignedParty = signedUserIds.has(party.id);
+                    return (
+                      <div
+                        key={party.id}
+                        className="flex items-center justify-between gap-3 rounded-2xl bg-slate-50 px-4 py-3"
+                      >
+                        <div>
+                          <p className="text-sm font-semibold text-slate-900">
+                            {party.name}
+                          </p>
+                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                            {party.label}
+                          </p>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={
+                            isSignedParty
+                              ? "border-emerald-200 text-emerald-700"
+                              : "border-amber-200 text-amber-700"
+                          }
+                        >
+                          {isSignedParty ? "Signed" : "Pending"}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
 
               {sortedSignatures.length > 0 && (
-                <div className="space-y-2 rounded-md border p-3">
-                  <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    Signature Timeline
-                  </p>
+                <div className="space-y-3">
                   {sortedSignatures.map((signature) => (
                     <div
                       key={`${signature.userId}-${signature.signedAt}`}
-                      className="rounded-md bg-muted/30 p-2 text-xs"
+                      className="rounded-2xl border border-slate-200 bg-white p-4"
                     >
-                      <p className="font-medium">
-                        {resolveSignerName(signature.userId)}
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-950">
+                            {resolveSignerName(signature.userId)}
+                          </p>
+                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                            {signature.signerRole || "Signer"}
+                          </p>
+                        </div>
+                        <Badge variant="outline" className="border-emerald-200 text-emerald-700">
+                          Signed
+                        </Badge>
+                      </div>
+                      <p className="mt-3 text-sm text-slate-600">
+                        {formatDateTime(signature.signedAt)}
                       </p>
-                      <p className="text-muted-foreground">
-                        Signed at:{" "}
-                        {new Date(signature.signedAt).toLocaleString()}
-                      </p>
-                      <p className="mt-1 break-all font-mono text-[10px] text-slate-600">
-                        Signature hash: {signature.signatureHash}
+                      <p className="mt-2 break-all font-mono text-[11px] text-slate-500">
+                        {signature.signatureHash}
                       </p>
                     </div>
                   ))}
                 </div>
               )}
+              {sortedSignatures.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
+                  No signatures recorded yet. Once parties sign, the audit trail will appear here in chronological order.
+                </div>
+              )}
+
+              {isDraft && (
+                <Alert className="border-slate-200 bg-slate-50 text-slate-800">
+                  <Lock className="h-4 w-4 text-slate-600" />
+                  <AlertTitle>Legacy Draft Contract</AlertTitle>
+                  <AlertDescription>
+                    This record predates the new frozen-agreement flow. New
+                    contracts now start directly in SENT, so draft editing is no
+                    longer part of the normal path.
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {isSent && (
+                <div className="space-y-4 rounded-3xl border border-blue-200 bg-blue-50/50 p-4">
+                  <Alert className="border-white/70 bg-white/90">
+                    <ShieldCheck className="h-4 w-4" />
+                    <AlertTitle>Electronic Signature Check</AlertTitle>
+                    <AlertDescription className="text-xs leading-5">
+                      You are signing the current frozen contract version tied to
+                      the content hash shown in the integrity panel.
+                    </AlertDescription>
+                  </Alert>
+
+                  <div className="flex items-start gap-3 rounded-2xl border border-blue-100 bg-white p-4">
+                    <Checkbox
+                      id="contract-sign-consent"
+                      checked={isAgreementChecked}
+                      onCheckedChange={(checked) =>
+                        setIsAgreementChecked(Boolean(checked))
+                      }
+                    />
+                    <Label
+                      htmlFor="contract-sign-consent"
+                      className="cursor-pointer text-sm font-normal leading-6"
+                    >
+                      I reviewed the frozen agreement, understand the milestone
+                      payment schedule, and agree to sign this contract version.
+                    </Label>
+                  </div>
+
+                  {!currentUserIsParty && (
+                    <p className="text-sm text-amber-700">
+                      Only contract parties can sign this agreement.
+                    </p>
+                  )}
+
+                  <Button
+                    className="w-full"
+                    onClick={handleSign}
+                    disabled={
+                      !isAgreementChecked ||
+                      isSigning ||
+                      hasCurrentUserSigned ||
+                      !currentUserIsParty ||
+                      !contract.contentHash
+                    }
+                  >
+                    {hasCurrentUserSigned
+                      ? "Already Signed"
+                      : isSigning
+                        ? "Signing..."
+                        : "Sign Frozen Agreement"}
+                  </Button>
+                </div>
+              )}
+
+              {canActivateContract && (
+                <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                  <Lock className="h-4 w-4 text-amber-700" />
+                  <AlertTitle>Ready for Activation</AlertTitle>
+                  <AlertDescription className="space-y-3">
+                    <p>
+                      All required parties have signed. Activation will clone the
+                      frozen milestone schedule into the project and generate
+                      escrows from this contract.
+                    </p>
+                    <Button size="sm" onClick={handleActivateContract} disabled={isActivating}>
+                      {isActivating ? "Activating..." : "Activate Contract"}
+                    </Button>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {isActivated && (
+                <Alert className="border-emerald-200 bg-emerald-50 text-emerald-900">
+                  <CheckCircle className="h-4 w-4 text-emerald-700" />
+                  <AlertTitle>Contract Activated</AlertTitle>
+                  <AlertDescription className="space-y-3">
+                    <p>
+                      Milestones and escrows now follow the frozen contract
+                      snapshot. Execution updates can continue in the workspace.
+                    </p>
+                    {canOpenWorkspace && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          window.location.assign(
+                            `${roleBasePath}/workspace/${contract.projectId}`,
+                          )
+                        }
+                      >
+                        Open Workspace
+                        <ArrowRight className="ml-2 h-4 w-4" />
+                      </Button>
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
             </CardContent>
           </Card>
 
-          {snapshotCount > 0 && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Locked Payment Schedule</CardTitle>
-                <CardDescription>
-                  Contract snapshot captured at activation.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-600">Milestones</span>
-                  <span className="font-semibold">{snapshotCount}</span>
+          <Card className="border-slate-200 shadow-sm">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-teal-600" />
+                Integrity & Audit
+              </CardTitle>
+              <CardDescription>
+                Hashes and version markers for the current contract state.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {contract.contentHash && (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Content hash
+                  </p>
+                  <p className="mt-2 break-all font-mono text-xs leading-6 text-slate-800">
+                    {contract.contentHash}
+                  </p>
                 </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-slate-600">Snapshot Total</span>
-                  <span className="font-semibold">
-                    ${snapshotTotal.toFixed(2)}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          )}
+              )}
 
-          {!isSigned && (
-            <Card className="border-blue-200 bg-blue-50/50">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-blue-700">
-                  <PenTool className="w-5 h-5" /> Sign Contract
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Alert className="bg-white">
-                  <Lock className="w-4 h-4" />
-                  <AlertTitle>Signature Confirmation</AlertTitle>
-                  <AlertDescription className="text-xs">
-                    This step confirms your digital signature for this platform
-                    workflow. It does not require your account password.
-                  </AlertDescription>
-                </Alert>
-                <div className="flex items-start gap-3 rounded-md border bg-white p-3">
-                  <Checkbox
-                    id="contract-sign-consent"
-                    checked={isAgreementChecked}
-                    onCheckedChange={(checked) =>
-                      setIsAgreementChecked(Boolean(checked))
-                    }
-                  />
-                  <Label
-                    htmlFor="contract-sign-consent"
-                    className="cursor-pointer text-sm font-normal leading-5"
-                  >
-                    I confirm I reviewed this contract and I want to sign it.
-                  </Label>
+              {contract.documentHash && (
+                <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                    Document hash
+                  </p>
+                  <p className="mt-2 break-all font-mono text-xs leading-6 text-slate-800">
+                    {contract.documentHash}
+                  </p>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="signature-note">
-                    Signature Note (optional)
-                  </Label>
-                  <Input
-                    id="signature-note"
-                    placeholder="Example: Approved by Nguyen Van A"
-                    value={signatureNote}
-                    onChange={(e) => setSignatureNote(e.target.value)}
-                  />
-                </div>
-              </CardContent>
-              <CardFooter>
-                <Button
-                  className="w-full"
-                  onClick={handleSign}
-                  disabled={
-                    !isAgreementChecked || isSigning || hasCurrentUserSigned
-                  }
-                >
-                  {hasCurrentUserSigned
-                    ? "Already Signed"
-                    : isSigning
-                      ? "Signing..."
-                      : "Digitally Sign Contract"}
-                </Button>
-              </CardFooter>
-            </Card>
-          )}
+              )}
 
-          {canActivateContract && (
-            <Alert className="bg-amber-50 border-amber-200 text-amber-800">
-              <Lock className="w-4 h-4 text-amber-600" />
-              <AlertTitle>Activation Pending</AlertTitle>
-              <AlertDescription className="space-y-3">
-                <p>
-                  All parties signed, but this contract is not activated yet.
-                  Activate now to initialize project milestones.
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
+                <p className="font-medium text-slate-900">Why both hashes exist</p>
+                <p className="mt-2 leading-6">
+                  The content hash identifies the signable contract version. The
+                  document hash tracks the broader audit artifact used for export
+                  and PDF verification.
                 </p>
-                <Button
-                  size="sm"
-                  onClick={handleActivateContract}
-                  disabled={isActivating}
-                >
-                  {isActivating ? "Activating..." : "Activate Contract"}
-                </Button>
-              </AlertDescription>
-            </Alert>
-          )}
-
-          {isActivated && (
-            <Alert className="bg-green-50 border-green-200 text-green-800">
-              <CheckCircle className="w-4 h-4 text-green-600" />
-              <AlertTitle>Contract Active</AlertTitle>
-              <AlertDescription>
-                This project has been activated. Work can commence defined in
-                milestones.
-              </AlertDescription>
-            </Alert>
-          )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
     </div>

@@ -43,6 +43,10 @@ import {
   AlertTitle,
 } from "@/shared/components/ui/alert";
 import { Badge } from "@/shared/components/ui/badge";
+import {
+  SpecNarrativeEditor,
+  narrativeHasContent,
+} from "@/shared/components/rich-text/SpecNarrative";
 
 import { DeliverableType } from "../types";
 import type { CreateProjectSpecDTO } from "../types";
@@ -79,6 +83,79 @@ const checkKeywords = (text: string): string[] => {
   return BANNED_KEYWORDS.filter((k) => lower.includes(k));
 };
 
+const optionalDateSchema = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().optional(),
+);
+
+const milestoneSchema = z
+  .object({
+    title: z.string().min(1, "Milestone title is required"),
+    description: z.string().min(1, "Description is required"),
+    amount: z.coerce.number().min(0, "Amount must be positive"),
+    deliverableType: z.nativeEnum(DeliverableType),
+    retentionAmount: z.coerce.number().min(0).default(0),
+    acceptanceCriteria: z
+      .array(
+        z.object({
+          value: z.string(),
+        }),
+      )
+      .default([]),
+    startDate: optionalDateSchema,
+    dueDate: optionalDateSchema,
+    duration: z.preprocess(
+      (value) => (value === "" || value == null ? undefined : value),
+      z.coerce.number().optional(),
+    ),
+  })
+  .superRefine((milestone, ctx) => {
+    if (milestone.retentionAmount > milestone.amount) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["retentionAmount"],
+        message: "Retention cannot exceed the milestone amount",
+      });
+    }
+
+    if (milestone.startDate && milestone.dueDate) {
+      const startDate = new Date(milestone.startDate);
+      const dueDate = new Date(milestone.dueDate);
+      if (
+        !Number.isNaN(startDate.getTime()) &&
+        !Number.isNaN(dueDate.getTime()) &&
+        dueDate.getTime() < startDate.getTime()
+      ) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["dueDate"],
+          message: "Due date must be on or after the start date",
+        });
+      }
+    }
+  });
+
+const toDateInputValue = (value?: string | null): string => {
+  if (!value) return "";
+  const normalized = /^(\d{4}-\d{2}-\d{2})/.exec(value)?.[1];
+  return normalized || value;
+};
+
+const normalizeDatePayload = (value?: string): string | undefined => {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return parsed.toISOString();
+};
+
 // 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 // VALIDATION SCHEMA
 // 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
@@ -101,7 +178,7 @@ const formSchema = z
           acceptanceCriteria: z
             .array(
               z.object({
-                value: z.string().min(5, "Criteria must be at least 5 chars"),
+                value: z.string().min(10, "Criteria must be at least 10 chars"),
               }),
             )
             .min(1, "At least one acceptance criterion is required"),
@@ -110,18 +187,7 @@ const formSchema = z
       .optional(),
 
     // Validation: Milestones
-    milestones: z
-      .array(
-        z.object({
-          title: z.string().min(1, "Milestone title is required"),
-          description: z.string().min(1, "Description is required"),
-          amount: z.coerce.number().min(0, "Amount must be positive"),
-          deliverableType: z.nativeEnum(DeliverableType),
-          retentionAmount: z.coerce.number().min(0).default(0),
-          duration: z.coerce.number().optional(),
-        }),
-      )
-      .min(1, "At least one milestone is required"),
+    milestones: z.array(milestoneSchema).min(1, "At least one milestone is required"),
   })
   .refine(
     (data) => {
@@ -214,6 +280,9 @@ export function CreateProjectSpecForm({
   approvedBudgetCap = null,
 }: CreateProjectSpecFormProps) {
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [richContentJson, setRichContentJson] = useState<
+    Record<string, unknown> | null
+  >(initialValues?.richContentJson || null);
   const stopNumberFieldScroll = (event: React.WheelEvent<HTMLInputElement>) => {
     event.currentTarget.blur();
   };
@@ -238,6 +307,9 @@ export function CreateProjectSpecForm({
           amount: 0,
           deliverableType: DeliverableType.DESIGN_PROTOTYPE,
           retentionAmount: 0,
+          acceptanceCriteria: [],
+          startDate: "",
+          dueDate: "",
         },
       ],
     },
@@ -328,6 +400,13 @@ export function CreateProjectSpecForm({
               deliverableType:
                 milestone.deliverableType || DeliverableType.SOURCE_CODE,
               retentionAmount: Number(milestone.retentionAmount ?? 0),
+              acceptanceCriteria: Array.isArray(milestone.acceptanceCriteria)
+                ? milestone.acceptanceCriteria.map((criteria) => ({
+                    value: criteria || "",
+                  }))
+                : [],
+              startDate: toDateInputValue(milestone.startDate),
+              dueDate: toDateInputValue(milestone.dueDate),
               duration:
                 (milestone as { duration?: number | string | null }).duration ==
                 null
@@ -343,6 +422,9 @@ export function CreateProjectSpecForm({
               amount: 0,
               deliverableType: DeliverableType.DESIGN_PROTOTYPE,
               retentionAmount: 0,
+              acceptanceCriteria: [],
+              startDate: "",
+              dueDate: "",
             },
           ];
 
@@ -353,7 +435,14 @@ export function CreateProjectSpecForm({
       features: mappedFeatures,
       milestones: mappedMilestones,
     });
+    setRichContentJson(initialValues.richContentJson || null);
   }, [form, initialValues]);
+
+  useEffect(() => {
+    if (!initialValues) {
+      setRichContentJson(null);
+    }
+  }, [initialValues]);
 
   const handleInvalidSubmit = () => {
     const errors = form.formState.errors;
@@ -413,6 +502,30 @@ export function CreateProjectSpecForm({
         form.setFocus(`milestones.${index}.description`);
         return;
       }
+      if (milestoneError?.retentionAmount) {
+        form.setFocus(`milestones.${index}.retentionAmount`);
+        return;
+      }
+      if (milestoneError?.startDate) {
+        form.setFocus(`milestones.${index}.startDate`);
+        return;
+      }
+      if (milestoneError?.dueDate) {
+        form.setFocus(`milestones.${index}.dueDate`);
+        return;
+      }
+      const criteriaErrors = Array.isArray(milestoneError?.acceptanceCriteria)
+        ? milestoneError.acceptanceCriteria
+        : [];
+      const criteriaIndex = criteriaErrors.findIndex(
+        (criterion) => !!criterion?.value,
+      );
+      if (criteriaIndex >= 0) {
+        form.setFocus(
+          `milestones.${index}.acceptanceCriteria.${criteriaIndex}.value`,
+        );
+        return;
+      }
     }
   };
 
@@ -454,7 +567,7 @@ export function CreateProjectSpecForm({
         title: f.title,
         description: f.description,
         complexity: f.complexity,
-        acceptanceCriteria: f.acceptanceCriteria.map((ac) => ac.value),
+        acceptanceCriteria: f.acceptanceCriteria.map((ac) => ac.value.trim()),
       })),
       milestones: values.milestones.map((m, index) => ({
         title: m.title,
@@ -463,8 +576,16 @@ export function CreateProjectSpecForm({
         duration: m.duration,
         deliverableType: m.deliverableType,
         retentionAmount: m.retentionAmount,
+        acceptanceCriteria: (m.acceptanceCriteria || [])
+          .map((criterion) => criterion.value.trim())
+          .filter(Boolean),
+        startDate: normalizeDatePayload(m.startDate),
+        dueDate: normalizeDatePayload(m.dueDate),
         sortOrder: index + 1,
       })),
+      richContentJson: narrativeHasContent(richContentJson)
+        ? richContentJson || undefined
+        : undefined,
     };
 
     onSubmit(payload);
@@ -534,9 +655,9 @@ export function CreateProjectSpecForm({
               name="description"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Overview Description</FormLabel>
+                  <FormLabel>Executive Summary</FormLabel>
                   <CardDescription className="mb-2">
-                    Avoid vague words like "beautiful", "fast". Use metrics.
+                    Keep this short and concrete. Use the detailed scope notes below for narrative, assumptions, exclusions, and structured bullets.
                   </CardDescription>
                   <FormControl>
                     <Textarea className="min-h-[100px]" {...field} />
@@ -575,11 +696,33 @@ export function CreateProjectSpecForm({
           </CardContent>
         </Card>
 
-        {/* 2. FEATURES & CRITERIA */}
+        <Card>
+          <CardHeader>
+            <CardTitle>2. Detailed Scope Notes</CardTitle>
+            <CardDescription>
+              Write the broker-authored narrative that explains delivery notes,
+              exclusions, review guidance, and scope clarifications. This
+              content is frozen into the contract that parties sign.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <SpecNarrativeEditor
+              value={richContentJson}
+              onChange={setRichContentJson}
+            />
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
+              Use headings, bullets, numbered steps, checklists, quotes, links,
+              and dividers to make the scope read like a polished spec instead
+              of a raw form dump.
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* 3. FEATURES & CRITERIA */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle>2. Features & Acceptance Criteria</CardTitle>
+              <CardTitle>3. Features & Acceptance Criteria</CardTitle>
               <CardDescription>
                 Define functional requirements in detail.
               </CardDescription>
@@ -702,10 +845,10 @@ export function CreateProjectSpecForm({
           </CardContent>
         </Card>
 
-        {/* 3. BUDGET & MILESTONES */}
+        {/* 4. BUDGET & MILESTONES */}
         <Card>
           <CardHeader>
-            <CardTitle>3. Budget & Milestones</CardTitle>
+            <CardTitle>4. Budget & Milestones</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="rounded-lg border bg-muted/40 p-4">
@@ -860,6 +1003,11 @@ export function CreateProjectSpecForm({
                               >
                                 SysOps Docs (Docker)
                               </SelectItem>
+                              <SelectItem
+                                value={DeliverableType.CREDENTIAL_VAULT}
+                              >
+                                Credential Vault
+                              </SelectItem>
                               <SelectItem value={DeliverableType.OTHER}>
                                 Other
                               </SelectItem>
@@ -892,6 +1040,56 @@ export function CreateProjectSpecForm({
                     />
                   </div>
 
+                  <div className="rounded-lg border border-dashed bg-muted/20 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          Secondary milestone details
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          These details are copied into the frozen contract schedule.
+                        </p>
+                      </div>
+                      <Badge variant="outline">Contract-facing</Badge>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <FormField
+                        control={form.control}
+                        name={`milestones.${index}.startDate`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Start date</FormLabel>
+                            <FormControl>
+                              <Input type="date" {...field} value={field.value || ""} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name={`milestones.${index}.dueDate`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Due date</FormLabel>
+                            <FormControl>
+                              <Input type="date" {...field} value={field.value || ""} />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+
+                    <div className="mt-4">
+                      <MilestoneAcceptanceCriteriaList
+                        nestIndex={index}
+                        control={form.control}
+                      />
+                    </div>
+                  </div>
+
                   <FormField
                     control={form.control}
                     name={`milestones.${index}.description`}
@@ -920,6 +1118,9 @@ export function CreateProjectSpecForm({
                   amount: 0,
                   deliverableType: DeliverableType.SOURCE_CODE,
                   retentionAmount: 0,
+                  acceptanceCriteria: [],
+                  startDate: "",
+                  dueDate: "",
                 })
               }
             >
@@ -1060,6 +1261,71 @@ function AcceptanceCriteriaList({
           >
             {/* Prevent deleting last one to force at least 1 rule */}
             <Trash2 className="w-4 h-4" />
+          </Button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MilestoneAcceptanceCriteriaList({
+  nestIndex,
+  control,
+}: {
+  nestIndex: number;
+  control: any;
+}) {
+  const { fields, append, remove } = useFieldArray({
+    control,
+    name: `milestones.${nestIndex}.acceptanceCriteria`,
+  });
+
+  return (
+    <div className="space-y-3 border-l-2 border-primary/20 pl-4">
+      <div className="flex items-center justify-between">
+        <FormLabel className="text-xs uppercase tracking-wide text-muted-foreground">
+          Acceptance criteria
+        </FormLabel>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => append({ value: "" })}
+        >
+          <Plus className="mr-1 h-3 w-3" /> Add criterion
+        </Button>
+      </div>
+      {fields.length === 0 && (
+        <p className="text-xs text-muted-foreground">
+          Add the concrete checks that must be satisfied before this milestone can be approved.
+        </p>
+      )}
+      {fields.map((item, k) => (
+        <div key={item.id} className="flex items-start gap-2">
+          <FormField
+            control={control}
+            name={`milestones.${nestIndex}.acceptanceCriteria.${k}.value`}
+            render={({ field }) => (
+              <FormItem className="flex-1 space-y-0">
+                <FormControl>
+                  <Input
+                    placeholder="e.g. API documentation is complete and approved"
+                    {...field}
+                    className="h-9 text-sm"
+                  />
+                </FormControl>
+                <FormMessage className="text-xs" />
+              </FormItem>
+            )}
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="icon"
+            className="h-9 w-9 text-muted-foreground"
+            onClick={() => remove(k)}
+          >
+            <Trash2 className="h-4 w-4" />
           </Button>
         </div>
       ))}
