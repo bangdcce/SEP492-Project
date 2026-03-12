@@ -2,6 +2,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpException,
   Patch,
   Post,
   Param,
@@ -232,13 +233,8 @@ export class ProjectsController {
 
       return result;
     } catch (error: unknown) {
-      // Re-throw known exceptions
-      if (
-        error instanceof BadRequestException ||
-        (error instanceof Error &&
-          (error.constructor.name === 'NotFoundException' ||
-            error.constructor.name === 'ForbiddenException'))
-      ) {
+      // Preserve expected HTTP failures from the service layer.
+      if (error instanceof HttpException) {
         throw error;
       }
 

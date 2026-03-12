@@ -6,7 +6,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
 import {
@@ -22,6 +22,7 @@ import {
 import { TaskEntity, TaskStatus } from '../../database/entities/task.entity';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
+import { EscrowReleaseService } from '../payments/escrow-release.service';
 
 // Response type with enriched dispute info
 export interface ProjectWithDisputeInfo {
@@ -85,8 +86,10 @@ export class ProjectsService {
     private readonly milestoneRepository: Repository<MilestoneEntity>,
     @InjectRepository(TaskEntity)
     private readonly taskRepository: Repository<TaskEntity>,
+    private readonly dataSource: DataSource,
     private readonly auditLogsService: AuditLogsService,
     private readonly milestoneLockPolicyService: MilestoneLockPolicyService,
+    private readonly escrowReleaseService: EscrowReleaseService,
   ) {}
 
   private parseAmountOrDefault(input: unknown, fallback: number): number {
@@ -105,7 +108,11 @@ export class ProjectsService {
       return null;
     }
 
-    const parsed = new Date(String(input));
+    if (typeof input !== 'string' && typeof input !== 'number' && !(input instanceof Date)) {
+      throw new BadRequestException('Invalid date format. Use ISO date string.');
+    }
+
+    const parsed = new Date(input);
     if (Number.isNaN(parsed.getTime())) {
       throw new BadRequestException('Invalid date format. Use ISO date string.');
     }
@@ -468,135 +475,151 @@ export class ProjectsService {
     feedback?: string,
     reqContext?: RequestContext,
   ): Promise<MilestoneApprovalResult> {
-    // Step 1: Fetch the milestone with project relation
-    const milestone = await this.milestoneRepository.findOne({
-      where: { id: milestoneId },
-      relations: ['project'],
-    });
+    let oldData: { status: MilestoneStatus; feedback: string | null } | null = null;
+    let previousStatus: MilestoneStatus | null = null;
+    let updatedMilestone: MilestoneEntity | null = null;
+    let totalTasks = 0;
+    let doneTasks = 0;
+    let releaseTransactionIds: string[] = [];
+    let logCurrency = 'USD';
 
-    if (!milestone) {
-      throw new NotFoundException(`Milestone ${milestoneId} not found`);
-    }
+    await this.dataSource.transaction(async (manager) => {
+      const milestoneRepository = manager.getRepository(MilestoneEntity);
+      const projectRepository = manager.getRepository(ProjectEntity);
+      const taskRepository = manager.getRepository(TaskEntity);
 
-    // Step 2: Check user authorization (must be Client or Broker of the project)
-    let project: ProjectEntity | null = (milestone.project as ProjectEntity) || null;
+      const milestone = await milestoneRepository
+        .createQueryBuilder('milestone')
+        .setLock('pessimistic_write')
+        .where('milestone.id = :milestoneId', { milestoneId })
+        .getOne();
 
-    // If no project relation, try to find by projectId
-    if (!project && milestone.projectId) {
-      project = await this.projectRepository.findOne({
-        where: { id: milestone.projectId },
+      if (!milestone) {
+        throw new NotFoundException(`Milestone ${milestoneId} not found`);
+      }
+
+      const project = await projectRepository
+        .createQueryBuilder('project')
+        .setLock('pessimistic_write')
+        .where('project.id = :projectId', { projectId: milestone.projectId })
+        .getOne();
+
+      if (!project) {
+        throw new NotFoundException('Project not found for this milestone');
+      }
+
+      const isAuthorized = project.clientId === userId || project.brokerId === userId;
+      if (!isAuthorized) {
+        throw new ForbiddenException(
+          'Only the Project Owner (Client) or Broker can approve milestones',
+        );
+      }
+
+      if (milestone.status === MilestoneStatus.COMPLETED) {
+        throw new BadRequestException('Milestone is already completed');
+      }
+
+      if (milestone.status === MilestoneStatus.PAID) {
+        throw new BadRequestException('Milestone has already been paid');
+      }
+
+      if (milestone.status !== MilestoneStatus.SUBMITTED) {
+        throw new BadRequestException(
+          `Cannot approve milestone with status "${milestone.status}". Only SUBMITTED milestones can be approved.`,
+        );
+      }
+
+      const tasks = await taskRepository.find({
+        where: { milestoneId },
       });
-    }
 
-    if (!project) {
-      throw new NotFoundException('Project not found for this milestone');
-    }
+      totalTasks = tasks.length;
+      doneTasks = tasks.filter((task) => task.status === TaskStatus.DONE).length;
 
-    const isAuthorized = project.clientId === userId || project.brokerId === userId;
-    if (!isAuthorized) {
-      throw new ForbiddenException(
-        'Only the Project Owner (Client) or Broker can approve milestones',
+      if (totalTasks === 0) {
+        throw new BadRequestException('Milestone has no tasks to approve');
+      }
+
+      if (doneTasks < totalTasks) {
+        throw new BadRequestException(
+          `Cannot approve milestone: ${doneTasks}/${totalTasks} tasks completed. All tasks must be done before approval.`,
+        );
+      }
+
+      const activeContract = await this.milestoneLockPolicyService.findLatestActivatedContract(
+        project.id,
       );
-    }
+      const snapshot = Array.isArray(activeContract?.milestoneSnapshot)
+        ? activeContract.milestoneSnapshot
+        : [];
+      if (snapshot.length > 0) {
+        const snapshotEntry = this.findSnapshotEntryForMilestone(snapshot, milestone);
+        if (!snapshotEntry) {
+          throw new BadRequestException('Milestone not found in contract snapshot');
+        }
 
-    // Step 3: Check if milestone is already completed or paid
-    if (milestone.status === MilestoneStatus.COMPLETED) {
-      throw new BadRequestException('Milestone is already completed');
-    }
+        const currentAmount = new Decimal(milestone.amount).toDecimalPlaces(2);
+        const snapshotAmount = new Decimal(snapshotEntry.amount).toDecimalPlaces(2);
+        if (!currentAmount.equals(snapshotAmount)) {
+          throw new BadRequestException('Milestone amount mismatch with contract snapshot');
+        }
+        if (snapshotEntry.title !== milestone.title) {
+          throw new BadRequestException('Milestone title mismatch with contract snapshot');
+        }
+      }
 
-    if (milestone.status === MilestoneStatus.PAID) {
-      throw new BadRequestException('Milestone has already been paid');
-    }
+      oldData = {
+        status: milestone.status,
+        feedback: milestone.feedback ?? null,
+      };
 
-    // Step 4: Check if all tasks in this milestone are DONE
-    const tasks = await this.taskRepository.find({
-      where: { milestoneId },
+      previousStatus = milestone.status;
+      milestone.status = MilestoneStatus.COMPLETED;
+      if (feedback) {
+        milestone.feedback = feedback;
+      }
+
+      updatedMilestone = await milestoneRepository.save(milestone);
+      logCurrency = project.currency || 'USD';
+
+      const releaseResult = await this.escrowReleaseService.releaseForApprovedMilestone(
+        milestone.id,
+        userId,
+        manager,
+      );
+      releaseTransactionIds = releaseResult.releaseTransactionIds;
+
+      this.logger.log(
+        `💰 FUNDS RELEASED: Milestone "${milestone.title}" (${milestone.amount} ${logCurrency}) approved by user ${userId} | tx=${releaseTransactionIds.join(',')}`,
+      );
     });
 
-    const totalTasks = tasks.length;
-    const doneTasks = tasks.filter((t) => t.status === TaskStatus.DONE).length;
-
-    if (totalTasks === 0) {
-      throw new BadRequestException('Milestone has no tasks to approve');
-    }
-
-    if (doneTasks < totalTasks) {
-      throw new BadRequestException(
-        `Cannot approve milestone: ${doneTasks}/${totalTasks} tasks completed. All tasks must be done before approval.`,
-      );
-    }
-
-    const activeContract = await this.milestoneLockPolicyService.findLatestActivatedContract(
-      project.id,
-    );
-    const snapshot = Array.isArray(activeContract?.milestoneSnapshot)
-      ? activeContract.milestoneSnapshot
-      : [];
-    if (snapshot.length > 0) {
-      const snapshotEntry = this.findSnapshotEntryForMilestone(snapshot, milestone);
-      if (!snapshotEntry) {
-        throw new BadRequestException('Milestone not found in contract snapshot');
-      }
-
-      const currentAmount = new Decimal(milestone.amount).toDecimalPlaces(2);
-      const snapshotAmount = new Decimal(snapshotEntry.amount).toDecimalPlaces(2);
-      if (!currentAmount.equals(snapshotAmount)) {
-        throw new BadRequestException('Milestone amount mismatch with contract snapshot');
-      }
-      if (snapshotEntry.title !== milestone.title) {
-        throw new BadRequestException('Milestone title mismatch with contract snapshot');
-      }
-    }
-
-    // Step 5: Prepare old data for audit log
-    const oldData = {
-      status: milestone.status,
-      feedback: milestone.feedback,
-    };
-
-    const previousStatus = milestone.status;
-
-    // Step 6: Update milestone status to COMPLETED
-    milestone.status = MilestoneStatus.COMPLETED;
-    if (feedback) {
-      milestone.feedback = feedback;
-    }
-
-    const updatedMilestone = await this.milestoneRepository.save(milestone);
-
-    // Step 7: Simulate fund release (in real system, this would call payment service)
-    this.logger.log(
-      `💰 FUNDS RELEASED: Milestone "${milestone.title}" (${milestone.amount} ${
-        project.currency || 'USD'
-      }) approved by user ${userId}`,
-    );
-
-    // Step 8: Create audit log for milestone approval (Critical financial action)
     const newData = {
       status: MilestoneStatus.COMPLETED,
       feedback: feedback || null,
       approvedBy: userId,
       approvedAt: new Date().toISOString(),
+      releaseTransactionIds,
     };
 
     await this.auditLogsService.logUpdate(
       'Milestone',
       milestoneId,
-      oldData,
+      oldData ?? {},
       newData,
       reqContext,
       userId,
     );
 
     this.logger.log(
-      `✅ Milestone ${milestoneId} approved: ${previousStatus} → COMPLETED | Tasks: ${doneTasks}/${totalTasks} | Amount: ${milestone.amount}`,
+      `✅ Milestone ${milestoneId} approved: ${previousStatus} → COMPLETED | Tasks: ${doneTasks}/${totalTasks} | ReleaseTx: ${releaseTransactionIds.length}`,
     );
 
     return {
-      milestone: updatedMilestone,
-      previousStatus,
+      milestone: updatedMilestone as MilestoneEntity,
+      previousStatus: previousStatus as MilestoneStatus,
       fundsReleased: true,
-      message: `Milestone "${milestone.title}" has been approved. Funds will be released.`,
+      message: `Milestone "${updatedMilestone?.title}" has been approved. Funds have been released.`,
     };
   }
   async findOne(id: string): Promise<ProjectEntity | null> {
@@ -609,7 +632,8 @@ export class ProjectsService {
     }
 
     if (Array.isArray(project.contracts)) {
-      project.contracts = [...project.contracts].sort((a: ContractEntity, b: ContractEntity) => {
+      const contracts = project.contracts as ContractEntity[];
+      project.contracts = [...contracts].sort((a: ContractEntity, b: ContractEntity) => {
         const aActivated = a.activatedAt ? new Date(a.activatedAt).getTime() : 0;
         const bActivated = b.activatedAt ? new Date(b.activatedAt).getTime() : 0;
         if (aActivated !== bActivated) {

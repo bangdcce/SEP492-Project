@@ -9,11 +9,13 @@ import { ProjectsService } from './projects.service';
 import { ProjectsController } from './projects.controller';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
+import { PaymentsModule } from '../payments/payments.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([ProjectEntity, DisputeEntity, MilestoneEntity, TaskEntity, ContractEntity]),
     AuditLogsModule, // For audit logging milestone approvals
+    PaymentsModule,
   ],
   controllers: [ProjectsController],
   providers: [ProjectsService, MilestoneLockPolicyService],
