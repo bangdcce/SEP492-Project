@@ -85,7 +85,7 @@ export interface MilestoneReleaseRecipientView {
   userId: string;
   walletId: string;
   amount: number;
-  role: 'CLIENT' | 'FREELANCER' | 'BROKER';
+  role: 'CLIENT' | 'FREELANCER' | 'BROKER' | 'PLATFORM';
   transactionId: string;
 }
 

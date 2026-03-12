@@ -16,6 +16,9 @@ import {
   TransactionEntity,
   TransactionStatus,
   TransactionType,
+  UserEntity,
+  UserRole,
+  UserStatus,
   WalletEntity,
 } from '../../database/entities';
 import { MilestoneReleaseRecipientView, MilestoneReleaseResult } from './payments.types';
@@ -40,6 +43,8 @@ export class EscrowReleaseService {
     private readonly milestoneRepository: Repository<MilestoneEntity>,
     @InjectRepository(ProjectEntity)
     private readonly projectRepository: Repository<ProjectEntity>,
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
     private readonly dataSource: DataSource,
     private readonly walletService: WalletService,
   ) {}
@@ -292,6 +297,61 @@ export class EscrowReleaseService {
       escrow.brokerWalletId = brokerWallet.id;
     }
 
+    if (platformFee.greaterThan(0)) {
+      const platformOwner = await this.resolvePlatformWalletOwner(manager);
+      const platformWallet = await this.walletService.getOrCreateWallet(
+        platformOwner.id,
+        releasePlan.currency,
+        manager,
+      );
+      platformWallet.balance = new Decimal(platformWallet.balance || 0)
+        .plus(platformFee)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
+      platformWallet.totalEarned = new Decimal(platformWallet.totalEarned || 0)
+        .plus(platformFee)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
+      await manager.getRepository(WalletEntity).save(platformWallet);
+
+      const platformTransaction = await transactionRepo.save(
+        transactionRepo.create({
+          walletId: platformWallet.id,
+          amount: platformFee.toNumber(),
+          fee: 0,
+          netAmount: platformFee.toNumber(),
+          currency: releasePlan.currency,
+          type: TransactionType.FEE_DEDUCTION,
+          status: TransactionStatus.COMPLETED,
+          referenceType: 'Escrow',
+          referenceId: escrow.id,
+          description: `Platform fee for milestone "${milestone.title}"`,
+          balanceAfter: platformWallet.balance,
+          initiatedBy: 'system',
+          relatedTransactionId: clientSettlementTransaction.id,
+          completedAt: now,
+          metadata: {
+            milestoneId: milestone.id,
+            projectId: project.id,
+            approvedBy,
+            stage: 'release_fee',
+            role: 'PLATFORM',
+            sourceWalletId: clientWallet.id,
+            platformOwnerUserId: platformOwner.id,
+          },
+        }),
+      );
+
+      relatedReleaseIds.push(platformTransaction.id);
+      recipients.push({
+        userId: platformOwner.id,
+        walletId: platformWallet.id,
+        amount: platformFee.toNumber(),
+        role: 'PLATFORM',
+        transactionId: platformTransaction.id,
+      });
+    }
+
     clientSettlementTransaction.metadata = {
       ...(clientSettlementTransaction.metadata || {}),
       releaseTransactionIds: relatedReleaseIds,
@@ -316,6 +376,25 @@ export class EscrowReleaseService {
       releaseTransactionIds: relatedReleaseIds,
       recipients,
     };
+  }
+
+  private async resolvePlatformWalletOwner(manager?: EntityManager): Promise<UserEntity> {
+    const userRepo = manager?.getRepository(UserEntity) ?? this.userRepository;
+    const platformOwner = await userRepo.findOne({
+      where: [
+        { role: UserRole.ADMIN, status: UserStatus.ACTIVE },
+        { role: UserRole.STAFF, status: UserStatus.ACTIVE },
+      ],
+      order: { createdAt: 'ASC' },
+    });
+
+    if (!platformOwner) {
+      throw new ConflictException(
+        'Cannot release platform fee because no active ADMIN/STAFF platform owner is available',
+      );
+    }
+
+    return platformOwner;
   }
 
   private async loadReleaseContext(

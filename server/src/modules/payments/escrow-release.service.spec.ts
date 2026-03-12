@@ -9,6 +9,9 @@ import {
   MilestoneStatus,
   ProjectEntity,
   TransactionEntity,
+  UserEntity,
+  UserRole,
+  UserStatus,
   WalletEntity,
   WalletStatus,
 } from '../../database/entities';
@@ -34,6 +37,9 @@ describe('EscrowReleaseService', () => {
   const projectRepository = {
     findOne: jest.fn(),
   };
+  const userRepository = {
+    findOne: jest.fn(),
+  };
   const walletService = {
     getOrCreateWallet: jest.fn(),
     toWalletSnapshot: jest.fn(),
@@ -51,6 +57,7 @@ describe('EscrowReleaseService', () => {
       if (entity === MilestoneEntity) return milestoneRepository;
       if (entity === EscrowEntity) return escrowRepository;
       if (entity === ProjectEntity) return projectRepository;
+      if (entity === UserEntity) return userRepository;
       if (entity === WalletEntity) return walletRepository;
       if (entity === TransactionEntity) return transactionRepository;
       throw new Error('Unexpected repository');
@@ -74,6 +81,10 @@ describe('EscrowReleaseService', () => {
         {
           provide: getRepositoryToken(ProjectEntity),
           useValue: projectRepository,
+        },
+        {
+          provide: getRepositoryToken(UserEntity),
+          useValue: userRepository,
         },
         {
           provide: DataSource,
@@ -202,14 +213,38 @@ describe('EscrowReleaseService', () => {
       createdAt: new Date('2026-03-13T00:00:00.000Z'),
       updatedAt: new Date('2026-03-13T00:00:00.000Z'),
     } as WalletEntity;
+    const platformWallet = {
+      id: 'wallet-platform',
+      userId: 'admin-1',
+      balance: 0,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
 
     milestoneRepository.createQueryBuilder.mockReturnValue(createQueryBuilderMock(milestone));
     escrowRepository.createQueryBuilder.mockReturnValue(createQueryBuilderMock(escrow));
     projectRepository.findOne.mockResolvedValue(project);
+    userRepository.findOne.mockResolvedValue({
+      id: 'admin-1',
+      email: 'admin@example.com',
+      role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
+      createdAt: new Date('2026-03-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-12T00:00:00.000Z'),
+    } as UserEntity);
     walletService.getOrCreateWallet.mockImplementation((userId: string) => {
       if (userId === 'client-1') return clientWallet;
       if (userId === 'freelancer-1') return freelancerWallet;
       if (userId === 'broker-1') return brokerWallet;
+      if (userId === 'admin-1') return platformWallet;
       throw new Error(`Unexpected wallet lookup for ${userId}`);
     });
     walletService.toWalletSnapshot.mockImplementation((wallet: WalletEntity) => ({
@@ -236,6 +271,9 @@ describe('EscrowReleaseService', () => {
         if (transaction.walletId === 'wallet-freelancer') {
           return { ...transaction, id: 'tx-freelancer' };
         }
+        if (transaction.walletId === 'wallet-platform') {
+          return { ...transaction, id: 'tx-platform' };
+        }
         return { ...transaction, id: 'tx-broker' };
       }
       return transaction;
@@ -253,7 +291,7 @@ describe('EscrowReleaseService', () => {
       escrowId: 'escrow-1',
       escrowStatus: EscrowStatus.RELEASED,
       releasedAmount: 100,
-      releaseTransactionIds: ['tx-client', 'tx-freelancer', 'tx-broker'],
+      releaseTransactionIds: ['tx-client', 'tx-freelancer', 'tx-broker', 'tx-platform'],
     });
     expect(clientWallet.heldBalance).toBe(0);
     expect(clientWallet.totalSpent).toBe(100);
@@ -261,6 +299,8 @@ describe('EscrowReleaseService', () => {
     expect(freelancerWallet.totalEarned).toBe(85);
     expect(brokerWallet.balance).toBe(10);
     expect(brokerWallet.totalEarned).toBe(10);
+    expect(platformWallet.balance).toBe(5);
+    expect(platformWallet.totalEarned).toBe(5);
     expect(escrow.status).toBe(EscrowStatus.RELEASED);
     expect(escrow.clientApproved).toBe(true);
   });

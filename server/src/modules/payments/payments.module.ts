@@ -7,6 +7,7 @@ import {
   PaymentMethodEntity,
   ProjectEntity,
   TransactionEntity,
+  UserEntity,
   WalletEntity,
 } from '../../database/entities';
 import { PaymentMethodsController } from './payment-methods.controller';
@@ -28,6 +29,7 @@ import { WalletService } from './wallet.service';
       ProjectEntity,
       PaymentMethodEntity,
       FundingIntentEntity,
+      UserEntity,
     ]),
   ],
   controllers: [WalletController, PaymentMethodsController, PaymentsController],

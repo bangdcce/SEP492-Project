@@ -84,6 +84,7 @@ export class MilestoneFundingService {
         },
       });
       if (existingIntent) {
+        this.assertExistingIntentMatchesInput(existingIntent, input);
         return this.buildExistingIntentResponse(manager, existingIntent, escrow, input.payerId);
       }
 
@@ -341,6 +342,23 @@ export class MilestoneFundingService {
       depositTransactionId: depositTransaction.id,
       holdTransactionId: holdTransaction.id,
     };
+  }
+
+  private assertExistingIntentMatchesInput(
+    fundingIntent: FundingIntentEntity,
+    input: FundMilestoneInput,
+  ): void {
+    if (fundingIntent.paymentMethodId !== input.paymentMethodId) {
+      throw new ConflictException(
+        `Idempotency-Key ${input.idempotencyKey} is already bound to a different payment method`,
+      );
+    }
+
+    if (fundingIntent.gateway !== input.gateway) {
+      throw new ConflictException(
+        `Idempotency-Key ${input.idempotencyKey} is already bound to a different gateway`,
+      );
+    }
   }
 
   private assertEscrowCanBeFunded(escrow: EscrowEntity): void {

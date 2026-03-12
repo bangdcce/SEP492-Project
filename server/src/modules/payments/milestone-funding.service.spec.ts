@@ -242,6 +242,30 @@ describe('MilestoneFundingService', () => {
     expect(internalSandboxGatewayMock.fund).not.toHaveBeenCalled();
   });
 
+  it('rejects idempotency key reuse when the payment method changes', async () => {
+    fundingIntentRepo.findOne.mockResolvedValue({
+      id: 'intent-1',
+      milestoneId: 'milestone-1',
+      payerId: 'client-1',
+      paymentMethodId: 'method-1',
+      gateway: FundingGateway.INTERNAL_SANDBOX,
+      amount: 100,
+      currency: 'USD',
+      status: FundingIntentStatus.COMPLETED,
+      idempotencyKey: 'idem-1',
+    } as FundingIntentEntity);
+
+    await expect(
+      service.fundMilestone({
+        milestoneId: 'milestone-1',
+        payerId: 'client-1',
+        paymentMethodId: 'method-2',
+        gateway: FundingGateway.INTERNAL_SANDBOX,
+        idempotencyKey: 'idem-1',
+      }),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
   it('rejects bank methods for milestone funding', async () => {
     paymentMethodRepo.findOne.mockResolvedValue({
       id: 'method-1',
