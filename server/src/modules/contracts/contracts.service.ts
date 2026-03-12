@@ -35,6 +35,7 @@ import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entit
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { normalizeContractPdfUrl } from '../../common/utils/contract-pdf-url.util';
 import {
   ProjectRequestEntity,
   RequestStatus,
@@ -983,6 +984,10 @@ export class ContractsService {
     return nextContentHash;
   }
 
+  private normalizeStoredContractUrl(contract: Pick<ContractEntity, 'id' | 'contractUrl'>): string {
+    return normalizeContractPdfUrl(contract.id, contract.contractUrl);
+  }
+
   private normalizeClientIp(req: Request): string | null {
     const forwarded = req.headers['x-forwarded-for'];
     if (Array.isArray(forwarded) && forwarded.length > 0) {
@@ -1377,11 +1382,24 @@ export class ContractsService {
       }
     }
 
+    const updatePayload: Partial<ContractEntity> = {};
+
     const currentContentHash = this.computeContentHash(contract);
     if (contract.contentHash !== currentContentHash) {
       contract.contentHash = currentContentHash;
-      await this.contractsRepository.update(contract.id, { contentHash: currentContentHash });
+      updatePayload.contentHash = currentContentHash;
     }
+
+    const nextContractUrl = this.normalizeStoredContractUrl(contract);
+    if (contract.contractUrl !== nextContractUrl) {
+      contract.contractUrl = nextContractUrl;
+      updatePayload.contractUrl = nextContractUrl;
+    }
+
+    if (Object.keys(updatePayload).length > 0) {
+      await this.contractsRepository.update(contract.id, updatePayload);
+    }
+
     (contract as any).documentHash = this.computeContractDocumentHash(contract);
     (contract as any).requiredSignerCount = this.getRequiredContractSignerIds(contract).length;
     (contract as any).signedCount = Array.isArray(contract.signatures) ? contract.signatures.length : 0;
@@ -1526,6 +1544,7 @@ export class ContractsService {
       );
       const savedContract = await queryRunner.manager.save(contract);
       savedContract.contentHash = this.computeContentHash(savedContract);
+      savedContract.contractUrl = this.normalizeStoredContractUrl(savedContract);
       await queryRunner.manager.save(ContractEntity, savedContract);
 
       spec.lockedByContractId = savedContract.id;

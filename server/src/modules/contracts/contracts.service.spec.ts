@@ -271,6 +271,7 @@ describe('ContractsService', () => {
       expect(result.status).toBe(ContractStatus.SENT);
       expect(result.milestoneSnapshot).toHaveLength(2);
       expect(result.contentHash).toBeTruthy();
+      expect(result.contractUrl).toMatch(/\/contracts\/contract-uuid\/pdf$/);
       expect(result.contentHash).toBe((service as any).computeContentHash(result));
       expect(result.commercialContext).toEqual(
         expect.objectContaining({
@@ -312,6 +313,7 @@ describe('ContractsService', () => {
         sourceSpecId: 'spec-uuid',
         title: 'Website Revamp',
         status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
         project,
         milestoneSnapshot: buildSnapshot(),
         commercialContext: buildCommercialContext(project),
@@ -328,9 +330,14 @@ describe('ContractsService', () => {
       );
 
       expect(result.contentHash).toBe((service as any).computeContentHash(contract));
-      expect(mockContractsRepo.update).toHaveBeenCalledWith(contract.id, {
-        contentHash: result.contentHash,
-      });
+      expect(result.contractUrl).toMatch(/\/contracts\/contract-uuid\/pdf$/);
+      expect(mockContractsRepo.update).toHaveBeenCalledWith(
+        contract.id,
+        expect.objectContaining({
+          contentHash: result.contentHash,
+          contractUrl: result.contractUrl,
+        }),
+      );
     });
   });
 
