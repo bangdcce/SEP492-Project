@@ -572,4 +572,60 @@ describe('ProjectSpecsService', () => {
       ).rejects.toThrow(/not an eligible reviewer/i);
     });
   });
+
+  describe('query authorization', () => {
+    it('allows a contract-side freelancer to view a spec for the request', async () => {
+      const freelancer = {
+        id: 'freelancer-uuid',
+        role: UserRole.FREELANCER,
+      } as UserEntity;
+
+      const spec = {
+        id: 'spec-uuid',
+        request: {
+          id: 'request-uuid',
+          clientId: 'client-uuid',
+          brokerId: 'broker-uuid',
+          proposals: [
+            {
+              freelancerId: 'freelancer-uuid',
+              status: 'ACCEPTED',
+            },
+          ],
+        },
+      } as unknown as ProjectSpecEntity;
+
+      mockProjectSpecsRepo.findOne.mockResolvedValue(spec);
+
+      await expect(service.findOneForUser(freelancer, 'spec-uuid')).resolves.toBe(spec);
+    });
+
+    it('rejects unrelated users from viewing a spec', async () => {
+      const outsider = {
+        id: 'outsider-uuid',
+        role: UserRole.CLIENT,
+      } as UserEntity;
+
+      const spec = {
+        id: 'spec-uuid',
+        request: {
+          id: 'request-uuid',
+          clientId: 'client-uuid',
+          brokerId: 'broker-uuid',
+          proposals: [
+            {
+              freelancerId: 'freelancer-uuid',
+              status: 'ACCEPTED',
+            },
+          ],
+        },
+      } as unknown as ProjectSpecEntity;
+
+      mockProjectSpecsRepo.findOne.mockResolvedValue(spec);
+
+      await expect(service.findOneForUser(outsider, 'spec-uuid')).rejects.toThrow(
+        /not authorized to view this spec/i,
+      );
+    });
+  });
 });

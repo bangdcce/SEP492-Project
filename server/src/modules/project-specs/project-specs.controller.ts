@@ -55,26 +55,39 @@ export class ProjectSpecsController {
 
   /** Get all specs for a project request */
   @Get('by-request/:requestId')
-  async getSpecsByRequest(@Param('requestId', ParseUUIDPipe) requestId: string) {
-    return this.projectSpecsService.findSpecsByRequestId(requestId);
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.BROKER, UserRole.FREELANCER)
+  async getSpecsByRequest(
+    @GetUser() user: UserEntity,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+  ) {
+    return this.projectSpecsService.findSpecsByRequestIdForUser(user, requestId);
   }
 
   /** Get client spec for a request */
   @Get('client-spec/:requestId')
-  async getClientSpec(@Param('requestId', ParseUUIDPipe) requestId: string) {
-    return this.projectSpecsService.findClientSpec(requestId);
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.BROKER, UserRole.FREELANCER)
+  async getClientSpec(
+    @GetUser() user: UserEntity,
+    @Param('requestId', ParseUUIDPipe) requestId: string,
+  ) {
+    return this.projectSpecsService.findClientSpecForUser(user, requestId);
   }
 
   /** Get full spec linked to a parent spec */
   @Get('full-spec/:parentSpecId')
-  async getFullSpec(@Param('parentSpecId', ParseUUIDPipe) parentSpecId: string) {
-    return this.projectSpecsService.findFullSpec(parentSpecId);
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.BROKER, UserRole.FREELANCER)
+  async getFullSpec(
+    @GetUser() user: UserEntity,
+    @Param('parentSpecId', ParseUUIDPipe) parentSpecId: string,
+  ) {
+    return this.projectSpecsService.findFullSpecForUser(user, parentSpecId);
   }
 
   /** Get single spec by ID */
   @Get(':id')
-  async getSpec(@Param('id', ParseUUIDPipe) id: string) {
-    return this.projectSpecsService.findOne(id);
+  @Roles(UserRole.ADMIN, UserRole.STAFF, UserRole.CLIENT, UserRole.BROKER, UserRole.FREELANCER)
+  async getSpec(@GetUser() user: UserEntity, @Param('id', ParseUUIDPipe) id: string) {
+    return this.projectSpecsService.findOneForUser(user, id);
   }
 
   // ═══════════════════════════════════════════════════════════════════════════

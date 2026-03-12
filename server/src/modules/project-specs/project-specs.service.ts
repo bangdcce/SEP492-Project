@@ -26,7 +26,7 @@ import { NotificationEntity } from '../../database/entities/notification.entity'
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { CreateClientSpecDto } from './dto/create-client-spec.dto';
-import { UserEntity } from '../../database/entities/user.entity';
+import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
 import { v4 as uuidv4 } from 'uuid';
 import sanitizeHtml from 'sanitize-html';
@@ -1361,6 +1361,32 @@ export class ProjectSpecsService {
     return spec;
   }
 
+  private assertUserCanViewSpec(user: UserEntity, spec: ProjectSpecEntity): void {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.STAFF) {
+      return;
+    }
+
+    const request = spec.request;
+    if (!request) {
+      throw new ForbiddenException('You are not authorized to view this spec');
+    }
+
+    if (request.clientId === user.id || request.brokerId === user.id) {
+      return;
+    }
+
+    const hasMatchingFreelancerProposal = (request.proposals || []).some(
+      (proposal) =>
+        proposal.freelancerId === user.id &&
+        ['ACCEPTED', 'PENDING'].includes(String(proposal.status || '').toUpperCase()),
+    );
+    if (hasMatchingFreelancerProposal) {
+      return;
+    }
+
+    throw new ForbiddenException('You are not authorized to view this spec');
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // QUERY METHODS
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1383,6 +1409,12 @@ export class ProjectSpecsService {
     return spec;
   }
 
+  async findOneForUser(user: UserEntity, id: string): Promise<ProjectSpecEntity> {
+    const spec = await this.findOne(id);
+    this.assertUserCanViewSpec(user, spec);
+    return spec;
+  }
+
   async findPendingSpecs(): Promise<ProjectSpecEntity[]> {
     return this.projectSpecsRepository.find({
       where: [
@@ -1400,9 +1432,20 @@ export class ProjectSpecsService {
   async findSpecsByRequestId(requestId: string): Promise<ProjectSpecEntity[]> {
     return this.projectSpecsRepository.find({
       where: { requestId },
-      relations: ['milestones', 'parentSpec'],
+      relations: ['milestones', 'parentSpec', 'request', 'request.proposals'],
       order: { createdAt: 'ASC' },
     });
+  }
+
+  async findSpecsByRequestIdForUser(
+    user: UserEntity,
+    requestId: string,
+  ): Promise<ProjectSpecEntity[]> {
+    const specs = await this.findSpecsByRequestId(requestId);
+    if (specs.length > 0) {
+      this.assertUserCanViewSpec(user, specs[0]);
+    }
+    return specs;
   }
 
   /**
@@ -1411,8 +1454,17 @@ export class ProjectSpecsService {
   async findClientSpec(requestId: string): Promise<ProjectSpecEntity | null> {
     return this.projectSpecsRepository.findOne({
       where: { requestId, specPhase: SpecPhase.CLIENT_SPEC },
-      relations: ['milestones', 'request', 'request.client', 'request.broker'],
+      relations: ['milestones', 'request', 'request.client', 'request.broker', 'request.proposals'],
     });
+  }
+
+  async findClientSpecForUser(user: UserEntity, requestId: string): Promise<ProjectSpecEntity | null> {
+    const spec = await this.findClientSpec(requestId);
+    if (!spec) {
+      return null;
+    }
+    this.assertUserCanViewSpec(user, spec);
+    return spec;
   }
 
   /**
@@ -1421,8 +1473,24 @@ export class ProjectSpecsService {
   async findFullSpec(parentSpecId: string): Promise<ProjectSpecEntity | null> {
     return this.projectSpecsRepository.findOne({
       where: { parentSpecId, specPhase: SpecPhase.FULL_SPEC },
-      relations: ['milestones', 'parentSpec', 'request', 'request.client', 'request.broker'],
+      relations: [
+        'milestones',
+        'parentSpec',
+        'request',
+        'request.client',
+        'request.broker',
+        'request.proposals',
+      ],
     });
+  }
+
+  async findFullSpecForUser(user: UserEntity, parentSpecId: string): Promise<ProjectSpecEntity | null> {
+    const spec = await this.findFullSpec(parentSpecId);
+    if (!spec) {
+      return null;
+    }
+    this.assertUserCanViewSpec(user, spec);
+    return spec;
   }
 
   /**

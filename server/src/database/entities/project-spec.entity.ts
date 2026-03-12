@@ -127,6 +127,12 @@ export class ProjectSpecEntity {
   @Column({ type: 'text', nullable: true })
   rejectionReason: string | null;
 
+  @Column({ type: 'uuid', nullable: true })
+  lockedByContractId: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  lockedAt: Date | null;
+
   @Column({ type: 'timestamp', nullable: true })
   clientApprovedAt: Date | null;
 
