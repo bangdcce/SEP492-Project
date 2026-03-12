@@ -130,3 +130,12 @@ export {
   RescheduleRequestStatus,
 } from './event-reschedule-request.entity';
 export { AutoScheduleRuleEntity, SchedulingStrategy } from './auto-schedule-rule.entity';
+
+// Subscription & Quota Entities
+export { SubscriptionPlanEntity } from './subscription-plan.entity';
+export {
+  UserSubscriptionEntity,
+  SubscriptionStatus,
+  BillingCycle,
+} from './user-subscription.entity';
+export { QuotaUsageLogEntity, QuotaAction } from './quota-usage-log.entity';

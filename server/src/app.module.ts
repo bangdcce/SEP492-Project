@@ -29,6 +29,7 @@ import { LeaveModule } from './modules/leave/leave.module';
 import { HealthModule } from './modules/health/health.module';
 import { WorkspaceChatModule } from './modules/workspace-chat/workspace-chat.module';
 import { PaymentsModule } from './modules/payments/payments.module';
+import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 
 const parseNumberEnv = (value: string | undefined, fallback: number): number => {
   if (!value) return fallback;
@@ -131,6 +132,7 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
     PaymentsModule,
     HealthModule,
     WorkspaceChatModule,
+    SubscriptionsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
