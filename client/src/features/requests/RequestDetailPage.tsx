@@ -66,6 +66,8 @@ const isContractActivated = (contract?: ContractSummary | null) => {
   );
 };
 
+const formatHumanStatus = (status?: string | null) => String(status || "UNKNOWN").replace(/_/g, " ");
+
 export default function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -341,6 +343,123 @@ export default function RequestDetailPage() {
   const canOpenContract = Boolean(linkedContract?.id);
   const contractActivated = isContractActivated(linkedContract);
   const canOpenWorkspace = Boolean(linkedContract?.projectId && contractActivated);
+  const clientNextAction = (() => {
+    if (currentPhase <= 1) {
+      return {
+        title: "Hire a broker",
+        description: "Start by selecting a broker to manage the specification workflow.",
+        ctaLabel: "Go to Phase 1",
+        onClick: () => setActiveTab("phase1"),
+      };
+    }
+
+    if (currentPhase === 2) {
+      if (!clientSpec) {
+        return {
+          title: "Waiting for Client Spec",
+          description: "Broker is preparing the first spec draft for your approval.",
+          ctaLabel: "Refresh",
+          onClick: () => id && fetchData(id),
+        };
+      }
+      if (clientSpec.status === ProjectSpecStatus.CLIENT_REVIEW) {
+        return {
+          title: "Review Client Spec now",
+          description: "Approve or reject Client Spec to move to freelancer selection.",
+          ctaLabel: "Open Client Spec",
+          onClick: () => navigate(`/client/spec-review/${clientSpec.id}`),
+        };
+      }
+      if (clientSpec.status === ProjectSpecStatus.REJECTED) {
+        return {
+          title: "Waiting broker revision",
+          description: "You rejected Client Spec. Broker needs to revise and resubmit.",
+          ctaLabel: "Go to Phase 2",
+          onClick: () => setActiveTab("phase2"),
+        };
+      }
+      return {
+        title: "Client Spec approved",
+        description: "Proceed to freelancer selection.",
+        ctaLabel: "Go to Phase 3",
+        onClick: () => setActiveTab("phase3"),
+      };
+    }
+
+    if (currentPhase === 3) {
+      if (!hasAcceptedFreelancer) {
+        return {
+          title: "Select freelancer signer",
+          description: "Invite and accept one freelancer before Final Spec sign-off.",
+          ctaLabel: "Go to Phase 3",
+          onClick: () => setActiveTab("phase3"),
+        };
+      }
+      return {
+        title: "Freelancer selected",
+        description: "Broker can now submit Final Spec for 3-party sign-off.",
+        ctaLabel: "Go to Phase 4",
+        onClick: () => setActiveTab("phase4"),
+      };
+    }
+
+    if (currentPhase === 4) {
+      if (!fullSpec) {
+        return {
+          title: "Waiting for Final Spec draft",
+          description: "Broker is preparing the Final Spec from approved scope.",
+          ctaLabel: "Refresh",
+          onClick: () => id && fetchData(id),
+        };
+      }
+      if (fullSpec.status === ProjectSpecStatus.FINAL_REVIEW) {
+        return {
+          title: "Sign Final Spec",
+          description: "Client + Broker + Freelancer must sign Final Spec to unlock contract.",
+          ctaLabel: "Review & Sign Final Spec",
+          onClick: () => navigate(`/client/spec-review/${fullSpec.id}`),
+        };
+      }
+      return {
+        title: "Final Spec in progress",
+        description: "Continue until all 3 signatures are completed.",
+        ctaLabel: "Go to Phase 4",
+        onClick: () => setActiveTab("phase4"),
+      };
+    }
+
+    if (canOpenContract && linkedContract) {
+      if (canOpenWorkspace) {
+        return {
+          title: "Project is active",
+          description: "Contract is complete and project workspace is ready.",
+          ctaLabel: "Open Workspace",
+          onClick: () => navigate(`/client/workspace/${linkedContract.projectId}`),
+        };
+      }
+      if (linkedContract.status === "SIGNED") {
+        return {
+          title: "Waiting for project activation",
+          description: "All contract signatures are complete. Broker can activate the project next.",
+          ctaLabel: "Open Contract",
+          onClick: () => navigate(`/client/contracts/${linkedContract.id}`),
+        };
+      }
+      return {
+        title: "Sign contract",
+        description: "Complete remaining signatures to activate project.",
+        ctaLabel: "Open Contract",
+        onClick: () => navigate(`/client/contracts/${linkedContract.id}`),
+      };
+    }
+
+    return {
+      title: "Waiting for contract initialization",
+      description: "Broker must create contract after Final Spec reaches ALL_SIGNED.",
+      ctaLabel: "Go to Phase 5",
+      onClick: () => setActiveTab("phase5"),
+    };
+  })();
 
   // Custom Alert Dialog Component
   const DraftAlertDialog = () => (
@@ -396,22 +515,29 @@ export default function RequestDetailPage() {
                          <div className="flex gap-3">
                              <div className="bg-primary/10 p-2 rounded-full h-fit"><FileText className="w-4 h-4 text-primary"/></div>
                              <div>
-                                 <h4 className="font-semibold">2. Finalize Specs</h4>
-                                 <p className="text-sm text-muted-foreground">Chat with your broker to lock in the Detailed Requirement Specs (DRS).</p>
+                                 <h4 className="font-semibold">2. Approve Client Spec</h4>
+                                 <p className="text-sm text-muted-foreground">Review the client-readable scope and approve/reject it.</p>
                              </div>
                          </div>
                          <div className="flex gap-3">
                              <div className="bg-primary/10 p-2 rounded-full h-fit"><Check className="w-4 h-4 text-primary"/></div>
                              <div>
                                  <h4 className="font-semibold">3. Hire Freelancer</h4>
-                                 <p className="text-sm text-muted-foreground">Your Broker will suggest freelancers. Approve them to build the team.</p>
+                                 <p className="text-sm text-muted-foreground">Invite freelancer and accept one signer for the project.</p>
                              </div>
                          </div>
                          <div className="flex gap-3">
                              <div className="bg-primary/10 p-2 rounded-full h-fit"><Check className="w-4 h-4 text-primary"/></div>
                              <div>
-                                 <h4 className="font-semibold">4. Sign Contract</h4>
-                                 <p className="text-sm text-muted-foreground">Review the generated contract and sign to officially start the project.</p>
+                                 <h4 className="font-semibold">4. Sign Final Spec</h4>
+                                 <p className="text-sm text-muted-foreground">Client + broker + freelancer sign Final Spec together.</p>
+                             </div>
+                         </div>
+                         <div className="flex gap-3">
+                             <div className="bg-primary/10 p-2 rounded-full h-fit"><Check className="w-4 h-4 text-primary"/></div>
+                             <div>
+                                 <h4 className="font-semibold">5. Sign Contract</h4>
+                                 <p className="text-sm text-muted-foreground">Contract is created from Final Spec. All parties sign to start workspace.</p>
                              </div>
                          </div>
                     </div>
@@ -488,6 +614,25 @@ export default function RequestDetailPage() {
           <Card>
             <CardContent className="pt-6">
               <ProjectPhaseStepper currentPhase={currentPhase} />
+            </CardContent>
+          </Card>
+
+          <Card className="border-blue-200 bg-blue-50/40">
+            <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
+              <div className="flex items-start gap-2">
+                <Sparkles className="mt-0.5 h-5 w-5 text-blue-600" />
+                <div>
+                  <p className="font-semibold">{clientNextAction.title}</p>
+                  <p className="text-sm text-muted-foreground">{clientNextAction.description}</p>
+                  <div className="mt-2">
+                    <Badge variant="outline">{`Workflow phase ${currentPhase}/5`}</Badge>
+                    <Badge className="ml-2" variant="secondary">
+                      {formatHumanStatus(request.status)}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+              <Button onClick={clientNextAction.onClick}>{clientNextAction.ctaLabel}</Button>
             </CardContent>
           </Card>
 
@@ -879,7 +1024,7 @@ export default function RequestDetailPage() {
                                             <div>
                                                 <h4 className="font-semibold text-green-900">Freelancer selected</h4>
                                                 <p className="text-sm text-green-700">
-                                                    Next step: broker prepares `full_spec` for 3-party review and sign-off.
+                                                    Next step: broker prepares Final Spec for 3-party review and sign-off.
                                                 </p>
                                             </div>
                                             <Button size="sm" onClick={() => setActiveTab('phase4')}>
@@ -1007,7 +1152,7 @@ export default function RequestDetailPage() {
                                         <div>
                                             <h3 className="font-semibold text-blue-900">Phase 4 goal</h3>
                                             <p className="text-sm text-blue-700">
-                                                Broker prepares `full_spec`, then Client + Broker + Freelancer review and sign it.
+                                                Broker prepares Final Spec, then Client + Broker + Freelancer review and sign it.
                                             </p>
                                         </div>
                                         <Badge variant="outline" className="bg-white">
@@ -1045,7 +1190,7 @@ export default function RequestDetailPage() {
 
                                     <div className="rounded-lg border bg-background p-4">
                                         <div className="mb-2 flex items-center justify-between gap-2">
-                                            <h4 className="font-medium">full_spec (3-party sign)</h4>
+                                            <h4 className="font-medium">Final Spec (3-party sign)</h4>
                                             {fullSpec ? (
                                               <Badge className={`${getSpecStatusColor(fullSpec.status)} border-0`}>
                                                 {formatSpecStatus(fullSpec.status)}
@@ -1081,7 +1226,7 @@ export default function RequestDetailPage() {
                                   <div className="rounded-lg border border-green-200 bg-green-50 p-4">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                       <div>
-                                        <h4 className="font-semibold text-green-900">Final spec fully signed</h4>
+                                        <h4 className="font-semibold text-green-900">Final Spec fully signed</h4>
                                         <p className="text-sm text-green-700">
                                           Contract generation is unlocked. Continue to the contract phase.
                                         </p>
@@ -1113,7 +1258,7 @@ export default function RequestDetailPage() {
                              <div className="space-y-6">
                                 <div className="rounded-lg border bg-muted/20 p-4">
                                   <p className="text-sm text-muted-foreground">
-                                    Phase 5 uses the actual contract record generated from the fully signed `full_spec`.
+                                    Phase 5 uses the actual contract record generated from the fully signed Final Spec.
                                   </p>
                                 </div>
 
@@ -1163,8 +1308,8 @@ export default function RequestDetailPage() {
                                       Contract not initialized yet
                                     </h3>
                                     <p className="mt-1 text-sm text-amber-800">
-                                      Broker must click <strong>Create Contract</strong> after `full_spec` reaches
-                                      `ALL_SIGNED`.
+                                      Broker must click <strong>Create Contract</strong> after Final Spec reaches
+                                      <strong> ALL_SIGNED</strong>.
                                     </p>
                                   </div>
                                 )}

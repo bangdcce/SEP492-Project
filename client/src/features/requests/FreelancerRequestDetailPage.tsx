@@ -12,7 +12,7 @@ import {
   CardTitle,
   Spinner,
 } from "@/shared/components/ui";
-import { ArrowLeft, FileText, UserCheck, Users } from "lucide-react";
+import { ArrowLeft, FileText, Sparkles, UserCheck, Users } from "lucide-react";
 import { wizardService } from "@/features/wizard/services/wizardService";
 import { projectSpecsApi } from "@/features/project-specs/api";
 import type { ProjectSpec } from "@/features/project-specs/types";
@@ -155,6 +155,7 @@ export default function FreelancerRequestDetailPage() {
 
   const proposalList = request.freelancerProposals || request.proposals || [];
   const myProposal = proposalList.find((proposal) => proposal.freelancerId === currentUser?.id) || null;
+  const normalizedProposalStatus = String(myProposal?.status || "").toUpperCase();
   const canOpenFinalSpec = Boolean(fullSpec);
   const shouldHighlightFinalSign =
     fullSpec?.specPhase === SpecPhase.FULL_SPEC &&
@@ -166,6 +167,84 @@ export default function FreelancerRequestDetailPage() {
       String(linkedContract?.projectStatus || "").toUpperCase(),
     );
   const canOpenWorkspace = Boolean(contractActivated && linkedContract?.projectId);
+  const freelancerNextAction = (() => {
+    if (!myProposal || normalizedProposalStatus === "INVITED") {
+      return {
+        title: "Accept invitation first",
+        description: "Go to Invitations and accept this request before spec/contract actions.",
+        ctaLabel: "Open Invitations",
+        onClick: () => navigate("/freelancer/invitations"),
+      };
+    }
+
+    if (!["ACCEPTED", "PENDING"].includes(normalizedProposalStatus)) {
+      return {
+        title: "Invitation is not active",
+        description: "This request is not currently active for you. Check your invitation status first.",
+        ctaLabel: "Open Invitations",
+        onClick: () => navigate("/freelancer/invitations"),
+      };
+    }
+
+    if (!fullSpec) {
+      return {
+        title: "Waiting for Final Spec",
+        description: "Broker is drafting Final Spec from approved client scope.",
+        ctaLabel: "Refresh",
+        onClick: () => window.location.reload(),
+      };
+    }
+
+    if (fullSpec.status === ProjectSpecStatus.FINAL_REVIEW) {
+      return {
+        title: "Sign Final Spec",
+        description: "Your signature is required together with client and broker.",
+        ctaLabel: "Review & Sign Final Spec",
+        onClick: () => navigate(`/freelancer/spec-review/${fullSpec.id}`),
+      };
+    }
+
+    if (canOpenContract && linkedContract) {
+      if (canOpenWorkspace) {
+        return {
+          title: "Project activated",
+          description: "Contract is active. Continue implementation in workspace.",
+          ctaLabel: "Open Workspace",
+          onClick: () => navigate(`/freelancer/workspace/${linkedContract.projectId}`),
+        };
+      }
+      if (linkedContract.status === "SIGNED") {
+        return {
+          title: "Waiting for project activation",
+          description: "All required signatures are complete. Broker can activate the project next.",
+          ctaLabel: "Open Contract",
+          onClick: () => navigate(`/freelancer/contracts/${linkedContract.id}`),
+        };
+      }
+      return {
+        title: "Sign contract",
+        description: "Contract is ready. Complete signatures to activate project.",
+        ctaLabel: "Open Contract",
+        onClick: () => navigate(`/freelancer/contracts/${linkedContract.id}`),
+      };
+    }
+
+    if (fullSpec.status === ProjectSpecStatus.ALL_SIGNED) {
+      return {
+        title: "Waiting for contract creation",
+        description: "Broker needs to initialize contract from the signed Final Spec.",
+        ctaLabel: "Refresh",
+        onClick: () => window.location.reload(),
+      };
+    }
+
+    return {
+      title: "Follow current workflow",
+      description: "Final Spec and contract actions will unlock automatically by phase.",
+      ctaLabel: "Open Final Spec",
+      onClick: () => navigate(`/freelancer/spec-review/${fullSpec.id}`),
+    };
+  })();
 
   return (
     <div className="container mx-auto max-w-6xl space-y-6 py-8">
@@ -224,6 +303,19 @@ export default function FreelancerRequestDetailPage() {
         </CardContent>
       </Card>
 
+      <Card className="border-blue-200 bg-blue-50/40">
+        <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
+          <div className="flex items-start gap-2">
+            <Sparkles className="mt-0.5 h-5 w-5 text-blue-600" />
+            <div>
+              <p className="font-semibold">{freelancerNextAction.title}</p>
+              <p className="text-sm text-muted-foreground">{freelancerNextAction.description}</p>
+            </div>
+          </div>
+          <Button onClick={freelancerNextAction.onClick}>{freelancerNextAction.ctaLabel}</Button>
+        </CardContent>
+      </Card>
+
       <div className="grid gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader>
@@ -239,7 +331,7 @@ export default function FreelancerRequestDetailPage() {
             </div>
             <div className="rounded-md border p-3">
               <p className="text-xs text-muted-foreground">Broker</p>
-              <p className="font-medium">{request.broker?.fullName || "Pending assignment"}</p>
+              <p className="font-medium">{request.broker?.fullName || "Not assigned yet"}</p>
             </div>
             <div className="rounded-md border p-3">
               <p className="text-xs text-muted-foreground">Your invitation status</p>
@@ -257,11 +349,11 @@ export default function FreelancerRequestDetailPage() {
           </CardHeader>
           <CardContent className="space-y-3 text-sm text-muted-foreground">
             <p>
-              You can review specs and sign the final spec when the broker submits it for
+              You can review specs and sign the Final Spec when the broker submits it for
               final review.
             </p>
             <p>
-              Contract signing becomes available after all 3 parties sign the final spec and
+              Contract signing becomes available after all 3 parties sign the Final Spec and
               the broker initializes the contract.
             </p>
           </CardContent>
@@ -304,7 +396,7 @@ export default function FreelancerRequestDetailPage() {
           <div className="rounded-lg border p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="font-medium">2. full_spec (technical spec)</p>
+                <p className="font-medium">2. Final Spec (technical spec)</p>
                 <p className="text-sm text-muted-foreground">
                   You sign this in final review together with client and broker.
                 </p>
@@ -327,7 +419,7 @@ export default function FreelancerRequestDetailPage() {
 
             {!fullSpec && (
               <p className="mt-3 text-sm text-muted-foreground">
-                Broker has not submitted a full spec yet.
+                Broker has not submitted a Final Spec yet.
               </p>
             )}
           </div>
@@ -378,8 +470,8 @@ export default function FreelancerRequestDetailPage() {
           ) : (
             <p className="text-sm text-muted-foreground">
               {fullSpec?.status === ProjectSpecStatus.ALL_SIGNED
-                ? "Waiting for broker to initialize contract from full_spec."
-                : "Contract becomes available after full_spec is signed by all 3 parties."}
+                ? "Waiting for broker to initialize contract from Final Spec."
+                : "Contract becomes available after Final Spec is signed by all 3 parties."}
             </p>
           )}
         </CardContent>
