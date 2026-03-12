@@ -106,6 +106,9 @@ export class MilestoneEntity {
   @Column({ type: 'int', nullable: true })
   sortOrder: number;
 
+  @Column({ type: 'varchar', length: 64, nullable: true })
+  sourceContractMilestoneKey: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

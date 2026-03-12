@@ -1,7 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectSpecsService } from './project-specs.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import { ProjectSpecEntity, ProjectSpecStatus } from '../../database/entities/project-spec.entity';
+import {
+  ProjectSpecEntity,
+  ProjectSpecStatus,
+  SpecPhase,
+} from '../../database/entities/project-spec.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import {
   ProjectRequestEntity,
@@ -14,6 +18,7 @@ import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { DeliverableType } from '../../database/entities/milestone.entity';
 import { ProjectSpecSignatureEntity } from '../../database/entities/project-spec-signature.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { NotificationEntity } from '../../database/entities/notification.entity';
 
 describe('ProjectSpecsService', () => {
   let service: ProjectSpecsService;
@@ -25,9 +30,21 @@ describe('ProjectSpecsService', () => {
     save: jest.fn(),
   };
   const mockMilestonesRepo = {};
-  const mockProjectRequestsRepo = {};
-  const mockProjectSpecSignaturesRepo = {};
-  const mockProjectRequestProposalsRepo = {};
+  const mockProjectRequestsRepo = {
+    save: jest.fn(),
+  };
+  const mockProjectSpecSignaturesRepo = {
+    findOne: jest.fn(),
+    find: jest.fn(),
+    save: jest.fn(),
+  };
+  const mockProjectRequestProposalsRepo = {
+    find: jest.fn(),
+  };
+  const mockNotificationsRepo = {
+    create: jest.fn((data) => data),
+    save: jest.fn(),
+  };
   const mockAuditLogsService = {
     log: jest.fn(),
   };
@@ -49,6 +66,7 @@ describe('ProjectSpecsService', () => {
         findOne: jest.fn(),
         create: jest.fn(),
         save: jest.fn(),
+        delete: jest.fn(),
       },
     } as unknown as QueryRunner;
 
@@ -71,6 +89,7 @@ describe('ProjectSpecsService', () => {
           provide: getRepositoryToken(ProjectRequestProposalEntity),
           useValue: mockProjectRequestProposalsRepo,
         },
+        { provide: getRepositoryToken(NotificationEntity), useValue: mockNotificationsRepo },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
         { provide: DataSource, useValue: mockDataSource },
       ],
@@ -194,7 +213,7 @@ describe('ProjectSpecsService', () => {
         milestones: [
           { ...createDto.milestones[0], amount: 300 },
           { ...createDto.milestones[1], amount: 600 },
-          { ...createDto.milestones[2], amount: 100 }, // 10% -> ERROR
+          { ...createDto.milestones[2], amount: 100, retentionAmount: 0 }, // 10% -> ERROR
         ],
       };
 
@@ -251,6 +270,361 @@ describe('ProjectSpecsService', () => {
 
       await expect(service.createSpec(mockUser, invalidFeatureDto, {})).rejects.toThrow(
         /too short/,
+      );
+    });
+  });
+
+  describe('full spec budget cap', () => {
+    const fullSpecDto: CreateProjectSpecDto = {
+      requestId: 'request-uuid',
+      parentSpecId: 'client-spec-uuid',
+      title: 'Detailed Full Spec',
+      description: 'Detailed technical scope for implementation',
+      totalBudget: 1200,
+      milestones: [
+        {
+          title: 'Phase 1',
+          description: 'Discovery and design',
+          amount: 300,
+          deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+          retentionAmount: 0,
+          sortOrder: 1,
+        },
+        {
+          title: 'Phase 2',
+          description: 'Implementation',
+          amount: 660,
+          deliverableType: DeliverableType.SOURCE_CODE,
+          retentionAmount: 0,
+          sortOrder: 2,
+        },
+        {
+          title: 'Phase 3',
+          description: 'Release',
+          amount: 240,
+          deliverableType: DeliverableType.DEPLOYMENT,
+          retentionAmount: 0,
+          sortOrder: 3,
+        },
+      ],
+      features: [
+        {
+          title: 'Feature A',
+          description: 'Detailed feature',
+          complexity: 'MEDIUM' as const,
+          acceptanceCriteria: ['System supports the approved workflow end-to-end'],
+        },
+      ],
+      techStack: 'NestJS, React',
+    };
+
+    it('rejects createFullSpec when milestone budget exceeds approved client spec budget', async () => {
+      const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid', broker: mockUser };
+      const approvedClientSpec = {
+        id: 'client-spec-uuid',
+        requestId: 'request-uuid',
+        specPhase: SpecPhase.CLIENT_SPEC,
+        status: ProjectSpecStatus.CLIENT_APPROVED,
+        totalBudget: 1000,
+      };
+
+      (queryRunner.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce(mockRequest)
+        .mockResolvedValueOnce(approvedClientSpec)
+        .mockResolvedValueOnce(null);
+
+      await expect(service.createFullSpec(mockUser, fullSpecDto, {})).rejects.toThrow(
+        /cannot exceed approved client spec budget/i,
+      );
+    });
+
+    it('rejects updateFullSpec when new budget exceeds approved client spec budget', async () => {
+      const existingSpec = {
+        id: 'full-spec-uuid',
+        requestId: 'request-uuid',
+        parentSpecId: 'client-spec-uuid',
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.DRAFT,
+        request: { brokerId: 'broker-uuid' },
+        parentSpec: {
+          id: 'client-spec-uuid',
+          totalBudget: 1000,
+        },
+        milestones: [],
+      } as unknown as ProjectSpecEntity;
+
+      jest.spyOn(service, 'findOne').mockResolvedValue(existingSpec);
+
+      await expect(
+        service.updateFullSpec(mockUser, 'full-spec-uuid', fullSpecDto, {}),
+      ).rejects.toThrow(/cannot exceed approved client spec budget/i);
+    });
+
+    it('rejects updateFullSpec when the full spec is locked by a contract draft', async () => {
+      const existingSpec = {
+        id: 'full-spec-uuid',
+        requestId: 'request-uuid',
+        parentSpecId: 'client-spec-uuid',
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.DRAFT,
+        lockedByContractId: 'contract-uuid',
+        request: { brokerId: 'broker-uuid' },
+        parentSpec: {
+          id: 'client-spec-uuid',
+          totalBudget: 1400,
+        },
+        milestones: [],
+      } as unknown as ProjectSpecEntity;
+
+      jest.spyOn(service, 'findOne').mockResolvedValue(existingSpec);
+
+      await expect(
+        service.updateFullSpec(mockUser, 'full-spec-uuid', {
+          ...fullSpecDto,
+          totalBudget: 1000,
+        }, {}),
+      ).rejects.toThrow(/locked by contract/i);
+    });
+
+    it('rejects createFullSpec when milestone retention exceeds milestone amount', async () => {
+      const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid', broker: mockUser };
+      const approvedClientSpec = {
+        id: 'client-spec-uuid',
+        requestId: 'request-uuid',
+        specPhase: SpecPhase.CLIENT_SPEC,
+        status: ProjectSpecStatus.CLIENT_APPROVED,
+        totalBudget: 1400,
+      };
+
+      (queryRunner.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce(mockRequest)
+        .mockResolvedValueOnce(approvedClientSpec)
+        .mockResolvedValueOnce(null);
+
+      await expect(
+        service.createFullSpec(
+          mockUser,
+          {
+            ...fullSpecDto,
+            totalBudget: 1000,
+            milestones: [
+              {
+                ...fullSpecDto.milestones[0],
+                amount: 300,
+                retentionAmount: 350,
+              },
+              {
+                ...fullSpecDto.milestones[1],
+                amount: 500,
+              },
+              {
+                ...fullSpecDto.milestones[2],
+                amount: 200,
+              },
+            ],
+          },
+          {},
+        ),
+      ).rejects.toThrow(/retention amount cannot exceed/i);
+    });
+
+    it('rejects updateFullSpec when milestone due date is before start date', async () => {
+      const existingSpec = {
+        id: 'full-spec-uuid',
+        requestId: 'request-uuid',
+        parentSpecId: 'client-spec-uuid',
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.DRAFT,
+        request: { brokerId: 'broker-uuid' },
+        parentSpec: {
+          id: 'client-spec-uuid',
+          totalBudget: 1400,
+        },
+        milestones: [],
+      } as unknown as ProjectSpecEntity;
+
+      jest.spyOn(service, 'findOne').mockResolvedValue(existingSpec);
+
+      await expect(
+        service.updateFullSpec(
+          mockUser,
+          'full-spec-uuid',
+          {
+            ...fullSpecDto,
+            totalBudget: 1000,
+            milestones: [
+              {
+                ...fullSpecDto.milestones[0],
+                amount: 300,
+                startDate: '2026-04-15',
+                dueDate: '2026-04-10',
+              },
+              {
+                ...fullSpecDto.milestones[1],
+                amount: 500,
+                startDate: '2026-04-16',
+                dueDate: '2026-04-30',
+              },
+              {
+                ...fullSpecDto.milestones[2],
+                amount: 200,
+                startDate: '2026-05-01',
+                dueDate: '2026-05-15',
+              },
+            ],
+          },
+          {},
+        ),
+      ).rejects.toThrow(/due date must be on or after the start date/i);
+    });
+  });
+
+  describe('requestFullSpecChanges', () => {
+    it('returns a final-review full spec to REJECTED and clears collected signatures', async () => {
+      const fullSpec = {
+        id: 'full-spec-uuid',
+        requestId: 'request-uuid',
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.FINAL_REVIEW,
+        title: 'Needs revision',
+        rejectionReason: null,
+        request: {
+          id: 'request-uuid',
+          title: 'Marketplace Revamp',
+          clientId: 'client-uuid',
+          brokerId: 'broker-uuid',
+        },
+        signatures: [
+          { id: 'sig-1', userId: 'broker-uuid', signerRole: 'BROKER' },
+          { id: 'sig-2', userId: 'client-uuid', signerRole: 'CLIENT' },
+        ],
+      } as unknown as ProjectSpecEntity;
+
+      jest.spyOn(service, 'findOne')
+        .mockResolvedValueOnce(fullSpec)
+        .mockResolvedValueOnce({
+          ...fullSpec,
+          status: ProjectSpecStatus.REJECTED,
+          rejectionReason: 'Please tighten the milestone acceptance criteria.',
+          signatures: [],
+        } as unknown as ProjectSpecEntity);
+
+      mockProjectRequestProposalsRepo.find.mockResolvedValue([]);
+      (queryRunner.manager.findOne as jest.Mock).mockResolvedValue({
+        ...fullSpec,
+        request: fullSpec.request,
+      });
+      (queryRunner.manager.save as jest.Mock).mockImplementation((value) =>
+        Promise.resolve(value),
+      );
+      (queryRunner.manager.delete as jest.Mock).mockResolvedValue({ affected: 2 });
+
+      const result = await service.requestFullSpecChanges(
+        mockUser,
+        'full-spec-uuid',
+        'Please tighten the milestone acceptance criteria.',
+        {},
+      );
+
+      expect(queryRunner.commitTransaction).toHaveBeenCalled();
+      expect(queryRunner.manager.delete).toHaveBeenCalledWith(ProjectSpecSignatureEntity, {
+        specId: 'full-spec-uuid',
+      });
+      expect(result.status).toBe(ProjectSpecStatus.REJECTED);
+      expect(result.rejectionReason).toContain('acceptance criteria');
+      expect(mockAuditLogsService.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'REQUEST_FULL_SPEC_CHANGES',
+        }),
+      );
+    });
+
+    it('rejects change requests from users who are not eligible full-spec reviewers', async () => {
+      const outsider = {
+        id: 'outsider-uuid',
+        role: UserRole.CLIENT,
+      } as UserEntity;
+
+      const fullSpec = {
+        id: 'full-spec-uuid',
+        requestId: 'request-uuid',
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.FINAL_REVIEW,
+        request: {
+          id: 'request-uuid',
+          title: 'Marketplace Revamp',
+          clientId: 'client-uuid',
+          brokerId: 'broker-uuid',
+        },
+        signatures: [],
+      } as unknown as ProjectSpecEntity;
+
+      jest.spyOn(service, 'findOne').mockResolvedValue(fullSpec);
+      mockProjectRequestProposalsRepo.find.mockResolvedValue([]);
+
+      await expect(
+        service.requestFullSpecChanges(
+          outsider,
+          'full-spec-uuid',
+          'This needs a substantial rewrite before we can sign.',
+          {},
+        ),
+      ).rejects.toThrow(/not an eligible reviewer/i);
+    });
+  });
+
+  describe('query authorization', () => {
+    it('allows a contract-side freelancer to view a spec for the request', async () => {
+      const freelancer = {
+        id: 'freelancer-uuid',
+        role: UserRole.FREELANCER,
+      } as UserEntity;
+
+      const spec = {
+        id: 'spec-uuid',
+        request: {
+          id: 'request-uuid',
+          clientId: 'client-uuid',
+          brokerId: 'broker-uuid',
+          proposals: [
+            {
+              freelancerId: 'freelancer-uuid',
+              status: 'ACCEPTED',
+            },
+          ],
+        },
+      } as unknown as ProjectSpecEntity;
+
+      mockProjectSpecsRepo.findOne.mockResolvedValue(spec);
+
+      await expect(service.findOneForUser(freelancer, 'spec-uuid')).resolves.toBe(spec);
+    });
+
+    it('rejects unrelated users from viewing a spec', async () => {
+      const outsider = {
+        id: 'outsider-uuid',
+        role: UserRole.CLIENT,
+      } as UserEntity;
+
+      const spec = {
+        id: 'spec-uuid',
+        request: {
+          id: 'request-uuid',
+          clientId: 'client-uuid',
+          brokerId: 'broker-uuid',
+          proposals: [
+            {
+              freelancerId: 'freelancer-uuid',
+              status: 'ACCEPTED',
+            },
+          ],
+        },
+      } as unknown as ProjectSpecEntity;
+
+      mockProjectSpecsRepo.findOne.mockResolvedValue(spec);
+
+      await expect(service.findOneForUser(outsider, 'spec-uuid')).rejects.toThrow(
+        /not authorized to view this spec/i,
       );
     });
   });

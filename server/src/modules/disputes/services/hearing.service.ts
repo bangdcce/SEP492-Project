@@ -19,6 +19,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, MoreThan, LessThan, Between, DataSource, Brackets } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { normalizeContractPdfUrl } from '../../../common/utils/contract-pdf-url.util';
 
 // Entities
 import {
@@ -1920,7 +1921,7 @@ export class HearingService implements OnModuleInit {
         projectId: contract.projectId,
         title: contract.title,
         status: contract.status,
-        contractUrl: contract.contractUrl,
+        contractUrl: normalizeContractPdfUrl(contract.id, contract.contractUrl),
         createdAt: contract.createdAt,
         termsPreview: contract.termsContent ? contract.termsContent.slice(0, 280) : null,
         termsContent: contract.termsContent || null,
