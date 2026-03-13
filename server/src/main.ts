@@ -1,4 +1,4 @@
-﻿import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
@@ -243,6 +243,15 @@ async function bootstrap() {
   const protocol = httpsOptions ? 'https' : 'http';
   logger.log(`Application is running on: ${protocol}://localhost:${port}`);
   logger.log(`Swagger documentation: ${protocol}://localhost:${port}/api-docs`);
+
+  if (httpsOptions) {
+    logger.log('\n==================================================================');
+    logger.log('⚠️  HTTPS IS ENABLED ON LOCALHOST');
+    logger.log(`Please visit ${protocol}://localhost:${port} in your browser`);
+    logger.log('and click "Advanced" -> "Proceed to localhost" to trust the');
+    logger.log('self-signed certificate, otherwise frontend requests will fail.');
+    logger.log('==================================================================\n');
+  }
 }
 
 void bootstrap();
