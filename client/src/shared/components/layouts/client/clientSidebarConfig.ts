@@ -13,6 +13,7 @@ import {
   Video,
   ShieldCheck,
   FileSignature,
+  WalletCards,
 } from "lucide-react";
 
 export interface ClientSidebarMenuItem {
@@ -91,6 +92,14 @@ export const clientSidebarMenuItems: ClientSidebarMenuItem[] = [
     icon: ShieldCheck,
     path: "/client/kyc-status",
     description: "Verify your identity",
+    section: "account",
+  },
+  {
+    id: "billing",
+    label: "Billing & Wallet",
+    icon: WalletCards,
+    path: "/client/billing",
+    description: "Manage wallet, escrow, and payment methods",
     section: "account",
   },
 ];

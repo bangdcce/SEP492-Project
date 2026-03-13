@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Briefcase, Search, Filter, DollarSign, Clock, MapPin, Star, TrendingUp, CheckCircle2, AlertCircle, Settings } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Briefcase, Search, Filter, DollarSign, Clock, MapPin, Star, TrendingUp, CheckCircle2, AlertCircle, Settings, WalletCards } from 'lucide-react';
 import { Button } from '@/shared/components/ui/Button';
 import { Input } from '@/shared/components/custom/input';
 import { ROUTES, STORAGE_KEYS } from '@/constants';
@@ -34,7 +34,10 @@ export default function FreelancerDashboardPage() {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
-  const [userSkills, setUserSkills] = useState<string[]>([]);
+  const userSkills = useMemo(() => {
+    const user = getStoredJson<{ skills?: string[] }>(STORAGE_KEYS.USER);
+    return user?.skills || [];
+  }, []);
 
   // Mock data - Replace with API calls later
   const [stats] = useState<DashboardStats>({
@@ -92,14 +95,6 @@ export default function FreelancerDashboardPage() {
     },
   ]);
 
-  useEffect(() => {
-    // Load user skills from storage (session/local)
-    const user = getStoredJson<{ skills?: string[] }>(STORAGE_KEYS.USER);
-    if (user) {
-      setUserSkills(user.skills || []);
-    }
-  }, []);
-
   const filteredJobs = jobs.filter(job => {
     const matchesSearch = job.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          job.description.toLowerCase().includes(searchQuery.toLowerCase());
@@ -144,9 +139,17 @@ export default function FreelancerDashboardPage() {
         )}
 
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Freelancer Dashboard</h1>
-          <p className="text-gray-600">Find projects that match your skills and expertise</p>
+        <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Freelancer Dashboard</h1>
+            <p className="text-gray-600">Find projects that match your skills and expertise</p>
+          </div>
+          <Button asChild variant="outline" className="border-emerald-200 text-emerald-700 hover:bg-emerald-50">
+            <Link to={ROUTES.FREELANCER_BILLING}>
+              <WalletCards className="w-4 h-4 mr-2" />
+              Open Earnings Wallet
+            </Link>
+          </Button>
         </div>
 
         {/* Stats Grid */}

@@ -9,10 +9,11 @@ import {
   FileSignature,
   MessageSquare,
   PlusCircle,
+  WalletCards,
 } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
-import { STORAGE_KEYS } from "@/constants";
+import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { toast } from "sonner";
 import {
@@ -37,6 +38,7 @@ import { MilestoneTabs } from "./components/milestone/MilestoneTabs";
 import { CreateMilestoneModal } from "./components/milestone/CreateMilestoneModal";
 import { CalendarView } from "./components/calendar/CalendarView";
 import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
+import { MilestoneFundingCard } from "./components/milestone/MilestoneFundingCard";
 import { ProjectOverview } from "./components/overview/ProjectOverview";
 import { WorkspaceChatDrawer } from "./components/chat/WorkspaceChatDrawer";
 import { calculateProgress } from "./utils";
@@ -45,6 +47,12 @@ import { disconnectNamespacedSocket, getNamespacedSocket } from "@/shared/realti
 import { contractsApi } from "@/features/contracts/api";
 import type { Contract as ContractDetail } from "@/features/contracts/types";
 import { DeliverableType } from "@/features/project-specs/types";
+import type { MilestoneFundingResult } from "@/features/payments/types";
+import {
+  normalizeSupportedBillingRole,
+  resolveBillingLabel,
+  resolveBillingRoute,
+} from "@/features/payments/roleRoutes";
 
 const initialBoard: KanbanBoard = {
   TODO: [],
@@ -53,6 +61,15 @@ const initialBoard: KanbanBoard = {
   DONE: [],
 };
 const WORKSPACE_CHAT_NAMESPACE = "/ws/workspace";
+type WorkspaceViewMode = "summary" | "board" | "calendar";
+
+const parseWorkspaceViewMode = (value: string | null): WorkspaceViewMode => {
+  if (value === "board" || value === "calendar") {
+    return value;
+  }
+
+  return "summary";
+};
 
 // Helper to get current user from storage (session/local)
 const getCurrentUser = (): { id: string; role?: string } | null => {
@@ -60,7 +77,7 @@ const getCurrentUser = (): { id: string; role?: string } | null => {
 };
 
 export function ProjectWorkspace() {
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [board, setBoard] = useState<KanbanBoard>(initialBoard);
   const [project, setProject] = useState<WorkspaceProject | null>(null);
   const [contractDetail, setContractDetail] = useState<ContractDetail | null>(null);
@@ -88,9 +105,11 @@ export function ProjectWorkspace() {
   const [isMilestoneSubmitting, setIsMilestoneSubmitting] = useState(false);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
-    null
+    searchParams.get("milestone")
   );
-  const [viewMode, setViewMode] = useState<"summary" | "board" | "calendar">("summary");
+  const [viewMode, setViewMode] = useState<WorkspaceViewMode>(
+    parseWorkspaceViewMode(searchParams.get("view")),
+  );
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [disputeMilestone, setDisputeMilestone] = useState<Milestone | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -181,6 +200,7 @@ export function ProjectWorkspace() {
   }, [project]);
 
   const currentRole = currentUser?.role?.toUpperCase();
+  const billingRole = normalizeSupportedBillingRole(currentRole);
   const isBroker = currentRole === "BROKER";
   const isAssignedBroker = Boolean(isBroker && currentUser?.id && project?.brokerId === currentUser.id);
 
@@ -321,7 +341,7 @@ export function ProjectWorkspace() {
       try {
         setLoading(true);
         setError(null);
-        let [milestoneData, boardData, projectData] = await Promise.all([
+        const [milestoneData, boardData, projectData] = await Promise.all([
           fetchMilestones(projectId),
           fetchBoard(projectId),
           fetchProject(projectId),
@@ -349,9 +369,6 @@ export function ProjectWorkspace() {
         setMilestones(milestoneData || []);
         setProject(projectData);
         setContractDetail(contractData);
-        setSelectedMilestoneId(
-          milestoneData && milestoneData.length > 0 ? milestoneData[0].id : null
-        );
         setBoard({
           TODO: boardData?.TODO || [],
           IN_PROGRESS: boardData?.IN_PROGRESS || [],
@@ -368,6 +385,39 @@ export function ProjectWorkspace() {
 
     loadBoard();
   }, [projectId]);
+
+  useEffect(() => {
+    if (milestones.length === 0) {
+      return;
+    }
+
+    const selectedMilestoneExists = Boolean(
+      selectedMilestoneId && milestones.some((milestone) => milestone.id === selectedMilestoneId),
+    );
+
+    if (!selectedMilestoneExists) {
+      setSelectedMilestoneId(milestones[0]?.id ?? null);
+    }
+  }, [milestones, selectedMilestoneId]);
+
+  useEffect(() => {
+    if (loading) {
+      return;
+    }
+
+    const nextSearchParams = new URLSearchParams(searchParams);
+    nextSearchParams.set("view", viewMode);
+
+    if (selectedMilestoneId) {
+      nextSearchParams.set("milestone", selectedMilestoneId);
+    } else {
+      nextSearchParams.delete("milestone");
+    }
+
+    if (nextSearchParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextSearchParams, { replace: true });
+    }
+  }, [loading, searchParams, selectedMilestoneId, setSearchParams, viewMode]);
 
   const columns = useMemo<
     { key: KanbanColumnKey; title: string; description: string }[]
@@ -546,6 +596,41 @@ export function ProjectWorkspace() {
       : [];
   const activeProgress = calculateProgress(activeTasks);
 
+  const contractHref =
+    project?.contracts?.[0]?.id && currentUser?.role
+      ? `/${currentUser.role.toLowerCase()}/contracts/${project.contracts[0].id}`
+      : null;
+
+  const workspaceBillingHref = useMemo(() => {
+    const billingBaseRoute = resolveBillingRoute(currentRole);
+
+    if (!projectId) {
+      return billingBaseRoute;
+    }
+
+    const workspaceRoutePattern =
+      currentRole === "BROKER"
+        ? ROUTES.BROKER_WORKSPACE
+        : currentRole === "FREELANCER"
+          ? ROUTES.FREELANCER_WORKSPACE
+          : ROUTES.CLIENT_WORKSPACE;
+    const workspacePath = workspaceRoutePattern.replace(":projectId", projectId);
+    const returnParams = new URLSearchParams();
+    returnParams.set("view", viewMode);
+    if (selectedMilestoneId) {
+      returnParams.set("milestone", selectedMilestoneId);
+    }
+
+    const billingParams = new URLSearchParams();
+    billingParams.set("returnTo", `${workspacePath}?${returnParams.toString()}`);
+
+    if (activeMilestone?.title) {
+      billingParams.set("milestoneTitle", activeMilestone.title);
+    }
+
+    return `${billingBaseRoute}?${billingParams.toString()}`;
+  }, [activeMilestone?.title, currentRole, projectId, selectedMilestoneId, viewMode]);
+
   // Get all tasks in a flat array for calendar view
   const allTasks = useMemo(() => {
     const tasks: Task[] = [];
@@ -703,7 +788,23 @@ export function ProjectWorkspace() {
       setMilestones((prev) =>
         prev.map((m) =>
           m.id === milestoneId
-            ? { ...m, status: "COMPLETED" }
+            ? {
+                ...m,
+                status: "COMPLETED",
+                escrow: m.escrow
+                  ? {
+                      ...m.escrow,
+                      status: result.fundsReleased ? "RELEASED" : m.escrow.status,
+                      releasedAmount: result.fundsReleased
+                        ? Number(m.escrow.totalAmount || m.amount || 0)
+                        : m.escrow.releasedAmount,
+                      releasedAt: result.fundsReleased
+                        ? new Date().toISOString()
+                        : m.escrow.releasedAt,
+                      updatedAt: new Date().toISOString(),
+                    }
+                  : m.escrow,
+              }
             : m
         )
       );
@@ -711,15 +812,51 @@ export function ProjectWorkspace() {
       console.log(
         `✅ Milestone "${result.milestone.title}" approved! Funds released: ${result.fundsReleased}`
       );
-      
-      // Show success message (you could use a toast here)
-      alert(result.message);
+
+      toast.success(result.message);
     } catch (err: unknown) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to approve milestone";
       setError(errorMessage);
       throw err; // Re-throw so the modal can handle it
     }
+  };
+
+  const handleFundingSuccess = (result: MilestoneFundingResult) => {
+    const now = new Date().toISOString();
+
+    setMilestones((prev) =>
+      prev.map((milestone) =>
+        milestone.id === result.milestoneId
+          ? {
+              ...milestone,
+              escrow: milestone.escrow
+                ? {
+                    ...milestone.escrow,
+                    status: result.escrowStatus,
+                    fundedAmount: milestone.escrow.totalAmount,
+                    fundedAt: now,
+                    updatedAt: now,
+                  }
+                : {
+                    id: result.escrowId,
+                    status: result.escrowStatus,
+                    totalAmount: milestone.amount,
+                    fundedAmount: milestone.amount,
+                    releasedAmount: 0,
+                    developerShare: milestone.amount,
+                    brokerShare: 0,
+                    platformFee: 0,
+                    currency: result.walletSnapshot.currency,
+                    fundedAt: now,
+                    releasedAt: null,
+                    refundedAt: null,
+                    updatedAt: now,
+                  },
+            }
+          : milestone,
+      ),
+    );
   };
 
   // Handle raising a dispute (UI only)
@@ -950,19 +1087,23 @@ export function ProjectWorkspace() {
         </div>
         <div className="flex items-center gap-3">
           {/* View Contract Button */}
-          {project && project.contracts && project.contracts.length > 0 && (
-            <button
-              onClick={() => {
-                 const contractId = project?.contracts?.[0].id;
-                 if (!contractId) return;
-                 const role = currentUser?.role?.toLowerCase();
-                 navigate(`/${role}/contracts/${contractId}`);
-              }}
-              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors border border-blue-200"
+          {contractHref && (
+            <Link
+              to={contractHref}
+              className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
             >
               <FileSignature className="h-4 w-4" />
               Contract
-            </button>
+            </Link>
+          )}
+          {(billingRole === "CLIENT" || billingRole === "BROKER" || billingRole === "FREELANCER") && (
+            <Link
+              to={workspaceBillingHref}
+              className="flex items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-700 transition-colors hover:bg-teal-100"
+            >
+              <WalletCards className="h-4 w-4" />
+              {resolveBillingLabel(currentRole)}
+            </Link>
           )}
 
           {/* View Switcher */}
@@ -1155,6 +1296,7 @@ export function ProjectWorkspace() {
           {/* Milestone Approval Card - Show when progress is 100% */}
           {activeMilestone &&
            activeProgress === 100 &&
+           activeMilestone.escrow?.status === "FUNDED" &&
            activeMilestone.status !== "COMPLETED" &&
            activeMilestone.status !== "PAID" && (
             <MilestoneApprovalCard
@@ -1175,6 +1317,17 @@ export function ProjectWorkspace() {
             onSelect={handleSelectMilestone}
             onAdd={canMutateMilestoneStructure ? openCreateMilestoneModal : undefined}
           />
+
+          {activeMilestone && (
+            <MilestoneFundingCard
+              milestone={activeMilestone}
+              progress={activeProgress}
+              currentUserRole={currentRole}
+              currency={project?.currency ?? "USD"}
+              billingSetupHref={workspaceBillingHref}
+              onFunded={handleFundingSuccess}
+            />
+          )}
 
           {activeMilestone && viewMode === "board" && (
             <div className="border border-gray-200 bg-white rounded-xl p-4 shadow-sm">

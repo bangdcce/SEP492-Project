@@ -119,6 +119,7 @@ const KYCStatusPage = lazy(() => import("@/pages/KYCStatusPage"));
 const SubscriptionPage = lazy(() =>
   import("@/features/subscriptions/SubscriptionPage"),
 );
+const BillingPage = lazy(() => import("@/features/payments/BillingPage"));
 
 // ========== STAFF PAGES ==========
 const StaffLayout = lazy(() =>
@@ -404,6 +405,16 @@ function App() {
             </RoleGuard>
           }
         />
+        <Route
+          path={ROUTES.FREELANCER_BILLING}
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <BillingPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
 
         {/* ========== CLIENT ROUTES - /client/* ========== */}
         <Route
@@ -565,6 +576,16 @@ function App() {
             <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <SubscriptionPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_BILLING}
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <BillingPage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -843,6 +864,16 @@ function App() {
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <SubscriptionPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_BILLING}
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <BillingPage />
               </BrokerDashboardLayout>
             </RoleGuard>
           }

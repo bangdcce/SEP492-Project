@@ -14,6 +14,7 @@ import {
   Video,
   ShieldCheck,
   Mail,
+  WalletCards,
 } from "lucide-react";
 
 export interface BrokerSidebarMenuItem {
@@ -108,6 +109,14 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: ShieldCheck,
     path: "/broker/kyc-status",
     description: "Verify your identity",
+    section: "account",
+  },
+  {
+    id: "billing",
+    label: "Commission Wallet",
+    icon: WalletCards,
+    path: "/broker/billing",
+    description: "Track commission releases and wallet history",
     section: "account",
   },
 ];

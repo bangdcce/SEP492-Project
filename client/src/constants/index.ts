@@ -29,6 +29,7 @@ export const ROUTES = {
   FREELANCER_PROFILE: "/freelancer/profile",
   FREELANCER_ONBOARDING: "/freelancer/onboarding",
   FREELANCER_KYC_STATUS: "/freelancer/kyc-status",
+  FREELANCER_BILLING: "/freelancer/billing",
 
   // Broker Routes
   BROKER_DASHBOARD: "/broker/dashboard",
@@ -38,6 +39,7 @@ export const ROUTES = {
   BROKER_PROFILE: "/broker/profile",
   BROKER_MARKETPLACE: "/broker/marketplace",
   BROKER_KYC_STATUS: "/broker/kyc-status",
+  BROKER_BILLING: "/broker/billing",
   PROJECT_REQUEST_DETAILS: "/broker/project-requests/:id",
 
   // Admin Routes
@@ -51,6 +53,7 @@ export const ROUTES = {
   CLIENT_DISCOVERY_PROFILE: "/client/discovery/profile/:id",
   CLIENT_KYC_STATUS: "/client/kyc-status",
   CLIENT_SUBSCRIPTION: "/client/subscription",
+  CLIENT_BILLING: "/client/billing",
   
 
 

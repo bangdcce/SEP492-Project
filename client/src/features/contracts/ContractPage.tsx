@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import {
   ArchiveX,
   ArrowRight,
@@ -14,6 +14,7 @@ import {
   ScrollText,
   ShieldCheck,
   Users,
+  WalletCards,
 } from "lucide-react";
 import { Button } from "@/shared/components/ui/Button";
 import {
@@ -36,6 +37,11 @@ import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { contractsApi } from "./api";
 import type { Contract, ContractMilestoneSnapshotItem } from "./types";
+import {
+  normalizeSupportedBillingRole,
+  resolveBillingLabel,
+  resolveBillingRoute,
+} from "@/features/payments/roleRoutes";
 import {
   SpecNarrativeRenderer,
   narrativeHasContent,
@@ -426,7 +432,7 @@ export default function ContractPage() {
     [requiredSignerIds, signedUserIds],
   );
 
-  const resolveSignerName = (userId: string) => {
+  const resolveSignerName = useCallback((userId: string) => {
     const signature = sortedSignatures.find((item) => item.userId === userId);
     if (signature?.user?.fullName) return signature.user.fullName;
     if (userId === contract?.project?.clientId) {
@@ -439,7 +445,7 @@ export default function ContractPage() {
       return contract.project?.freelancer?.fullName || "Freelancer";
     }
     return userId;
-  };
+  }, [contract, sortedSignatures]);
 
   const snapshotTotal = sortedSnapshot.reduce(
     (sum, milestone) => sum + Number(milestone.amount || 0),
@@ -473,6 +479,17 @@ export default function ContractPage() {
     contract && currentUserIsParty && isSigned && !isActivated,
   );
   const canOpenWorkspace = Boolean(isActivated && contract?.projectId);
+  const currentContractHref =
+    contract?.id && roleBasePath ? `${roleBasePath}/contracts/${contract.id}` : null;
+  const workspaceHref =
+    canOpenWorkspace && contract?.projectId ? `${roleBasePath}/workspace/${contract.projectId}` : null;
+  const billingRole = normalizeSupportedBillingRole(currentUser?.role);
+  const billingHref =
+    currentContractHref
+      ? `${resolveBillingRoute(currentUser?.role)}?${new URLSearchParams({
+          returnTo: currentContractHref,
+        }).toString()}`
+      : null;
 
   const primaryCurrency =
     contract?.commercialContext?.currency || contract?.project?.currency || "USD";
@@ -498,7 +515,7 @@ export default function ContractPage() {
       return "Legacy draft contract. New contracts now begin directly in SENT status.";
     }
     return "Review the frozen agreement, its audit hashes, and the signature trail.";
-  }, [isActivated, isDraft, isSent, isSigned, missingSignerIds, contract]);
+  }, [isActivated, isDraft, isSent, isSigned, missingSignerIds, resolveSignerName]);
 
   const lifecycleSteps = useMemo(
     () => [
@@ -742,6 +759,24 @@ export default function ContractPage() {
                 <Download className="mr-2 h-4 w-4" />
                 {isDownloadingPdf ? "Downloading..." : "Download PDF"}
               </Button>
+              {isActivated && billingHref && (
+                <Button
+                  asChild
+                  variant="outline"
+                  className="border-teal-200 text-teal-700 hover:bg-teal-50"
+                >
+                  <Link to={billingHref}>
+                    <WalletCards className="mr-2 h-4 w-4" />
+                    {resolveBillingLabel(billingRole)}
+                  </Link>
+                </Button>
+              )}
+              {!isActivated && (
+                <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                  <WalletCards className="h-4 w-4 text-slate-400" />
+                  Contract-linked wallet view unlocks after activation
+                </div>
+              )}
               {canDiscardBeforeSign && (
                 <Button
                   variant="outline"
@@ -753,16 +788,12 @@ export default function ContractPage() {
                   {isDiscarding ? "Discarding..." : "Discard Before Sign"}
                 </Button>
               )}
-              {canOpenWorkspace && (
-                <Button
-                  onClick={() =>
-                    window.location.assign(
-                      `${roleBasePath}/workspace/${contract.projectId}`,
-                    )
-                  }
-                >
-                  <Briefcase className="mr-2 h-4 w-4" />
-                  Open Workspace
+              {workspaceHref && (
+                <Button asChild>
+                  <Link to={workspaceHref}>
+                    <Briefcase className="mr-2 h-4 w-4" />
+                    Open Workspace
+                  </Link>
                 </Button>
               )}
             </div>
@@ -1382,18 +1413,12 @@ export default function ContractPage() {
                       Milestones and escrows now follow the frozen contract
                       snapshot. Execution updates can continue in the workspace.
                     </p>
-                    {canOpenWorkspace && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          window.location.assign(
-                            `${roleBasePath}/workspace/${contract.projectId}`,
-                          )
-                        }
-                      >
-                        Open Workspace
-                        <ArrowRight className="ml-2 h-4 w-4" />
+                    {workspaceHref && (
+                      <Button size="sm" variant="outline" asChild>
+                        <Link to={workspaceHref}>
+                          Open Workspace
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                        </Link>
                       </Button>
                     )}
                   </AlertDescription>
