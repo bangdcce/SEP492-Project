@@ -7,6 +7,11 @@ import type {
   TaskLink,
   TaskSubmission,
   TaskStatusUpdateResult,
+  PendingProjectInvite,
+  ActiveSupervisedProject,
+  ProjectStaffInviteStatus,
+  StaffRecommendation,
+  StaffSummary,
 } from "./types";
 
 // ============================================
@@ -36,11 +41,40 @@ export interface WorkspaceProject {
   brokerId: string;
   clientId: string;
   freelancerId?: string | null;
+  staffId?: string | null;
+  staffInviteStatus?: ProjectStaffInviteStatus | null;
+  staff?: StaffSummary | null;
   currency?: string;
 }
 
 export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {
   return apiClient.get<WorkspaceProject>(`/projects/${projectId}`);
+};
+
+export const fetchStaffCandidates = async (): Promise<StaffSummary[]> => {
+  return apiClient.get<StaffSummary[]>("/projects/staff-candidates");
+};
+
+export const inviteProjectStaff = async (
+  projectId: string,
+  staffId: string,
+): Promise<WorkspaceProject> => {
+  return apiClient.post<WorkspaceProject>(`/projects/${projectId}/invite-staff`, { staffId });
+};
+
+export const fetchPendingProjectInvites = async (): Promise<PendingProjectInvite[]> => {
+  return apiClient.get<PendingProjectInvite[]>("/projects/pending-invites");
+};
+
+export const getActiveSupervisedProjects = async (): Promise<ActiveSupervisedProject[]> => {
+  return apiClient.get<ActiveSupervisedProject[]>("/projects/staff/active");
+};
+
+export const respondToProjectStaffInvite = async (
+  projectId: string,
+  status: ProjectStaffInviteStatus,
+): Promise<WorkspaceProject> => {
+  return apiClient.post<WorkspaceProject>(`/projects/${projectId}/staff-response`, { status });
 };
 
 export const fetchBoard = async (projectId: string): Promise<KanbanBoard> => {
@@ -142,7 +176,7 @@ export const createTaskSubmission = async (
 
 /**
  * Review a task submission (Approve or Request Changes)
- * Only CLIENT users can call this endpoint
+ * Only CLIENT or STAFF users can call this endpoint
  * 
  * @param taskId - Task ID
  * @param submissionId - Submission ID to review
@@ -175,28 +209,6 @@ export const reviewSubmission = async (
   }>(`/tasks/${taskId}/submissions/${submissionId}/review`, payload);
 
   console.log("[API] Submission reviewed:", result);
-  return result;
-};
-
-/**
- * Submit task with proof of work
- * Marks task as DONE with evidence (required for dispute resolution)
- */
-export const submitTask = async (
-  taskId: string,
-  payload: { submissionNote?: string; proofLink: string }
-): Promise<TaskStatusUpdateResult> => {
-  console.log("[API] Submitting task with proof:", { taskId, proofLink: payload.proofLink });
-
-  const result = await apiClient.post<TaskStatusUpdateResult>(`/tasks/${taskId}/submit`, payload);
-
-  console.log("[API] Task submitted:", result);
-  console.log("[API] Milestone progress after submission:", {
-    milestoneId: result.milestoneId,
-    progress: result.milestoneProgress,
-    completed: `${result.completedTasks}/${result.totalTasks}`,
-  });
-
   return result;
 };
 
@@ -299,6 +311,17 @@ export const deleteMilestone = async (
   milestoneId: string
 ): Promise<{ success: boolean }> => {
   return apiClient.delete<{ success: boolean }>(`/projects/milestones/${milestoneId}`);
+};
+
+export const requestMilestoneReview = async (milestoneId: string): Promise<Milestone> => {
+  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/request-review`);
+};
+
+export const reviewMilestoneAsStaff = async (
+  milestoneId: string,
+  payload: { recommendation: StaffRecommendation; note: string },
+): Promise<Milestone> => {
+  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/staff-review`, payload);
 };
 
 /**

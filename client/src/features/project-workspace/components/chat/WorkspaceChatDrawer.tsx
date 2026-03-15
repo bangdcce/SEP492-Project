@@ -29,7 +29,7 @@ interface WorkspaceChatDrawerProps {
   onClose?: () => void;
   projectId?: string;
   currentUserId?: string;
-  currentUserRole?: string;
+  canReviewTasks?: boolean;
   defaultMilestoneId?: string | null;
   projectTitle?: string;
   showCommandPopover?: boolean;
@@ -71,12 +71,6 @@ const getStoredCurrentUserId = (): string | undefined => {
   const user = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
   if (!user?.id) return undefined;
   return user.id;
-};
-
-const getStoredCurrentUserRole = (): string | undefined => {
-  const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
-  if (!user?.role) return undefined;
-  return user.role;
 };
 
 const toIsoDate = (value: unknown): string => {
@@ -229,7 +223,7 @@ export function WorkspaceChatDrawer({
   onClose,
   projectId,
   currentUserId,
-  currentUserRole,
+  canReviewTasks = false,
   defaultMilestoneId = null,
   projectTitle = "Project Workspace Chat",
   showCommandPopover = false,
@@ -251,7 +245,6 @@ export function WorkspaceChatDrawer({
   const isLoadingMoreRef = useRef(false);
 
   const resolvedCurrentUserId = currentUserId ?? getStoredCurrentUserId();
-  const resolvedCurrentUserRole = currentUserRole ?? getStoredCurrentUserRole();
 
   const shouldShowCommandPopover =
     showCommandPopover && inputValue.trimStart().startsWith("/");
@@ -505,8 +498,8 @@ export function WorkspaceChatDrawer({
         return;
       }
 
-      if (resolvedCurrentUserRole?.toUpperCase() !== "CLIENT") {
-        toast.error("Chỉ Client mới có quyền duyệt task!");
+      if (!canReviewTasks) {
+        toast.error("Bạn không có quyền duyệt task trong dự án này.");
         return;
       }
 
@@ -597,6 +590,7 @@ export function WorkspaceChatDrawer({
       setIsSending(false);
     }
   }, [
+    canReviewTasks,
     ensureProjectRoomJoin,
     inputValue,
     isSending,
@@ -605,7 +599,6 @@ export function WorkspaceChatDrawer({
     resolveLatestPendingSubmission,
     resolveTaskForApproval,
     resolveTaskMilestoneId,
-    resolvedCurrentUserRole,
     triggerSlashCommand,
   ]);
 
