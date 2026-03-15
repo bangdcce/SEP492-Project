@@ -862,6 +862,17 @@ function App() {
           <Route index element={<Navigate to="dashboard" replace />} />
         </Route>
 
+        <Route
+          path={ROUTES.STAFF_WORKSPACE}
+          element={
+            <RoleGuard allowedRoles={["STAFF", "ADMIN"]}>
+              <StaffLayout />
+            </RoleGuard>
+          }
+        >
+          <Route index element={<ProjectWorkspacePage />} />
+        </Route>
+
         {/* ========== REDIRECTS ========== */}
         {/* Root -> Login */}
         <Route

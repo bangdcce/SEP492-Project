@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
   InternalServerErrorException,
 } from '@nestjs/common';
@@ -13,13 +14,16 @@ import * as path from 'path';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
 import {
+  ProjectEntity,
+  ProjectStaffInviteStatus,
+} from '../../database/entities/project.entity';
+import { UserRole } from '../../database/entities/user.entity';
+import {
   CalendarEventEntity,
   EventType,
   EventStatus,
   EventPriority,
 } from '../../database/entities/calendar-event.entity';
-import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
-import { SubmitTaskDto } from './dto/submit-task.dto';
 import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
 import { TaskCommentEntity } from '../../database/entities/task-comment.entity';
 import { TaskAttachmentEntity } from './entities/task-attachment.entity';
@@ -142,6 +146,15 @@ const COMMENT_SANITIZE_OPTIONS = {
 const ATTACHMENT_BUCKET =
   process.env.SUPABASE_ATTACHMENTS_BUCKET || process.env.SUPABASE_BUCKET || 'task-attachments';
 
+const TASK_WORKSPACE_RELATIONS = [
+  'assignee',
+  'reporter',
+  'attachments',
+  'submissions',
+  'submissions.submitter',
+  'submissions.reviewer',
+] as const;
+
 @Injectable()
 export class TasksService {
   private readonly logger = new Logger(TasksService.name);
@@ -152,6 +165,8 @@ export class TasksService {
     private readonly taskRepository: Repository<TaskEntity>,
     @InjectRepository(MilestoneEntity)
     private readonly milestoneRepository: Repository<MilestoneEntity>,
+    @InjectRepository(ProjectEntity)
+    private readonly projectRepository: Repository<ProjectEntity>,
     @InjectRepository(CalendarEventEntity)
     private readonly calendarEventRepository: Repository<CalendarEventEntity>,
     @InjectRepository(TaskHistoryEntity)
@@ -164,7 +179,6 @@ export class TasksService {
     private readonly taskLinkRepository: Repository<TaskLinkEntity>,
     @InjectRepository(TaskSubmissionEntity)
     private readonly submissionRepository: Repository<TaskSubmissionEntity>,
-    private readonly auditLogsService: AuditLogsService,
   ) {}
 
   private getSupabaseClient(): SupabaseClient {
@@ -467,6 +481,7 @@ export class TasksService {
 
     await this.taskRepository.update(taskId, {
       status: TaskStatus.IN_REVIEW,
+      submittedAt: null,
     });
 
     return saved;
@@ -474,7 +489,7 @@ export class TasksService {
 
   /**
    * Review a task submission (Approve or Request Changes)
-   * Only CLIENT users can review submissions
+   * Only CLIENT or STAFF users can review submissions
    * 
    * Business Logic:
    * - If APPROVED: Task status → DONE
@@ -490,6 +505,7 @@ export class TasksService {
     submissionId: string,
     dto: ReviewSubmissionDto,
     reviewerId: string,
+    reviewerRole?: UserRole | string,
   ): Promise<SubmissionReviewResult> {
     // Step 1: Find the submission
     const submission = await this.submissionRepository.findOne({
@@ -516,6 +532,34 @@ export class TasksService {
 
     if (!task) {
       throw new NotFoundException('Task not found');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: task.projectId },
+    });
+    if (!project) {
+      throw new NotFoundException('Project not found for this task');
+    }
+
+    const normalizedReviewerRole = String(reviewerRole || '').toUpperCase();
+    if (normalizedReviewerRole === UserRole.CLIENT) {
+      if (project.clientId !== reviewerId) {
+        throw new ForbiddenException('Only the project client can review submissions');
+      }
+    } else if (normalizedReviewerRole === UserRole.STAFF) {
+      const isAssignedStaff =
+        project.staffId === reviewerId &&
+        project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED;
+
+      if (!isAssignedStaff) {
+        throw new ForbiddenException(
+          'Only the assigned staff reviewer can review submissions for this project',
+        );
+      }
+    } else {
+      throw new ForbiddenException(
+        'Only the project client or assigned staff reviewer can review submissions',
+      );
     }
 
     const previousTaskStatus = task.status;
@@ -545,7 +589,10 @@ export class TasksService {
       );
     }
 
-    await this.taskRepository.update(taskId, { status: newTaskStatus });
+    await this.taskRepository.update(taskId, {
+      status: newTaskStatus,
+      submittedAt: dto.status === TaskSubmissionStatus.APPROVED ? submission.reviewedAt : null,
+    });
 
     // Step 6: Record history
     if (previousTaskStatus !== newTaskStatus) {
@@ -559,16 +606,11 @@ export class TasksService {
     }
 
     // Step 7: Refetch updated task
-    const updatedTask = await this.taskRepository.findOne({
-      where: { id: taskId },
-      relations: ['assignee', 'attachments'],
-    });
+    const updatedTask = await this.findTaskWithWorkspaceRelations(taskId);
 
     if (!updatedTask) {
       throw new NotFoundException('Task not found after update');
     }
-
-    this.sortAttachments(updatedTask);
 
     // Step 8: Recalculate milestone progress
     const { progress, totalTasks, completedTasks } =
@@ -578,10 +620,8 @@ export class TasksService {
       `Milestone ${milestoneId} progress after review: ${completedTasks}/${totalTasks} = ${progress}%`,
     );
 
-    // Step 9: Sync milestone status if needed
-    if (dto.status === TaskSubmissionStatus.APPROVED) {
-      await this.syncMilestoneStatus(milestoneId, progress);
-    }
+    // Step 9: Sync milestone status for both approval and request-changes flows.
+    await this.syncMilestoneStatus(milestoneId, progress);
 
     // Refetch submission with reviewer relation
     const updatedSubmission = await this.submissionRepository.findOne({
@@ -703,11 +743,58 @@ export class TasksService {
     return task;
   }
 
+  private sortSubmissions(task: TaskEntity | null): TaskEntity | null {
+    if (!task?.submissions) {
+      return task;
+    }
+
+    task.submissions = [...task.submissions].sort((a: any, b: any) => {
+      const versionDelta = (b?.version ?? 0) - (a?.version ?? 0);
+      if (versionDelta !== 0) {
+        return versionDelta;
+      }
+
+      const aTime = a?.reviewedAt
+        ? new Date(a.reviewedAt).getTime()
+        : a?.createdAt
+          ? new Date(a.createdAt).getTime()
+          : 0;
+      const bTime = b?.reviewedAt
+        ? new Date(b.reviewedAt).getTime()
+        : b?.createdAt
+          ? new Date(b.createdAt).getTime()
+          : 0;
+
+      return bTime - aTime;
+    });
+
+    return task;
+  }
+
+  private prepareTaskForWorkspace(task: TaskEntity | null): TaskEntity | null {
+    if (!task) {
+      return task;
+    }
+
+    this.sortAttachments(task);
+    this.sortSubmissions(task);
+    return task;
+  }
+
+  private async findTaskWithWorkspaceRelations(id: string): Promise<TaskEntity | null> {
+    const task = await this.taskRepository.findOne({
+      where: { id },
+      relations: [...TASK_WORKSPACE_RELATIONS],
+    });
+
+    return this.prepareTaskForWorkspace(task);
+  }
+
   async getKanbanBoard(projectId: string): Promise<BoardWithMilestones> {
     // Fetch all tasks for the project
     const tasks = await this.taskRepository.find({
       where: { projectId, parentTaskId: IsNull() },
-      relations: ['assignee', 'reporter', 'attachments'],
+      relations: [...TASK_WORKSPACE_RELATIONS],
       order: { sortOrder: 'ASC', createdAt: 'DESC' },
     });
 
@@ -726,7 +813,7 @@ export class TasksService {
     };
 
     for (const task of tasks) {
-      this.sortAttachments(task);
+      this.prepareTaskForWorkspace(task);
       if (task.status === TaskStatus.TODO) {
         board.TODO.push(task);
       } else if (task.status === TaskStatus.IN_PROGRESS) {
@@ -765,6 +852,21 @@ export class TasksService {
     const previousStatus = task.status;
     const milestoneId = task.milestoneId;
 
+    if (status === TaskStatus.DONE && previousStatus !== TaskStatus.DONE) {
+      const approvedSubmissionCount = await this.submissionRepository.count({
+        where: {
+          taskId: id,
+          status: TaskSubmissionStatus.APPROVED,
+        },
+      });
+
+      if (approvedSubmissionCount === 0) {
+        throw new BadRequestException(
+          'Không thể chuyển sang DONE khi chưa có bài nộp được duyệt!',
+        );
+      }
+    }
+
     // [HISTORY] Record status change
     if (previousStatus !== status) {
       // ideally updateStatus should accept actorId optional param
@@ -772,19 +874,17 @@ export class TasksService {
     }
 
     // Step 2: Update the task status
-    await this.taskRepository.update(id, { status });
+    await this.taskRepository.update(id, {
+      status,
+      submittedAt: status === TaskStatus.DONE ? new Date() : null,
+    });
 
     // Step 3: Refetch the updated task
-    const updatedTask = await this.taskRepository.findOne({
-      where: { id },
-      relations: ['assignee', 'attachments'],
-    });
+    const updatedTask = await this.findTaskWithWorkspaceRelations(id);
 
     if (!updatedTask) {
       throw new NotFoundException('Task not found after update');
     }
-
-    this.sortAttachments(updatedTask);
 
     this.logger.log(
       `Task ${id} status changed: ${previousStatus} → ${status} (Milestone: ${milestoneId})`,
@@ -809,101 +909,6 @@ export class TasksService {
     };
   }
 
-  /**
-   * Submit task with proof of work
-   * Moves task to DONE status with required evidence for dispute resolution
-   *
-   * @param id - Task ID
-   * @param dto - SubmitTaskDto with proofLink and optional submissionNote
-   * @param actorId - User ID of the person submitting (for audit log)
-   * @param reqContext - Request context for audit logging
-   * @throws BadRequestException if task is already done
-   * @throws NotFoundException if task not found
-   */
-  async submitTask(
-    id: string,
-    dto: SubmitTaskDto,
-    actorId?: string,
-    reqContext?: RequestContext,
-  ): Promise<TaskStatusUpdateResult> {
-    // Step 1: Get the old task state (for audit logging)
-    const oldTask = await this.taskRepository.findOne({
-      where: { id },
-      relations: ['assignee'],
-    });
-
-    if (!oldTask) {
-      throw new NotFoundException('Task not found');
-    }
-
-    // Check if task is already DONE
-    if (oldTask.status === TaskStatus.DONE) {
-      throw new BadRequestException('Task is already marked as done');
-    }
-
-    const previousStatus = oldTask.status;
-    const milestoneId = oldTask.milestoneId;
-
-    // Step 2: Prepare old data for audit log
-    const oldData = {
-      status: oldTask.status,
-      submissionNote: oldTask.submissionNote,
-      proofLink: oldTask.proofLink,
-      submittedAt: oldTask.submittedAt,
-    };
-
-    // Step 3: Update the task with submission data
-    const submittedAt = new Date();
-    await this.taskRepository.update(id, {
-      status: TaskStatus.DONE,
-      submissionNote: dto.submissionNote ?? undefined,
-      proofLink: dto.proofLink.trim(),
-      submittedAt,
-    });
-
-    // Step 4: Refetch the updated task
-    const updatedTask = await this.taskRepository.findOne({
-      where: { id },
-      relations: ['assignee', 'attachments'],
-    });
-
-    if (!updatedTask) {
-      throw new NotFoundException('Task not found after submission');
-    }
-
-    this.sortAttachments(updatedTask);
-
-    // Step 5: Prepare new data for audit log
-    const newData = {
-      status: TaskStatus.DONE,
-      submissionNote: dto.submissionNote ?? undefined,
-      proofLink: dto.proofLink.trim(),
-      submittedAt,
-    };
-
-    // Step 6: Create audit log for task submission
-    await this.auditLogsService.logUpdate('Task', id, oldData, newData, reqContext, actorId);
-
-    this.logger.log(`Task ${id} submitted: ${previousStatus} → DONE | Proof: ${dto.proofLink}`);
-
-    // Step 7: Recalculate milestone progress
-    const { progress, totalTasks, completedTasks } =
-      await this.calculateMilestoneProgress(milestoneId);
-
-    this.logger.log(
-      `Milestone ${milestoneId} progress after submission: ${completedTasks}/${totalTasks} = ${progress}%`,
-    );
-
-    await this.syncMilestoneStatus(milestoneId, progress, submittedAt);
-
-    return {
-      task: updatedTask,
-      milestoneId,
-      milestoneProgress: progress,
-      totalTasks,
-      completedTasks,
-    };
-  }
 
   /**
    * Calculate milestone progress based on completed tasks
@@ -953,17 +958,49 @@ export class TasksService {
       return;
     }
 
+    let shouldSave = false;
+
+    if (progress > 0 && milestone.status === MilestoneStatus.PENDING) {
+      milestone.status = MilestoneStatus.IN_PROGRESS;
+      shouldSave = true;
+    }
+
     if (progress >= 100) {
-      if (milestone.status !== MilestoneStatus.SUBMITTED) {
-        milestone.status = MilestoneStatus.SUBMITTED;
-        milestone.submittedAt = submittedAt ?? milestone.submittedAt ?? new Date();
+      if (
+        submittedAt &&
+        [MilestoneStatus.SUBMITTED, MilestoneStatus.PENDING_STAFF_REVIEW, MilestoneStatus.PENDING_CLIENT_APPROVAL].includes(
+          milestone.status,
+        )
+      ) {
+        milestone.submittedAt = submittedAt;
+        shouldSave = true;
+      }
+
+      if (shouldSave) {
         await this.milestoneRepository.save(milestone);
       }
       return;
     }
 
-    if (milestone.status === MilestoneStatus.SUBMITTED) {
-      milestone.status = MilestoneStatus.IN_PROGRESS;
+    if (
+      [
+        MilestoneStatus.SUBMITTED,
+        MilestoneStatus.PENDING_STAFF_REVIEW,
+        MilestoneStatus.PENDING_CLIENT_APPROVAL,
+      ].includes(milestone.status)
+    ) {
+      milestone.status = progress === 0 ? MilestoneStatus.PENDING : MilestoneStatus.IN_PROGRESS;
+      milestone.submittedAt = null;
+      milestone.reviewedByStaffId = null;
+      milestone.staffRecommendation = null;
+      milestone.staffReviewNote = null;
+      shouldSave = true;
+    } else if (progress === 0 && milestone.status === MilestoneStatus.IN_PROGRESS) {
+      milestone.status = MilestoneStatus.PENDING;
+      shouldSave = true;
+    }
+
+    if (shouldSave) {
       await this.milestoneRepository.save(milestone);
     }
   }
@@ -1005,16 +1042,11 @@ export class TasksService {
       await this.syncTaskToCalendar(saved, data.startDate, data.dueDate, data.organizerId);
     }
 
-    const created = await this.taskRepository.findOne({
-      where: { id: saved.id },
-      relations: ['assignee', 'reporter', 'attachments'],
-    });
+    const created = await this.findTaskWithWorkspaceRelations(saved.id);
 
     if (!created) {
       throw new NotFoundException('Task not found after creation');
     }
-
-    this.sortAttachments(created);
 
     return created;
   }
@@ -1065,16 +1097,11 @@ export class TasksService {
 
     await this.taskRepository.update(id, data);
 
-    const updated = await this.taskRepository.findOne({
-      where: { id },
-      relations: ['assignee', 'reporter', 'attachments'],
-    });
+    const updated = await this.findTaskWithWorkspaceRelations(id);
 
     if (!updated) {
       throw new NotFoundException('Task not found after update');
     }
-
-    this.sortAttachments(updated);
 
     return updated;
   }

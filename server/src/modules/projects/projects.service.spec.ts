@@ -12,6 +12,7 @@ import {
 } from '../../database/entities/milestone.entity';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
 import { TaskEntity, TaskStatus } from '../../database/entities/task.entity';
+import { UserEntity } from '../../database/entities/user.entity';
 import { ProjectsService } from './projects.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
 import { EscrowReleaseService } from '../payments/escrow-release.service';
@@ -29,6 +30,7 @@ describe('ProjectsService approveMilestone', () => {
   const disputeRepository = {};
   const milestoneRepository = {};
   const taskRepository = {};
+  const userRepository = {};
   const auditLogsService = {
     logUpdate: jest.fn(),
   };
@@ -86,6 +88,10 @@ describe('ProjectsService approveMilestone', () => {
         {
           provide: getRepositoryToken(TaskEntity),
           useValue: taskRepository,
+        },
+        {
+          provide: getRepositoryToken(UserEntity),
+          useValue: userRepository,
         },
         {
           provide: DataSource,
@@ -235,5 +241,80 @@ describe('ProjectsService approveMilestone', () => {
     ).rejects.toBeInstanceOf(BadRequestException);
 
     expect(auditLogsService.logUpdate).not.toHaveBeenCalled();
+  });
+
+  it('allows approving a milestone after staff review when status is PENDING_CLIENT_APPROVAL', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      title: 'Kickoff',
+      amount: 100,
+      projectId: 'project-1',
+      status: MilestoneStatus.PENDING_CLIENT_APPROVAL,
+      deliverableType: DeliverableType.OTHER,
+      feedback: null,
+      sortOrder: 1,
+    } as MilestoneEntity;
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      currency: 'USD',
+      status: ProjectStatus.IN_PROGRESS,
+    } as ProjectEntity;
+
+    milestoneRepoInTransaction.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock(milestone),
+    );
+    projectRepoInTransaction.createQueryBuilder.mockReturnValue(createQueryBuilderMock(project));
+    taskRepoInTransaction.find.mockResolvedValue([
+      { id: 'task-1', milestoneId: 'milestone-1', status: TaskStatus.DONE },
+    ] as TaskEntity[]);
+    milestoneRepoInTransaction.save.mockImplementation((value: MilestoneEntity) => value);
+    milestoneLockPolicyService.findLatestActivatedContract.mockResolvedValue(null);
+    escrowReleaseService.releaseForApprovedMilestone.mockResolvedValue({
+      releaseTransactionIds: ['tx-1'],
+    });
+
+    const result = await service.approveMilestone('milestone-1', 'client-1');
+
+    expect(result.milestone.status).toBe(MilestoneStatus.COMPLETED);
+    expect(escrowReleaseService.releaseForApprovedMilestone).toHaveBeenCalledWith(
+      'milestone-1',
+      'client-1',
+      manager,
+    );
+  });
+
+  it('rejects milestone approval while the project is disputed', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      title: 'Kickoff',
+      amount: 100,
+      projectId: 'project-1',
+      status: MilestoneStatus.SUBMITTED,
+      deliverableType: DeliverableType.OTHER,
+      feedback: null,
+      sortOrder: 1,
+    } as MilestoneEntity;
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      currency: 'USD',
+      status: ProjectStatus.DISPUTED,
+    } as ProjectEntity;
+
+    milestoneRepoInTransaction.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock(milestone),
+    );
+    projectRepoInTransaction.createQueryBuilder.mockReturnValue(createQueryBuilderMock(project));
+
+    await expect(service.approveMilestone('milestone-1', 'client-1')).rejects.toThrow(
+      'Cannot approve milestone while the project is under dispute',
+    );
+
+    expect(escrowReleaseService.releaseForApprovedMilestone).not.toHaveBeenCalled();
   });
 });

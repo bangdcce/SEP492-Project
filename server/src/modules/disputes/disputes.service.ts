@@ -2520,6 +2520,8 @@ export class DisputesService {
       case DisputeCategory.QUALITY: {
         const reviewableStatuses = [
           MilestoneStatus.SUBMITTED,
+          MilestoneStatus.PENDING_STAFF_REVIEW,
+          MilestoneStatus.PENDING_CLIENT_APPROVAL,
           MilestoneStatus.REVISIONS_REQUIRED,
           MilestoneStatus.COMPLETED,
           MilestoneStatus.PAID,
@@ -6181,7 +6183,12 @@ export class DisputesService {
    */
   private getAllowedMilestoneStatusesForDispute(category: DisputeCategory): MilestoneStatus[] {
     const inProgressLike = [MilestoneStatus.IN_PROGRESS, MilestoneStatus.REVISIONS_REQUIRED];
-    const submittedLike = [MilestoneStatus.SUBMITTED, MilestoneStatus.REVISIONS_REQUIRED];
+    const submittedLike = [
+      MilestoneStatus.SUBMITTED,
+      MilestoneStatus.PENDING_STAFF_REVIEW,
+      MilestoneStatus.PENDING_CLIENT_APPROVAL,
+      MilestoneStatus.REVISIONS_REQUIRED,
+    ];
 
     switch (category) {
       case DisputeCategory.QUALITY:
@@ -6197,6 +6204,8 @@ export class DisputesService {
         return [
           MilestoneStatus.IN_PROGRESS,
           MilestoneStatus.SUBMITTED,
+          MilestoneStatus.PENDING_STAFF_REVIEW,
+          MilestoneStatus.PENDING_CLIENT_APPROVAL,
           MilestoneStatus.REVISIONS_REQUIRED,
         ];
 

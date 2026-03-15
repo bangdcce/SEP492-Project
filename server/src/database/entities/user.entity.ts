@@ -179,6 +179,9 @@ export class UserEntity {
   @OneToMany('ProjectEntity', 'freelancer')
   freelancerProjects: any[];
 
+  @OneToMany('ProjectEntity', 'staff')
+  staffProjects: any[];
+
   // NEW: Relation với user_flags
   @OneToMany('UserFlagEntity', 'user')
   flags: any[];

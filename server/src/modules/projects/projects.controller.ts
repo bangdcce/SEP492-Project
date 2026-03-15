@@ -17,6 +17,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DeliverableType } from '../../database/entities/milestone.entity';
+import { ProjectStaffInviteStatus } from '../../database/entities/project.entity';
 import { UserRole } from '../../database/entities/user.entity';
 import {
   ProjectsService,
@@ -25,6 +26,10 @@ import {
   UpdateProjectMilestoneInput,
 } from './projects.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { hasAnyUserRole } from '../auth/utils/role.utils';
+import { InviteProjectStaffDto } from './dto/invite-project-staff.dto';
+import { RespondProjectStaffInviteDto } from './dto/respond-project-staff-invite.dto';
+import { ReviewMilestoneStaffDto } from './dto/review-milestone-staff.dto';
 
 // Interface for authenticated request with user context
 interface AuthenticatedRequest {
@@ -71,8 +76,12 @@ export class ProjectsController {
 
   constructor(private readonly projectsService: ProjectsService) {}
 
-  private isPrivilegedRole(role?: string): boolean {
-    return role === UserRole.ADMIN || role === UserRole.STAFF;
+  private isAdminRole(role?: UserRole | string): boolean {
+    return hasAnyUserRole(role, [UserRole.ADMIN]);
+  }
+
+  private hasRole(role: UserRole | string | undefined, ...allowedRoles: UserRole[]): boolean {
+    return hasAnyUserRole(role, allowedRoles);
   }
 
   private assertCanReadProjectList(req: AuthenticatedRequest, targetUserId: string): void {
@@ -81,29 +90,43 @@ export class ProjectsController {
       throw new BadRequestException('User authentication required');
     }
 
-    if (requesterId === targetUserId || this.isPrivilegedRole(req.user?.role)) {
+    if (requesterId === targetUserId || this.isAdminRole(req.user?.role)) {
       return;
     }
 
     throw new ForbiddenException('You can only access your own project list');
   }
 
-  private assertCanReadProjectDetail(req: AuthenticatedRequest, project: { clientId: string; brokerId: string; freelancerId?: string | null }): void {
+  private assertCanReadProjectDetail(
+    req: AuthenticatedRequest,
+    project: {
+      clientId: string;
+      brokerId: string;
+      freelancerId?: string | null;
+      staffId?: string | null;
+      staffInviteStatus?: ProjectStaffInviteStatus | null;
+    },
+  ): void {
     const requesterId = req.user?.id;
     if (!requesterId) {
       throw new BadRequestException('User authentication required');
     }
 
-    if (this.isPrivilegedRole(req.user?.role)) {
+    if (this.isAdminRole(req.user?.role)) {
       return;
     }
+
+    const isAssignedStaff =
+      this.hasRole(req.user?.role, UserRole.STAFF) &&
+      requesterId === project.staffId &&
+      project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED;
 
     const isParticipant =
       requesterId === project.clientId ||
       requesterId === project.brokerId ||
       requesterId === project.freelancerId;
 
-    if (!isParticipant) {
+    if (!isParticipant && !isAssignedStaff) {
       throw new ForbiddenException('You are not authorized to access this project');
     }
   }
@@ -112,6 +135,45 @@ export class ProjectsController {
   listByUser(@Param('userId', ParseUUIDPipe) userId: string, @Req() req: AuthenticatedRequest) {
     this.assertCanReadProjectList(req, userId);
     return this.projectsService.listByUser(userId);
+  }
+
+  @Get('staff-candidates')
+  async listStaffCandidates(@Req() req: AuthenticatedRequest) {
+    if (!this.hasRole(req.user?.role, UserRole.CLIENT, UserRole.ADMIN)) {
+      throw new ForbiddenException('Only clients can browse staff candidates');
+    }
+
+    return this.projectsService.listStaffCandidates();
+  }
+
+  @Get('pending-invites')
+  async getPendingInvites(@Req() req: AuthenticatedRequest) {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new BadRequestException('User authentication required');
+    }
+
+    if (!this.hasRole(req.user?.role, UserRole.STAFF, UserRole.ADMIN)) {
+      throw new ForbiddenException('Only staff users can access pending invites');
+    }
+
+    return this.projectsService.getPendingInvitesForStaff(userId);
+  }
+
+  @Get('staff/active')
+  async getActiveSupervisedProjects(@Req() req: AuthenticatedRequest) {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new BadRequestException('User authentication required');
+    }
+
+    if (!this.hasRole(req.user?.role, UserRole.STAFF, UserRole.ADMIN)) {
+      throw new ForbiddenException('Only staff users can access active supervised projects');
+    }
+
+    return this.projectsService.getActiveSupervisedProjectsForStaff(userId);
   }
 
   @Get(':id')
@@ -124,6 +186,44 @@ export class ProjectsController {
     this.assertCanReadProjectDetail(req, project);
 
     return project;
+  }
+
+  @Post(':id/invite-staff')
+  async inviteStaff(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: InviteProjectStaffDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new BadRequestException('User authentication required');
+    }
+
+    if (!this.hasRole(req.user?.role, UserRole.CLIENT, UserRole.ADMIN)) {
+      throw new ForbiddenException('Only the client can invite a staff reviewer');
+    }
+
+    return this.projectsService.inviteStaff(id, userId, dto.staffId);
+  }
+
+  @Post(':id/staff-response')
+  async respondToStaffInvite(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RespondProjectStaffInviteDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new BadRequestException('User authentication required');
+    }
+
+    if (!this.hasRole(req.user?.role, UserRole.STAFF, UserRole.ADMIN)) {
+      throw new ForbiddenException('Only staff users can respond to project invites');
+    }
+
+    return this.projectsService.respondToStaffInvite(id, userId, dto.status);
   }
 
   @Post(':projectId/milestones')
@@ -187,6 +287,46 @@ export class ProjectsController {
 
     await this.projectsService.deleteMilestoneStructure(id, userId);
     return { success: true };
+  }
+
+  @Post('milestones/:id/request-review')
+  async requestMilestoneReview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new BadRequestException('User authentication required');
+    }
+
+    if (!this.hasRole(req.user?.role, UserRole.FREELANCER)) {
+      throw new ForbiddenException('Only the assigned freelancer can request milestone review');
+    }
+
+    return this.projectsService.requestMilestoneReview(id, userId);
+  }
+
+  @Post('milestones/:id/staff-review')
+  async reviewMilestoneAsStaff(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReviewMilestoneStaffDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new BadRequestException('User authentication required');
+    }
+
+    if (!this.hasRole(req.user?.role, UserRole.STAFF, UserRole.ADMIN)) {
+      throw new ForbiddenException('Only staff users can review milestones');
+    }
+
+    return this.projectsService.reviewMilestoneAsStaff(id, userId, {
+      recommendation: dto.recommendation,
+      note: dto.note,
+    });
   }
 
   /**
