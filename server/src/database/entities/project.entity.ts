@@ -27,6 +27,12 @@ export enum PricingModel {
   TIME_MATERIALS = 'TIME_MATERIALS',
 }
 
+export enum ProjectStaffInviteStatus {
+  PENDING = 'PENDING',
+  ACCEPTED = 'ACCEPTED',
+  REJECTED = 'REJECTED',
+}
+
 @Entity('projects')
 export class ProjectEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -43,6 +49,17 @@ export class ProjectEntity {
 
   @Column({ nullable: true })
   freelancerId: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  staffId: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: ProjectStaffInviteStatus,
+    enumName: 'projects_staffInviteStatus_enum',
+    nullable: true,
+  })
+  staffInviteStatus: ProjectStaffInviteStatus | null;
 
   @Column({ type: 'varchar', length: 255 })
   title: string;
@@ -97,6 +114,10 @@ export class ProjectEntity {
   @ManyToOne('UserEntity', 'freelancerProjects', { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'freelancerId' })
   freelancer: any;
+
+  @ManyToOne('UserEntity', 'staffProjects', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'staffId' })
+  staff: any;
 
   @OneToMany('MilestoneEntity', 'project')
   milestones: any[];

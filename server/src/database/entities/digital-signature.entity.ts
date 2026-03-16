@@ -5,8 +5,10 @@ import {
   CreateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 
+@Index('UQ_digital_signatures_contract_user', ['contractId', 'userId'], { unique: true })
 @Entity('digital_signatures')
 export class DigitalSignatureEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -22,7 +24,16 @@ export class DigitalSignatureEntity {
   signatureHash: string;
 
   @Column({ type: 'varchar', nullable: true })
+  contentHash: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  signerRole: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
   ipAddress: string;
+
+  @Column({ type: 'text', nullable: true })
+  userAgent: string | null;
 
   @CreateDateColumn()
   signedAt: Date;

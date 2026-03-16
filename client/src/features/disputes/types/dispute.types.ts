@@ -26,6 +26,70 @@ export interface DisputeProjectSummary {
   freelancerId?: string;
 }
 
+export type DisputeCaseStage =
+  | "FILED"
+  | "TRIAGE"
+  | "PRE_HEARING_SUBMISSIONS"
+  | "HEARING_IN_PROGRESS"
+  | "DELIBERATION"
+  | "VERDICT_ISSUED"
+  | "APPEAL_WINDOW"
+  | "APPEAL_HEARING"
+  | "FINAL_ARCHIVE";
+
+export type DisputeAppealState =
+  | "NONE"
+  | "AVAILABLE"
+  | "FILED"
+  | "RESOLVED"
+  | "EXPIRED";
+
+export type DisputeAllowedAction =
+  | "VIEW_CASE"
+  | "VIEW_DOCKET"
+  | "VIEW_EVIDENCE"
+  | "VIEW_TIMELINE"
+  | "VIEW_CONTRACTS"
+  | "EXPORT_DOSSIER"
+  | "OPEN_HEARING"
+  | "UPLOAD_EVIDENCE"
+  | "SEND_STATEMENT"
+  | "SUBMIT_APPEAL"
+  | "RESOLVE_APPEAL"
+  | "MANAGE_HEARING"
+  | "VIEW_COMPLEXITY";
+
+export interface DisputeHearingDocketEntry {
+  hearingId: string;
+  hearingNumber: number;
+  tier?: string | null;
+  status: string;
+  scheduledAt?: string | null;
+  agenda?: string | null;
+  summary?: string | null;
+  findings?: string | null;
+  noShowNote?: string | null;
+  previousHearingId?: string | null;
+  externalMeetingLink?: string | null;
+  isActionable: boolean;
+  isArchived: boolean;
+  lifecycle: "ACTIVE" | "ARCHIVED";
+  freezeReason?: string;
+  minutesRecorded: boolean;
+}
+
+export interface DisputeParticipantRecord {
+  userId: string;
+  username?: string | null;
+  displayName?: string | null;
+  email?: string | null;
+  systemRole?: UserRole | null;
+  caseRole: string;
+  source: string;
+  createdAt?: string | null;
+  grantedBy?: string | null;
+}
+
 export interface DisputeSummary {
   id: string;
   projectId: string;
@@ -50,6 +114,16 @@ export interface DisputeSummary {
   infoRequestDeadline?: string;
   infoRequestedAt?: string;
   infoProvidedAt?: string;
+  currentTier?: number | null;
+  isAppealed?: boolean;
+  appealReason?: string | null;
+  appealedAt?: string | null;
+  appealDeadline?: string | null;
+  appealResolvedAt?: string | null;
+  appealResolvedById?: string | null;
+  appealResolution?: string | null;
+  rejectionAppealReason?: string | null;
+  rejectionAppealedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   isOverdue?: boolean;
@@ -58,6 +132,20 @@ export interface DisputeSummary {
   raiser?: DisputeUserSummary;
   defendant?: DisputeUserSummary;
   project?: DisputeProjectSummary;
+  displayCode?: string;
+  displayTitle?: string;
+  reasonExcerpt?: string;
+  caseStage?: DisputeCaseStage;
+  isReadOnly?: boolean;
+  allowedActions?: DisputeAllowedAction[];
+  appealState?: DisputeAppealState;
+  canAppealVerdict?: boolean;
+  activeHearingId?: string | null;
+  hearingDocket?: DisputeHearingDocketEntry[];
+  latestHearing?: DisputeHearingDocketEntry | null;
+  participants?: DisputeParticipantRecord[];
+  nextActionLabel?: string;
+  flowGuide?: string;
 }
 
 export interface PaginatedDisputesResponse {
@@ -232,6 +320,72 @@ export interface DisputeComplexity {
     maxMinutes: number;
   };
   confidence: number;
+}
+
+export interface DisputeDossier {
+  dispute: {
+    id: string;
+    status: DisputeStatus;
+    category?: DisputeCategory;
+    priority?: DisputePriority;
+    reason?: string;
+    disputedAmount?: number;
+    createdAt?: string;
+    assignedStaffId?: string | null;
+  };
+  projectContext: {
+    id: string;
+    title?: string | null;
+    milestoneId?: string | null;
+    raiser?: {
+      id: string;
+      name?: string | null;
+      email?: string | null;
+      role?: UserRole;
+    };
+    defendant?: {
+      id: string;
+      name?: string | null;
+      email?: string | null;
+      role?: UserRole;
+    };
+  };
+  contracts: Array<{
+    id: string;
+    projectId: string;
+    title?: string | null;
+    status?: string | null;
+    contractUrl?: string | null;
+    createdAt?: string | null;
+    termsPreview?: string | null;
+  }>;
+  timeline: Array<{
+    id: string;
+    action: string;
+    actorId?: string | null;
+    actorRole?: UserRole | string;
+    description?: string | null;
+    timestamp: string;
+    metadata?: Record<string, any>;
+  }>;
+  contradictionHints: Array<{
+    code: string;
+    message: string;
+  }>;
+  pendingActions: Array<{
+    code: string;
+    description: string;
+    urgent: boolean;
+  }>;
+  hearings: Array<{
+    id: string;
+    status: string;
+    scheduledAt: string;
+    hearingNumber?: number | null;
+    tier?: string | null;
+    externalMeetingLink?: string | null;
+    lifecycle?: "ACTIVE" | "ARCHIVED";
+  }>;
 }
 
 export interface DisputeScheduleProposal {

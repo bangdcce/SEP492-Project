@@ -1,15 +1,17 @@
-import { IsNotEmpty, IsString, IsArray, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsString, IsArray, IsOptional, MaxLength, MinLength } from 'class-validator';
 
 /**
- * DTO để gửi khiếu nại lại (Appeal) sau khi dispute đã được resolve
+ * DTO đềEgửi khiếu nại lại (Appeal) sau khi dispute đã được resolve
  */
 export class AppealDto {
-  @IsNotEmpty({ message: 'Lý do khiếu nại không được để trống' })
+  @IsNotEmpty({ message: 'Lý do khiếu nại không được đềEtrống' })
   @IsString()
+  @MinLength(200, { message: 'Appeal reason must be at least 200 characters' })
+  @MaxLength(2000)
   reason: string;
 
   /**
-   * Bằng chứng bổ sung cho khiếu nại (URLs)
+   * Bằng chứng bềEsung cho khiếu nại (URLs)
    */
   @IsOptional()
   @IsArray()
@@ -18,17 +20,18 @@ export class AppealDto {
 }
 
 /**
- * DTO để Admin xử lý khiếu nại (Appeal)
+ * DTO đềEAdmin xử lý khiếu nại (Appeal)
  */
 export class ResolveAppealDto {
-  @IsNotEmpty({ message: 'Kết quả xử lý khiếu nại không được để trống' })
+  @IsNotEmpty({ message: 'Kết quả xử lý khiếu nại không được đềEtrống' })
   @IsString()
   resolution: string;
 
   /**
-   * TRUE = Chấp nhận khiếu nại, mở lại case
+   * TRUE = Chấp nhận khiếu nại, mềElại case
    * FALSE = Từ chối khiếu nại, giữ nguyên kết quả cũ
    */
   @IsNotEmpty()
   accepted: boolean;
 }
+

@@ -41,7 +41,7 @@ export class DisputeSettlementEntity {
   @Column({ comment: 'Người đưa ra đề xuất hòa giải' })
   proposerId: string;
 
-  @Column({ comment: 'Role của người đề xuất' })
+  @Column({ type: 'varchar', length: 50, comment: 'Role của người đề xuất' })
   proposerRole: string;
 
   // === MONEY LOGIC ===
@@ -60,7 +60,12 @@ export class DisputeSettlementEntity {
   platformFee: number;
 
   // === SETTLEMENT TERMS ===
-  @Column({ type: 'text', nullable: true, comment: 'Điều kiện/ghi chú kèm theo đề xuất' })
+  @Column({
+    type: 'varchar',
+    length: 2000,
+    nullable: true,
+    comment: 'Điều kiện/ghi chú kèm theo đề xuất',
+  })
   terms: string;
 
   // === STATUS ===
@@ -74,7 +79,12 @@ export class DisputeSettlementEntity {
   @Column({ type: 'timestamp', nullable: true })
   respondedAt: Date;
 
-  @Column({ type: 'text', nullable: true, comment: 'Lý do từ chối (nếu rejected)' })
+  @Column({
+    type: 'varchar',
+    length: 1000,
+    nullable: true,
+    comment: 'Lý do từ chối (nếu rejected)',
+  })
   rejectedReason: string;
 
   // === EXPIRY ===

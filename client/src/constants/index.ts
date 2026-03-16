@@ -50,6 +50,7 @@ export const ROUTES = {
   CLIENT_DISCOVERY: "/client/discovery",
   CLIENT_DISCOVERY_PROFILE: "/client/discovery/profile/:id",
   CLIENT_KYC_STATUS: "/client/kyc-status",
+  CLIENT_SUBSCRIPTION: "/client/subscription",
   
 
 
@@ -66,6 +67,7 @@ export const ROUTES = {
 
   // ========== STAFF ROUTES - prefix /staff ==========
   STAFF_PROFILE: "/staff/profile",
+  STAFF_WORKSPACE: "/projects/:projectId",
 
   // ========== LEGACY ALIASES (backward compatibility) ==========
   DASHBOARD: "/admin/dashboard",

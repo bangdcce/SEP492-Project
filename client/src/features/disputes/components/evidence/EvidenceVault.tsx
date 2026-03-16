@@ -61,11 +61,13 @@ function canPreview(mimeType?: string) {
 interface EvidenceVaultProps {
   disputeId: string;
   refreshToken?: number;
+  readOnly?: boolean;
 }
 
 export const EvidenceVault = ({
   disputeId,
   refreshToken,
+  readOnly = false,
 }: EvidenceVaultProps) => {
   const [evidence, setEvidence] = useState<DisputeEvidence[]>([]);
   const [quota, setQuota] = useState<DisputeEvidenceQuota | null>(null);
@@ -90,7 +92,7 @@ export const EvidenceVault = ({
   const canFlag =
     currentUserRole === UserRole.STAFF || currentUserRole === UserRole.ADMIN;
   const canUpload =
-    currentUserRole !== UserRole.STAFF && currentUserRole !== UserRole.ADMIN;
+    !readOnly && currentUserRole !== UserRole.STAFF && currentUserRole !== UserRole.ADMIN;
 
   // -------------------------------------------------------------------------
   // Load evidence — fetch list and quota independently so one failure
@@ -255,6 +257,13 @@ export const EvidenceVault = ({
           </div>
         ) : null}
       </div>
+
+      {readOnly ? (
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+          Evidence uploads are locked because this dispute is closed. Existing evidence remains
+          available for review.
+        </div>
+      ) : null}
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-gray-500">

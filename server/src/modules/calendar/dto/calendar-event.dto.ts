@@ -11,6 +11,7 @@ import {
   IsArray,
   IsBoolean,
   IsObject,
+  MaxLength,
 } from 'class-validator';
 import { EventType, EventPriority } from 'src/database/entities';
 
@@ -24,10 +25,12 @@ export class CreateCalendarEventDto {
 
   @IsString()
   @IsNotEmpty()
+  @MaxLength(255)
   title: string;
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   description?: string;
 
   @IsEnum(EventPriority)
@@ -46,6 +49,7 @@ export class CreateCalendarEventDto {
   // === REFERENCE (Polymorphic) ===
   @IsString()
   @IsOptional()
+  @MaxLength(50)
   referenceType?: string; // 'DisputeHearing', 'Project', etc.
 
   @IsUUID()
@@ -55,10 +59,12 @@ export class CreateCalendarEventDto {
   // === LOCATION ===
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   location?: string;
 
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   externalMeetingLink?: string;
 
   // === PARTICIPANTS ===
@@ -74,6 +80,7 @@ export class CreateCalendarEventDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(1000)
   notes?: string;
 
   @IsObject()
@@ -92,10 +99,12 @@ export class CreateCalendarEventDto {
 export class UpdateCalendarEventDto {
   @IsString()
   @IsOptional()
+  @MaxLength(255)
   title?: string;
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   description?: string;
 
   @IsEnum(EventPriority)
@@ -112,10 +121,12 @@ export class UpdateCalendarEventDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   location?: string;
 
   @IsString()
   @IsOptional()
+  @MaxLength(500)
   externalMeetingLink?: string;
 
   @IsArray()
@@ -125,6 +136,7 @@ export class UpdateCalendarEventDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(1000)
   notes?: string;
 }
 
@@ -163,7 +175,7 @@ export class CalendarEventFilterDto {
 
   @IsInt()
   @Min(1)
-  @Max(100)
+  @Max(200)
   @IsOptional()
   limit?: number;
 }

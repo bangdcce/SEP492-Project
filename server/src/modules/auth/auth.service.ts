@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { Repository, LessThan, MoreThan, In, Not, IsNull } from 'typeorm';
+import { Repository, LessThan, MoreThan, In, Not, IsNull, DeepPartial } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import * as bcrypt from 'bcryptjs';
@@ -114,7 +114,7 @@ export class AuthService {
       privacyAcceptedAt: acceptPrivacy ? now : null,
       registrationIp: ipAddress,
       registrationUserAgent: userAgent,
-    });
+    } as DeepPartial<UserEntity>);
 
     const savedUser = await this.userRepository.save(newUser);
 
@@ -507,6 +507,7 @@ export class AuthService {
 
     // Reject non-existent, deleted, or banned accounts immediately
     if (!user || user.status === UserStatus.DELETED || user.isBanned) {
+      this.logger.warn(`ForgotPassword: User not found or inactive for email=${email}`);
       throw new BadRequestException('Email does not exist');
     }
 
@@ -524,7 +525,8 @@ export class AuthService {
     try {
       await this.emailService.sendOTP(email, otp);
     } catch (error) {
-      // Continue execution even if email fails
+      this.logger.error(`ForgotPassword: Failed to send OTP to ${email}: ${error.message}`);
+      // Continue execution even if email fails - user can resend or check logs
     }
 
     return {

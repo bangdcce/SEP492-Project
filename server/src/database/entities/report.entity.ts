@@ -39,7 +39,7 @@ export class ReportEntity {
   @Column({ type: 'enum', enum: ReportReason })
   reason: ReportReason;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   description: string;
 
   @Column({ type: 'enum', enum: ReportStatus, default: ReportStatus.PENDING })
@@ -48,7 +48,7 @@ export class ReportEntity {
   @Column({ name: 'resolved_by', type: 'uuid', nullable: true })
   resolvedBy: string;
 
-  @Column({ name: 'admin_note', type: 'text', nullable: true })
+  @Column({ name: 'admin_note', type: 'varchar', length: 2000, nullable: true })
   adminNote: string;
 
   @CreateDateColumn({ name: 'created_at' })

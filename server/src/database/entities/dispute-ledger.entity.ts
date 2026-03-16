@@ -23,7 +23,7 @@ export class DisputeLedgerEntity {
   @Column({ nullable: true })
   actorId: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 1000, nullable: true })
   reason: string;
 
   @Column({ type: 'jsonb', nullable: true })

@@ -29,6 +29,12 @@ export { DocumentEntity, DocType } from './document.entity';
 export { WalletEntity, WalletStatus } from './wallet.entity';
 export { TransactionEntity, TransactionType, TransactionStatus } from './transaction.entity';
 export { EscrowEntity, EscrowStatus } from './escrow.entity';
+export { PaymentMethodEntity, PaymentMethodType } from './payment-method.entity';
+export {
+  FundingIntentEntity,
+  FundingGateway,
+  FundingIntentStatus,
+} from './funding-intent.entity';
 export { PayoutMethodEntity } from './payout-method.entity';
 export { FeeConfigEntity, FeeType } from './fee-config.entity';
 export { PayoutRequestEntity, PayoutStatus } from './payout-request.entity';
@@ -60,6 +66,7 @@ export {
   HearingStatementEntity,
   HearingQuestionEntity,
   HearingStatus,
+  HearingStatementStatus,
   HearingStatementType,
   HearingQuestionStatus,
   HearingParticipantRole,
@@ -124,3 +131,12 @@ export {
   RescheduleRequestStatus,
 } from './event-reschedule-request.entity';
 export { AutoScheduleRuleEntity, SchedulingStrategy } from './auto-schedule-rule.entity';
+
+// Subscription & Quota Entities
+export { SubscriptionPlanEntity } from './subscription-plan.entity';
+export {
+  UserSubscriptionEntity,
+  SubscriptionStatus,
+  BillingCycle,
+} from './user-subscription.entity';
+export { QuotaUsageLogEntity, QuotaAction } from './quota-usage-log.entity';

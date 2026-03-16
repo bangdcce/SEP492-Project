@@ -14,6 +14,7 @@ import {
   Video,
   ShieldCheck,
   Mail,
+  CreditCard,
 } from "lucide-react";
 
 export interface BrokerSidebarMenuItem {
@@ -108,6 +109,14 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: ShieldCheck,
     path: "/broker/kyc-status",
     description: "Verify your identity",
+    section: "account",
+  },
+  {
+    id: "subscription",
+    label: "Subscription",
+    icon: CreditCard,
+    path: "/broker/subscription",
+    description: "Manage your premium plan",
     section: "account",
   },
 ];

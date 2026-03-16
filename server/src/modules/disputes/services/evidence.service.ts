@@ -30,6 +30,7 @@ import {
   DisputePhase,
 } from 'src/database/entities';
 import { DISPUTE_EVENTS } from '../events/dispute.events';
+import { isDisputeAppealFlowStatus, isDisputeClosedStatus } from '../dispute-docket';
 
 // =============================================================================
 // CONSTANTS
@@ -648,10 +649,6 @@ export class EvidenceService {
       return { success: false, error: 'Dispute not found' };
     }
 
-    if (dispute.status === DisputeStatus.RESOLVED) {
-      return { success: false, error: 'Cannot upload evidence to a resolved dispute' };
-    }
-
     if (uploaderRole === UserRole.STAFF || uploaderRole === UserRole.ADMIN) {
       return {
         success: false,
@@ -678,6 +675,23 @@ export class EvidenceService {
       order: { startedAt: 'DESC' },
     });
 
+    if (isDisputeClosedStatus(dispute.status)) {
+      return {
+        success: false,
+        error: 'This dispute is archived. Evidence uploads are locked after the verdict is issued.',
+        errorCode: 'DISPUTE_READ_ONLY',
+      };
+    }
+
+    if (isDisputeAppealFlowStatus(dispute.status) && !activeLiveHearing) {
+      return {
+        success: false,
+        error:
+          'Appeal evidence can only be uploaded during the active appeal hearing while evidence intake is open.',
+        errorCode: 'DISPUTE_READ_ONLY',
+      };
+    }
+
     if (activeLiveHearing && !activeLiveHearing.isEvidenceIntakeOpen) {
       return {
         success: false,
@@ -687,7 +701,7 @@ export class EvidenceService {
       };
     }
 
-    // Justification required when uploading outside EVIDENCE_SUBMISSION phase (BLTTDS 2015)
+    // Justification required when uploading outside EVIDENCE_SUBMISSION phase
     if (
       activeLiveHearing &&
       dispute.phase !== DisputePhase.EVIDENCE_SUBMISSION &&

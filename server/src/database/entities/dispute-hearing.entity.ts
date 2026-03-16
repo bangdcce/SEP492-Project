@@ -29,11 +29,42 @@ export enum HearingStatementType {
   CLOSING = 'CLOSING', // K蘯ｿt lu蘯ｭn
   QUESTION = 'QUESTION', // Cﾃ｢u h盻淑 t盻ｫ Admin
   ANSWER = 'ANSWER', // Tr蘯｣ l盻拱
+  WITNESS_TESTIMONY = 'WITNESS_TESTIMONY', // L盻拱 khai nhﾃ｢n ch盻ｩng
+  OBJECTION = 'OBJECTION', // Ph蘯｣n ﾄ柁訴
+  SURREBUTTAL = 'SURREBUTTAL', // Ph蘯｣n bﾃ｡c l蘯ｧn 2
 }
 
 export enum HearingStatementStatus {
   DRAFT = 'DRAFT',
   SUBMITTED = 'SUBMITTED',
+}
+
+export type HearingStatementContentBlockKind =
+  | 'SUMMARY'
+  | 'FACTS'
+  | 'EVIDENCE_BASIS'
+  | 'ANALYSIS'
+  | 'REMEDY'
+  | 'ATTESTATION'
+  | 'CUSTOM';
+
+export interface HearingStatementContentBlock {
+  id?: string;
+  kind: HearingStatementContentBlockKind;
+  heading?: string | null;
+  body: string;
+}
+
+export interface HearingStatementVersionSnapshot {
+  versionNumber: number;
+  savedAt: string;
+  status: HearingStatementStatus;
+  title?: string | null;
+  content: string;
+  attachments?: string[] | null;
+  citedEvidenceIds?: string[] | null;
+  structuredContent?: HearingStatementContentBlock[] | null;
+  changeSummary?: string | null;
 }
 
 export enum HearingQuestionStatus {
@@ -95,10 +126,12 @@ export class DisputeHearingEntity {
   @Column({ type: 'timestamp', nullable: true })
   endedAt: Date;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   agenda: string; // N盻冓 dung c蘯ｧn th蘯｣o lu蘯ｭn
 
   @Column({
+    type: 'varchar',
+    length: 500,
     nullable: true,
     comment: 'Link Google Meet/Zoom n蘯ｿu c蘯ｧn video call (optional, do bﾃｪn th盻ｩ 3 cung c蘯･p)',
   })
@@ -142,7 +175,7 @@ export class DisputeHearingEntity {
   @Column({ nullable: true, comment: 'Moderator/Admin user who paused hearing' })
   pausedById: string;
 
-  @Column({ type: 'text', nullable: true, comment: 'Reason for pausing hearing' })
+  @Column({ type: 'varchar', length: 1000, nullable: true, comment: 'Reason for pausing hearing' })
   pauseReason: string;
 
   @Column({
@@ -169,7 +202,12 @@ export class DisputeHearingEntity {
   @Column({ nullable: true, comment: 'Moderator/Admin user who opened intake window' })
   evidenceIntakeOpenedBy: string;
 
-  @Column({ type: 'text', nullable: true, comment: 'Reason for opening intake window' })
+  @Column({
+    type: 'varchar',
+    length: 1000,
+    nullable: true,
+    comment: 'Reason for opening intake window',
+  })
   evidenceIntakeReason: string;
 
   // === DURATION & SCHEDULING ===
@@ -187,17 +225,18 @@ export class DisputeHearingEntity {
   lastRescheduledAt: Date;
 
   // === SUMMARY (sau khi k蘯ｿt thﾃｺc) ===
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 5000, nullable: true })
   summary: string; // Tﾃｳm t蘯ｯt phiﾃｪn ﾄ訴盻「 tr蘯ｧn
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 5000, nullable: true })
   findings: string; // Nh盻ｯng phﾃ｡t hi盻㌻ quan tr盻肱g
 
   @Column({ type: 'jsonb', nullable: true })
   pendingActions: string[];
 
   @Column({
-    type: 'text',
+    type: 'varchar',
+    length: 2000,
     nullable: true,
     comment: 'Structured no-show documentation for required absent participants',
   })
@@ -283,7 +322,12 @@ export class HearingParticipantEntity {
   @Column({ type: 'timestamp', nullable: true, comment: 'H蘯｡n ph蘯｣n h盻妬 l盻拱 m盻拱' })
   responseDeadline: Date;
 
-  @Column({ type: 'text', nullable: true, comment: 'Lﾃｽ do t盻ｫ ch盻訴/xin d盻拱' })
+  @Column({
+    type: 'varchar',
+    length: 1000,
+    nullable: true,
+    comment: 'Lﾃｽ do t盻ｫ ch盻訴/xin d盻拱',
+  })
   declineReason: string;
 
   @CreateDateColumn()
@@ -323,8 +367,14 @@ export class HearingStatementEntity {
   @Column({ type: 'varchar', length: 255, nullable: true })
   title: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'varchar', length: 10000 })
   content: string;
+
+  @Column({ type: 'jsonb', nullable: true })
+  structuredContent: HearingStatementContentBlock[] | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  citedEvidenceIds: string[] | null;
 
   @Column({
     type: 'enum',
@@ -348,11 +398,44 @@ export class HearingStatementEntity {
   @Column({ default: false })
   isRedacted: boolean; // B盻・admin 蘯ｩn vﾃｬ khﾃｴng phﾃｹ h盻｣p
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 1000, nullable: true })
   redactedReason: string;
+
+  @Column({
+    name: 'objection_status',
+    type: 'varchar',
+    length: 20,
+    nullable: true,
+    default: null,
+    comment: 'PENDING | SUSTAINED | OVERRULED (only for OBJECTION statements)',
+  })
+  objectionStatus: 'PENDING' | 'SUSTAINED' | 'OVERRULED' | null;
+
+  @Column({
+    type: 'timestamp',
+    nullable: true,
+    default: null,
+    comment: 'Deadline for submitting this statement type during the current phase',
+  })
+  deadline: Date | null;
+
+  @Column({ type: 'boolean', default: false })
+  platformDeclarationAccepted: boolean;
+
+  @Column({ type: 'timestamp', nullable: true })
+  platformDeclarationAcceptedAt: Date | null;
+
+  @Column({ type: 'int', default: 1 })
+  versionNumber: number;
+
+  @Column({ type: 'jsonb', nullable: true, default: () => "'[]'::jsonb" })
+  versionHistory: HearingStatementVersionSnapshot[] | null;
 
   @CreateDateColumn()
   createdAt: Date;
+
+  @UpdateDateColumn()
+  updatedAt: Date;
 
   // === RELATIONS ===
   @ManyToOne('DisputeHearingEntity', 'statements', { onDelete: 'CASCADE' })
@@ -390,10 +473,10 @@ export class HearingQuestionEntity {
   @Column()
   targetUserId: string; // Ngﾆｰ盻拱 c蘯ｧn tr蘯｣ l盻拱
 
-  @Column({ type: 'text' })
+  @Column({ type: 'varchar', length: 2000 })
   question: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 5000, nullable: true })
   answer: string;
 
   @Column({
@@ -441,4 +524,3 @@ export class HearingQuestionEntity {
   @JoinColumn({ name: 'cancelledById' })
   cancelledBy: any;
 }
-
