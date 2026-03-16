@@ -11,6 +11,7 @@ import {
   IsArray,
   ValidateNested,
   ArrayMinSize,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { DisputeResult, FaultType } from 'src/database/entities';
@@ -38,12 +39,33 @@ export class VerdictReasoningDto {
   @IsOptional()
   supportingEvidenceIds?: string[];
 
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  policyReferences?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  legalReferences?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  contractReferences?: string[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  evidenceReferences?: string[];
+
   /**
    * Nhận định về sự việc (fact-finding)
    * VD: "Dựa trên chat logs và screenshots, freelancer đã không giao deliverable sau 3 lần nhắc nhở..."
    */
   @IsString()
   @IsNotEmpty({ message: 'Nhận định sự việc không được để trống' })
+  @MaxLength(5000)
   factualFindings: string;
 
   /**
@@ -52,7 +74,13 @@ export class VerdictReasoningDto {
    */
   @IsString()
   @IsNotEmpty({ message: 'Phân tích pháp lý không được để trống' })
+  @MaxLength(5000)
   legalAnalysis: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(5000)
+  analysis?: string;
 
   /**
    * Kết luận cuối cùng
@@ -60,7 +88,18 @@ export class VerdictReasoningDto {
    */
   @IsString()
   @IsNotEmpty({ message: 'Kết luận không được để trống' })
+  @MaxLength(5000)
   conclusion: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(5000)
+  remedyRationale?: string;
+
+  @IsString()
+  @IsOptional()
+  @MaxLength(5000)
+  trustPenaltyRationale?: string;
 }
 
 /**
@@ -94,6 +133,7 @@ export class AdminVerdictDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   adminComment?: string;
 
   // === MONEY SPLIT ===
@@ -123,6 +163,7 @@ export class AdminVerdictDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   warningMessage?: string; // Cảnh cáo gửi cho bên có lỗi
 }
 
@@ -136,5 +177,6 @@ export class AppealVerdictDto extends AdminVerdictDto {
 
   @IsString()
   @IsNotEmpty({ message: 'Lý do override không được để trống' })
+  @MaxLength(2000)
   overrideReason: string;
 }

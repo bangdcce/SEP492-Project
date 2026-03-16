@@ -7,7 +7,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
 import {
   ProjectEntity,
@@ -19,6 +19,7 @@ import {
   ContractMilestoneSnapshotItem,
 } from '../../database/entities/contract.entity';
 import { DisputeEntity, DisputeStatus } from '../../database/entities/dispute.entity';
+import { ReviewEntity } from '../../database/entities/review.entity';
 import {
   DeliverableType,
   MilestoneEntity,
@@ -48,6 +49,32 @@ export interface ProjectWithDisputeInfo {
   // Dispute enrichment
   hasActiveDispute: boolean;
   activeDisputeCount: number;
+  client?: ProjectParticipantSummary | null;
+  broker?: ProjectParticipantSummary | null;
+  freelancer?: ProjectParticipantSummary | null;
+  reviewSummary?: ProjectReviewSummary;
+  pendingReviewTargets?: PendingReviewTarget[];
+}
+
+export interface ProjectParticipantSummary {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  role: string;
+}
+
+export interface PendingReviewTarget {
+  id: string;
+  fullName: string;
+  role: string;
+}
+
+export interface ProjectReviewSummary {
+  totalReviewSlots: number;
+  completedReviews: number;
+  pendingReviews: number;
+  currentUserPendingReviews: number;
+  currentUserCanReview: boolean;
 }
 
 export interface StaffCandidateSummary {
@@ -125,6 +152,8 @@ export class ProjectsService {
     private readonly projectRepository: Repository<ProjectEntity>,
     @InjectRepository(DisputeEntity)
     private readonly disputeRepository: Repository<DisputeEntity>,
+    @InjectRepository(ReviewEntity)
+    private readonly reviewRepository: Repository<ReviewEntity>,
     @InjectRepository(MilestoneEntity)
     private readonly milestoneRepository: Repository<MilestoneEntity>,
     @InjectRepository(TaskEntity)
@@ -136,6 +165,127 @@ export class ProjectsService {
     private readonly milestoneLockPolicyService: MilestoneLockPolicyService,
     private readonly escrowReleaseService: EscrowReleaseService,
   ) {}
+
+  private mapProjectParticipant(
+    user:
+      | Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'>
+      | null
+      | undefined,
+  ): ProjectParticipantSummary | null {
+    if (!user?.id) {
+      return null;
+    }
+    return {
+      id: user.id,
+      fullName: user.fullName || null,
+      email: user.email || null,
+      role: user.role,
+    };
+  }
+
+  private buildProjectMemberList(project: {
+    clientId: string;
+    brokerId: string;
+    freelancerId?: string | null;
+    client?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+    broker?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+    freelancer?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+  }): ProjectParticipantSummary[] {
+    const members = [
+      project.client
+        ? this.mapProjectParticipant(project.client)
+        : {
+            id: project.clientId,
+            fullName: null,
+            email: null,
+            role: 'CLIENT',
+          },
+      project.broker
+        ? this.mapProjectParticipant(project.broker)
+        : {
+            id: project.brokerId,
+            fullName: null,
+            email: null,
+            role: 'BROKER',
+          },
+      project.freelancerId
+        ? project.freelancer
+          ? this.mapProjectParticipant(project.freelancer)
+          : {
+              id: project.freelancerId,
+              fullName: null,
+              email: null,
+              role: 'FREELANCER',
+            }
+        : null,
+    ].filter((member): member is ProjectParticipantSummary => Boolean(member?.id));
+
+    return Array.from(new Map(members.map((member) => [member.id, member])).values());
+  }
+
+  private buildReviewState(
+    project: {
+      id: string;
+      status: string;
+      clientId: string;
+      brokerId: string;
+      freelancerId?: string | null;
+      client?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+      broker?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+      freelancer?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+    },
+    viewerId: string | null,
+    existingPairs: Set<string>,
+  ): {
+    reviewSummary: ProjectReviewSummary;
+    pendingReviewTargets: PendingReviewTarget[];
+  } {
+    const members = this.buildProjectMemberList(project);
+    const totalReviewSlots =
+      members.length > 1 ? members.length * (members.length - 1) : 0;
+    let completedReviews = 0;
+    for (const member of members) {
+      for (const target of members) {
+        if (member.id === target.id) continue;
+        if (existingPairs.has(`${project.id}:${member.id}:${target.id}`)) {
+          completedReviews += 1;
+        }
+      }
+    }
+
+    const currentUserCanReview =
+      project.status === ProjectStatus.COMPLETED &&
+      Boolean(viewerId && members.some((member) => member.id === viewerId));
+
+    const pendingReviewTargets =
+      currentUserCanReview && viewerId
+        ? members
+            .filter((member) => member.id !== viewerId)
+            .filter(
+              (member) =>
+                !existingPairs.has(`${project.id}:${viewerId}:${member.id}`),
+            )
+            .map((member) => ({
+              id: member.id,
+              fullName:
+                member.fullName ||
+                member.email ||
+                `${member.role.charAt(0)}${member.role.slice(1).toLowerCase()}`,
+              role: member.role,
+            }))
+        : [];
+
+    return {
+      reviewSummary: {
+        totalReviewSlots,
+        completedReviews,
+        pendingReviews: Math.max(totalReviewSlots - completedReviews, 0),
+        currentUserPendingReviews: pendingReviewTargets.length,
+        currentUserCanReview,
+      },
+      pendingReviewTargets,
+    };
+  }
 
   private parseAmountOrDefault(input: unknown, fallback: number): number {
     if (input === undefined || input === null || input === '') {
@@ -742,7 +892,7 @@ export class ProjectsService {
    * Returns projects where user is client, broker, or freelancer
    * Enriched with hasActiveDispute and activeDisputeCount
    */
-  async listByUser(userId: string): Promise<ProjectWithDisputeInfo[]> {
+  async listByUser(userId: string, viewerId?: string): Promise<ProjectWithDisputeInfo[]> {
     // Step 1: Fetch base projects
     const projects = await this.projectRepository.find({
       where: [
@@ -751,6 +901,7 @@ export class ProjectsService {
         { freelancerId: userId },
         { staffId: userId },
       ],
+      relations: ['client', 'broker', 'freelancer', 'staff'],
       select: [
         'id',
         'title',
@@ -764,6 +915,10 @@ export class ProjectsService {
         'totalBudget',
         'currency',
         'createdAt',
+        'client',
+        'broker',
+        'freelancer',
+        'staff',
       ],
       order: { createdAt: 'DESC' },
     });
@@ -793,6 +948,16 @@ export class ProjectsService {
       .groupBy('dispute.projectId')
       .getRawMany<{ projectId: string; count: string }>();
 
+    const reviews = await this.reviewRepository.find({
+      where: { projectId: In(projectIds) },
+      select: ['projectId', 'reviewerId', 'targetUserId'],
+    });
+    const reviewPairSet = new Set(
+      reviews.map(
+        (review) => `${review.projectId}:${review.reviewerId}:${review.targetUserId}`,
+      ),
+    );
+
     // Step 3: Create a map for quick lookup
     const disputeCountMap = new Map<string, number>();
     for (const dc of disputeCounts) {
@@ -804,6 +969,15 @@ export class ProjectsService {
     // Step 4: Enrich projects with dispute info
     const enrichedProjects: ProjectWithDisputeInfo[] = projects.map((project) => {
       const activeDisputeCount = disputeCountMap.get(project.id) || 0;
+      const reviewState = this.buildReviewState(
+        project as ProjectEntity & {
+          client?: UserEntity | null;
+          broker?: UserEntity | null;
+          freelancer?: UserEntity | null;
+        },
+        viewerId || userId,
+        reviewPairSet,
+      );
       return {
         id: project.id,
         title: project.title,
@@ -819,6 +993,11 @@ export class ProjectsService {
         createdAt: project.createdAt,
         hasActiveDispute: activeDisputeCount > 0,
         activeDisputeCount,
+        client: this.mapProjectParticipant(project.client),
+        broker: this.mapProjectParticipant(project.broker),
+        freelancer: this.mapProjectParticipant(project.freelancer),
+        reviewSummary: reviewState.reviewSummary,
+        pendingReviewTargets: reviewState.pendingReviewTargets,
       };
     });
 
@@ -997,10 +1176,10 @@ export class ProjectsService {
       message: `Milestone "${updatedMilestone?.title}" has been approved. Funds have been released.`,
     };
   }
-  async findOne(id: string): Promise<ProjectEntity | null> {
+  async findOne(id: string, viewerId?: string): Promise<(ProjectEntity & ProjectWithDisputeInfo) | null> {
     const project = await this.projectRepository.findOne({
       where: { id },
-      relations: ['contracts', 'staff'],
+      relations: ['contracts', 'staff', 'client', 'broker', 'freelancer'],
     });
     if (!project) {
       return null;
@@ -1021,6 +1200,51 @@ export class ProjectsService {
       });
     }
 
-    return this.sanitizeProjectStaffRelation(project);
+    const normalizedProject = this.sanitizeProjectStaffRelation(project);
+    const activeDisputeStatuses = [
+      DisputeStatus.OPEN,
+      DisputeStatus.TRIAGE_PENDING,
+      DisputeStatus.PREVIEW,
+      DisputeStatus.PENDING_REVIEW,
+      DisputeStatus.INFO_REQUESTED,
+      DisputeStatus.IN_MEDIATION,
+      DisputeStatus.APPEALED,
+    ];
+    const activeDisputeCount = await this.disputeRepository.count({
+      where: {
+        projectId: id,
+        status: In(activeDisputeStatuses),
+      },
+    });
+
+    const reviews = await this.reviewRepository.find({
+      where: { projectId: id },
+      select: ['projectId', 'reviewerId', 'targetUserId'],
+    });
+    const reviewPairSet = new Set(
+      reviews.map(
+        (review) => `${review.projectId}:${review.reviewerId}:${review.targetUserId}`,
+      ),
+    );
+    const reviewState = this.buildReviewState(
+      normalizedProject as ProjectEntity & {
+        client?: UserEntity | null;
+        broker?: UserEntity | null;
+        freelancer?: UserEntity | null;
+      },
+      viewerId || null,
+      reviewPairSet,
+    );
+
+    return {
+      ...normalizedProject,
+      hasActiveDispute: activeDisputeCount > 0,
+      activeDisputeCount,
+      client: this.mapProjectParticipant(normalizedProject.client),
+      broker: this.mapProjectParticipant(normalizedProject.broker),
+      freelancer: this.mapProjectParticipant(normalizedProject.freelancer),
+      reviewSummary: reviewState.reviewSummary,
+      pendingReviewTargets: reviewState.pendingReviewTargets,
+    };
   }
 }

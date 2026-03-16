@@ -1,19 +1,11 @@
-/**
- * AppealDialog  EDialog for parties to appeal a verdict
- * ──────────────────────────────────────────────────────
- * Two-step form:
- *   1. Select appeal type + write reason
- *   2. Confirmation step
- */
-
-import { memo, useState, useCallback } from "react";
+import { memo, useCallback, useState } from "react";
 import {
-  Scale,
   AlertTriangle,
-  Loader2,
-  Send,
-  ChevronRight,
   ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Scale,
+  Send,
 } from "lucide-react";
 import {
   Dialog,
@@ -23,46 +15,13 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { Textarea } from "@/shared/components/ui/textarea";
-import { cn } from "@/shared/components/ui/utils";
 
-/* ─── Appeal types ─── */
-
-interface AppealType {
-  value: string;
-  label: string;
-  description: string;
-}
-
-const APPEAL_TYPES: AppealType[] = [
-  {
-    value: "PROCEDURAL_ERROR",
-    label: "Procedural Error",
-    description: "The hearing process was not conducted properly",
-  },
-  {
-    value: "NEW_EVIDENCE",
-    label: "New Evidence",
-    description: "Important evidence was not available during the hearing",
-  },
-  {
-    value: "FACTUAL_ERROR",
-    label: "Factual Error",
-    description: "The verdict was based on incorrect factual findings",
-  },
-  {
-    value: "DISPROPORTIONATE",
-    label: "Disproportionate Outcome",
-    description: "The penalty or financial distribution is unfair",
-  },
-];
-
-/* ─── Props ─── */
+const APPEAL_REASON_MIN_LENGTH = 200;
 
 interface AppealDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (input: { reason: string; appealType?: string }) => Promise<void>;
-  /** Time remaining before appeal deadline */
+  onSubmit: (input: { reason: string }) => Promise<void>;
   deadlineText?: string;
 }
 
@@ -73,39 +32,40 @@ export const AppealDialog = memo(function AppealDialog({
   deadlineText,
 }: AppealDialogProps) {
   const [step, setStep] = useState<1 | 2>(1);
-  const [appealType, setAppealType] = useState<string>("FACTUAL_ERROR");
   const [reason, setReason] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
   const reset = useCallback(() => {
     setStep(1);
-    setAppealType("FACTUAL_ERROR");
     setReason("");
   }, []);
 
   const handleSubmit = useCallback(async () => {
-    if (!reason.trim()) return;
+    const trimmedReason = reason.trim();
+    if (trimmedReason.length < APPEAL_REASON_MIN_LENGTH) {
+      return;
+    }
+
     try {
       setSubmitting(true);
-      await onSubmit({
-        reason: reason.trim(),
-        appealType,
-      });
+      await onSubmit({ reason: trimmedReason });
       reset();
       onOpenChange(false);
     } finally {
       setSubmitting(false);
     }
-  }, [reason, appealType, onSubmit, onOpenChange, reset]);
+  }, [onOpenChange, onSubmit, reason, reset]);
 
-  const canProceed = reason.trim().length >= 20;
+  const canProceed = reason.trim().length >= APPEAL_REASON_MIN_LENGTH;
 
   return (
     <Dialog
       open={open}
-      onOpenChange={(v) => {
-        if (!v) reset();
-        onOpenChange(v);
+      onOpenChange={(nextOpen) => {
+        if (!nextOpen) {
+          reset();
+        }
+        onOpenChange(nextOpen);
       }}
     >
       <DialogContent className="sm:max-w-lg">
@@ -115,130 +75,99 @@ export const AppealDialog = memo(function AppealDialog({
             Appeal Verdict
           </DialogTitle>
           <DialogDescription>
-            File a formal appeal against the issued verdict. Your appeal will be
-            reviewed by a senior administrator.
-            {deadlineText && (
+            File a formal appeal against the issued verdict. Appeals are reviewed by
+            a Tier 2 administrator.
+            {deadlineText ? (
               <span className="ml-1 font-medium text-amber-600">
                 Deadline: {deadlineText}
               </span>
-            )}
+            ) : null}
           </DialogDescription>
         </DialogHeader>
 
-        {/* Step 1: Appeal type + reason */}
-        {step === 1 && (
+        {step === 1 ? (
           <div className="space-y-4">
-            {/* Appeal type selector */}
-            <div className="space-y-2">
-              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                Grounds for Appeal
-              </label>
-              <div className="grid grid-cols-2 gap-2">
-                {APPEAL_TYPES.map((type) => (
-                  <button
-                    key={type.value}
-                    onClick={() => setAppealType(type.value)}
-                    className={cn(
-                      "flex flex-col items-start gap-0.5 rounded-lg border p-2.5 text-left text-xs transition-all",
-                      appealType === type.value
-                        ? "border-amber-300 bg-amber-50 text-amber-800 ring-2 ring-amber-200"
-                        : "border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50",
-                    )}
-                  >
-                    <span className="font-medium">{type.label}</span>
-                    <span className="text-xs opacity-75">
-                      {type.description}
-                    </span>
-                  </button>
-                ))}
-              </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              State the factual or procedural basis for the appeal clearly. The
+              backend requires at least 200 characters.
             </div>
 
-            {/* Reason */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                 Detailed Reason <span className="text-rose-500">*</span>
               </label>
               <Textarea
                 value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Explain in detail why you believe the verdict should be reconsidered. Include specific factual points, evidence references, or procedural issues…"
-                rows={5}
-                className="text-sm resize-none"
+                onChange={(event) => setReason(event.target.value)}
+                placeholder="Explain why the verdict should be reconsidered. Reference concrete facts, evidence, timeline details, or procedural issues."
+                rows={8}
+                className="resize-none text-sm"
               />
               <div className="flex justify-between text-xs text-slate-400">
                 <span>
                   {reason.length} characters
-                  {reason.length > 0 && reason.length < 20 && (
-                    <span className="text-amber-500 ml-1">
-                      (min 20 characters)
+                  {reason.length > 0 && reason.length < APPEAL_REASON_MIN_LENGTH ? (
+                    <span className="ml-1 text-amber-500">
+                      (min {APPEAL_REASON_MIN_LENGTH})
                     </span>
-                  )}
+                  ) : null}
                 </span>
               </div>
             </div>
 
-            {/* Next button */}
             <div className="flex justify-end pt-1">
               <button
                 onClick={() => setStep(2)}
                 disabled={!canProceed}
-                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50"
               >
                 Review Appeal
                 <ChevronRight className="h-4 w-4" />
               </button>
             </div>
           </div>
-        )}
-
-        {/* Step 2: Confirmation */}
-        {step === 2 && (
+        ) : (
           <div className="space-y-4">
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 space-y-2">
               <div className="flex items-center gap-2 text-sm font-medium text-amber-800">
                 <AlertTriangle className="h-4 w-4" />
-                Please confirm your appeal
+                Confirm appeal submission
               </div>
               <p className="text-xs text-amber-700">
-                This action cannot be undone. Your appeal will be forwarded to a
-                Tier 2 administrator for review. The original verdict may be
-                upheld, modified, or overturned.
+                The case will be escalated for admin review. The original verdict may
+                be upheld, modified, or overturned.
               </p>
             </div>
 
-            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 space-y-2">
-              <div className="text-xs text-slate-500">
-                <span className="font-medium">Grounds:</span>{" "}
-                {APPEAL_TYPES.find((t) => t.value === appealType)?.label ??
-                  appealType}
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+              <div className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                Reason
               </div>
-              <div className="text-xs text-slate-600">
-                <span className="font-medium text-slate-500">Reason:</span>{" "}
-                {reason}
-              </div>
+              <p className="mt-2 whitespace-pre-wrap text-sm text-slate-700">
+                {reason.trim()}
+              </p>
             </div>
 
             <div className="flex items-center justify-between pt-1">
               <button
                 onClick={() => setStep(1)}
                 disabled={submitting}
-                className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:bg-slate-50 transition-colors"
+                className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-50"
               >
                 <ChevronLeft className="h-4 w-4" />
                 Back
               </button>
               <button
                 onClick={() => void handleSubmit()}
-                disabled={submitting}
-                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white hover:bg-amber-500 disabled:opacity-50 transition-colors"
+                disabled={submitting || !canProceed}
+                className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50"
               >
                 {submitting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
                   <Send className="h-4 w-4" />
                 )}
-                {submitting ? "Submitting…" : "Submit Appeal"}
+                {submitting ? "Submitting..." : "Submit Appeal"}
               </button>
             </div>
           </div>

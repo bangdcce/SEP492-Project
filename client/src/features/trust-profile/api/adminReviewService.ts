@@ -6,6 +6,13 @@
 import { apiClient } from "@/shared/api/client";
 import type { AdminReview } from "../types";
 
+export interface ModerationAssigneeOption {
+  id: string;
+  fullName: string;
+  email?: string;
+  role?: string;
+}
+
 /**
  * Get all reviews for admin moderation
  * @param filters - Optional filters for status, etc.
@@ -21,9 +28,8 @@ export const getReviewsForModeration = async (filters?: {
   if (filters?.limit) params.append("limit", filters.limit.toString());
 
   const queryString = params.toString();
-  // [DEV] Using test endpoint without auth - change back to /reviews/admin/moderation for production
   return apiClient.get<AdminReview[]>(
-    `/reviews/test/moderation${queryString ? `?${queryString}` : ""}`
+    `/reviews/admin/moderation${queryString ? `?${queryString}` : ""}`
   );
 };
 
@@ -39,10 +45,9 @@ export const softDeleteReview = async (
   notes?: string
 ) => {
   const fullReason = notes ? `${reason}: ${notes}` : reason;
-  // [DEV] Using test endpoint without auth
   return apiClient.delete<{
     message: string;
-  }>(`/reviews/test/${reviewId}`, {
+  }>(`/reviews/${reviewId}`, {
     data: { reason: fullReason },
   });
 };
@@ -53,11 +58,10 @@ export const softDeleteReview = async (
  * @param reason - Reason for restoration
  */
 export const restoreReview = async (reviewId: string, reason: string) => {
-  // [DEV] Using test endpoint without auth
   return apiClient.post<{
     message: string;
     review: AdminReview;
-  }>(`/reviews/test/${reviewId}/restore`, { reason });
+  }>(`/reviews/${reviewId}/restore`, { reason });
 };
 
 /**
@@ -66,10 +70,51 @@ export const restoreReview = async (reviewId: string, reason: string) => {
  * @param reason - Reason for dismissing the report
  */
 export const dismissReport = async (reviewId: string, reason?: string) => {
-  // [DEV] Using test endpoint without auth
   return apiClient.post<{
     message: string;
-  }>(`/reviews/test/${reviewId}/dismiss-report`, { reason });
+  }>(`/reviews/${reviewId}/dismiss-report`, { reason });
+};
+
+export const openModerationCase = async (
+  reviewId: string,
+  assignmentVersion: number
+) => {
+  return apiClient.post<AdminReview>(
+    `/reviews/admin/moderation/${reviewId}/open`,
+    { assignmentVersion },
+  );
+};
+
+export const takeModerationCase = async (
+  reviewId: string,
+  assignmentVersion: number
+) => {
+  return apiClient.post<AdminReview>(
+    `/reviews/admin/moderation/${reviewId}/take`,
+    { assignmentVersion },
+  );
+};
+
+export const releaseModerationCase = async (
+  reviewId: string,
+  assignmentVersion: number
+) => {
+  return apiClient.post<AdminReview>(
+    `/reviews/admin/moderation/${reviewId}/release`,
+    { assignmentVersion },
+  );
+};
+
+export const reassignModerationCase = async (
+  reviewId: string,
+  assigneeId: string,
+  assignmentVersion: number,
+  reason?: string,
+) => {
+  return apiClient.post<AdminReview>(
+    `/reviews/admin/moderation/${reviewId}/reassign`,
+    { assigneeId, assignmentVersion, reason },
+  );
 };
 
 /**
@@ -103,4 +148,27 @@ export const bulkModerationAction = async (
     action,
     reason,
   });
+};
+
+export const getModerationAssignees = async () => {
+  const response = await apiClient.get<{
+    users?: Array<{
+      id: string;
+      fullName?: string | null;
+      email?: string | null;
+      role?: string | null;
+    }>;
+  }>("/users", {
+    params: {
+      role: "ADMIN",
+      limit: 100,
+    },
+  });
+
+  return (response.users || []).map((user) => ({
+    id: user.id,
+    fullName: user.fullName || user.email || "Admin",
+    email: user.email || undefined,
+    role: user.role || undefined,
+  })) as ModerationAssigneeOption[];
 };

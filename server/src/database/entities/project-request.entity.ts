@@ -3,6 +3,7 @@ import {
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
+  UpdateDateColumn,
   ManyToOne,
   JoinColumn,
   OneToMany,
@@ -33,6 +34,14 @@ export enum RequestStatus {
   SPEC_SUBMITTED = 'SPEC_SUBMITTED',
 }
 
+export interface ProjectRequestAttachmentMetadata {
+  filename: string;
+  url: string;
+  mimetype?: string | null;
+  size?: number | null;
+  category?: 'requirements' | 'attachment';
+}
+
 @Entity('project_requests')
 export class ProjectRequestEntity {
   @PrimaryGeneratedColumn('uuid')
@@ -56,6 +65,12 @@ export class ProjectRequestEntity {
   @Column({ name: 'techPreferences', type: 'varchar', nullable: true })
   techPreferences: string;
 
+  @Column({ type: 'jsonb', nullable: true })
+  attachments: ProjectRequestAttachmentMetadata[] | null;
+
+  @Column({ type: 'int', nullable: true, default: 1 })
+  wizardProgressStep: number | null;
+
   @Column({
     type: 'enum',
     enum: RequestStatus,
@@ -68,6 +83,9 @@ export class ProjectRequestEntity {
 
   @CreateDateColumn({ name: 'createdAt' })
   createdAt: Date;
+
+  @UpdateDateColumn({ name: 'updatedAt' })
+  updatedAt: Date;
 
   // Relations
   @ManyToOne(() => UserEntity, (user) => user.clientRequests, { onDelete: 'CASCADE' })

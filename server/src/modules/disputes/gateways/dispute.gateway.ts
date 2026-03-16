@@ -8,7 +8,14 @@ import {
   WebSocketServer,
   WsException,
 } from '@nestjs/websockets';
-import { Logger, UsePipes, ValidationPipe } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Logger,
+  NotFoundException,
+  UsePipes,
+  ValidationPipe,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -19,10 +26,13 @@ import {
   DisputeEntity,
   DisputeHearingEntity,
   HearingParticipantEntity,
+  DisputeInternalMembershipEntity,
+  DisputePartyEntity,
 } from 'src/database/entities';
 import { HearingService } from '../services/hearing.service';
 import { DisputesService } from '../disputes.service';
 import { SendDisputeMessageDto } from '../dto/message.dto';
+import { ResolveObjectionDto } from '../dto/hearing.dto';
 
 const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (value === undefined) return fallback;
@@ -58,6 +68,26 @@ type WsUser = {
   email?: string;
 };
 
+type SendDisputeMessageAck =
+  | {
+      success: true;
+      messageId: string;
+      disputeId: string;
+      hearingId?: string | null;
+      createdAt: string;
+    }
+  | {
+      success: false;
+      error: string;
+      errorCode?:
+        | 'CHAT_NOT_ALLOWED'
+        | 'HEARING_INVITE_DECLINED'
+        | 'HEARING_NOT_ACTIVE'
+        | 'SPEAKER_BLOCKED'
+        | 'DISPUTE_ACCESS_DENIED';
+      retryable?: boolean;
+    };
+
 @WebSocketGateway({
   namespace: '/ws',
   cors: {
@@ -85,6 +115,10 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     private readonly hearingRepo: Repository<DisputeHearingEntity>,
     @InjectRepository(HearingParticipantEntity)
     private readonly participantRepo: Repository<HearingParticipantEntity>,
+    @InjectRepository(DisputeInternalMembershipEntity)
+    private readonly internalMembershipRepo: Repository<DisputeInternalMembershipEntity>,
+    @InjectRepository(DisputePartyEntity)
+    private readonly disputePartyRepo: Repository<DisputePartyEntity>,
   ) {}
 
   async handleConnection(client: Socket): Promise<void> {
@@ -180,7 +214,7 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     }
 
     this.logger.log(
-      `joinHearing: ${user.email} joined ${data.hearingId.slice(0, 8)}… track=${access.trackPresence}`,
+      `joinHearing: ${user.email} joined ${data.hearingId.slice(0, 8)}... track=${access.trackPresence}`,
     );
 
     // Send the current presence state of ALL participants to the joining
@@ -241,28 +275,41 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
   async sendDisputeMessage(
     @MessageBody() dto: SendDisputeMessageDto,
     @ConnectedSocket() client: Socket,
-  ): Promise<{
-    success: boolean;
-    messageId: string;
-    disputeId: string;
-    hearingId?: string | null;
-    createdAt: string;
-  }> {
+  ): Promise<SendDisputeMessageAck> {
     const user = this.getUser(client);
-    await this.ensureDisputeAccess(dto.disputeId, user);
-    if (dto.hearingId) {
-      await this.ensureHearingAccess(dto.hearingId, user);
+
+    try {
+      await this.ensureDisputeAccess(dto.disputeId, user);
+      if (dto.hearingId) {
+        await this.ensureHearingAccess(dto.hearingId, user);
+      }
+
+      const saved = await this.disputesService.sendDisputeMessage(dto, user.id, user.role, user);
+
+      return {
+        success: true,
+        messageId: saved.id,
+        disputeId: saved.disputeId,
+        hearingId: saved.hearingId,
+        createdAt: saved.createdAt.toISOString(),
+      };
+    } catch (error) {
+      const mapped = this.mapSendDisputeMessageError(error);
+      if (!mapped) {
+        throw error;
+      }
+
+      this.logger.warn(
+        `sendDisputeMessage rejected disputeId=${dto.disputeId} hearingId=${dto.hearingId ?? 'none'} userId=${user.id} code=${mapped.errorCode} retryable=${mapped.retryable}`,
+      );
+
+      return {
+        success: false,
+        error: mapped.error,
+        errorCode: mapped.errorCode,
+        retryable: mapped.retryable,
+      };
     }
-
-    const saved = await this.disputesService.sendDisputeMessage(dto, user.id, user.role, user);
-
-    return {
-      success: true,
-      messageId: saved.id,
-      disputeId: saved.disputeId,
-      hearingId: saved.hearingId,
-      createdAt: saved.createdAt.toISOString(),
-    };
   }
 
   @SubscribeMessage('leaveStaffDashboard')
@@ -283,10 +330,67 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     const user = this.getUser(client);
     const room = this.hearingRoom(data.hearingId);
     // Broadcast to everyone in the room EXCEPT the sender.
-    this.emitToRoomSafely(room, 'HEARING_TYPING', {
-      userId: user.id,
-      isTyping: data.isTyping ?? true,
-    }, client.id);
+    this.emitToRoomSafely(
+      room,
+      'HEARING_TYPING',
+      {
+        userId: user.id,
+        isTyping: data.isTyping ?? true,
+      },
+      client.id,
+    );
+  }
+
+  @SubscribeMessage('resolveObjection')
+  async resolveObjection(
+    @MessageBody()
+    data: { hearingId: string; statementId: string; ruling: 'SUSTAINED' | 'OVERRULED' },
+    @ConnectedSocket() client: Socket,
+  ): Promise<{ success: boolean; statementId?: string; ruling?: string; error?: string }> {
+    if (!data?.hearingId) {
+      throw new WsException('hearingId is required');
+    }
+    if (!data?.statementId) {
+      throw new WsException('statementId is required');
+    }
+    if (!data?.ruling || !['SUSTAINED', 'OVERRULED'].includes(data.ruling)) {
+      throw new WsException('ruling must be SUSTAINED or OVERRULED');
+    }
+
+    const user = this.getUser(client);
+
+    try {
+      await this.ensureHearingAccess(data.hearingId, user);
+
+      const dto = new ResolveObjectionDto();
+      dto.statementId = data.statementId;
+      dto.ruling = data.ruling;
+
+      const result = await this.hearingService.resolveObjection(data.hearingId, dto, user.id);
+
+      return {
+        success: true,
+        statementId: result.id,
+        ruling: result.objectionStatus,
+      };
+    } catch (error) {
+      const message =
+        error instanceof WsException
+          ? error.getError()
+          : error instanceof Error
+            ? error.message
+            : 'Failed to resolve objection';
+      const errorMessage = typeof message === 'string' ? message : 'Failed to resolve objection';
+
+      this.logger.warn(
+        `resolveObjection failed hearingId=${data.hearingId} statementId=${data.statementId} userId=${user.id}: ${errorMessage}`,
+      );
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
   }
 
   emitDisputeEvent(disputeId: string, event: string, payload: Record<string, any>): void {
@@ -398,7 +502,14 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
   private async ensureDisputeAccess(disputeId: string, user: WsUser): Promise<void> {
     const dispute = await this.disputeRepo.findOne({
       where: { id: disputeId },
-      select: ['id', 'raisedById', 'defendantId', 'assignedStaffId', 'escalatedToAdminId'],
+      select: [
+        'id',
+        'groupId',
+        'raisedById',
+        'defendantId',
+        'assignedStaffId',
+        'escalatedToAdminId',
+      ],
     });
 
     if (!dispute) {
@@ -412,8 +523,26 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
     const isParty = user.id === dispute.raisedById || user.id === dispute.defendantId;
     const isAssignedStaff = user.role === UserRole.STAFF && user.id === dispute.assignedStaffId;
     const isEscalatedAdmin = user.id === dispute.escalatedToAdminId;
+    const hasInternalAccess =
+      user.role === UserRole.STAFF
+        ? await this.internalMembershipRepo.findOne({
+            where: { disputeId: dispute.id, userId: user.id },
+            select: ['id'],
+          })
+        : null;
+    const groupId = dispute.groupId || dispute.id;
+    const isGroupPartyMember = await this.disputePartyRepo.findOne({
+      where: { groupId, userId: user.id },
+      select: ['id'],
+    });
 
-    if (!isParty && !isAssignedStaff && !isEscalatedAdmin) {
+    if (
+      !isParty &&
+      !isAssignedStaff &&
+      !isEscalatedAdmin &&
+      !hasInternalAccess &&
+      !isGroupPartyMember
+    ) {
       throw new WsException('Access denied');
     }
   }
@@ -443,9 +572,80 @@ export class DisputeGateway implements OnGatewayConnection, OnGatewayDisconnect 
       throw new WsException('Access denied');
     }
 
+    const hasDeclined = await this.hearingService.isHearingInviteDeclined(hearingId, user.id);
+    if (hasDeclined && !isModerator && !isAdmin) {
+      throw new WsException('You declined this hearing invitation');
+    }
+
     // Track presence for anyone who has a participant record
     // (moderators/admins may also have one)
     return { trackPresence: Boolean(participant) || isModerator || isAdmin };
+  }
+
+  private mapSendDisputeMessageError(error: unknown): {
+    error: string;
+    errorCode: NonNullable<Extract<SendDisputeMessageAck, { success: false }>['errorCode']>;
+    retryable: boolean;
+  } | null {
+    const rawMessage =
+      error instanceof WsException
+        ? error.getError()
+        : error instanceof Error
+          ? error.message
+          : 'Message delivery failed';
+    const message =
+      typeof rawMessage === 'string'
+        ? rawMessage
+        : typeof rawMessage === 'object' && rawMessage && 'message' in rawMessage
+          ? String((rawMessage as { message?: unknown }).message ?? 'Message delivery failed')
+          : 'Message delivery failed';
+    const normalized = message.toLowerCase();
+
+    if (
+      error instanceof WsException ||
+      error instanceof ForbiddenException ||
+      error instanceof BadRequestException ||
+      error instanceof NotFoundException
+    ) {
+      if (normalized.includes('declined this hearing invitation')) {
+        return {
+          error: message,
+          errorCode: 'HEARING_INVITE_DECLINED',
+          retryable: false,
+        };
+      }
+      if (normalized.includes('not allowed to speak')) {
+        return {
+          error: message,
+          errorCode: 'SPEAKER_BLOCKED',
+          retryable: false,
+        };
+      }
+      if (
+        normalized.includes('chat room is not active') ||
+        normalized.includes('hearing is paused')
+      ) {
+        return {
+          error: message,
+          errorCode: 'HEARING_NOT_ACTIVE',
+          retryable: false,
+        };
+      }
+      if (normalized.includes('access denied') || normalized.includes('unauthorized socket')) {
+        return {
+          error: message,
+          errorCode: 'DISPUTE_ACCESS_DENIED',
+          retryable: false,
+        };
+      }
+      return {
+        error: message,
+        errorCode: 'CHAT_NOT_ALLOWED',
+        retryable: false,
+      };
+    }
+
+    return null;
   }
 
   private disputeRoom(disputeId: string): string {

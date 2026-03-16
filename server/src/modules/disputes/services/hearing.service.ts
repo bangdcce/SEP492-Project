@@ -28,6 +28,10 @@ import {
   DisputePhase,
 } from '../../../database/entities/dispute.entity';
 import {
+  DisputeAction,
+  DisputeActivityEntity,
+} from '../../../database/entities/dispute-activity.entity';
+import {
   DisputePartyEntity,
   DisputePartySide,
 } from '../../../database/entities/dispute-party.entity';
@@ -46,8 +50,10 @@ import {
   HearingParticipantEntity,
   HearingParticipantRole,
   HearingStatementEntity,
+  HearingStatementContentBlock,
   HearingStatementStatus,
   HearingStatementType,
+  HearingStatementVersionSnapshot,
   HearingQuestionEntity,
   HearingQuestionStatus,
   HearingStatus,
@@ -77,6 +83,8 @@ import {
 import { EmailService } from '../../auth/email.service';
 import { HearingPresenceService } from './hearing-presence.service';
 import { EvidenceService } from './evidence.service';
+import { buildHearingDocket, isDisputeClosedStatus } from '../dispute-docket';
+import { CalendarService } from '../../calendar/calendar.service';
 import {
   ScheduleHearingDto,
   RescheduleHearingDto,
@@ -85,6 +93,7 @@ import {
   EndHearingDto,
   ExtendHearingDto,
   InviteSupportStaffDto,
+  ResolveObjectionDto,
 } from '../dto/hearing.dto';
 
 // =============================================================================
@@ -125,11 +134,18 @@ export interface HearingParticipantConfirmationSummary {
   requiredTentative: number;
   requiredPending: number;
   allRequiredAccepted: boolean;
+  hasModeratorAccepted: boolean;
+  primaryPartyAcceptedCount: number;
+  primaryPartyPendingCount: number;
+  primaryPartyDeclinedCount: number;
+  confirmedPrimaryRoles: HearingParticipantRole[];
+  confirmationSatisfied: boolean;
   participants: Array<{
     userId: string;
     role: ParticipantRole;
     status: ParticipantStatus;
     isRequired: boolean;
+    caseRole?: HearingParticipantRole | null;
     respondedAt?: Date;
     responseDeadline?: Date;
   }>;
@@ -200,6 +216,9 @@ export interface HearingEvidenceAttachPermissionResult {
   >;
 }
 
+export type HearingLifecycleFilter = 'active' | 'archived' | 'all';
+export type HearingLifecycle = 'ACTIVE' | 'ARCHIVED';
+
 // =============================================================================
 // CONSTANTS
 // =============================================================================
@@ -210,11 +229,12 @@ const HEARING_CONFIG = {
   EMERGENCY_MIN_NOTICE_HOURS: 1, // For emergency hearings
 
   // Invitation response deadline
-  RESPONSE_DEADLINE_DAYS: 7,
+  CONFIRMATION_TIMEOUT_HOURS: 12,
   MIN_CONFIRMATION_BEFORE_START_HOURS: 2,
+  RESCHEDULE_FREEZE_HOURS: 24,
 
   // Reschedule limits
-  MAX_RESCHEDULES: 3,
+  MAX_RESCHEDULES: 2,
 
   // Moderator offline threshold (minutes)
   MODERATOR_OFFLINE_THRESHOLD: 5,
@@ -234,6 +254,15 @@ const HEARING_REMINDER_WINDOWS = [
   { type: HearingReminderType.T10M, minutesBefore: 10 },
 ] as const;
 const HEARING_REMINDER_DISPATCH_GRACE_MINUTES = 2;
+const ACTIVE_HEARING_STATUSES = new Set<HearingStatus>([
+  HearingStatus.SCHEDULED,
+  HearingStatus.IN_PROGRESS,
+  HearingStatus.PAUSED,
+]);
+const APPEAL_DISPUTE_STATUSES = new Set<DisputeStatus>([
+  DisputeStatus.APPEALED,
+  DisputeStatus.REJECTION_APPEALED,
+]);
 const HEARING_PHASE_SEQUENCE: DisputePhase[] = [
   DisputePhase.PRESENTATION,
   DisputePhase.EVIDENCE_SUBMISSION,
@@ -296,6 +325,7 @@ export class HearingService implements OnModuleInit {
     private readonly emailService: EmailService,
     private readonly hearingPresenceService: HearingPresenceService,
     private readonly evidenceService: EvidenceService,
+    private readonly calendarService: CalendarService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -330,6 +360,106 @@ export class HearingService implements OnModuleInit {
   ): number {
     const base = hearing.accumulatedPauseSeconds || 0;
     return base + this.getElapsedPauseSeconds(hearing);
+  }
+
+  private normalizeMeetingLink(value?: string | null): string | undefined {
+    const normalized = value?.trim();
+    return normalized ? normalized : undefined;
+  }
+
+  private async buildDocketForDispute(disputeId: string, disputeStatus?: DisputeStatus | null) {
+    const hearings = await this.hearingRepository.find({
+      where: { disputeId },
+      select: [
+        'id',
+        'disputeId',
+        'status',
+        'scheduledAt',
+        'agenda',
+        'previousHearingId',
+        'hearingNumber',
+        'tier',
+        'summary',
+        'findings',
+        'noShowNote',
+        'externalMeetingLink',
+      ],
+      order: {
+        hearingNumber: 'ASC',
+        scheduledAt: 'ASC',
+      },
+    });
+
+    let effectiveDisputeStatus = disputeStatus;
+    if (!effectiveDisputeStatus) {
+      const dispute = await this.disputeRepository.findOne({
+        where: { id: disputeId },
+        select: ['id', 'status'],
+      });
+      effectiveDisputeStatus = dispute?.status;
+    }
+
+    return buildHearingDocket(hearings, effectiveDisputeStatus);
+  }
+
+  private async assertHearingIsActionable(
+    hearing: Pick<DisputeHearingEntity, 'id' | 'disputeId' | 'tier'> & {
+      dispute?: Pick<DisputeEntity, 'status'> | null;
+    },
+  ): Promise<void> {
+    const docketEntry = await this.getHearingDocketEntry(hearing);
+
+    if (!docketEntry?.isActionable) {
+      throw new BadRequestException({
+        code: 'HEARING_DOCKET_FROZEN',
+        message:
+          docketEntry?.freezeReason ||
+          'This hearing is no longer actionable. Review the latest docket entry for this dispute.',
+      });
+    }
+  }
+
+  private async getHearingDocketEntry(
+    hearing: Pick<DisputeHearingEntity, 'id' | 'disputeId' | 'tier'> & {
+      dispute?: Pick<DisputeEntity, 'status'> | null;
+    },
+  ) {
+    const docket = await this.buildDocketForDispute(hearing.disputeId, hearing.dispute?.status);
+    return docket.items.find((item) => item.hearingId === hearing.id);
+  }
+
+  private resolveHearingLifecycle(
+    hearing: Pick<DisputeHearingEntity, 'status' | 'tier'> & {
+      dispute?: Pick<DisputeEntity, 'status'> | null;
+    },
+  ): HearingLifecycle {
+    if (
+      hearing.tier === HearingTier.TIER_1 &&
+      hearing.dispute?.status &&
+      APPEAL_DISPUTE_STATUSES.has(hearing.dispute.status)
+    ) {
+      return 'ARCHIVED';
+    }
+
+    return ACTIVE_HEARING_STATUSES.has(hearing.status) ? 'ACTIVE' : 'ARCHIVED';
+  }
+
+  private applyLifecycleFilter<T extends Pick<DisputeHearingEntity, 'status' | 'tier'> & {
+    dispute?: Pick<DisputeEntity, 'status'> | null;
+  }>(
+    hearings: T[],
+    lifecycle: HearingLifecycleFilter = 'all',
+  ): T[] {
+    if (lifecycle === 'all') {
+      return hearings;
+    }
+
+    return hearings.filter((hearing) => {
+      const hearingLifecycle = this.resolveHearingLifecycle(hearing);
+      return lifecycle === 'active'
+        ? hearingLifecycle === 'ACTIVE'
+        : hearingLifecycle === 'ARCHIVED';
+    });
   }
 
   // ===========================================================================
@@ -740,12 +870,12 @@ export class HearingService implements OnModuleInit {
           addParticipant({
             userId: project.brokerId,
             role: HearingParticipantRole.WITNESS,
-            isRequired: true, // Broker is critical - knows the Spec
+            isRequired: false, // Broker is a witness but optional for finalize gate
             userRole: UserRole.BROKER,
             relationToProject: 'broker',
           });
           hasBroker = true;
-          this.logger.log(`Added Broker ${project.brokerId} as required WITNESS`);
+          this.logger.log(`Added Broker ${project.brokerId} as optional WITNESS`);
         }
 
         // Add Freelancer as OBSERVER if not already a party
@@ -831,7 +961,7 @@ export class HearingService implements OnModuleInit {
 
     // 8. Warnings if key people missing
     if (!hasBroker && dispute.projectId) {
-      warnings.push('笞・・No Broker found for this project. Broker testimony may be helpful.');
+      warnings.push('No broker is linked to this project. Broker testimony may still be helpful.');
     }
 
     // Note: Supervisor logic would require additional entity/field
@@ -855,10 +985,43 @@ export class HearingService implements OnModuleInit {
   // HELPERS: DEADLINE, READY CHECK, ATTENDANCE
   // ===========================================================================
 
+  private async loadHearingInviteStatusMap(
+    hearingId: string,
+  ): Promise<Map<string, ParticipantStatus>> {
+    const event = await this.calendarRepository.findOne({
+      where: { referenceType: 'DisputeHearing', referenceId: hearingId },
+      select: ['id'],
+    });
+
+    if (!event) {
+      return new Map();
+    }
+
+    const participants = await this.eventParticipantRepository.find({
+      where: { eventId: event.id },
+      select: ['userId', 'status'],
+    });
+
+    return new Map(participants.map((participant) => [participant.userId, participant.status]));
+  }
+
+  private async getHearingInviteStatus(
+    hearingId: string,
+    userId: string,
+  ): Promise<ParticipantStatus | null> {
+    const statusByUser = await this.loadHearingInviteStatusMap(hearingId);
+    return statusByUser.get(userId) || null;
+  }
+
+  async isHearingInviteDeclined(hearingId: string, userId: string): Promise<boolean> {
+    const status = await this.getHearingInviteStatus(hearingId, userId);
+    return status === ParticipantStatus.DECLINED;
+  }
+
   private calculateResponseDeadline(scheduledAt: Date, isEmergency: boolean): Date {
     const now = new Date();
     const maxDeadline = new Date(
-      now.getTime() + HEARING_CONFIG.RESPONSE_DEADLINE_DAYS * 24 * 60 * 60 * 1000,
+      now.getTime() + HEARING_CONFIG.CONFIRMATION_TIMEOUT_HOURS * 60 * 60 * 1000,
     );
     const minBeforeStart = new Date(
       scheduledAt.getTime() - HEARING_CONFIG.MIN_CONFIRMATION_BEFORE_START_HOURS * 60 * 60 * 1000,
@@ -879,16 +1042,97 @@ export class HearingService implements OnModuleInit {
     return deadline;
   }
 
-  private areAllRequiredParticipantsReady(participants: HearingParticipantEntity[]): boolean {
+  private areAllRequiredParticipantsReady(
+    participants: HearingParticipantEntity[],
+    inviteStatusByUser: Map<string, ParticipantStatus>,
+  ): boolean {
     const required = participants.filter((p) => p.isRequired);
     if (required.length === 0) {
       return false;
     }
-    return required.every((p) => p.isOnline && !!p.confirmedAt);
+    return required.every(
+      (participant) =>
+        participant.isOnline &&
+        inviteStatusByUser.get(participant.userId) === ParticipantStatus.ACCEPTED,
+    );
   }
 
   private getMinimumAttendanceMinutes(durationMinutes: number): number {
     return Math.ceil(durationMinutes * HEARING_CONFIG.MIN_ATTENDANCE_RATIO);
+  }
+
+  private extractLatestResponseDeadline(
+    summary?: HearingParticipantConfirmationSummary | null,
+  ): Date | null {
+    if (!summary?.participants?.length) {
+      return null;
+    }
+
+    const deadlines = summary.participants
+      .map((participant) =>
+        participant.responseDeadline ? new Date(participant.responseDeadline) : null,
+      )
+      .filter((value): value is Date => Boolean(value && !Number.isNaN(value.getTime())));
+
+    if (!deadlines.length) {
+      return null;
+    }
+
+    return deadlines.sort((a, b) => b.getTime() - a.getTime())[0];
+  }
+
+  private async markPendingConfirmationForManualReview(
+    event: Pick<CalendarEventEntity, 'id' | 'metadata'>,
+    reason: string,
+    referenceAt: Date,
+  ): Promise<void> {
+    await this.calendarRepository.update(event.id, {
+      metadata: {
+        ...(event.metadata || {}),
+        manualNoShowReviewRequired: true,
+        noShowReady: true,
+        noShowReason: reason,
+        confirmationExpiredAt: referenceAt.toISOString(),
+      },
+    });
+  }
+
+  private async findNextAutoRescheduleSlot(
+    hearing: Pick<
+      DisputeHearingEntity,
+      | 'scheduledAt'
+      | 'estimatedDurationMinutes'
+      | 'participants'
+      | 'agenda'
+      | 'requiredDocuments'
+      | 'externalMeetingLink'
+    >,
+    referenceAt: Date,
+  ): Promise<Date | null> {
+    const participantIds = Array.from(
+      new Set((hearing.participants || []).map((participant) => participant.userId).filter(Boolean)),
+    );
+    if (!participantIds.length) {
+      return null;
+    }
+
+    const durationMinutes = hearing.estimatedDurationMinutes || 60;
+    const rangeStart = new Date(
+      Math.max(
+        referenceAt.getTime() + 30 * 60 * 1000,
+        hearing.scheduledAt.getTime() + 30 * 60 * 1000,
+      ),
+    );
+    const rangeEnd = new Date(rangeStart.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+    const availableSlots = await this.calendarService.findAvailableSlots({
+      userIds: participantIds,
+      durationMinutes,
+      dateRange: { start: rangeStart, end: rangeEnd },
+      maxSlots: 5,
+    });
+
+    return availableSlots.slots[0]?.start ?? null;
   }
 
   private getParticipantOnlineMinutes(participant: HearingParticipantEntity, asOf: Date): number {
@@ -937,11 +1181,23 @@ export class HearingService implements OnModuleInit {
   async getChatPermission(hearingId: string, userId: string): Promise<ChatPermissionResult> {
     const hearing = await this.hearingRepository.findOne({
       where: { id: hearingId },
-      relations: ['participants'],
+      relations: ['participants', 'dispute'],
     });
 
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
+    }
+
+    const docketEntry = await this.getHearingDocketEntry(hearing);
+    if (docketEntry && !docketEntry.isActionable) {
+      return {
+        allowed: false,
+        reason:
+          docketEntry.freezeReason ||
+          'This hearing is archived and no longer accepts live interaction.',
+        hearing,
+        effectiveSpeakerRole: hearing.currentSpeakerRole,
+      };
     }
 
     if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
@@ -965,14 +1221,21 @@ export class HearingService implements OnModuleInit {
       };
     }
 
-    const nowMs = Date.now();
-    const grace = this.speakerGracePeriod.get(hearingId);
-    if (grace && grace.expiresAtMs <= nowMs) {
-      this.speakerGracePeriod.delete(hearingId);
+    const inviteStatus = await this.getHearingInviteStatus(hearingId, userId);
+    if (inviteStatus === ParticipantStatus.DECLINED) {
+      this.logger.warn(
+        `hearing_chat_denied_declined_participant hearingId=${hearingId} userId=${userId}`,
+      );
+      return {
+        allowed: false,
+        reason: 'You declined this hearing invitation and no longer have chat access.',
+        hearing,
+        participantRole: participant.role,
+        effectiveSpeakerRole: hearing.currentSpeakerRole,
+      };
     }
-    const graceActive = grace && grace.expiresAtMs > nowMs;
-    const effectiveRole = graceActive ? grace.previousRole : hearing.currentSpeakerRole;
-    const gracePeriodUntil = graceActive ? new Date(grace.expiresAtMs) : undefined;
+
+    const effectiveRole = hearing.currentSpeakerRole;
 
     if (!this.isSpeakerAllowed(effectiveRole, participant.role)) {
       return {
@@ -981,7 +1244,6 @@ export class HearingService implements OnModuleInit {
         hearing,
         participantRole: participant.role,
         effectiveSpeakerRole: effectiveRole,
-        gracePeriodUntil,
       };
     }
 
@@ -990,7 +1252,6 @@ export class HearingService implements OnModuleInit {
       hearing,
       participantRole: participant.role,
       effectiveSpeakerRole: effectiveRole,
-      gracePeriodUntil,
     };
   }
 
@@ -1035,8 +1296,15 @@ export class HearingService implements OnModuleInit {
     const isModerator = hearing.moderatorId === user.id;
     const isAdmin = user.role === UserRole.ADMIN;
     const isStaff = user.role === UserRole.STAFF;
+    const participantRecord = hearing.participants?.find(
+      (participant) => participant.userId === user.id,
+    );
+    const isDeclinedParticipant = await this.isHearingInviteDeclined(hearing.id, user.id);
 
-    if (dispute.status === DisputeStatus.RESOLVED) {
+    if (isDeclinedParticipant && !isAdmin && !isModerator) {
+      permissions.uploadEvidenceBlockedReason =
+        'You declined this hearing invitation and cannot upload evidence.';
+    } else if (dispute.status === DisputeStatus.RESOLVED) {
       permissions.uploadEvidenceBlockedReason = 'Cannot upload evidence to a resolved dispute.';
     } else if (hearing.status === HearingStatus.PAUSED) {
       permissions.uploadEvidenceBlockedReason = 'Cannot upload evidence while hearing is paused.';
@@ -1056,22 +1324,11 @@ export class HearingService implements OnModuleInit {
       permissions.canUploadEvidence = true;
     }
 
-    if (
-      hearing.status === HearingStatus.IN_PROGRESS &&
-      hearing.isChatRoomActive &&
-      (isAdmin || isModerator || isPartyMember)
-    ) {
-      permissions.canAttachEvidenceLink = true;
-    } else if (hearing.status === HearingStatus.PAUSED) {
-      permissions.attachEvidenceBlockedReason =
-        'Evidence links are unavailable while hearing is paused.';
-    } else if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
-      permissions.attachEvidenceBlockedReason =
-        'Evidence links are available only while hearing chat is active.';
-    } else {
-      permissions.attachEvidenceBlockedReason =
-        'Only dispute parties or the hearing moderator can attach evidence links.';
-    }
+    const attachPermission = await this.getEvidenceAttachPermission(hearing.id, user.id, user.role);
+    permissions.canAttachEvidenceLink = attachPermission.allowed;
+    permissions.attachEvidenceBlockedReason = attachPermission.allowed
+      ? undefined
+      : attachPermission.reason;
 
     if (!isAdmin && !isModerator) {
       permissions.manageEvidenceIntakeBlockedReason =
@@ -1096,11 +1353,39 @@ export class HearingService implements OnModuleInit {
   ): Promise<HearingEvidenceAttachPermissionResult> {
     const hearing = await this.hearingRepository.findOne({
       where: { id: hearingId },
-      relations: ['dispute'],
+      relations: ['dispute', 'participants'],
     });
 
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
+    }
+
+    const participantRecord = hearing.participants?.find(
+      (participant) => participant.userId === userId,
+    );
+    const isDeclinedParticipant = await this.isHearingInviteDeclined(hearingId, userId);
+    if (participantRecord && isDeclinedParticipant) {
+      this.logger.warn(
+        `hearing_attach_evidence_denied_declined_participant hearingId=${hearingId} userId=${userId}`,
+      );
+      return {
+        allowed: false,
+        reason: 'You declined this hearing invitation and cannot attach evidence links.',
+        hearing,
+      };
+    }
+
+    await this.assertHearingIsActionable(hearing);
+
+    const docketEntry = await this.getHearingDocketEntry(hearing);
+    if (docketEntry && !docketEntry.isActionable) {
+      return {
+        allowed: false,
+        reason:
+          docketEntry.freezeReason ||
+          'This hearing is archived and no longer accepts live evidence discussion.',
+        hearing,
+      };
     }
 
     if (hearing.status !== HearingStatus.IN_PROGRESS || !hearing.isChatRoomActive) {
@@ -1134,6 +1419,22 @@ export class HearingService implements OnModuleInit {
       return {
         allowed: false,
         reason: 'Only dispute parties or the hearing moderator can attach evidence links.',
+        hearing,
+      };
+    }
+
+    if (!participantRecord) {
+      return {
+        allowed: false,
+        reason: 'Hearing participant record is missing.',
+        hearing,
+      };
+    }
+
+    if (!this.isSpeakerAllowed(hearing.currentSpeakerRole, participantRecord.role)) {
+      return {
+        allowed: false,
+        reason: 'You are not allowed to speak at this time.',
         hearing,
       };
     }
@@ -1192,9 +1493,11 @@ export class HearingService implements OnModuleInit {
       id: participant.id,
       userId: participant.userId,
       role: participant.role,
+      invitedAt: participant.invitedAt,
       isRequired: participant.isRequired,
       isOnline: participant.isOnline,
       confirmedAt: participant.confirmedAt,
+      declineReason: participant.declineReason,
       joinedAt: participant.joinedAt,
       leftAt: participant.leftAt,
       totalOnlineMinutes: participant.totalOnlineMinutes,
@@ -1218,6 +1521,8 @@ export class HearingService implements OnModuleInit {
       type: statement.type,
       title: statement.title,
       content: statement.content,
+      structuredContent: statement.structuredContent,
+      citedEvidenceIds: statement.citedEvidenceIds,
       status: statement.status,
       attachments: statement.attachments,
       replyToStatementId: statement.replyToStatementId,
@@ -1225,7 +1530,12 @@ export class HearingService implements OnModuleInit {
       orderIndex: statement.orderIndex,
       isRedacted: statement.isRedacted,
       redactedReason: statement.redactedReason,
+      platformDeclarationAccepted: statement.platformDeclarationAccepted,
+      platformDeclarationAcceptedAt: statement.platformDeclarationAcceptedAt,
+      versionNumber: statement.versionNumber,
+      versionHistory: statement.versionHistory ?? [],
       createdAt: statement.createdAt,
+      updatedAt: statement.updatedAt,
       participant: statement.participant
         ? {
             id: statement.participant.id,
@@ -1241,6 +1551,60 @@ export class HearingService implements OnModuleInit {
               : undefined,
           }
         : undefined,
+    };
+  }
+
+  private normalizeStatementBlocks(
+    blocks?: Array<{ kind: string; heading?: string; body: string }> | null,
+  ): HearingStatementContentBlock[] | null {
+    if (!blocks?.length) {
+      return null;
+    }
+
+    const normalized = blocks
+      .map((block, index) => ({
+        id: `${block.kind.toLowerCase()}-${index + 1}`,
+        kind: block.kind as HearingStatementContentBlock['kind'],
+        heading: block.heading?.trim() || null,
+        body: block.body?.trim() || '',
+      }))
+      .filter((block) => block.body.length > 0);
+
+    return normalized.length ? normalized : null;
+  }
+
+  private compileStatementContent(
+    blocks: HearingStatementContentBlock[] | null,
+    fallbackContent?: string | null,
+  ): string {
+    if (blocks?.length) {
+      return blocks
+        .map((block) =>
+          block.heading?.trim()
+            ? `${block.heading.trim()}\n${block.body.trim()}`
+            : block.body.trim(),
+        )
+        .join('\n\n')
+        .trim();
+    }
+
+    return fallbackContent?.trim() || '';
+  }
+
+  private buildStatementVersionSnapshot(
+    statement: HearingStatementEntity,
+    changeSummary?: string | null,
+  ): HearingStatementVersionSnapshot {
+    return {
+      versionNumber: statement.versionNumber ?? 1,
+      savedAt: (statement.updatedAt ?? statement.createdAt ?? new Date()).toISOString(),
+      status: statement.status,
+      title: statement.title ?? null,
+      content: statement.content ?? '',
+      attachments: statement.attachments ?? null,
+      citedEvidenceIds: statement.citedEvidenceIds ?? null,
+      structuredContent: statement.structuredContent ?? null,
+      changeSummary: changeSummary?.trim() || null,
     };
   }
 
@@ -1294,6 +1658,7 @@ export class HearingService implements OnModuleInit {
         'userId' | 'role' | 'status' | 'respondedAt' | 'responseDeadline'
       >
     >,
+    hearingRoleByUserId: Map<string, HearingParticipantRole> = new Map(),
   ): HearingParticipantConfirmationSummary {
     const initial: HearingParticipantConfirmationSummary = {
       totalParticipants: eventParticipants.length,
@@ -1307,6 +1672,12 @@ export class HearingService implements OnModuleInit {
       requiredTentative: 0,
       requiredPending: 0,
       allRequiredAccepted: false,
+      hasModeratorAccepted: false,
+      primaryPartyAcceptedCount: 0,
+      primaryPartyPendingCount: 0,
+      primaryPartyDeclinedCount: 0,
+      confirmedPrimaryRoles: [],
+      confirmationSatisfied: false,
       participants: [],
     };
 
@@ -1317,6 +1688,9 @@ export class HearingService implements OnModuleInit {
 
     for (const participant of eventParticipants) {
       const isRequired = requiredRoles.has(participant.role);
+      const caseRole = hearingRoleByUserId.get(participant.userId) ?? null;
+      const isPrimaryParty =
+        caseRole === HearingParticipantRole.RAISER || caseRole === HearingParticipantRole.DEFENDANT;
       if (isRequired) {
         initial.requiredParticipants += 1;
       }
@@ -1325,10 +1699,20 @@ export class HearingService implements OnModuleInit {
         case ParticipantStatus.ACCEPTED:
           initial.accepted += 1;
           if (isRequired) initial.requiredAccepted += 1;
+          if (participant.role === ParticipantRole.MODERATOR) {
+            initial.hasModeratorAccepted = true;
+          }
+          if (isPrimaryParty) {
+            initial.primaryPartyAcceptedCount += 1;
+            if (!initial.confirmedPrimaryRoles.includes(caseRole)) {
+              initial.confirmedPrimaryRoles.push(caseRole);
+            }
+          }
           break;
         case ParticipantStatus.DECLINED:
           initial.declined += 1;
           if (isRequired) initial.requiredDeclined += 1;
+          if (isPrimaryParty) initial.primaryPartyDeclinedCount += 1;
           break;
         case ParticipantStatus.TENTATIVE:
           initial.tentative += 1;
@@ -1339,6 +1723,7 @@ export class HearingService implements OnModuleInit {
         default:
           initial.pending += 1;
           if (isRequired) initial.requiredPending += 1;
+          if (isPrimaryParty) initial.primaryPartyPendingCount += 1;
           break;
       }
 
@@ -1347,6 +1732,7 @@ export class HearingService implements OnModuleInit {
         role: participant.role,
         status: participant.status,
         isRequired,
+        caseRole,
         respondedAt: participant.respondedAt,
         responseDeadline: participant.responseDeadline,
       });
@@ -1358,6 +1744,8 @@ export class HearingService implements OnModuleInit {
       initial.requiredDeclined === 0 &&
       initial.requiredTentative === 0 &&
       initial.requiredPending === 0;
+    initial.confirmationSatisfied =
+      initial.hasModeratorAccepted && initial.primaryPartyAcceptedCount > 0;
 
     return initial;
   }
@@ -1387,6 +1775,10 @@ export class HearingService implements OnModuleInit {
       where: { eventId: In(eventIds) },
       select: ['eventId', 'userId', 'role', 'status', 'respondedAt', 'responseDeadline'],
     });
+    const hearingParticipants = await this.participantRepository.find({
+      where: { hearingId: In(normalizedIds) },
+      select: ['hearingId', 'userId', 'role'],
+    });
 
     const participantsByEventId = new Map<
       string,
@@ -1407,11 +1799,20 @@ export class HearingService implements OnModuleInit {
     }
 
     const summariesByHearingId = new Map<string, HearingParticipantConfirmationSummary>();
+    const hearingRolesByHearingId = new Map<string, Map<string, HearingParticipantRole>>();
+    for (const participant of hearingParticipants) {
+      const existing = hearingRolesByHearingId.get(participant.hearingId) ?? new Map();
+      existing.set(participant.userId, participant.role);
+      hearingRolesByHearingId.set(participant.hearingId, existing);
+    }
     for (const event of hearingEvents) {
       const eventParticipants = participantsByEventId.get(event.id) || [];
       summariesByHearingId.set(
         event.referenceId,
-        this.buildParticipantConfirmationSummary(eventParticipants),
+        this.buildParticipantConfirmationSummary(
+          eventParticipants,
+          hearingRolesByHearingId.get(event.referenceId),
+        ),
       );
     }
 
@@ -1421,12 +1822,20 @@ export class HearingService implements OnModuleInit {
   private mapHearingSummary(
     hearing: DisputeHearingEntity,
     confirmationSummaryByHearingId?: Map<string, HearingParticipantConfirmationSummary>,
+    docketEntry?: {
+      isActionable: boolean;
+      isArchived: boolean;
+      freezeReason?: string;
+      minutesRecorded?: boolean;
+    },
   ) {
     const participantConfirmationSummary = confirmationSummaryByHearingId?.get(hearing.id);
+    const lifecycle = this.resolveHearingLifecycle(hearing);
     return {
       id: hearing.id,
       disputeId: hearing.disputeId,
       status: hearing.status,
+      lifecycle,
       scheduledAt: hearing.scheduledAt,
       startedAt: hearing.startedAt,
       endedAt: hearing.endedAt,
@@ -1444,6 +1853,9 @@ export class HearingService implements OnModuleInit {
       pausedAt: hearing.pausedAt,
       pausedById: hearing.pausedById,
       pauseReason: hearing.pauseReason,
+      summary: hearing.summary,
+      findings: hearing.findings,
+      noShowNote: hearing.noShowNote,
       accumulatedPauseSeconds: this.getTotalPauseSeconds(hearing),
       speakerRoleBeforePause: hearing.speakerRoleBeforePause,
       estimatedDurationMinutes: hearing.estimatedDurationMinutes,
@@ -1452,6 +1864,10 @@ export class HearingService implements OnModuleInit {
       lastRescheduledAt: hearing.lastRescheduledAt,
       hearingNumber: hearing.hearingNumber,
       tier: hearing.tier,
+      isActionable: docketEntry?.isActionable ?? lifecycle === 'ACTIVE',
+      isArchived: docketEntry?.isArchived ?? lifecycle === 'ARCHIVED',
+      freezeReason: docketEntry?.freezeReason,
+      minutesRecorded: docketEntry?.minutesRecorded ?? Boolean(hearing.summary && hearing.findings),
       participants: (hearing.participants || []).map((participant) =>
         this.mapParticipantSummary(participant),
       ),
@@ -1468,26 +1884,36 @@ export class HearingService implements OnModuleInit {
     };
   }
 
-  async getHearingsForDispute(disputeId: string, user: UserEntity) {
+  async getHearingsForDispute(
+    disputeId: string,
+    user: UserEntity,
+    lifecycle: HearingLifecycleFilter = 'all',
+  ) {
     await this.ensureDisputeAccessForHearings(disputeId, user);
 
     const hearings = await this.hearingRepository.find({
       where: { disputeId },
-      relations: ['participants', 'participants.user'],
+      relations: ['participants', 'participants.user', 'dispute'],
       order: { hearingNumber: 'ASC', scheduledAt: 'ASC' },
     });
+    const docket = buildHearingDocket(
+      hearings,
+      hearings[0]?.dispute?.status,
+    );
+    const docketByHearingId = new Map(docket.items.map((item) => [item.hearingId, item]));
+    const filteredHearings = this.applyLifecycleFilter(hearings, lifecycle);
     const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds(
-      hearings.map((hearing) => hearing.id),
+      filteredHearings.map((hearing) => hearing.id),
     );
 
-    return hearings.map((hearing) =>
-      this.mapHearingSummary(hearing, confirmationSummaryByHearingId),
+    return filteredHearings.map((hearing) =>
+      this.mapHearingSummary(hearing, confirmationSummaryByHearingId, docketByHearingId.get(hearing.id)),
     );
   }
 
   async getHearingsForUser(
     user: UserEntity,
-    options: { statuses?: HearingStatus[]; from?: Date; to?: Date } = {},
+    options: { statuses?: HearingStatus[]; from?: Date; to?: Date; lifecycle?: HearingLifecycleFilter } = {},
   ) {
     const qb = this.hearingRepository
       .createQueryBuilder('hearing')
@@ -1520,12 +1946,37 @@ export class HearingService implements OnModuleInit {
 
     qb.orderBy('hearing.scheduledAt', 'ASC');
 
-    const hearings = await qb.getMany();
+    const rawHearings = await qb.getMany();
+    const docketByHearingId = new Map<
+      string,
+      {
+        isActionable: boolean;
+        isArchived: boolean;
+        freezeReason?: string;
+        minutesRecorded?: boolean;
+      }
+    >();
+    const hearingsByDisputeId = new Map<string, DisputeHearingEntity[]>();
+    for (const hearing of rawHearings) {
+      const existing = hearingsByDisputeId.get(hearing.disputeId);
+      if (existing) {
+        existing.push(hearing);
+      } else {
+        hearingsByDisputeId.set(hearing.disputeId, [hearing]);
+      }
+    }
+    for (const [disputeId, disputeHearings] of hearingsByDisputeId.entries()) {
+      const docket = buildHearingDocket(disputeHearings, disputeHearings[0]?.dispute?.status);
+      for (const item of docket.items) {
+        docketByHearingId.set(item.hearingId, item);
+      }
+    }
+    const hearings = this.applyLifecycleFilter(rawHearings, options.lifecycle);
     const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds(
       hearings.map((hearing) => hearing.id),
     );
     return hearings.map((hearing) =>
-      this.mapHearingSummary(hearing, confirmationSummaryByHearingId),
+      this.mapHearingSummary(hearing, confirmationSummaryByHearingId, docketByHearingId.get(hearing.id)),
     );
   }
 
@@ -1547,13 +1998,44 @@ export class HearingService implements OnModuleInit {
     }
 
     const isModerator = hearing.moderatorId === user.id;
-    const isParticipant = hearing.participants?.some((p) => p.userId === user.id);
+    const participantRecord = hearing.participants?.find((p) => p.userId === user.id);
+    const isParticipant = Boolean(participantRecord);
     const dispute = hearing.dispute;
     const isParty = dispute && (user.id === dispute.raisedById || user.id === dispute.defendantId);
     const isAssignedStaff = user.role === UserRole.STAFF && dispute?.assignedStaffId === user.id;
     const isEscalatedAdmin = dispute?.escalatedToAdminId === user.id;
 
-    if (!isModerator && !isParticipant && !isParty && !isAssignedStaff && !isEscalatedAdmin) {
+    let isProjectParty = false;
+    if (!isParty && dispute?.projectId) {
+      const project = await this.projectRepository.findOne({
+        where: { id: dispute.projectId },
+        select: ['id', 'clientId', 'freelancerId', 'brokerId'],
+      });
+      if (project) {
+        isProjectParty = [project.clientId, project.freelancerId, project.brokerId]
+          .filter(Boolean)
+          .includes(user.id);
+      }
+    }
+
+    const isDeclinedParticipant = await this.isHearingInviteDeclined(hearingId, user.id);
+    if (isDeclinedParticipant && !isModerator && !isAssignedStaff && !isEscalatedAdmin) {
+      this.logger.warn(
+        `hearing_workspace_denied_declined_participant hearingId=${hearingId} userId=${user.id}`,
+      );
+      throw new ForbiddenException(
+        'You declined this hearing invitation and no longer have workspace access.',
+      );
+    }
+
+    if (
+      !isModerator &&
+      !isParticipant &&
+      !isParty &&
+      !isProjectParty &&
+      !isAssignedStaff &&
+      !isEscalatedAdmin
+    ) {
       throw new ForbiddenException('Access denied');
     }
 
@@ -1562,12 +2044,14 @@ export class HearingService implements OnModuleInit {
 
   async getHearingById(hearingId: string, user: UserEntity) {
     const hearing = await this.ensureHearingAccess(hearingId, user);
+    const docket = await this.buildDocketForDispute(hearing.disputeId, hearing.dispute?.status);
+    const docketEntry = docket.items.find((item) => item.hearingId === hearing.id);
     const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds([
       hearing.id,
     ]);
     const permissions = await this.buildHearingWorkspacePermissions(hearing, user);
     return {
-      ...this.mapHearingSummary(hearing, confirmationSummaryByHearingId),
+      ...this.mapHearingSummary(hearing, confirmationSummaryByHearingId, docketEntry),
       permissions,
     };
   }
@@ -1828,7 +2312,7 @@ export class HearingService implements OnModuleInit {
     const issues = [
       {
         code: 'RAISER_CLAIM',
-        label: 'Raiser statement',
+        label: 'Claimant statement',
         value: dispute.reason || null,
       },
       {
@@ -1959,7 +2443,13 @@ export class HearingService implements OnModuleInit {
         ? await this.getHearingAttendance(hearing.id, user)
         : null;
 
-    const hearingSummary = this.mapHearingSummary(hearing, confirmationSummaryByHearingId);
+    const docket = await this.buildDocketForDispute(hearing.disputeId, hearing.dispute?.status);
+    const docketEntry = docket.items.find((item) => item.hearingId === hearing.id);
+    const hearingSummary = this.mapHearingSummary(
+      hearing,
+      confirmationSummaryByHearingId,
+      docketEntry,
+    );
     const currentPhase = hearing.dispute?.phase ?? DisputePhase.PRESENTATION;
     const currentStep = Math.max(1, HEARING_PHASE_SEQUENCE.indexOf(currentPhase) + 1);
     const totalSteps = HEARING_PHASE_SEQUENCE.length;
@@ -2611,7 +3101,7 @@ export class HearingService implements OnModuleInit {
       throw new NotFoundException(`Dispute ${dto.disputeId} not found`);
     }
 
-    if ([DisputeStatus.RESOLVED, DisputeStatus.REJECTED].includes(dispute.status)) {
+    if (isDisputeClosedStatus(dispute.status)) {
       throw new BadRequestException(`Cannot schedule hearing for dispute status ${dispute.status}`);
     }
 
@@ -2622,16 +3112,55 @@ export class HearingService implements OnModuleInit {
 
     const tier = dto.tier || (dispute.currentTier >= 2 ? HearingTier.TIER_2 : HearingTier.TIER_1);
     const durationMinutes = dto.estimatedDurationMinutes || 60;
+    const externalMeetingLink = this.normalizeMeetingLink(dto.externalMeetingLink);
+
+    if (dispute.status === DisputeStatus.APPEALED && tier !== HearingTier.TIER_2) {
+      throw new BadRequestException(
+        'Only Tier 2 hearings can be scheduled while a dispute is under appeal review.',
+      );
+    }
 
     const existing = await this.hearingRepository.findOne({
       where: {
         disputeId: dispute.id,
-        status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS]),
+        status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS, HearingStatus.PAUSED]),
       },
     });
 
     if (existing) {
       throw new BadRequestException('An active hearing already exists for this dispute');
+    }
+
+    const priorHearings = await this.hearingRepository.find({
+      where: { disputeId: dispute.id },
+      select: [
+        'id',
+        'status',
+        'scheduledAt',
+        'agenda',
+        'previousHearingId',
+        'hearingNumber',
+        'tier',
+        'summary',
+        'findings',
+        'noShowNote',
+        'externalMeetingLink',
+      ],
+      order: {
+        hearingNumber: 'ASC',
+        scheduledAt: 'ASC',
+      },
+    });
+    const priorDocket = buildHearingDocket(priorHearings, dispute.status);
+    const latestDocketEntry =
+      priorDocket.latestHearingId != null
+        ? priorDocket.items.find((item) => item.hearingId === priorDocket.latestHearingId) ?? null
+        : null;
+
+    if (latestDocketEntry?.status === HearingStatus.COMPLETED && !latestDocketEntry.minutesRecorded) {
+      throw new BadRequestException(
+        'Record the completed hearing minutes and findings before opening the next hearing.',
+      );
     }
 
     const participantsResult = await this.determineRequiredParticipants(
@@ -2679,10 +3208,11 @@ export class HearingService implements OnModuleInit {
         status: HearingStatus.SCHEDULED,
         agenda: dto.agenda,
         requiredDocuments: dto.requiredDocuments,
-        externalMeetingLink: dto.externalMeetingLink,
+        externalMeetingLink,
         estimatedDurationMinutes: durationMinutes,
         currentSpeakerRole: SpeakerRole.MUTED_ALL,
         hearingNumber: hearingCount + 1,
+        previousHearingId: latestDocketEntry?.hearingId ?? undefined,
       });
 
       const savedHearing = await hearingRepo.save(hearing);
@@ -2714,10 +3244,12 @@ export class HearingService implements OnModuleInit {
         status: EventStatus.PENDING_CONFIRMATION,
         referenceType: 'DisputeHearing',
         referenceId: savedHearing.id,
-        externalMeetingLink: dto.externalMeetingLink,
+        externalMeetingLink,
         metadata: {
           disputeId: dispute.id,
           hearingId: savedHearing.id,
+          hearingNumber: savedHearing.hearingNumber,
+          projectId: dispute.projectId,
         },
       });
 
@@ -2783,12 +3315,16 @@ export class HearingService implements OnModuleInit {
   }> {
     const hearing = await this.hearingRepository.findOne({
       where: { id: hearingId },
-      relations: ['participants'],
+      relations: ['participants', 'dispute'],
     });
 
     if (!hearing) {
       throw new NotFoundException(`Hearing ${hearingId} not found`);
     }
+
+    await this.assertHearingIsActionable(hearing);
+
+    await this.assertHearingIsActionable(hearing);
 
     if (hearing.status !== HearingStatus.SCHEDULED) {
       throw new BadRequestException(`Hearing is ${hearing.status}, cannot start`);
@@ -2814,7 +3350,11 @@ export class HearingService implements OnModuleInit {
     const startedEarly = now < earliestNormalStart;
 
     if (startedEarly) {
-      const ready = this.areAllRequiredParticipantsReady(hearing.participants || []);
+      const inviteStatusByUser = await this.loadHearingInviteStatusMap(hearing.id);
+      const ready = this.areAllRequiredParticipantsReady(
+        hearing.participants || [],
+        inviteStatusByUser,
+      );
       if (!ready) {
         throw new BadRequestException(
           'Hearing cannot start this early unless all required participants are online and ready.',
@@ -3111,25 +3651,9 @@ export class HearingService implements OnModuleInit {
     }
 
     const previousRole = hearing.currentSpeakerRole;
-    let gracePeriodMs = 0;
-    let gracePeriodUntil: Date | undefined;
-
-    if (previousRole === SpeakerRole.ALL && newRole === SpeakerRole.MODERATOR_ONLY) {
-      gracePeriodMs = HEARING_CONFIG.SPEAKER_GRACE_PERIOD_MS;
-      gracePeriodUntil = new Date(Date.now() + gracePeriodMs);
-      this.speakerGracePeriod.set(hearingId, {
-        previousRole,
-        expiresAtMs: gracePeriodUntil.getTime(),
-      });
-      setTimeout(() => {
-        const current = this.speakerGracePeriod.get(hearingId);
-        if (current && current.expiresAtMs <= Date.now()) {
-          this.speakerGracePeriod.delete(hearingId);
-        }
-      }, gracePeriodMs + 100);
-    } else {
-      this.speakerGracePeriod.delete(hearingId);
-    }
+    const gracePeriodMs = 0;
+    const gracePeriodUntil: Date | undefined = undefined;
+    this.speakerGracePeriod.delete(hearingId);
 
     await this.hearingRepository.update(hearingId, {
       currentSpeakerRole: newRole,
@@ -3326,6 +3850,78 @@ export class HearingService implements OnModuleInit {
       currentStep: newCurrentStep,
     });
 
+    // 7. Auto-set deadlines for statement types allowed in the new phase
+    {
+      const now = new Date();
+      const deadlinesByType: Partial<Record<HearingStatementType, Date>> = {};
+
+      switch (phase) {
+        case DisputePhase.PRESENTATION:
+          deadlinesByType[HearingStatementType.OPENING] = new Date(
+            now.getTime() + 30 * 60 * 1000,
+          ); // 30 min
+          break;
+        case DisputePhase.EVIDENCE_SUBMISSION:
+          deadlinesByType[HearingStatementType.EVIDENCE] = new Date(
+            now.getTime() + 60 * 60 * 1000,
+          ); // 60 min
+          deadlinesByType[HearingStatementType.WITNESS_TESTIMONY] = new Date(
+            now.getTime() + 60 * 60 * 1000,
+          ); // 60 min
+          break;
+        case DisputePhase.CROSS_EXAMINATION:
+          deadlinesByType[HearingStatementType.REBUTTAL] = new Date(
+            now.getTime() + 45 * 60 * 1000,
+          ); // 45 min
+          deadlinesByType[HearingStatementType.OBJECTION] = new Date(
+            now.getTime() + 45 * 60 * 1000,
+          ); // 45 min
+          deadlinesByType[HearingStatementType.SURREBUTTAL] = new Date(
+            now.getTime() + 45 * 60 * 1000,
+          ); // 45 min
+          break;
+        case DisputePhase.DELIBERATION:
+          deadlinesByType[HearingStatementType.CLOSING] = new Date(
+            now.getTime() + 30 * 60 * 1000,
+          ); // 30 min
+          break;
+        // INTERROGATION: moderator Q&A only – no participant statement deadlines
+        default:
+          break;
+      }
+
+      if (Object.keys(deadlinesByType).length > 0) {
+        // Bulk-update DRAFT statements that match the new phase's allowed types
+        const typesToUpdate = Object.keys(deadlinesByType) as HearingStatementType[];
+        await this.statementRepository
+          .createQueryBuilder()
+          .update(HearingStatementEntity)
+          .set({
+            deadline: () =>
+              `CASE ${typesToUpdate
+                .map(
+                  (t) =>
+                    `WHEN "type" = '${t}' THEN '${deadlinesByType[t]!.toISOString()}'`,
+                )
+                .join(' ')} END`,
+          })
+          .where('"hearingId" = :hearingId', { hearingId })
+          .andWhere('"type" IN (:...types)', { types: typesToUpdate })
+          .andWhere('"status" = :status', {
+            status: HearingStatementStatus.DRAFT,
+          })
+          .execute();
+
+        this.eventEmitter.emit('hearing.phaseDeadlinesSet', {
+          hearingId,
+          disputeId: hearing.disputeId,
+          phase,
+          deadlines: deadlinesByType,
+          setBy: actorId,
+        });
+      }
+    }
+
     this.eventEmitter.emit('hearing.speakerControlChanged', {
       hearingId,
       changedBy: actorId,
@@ -3370,6 +3966,8 @@ export class HearingService implements OnModuleInit {
     if (!hearing) {
       throw new NotFoundException(`Hearing ${dto.hearingId} not found`);
     }
+
+    await this.assertHearingIsActionable(hearing);
 
     if (![HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS].includes(hearing.status)) {
       throw new BadRequestException('Cannot submit statement for a closed hearing');
@@ -3459,12 +4057,81 @@ export class HearingService implements OnModuleInit {
           'REBUTTAL statements can only be submitted during CROSS_EXAMINATION or DELIBERATION phases',
         );
       }
+
+      // WITNESS_TESTIMONY: role must be WITNESS, phase must be EVIDENCE_SUBMISSION or CROSS_EXAMINATION
+      if (statementType === HearingStatementType.WITNESS_TESTIMONY) {
+        if (role !== HearingParticipantRole.WITNESS) {
+          throw new BadRequestException(
+            'Only WITNESS participants can submit WITNESS_TESTIMONY statements',
+          );
+        }
+        if (
+          ![DisputePhase.EVIDENCE_SUBMISSION, DisputePhase.CROSS_EXAMINATION].includes(currentPhase)
+        ) {
+          throw new BadRequestException(
+            'WITNESS_TESTIMONY statements can only be submitted during EVIDENCE_SUBMISSION or CROSS_EXAMINATION phases',
+          );
+        }
+      }
+
+      // OBJECTION: role must be RAISER or DEFENDANT, phase must be CROSS_EXAMINATION, must have replyToStatementId
+      if (statementType === HearingStatementType.OBJECTION) {
+        if (
+          ![HearingParticipantRole.RAISER, HearingParticipantRole.DEFENDANT].includes(role)
+        ) {
+          throw new BadRequestException(
+            'Only dispute parties (RAISER/DEFENDANT) can submit OBJECTION statements',
+          );
+        }
+        if (currentPhase !== DisputePhase.CROSS_EXAMINATION) {
+          throw new BadRequestException(
+            'OBJECTION statements can only be submitted during the CROSS_EXAMINATION phase',
+          );
+        }
+        if (!dto.replyToStatementId) {
+          throw new BadRequestException(
+            'OBJECTION statements must reference a statement (replyToStatementId)',
+          );
+        }
+      }
+
+      // SURREBUTTAL: role must be RAISER or DEFENDANT, phase must be CROSS_EXAMINATION or DELIBERATION, must have replyToStatementId
+      if (statementType === HearingStatementType.SURREBUTTAL) {
+        if (
+          ![HearingParticipantRole.RAISER, HearingParticipantRole.DEFENDANT].includes(role)
+        ) {
+          throw new BadRequestException(
+            'Only dispute parties (RAISER/DEFENDANT) can submit SURREBUTTAL statements',
+          );
+        }
+        if (
+          ![DisputePhase.CROSS_EXAMINATION, DisputePhase.DELIBERATION].includes(currentPhase)
+        ) {
+          throw new BadRequestException(
+            'SURREBUTTAL statements can only be submitted during CROSS_EXAMINATION or DELIBERATION phases',
+          );
+        }
+        if (!dto.replyToStatementId) {
+          throw new BadRequestException(
+            'SURREBUTTAL statements must reference a statement (replyToStatementId)',
+          );
+        }
+      }
     }
 
     const isDraft = dto.isDraft === true;
+    const structuredContent = this.normalizeStatementBlocks(dto.contentBlocks);
+    const compiledContent = this.compileStatementContent(structuredContent, dto.content);
+    const requiresDeclaration = role !== HearingParticipantRole.MODERATOR;
 
-    if (!isDraft && (!dto.content || dto.content.trim().length === 0)) {
+    if (!isDraft && compiledContent.length === 0) {
       throw new BadRequestException('Content is required for submitted statements');
+    }
+
+    if (!isDraft && requiresDeclaration && dto.platformDeclarationAccepted !== true) {
+      throw new BadRequestException(
+        'Please confirm the platform declaration before submitting this statement.',
+      );
     }
 
     if (dto.draftId) {
@@ -3480,13 +4147,25 @@ export class HearingService implements OnModuleInit {
         throw new BadRequestException('Only draft statements can be edited');
       }
 
+      const priorSnapshot = this.buildStatementVersionSnapshot(existingDraft, dto.changeSummary);
       existingDraft.type = dto.type;
-      existingDraft.title = dto.title || existingDraft.title;
-      existingDraft.content = dto.content ?? existingDraft.content;
+      existingDraft.title =
+        dto.title !== undefined ? dto.title.trim() || null : existingDraft.title;
+      existingDraft.content = compiledContent || existingDraft.content;
+      existingDraft.structuredContent = structuredContent ?? existingDraft.structuredContent;
+      existingDraft.citedEvidenceIds = dto.citedEvidenceIds ?? existingDraft.citedEvidenceIds;
       existingDraft.attachments = dto.attachments ?? existingDraft.attachments;
       existingDraft.replyToStatementId = dto.replyToStatementId ?? existingDraft.replyToStatementId;
       existingDraft.retractionOfStatementId =
         dto.retractionOfStatementId ?? existingDraft.retractionOfStatementId;
+      existingDraft.platformDeclarationAccepted =
+        dto.platformDeclarationAccepted ?? existingDraft.platformDeclarationAccepted;
+      existingDraft.platformDeclarationAcceptedAt =
+        dto.platformDeclarationAccepted === true
+          ? new Date()
+          : existingDraft.platformDeclarationAcceptedAt;
+      existingDraft.versionHistory = [...(existingDraft.versionHistory ?? []), priorSnapshot];
+      existingDraft.versionNumber = (existingDraft.versionNumber ?? 1) + 1;
 
       if (!isDraft) {
         existingDraft.status = HearingStatementStatus.SUBMITTED;
@@ -3551,12 +4230,20 @@ export class HearingService implements OnModuleInit {
       participantId: participant.id,
       type: dto.type,
       title,
-      content: dto.content ?? '',
+      content: compiledContent,
+      structuredContent,
+      citedEvidenceIds: dto.citedEvidenceIds,
       attachments: dto.attachments,
       replyToStatementId: dto.replyToStatementId,
       retractionOfStatementId,
       orderIndex,
       status: isDraft ? HearingStatementStatus.DRAFT : HearingStatementStatus.SUBMITTED,
+      platformDeclarationAccepted: dto.platformDeclarationAccepted === true,
+      platformDeclarationAcceptedAt:
+        dto.platformDeclarationAccepted === true ? new Date() : null,
+      versionNumber: 1,
+      versionHistory: [],
+      ...(dto.type === HearingStatementType.OBJECTION ? { objectionStatus: 'PENDING' as const } : {}),
     });
 
     const saved = await this.statementRepository.save(statement);
@@ -3587,6 +4274,93 @@ export class HearingService implements OnModuleInit {
   }
 
   // ===========================================================================
+  // COMPOSE FUNCTION: resolveObjection()
+  // ===========================================================================
+
+  /**
+   * Resolve an OBJECTION statement by ruling it SUSTAINED or OVERRULED.
+   * Only the hearing moderator (or admin) can rule on objections.
+   *
+   * @param hearingId - The hearing session ID
+   * @param dto - Contains statementId and ruling ('SUSTAINED' | 'OVERRULED')
+   * @param actorId - The user issuing the ruling (must be moderator/admin)
+   */
+  async resolveObjection(
+    hearingId: string,
+    dto: ResolveObjectionDto,
+    actorId: string,
+  ): Promise<HearingStatementEntity> {
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: hearingId },
+      select: ['id', 'status', 'moderatorId', 'disputeId'],
+    });
+
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${hearingId} not found`);
+    }
+
+    if (hearing.status !== HearingStatus.IN_PROGRESS) {
+      throw new BadRequestException('Objections can only be resolved during an active hearing');
+    }
+
+    // Only moderator or admin can resolve objections
+    const actor = await this.userRepository.findOne({
+      where: { id: actorId },
+      select: ['id', 'role'],
+    });
+
+    if (!actor) {
+      throw new NotFoundException('Actor not found');
+    }
+
+    const isModerator = actorId === hearing.moderatorId;
+    const isAdmin = actor.role === UserRole.ADMIN;
+
+    if (!isModerator && !isAdmin) {
+      throw new ForbiddenException('Only the hearing moderator or admin can resolve objections');
+    }
+
+    // Load the statement
+    const statement = await this.statementRepository.findOne({
+      where: { id: dto.statementId, hearingId },
+      relations: ['participant', 'participant.user'],
+    });
+
+    if (!statement) {
+      throw new NotFoundException(`Statement ${dto.statementId} not found in this hearing`);
+    }
+
+    if (statement.type !== HearingStatementType.OBJECTION) {
+      throw new BadRequestException('Only OBJECTION statements can be resolved');
+    }
+
+    if (statement.objectionStatus && statement.objectionStatus !== 'PENDING') {
+      throw new BadRequestException(
+        `Objection has already been resolved as ${statement.objectionStatus}`,
+      );
+    }
+
+    // Update the ruling
+    statement.objectionStatus = dto.ruling;
+    const saved = await this.statementRepository.save(statement);
+
+    this.eventEmitter.emit('hearing.objectionResolved', {
+      hearingId,
+      disputeId: hearing.disputeId,
+      statementId: saved.id,
+      ruling: dto.ruling,
+      resolvedBy: actorId,
+      resolvedAt: new Date(),
+    });
+
+    this.logger.log(
+      `Objection ${saved.id} in hearing ${hearingId} resolved as ${dto.ruling} by ${actorId}`,
+    );
+
+    return saved;
+  }
+
+  // ===========================================================================
   // COMPOSE FUNCTION: askHearingQuestion()
   // ===========================================================================
 
@@ -3596,12 +4370,14 @@ export class HearingService implements OnModuleInit {
   ): Promise<HearingQuestionEntity> {
     const hearing = await this.hearingRepository.findOne({
       where: { id: dto.hearingId },
-      relations: ['participants'],
+      relations: ['participants', 'dispute'],
     });
 
     if (!hearing) {
       throw new NotFoundException(`Hearing ${dto.hearingId} not found`);
     }
+
+    await this.assertHearingIsActionable(hearing);
 
     if (hearing.status !== HearingStatus.IN_PROGRESS) {
       throw new BadRequestException('Can only ask questions during an active hearing');
@@ -3804,12 +4580,14 @@ export class HearingService implements OnModuleInit {
   }> {
     const hearing = await this.hearingRepository.findOne({
       where: { id: dto.hearingId },
-      relations: ['participants'],
+      relations: ['participants', 'dispute'],
     });
 
     if (!hearing) {
       throw new NotFoundException(`Hearing ${dto.hearingId} not found`);
     }
+
+    await this.assertHearingIsActionable(hearing);
 
     if (![HearingStatus.IN_PROGRESS, HearingStatus.PAUSED].includes(hearing.status)) {
       throw new BadRequestException(`Hearing is ${hearing.status}, cannot end`);
@@ -3896,8 +4674,7 @@ export class HearingService implements OnModuleInit {
     if (absentRequiredParticipants.length > 0 && !noShowNote) {
       throw new BadRequestException({
         code: 'NO_SHOW_NOTE_REQUIRED',
-        message:
-          'A no-show note is required when one or more required participants are absent.',
+        message: 'A no-show note is required when one or more required participants are absent.',
         absentRequiredParticipants,
       });
     }
@@ -4032,12 +4809,14 @@ export class HearingService implements OnModuleInit {
 
     const now = new Date();
     const rescheduleCutoff = new Date(
-      hearing.scheduledAt.getTime() -
-        HEARING_CONFIG.MIN_CONFIRMATION_BEFORE_START_HOURS * 60 * 60 * 1000,
+      hearing.scheduledAt.getTime() - HEARING_CONFIG.RESCHEDULE_FREEZE_HOURS * 60 * 60 * 1000,
     );
 
-    if (now >= rescheduleCutoff) {
-      throw new BadRequestException('Too close to the scheduled time to reschedule');
+    if (now >= rescheduleCutoff && !dto.isEmergency) {
+      throw new BadRequestException({
+        code: 'HEARING_RESCHEDULE_FROZEN',
+        message: `Reschedule requests are locked within ${HEARING_CONFIG.RESCHEDULE_FREEZE_HOURS} hours of the hearing start. Use emergency reschedule if an exception is required.`,
+      });
     }
 
     const scheduledAt = new Date(dto.scheduledAt);
@@ -4047,6 +4826,10 @@ export class HearingService implements OnModuleInit {
 
     const durationMinutes = dto.estimatedDurationMinutes || hearing.estimatedDurationMinutes;
     const participantIds = (hearing.participants || []).map((participant) => participant.userId);
+    const externalMeetingLink =
+      dto.externalMeetingLink !== undefined
+        ? this.normalizeMeetingLink(dto.externalMeetingLink)
+        : hearing.externalMeetingLink;
 
     const scheduleValidation = await this.validateHearingSchedule(
       scheduledAt,
@@ -4084,7 +4867,7 @@ export class HearingService implements OnModuleInit {
         status: HearingStatus.SCHEDULED,
         agenda: dto.agenda ?? hearing.agenda,
         requiredDocuments: dto.requiredDocuments ?? hearing.requiredDocuments,
-        externalMeetingLink: dto.externalMeetingLink ?? hearing.externalMeetingLink,
+        externalMeetingLink,
         estimatedDurationMinutes: durationMinutes,
         currentSpeakerRole: SpeakerRole.MUTED_ALL,
         hearingNumber: hearingCount + 1,
@@ -4147,7 +4930,9 @@ export class HearingService implements OnModuleInit {
         metadata: {
           disputeId: hearing.disputeId,
           hearingId: savedHearing.id,
+          hearingNumber: savedHearing.hearingNumber,
           previousHearingId: hearing.id,
+          projectId: hearing.dispute?.projectId ?? null,
         },
       });
 
@@ -4346,6 +5131,14 @@ export class HearingService implements OnModuleInit {
 
     await this.assertModeratorOrAdmin(hearing, requesterId);
 
+    const requester = await this.userRepository.findOne({
+      where: { id: requesterId },
+      select: ['id', 'role'],
+    });
+    if (!requester) {
+      throw new NotFoundException('Requester not found');
+    }
+
     const invitedUser = await this.userRepository.findOne({
       where: { id: dto.userId },
       select: ['id', 'email', 'fullName', 'role', 'isBanned'],
@@ -4378,6 +5171,7 @@ export class HearingService implements OnModuleInit {
       const eventParticipantRepo = manager.getRepository(EventParticipantEntity);
       const calendarEventRepo = manager.getRepository(CalendarEventEntity);
       const internalMembershipRepo = manager.getRepository(DisputeInternalMembershipEntity);
+      const activityRepo = manager.getRepository(DisputeActivityEntity);
 
       const created = await participantRepo.save(
         participantRepo.create({
@@ -4418,6 +5212,24 @@ export class HearingService implements OnModuleInit {
         })
         .orIgnore()
         .execute();
+
+      await activityRepo.save(
+        activityRepo.create({
+          disputeId: hearing.disputeId,
+          actorId: requesterId,
+          actorRole: requester.role,
+          action: DisputeAction.NOTE_ADDED,
+          description: `Support invite sent to ${invitedUser.fullName || invitedUser.email} as ${requestedRole.toLowerCase()}.`,
+          metadata: {
+            hearingId: hearing.id,
+            invitedUserId: invitedUser.id,
+            invitedUserRole: invitedUser.role,
+            participantRole: requestedRole,
+            reason: dto.reason.trim(),
+          },
+          isInternal: false,
+        }),
+      );
 
       return created;
     });
@@ -4485,6 +5297,205 @@ export class HearingService implements OnModuleInit {
         email: user.email,
         role: user.role,
       }));
+  }
+
+  async autoStartDueHearings(referenceAt: Date = new Date()): Promise<{
+    referenceAt: string;
+    started: number;
+    blocked: number;
+  }> {
+    const dueHearings = await this.hearingRepository
+      .createQueryBuilder('hearing')
+      .where('hearing.status = :status', { status: HearingStatus.SCHEDULED })
+      .andWhere('hearing.scheduledAt <= :referenceAt', { referenceAt })
+      .orderBy('hearing.scheduledAt', 'ASC')
+      .take(100)
+      .getMany();
+    const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds(
+      dueHearings.map((hearing) => hearing.id),
+    );
+
+    let started = 0;
+    let blocked = 0;
+
+    for (const hearing of dueHearings) {
+      const event = await this.calendarRepository.findOne({
+        where: { referenceType: 'DisputeHearing', referenceId: hearing.id },
+        select: ['id', 'status'],
+      });
+
+      if (!event) {
+        blocked += 1;
+        this.logger.warn(
+          `hearing_auto_start_blocked hearingId=${hearing.id} reason=EVENT_NOT_FOUND`,
+        );
+        continue;
+      }
+
+      if (event.status === EventStatus.PENDING_CONFIRMATION) {
+        const confirmationSummary = confirmationSummaryByHearingId.get(hearing.id);
+        if (confirmationSummary?.confirmationSatisfied) {
+          await this.calendarRepository.update(event.id, { status: EventStatus.SCHEDULED });
+          event.status = EventStatus.SCHEDULED;
+        }
+      }
+
+      if (event.status !== EventStatus.SCHEDULED) {
+        blocked += 1;
+        this.logger.warn(
+          `hearing_auto_start_blocked hearingId=${hearing.id} reason=EVENT_STATUS_${event.status}`,
+        );
+        continue;
+      }
+
+      try {
+        await this.startHearing(hearing.id, hearing.moderatorId);
+        started += 1;
+      } catch (error) {
+        blocked += 1;
+        this.logger.warn(
+          `hearing_auto_start_blocked hearingId=${hearing.id} reason=${
+            error instanceof Error ? error.message : 'UNKNOWN'
+          }`,
+        );
+      }
+    }
+
+    return {
+      referenceAt: referenceAt.toISOString(),
+      started,
+      blocked,
+    };
+  }
+
+  async autoRescheduleExpiredPendingHearings(referenceAt: Date = new Date()): Promise<{
+    referenceAt: string;
+    checked: number;
+    repaired: number;
+    rescheduled: number;
+    flagged: number;
+  }> {
+    const pendingHearings = await this.hearingRepository
+      .createQueryBuilder('hearing')
+      .leftJoinAndSelect('hearing.participants', 'participants')
+      .innerJoin(
+        CalendarEventEntity,
+        'event',
+        "event.referenceType = 'DisputeHearing' AND event.referenceId = hearing.id",
+      )
+      .where('hearing.status = :hearingStatus', { hearingStatus: HearingStatus.SCHEDULED })
+      .andWhere('event.status = :eventStatus', { eventStatus: EventStatus.PENDING_CONFIRMATION })
+      .orderBy('hearing.scheduledAt', 'ASC')
+      .take(100)
+      .getMany();
+
+    const confirmationSummaryByHearingId = await this.loadConfirmationSummaryByHearingIds(
+      pendingHearings.map((hearing) => hearing.id),
+    );
+
+    let checked = 0;
+    let repaired = 0;
+    let rescheduled = 0;
+    let flagged = 0;
+
+    for (const hearing of pendingHearings) {
+      const event = await this.calendarRepository.findOne({
+        where: {
+          referenceType: 'DisputeHearing',
+          referenceId: hearing.id,
+          status: EventStatus.PENDING_CONFIRMATION,
+        },
+        select: ['id', 'status', 'metadata'],
+      });
+
+      if (!event) {
+        continue;
+      }
+
+      checked += 1;
+      const confirmationSummary = confirmationSummaryByHearingId.get(hearing.id);
+      if (confirmationSummary?.confirmationSatisfied) {
+        await this.calendarRepository.update(event.id, {
+          status: EventStatus.SCHEDULED,
+          metadata: {
+            ...(event.metadata || {}),
+            confirmationSatisfiedAt: referenceAt.toISOString(),
+          },
+        });
+        repaired += 1;
+        continue;
+      }
+
+      const responseDeadline = this.extractLatestResponseDeadline(confirmationSummary);
+      if (!responseDeadline || responseDeadline.getTime() > referenceAt.getTime()) {
+        continue;
+      }
+
+      if (event.metadata?.manualNoShowReviewRequired) {
+        flagged += 1;
+        continue;
+      }
+
+      if (hearing.rescheduleCount >= HEARING_CONFIG.MAX_RESCHEDULES) {
+        await this.markPendingConfirmationForManualReview(
+          event,
+          'Primary-side confirmation was not received before the 12-hour deadline.',
+          referenceAt,
+        );
+        flagged += 1;
+        continue;
+      }
+
+      const nextSlot = await this.findNextAutoRescheduleSlot(hearing, referenceAt);
+      if (!nextSlot) {
+        await this.markPendingConfirmationForManualReview(
+          event,
+          'Auto-reschedule could not find a feasible next slot after the confirmation deadline.',
+          referenceAt,
+        );
+        flagged += 1;
+        continue;
+      }
+
+      try {
+        await this.rescheduleHearing(
+          {
+            hearingId: hearing.id,
+            scheduledAt: nextSlot.toISOString(),
+            agenda: hearing.agenda || undefined,
+            requiredDocuments: hearing.requiredDocuments || undefined,
+            estimatedDurationMinutes: hearing.estimatedDurationMinutes || undefined,
+            externalMeetingLink: hearing.externalMeetingLink || undefined,
+            isEmergency:
+              referenceAt.getTime() >=
+              hearing.scheduledAt.getTime() -
+                HEARING_CONFIG.RESCHEDULE_FREEZE_HOURS * 60 * 60 * 1000,
+          },
+          hearing.moderatorId,
+        );
+        rescheduled += 1;
+      } catch (error) {
+        this.logger.warn(
+          `hearing_confirmation_timeout_reschedule_failed hearingId=${hearing.id} reason=${
+            error instanceof Error ? error.message : 'UNKNOWN'
+          }`,
+        );
+        await this.markPendingConfirmationForManualReview(
+          event,
+          'Auto-reschedule failed after the confirmation deadline and now requires staff/admin review.',
+          referenceAt,
+        );
+        flagged += 1;
+      }
+    }
+
+    return {
+      referenceAt: referenceAt.toISOString(),
+      checked,
+      repaired,
+      rescheduled,
+      flagged,
+    };
   }
 
   private getReminderWindowBounds(

@@ -1,4 +1,8 @@
 import { apiClient } from "@/shared/api/client";
+import {
+  getFileNameFromDisposition,
+  triggerBlobDownload,
+} from "@/shared/utils/download";
 import type {
   EndHearingInput,
   ExtendHearingInput,
@@ -7,9 +11,11 @@ import type {
   ScheduleHearingInput,
   DisputeHearingSummary,
   HearingScheduleResult,
+  HearingLifecycle,
   HearingStatus,
   SpeakerRole,
   HearingAttendanceSummary,
+  HearingStatementContentBlock,
   HearingQuestionSummary,
   HearingStatementSummary,
   HearingTimelineEvent,
@@ -33,7 +39,7 @@ const unwrapData = <T>(response: ApiEnvelope<T> | T): T => {
     typeof response === "object" &&
     "data" in (response as ApiEnvelope<T>)
   ) {
-    return ((response as ApiEnvelope<T>).data ?? response) as T;
+    return (response as ApiEnvelope<T>).data as T;
   }
   return response as T;
 };
@@ -112,7 +118,9 @@ export const getHearingSupportCandidates = async (
   const response = await apiClient.get(
     `/disputes/hearings/${hearingId}/support-candidates`,
   );
-  const payload = (response as { data?: SupportCandidate[] }).data ?? response;
+  const payload = unwrapData<SupportCandidate[] | null>(
+    response as ApiEnvelope<SupportCandidate[] | null>,
+  );
   return Array.isArray(payload) ? payload : [];
 };
 
@@ -133,12 +141,19 @@ export const inviteSupportStaff = async (
 
 export const getHearingsByDispute = async (
   disputeId: string,
+  lifecycle?: Lowercase<HearingLifecycle> | "all",
 ): Promise<DisputeHearingSummary[]> => {
-  const response = await apiClient.get(
-    `/disputes/hearings/dispute/${disputeId}`,
+  const query = new URLSearchParams();
+  if (lifecycle) {
+    query.append("lifecycle", lifecycle);
+  }
+  const url = query.toString()
+    ? `/disputes/hearings/dispute/${disputeId}?${query.toString()}`
+    : `/disputes/hearings/dispute/${disputeId}`;
+  const response = await apiClient.get(url);
+  const payload = unwrapData<DisputeHearingSummary[] | null>(
+    response as ApiEnvelope<DisputeHearingSummary[] | null>,
   );
-  const payload =
-    (response as { data?: DisputeHearingSummary[] }).data ?? response;
   return Array.isArray(payload) ? payload : [];
 };
 
@@ -146,6 +161,7 @@ export const getMyHearings = async (params?: {
   status?: HearingStatus[];
   from?: string;
   to?: string;
+  lifecycle?: Lowercase<HearingLifecycle> | "all";
 }): Promise<DisputeHearingSummary[]> => {
   const query = new URLSearchParams();
   if (params?.status && params.status.length > 0) {
@@ -153,13 +169,15 @@ export const getMyHearings = async (params?: {
   }
   if (params?.from) query.append("from", params.from);
   if (params?.to) query.append("to", params.to);
+  if (params?.lifecycle) query.append("lifecycle", params.lifecycle);
 
   const url = query.toString()
     ? `/disputes/hearings/mine?${query.toString()}`
     : "/disputes/hearings/mine";
   const response = await apiClient.get(url);
-  const payload =
-    (response as { data?: DisputeHearingSummary[] }).data ?? response;
+  const payload = unwrapData<DisputeHearingSummary[] | null>(
+    response as ApiEnvelope<DisputeHearingSummary[] | null>,
+  );
   return Array.isArray(payload) ? payload : [];
 };
 
@@ -167,8 +185,9 @@ export const getHearingById = async (
   hearingId: string,
 ): Promise<DisputeHearingSummary> => {
   const response = await apiClient.get(`/disputes/hearings/${hearingId}`);
-  const payload =
-    (response as { data?: DisputeHearingSummary }).data ?? response;
+  const payload = unwrapData<DisputeHearingSummary>(
+    response as ApiEnvelope<DisputeHearingSummary>,
+  );
   return payload as DisputeHearingSummary;
 };
 
@@ -178,8 +197,9 @@ export const getHearingWorkspace = async (
   const response = await apiClient.get(
     `/disputes/hearings/${hearingId}/workspace`,
   );
-  const payload =
-    (response as { data?: HearingWorkspaceSummary }).data ?? response;
+  const payload = unwrapData<HearingWorkspaceSummary>(
+    response as ApiEnvelope<HearingWorkspaceSummary>,
+  );
   return payload as HearingWorkspaceSummary;
 };
 
@@ -225,8 +245,9 @@ export const getHearingStatements = async (
   const response = await apiClient.get(
     `/disputes/hearings/${hearingId}/statements?${query.toString()}`,
   );
-  const payload =
-    (response as { data?: HearingStatementSummary[] }).data ?? response;
+  const payload = unwrapData<HearingStatementSummary[] | null>(
+    response as ApiEnvelope<HearingStatementSummary[] | null>,
+  );
   return Array.isArray(payload) ? payload : [];
 };
 
@@ -236,8 +257,9 @@ export const getHearingQuestions = async (
   const response = await apiClient.get(
     `/disputes/hearings/${hearingId}/questions`,
   );
-  const payload =
-    (response as { data?: HearingQuestionSummary[] }).data ?? response;
+  const payload = unwrapData<HearingQuestionSummary[] | null>(
+    response as ApiEnvelope<HearingQuestionSummary[] | null>,
+  );
   return Array.isArray(payload) ? payload : [];
 };
 
@@ -247,8 +269,9 @@ export const getHearingTimeline = async (
   const response = await apiClient.get(
     `/disputes/hearings/${hearingId}/timeline`,
   );
-  const payload =
-    (response as { data?: HearingTimelineEvent[] }).data ?? response;
+  const payload = unwrapData<HearingTimelineEvent[] | null>(
+    response as ApiEnvelope<HearingTimelineEvent[] | null>,
+  );
   return Array.isArray(payload) ? payload : [];
 };
 
@@ -258,8 +281,9 @@ export const getHearingAttendance = async (
   const response = await apiClient.get(
     `/disputes/hearings/${hearingId}/attendance`,
   );
-  const payload =
-    (response as { data?: HearingAttendanceSummary }).data ?? response;
+  const payload = unwrapData<HearingAttendanceSummary>(
+    response as ApiEnvelope<HearingAttendanceSummary>,
+  );
   return payload as HearingAttendanceSummary;
 };
 
@@ -316,6 +340,10 @@ export const submitHearingStatement = async (
     type: string;
     title?: string;
     content?: string;
+    contentBlocks?: HearingStatementContentBlock[];
+    citedEvidenceIds?: string[];
+    platformDeclarationAccepted?: boolean;
+    changeSummary?: string;
     attachments?: string[];
     replyToStatementId?: string;
     draftId?: string;
@@ -425,25 +453,18 @@ export const issueHearingVerdict = async (
 export const downloadEvidencePackage = async (
   disputeId: string,
 ): Promise<void> => {
-  const response = await apiClient.get(
+  const response = await apiClient.getResponse<Blob>(
     `/disputes/${disputeId}/evidence/export`,
     {
       responseType: "blob",
     },
   );
-  const blob = new Blob([response.data as BlobPart], {
-    type: "application/zip",
-  });
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  const disposition = (response.headers as Record<string, string>)[
-    "content-disposition"
-  ];
-  const match = disposition?.match(/filename="?([^"]+)"?/);
-  a.download = match?.[1] || `evidence_${disputeId.slice(0, 8)}.zip`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  window.URL.revokeObjectURL(url);
+  const blob = new Blob([response.data as BlobPart], { type: "application/zip" });
+  triggerBlobDownload(
+    blob,
+    getFileNameFromDisposition(
+      response.headers["content-disposition"],
+      `evidence_${disputeId.slice(0, 8)}.zip`,
+    ),
+  );
 };

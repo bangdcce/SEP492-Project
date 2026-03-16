@@ -122,3 +122,41 @@ export interface StaffStats {
   avgResolutionTimeHours: number;
   tier: 1 | 2;
 }
+
+export type StaffDashboardRange = "7d" | "30d" | "90d";
+
+export interface StaffDashboardOverview {
+  generatedAt: string;
+  range: StaffDashboardRange;
+  throughput: {
+    newDisputes: number;
+    inProgress: number;
+    closed: number;
+  };
+  sla: {
+    medianTimeToFirstResponseHours: number;
+    medianTimeToVerdictHours: number;
+    breachRate: number;
+  };
+  scheduling: {
+    autoScheduleSuccessRate: number;
+    rescheduleCount: number;
+    noShowRate: number;
+  };
+  quality: {
+    appealRate: number;
+    overturnedVerdictRate: number;
+    feedbackScore: number;
+  };
+  workload: {
+    averageCasesPerStaff: number;
+    averageUtilizationRate: number;
+    pendingQueueCount: number;
+    totalStaff: number;
+  };
+  riskSignals: {
+    prolongedCases: number;
+    multiPartyCases: number;
+    conflictingEvidenceCases: number;
+  };
+}
