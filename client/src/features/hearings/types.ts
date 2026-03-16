@@ -13,6 +13,8 @@ export type HearingStatus =
   | "CANCELED"
   | "RESCHEDULED";
 
+export type HearingLifecycle = "ACTIVE" | "ARCHIVED";
+
 export type SpeakerRole =
   | "ALL"
   | "MODERATOR_ONLY"
@@ -41,6 +43,7 @@ export interface HearingParticipantConfirmationItem {
   role: string;
   status: HearingParticipantResponseStatus | string;
   isRequired: boolean;
+   caseRole?: HearingParticipantRole | null;
   respondedAt?: string | null;
   responseDeadline?: string | null;
 }
@@ -57,6 +60,12 @@ export interface HearingParticipantConfirmationSummary {
   requiredTentative: number;
   requiredPending: number;
   allRequiredAccepted: boolean;
+  hasModeratorAccepted: boolean;
+  primaryPartyAcceptedCount: number;
+  primaryPartyPendingCount: number;
+  primaryPartyDeclinedCount: number;
+  confirmedPrimaryRoles: HearingParticipantRole[];
+  confirmationSatisfied: boolean;
   participants: HearingParticipantConfirmationItem[];
 }
 
@@ -64,9 +73,11 @@ export interface HearingParticipantSummary {
   id: string;
   userId: string;
   role: HearingParticipantRole;
+  invitedAt?: string | null;
   isRequired?: boolean;
   isOnline?: boolean;
   confirmedAt?: string | null;
+  declineReason?: string | null;
   joinedAt?: string | null;
   leftAt?: string | null;
   totalOnlineMinutes?: number;
@@ -91,6 +102,7 @@ export interface DisputeHearingSummary {
   id: string;
   disputeId: string;
   status: HearingStatus;
+  lifecycle?: HearingLifecycle;
   scheduledAt: string;
   startedAt?: string | null;
   endedAt?: string | null;
@@ -108,6 +120,9 @@ export interface DisputeHearingSummary {
   pausedAt?: string | null;
   pausedById?: string | null;
   pauseReason?: string | null;
+  summary?: string | null;
+  findings?: string | null;
+  noShowNote?: string | null;
   accumulatedPauseSeconds?: number;
   speakerRoleBeforePause?: SpeakerRole | null;
   estimatedDurationMinutes?: number | null;
@@ -116,6 +131,10 @@ export interface DisputeHearingSummary {
   lastRescheduledAt?: string | null;
   hearingNumber?: number;
   tier?: HearingTier;
+  isActionable?: boolean;
+  isArchived?: boolean;
+  freezeReason?: string | null;
+  minutesRecorded?: boolean;
   participants?: HearingParticipantSummary[];
   participantConfirmationSummary?: HearingParticipantConfirmationSummary;
   dispute?: HearingDisputeSummary;
@@ -296,6 +315,8 @@ export interface HearingStatementSummary {
   type: HearingStatementType;
   title?: string | null;
   content: string;
+  structuredContent?: HearingStatementContentBlock[] | null;
+  citedEvidenceIds?: string[] | null;
   status: HearingStatementStatus;
   attachments?: string[] | null;
   replyToStatementId?: string | null;
@@ -303,7 +324,12 @@ export interface HearingStatementSummary {
   orderIndex?: number;
   isRedacted?: boolean;
   redactedReason?: string | null;
+  platformDeclarationAccepted?: boolean;
+  platformDeclarationAcceptedAt?: string | null;
+  versionNumber?: number;
+  versionHistory?: HearingStatementVersionSnapshot[];
   createdAt: string;
+  updatedAt?: string;
   participant?: {
     id: string;
     userId: string;
@@ -431,9 +457,40 @@ export type HearingStatementType =
   | "REBUTTAL"
   | "CLOSING"
   | "QUESTION"
-  | "ANSWER";
+  | "ANSWER"
+  | "WITNESS_TESTIMONY"
+  | "OBJECTION"
+  | "SURREBUTTAL";
 
 export type HearingStatementStatus = "DRAFT" | "SUBMITTED";
+
+export type HearingStatementContentBlockKind =
+  | "SUMMARY"
+  | "FACTS"
+  | "EVIDENCE_BASIS"
+  | "ANALYSIS"
+  | "REMEDY"
+  | "ATTESTATION"
+  | "CUSTOM";
+
+export interface HearingStatementContentBlock {
+  id?: string;
+  kind: HearingStatementContentBlockKind;
+  heading?: string | null;
+  body: string;
+}
+
+export interface HearingStatementVersionSnapshot {
+  versionNumber: number;
+  savedAt: string;
+  status: HearingStatementStatus;
+  title?: string | null;
+  content: string;
+  attachments?: string[] | null;
+  citedEvidenceIds?: string[] | null;
+  structuredContent?: HearingStatementContentBlock[] | null;
+  changeSummary?: string | null;
+}
 
 export type HearingQuestionStatus =
   | "PENDING_ANSWER"
@@ -495,9 +552,16 @@ export interface SupportCandidate {
 export interface VerdictReasoning {
   violatedPolicies: string[];
   supportingEvidenceIds?: string[];
+  policyReferences?: string[];
+  legalReferences?: string[];
+  contractReferences?: string[];
+  evidenceReferences?: string[];
   factualFindings: string;
   legalAnalysis: string;
+  analysis?: string;
   conclusion: string;
+  remedyRationale?: string;
+  trustPenaltyRationale?: string;
 }
 
 export interface VerdictSummary {
@@ -520,6 +584,14 @@ export interface VerdictSummary {
   isAppealVerdict: boolean;
   overridesVerdictId?: string | null;
   appealDeadline?: string | null;
+  isAppealed?: boolean;
+  appealReason?: string | null;
+  appealedAt?: string | null;
+  appealResolvedAt?: string | null;
+  appealResolvedById?: string | null;
+  appealResolution?: string | null;
+  disputeStatus?: string | null;
+  currentTier?: number | null;
   issuedAt: string;
   adjudicator?: {
     id: string;
@@ -530,7 +602,6 @@ export interface VerdictSummary {
 
 export interface AppealInput {
   reason: string;
-  appealType?: string;
 }
 
 export interface VerdictReadiness {

@@ -30,7 +30,7 @@ export class DisputeNoteEntity {
   @Column({ type: 'enum', enum: UserRole })
   authorRole: UserRole;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'varchar', length: 5000 })
   content: string;
 
   /**

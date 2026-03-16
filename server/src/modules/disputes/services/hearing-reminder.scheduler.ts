@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { HearingService } from './hearing.service';
+import { isBackgroundTaskEnabled } from '../../../config/database-runtime.config';
 
 @Injectable()
 export class HearingReminderScheduler {
@@ -10,7 +11,12 @@ export class HearingReminderScheduler {
 
   @Cron(CronExpression.EVERY_MINUTE, { name: 'hearing-reminder-dispatch' })
   async dispatchDueHearingReminders(): Promise<void> {
-    if (process.env.HEARING_REMINDER_CRON_ENABLED === 'false') {
+    if (
+      !isBackgroundTaskEnabled(process.env, 'HEARING_REMINDER_CRON_ENABLED', {
+        enabledByDefaultInDevelopment: false,
+        enabledByDefaultInProduction: true,
+      })
+    ) {
       return;
     }
 

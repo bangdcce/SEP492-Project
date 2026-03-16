@@ -12,6 +12,6 @@ export class UpdateReviewDto {
   @ApiPropertyOptional({ description: 'Nội dung nhận xét mới' })
   @IsOptional() // <--- Quan trọng
   @IsString()
-  @MaxLength(1000, { message: 'Nhận xét không được quá 1000 ký tự' })
+  @MaxLength(2000, { message: 'Nhận xét không được quá 2000 ký tự' })
   comment?: string;
 }

@@ -22,8 +22,8 @@ import {
   RequestStatus,
 } from '../../database/entities/project-request.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
-import { NotificationEntity } from '../../database/entities/notification.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { CreateClientSpecDto } from './dto/create-client-spec.dto';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
@@ -84,10 +84,9 @@ export class ProjectSpecsService {
     private readonly projectSpecSignaturesRepository: Repository<ProjectSpecSignatureEntity>,
     @InjectRepository(ProjectRequestProposalEntity)
     private readonly projectRequestProposalsRepository: Repository<ProjectRequestProposalEntity>,
-    @InjectRepository(NotificationEntity)
-    private readonly notificationsRepository: Repository<NotificationEntity>,
     private readonly auditLogsService: AuditLogsService,
     private readonly dataSource: DataSource,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -327,15 +326,13 @@ export class ProjectSpecsService {
       return;
     }
 
-    await this.notificationsRepository.save(
-      this.notificationsRepository.create({
-        userId: payload.userId,
-        title: payload.title,
-        body: payload.body,
-        relatedType: payload.relatedType || null,
-        relatedId: payload.relatedId || null,
-      }),
-    );
+    await this.notificationsService.create({
+      userId: payload.userId,
+      title: payload.title,
+      body: payload.body,
+      relatedType: payload.relatedType || null,
+      relatedId: payload.relatedId || null,
+    });
   }
 
   private async getRequiredSignerIds(spec: ProjectSpecEntity): Promise<string[]> {

@@ -8,9 +8,13 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { AuthModule } from '../auth/auth.module';
 import { MatchingModule } from '../matching/matching.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { ContractsModule } from '../contracts/contracts.module';
 
 import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { ProjectEntity } from '../../database/entities/project.entity';
+import { ContractEntity } from '../../database/entities/contract.entity';
 
 @Module({
   imports: [
@@ -19,11 +23,15 @@ import { ProjectRequestProposalEntity } from '../../database/entities/project-re
       ProjectRequestAnswerEntity,
       BrokerProposalEntity,
       ProjectRequestProposalEntity,
+      ProjectEntity,
+      ContractEntity,
     ]),
     AuditLogsModule,
     AuthModule,
     MatchingModule,
     SubscriptionsModule,
+    NotificationsModule,
+    ContractsModule,
   ],
   controllers: [ProjectRequestsController],
   providers: [ProjectRequestsService],

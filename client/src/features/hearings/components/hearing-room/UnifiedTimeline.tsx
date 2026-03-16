@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Paperclip,
   EyeOff,
+  History,
   Scale,
   CornerDownRight,
 } from "lucide-react";
@@ -22,6 +23,13 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/shared/components/ui/tooltip";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
 import { cn } from "@/shared/components/ui/utils";
 import {
   roleBadgeLightClass,
@@ -51,6 +59,32 @@ interface UnifiedTimelineProps {
   canModerate?: boolean;
   nowMs?: number;
 }
+
+const renderStatementBlocks = (
+  blocks?: Array<{ id?: string; kind?: string; heading?: string | null; body?: string | null }> | null,
+) => {
+  if (!blocks?.length) return null;
+
+  return (
+    <div className="space-y-2">
+      {blocks.map((block, index) => (
+        <div
+          key={block.id || `${block.kind || "block"}-${index}`}
+          className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2"
+        >
+          {block.heading ? (
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+              {block.heading}
+            </p>
+          ) : null}
+          <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+            {block.body || "No content recorded."}
+          </p>
+        </div>
+      ))}
+    </div>
+  );
+};
 
 export const UnifiedTimeline = memo(function UnifiedTimeline({
   items,
@@ -458,10 +492,181 @@ const PARTICIPANT_ROLE_BADGE: Record<string, string> = {
   OBSERVER: "bg-slate-100 text-slate-600 border-slate-200",
 };
 
+interface StatementVersionDetailDialogProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  statement: Extract<UnifiedTimelineItem, { kind: "statement" }>["statement"];
+  participantName: string;
+}
+
+const StatementVersionDetailDialog = memo(function StatementVersionDetailDialog({
+  open,
+  onOpenChange,
+  statement,
+  participantName,
+}: StatementVersionDetailDialogProps) {
+  const revisions = statement.versionHistory ?? [];
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 text-lg">
+            <History className="h-5 w-5 text-slate-600" />
+            Statement Record
+          </DialogTitle>
+          <DialogDescription>
+            Review the current filing and saved draft revisions for {participantName}.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6">
+          <section className="rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="border-slate-300 bg-slate-900 text-white">
+                Current version
+              </Badge>
+              <Badge className="border-slate-200 bg-slate-50 text-slate-600">
+                v{statement.versionNumber ?? 1}
+              </Badge>
+              <Badge className="border-slate-200 bg-slate-50 text-slate-600">
+                {statement.status}
+              </Badge>
+              {statement.platformDeclarationAccepted ? (
+                <Badge className="border-emerald-200 bg-emerald-50 text-emerald-700">
+                  Declaration confirmed
+                </Badge>
+              ) : null}
+            </div>
+
+            <div className="mt-3 space-y-3">
+              {statement.title ? (
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    Title
+                  </p>
+                  <p className="mt-1 text-sm font-medium text-slate-900">{statement.title}</p>
+                </div>
+              ) : null}
+
+              {statement.structuredContent?.length ? (
+                renderStatementBlocks(statement.structuredContent)
+              ) : (
+                <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                  {statement.content}
+                </p>
+              )}
+
+              {statement.citedEvidenceIds?.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {statement.citedEvidenceIds.map((evidenceId) => (
+                    <Badge
+                      key={evidenceId}
+                      className="border-slate-200 bg-slate-100 text-[11px] text-slate-600"
+                    >
+                      Evidence {evidenceId}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+
+              <div className="grid gap-3 text-xs text-slate-500 sm:grid-cols-2">
+                <p>Created: {formatDateTime(statement.createdAt)}</p>
+                <p>Updated: {formatDateTime(statement.updatedAt || statement.createdAt)}</p>
+              </div>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-900">Revision history</h3>
+              <p className="text-xs text-slate-500">
+                {revisions.length
+                  ? `${revisions.length} saved draft revision${revisions.length > 1 ? "s" : ""}.`
+                  : "No prior draft revisions were recorded for this filing."}
+              </p>
+            </div>
+
+            {revisions.length ? (
+              <div className="mt-4 space-y-3">
+                {revisions
+                  .slice()
+                  .sort((left, right) => right.versionNumber - left.versionNumber)
+                  .map((revision) => (
+                    <article
+                      key={`${revision.versionNumber}-${revision.savedAt}`}
+                      className="rounded-xl border border-slate-200 bg-white px-4 py-4 shadow-sm"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Badge className="border-slate-200 bg-slate-50 text-slate-600">
+                          v{revision.versionNumber}
+                        </Badge>
+                        <Badge className="border-slate-200 bg-slate-50 text-slate-600">
+                          {revision.status}
+                        </Badge>
+                        <span className="text-xs text-slate-500">
+                          Saved {formatDateTime(revision.savedAt)}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 space-y-3">
+                        {revision.changeSummary ? (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Change summary
+                            </p>
+                            <p className="mt-1 text-sm text-slate-700">{revision.changeSummary}</p>
+                          </div>
+                        ) : null}
+
+                        {revision.title ? (
+                          <div>
+                            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                              Title
+                            </p>
+                            <p className="mt-1 text-sm font-medium text-slate-900">
+                              {revision.title}
+                            </p>
+                          </div>
+                        ) : null}
+
+                        {revision.structuredContent?.length ? (
+                          renderStatementBlocks(revision.structuredContent)
+                        ) : (
+                          <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                            {revision.content}
+                          </p>
+                        )}
+
+                        {revision.citedEvidenceIds?.length ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {revision.citedEvidenceIds.map((evidenceId) => (
+                              <Badge
+                                key={evidenceId}
+                                className="border-slate-200 bg-slate-100 text-[11px] text-slate-600"
+                              >
+                                Evidence {evidenceId}
+                              </Badge>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    </article>
+                  ))}
+              </div>
+            ) : null}
+          </section>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+});
+
 const StatementItem = memo(function StatementItem({
   item,
 }: StatementItemProps) {
   const s = item.statement;
+  const [detailOpen, setDetailOpen] = useState(false);
   const name =
     s.participant?.user?.fullName ||
     s.participant?.user?.email ||
@@ -507,6 +712,9 @@ const StatementItem = memo(function StatementItem({
           >
             {s.status}
           </Badge>
+          <Badge className="border-slate-200 bg-white text-slate-600 text-xs">
+            v{s.versionNumber ?? 1}
+          </Badge>
         </div>
         <p className="mt-1 text-xs font-semibold text-slate-700">{name}</p>
         {s.replyToStatementId && (
@@ -518,9 +726,49 @@ const StatementItem = memo(function StatementItem({
         {s.title && (
           <p className="mt-1 text-sm font-medium text-slate-900">{s.title}</p>
         )}
-        <p className="mt-1 text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-          {s.content}
-        </p>
+        {s.structuredContent?.length ? (
+          <div className="mt-2">
+            {renderStatementBlocks(
+              s.structuredContent.map((block) => ({
+                ...block,
+                heading: block.heading,
+                body: block.body,
+              })),
+            )}
+          </div>
+        ) : (
+          <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+            {s.content}
+          </p>
+        )}
+        {s.citedEvidenceIds?.length ? (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {s.citedEvidenceIds.map((evidenceId) => (
+              <Badge
+                key={evidenceId}
+                className="border-slate-200 bg-slate-100 text-[11px] text-slate-600"
+              >
+                Evidence {evidenceId}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+        {s.versionHistory?.length ? (
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <p className="text-xs text-slate-500">
+              Revision log: {s.versionHistory.length} earlier draft
+              {s.versionHistory.length > 1 ? "s" : ""}.
+            </p>
+            <button
+              type="button"
+              onClick={() => setDetailOpen(true)}
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-medium text-slate-600 transition hover:border-slate-300 hover:bg-slate-50"
+            >
+              <History className="h-3 w-3" />
+              View details
+            </button>
+          </div>
+        ) : null}
         <Tooltip>
           <TooltipTrigger asChild>
             <p className="mt-1.5 text-xs text-slate-400">
@@ -530,6 +778,12 @@ const StatementItem = memo(function StatementItem({
           <TooltipContent>{formatDateTime(s.createdAt)}</TooltipContent>
         </Tooltip>
       </div>
+      <StatementVersionDetailDialog
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+        statement={s}
+        participantName={name}
+      />
     </div>
   );
 });

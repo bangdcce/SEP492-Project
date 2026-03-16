@@ -18,6 +18,12 @@ type DisputePhaseEnumReport = {
 type DisputeSchemaReadinessReport = {
   hasInternalMembershipTable: boolean;
   hasHearingNoShowNoteColumn: boolean;
+  hasHearingStatementsTable: boolean;
+  hasStructuredHearingStatementColumns: boolean;
+  hasHearingQuestionsTable: boolean;
+  hasHearingQuestionWorkspaceColumns: boolean;
+  hasHearingParticipantWorkspaceColumns: boolean;
+  hasDisputeMessageEvidenceColumn: boolean;
   hasStaffPerformanceUpsertConstraint: boolean;
   hasStaffWorkloadUpsertConstraint: boolean;
 };
@@ -76,6 +82,49 @@ export class HealthService implements OnApplicationBootstrap {
         this.logger.log('dispute_hearings.noShowNote schema check passed.');
       }
 
+      if (
+        !schemaReport.hasHearingStatementsTable ||
+        !schemaReport.hasStructuredHearingStatementColumns
+      ) {
+        this.logger.warn(
+          'hearing_statements workspace columns are missing. Run migrations before serving hearing workspace statements.',
+        );
+      } else {
+        this.logger.log('hearing_statements structured schema check passed.');
+      }
+
+      if (!schemaReport.hasHearingQuestionsTable) {
+        this.logger.warn(
+          'hearing_questions table is missing. Run migrations before serving hearing workspace Q&A flows.',
+        );
+      } else {
+        this.logger.log('hearing_questions schema check passed.');
+      }
+
+      if (!schemaReport.hasHearingQuestionWorkspaceColumns) {
+        this.logger.warn(
+          'hearing_questions workspace columns are missing. Run migrations or align entity mappings before serving hearing workspace Q&A flows.',
+        );
+      } else {
+        this.logger.log('hearing_questions workspace column check passed.');
+      }
+
+      if (!schemaReport.hasHearingParticipantWorkspaceColumns) {
+        this.logger.warn(
+          'hearing_participants workspace columns are missing. Run migrations or align entity mappings before serving hearing workspace statements.',
+        );
+      } else {
+        this.logger.log('hearing_participants workspace column check passed.');
+      }
+
+      if (!schemaReport.hasDisputeMessageEvidenceColumn) {
+        this.logger.warn(
+          'dispute_messages.attached_evidence_ids column is missing. Run migrations or align entity mappings before serving dispute workspace messages.',
+        );
+      } else {
+        this.logger.log('dispute_messages.attached_evidence_ids schema check passed.');
+      }
+
       if (!schemaReport.hasStaffPerformanceUpsertConstraint) {
         this.logger.warn(
           'Unique conflict target for staff_performances(staffId, period) is missing. Run migrations before serving verdict/performance upsert flows.',
@@ -130,6 +179,62 @@ export class HealthService implements OnApplicationBootstrap {
       });
     }
 
+    if (
+      !schemaReport.hasHearingStatementsTable ||
+      !schemaReport.hasStructuredHearingStatementColumns
+    ) {
+      throw new ServiceUnavailableException({
+        code: 'HEARING_STATEMENT_SCHEMA_MISSING',
+        message:
+          'Required hearing statement workspace columns are missing. Apply migrations before serving hearing workspace statements.',
+        remediation:
+          'Run migration scripts (e.g. npm run migration:run in server) and verify hearing statement column migrations are applied.',
+        missingDependencies: this.getWorkspaceSchemaMissingDependencies(schemaReport),
+      });
+    }
+
+    if (!schemaReport.hasHearingQuestionsTable) {
+      throw new ServiceUnavailableException({
+        code: 'HEARING_QUESTIONS_TABLE_MISSING',
+        message:
+          'Required table hearing_questions is missing. Apply migrations before serving hearing workspace Q&A flows.',
+        remediation:
+          'Run migration scripts (e.g. npm run migration:run in server) and verify hearing question migrations are applied.',
+      });
+    }
+
+    if (!schemaReport.hasHearingQuestionWorkspaceColumns) {
+      throw new ServiceUnavailableException({
+        code: 'HEARING_QUESTIONS_COLUMNS_MISSING',
+        message:
+          'Required hearing question workspace columns are missing or entity mappings are stale.',
+        remediation:
+          'Run migration scripts and verify hearing question entity-column mappings align before serving hearing workspace.',
+        missingDependencies: this.getWorkspaceSchemaMissingDependencies(schemaReport),
+      });
+    }
+
+    if (!schemaReport.hasHearingParticipantWorkspaceColumns) {
+      throw new ServiceUnavailableException({
+        code: 'HEARING_PARTICIPANT_COLUMNS_MISSING',
+        message:
+          'Required hearing participant workspace columns are missing or entity mappings are stale.',
+        remediation:
+          'Run migration scripts and verify hearing participant entity-column mappings align before serving hearing workspace.',
+        missingDependencies: this.getWorkspaceSchemaMissingDependencies(schemaReport),
+      });
+    }
+
+    if (!schemaReport.hasDisputeMessageEvidenceColumn) {
+      throw new ServiceUnavailableException({
+        code: 'DISPUTE_MESSAGE_EVIDENCE_COLUMN_MISSING',
+        message:
+          'Required column dispute_messages.attached_evidence_ids is missing or entity mappings are stale.',
+        remediation:
+          'Run migrations and confirm entity-column mappings align before serving dispute workspace messages.',
+      });
+    }
+
     if (!schemaReport.hasStaffPerformanceUpsertConstraint) {
       throw new ServiceUnavailableException({
         code: 'STAFF_PERFORMANCE_UPSERT_CONSTRAINT_MISSING',
@@ -180,8 +285,25 @@ export class HealthService implements OnApplicationBootstrap {
       disputePhaseEnum: 'ok',
       disputeInternalMembershipTable: 'ok',
       hearingNoShowNoteColumn: 'ok',
+      hearingStatementsStructuredColumns: 'ok',
+      hearingQuestionsTable: 'ok',
+      hearingQuestionWorkspaceColumns: 'ok',
+      hearingParticipantWorkspaceColumns: 'ok',
+      disputeMessageEvidenceColumn: 'ok',
       staffPerformanceUpsertConstraint: 'ok',
       staffWorkloadUpsertConstraint: 'ok',
+    };
+  }
+
+  async getDisputeWorkspaceReadinessStatus() {
+    await this.assertDatabaseReachable();
+    const report = await this.getDisputeSchemaReadinessReport();
+    const missingDependencies = this.getWorkspaceSchemaMissingDependencies(report);
+    return {
+      status: missingDependencies.length === 0 ? 'ready' : 'not_ready',
+      timestamp: new Date().toISOString(),
+      missingDependencies,
+      report,
     };
   }
 
@@ -328,6 +450,96 @@ export class HealthService implements OnApplicationBootstrap {
         `,
         'dispute_hearings.noShowNote column',
       );
+      const hasHearingStatementsTable = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'hearing_statements'
+          ) AS "exists"
+        `,
+        'hearing_statements table',
+      );
+      const hasStructuredHearingStatementColumns = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT COUNT(*) = 9 AS "exists"
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'hearing_statements'
+            AND column_name IN (
+              'objection_status',
+              'deadline',
+              'structuredContent',
+              'citedEvidenceIds',
+              'platformDeclarationAccepted',
+              'platformDeclarationAcceptedAt',
+              'versionNumber',
+              'versionHistory',
+              'updatedAt'
+            )
+        `,
+        'hearing_statements workspace columns',
+      );
+      const hasHearingQuestionsTable = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name = 'hearing_questions'
+          ) AS "exists"
+        `,
+        'hearing_questions table',
+      );
+      const hasHearingQuestionWorkspaceColumns = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT COUNT(*) = 3 AS "exists"
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'hearing_questions'
+            AND column_name IN (
+              'status',
+              'cancelledAt',
+              'cancelledById'
+            )
+        `,
+        'hearing_questions workspace columns',
+      );
+      const hasHearingParticipantWorkspaceColumns = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT COUNT(*) = 5 AS "exists"
+          FROM information_schema.columns
+          WHERE table_schema = 'public'
+            AND table_name = 'hearing_participants'
+            AND column_name IN (
+              'isRequired',
+              'responseDeadline',
+              'declineReason',
+              'lastOnlineAt',
+              'totalOnlineMinutes'
+            )
+        `,
+        'hearing_participants workspace columns',
+      );
+      const hasDisputeMessageEvidenceColumn = await this.runSchemaExistsQuery(
+        queryRunner,
+        `
+          SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'dispute_messages'
+              AND column_name = 'attached_evidence_ids'
+          ) AS "exists"
+        `,
+        'dispute_messages.attached_evidence_ids column',
+      );
       const hasStaffPerformanceUpsertConstraint = await this.runSchemaExistsQuery(
         queryRunner,
         `
@@ -382,6 +594,12 @@ export class HealthService implements OnApplicationBootstrap {
       return {
         hasInternalMembershipTable,
         hasHearingNoShowNoteColumn,
+        hasHearingStatementsTable,
+        hasStructuredHearingStatementColumns,
+        hasHearingQuestionsTable,
+        hasHearingQuestionWorkspaceColumns,
+        hasHearingParticipantWorkspaceColumns,
+        hasDisputeMessageEvidenceColumn,
         hasStaffPerformanceUpsertConstraint,
         hasStaffWorkloadUpsertConstraint,
       };
@@ -392,5 +610,30 @@ export class HealthService implements OnApplicationBootstrap {
         // Ignore release error in health check path.
       }
     }
+  }
+
+  private getWorkspaceSchemaMissingDependencies(report: DisputeSchemaReadinessReport): string[] {
+    const missing: string[] = [];
+    if (!report.hasInternalMembershipTable) missing.push('dispute_internal_memberships');
+    if (!report.hasHearingNoShowNoteColumn) missing.push('dispute_hearings.noShowNote');
+    if (!report.hasHearingStatementsTable) missing.push('hearing_statements');
+    if (!report.hasStructuredHearingStatementColumns) {
+      missing.push(
+        'hearing_statements.[objection_status,deadline,structuredContent,citedEvidenceIds,platformDeclarationAccepted,platformDeclarationAcceptedAt,versionNumber,versionHistory,updatedAt]',
+      );
+    }
+    if (!report.hasHearingQuestionsTable) missing.push('hearing_questions');
+    if (!report.hasHearingQuestionWorkspaceColumns) {
+      missing.push('hearing_questions.[status,cancelledAt,cancelledById]');
+    }
+    if (!report.hasHearingParticipantWorkspaceColumns) {
+      missing.push(
+        'hearing_participants.[isRequired,responseDeadline,declineReason,lastOnlineAt,totalOnlineMinutes]',
+      );
+    }
+    if (!report.hasDisputeMessageEvidenceColumn) {
+      missing.push('dispute_messages.attached_evidence_ids');
+    }
+    return missing;
   }
 }

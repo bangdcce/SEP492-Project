@@ -90,6 +90,7 @@ export const ControlPane = memo(function ControlPane(props: ControlPaneProps) {
           <ParticipantList
             participants={props.participants}
             currentSpeakerRole={props.currentSpeakerRole}
+            confirmationSummary={props.confirmationSummary}
           />
 
           {/* Phase control  Evisible to all, editable by moderators */}

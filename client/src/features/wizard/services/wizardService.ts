@@ -1,4 +1,3 @@
-
 import { apiClient } from "@/shared/api/client";
 
 export interface WizardOption {
@@ -13,9 +12,17 @@ export interface WizardQuestion {
   code: string;
   label: string;
   helpText?: string;
-  inputType: 'SELECT' | 'CHECKBOX' | 'TEXT' | 'RADIO';
+  inputType: "SELECT" | "CHECKBOX" | "TEXT" | "RADIO";
   sortOrder: number;
   options: WizardOption[];
+}
+
+export interface ProjectRequestAttachment {
+  filename: string;
+  url: string;
+  mimetype?: string | null;
+  size?: number | null;
+  category?: "requirements" | "attachment";
 }
 
 export interface CreateProjectRequestDto {
@@ -25,12 +32,19 @@ export interface CreateProjectRequestDto {
   intendedTimeline?: string;
   techPreferences?: string;
   isDraft?: boolean;
-  status?: string; // Allowing string to support new enum values
+  status?: string;
+  wizardProgressStep?: number;
+  attachments?: ProjectRequestAttachment[];
   answers: {
     questionId: string;
     optionId?: string;
     valueText?: string;
   }[];
+}
+
+export interface UploadProjectRequestFilesResult {
+  requirements: ProjectRequestAttachment[];
+  attachments: ProjectRequestAttachment[];
 }
 
 export const wizardService = {
@@ -41,10 +55,15 @@ export const wizardService = {
   submitRequest: async (data: CreateProjectRequestDto) => {
     return await apiClient.post("/project-requests", data);
   },
-  
-  uploadFile: async (file: File) => {
+
+  uploadFiles: async (
+    files: File[],
+    category: "requirements" | "attachments" = "attachments",
+  ): Promise<UploadProjectRequestFilesResult> => {
     const formData = new FormData();
-    formData.append("file", file);
+    files.forEach((file) => {
+      formData.append(category === "requirements" ? "requirements" : "attachments", file);
+    });
     return await apiClient.post("/project-requests/upload", formData, {
       headers: {
         "Content-Type": "multipart/form-data",
@@ -73,11 +92,10 @@ export const wizardService = {
   },
 
   inviteBroker: async (requestId: string, brokerId: string) => {
-    return await apiClient.post(`/project-requests/${requestId}/invite`, { brokerId });
+    return await apiClient.post(`/project-requests/${requestId}/invite/broker`, { brokerId });
   },
 
   applyToRequest: async (requestId: string, coverLetter: string) => {
-    // Note: This endpoint expects brokerId from token, so we only send coverLetter
     return await apiClient.post(`/project-requests/${requestId}/apply`, { coverLetter });
   },
 
@@ -85,20 +103,25 @@ export const wizardService = {
     return await apiClient.post(`/project-requests/${requestId}/accept-broker`, { brokerId });
   },
 
+  releaseBrokerSlot: async (requestId: string, proposalId: string) => {
+    return await apiClient.post(`/project-requests/${requestId}/release-broker-slot`, {
+      proposalId,
+    });
+  },
+
   approveSpecs: async (requestId: string) => {
     return await apiClient.post(`/project-requests/${requestId}/approve-specs`, {});
   },
 
   convertToProject: async (requestId: string) => {
-     return await apiClient.post(`/project-requests/${requestId}/convert`, {});
+    return await apiClient.post(`/project-requests/${requestId}/convert`, {});
   },
 
-  // ── AI Matching Engine ──
   getBrokerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
     const params = new URLSearchParams();
-    params.set('role', 'BROKER');
-    if (options?.enableAi !== undefined) params.set('enableAi', String(options.enableAi));
-    if (options?.topN !== undefined) params.set('topN', String(options.topN));
+    params.set("role", "BROKER");
+    if (options?.enableAi !== undefined) params.set("enableAi", String(options.enableAi));
+    if (options?.topN !== undefined) params.set("topN", String(options.topN));
     const qs = params.toString();
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
@@ -107,11 +130,14 @@ export const wizardService = {
     return await apiClient.get(`/matching/${requestId}?role=BROKER&enableAi=false`);
   },
 
-  getFreelancerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
+  getFreelancerMatches: async (
+    requestId: string,
+    options?: { enableAi?: boolean; topN?: number },
+  ) => {
     const params = new URLSearchParams();
-    params.set('role', 'FREELANCER');
-    if (options?.enableAi !== undefined) params.set('enableAi', String(options.enableAi));
-    if (options?.topN !== undefined) params.set('topN', String(options.topN));
+    params.set("role", "FREELANCER");
+    if (options?.enableAi !== undefined) params.set("enableAi", String(options.enableAi));
+    if (options?.topN !== undefined) params.set("topN", String(options.topN));
     const qs = params.toString();
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
@@ -120,4 +146,3 @@ export const wizardService = {
     return await apiClient.get(`/matching/${requestId}?role=FREELANCER&enableAi=false`);
   },
 };
-

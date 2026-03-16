@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { AuditLogEntity } from '../../database/entities';
-import { Repository } from 'typeorm';
+import { Repository, SelectQueryBuilder } from 'typeorm';
 import { InjectRepository } from '@nestjs/typeorm';
 import { GetAuditLogsDto } from './dto/get-audit-logs.dto';
 
@@ -359,6 +359,7 @@ export class AuditLogsService {
       limit = 20,
       userId,
       entityType,
+      entityId,
       action,
       dateFrom,
       dateTo,
@@ -366,46 +367,15 @@ export class AuditLogsService {
     } = queryDto;
     const skip = (page - 1) * limit;
 
-    const query = this.auditLogRepository.createQueryBuilder('log');
-
-    query.leftJoinAndSelect('log.actor', 'actor');
-
-    query.select(['log', 'actor.id', 'actor.email', 'actor.fullName', 'actor.role']);
-
-    if (userId) {
-      query.andWhere('log.actorId = :userId', { userId });
-    }
-    if (entityType) {
-      query.andWhere('log.entityType = :entityType', { entityType });
-    }
-    if (action) {
-      // Search across multiple fields with case-insensitive ILIKE
-      query.andWhere(
-        `(log.action ILIKE :search OR log.entity_type ILIKE :search OR log.entity_id ILIKE :search OR actor.fullName ILIKE :search)`,
-        { search: `%${action}%` },
-      );
-    }
-
-    // Filter by date range
-    if (dateFrom) {
-      query.andWhere('log.createdAt >= :dateFrom', {
-        dateFrom: new Date(dateFrom),
-      });
-    }
-    if (dateTo) {
-      const toDate = new Date(dateTo);
-      toDate.setHours(23, 59, 59, 999);
-      query.andWhere('log.createdAt <= :dateTo', { dateTo: toDate });
-    }
-
-    // Filter by risk level (PostgreSQL JSONB syntax)
-    // Note: Use actual DB column name 'after_data' (snake_case) in raw SQL
-    if (riskLevel) {
-      query.andWhere(
-        `(log.after_data IS NOT NULL AND log.after_data->'_security_analysis'->>'riskLevel' = :riskLevel)`,
-        { riskLevel },
-      );
-    }
+    const query = this.buildFilteredQuery({
+      userId,
+      entityType,
+      entityId,
+      action,
+      dateFrom,
+      dateTo,
+      riskLevel,
+    });
 
     query.orderBy('log.createdAt', 'DESC');
     query.skip(skip).take(limit);
@@ -425,9 +395,131 @@ export class AuditLogsService {
     };
   }
 
+  async exportLogs(queryDto: GetAuditLogsDto): Promise<{
+    buffer: Buffer;
+    fileName: string;
+    contentType: string;
+  }> {
+    const format = queryDto.format === 'csv' ? 'csv' : 'json';
+    const query = this.buildFilteredQuery(queryDto).orderBy('log.createdAt', 'DESC');
+    const entities = await query.getMany();
+    const data = entities.map((entity) => this.transformToResponseDto(entity));
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+
+    if (format === 'csv') {
+      const rows = [
+        [
+          'id',
+          'actorName',
+          'actorEmail',
+          'action',
+          'entityType',
+          'entityId',
+          'riskLevel',
+          'ipAddress',
+          'timestamp',
+          'userAgent',
+        ],
+        ...data.map((entry) => [
+          entry.id,
+          entry.actor.name,
+          entry.actor.email,
+          entry.action,
+          entry.metadata?.entityType || '',
+          entry.metadata?.entityId || '',
+          entry.riskLevel,
+          entry.ipAddress,
+          entry.timestamp,
+          String(entry.metadata?.userAgent || ''),
+        ]),
+      ];
+
+      const csv = rows
+        .map((row) =>
+          row
+            .map((cell) => `"${String(cell ?? '').replace(/"/g, '""')}"`)
+            .join(','),
+        )
+        .join('\n');
+
+      return {
+        buffer: Buffer.from(csv, 'utf8'),
+        fileName: `audit-logs-${timestamp}.csv`,
+        contentType: 'text/csv; charset=utf-8',
+      };
+    }
+
+    const payload = {
+      generatedAt: new Date().toISOString(),
+      filters: {
+        userId: queryDto.userId ?? null,
+        entityType: queryDto.entityType ?? null,
+        entityId: queryDto.entityId ?? null,
+        action: queryDto.action ?? null,
+        dateFrom: queryDto.dateFrom ?? null,
+        dateTo: queryDto.dateTo ?? null,
+        riskLevel: queryDto.riskLevel ?? null,
+      },
+      total: data.length,
+      data,
+    };
+
+    return {
+      buffer: Buffer.from(JSON.stringify(payload, null, 2), 'utf8'),
+      fileName: `audit-logs-${timestamp}.json`,
+      contentType: 'application/json; charset=utf-8',
+    };
+  }
+
   // ==============================================================================
   // PRIVATE HELPER METHODS
   // ==============================================================================
+
+  private buildFilteredQuery(
+    queryDto: Partial<GetAuditLogsDto>,
+  ): SelectQueryBuilder<AuditLogEntity> {
+    const { userId, entityType, entityId, action, dateFrom, dateTo, riskLevel } = queryDto;
+    const query = this.auditLogRepository.createQueryBuilder('log');
+
+    query.leftJoinAndSelect('log.actor', 'actor');
+    query.select(['log', 'actor.id', 'actor.email', 'actor.fullName', 'actor.role']);
+
+    if (userId) {
+      query.andWhere('log.actorId = :userId', { userId });
+    }
+    if (entityType) {
+      query.andWhere('log.entityType = :entityType', { entityType });
+    }
+    if (entityId) {
+      query.andWhere('log.entityId = :entityId', { entityId });
+    }
+    if (action) {
+      query.andWhere(
+        `(log.action ILIKE :search OR log.entity_type ILIKE :search OR log.entity_id ILIKE :search OR actor.fullName ILIKE :search OR actor.email ILIKE :search)`,
+        { search: `%${action}%` },
+      );
+    }
+
+    if (dateFrom) {
+      query.andWhere('log.createdAt >= :dateFrom', {
+        dateFrom: new Date(dateFrom),
+      });
+    }
+    if (dateTo) {
+      const toDate = new Date(dateTo);
+      toDate.setHours(23, 59, 59, 999);
+      query.andWhere('log.createdAt <= :dateTo', { dateTo: toDate });
+    }
+
+    if (riskLevel) {
+      query.andWhere(
+        `(log.after_data IS NOT NULL AND log.after_data->'_security_analysis'->>'riskLevel' = :riskLevel)`,
+        { riskLevel },
+      );
+    }
+
+    return query;
+  }
 
   /**
    * Determine risk level based on action type

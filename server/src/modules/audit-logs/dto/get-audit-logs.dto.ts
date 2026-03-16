@@ -1,4 +1,4 @@
-import { IsOptional, IsInt, IsString, Min, IsDateString, IsIn } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class GetAuditLogsDto {
@@ -15,30 +15,36 @@ export class GetAuditLogsDto {
   limit?: number = 20;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  userId?: number; // Lọc theo ID người thực hiện
+  @IsString()
+  userId?: string;
 
   @IsOptional()
   @IsString()
-  entityType?: string; // Lọc theo loại đối tượng (Project, User...)
+  entityType?: string;
 
   @IsOptional()
   @IsString()
-  action?: string; // Lọc theo hành động (LOGIN, CREATE...)
+  entityId?: string;
 
-  // ===== NEW FILTERS =====
+  @IsOptional()
+  @IsString()
+  action?: string;
 
   @IsOptional()
   @IsDateString()
-  dateFrom?: string; // Lọc từ ngày (ISO format: 2024-12-01)
+  dateFrom?: string;
 
   @IsOptional()
   @IsDateString()
-  dateTo?: string; // Lọc đến ngày (ISO format: 2024-12-31)
+  dateTo?: string;
 
   @IsOptional()
   @IsString()
   @IsIn(['LOW', 'NORMAL', 'HIGH'])
-  riskLevel?: string; // Lọc theo mức độ rủi ro
+  riskLevel?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['json', 'csv'])
+  format?: 'json' | 'csv';
 }

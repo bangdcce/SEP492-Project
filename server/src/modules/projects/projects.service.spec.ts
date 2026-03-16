@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ContractEntity } from '../../database/entities/contract.entity';
 import { DisputeEntity } from '../../database/entities/dispute.entity';
+import { ReviewEntity } from '../../database/entities/review.entity';
 import {
   DeliverableType,
   MilestoneEntity,
@@ -28,6 +29,7 @@ describe('ProjectsService approveMilestone', () => {
 
   const projectRepository = {};
   const disputeRepository = {};
+  const reviewRepository = {};
   const milestoneRepository = {};
   const taskRepository = {};
   const userRepository = {};
@@ -80,6 +82,10 @@ describe('ProjectsService approveMilestone', () => {
         {
           provide: getRepositoryToken(DisputeEntity),
           useValue: disputeRepository,
+        },
+        {
+          provide: getRepositoryToken(ReviewEntity),
+          useValue: reviewRepository,
         },
         {
           provide: getRepositoryToken(MilestoneEntity),
