@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  body {
+    font-family: Arial, sans-serif;
+    font-size: 10.5pt;
+    color: black;
+    background: white;
+    line-height: 1.4;
+    max-width: 900px;
+    margin: 20px auto;
+    padding: 0 20px;
+  }
+  h1 { font-size: 14pt; font-weight: bold; margin-top: 24pt; margin-bottom: 6pt; }
+  h2 { font-size: 12pt; font-weight: bold; margin-top: 18pt; margin-bottom: 6pt; }
+  h3 { font-size: 11pt; font-weight: bold; margin-top: 12pt; margin-bottom: 4pt; }
+  h4 { font-size: 10.5pt; font-weight: bold; margin-top: 10pt; margin-bottom: 4pt; }
+  p { margin: 4pt 0; }
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 6pt 0 12pt 0;
+    font-size: 10.5pt;
+  }
+  th, td {
+    border: 1px solid black;
+    padding: 4pt 6pt;
+    text-align: left;
+    vertical-align: top;
+  }
+  th {
+    font-weight: bold;
+  }
+</style>
+</head>
+<body>
+
+<h1>4. Class Specifications — Create a Request by Client</h1>
+
+<p>This section covers all classes involved in the "Create a Request by Client" feature flow, spanning both Server-side (NestJS) and Client-side (React/TypeScript).</p>
+
+<!-- ===== 4.1 ===== -->
+<h2>4.1 ProjectRequestsController Class</h2>
+
+<p><b>Description:</b> REST API controller that handles all HTTP endpoints for the Project Requests module. Uses JwtAuthGuard and RolesGuard for authentication and authorization. Delegates business logic to ProjectRequestsService.</p>
+
+<h3>Class Attributes</h3>
+<table>
+<tr><th>No</th><th>Attribute</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>projectRequestsService</td><td>ProjectRequestsService</td><td>Injected service instance responsible for all project request business logic. Marked as private readonly.</td></tr>
+</table>
+
+<h3>Class Methods</h3>
+<table>
+<tr><th>No</th><th>Method</th><th>Description</th></tr>
+<tr>
+  <td>01</td>
+  <td>async create(userId: string, createDto: CreateProjectRequestDto, req: RequestContext): Promise&lt;ProjectRequestEntity&gt;</td>
+  <td>[POST /project-requests] Creates a new project request on behalf of the authenticated client.<br>- Parameter userId: UUID string extracted from the JWT token, identifies the client creating the request.<br>- Parameter createDto: DTO object validated via CreateProjectRequestDto, contains title, description, budgetRange, intendedTimeline, techPreferences, isDraft, and answers[].<br>- Parameter req: The request context object used for audit logging (IP, user-agent).<br>- Returns: The fully populated ProjectRequestEntity with answers, question, and option relations.<br>- Internal: Calls projectRequestsService.create(userId, createDto, req).</td>
+</tr>
+<tr>
+  <td>02</td>
+  <td>async getProjectRequests(user: UserEntity, status?: string): Promise&lt;ProjectRequestEntity[]&gt;</td>
+  <td>[GET /project-requests] Retrieves project requests. If the user role is CLIENT, returns only the client's own requests via findAllByClient(). Otherwise (Admin/Broker), returns all requests optionally filtered by status.</td>
+</tr>
+<tr>
+  <td>03</td>
+  <td>async findMyDrafts(userId: string): Promise&lt;ProjectRequestEntity[]&gt;</td>
+  <td>[GET /project-requests/drafts/mine] Returns all draft-status requests owned by the authenticated user. Calls findDraftsByClient(userId).</td>
+</tr>
+<tr>
+  <td>04</td>
+  <td>async getOne(id: string, user: UserEntity): Promise&lt;ProjectRequestEntity&gt;</td>
+  <td>[GET /project-requests/:id] Retrieves a single project request by UUID. Applies role-based access control: Clients can only view their own; Brokers cannot view requests assigned to other brokers; Freelancers must have an associated proposal.</td>
+</tr>
+<tr>
+  <td>05</td>
+  <td>async update(id: string, updateDto: UpdateProjectRequestDto): Promise&lt;ProjectRequestEntity&gt;</td>
+  <td>[PATCH /project-requests/:id] Updates an existing request (e.g., save draft, change status, update answers). Accepts partial DTO fields.</td>
+</tr>
+<tr>
+  <td>06</td>
+  <td>uploadFile(files: UploadedFilesMap): object</td>
+  <td>[POST /project-requests/upload] Handles multipart file uploads for requirements (max 1) and attachments (max 5). Returns an object with filenames and mock URLs. Uses FileFieldsInterceptor.</td>
+</tr>
+<tr>
+  <td>07</td>
+  <td>async seedTestData(clientId?: string): Promise&lt;ProjectRequestEntity[]&gt;</td>
+  <td>[POST /project-requests/seed-test-data] Seeds test data for UI verification. Creates Phase 3 and Phase 4 test requests.</td>
+</tr>
+</table>
+
+<!-- ===== 4.2 ===== -->
+<h2>4.2 ProjectRequestsService Class</h2>
+
+<p><b>Description:</b> Core business logic service for project requests. Handles CRUD operations, status transitions, broker/freelancer proposals, audit logging, and AI matching integration. Decorated with @Injectable().</p>
+
+<h3>Class Attributes</h3>
+<table>
+<tr><th>No</th><th>Attribute</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>requestRepo</td><td>Repository&lt;ProjectRequestEntity&gt;</td><td>TypeORM repository injected via @InjectRepository() for CRUD operations on the project_requests table.</td></tr>
+<tr><td>02</td><td>answerRepo</td><td>Repository&lt;ProjectRequestAnswerEntity&gt;</td><td>TypeORM repository for CRUD operations on the project_request_answers table.</td></tr>
+<tr><td>03</td><td>brokerProposalRepo</td><td>Repository&lt;BrokerProposalEntity&gt;</td><td>TypeORM repository for managing broker proposals/invitations.</td></tr>
+<tr><td>04</td><td>freelancerProposalRepo</td><td>Repository&lt;ProjectRequestProposalEntity&gt;</td><td>TypeORM repository for managing freelancer proposals/invitations.</td></tr>
+<tr><td>05</td><td>auditLogsService</td><td>AuditLogsService</td><td>Injected service for recording audit logs of create/update actions.</td></tr>
+<tr><td>06</td><td>matchingService</td><td>MatchingService</td><td>Injected service for AI-powered broker/freelancer matching.</td></tr>
+</table>
+
+<h3>Class Methods</h3>
+<table>
+<tr><th>No</th><th>Method</th><th>Description</th></tr>
+<tr>
+  <td>01</td>
+  <td>async create(clientId: string, dto: CreateProjectRequestDto, req: RequestContext): Promise&lt;ProjectRequestEntity&gt;</td>
+  <td>Creates a new project request and its associated answers.<br>- Parameter clientId: UUID of the client user.<br>- Parameter dto: Validated DTO containing title, description, budgetRange, intendedTimeline, techPreferences, isDraft flag, and answers array.<br>- Parameter req: Request context for audit logging.<br>- Processing: (1) Creates ProjectRequestEntity with status DRAFT or PUBLIC_DRAFT based on isDraft. (2) Saves entity to DB. (3) Maps and saves ProjectRequestAnswerEntity[] for each answer. (4) Reloads the full entity with relations. (5) Logs a CREATE audit entry.<br>- Returns: The fully populated ProjectRequestEntity including answers with question/option relations.</td>
+</tr>
+<tr>
+  <td>02</td>
+  <td>async findAll(status?: RequestStatus): Promise&lt;ProjectRequestEntity[]&gt;</td>
+  <td>Retrieves all project requests with relations (answers, client, broker), ordered by createdAt DESC. Optionally filters by RequestStatus enum value.</td>
+</tr>
+<tr>
+  <td>03</td>
+  <td>async update(id: string, dto: UpdateProjectRequestDto): Promise&lt;ProjectRequestEntity&gt;</td>
+  <td>Updates a project request's fields and manages status transitions. Handles PUBLIC to PRIVATE visibility toggle (denies pending broker proposals when switching to private). Updates answers if provided by deleting old ones and creating new entries.</td>
+</tr>
+<tr>
+  <td>04</td>
+  <td>async findAllByClient(clientId: string): Promise&lt;ProjectRequestEntity[]&gt;</td>
+  <td>Returns all requests for a specific client, ordered by createdAt DESC, with answer relations loaded.</td>
+</tr>
+<tr>
+  <td>05</td>
+  <td>async findDraftsByClient(clientId: string): Promise&lt;ProjectRequestEntity[]&gt;</td>
+  <td>Returns only DRAFT-status requests for a specific client.</td>
+</tr>
+<tr>
+  <td>06</td>
+  <td>async findOne(id: string, user?: UserEntity): Promise&lt;ProjectRequestEntity&gt;</td>
+  <td>Retrieves one request with full relations (answers, client, broker, proposals, specs). Applies role-based access control: masks client PII for brokers on PENDING requests, restricts freelancer access to only invited/accepted. Throws NotFoundException or ForbiddenException.</td>
+</tr>
+</table>
+
+<!-- ===== 4.3 ===== -->
+<h2>4.3 CreateProjectRequestDto Class</h2>
+
+<p><b>Description:</b> Data Transfer Object for validating and typing the request body when creating a new project request. Uses class-validator decorators for input validation and @nestjs/swagger decorators for API documentation.</p>
+
+<h3>Class Attributes</h3>
+<table>
+<tr><th>No</th><th>Attribute</th><th>Type</th><th>Validators</th><th>Description</th></tr>
+<tr><td>01</td><td>title</td><td>string</td><td>@IsNotEmpty(), @IsString()</td><td>The short title of the project request. Required field.</td></tr>
+<tr><td>02</td><td>description</td><td>string</td><td>@IsNotEmpty(), @IsString()</td><td>Detailed description of the project idea. Required field.</td></tr>
+<tr><td>03</td><td>budgetRange</td><td>string (optional)</td><td>@IsOptional(), @IsString()</td><td>Estimated budget range (e.g., "1K_5K"). Optional.</td></tr>
+<tr><td>04</td><td>intendedTimeline</td><td>string (optional)</td><td>@IsOptional(), @IsString()</td><td>Expected completion date or duration. Optional.</td></tr>
+<tr><td>05</td><td>techPreferences</td><td>string (optional)</td><td>@IsOptional(), @IsString()</td><td>Comma-separated technology preferences. Optional.</td></tr>
+<tr><td>06</td><td>isDraft</td><td>boolean (optional)</td><td>@IsOptional()</td><td>If true, saves as DRAFT; if false or omitted, saves as PUBLIC_DRAFT. Default: false.</td></tr>
+<tr><td>07</td><td>answers</td><td>CreateProjectRequestAnswerDto[]</td><td>@IsArray(), @ValidateNested({each: true}), @Type()</td><td>Array of wizard answers, each referencing a question and containing either an optionId or valueText. Required.</td></tr>
+</table>
+
+<!-- ===== 4.4 ===== -->
+<h2>4.4 CreateProjectRequestAnswerDto Class</h2>
+
+<p><b>Description:</b> Nested DTO representing a single wizard answer within the create request payload.</p>
+
+<h3>Class Attributes</h3>
+<table>
+<tr><th>No</th><th>Attribute</th><th>Type</th><th>Validators</th><th>Description</th></tr>
+<tr><td>01</td><td>questionId</td><td>string</td><td>@IsNotEmpty()</td><td>UUID of the WizardQuestion being answered. Required.</td></tr>
+<tr><td>02</td><td>optionId</td><td>string (optional)</td><td>@IsOptional()</td><td>UUID of the selected WizardOption (for SELECT/RADIO type questions). Optional.</td></tr>
+<tr><td>03</td><td>valueText</td><td>string (optional)</td><td>@IsOptional()</td><td>Free-text answer value (for TEXT type or custom answers). Optional.</td></tr>
+</table>
+
+<!-- ===== 4.5 ===== -->
+<h2>4.5 UpdateProjectRequestDto Class</h2>
+
+<p><b>Description:</b> DTO for updating an existing project request. Extends PartialType(CreateProjectRequestDto), making all fields from the create DTO optional. Adds an additional status field.</p>
+
+<h3>Class Attributes</h3>
+<table>
+<tr><th>No</th><th>Attribute</th><th>Type</th><th>Validators</th><th>Description</th></tr>
+<tr><td>01</td><td>(inherited)</td><td>—</td><td>—</td><td>All fields from CreateProjectRequestDto are available but optional.</td></tr>
+<tr><td>02</td><td>status</td><td>RequestStatus (optional)</td><td>@IsOptional()</td><td>Allows explicitly setting the request status (e.g., PUBLIC_DRAFT, PRIVATE_DRAFT, PENDING_SPECS). Optional.</td></tr>
+</table>
+
+<!-- ===== 4.6 ===== -->
+<h2>4.6 ProjectRequestEntity Class</h2>
+
+<p><b>Description:</b> TypeORM entity mapped to the project_requests database table. Represents a client's project request throughout its lifecycle.</p>
+
+<h3>Class Attributes</h3>
+<table>
+<tr><th>No</th><th>Attribute</th><th>Type</th><th>Column Config</th><th>Description</th></tr>
+<tr><td>01</td><td>id</td><td>string</td><td>@PrimaryGeneratedColumn('uuid')</td><td>Auto-generated UUID primary key.</td></tr>
+<tr><td>02</td><td>clientId</td><td>string</td><td>@Column('clientId')</td><td>Foreign key referencing the client UserEntity.</td></tr>
+<tr><td>03</td><td>title</td><td>string</td><td>varchar(255)</td><td>Short title of the project request.</td></tr>
+<tr><td>04</td><td>description</td><td>string</td><td>text</td><td>Detailed description of the project.</td></tr>
+<tr><td>05</td><td>budgetRange</td><td>string</td><td>varchar, nullable</td><td>Estimated budget range string.</td></tr>
+<tr><td>06</td><td>intendedTimeline</td><td>string</td><td>varchar, nullable</td><td>Expected timeline/duration.</td></tr>
+<tr><td>07</td><td>techPreferences</td><td>string</td><td>varchar, nullable</td><td>Comma-separated technology stack preferences.</td></tr>
+<tr><td>08</td><td>status</td><td>RequestStatus</td><td>enum, default: PENDING</td><td>Current lifecycle status. Values include: DRAFT, PUBLIC_DRAFT, PRIVATE_DRAFT, BROKER_ASSIGNED, SPEC_APPROVED, CONTRACT_PENDING, CONVERTED_TO_PROJECT, etc.</td></tr>
+<tr><td>09</td><td>brokerId</td><td>string</td><td>nullable</td><td>Foreign key referencing the assigned broker UserEntity. Null until a broker is assigned.</td></tr>
+<tr><td>10</td><td>createdAt</td><td>Date</td><td>@CreateDateColumn</td><td>Timestamp of record creation.</td></tr>
+</table>
+
+<h3>Relations</h3>
+<table>
+<tr><th>No</th><th>Relation</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>client</td><td>ManyToOne to UserEntity</td><td>The client who created the request. ON DELETE CASCADE.</td></tr>
+<tr><td>02</td><td>broker</td><td>ManyToOne to UserEntity</td><td>The assigned broker. ON DELETE SET NULL.</td></tr>
+<tr><td>03</td><td>answers</td><td>OneToMany to ProjectRequestAnswerEntity</td><td>Wizard answers associated with this request.</td></tr>
+<tr><td>04</td><td>proposals</td><td>OneToMany to ProjectRequestProposalEntity</td><td>Freelancer proposals for this request.</td></tr>
+<tr><td>05</td><td>specs</td><td>OneToMany to ProjectSpecEntity</td><td>Project specifications created for this request.</td></tr>
+<tr><td>06</td><td>brokerProposals</td><td>OneToMany to BrokerProposalEntity</td><td>Broker proposals/invitations for this request.</td></tr>
+</table>
+
+<!-- ===== 4.7 ===== -->
+<h2>4.7 ProjectRequestAnswerEntity Class</h2>
+
+<p><b>Description:</b> TypeORM entity mapped to project_request_answers. Stores individual wizard answers linked to a project request.</p>
+
+<h3>Class Attributes</h3>
+<table>
+<tr><th>No</th><th>Attribute</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>id</td><td>string</td><td>Auto-generated UUID primary key.</td></tr>
+<tr><td>02</td><td>requestId</td><td>string</td><td>FK to ProjectRequestEntity.</td></tr>
+<tr><td>03</td><td>questionId</td><td>string</td><td>FK to WizardQuestionEntity.</td></tr>
+<tr><td>04</td><td>optionId</td><td>string</td><td>FK to WizardOptionEntity. Nullable.</td></tr>
+<tr><td>05</td><td>valueText</td><td>string</td><td>Free-text answer value. Nullable.</td></tr>
+</table>
+
+<h3>Relations</h3>
+<table>
+<tr><th>No</th><th>Relation</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>request</td><td>ManyToOne to ProjectRequestEntity</td><td>Parent project request. ON DELETE CASCADE.</td></tr>
+<tr><td>02</td><td>question</td><td>ManyToOne to WizardQuestionEntity</td><td>The wizard question being answered. ON DELETE CASCADE.</td></tr>
+<tr><td>03</td><td>option</td><td>ManyToOne to WizardOptionEntity</td><td>The selected option (if applicable). ON DELETE SET NULL.</td></tr>
+</table>
+
+<!-- ===== 4.8 ===== -->
+<h2>4.8 ProjectRequestsModule Class</h2>
+
+<p><b>Description:</b> NestJS module that wires together the controller, service, and entity repositories for the Project Requests feature.</p>
+
+<h3>Module Configuration</h3>
+<table>
+<tr><th>No</th><th>Property</th><th>Value</th><th>Description</th></tr>
+<tr><td>01</td><td>imports</td><td>TypeOrmModule.forFeature([ProjectRequestEntity, ProjectRequestAnswerEntity, BrokerProposalEntity, ProjectRequestProposalEntity]), AuditLogsModule, AuthModule, MatchingModule</td><td>Registers entity repositories and imports dependent modules.</td></tr>
+<tr><td>02</td><td>controllers</td><td>[ProjectRequestsController]</td><td>Registers the REST controller.</td></tr>
+<tr><td>03</td><td>providers</td><td>[ProjectRequestsService]</td><td>Registers the business logic service.</td></tr>
+<tr><td>04</td><td>exports</td><td>[ProjectRequestsService]</td><td>Exports the service for use by other modules.</td></tr>
+</table>
+
+<!-- ===== 4.9 ===== -->
+<h2>4.9 WizardPage Component (Client)</h2>
+
+<p><b>Description:</b> React page component implementing a 5-step wizard for clients to create project requests. Manages multi-step form state, KYC verification checks, and submission logic.</p>
+
+<h3>Component State (Attributes)</h3>
+<table>
+<tr><th>No</th><th>State Variable</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>currentStep</td><td>number</td><td>Tracks the current wizard step (1 to 5).</td></tr>
+<tr><td>02</td><td>questions</td><td>WizardQuestion[]</td><td>Wizard questions fetched from the API.</td></tr>
+<tr><td>03</td><td>loading</td><td>boolean</td><td>Loading state while fetching questions.</td></tr>
+<tr><td>04</td><td>submitting</td><td>boolean</td><td>Submission in-progress flag.</td></tr>
+<tr><td>05</td><td>kycStatus</td><td>string or null</td><td>Client's KYC verification status (APPROVED, PENDING, NOT_STARTED, REJECTED).</td></tr>
+<tr><td>06</td><td>requestId</td><td>string or null</td><td>ID of a created/saved request (for update on re-submit).</td></tr>
+<tr><td>07</td><td>productType</td><td>string</td><td>Selected product type (Step B1).</td></tr>
+<tr><td>08</td><td>industry</td><td>string</td><td>Selected industry (Step B2).</td></tr>
+<tr><td>09</td><td>budget</td><td>string</td><td>Selected budget range (Step B3).</td></tr>
+<tr><td>10</td><td>timeline</td><td>string</td><td>Expected completion date (Step B3).</td></tr>
+<tr><td>11</td><td>features</td><td>string[]</td><td>Selected feature list (Step B4).</td></tr>
+<tr><td>12</td><td>title</td><td>string</td><td>Project title (Step B5).</td></tr>
+<tr><td>13</td><td>description</td><td>string</td><td>Project description (Step B5).</td></tr>
+<tr><td>14</td><td>fileUrl</td><td>string</td><td>Uploaded file URL (Step B5).</td></tr>
+</table>
+
+<h3>Component Methods</h3>
+<table>
+<tr><th>No</th><th>Method</th><th>Description</th></tr>
+<tr>
+  <td>01</td>
+  <td>handleNext(): void</td>
+  <td>Advances to the next wizard step if currentStep is less than totalSteps.</td>
+</tr>
+<tr>
+  <td>02</td>
+  <td>handleBack(): void</td>
+  <td>Returns to the previous wizard step if currentStep is greater than 1.</td>
+</tr>
+<tr>
+  <td>03</td>
+  <td>handleSubmit(mode: 'draft' | 'marketplace' | 'invite'): Promise&lt;void&gt;</td>
+  <td>Submits the wizard form. Mode 'draft': Saves as draft (isDraft: true), stays on page. Mode 'marketplace': Posts to marketplace (isDraft: false), navigates to dashboard. Mode 'invite': Creates and redirects to request detail page with recruitment tab for AI matching. Validates KYC status before non-draft submissions. Constructs CreateProjectRequestDto payload by mapping form state to answer objects. Calls wizardService.submitRequest() for new or wizardService.updateRequest() for existing.</td>
+</tr>
+<tr>
+  <td>04</td>
+  <td>getQuestion(code: string): WizardQuestion or undefined</td>
+  <td>Helper that finds a wizard question object by its code (e.g., 'PRODUCT_TYPE', 'INDUSTRY', 'FEATURES').</td>
+</tr>
+</table>
+
+<!-- ===== 4.10 ===== -->
+<h2>4.10 wizardService Object (Client)</h2>
+
+<p><b>Description:</b> Client-side API service object that wraps all HTTP calls related to the wizard and project requests. Uses the centralized apiClient (Axios wrapper).</p>
+
+<h3>Methods</h3>
+<table>
+<tr><th>No</th><th>Method</th><th>Description</th></tr>
+<tr><td>01</td><td>getQuestions(): Promise&lt;WizardQuestion[]&gt;</td><td>[GET /wizard/questions] Fetches the list of wizard questions with their options from the server.</td></tr>
+<tr><td>02</td><td>submitRequest(data: CreateProjectRequestDto): Promise&lt;any&gt;</td><td>[POST /project-requests] Sends the wizard form data to create a new project request. The data parameter contains title, description, budgetRange, intendedTimeline, isDraft, and answers[]. Returns the created entity.</td></tr>
+<tr><td>03</td><td>updateRequest(id: string, data: Partial&lt;CreateProjectRequestDto&gt;): Promise&lt;any&gt;</td><td>[PATCH /project-requests/:id] Updates an existing project request with partial data. Used when re-submitting a previously saved draft.</td></tr>
+<tr><td>04</td><td>uploadFile(file: File): Promise&lt;{filename: string, url: string}&gt;</td><td>[POST /project-requests/upload] Uploads a file as multipart/form-data. Returns the filename and a URL path.</td></tr>
+<tr><td>05</td><td>getDrafts(): Promise&lt;any&gt;</td><td>[GET /project-requests/drafts/mine] Retrieves all draft requests for the authenticated client.</td></tr>
+<tr><td>06</td><td>getRequests(): Promise&lt;any&gt;</td><td>[GET /project-requests] Retrieves all requests for the authenticated user.</td></tr>
+<tr><td>07</td><td>getRequestById(id: string): Promise&lt;any&gt;</td><td>[GET /project-requests/:id] Retrieves a single request by ID.</td></tr>
+</table>
+
+<!-- ===== 4.11 ===== -->
+<h2>4.11 ApiClient Class (Client)</h2>
+
+<p><b>Description:</b> Centralized Axios wrapper class providing HTTP methods with automatic authentication (httpOnly cookies), token refresh with single-flight deduplication, session reconciliation for multi-tab scenarios, and timezone header injection.</p>
+
+<h3>Class Attributes</h3>
+<table>
+<tr><th>No</th><th>Attribute</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>client</td><td>AxiosInstance</td><td>Private Axios instance configured with baseURL, timeout, and withCredentials: true.</td></tr>
+<tr><td>02</td><td>refreshPromise</td><td>Promise&lt;void&gt; or null</td><td>Single-flight lock for token refresh to prevent concurrent refresh calls.</td></tr>
+<tr><td>03</td><td>sessionReconcilePromise</td><td>Promise&lt;void&gt; or null</td><td>Single-flight lock for session reconciliation across tabs.</td></tr>
+<tr><td>04</td><td>isRedirectingToLogin</td><td>boolean</td><td>Flag to prevent duplicate login redirects.</td></tr>
+<tr><td>05</td><td>lastLoginTime</td><td>number</td><td>Timestamp of last login, used to avoid premature refresh after login.</td></tr>
+</table>
+
+<h3>Class Methods</h3>
+<table>
+<tr><th>No</th><th>Method</th><th>Description</th></tr>
+<tr><td>01</td><td>async get&lt;T&gt;(url, config?): Promise&lt;T&gt;</td><td>Sends GET request, returns response.data.</td></tr>
+<tr><td>02</td><td>async post&lt;T&gt;(url, data?, config?): Promise&lt;T&gt;</td><td>Sends POST request with body, returns response.data. Used by wizardService.submitRequest().</td></tr>
+<tr><td>03</td><td>async patch&lt;T&gt;(url, data?, config?): Promise&lt;T&gt;</td><td>Sends PATCH request, returns response.data. Used by wizardService.updateRequest().</td></tr>
+<tr><td>04</td><td>setupInterceptors(): void</td><td>Configures request interceptor (timezone header, FormData handling) and response interceptor (401 handling with token refresh). Private method.</td></tr>
+<tr><td>05</td><td>async refreshAccessTokenSingleFlight(): Promise&lt;void&gt;</td><td>Performs token refresh via POST /auth/refresh with deduplication to avoid race conditions. Private method.</td></tr>
+</table>
+
+<!-- ===== 4.12 ===== -->
+<h2>4.12 Wizard Step Components (Client)</h2>
+
+<h3>4.12.1 StepB1 Component</h3>
+
+<p><b>Description:</b> Step 1 — Product Type selection using a RadioGroup. Renders icons based on option value (e.g., LANDING_PAGE, ECOMMERCE, MOBILE_APP).</p>
+
+<table>
+<tr><th>No</th><th>Prop</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>question</td><td>WizardQuestion</td><td>The PRODUCT_TYPE question object with its options.</td></tr>
+<tr><td>02</td><td>value</td><td>string</td><td>Currently selected product type value.</td></tr>
+<tr><td>03</td><td>onChange</td><td>(value: string) =&gt; void</td><td>Callback when selection changes.</td></tr>
+</table>
+
+<h3>4.12.2 StepB2 Component</h3>
+
+<p><b>Description:</b> Step 2 — Industry selection using a RadioGroup in a 4-column grid. Supports values like FNB, FASHION, REAL_ESTATE, EDUCATION, etc.</p>
+
+<table>
+<tr><th>No</th><th>Prop</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>question</td><td>WizardQuestion</td><td>The INDUSTRY question object.</td></tr>
+<tr><td>02</td><td>value</td><td>string</td><td>Currently selected industry.</td></tr>
+<tr><td>03</td><td>onChange</td><td>(value: string) =&gt; void</td><td>Callback when selection changes.</td></tr>
+</table>
+
+<h3>4.12.3 StepB3 Component</h3>
+
+<p><b>Description:</b> Step 3 — Budget range (Select dropdown: UNDER_1K to ABOVE_25K) and timeline (date Input).</p>
+
+<table>
+<tr><th>No</th><th>Prop</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>budget / setBudget</td><td>string / (val: string) =&gt; void</td><td>Budget range state and setter.</td></tr>
+<tr><td>02</td><td>timeline / setTimeline</td><td>string / (val: string) =&gt; void</td><td>Timeline date state and setter.</td></tr>
+</table>
+
+<h3>4.12.4 StepB4 Component</h3>
+
+<p><b>Description:</b> Step 4 — Feature multi-select using Checkbox components. Allows multiple selections toggled via handleToggle().</p>
+
+<table>
+<tr><th>No</th><th>Prop</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>question</td><td>WizardQuestion</td><td>The FEATURES question object.</td></tr>
+<tr><td>02</td><td>selectedValues</td><td>string[]</td><td>Array of currently selected feature values.</td></tr>
+<tr><td>03</td><td>onChange</td><td>(values: string[]) =&gt; void</td><td>Callback with updated selections.</td></tr>
+</table>
+
+<h3>4.12.5 StepB5 Component</h3>
+
+<p><b>Description:</b> Step 5 — Project title (Input), detailed description (Textarea), and file upload with drag-and-drop UI.</p>
+
+<table>
+<tr><th>No</th><th>Prop</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>title / setTitle</td><td>string / (val: string) =&gt; void</td><td>Project title state and setter.</td></tr>
+<tr><td>02</td><td>description / setDescription</td><td>string / (val: string) =&gt; void</td><td>Description state and setter.</td></tr>
+<tr><td>03</td><td>onFileUploaded</td><td>(url: string) =&gt; void</td><td>Callback invoked after successful file upload with the returned URL.</td></tr>
+</table>
+
+<table>
+<tr><th>No</th><th>Internal Method</th><th>Description</th></tr>
+<tr><td>01</td><td>handleFileChange(e): Promise&lt;void&gt;</td><td>Reads file from input, calls wizardService.uploadFile(), updates fileName state and triggers onFileUploaded callback.</td></tr>
+<tr><td>02</td><td>handleRemoveFile(): void</td><td>Clears the uploaded file name from local state.</td></tr>
+</table>
+
+<!-- ===== 4.13 ===== -->
+<h2>4.13 RequestStatus Enum (Server)</h2>
+
+<p><b>Description:</b> Enum defining all possible lifecycle states for a project request.</p>
+
+<table>
+<tr><th>Value</th><th>Description</th></tr>
+<tr><td>PUBLIC_DRAFT</td><td>Visible to all brokers on marketplace.</td></tr>
+<tr><td>PRIVATE_DRAFT</td><td>Only visible via direct invitation.</td></tr>
+<tr><td>BROKER_ASSIGNED</td><td>A broker has been accepted/hired.</td></tr>
+<tr><td>SPEC_APPROVED</td><td>Client approved the project spec.</td></tr>
+<tr><td>CONTRACT_PENDING</td><td>Awaiting contract finalization.</td></tr>
+<tr><td>HIRING</td><td>Actively hiring freelancers.</td></tr>
+<tr><td>CONVERTED_TO_PROJECT</td><td>Request converted to a project entity.</td></tr>
+<tr><td>DRAFT</td><td>Legacy draft status.</td></tr>
+<tr><td>PENDING</td><td>Legacy pending status.</td></tr>
+<tr><td>PENDING_SPECS</td><td>Awaiting spec creation.</td></tr>
+<tr><td>PROCESSING</td><td>Broker is actively working on the request.</td></tr>
+</table>
+
+<!-- ===== 4.14 ===== -->
+<h2>4.14 ProjectRequest Type (Client)</h2>
+
+<p><b>Description:</b> Client-side TypeScript type definition mirroring the server entity for type safety.</p>
+
+<table>
+<tr><th>No</th><th>Attribute</th><th>Type</th><th>Description</th></tr>
+<tr><td>01</td><td>id</td><td>string</td><td>UUID identifier.</td></tr>
+<tr><td>02</td><td>title</td><td>string</td><td>Project title.</td></tr>
+<tr><td>03</td><td>description</td><td>string</td><td>Project description.</td></tr>
+<tr><td>04</td><td>status</td><td>RequestStatus</td><td>Current lifecycle status.</td></tr>
+<tr><td>05</td><td>clientId</td><td>string</td><td>ID of the client owner.</td></tr>
+<tr><td>06</td><td>budgetRange</td><td>string (optional)</td><td>Budget range.</td></tr>
+<tr><td>07</td><td>intendedTimeline</td><td>string (optional)</td><td>Timeline info.</td></tr>
+<tr><td>08</td><td>techPreferences</td><td>string (optional)</td><td>Tech stack preferences.</td></tr>
+<tr><td>09</td><td>answers</td><td>any[] (optional)</td><td>Wizard answers.</td></tr>
+<tr><td>10</td><td>createdAt / updatedAt</td><td>string</td><td>ISO date strings.</td></tr>
+<tr><td>11</td><td>client</td><td>{id, fullName, email?} (optional)</td><td>Embedded client info.</td></tr>
+<tr><td>12</td><td>broker</td><td>{id, fullName, email?} or null</td><td>Embedded broker info.</td></tr>
+<tr><td>13</td><td>specs / proposals / freelancerProposals</td><td>any[] (optional)</td><td>Associated specs and proposals.</td></tr>
+</table>
+
+</body>
+</html>

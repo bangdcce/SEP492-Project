@@ -104,7 +104,7 @@ export const wizardService = {
   },
 
   getBrokerMatchesQuick: async (requestId: string) => {
-    return await apiClient.get(`/matching/${requestId}?role=BROKER&enableAi=true`);
+    return await apiClient.get(`/matching/${requestId}?role=BROKER&enableAi=false`);
   },
 
   getFreelancerMatches: async (requestId: string, options?: { enableAi?: boolean; topN?: number }) => {
@@ -117,7 +117,7 @@ export const wizardService = {
   },
 
   getFreelancerMatchesQuick: async (requestId: string) => {
-    return await apiClient.get(`/matching/${requestId}?role=FREELANCER&enableAi=true`);
+    return await apiClient.get(`/matching/${requestId}?role=FREELANCER&enableAi=false`);
   },
 };
 

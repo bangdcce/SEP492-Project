@@ -77,6 +77,7 @@ export default function RequestDetailPage() {
   const [matches, setMatches] = useState<any[]>([]);
   const [freelancerMatches, setFreelancerMatches] = useState<any[]>([]);
   const [freelancerMatchesLoading, setFreelancerMatchesLoading] = useState(false);
+  const [brokerMatchesLoading, setBrokerMatchesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [specFlow, setSpecFlow] = useState<{ clientSpec: ProjectSpec | null; fullSpec: ProjectSpec | null }>({
     clientSpec: null,
@@ -190,20 +191,38 @@ export default function RequestDetailPage() {
         ? await wizardService.getFreelancerMatches(requestId, { enableAi: true, topN: 10 })
         : await wizardService.getFreelancerMatchesQuick(requestId);
       setFreelancerMatches(data || []);
+      if (useAi) toast.success("AI analysis complete");
     } catch (error) {
       console.error('Freelancer matching failed', error);
       setFreelancerMatches([]);
+      toast.error("AI analysis failed");
     } finally {
       setFreelancerMatchesLoading(false);
+    }
+  }, []);
+
+  const fetchBrokerMatches = useCallback(async (requestId: string, useAi: boolean = false) => {
+    try {
+      setBrokerMatchesLoading(true);
+      const data = useAi
+        ? await wizardService.getBrokerMatches(requestId, { enableAi: true, topN: 10 })
+        : await wizardService.getBrokerMatchesQuick(requestId);
+      setMatches(data || []);
+      if (useAi) toast.success("AI analysis complete");
+    } catch (error) {
+      console.error('Broker matching failed', error);
+      setMatches([]);
+      toast.error("AI analysis failed");
+    } finally {
+      setBrokerMatchesLoading(false);
     }
   }, []);
 
   const fetchData = useCallback(async (requestId: string) => {
     try {
       setLoading(true);
-      const [reqData, matchData, specsData, contractList] = await Promise.all([
+      const [reqData, specsData, contractList] = await Promise.all([
         wizardService.getRequestById(requestId),
-        wizardService.getBrokerMatchesQuick(requestId),
         projectSpecsApi.getSpecsByRequest(requestId).catch((error) => {
           console.warn("Failed to load project specs for request detail page", error);
           return [] as ProjectSpec[];
@@ -214,6 +233,9 @@ export default function RequestDetailPage() {
         }),
       ]);
       setRequest(reqData);
+
+      // Fetch initial (quick) matches in background
+      void fetchBrokerMatches(requestId, false);
       const nextSpecFlow = {
         clientSpec: pickLatestSpecByPhase(specsData, SpecPhase.CLIENT_SPEC),
         fullSpec: pickLatestSpecByPhase(specsData, SpecPhase.FULL_SPEC),
@@ -224,7 +246,6 @@ export default function RequestDetailPage() {
 
       // Handle matches only if request found
       if (reqData) {
-        setMatches(matchData || []);
         // Auto-select main tab based on phase
         const phase = getWorkflowPhase(reqData, nextSpecFlow, nextLinkedContract);
         if (phase > 0) setActiveTab(`phase${phase}`);
@@ -813,18 +834,27 @@ export default function RequestDetailPage() {
                                         <div className="flex justify-between items-center pb-2 border-b">
                                             <h3 className="font-semibold text-lg flex items-center gap-2">
                                                 <UserPlus className="w-5 h-5" /> Find & Invite Brokers
-                                            </h3>
-                                            <div className="flex gap-2 items-center">
+                                            </h3>                                             <div className="flex gap-2 items-center">
                                                 <span className="text-xs text-muted-foreground mr-1 flex items-center gap-1">
-                                                    {matches?.length || 0} Top Matches
+                                                    {matches?.length || 0} Matches
                                                     <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted" onClick={() => setIsScoreExplanationOpen(true)}>
                                                         <HelpCircle className="w-5 h-5 text-muted-foreground" />
                                                     </Button>
                                                 </span>
                                                 <Button size="sm" variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.BROKER}`)}>
-                                                    Search Marketplace
+                                                    Search
+                                                </Button>
+                                                <Button 
+                                                    size="sm" 
+                                                    className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-sm"
+                                                    onClick={() => id && fetchBrokerMatches(id, true)}
+                                                    disabled={brokerMatchesLoading}
+                                                >
+                                                    {brokerMatchesLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Sparkles className="w-4 h-4 mr-1" />}
+                                                    Get AI Suggestion
                                                 </Button>
                                             </div>
+
                                         </div>
                                         {(!matches || matches.length === 0) ? (
                                             <p className="text-muted-foreground text-center py-8">
@@ -1000,12 +1030,12 @@ export default function RequestDetailPage() {
                                     </Button>
                                     <Button
                                         size="sm"
-                                        className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white"
+                                        className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-md transition-all hover:scale-105 active:scale-95"
                                         onClick={() => id && fetchFreelancerMatches(id, true)}
                                         disabled={freelancerMatchesLoading}
                                     >
                                         {freelancerMatchesLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Sparkles className="w-4 h-4 mr-1" />}
-                                        AI Match
+                                        Get AI Suggestion
                                     </Button>
                                 </div>
                             )}

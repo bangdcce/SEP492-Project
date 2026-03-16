@@ -17,7 +17,7 @@ export class EmailService {
     const smtpPass = this.configService.get('SMTP_PASS');
 
     if (!smtpUser || !smtpPass) {
-      this.logger.warn('⚠️ Email credentials not configured - OTP will only log to console');
+      this.logger.warn('⚠️ Email credentials not configured (SMTP_USER/SMTP_PASS missing). OTP will only log to console.');
       return;
     }
 
@@ -67,10 +67,11 @@ export class EmailService {
         };
 
         const info = await this.transporter.sendMail(mailOptions);
-        this.logger.log(`✅ Email sent successfully! Message ID: ${info.messageId}`);
+        this.logger.log(`✅ Email sent successfully to ${email}! Message ID: ${info.messageId}`);
       } catch (error) {
-        this.logger.error(`❌ Failed to send email: ${error.message}`);
-        throw new Error('Failed to send OTP email. Please try again.');
+        this.logger.error(`❌ Failed to send email to ${email}: ${error.message}`);
+        if (error.stack) this.logger.debug(error.stack);
+        throw new Error(`Failed to send OTP email: ${error.message}`);
       }
     } else {
       this.logger.warn('⚠️ Email service not configured - OTP only logged to console');

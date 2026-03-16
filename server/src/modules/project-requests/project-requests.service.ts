@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions, In } from 'typeorm';
+import { QuotaService } from '../subscriptions/quota.service';
+import { QuotaAction } from '../../database/entities/quota-usage-log.entity';
 import {
   ProjectRequestEntity,
   RequestStatus,
@@ -29,12 +31,15 @@ export class ProjectRequestsService {
     private readonly freelancerProposalRepo: Repository<ProjectRequestProposalEntity>,
     private readonly auditLogsService: AuditLogsService,
     private readonly matchingService: MatchingService,
+    private readonly quotaService: QuotaService,
   ) {}
 
   // ... (existing create/update methods)
 
   async create(clientId: string, dto: CreateProjectRequestDto, req: RequestContext) {
-    // ... same as before
+    // Quota check: enforce free-tier limit on active requests
+    await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
+
     const request = this.requestRepo.create({
       clientId: clientId,
       title: dto.title,
@@ -80,6 +85,11 @@ export class ProjectRequestsService {
     } catch (error) {
       console.error('Audit log failed', error);
     }
+
+    // Track quota usage after successful creation
+    await this.quotaService.incrementUsage(clientId, QuotaAction.CREATE_REQUEST, {
+      requestId: savedRequest.id,
+    });
 
     return fullRequest;
   }
@@ -235,10 +245,15 @@ export class ProjectRequestsService {
     return request;
   }
 
-  async findMatches(id: string) {
+  async findMatches(id: string, userId?: string) {
     const request = await this.findOne(id);
     if (!request) {
       throw new Error('Request not found');
+    }
+
+    // Quota check: enforce free-tier limit on AI match searches (daily)
+    if (userId) {
+      await this.quotaService.checkQuota(userId, QuotaAction.AI_MATCH_SEARCH);
     }
 
     const techStack = request.techPreferences 
@@ -253,10 +268,25 @@ export class ProjectRequestsService {
       estimatedDuration: request.intendedTimeline,
     };
 
-    return this.matchingService.findMatches(input, { role: 'BROKER' });
+    const results = await this.matchingService.findMatches(input, { role: 'BROKER' });
+
+    // Track quota usage after successful match search
+    if (userId) {
+      await this.quotaService.incrementUsage(userId, QuotaAction.AI_MATCH_SEARCH, {
+        requestId: id,
+        candidatesFound: results.length,
+      });
+    }
+
+    return results;
   }
 
-  async inviteBroker(requestId: string, brokerId: string, message?: string) {
+  async inviteBroker(requestId: string, brokerId: string, message?: string, inviterId?: string) {
+    // 0. Quota check: enforce free-tier limit on invites per request
+    if (inviterId) {
+      await this.quotaService.checkQuota(inviterId, QuotaAction.INVITE_BROKER, requestId);
+    }
+
     // 1. Check if request exists
     const request = await this.findOne(requestId);
     if (!request) throw new Error('Request not found');
@@ -286,7 +316,17 @@ export class ProjectRequestsService {
       status: ProposalStatus.INVITED,
       coverLetter: message, // saving message in coverLetter for invites
     });
-    return this.brokerProposalRepo.save(proposal);
+    const savedProposal = await this.brokerProposalRepo.save(proposal);
+
+    // Track quota usage after successful invite
+    if (inviterId) {
+      await this.quotaService.incrementUsage(inviterId, QuotaAction.INVITE_BROKER, {
+        entityId: requestId,
+        brokerId,
+      });
+    }
+
+    return savedProposal;
   }
 
   async inviteFreelancer(requestId: string, freelancerId: string, message?: string) {
@@ -344,13 +384,32 @@ export class ProjectRequestsService {
   }
 
   async applyToRequest(requestId: string, brokerId: string, coverLetter: string) {
+    // Check if the broker has already applied to this request
+    const existingProposal = await this.brokerProposalRepo.findOne({
+      where: { requestId, brokerId }
+    });
+    
+    if (existingProposal) {
+      throw new BadRequestException('You have already applied to this request.');
+    }
+
+    // Quota check: enforce free-tier limit on broker applications per week
+    await this.quotaService.checkQuota(brokerId, QuotaAction.APPLY_TO_REQUEST);
+
     const proposal = this.brokerProposalRepo.create({
       requestId,
       brokerId,
       coverLetter,
       status: ProposalStatus.PENDING,
     });
-    return this.brokerProposalRepo.save(proposal);
+    const savedProposal = await this.brokerProposalRepo.save(proposal);
+
+    // Track quota usage after successful application
+    await this.quotaService.incrementUsage(brokerId, QuotaAction.APPLY_TO_REQUEST, {
+      requestId,
+    });
+
+    return savedProposal;
   }
 
   // --- Broker Self-Assignment (C02) ---

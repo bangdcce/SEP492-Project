@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   FileSignature,
   FolderOpen,
+  CreditCard,
 } from "lucide-react";
 
 export interface FreelancerSidebarMenuItem {
@@ -115,6 +116,14 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     icon: ShieldCheck,
     path: "/freelancer/kyc-status",
     description: "Verify your identity",
+    section: "account",
+  },
+  {
+    id: "subscription",
+    label: "Subscription",
+    icon: CreditCard,
+    path: "/freelancer/subscription",
+    description: "Manage your premium plan",
     section: "account",
   },
 ];
