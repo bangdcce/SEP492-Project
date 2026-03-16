@@ -1,23 +1,20 @@
 import { apiClient } from "@/shared/api/client";
+import { getFileNameFromDisposition } from "@/shared/utils/download";
 import type { AuditLogEntry } from "./types";
 
-/**
- * API Query Parameters - khớp với GetAuditLogsDto trên server
- */
 export interface GetAuditLogsParams {
   page?: number;
   limit?: number;
-  userId?: number;
+  userId?: string;
   entityType?: string;
+  entityId?: string;
   action?: string;
   dateFrom?: string;
   dateTo?: string;
   riskLevel?: string;
+  format?: "json" | "csv";
 }
 
-/**
- * API Response structure từ server
- */
 export interface AuditLogsResponse {
   data: AuditLogEntry[];
   meta: {
@@ -28,35 +25,29 @@ export interface AuditLogsResponse {
   };
 }
 
-/**
- * Audit Logs API Endpoints
- */
 const ENDPOINTS = {
   AUDIT_LOGS: "/audit-logs",
-};
+} as const;
 
-/**
- * Audit Logs API Service
- */
 export const auditLogsApi = {
-  /**
-   * Lấy danh sách audit logs với phân trang và filters
-   */
   getAll: (params?: GetAuditLogsParams) =>
     apiClient.get<AuditLogsResponse>(ENDPOINTS.AUDIT_LOGS, { params }),
 
-  /**
-   * Lấy một audit log theo ID
-   */
   getById: (id: string) =>
     apiClient.get<AuditLogEntry>(`${ENDPOINTS.AUDIT_LOGS}/${id}`),
 
-  /**
-   * Export audit logs (nếu server có endpoint này)
-   */
-  export: (params?: GetAuditLogsParams) =>
-    apiClient.get<Blob>(`${ENDPOINTS.AUDIT_LOGS}/export`, {
+  export: async (params?: GetAuditLogsParams) => {
+    const response = await apiClient.getResponse<Blob>(`${ENDPOINTS.AUDIT_LOGS}/export`, {
       params,
-      responseType: "blob" as any,
-    }),
+      responseType: "blob" as const,
+    });
+
+    return {
+      blob: response.data,
+      fileName: getFileNameFromDisposition(
+        response.headers["content-disposition"],
+        `audit-logs-${new Date().toISOString().replace(/[:.]/g, "-")}.${params?.format === "csv" ? "csv" : "json"}`,
+      ),
+    };
+  },
 };

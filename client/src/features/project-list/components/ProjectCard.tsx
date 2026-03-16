@@ -43,6 +43,8 @@ const formatStatus = (status: string) => {
 export function ProjectCard({ project, userRole, onNavigate }: ProjectCardProps) {
   const isDisputed = project.status?.toUpperCase() === "DISPUTED" || project.hasActiveDispute;
   const activeDisputeCount = project.activeDisputeCount || 0;
+  const pendingReviewCount = project.reviewSummary?.currentUserPendingReviews || 0;
+  const canReview = Boolean(project.reviewSummary?.currentUserCanReview && pendingReviewCount > 0);
 
   return (
     <div
@@ -109,6 +111,11 @@ export function ProjectCard({ project, userRole, onNavigate }: ProjectCardProps)
             <DollarSign className="h-3 w-3" />
             {formatCurrency(Number(project.totalBudget || 0), project.currency ?? "USD")}
           </span>
+          {canReview && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-50 text-amber-700 text-xs font-medium border border-amber-200">
+              Pending reviews: {pendingReviewCount}
+            </span>
+          )}
         </div>
 
         {/* Action Button */}

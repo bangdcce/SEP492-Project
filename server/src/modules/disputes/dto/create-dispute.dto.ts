@@ -7,6 +7,7 @@ import {
   IsEnum,
   IsNumber,
   Min,
+  MaxLength,
 } from 'class-validator';
 import { DisputeCategory } from 'src/database/entities';
 
@@ -29,6 +30,7 @@ export class CreateDisputeDto {
 
   @IsNotEmpty()
   @IsString()
+  @MaxLength(5000)
   reason: string;
 
   @IsNotEmpty()

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import { Eye, Clock, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
 import { toast } from 'sonner';
+import { API_CONFIG } from '@/constants';
 import { apiClient } from '@/shared/api/client';
 import { KYCVerificationModal } from '@/shared/components/figma/kycmodal';
 
@@ -41,7 +42,7 @@ export default function AdminKYCPage() {
   const [showModal, setShowModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const API_URL = API_CONFIG.BASE_URL;
 
   // Helper function to get full image URL
   const getImageUrl = (path: string) => {

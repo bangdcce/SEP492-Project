@@ -134,7 +134,7 @@ export class ProjectsController {
   @Get('list/:userId')
   listByUser(@Param('userId', ParseUUIDPipe) userId: string, @Req() req: AuthenticatedRequest) {
     this.assertCanReadProjectList(req, userId);
-    return this.projectsService.listByUser(userId);
+    return this.projectsService.listByUser(userId, req.user?.id);
   }
 
   @Get('staff-candidates')
@@ -178,7 +178,7 @@ export class ProjectsController {
 
   @Get(':id')
   async getProject(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthenticatedRequest) {
-    const project = await this.projectsService.findOne(id);
+    const project = await this.projectsService.findOne(id, req.user?.id);
     if (!project) {
       throw new NotFoundException(`Project ${id} not found`);
     }

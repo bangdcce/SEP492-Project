@@ -201,13 +201,22 @@ export const InvitationDetailsPage = () => {
                         <CardContent className="p-6">
                             <div className="flex items-center gap-4">
                                 <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl">
-                                    {request.client?.fullName.substring(0,1)}
+                                    {request.client?.fullName?.substring(0,1) || "?"}
                                 </div>
                                 <div>
                                     <p className="text-sm text-muted-foreground">Client</p>
                                     <p className="font-semibold">{request.client?.fullName}</p>
                                 </div>
                             </div>
+                            {request.client?.id ? (
+                                <Button
+                                    variant="outline"
+                                    className="mt-4 w-full"
+                                    onClick={() => navigate(`${roleBasePath}/discovery/profile/${request.client.id}`)}
+                                >
+                                    View client profile
+                                </Button>
+                            ) : null}
                         </CardContent>
                     </Card>
                 </div>

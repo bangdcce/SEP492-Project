@@ -677,3 +677,66 @@ git push origin feature/add-projects-module
 ---
 
 _Tài liệu được tạo: 2024-12-18_
+
+---
+
+## 9. Workspace Map
+
+Use these paths as the first lookup points when navigating the repo.
+
+### Core app code
+
+- `client/`: React + Vite frontend
+- `server/`: NestJS backend
+
+### Shared infra
+
+- `docker-compose.yml`: shared local stack entrypoint
+- `docker-compose.build.yml`: local image build override
+- `docker.env.example`: compose environment template
+- `server/Dockerfile`: backend container image
+- `client/Dockerfile`: frontend container image
+- `client/nginx.conf`: SPA routing and static serving for frontend container
+
+### Main technical references
+
+- `DEVELOPER_GUIDE.md`: repo-wide developer onboarding
+- `server/BACKEND_GUIDE.md`: backend-specific guide
+- `docs/`: design, sequence, dispute, and database reference material
+- `scripts/generate_db_html.py`: helper to regenerate database HTML docs
+
+### Search tips
+
+- Search backend features from `server/src/modules/`
+- Search shared database models from `server/src/database/entities/`
+- Search frontend features from `client/src/features/`
+- Search shared frontend layout and primitives from `client/src/shared/`
+
+---
+
+## 10. Local Docker Stack
+
+The repo now has a complete local Docker path for backend, frontend, and Redis.
+
+### Files
+
+- `docker-compose.yml`: runs Redis, backend, and frontend containers
+- `docker-compose.build.yml`: builds backend and frontend from local source
+- `docker.env.example`: root-level compose variables
+- `server/Dockerfile`: multi-stage NestJS build
+- `client/Dockerfile`: multi-stage Vite build served by Nginx
+- `client/nginx.conf`: SPA fallback to `index.html`
+
+### Recommended usage
+
+```bash
+cp docker.env.example .env
+cp server/.env.example server/.env
+docker compose -f docker-compose.yml -f docker-compose.build.yml up -d --build
+```
+
+### Notes
+
+- `docker-compose.yml` is the stable team entrypoint.
+- `docker-compose.build.yml` is for local image builds from source.
+- Redis is required for the current realtime/dispute stack to behave correctly across instances.

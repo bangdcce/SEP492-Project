@@ -30,12 +30,7 @@ import { HealthModule } from './modules/health/health.module';
 import { WorkspaceChatModule } from './modules/workspace-chat/workspace-chat.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
-
-const parseNumberEnv = (value: string | undefined, fallback: number): number => {
-  if (!value) return fallback;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
+import { resolveDatabaseRuntimeConfig } from './config/database-runtime.config';
 
 @Module({
   imports: [
@@ -50,23 +45,34 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
       inject: [ConfigService],
       useFactory: (configService: ConfigService) => {
         const logger = new Logger('TypeOrmConfig');
-        const poolMax = parseNumberEnv(configService.get<string>('DB_POOL_MAX'), 20);
-        const poolIdleMs = parseNumberEnv(configService.get<string>('DB_POOL_IDLE_MS'), 30000);
-        const poolConnTimeoutMs = parseNumberEnv(
-          configService.get<string>('DB_POOL_CONN_TIMEOUT_MS'),
-          10000,
-        );
+        const runtime = resolveDatabaseRuntimeConfig({
+          NODE_ENV: configService.get<string>('NODE_ENV'),
+          DB_HOST: configService.get<string>('DB_HOST'),
+          DB_PORT: configService.get<string>('DB_PORT'),
+          DB_POOL_MAX: configService.get<string>('DB_POOL_MAX'),
+          DB_POOL_IDLE_MS: configService.get<string>('DB_POOL_IDLE_MS'),
+          DB_POOL_CONN_TIMEOUT_MS: configService.get<string>('DB_POOL_CONN_TIMEOUT_MS'),
+          DB_POOL_MAX_USES: configService.get<string>('DB_POOL_MAX_USES'),
+          DB_POOL_ALLOW_EXIT_ON_IDLE: configService.get<string>('DB_POOL_ALLOW_EXIT_ON_IDLE'),
+          DB_QUERY_TIMEOUT_MS: configService.get<string>('DB_QUERY_TIMEOUT_MS'),
+          DB_STATEMENT_TIMEOUT_MS: configService.get<string>('DB_STATEMENT_TIMEOUT_MS'),
+        });
         const dbLogging = configService.get<string>('DB_LOGGING') === 'true';
 
         logger.log(
-          `DB pool config: max=${poolMax}, idleTimeoutMillis=${poolIdleMs}, connectionTimeoutMillis=${poolConnTimeoutMs}`,
+          `DB pool config: max=${runtime.poolMax}, idleTimeoutMillis=${runtime.poolIdleMs}, connectionTimeoutMillis=${runtime.poolConnTimeoutMs}, maxUses=${runtime.poolMaxUses}, allowExitOnIdle=${runtime.poolAllowExitOnIdle}`,
         );
         logger.log(`DB logging: ${dbLogging ? 'enabled' : 'disabled'}`);
+        if (runtime.isSupabaseSessionMode) {
+          logger.warn(
+            'Supabase pooler session mode detected on port 5432. Use port 6543 in shared development to avoid max client exhaustion.',
+          );
+        }
 
         return {
           type: 'postgres',
-          host: configService.get<string>('DB_HOST'),
-          port: parseNumberEnv(configService.get<string>('DB_PORT'), 5432),
+          host: runtime.host,
+          port: runtime.port,
           username: configService.get<string>('DB_USERNAME'),
           password: configService.get<string>('DB_PASSWORD'),
           database: configService.get<string>('DB_DATABASE'),
@@ -75,12 +81,15 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
           logging: dbLogging,
           ssl: false,
           extra: {
-            max: poolMax,
-            idleTimeoutMillis: poolIdleMs,
-            connectionTimeoutMillis: poolConnTimeoutMs,
+            max: runtime.poolMax,
+            idleTimeoutMillis: runtime.poolIdleMs,
+            connectionTimeoutMillis: runtime.poolConnTimeoutMs,
+            maxUses: runtime.poolMaxUses,
+            allowExitOnIdle: runtime.poolAllowExitOnIdle,
             keepAlive: true,
-            // PgBouncer transaction-mode compatibility: disable prepared statements
-            statement_timeout: 30000,
+            keepAliveInitialDelayMillis: 10000,
+            query_timeout: runtime.queryTimeoutMs,
+            statement_timeout: runtime.statementTimeoutMs,
           },
           // Retry on transient connection failures (e.g. pool exhaustion)
           retryAttempts: 3,

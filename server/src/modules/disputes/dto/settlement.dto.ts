@@ -1,4 +1,13 @@
-import { IsNotEmpty, IsUUID, IsNumber, Min, IsString, IsOptional, IsEnum } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsUUID,
+  IsNumber,
+  Min,
+  IsString,
+  IsOptional,
+  IsEnum,
+  MaxLength,
+} from 'class-validator';
 
 /**
  * DTO để tạo đề xuất hòa giải
@@ -18,6 +27,7 @@ export class CreateSettlementOfferDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   terms?: string; // Điều kiện/ghi chú kèm theo
 }
 
@@ -43,6 +53,7 @@ export class RespondSettlementDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(1000)
   rejectReason?: string; // Bắt buộc nếu action = REJECT
 }
 
@@ -56,5 +67,6 @@ export class CancelSettlementDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(1000)
   cancelReason?: string;
 }

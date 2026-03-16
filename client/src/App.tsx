@@ -104,6 +104,16 @@ const ParticipantHearingRoomPage = lazy(() =>
     default: module.ParticipantHearingRoomPage,
   })),
 );
+const ParticipantDisputesPage = lazy(() =>
+  import("@/features/disputes/pages/ParticipantDisputesPage").then((module) => ({
+    default: module.ParticipantDisputesPage,
+  })),
+);
+const ParticipantDisputeDetailPage = lazy(() =>
+  import("@/features/disputes/pages/ParticipantDisputeDetailPage").then((module) => ({
+    default: module.ParticipantDisputeDetailPage,
+  })),
+);
 
 // ========== FREELANCER PAGES ==========
 const FreelancerDashboardPage = lazy(
@@ -292,6 +302,26 @@ function App() {
           }
         />
         <Route
+          path="/freelancer/disputes"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ParticipantDisputesPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/disputes/:disputeId"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ParticipantDisputeDetailPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.FREELANCER_WORKSPACE}
           element={
             <RoleGuard allowedRoles={["FREELANCER"]}>
@@ -327,6 +357,16 @@ function App() {
             <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <ContractPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/discovery/profile/:id"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <PartnerProfilePage />
               </FreelancerDashboardLayout>
             </RoleGuard>
           }
@@ -482,6 +522,26 @@ function App() {
             <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout showFooter={false} contentMode="hearing-room">
                 <ParticipantHearingRoomPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/client/disputes"
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <ParticipantDisputesPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/client/disputes/:disputeId"
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <ParticipantDisputeDetailPage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -704,6 +764,26 @@ function App() {
           }
         />
         <Route
+          path="/broker/disputes"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <ParticipantDisputesPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/broker/disputes/:disputeId"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <ParticipantDisputeDetailPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.BROKER_WORKSPACE}
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
@@ -729,6 +809,16 @@ function App() {
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <ContractPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/broker/discovery/profile/:id"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <PartnerProfilePage />
               </BrokerDashboardLayout>
             </RoleGuard>
           }
@@ -857,6 +947,7 @@ function App() {
           <Route path="leave" element={<StaffLeavePage />} />
           <Route path="hearings" element={<StaffHearingsPage />} />
           <Route path="hearings/:hearingId" element={<StaffHearingRoomPage />} />
+          <Route path="discovery/profile/:id" element={<PartnerProfilePage />} />
           <Route path="profile" element={<ProfilePage />} />
           {/* Fallback */}
           <Route index element={<Navigate to="dashboard" replace />} />

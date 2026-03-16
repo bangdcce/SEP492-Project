@@ -21,7 +21,6 @@ import type { ProjectRequest, RequestStatus } from "./types";
 import { projectRequestsApi } from "./api";
 import { contractsApi } from "@/features/contracts/api";
 import type { ContractSummary } from "@/features/contracts/types";
-import { projectSpecsApi } from "@/features/project-specs/api";
 import type { ProjectSpec } from "@/features/project-specs/types";
 import { ProjectSpecStatus, SpecPhase } from "@/features/project-specs/types";
 import { Button } from "@/shared/components/custom/Button";
@@ -35,32 +34,36 @@ import {
 } from "@/shared/components/ui/Card";
 import { Separator } from "@/shared/components/ui/separator";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/components/ui/alert-dialog";
 import { getStoredJson } from "@/shared/utils/storage";
+import { connectSocket } from "@/shared/realtime/socket";
+import { toast } from "sonner";
+import {
+  formatHumanStatus,
+  getSelectedFreelancerProposal,
+  isContractActivated,
+  pickLatestSpecByPhase,
+  resolveRequestFlowSnapshot,
+} from "../requests/requestFlow";
 
 type BrokerSpecFlow = {
   clientSpec: ProjectSpec | null;
   fullSpec: ProjectSpec | null;
 };
 
-const pickLatestSpecByPhase = (specs: ProjectSpec[], phase: SpecPhase): ProjectSpec | null =>
-  [...specs]
-    .filter((spec) => spec.specPhase === phase)
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt || b.createdAt).getTime() -
-        new Date(a.updatedAt || a.createdAt).getTime(),
-    )[0] ?? null;
-
-const isContractActivated = (contract?: ContractSummary | null) => {
-  if (!contract) return false;
-  const normalizedProjectStatus = String(contract.projectStatus || "").toUpperCase();
-  return (
-    Boolean(contract.activatedAt) ||
-    ["IN_PROGRESS", "TESTING", "COMPLETED", "PAID", "DISPUTED"].includes(normalizedProjectStatus)
-  );
-};
-
-const formatHumanStatus = (status?: string | null) => String(status || "UNKNOWN").replace(/_/g, " ");
+type CurrentUserSummary = {
+  id?: string;
+  role?: string;
+} | null;
 
 export default function ProjectRequestDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -72,8 +75,9 @@ export default function ProjectRequestDetailsPage() {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isCreatingContract, setIsCreatingContract] = useState(false);
-
-  const [user, setUser] = useState<any>(null);
+  const [showAssignConfirm, setShowAssignConfirm] = useState(false);
+  const [isAssigning, setIsAssigning] = useState(false);
+  const [user, setUser] = useState<CurrentUserSummary>(null);
 
   useEffect(() => {
     setUser(getStoredJson(STORAGE_KEYS.USER));
@@ -102,20 +106,18 @@ export default function ProjectRequestDetailsPage() {
     if (!id) return;
     try {
       setIsLoading(true);
-      const [requestResponse, specs, contractList] = await Promise.all([
-        projectRequestsApi.getById(id),
-        projectSpecsApi.getSpecsByRequest(id),
-        contractsApi.listContracts().catch((error) => {
-          console.warn("Failed to load contracts for broker request details", error);
-          return [] as ContractSummary[];
-        }),
-      ]);
+      const requestResponse = await projectRequestsApi.getById(id);
       setRequest(requestResponse);
+      const requestSpecs = Array.isArray(requestResponse?.specs)
+        ? requestResponse.specs
+        : [];
       setSpecFlow({
-        clientSpec: pickLatestSpecByPhase(specs, SpecPhase.CLIENT_SPEC),
-        fullSpec: pickLatestSpecByPhase(specs, SpecPhase.FULL_SPEC),
+        clientSpec: pickLatestSpecByPhase(requestSpecs, SpecPhase.CLIENT_SPEC),
+        fullSpec: pickLatestSpecByPhase(requestSpecs, SpecPhase.FULL_SPEC),
       });
-      setLinkedContract(contractList.find((contract) => contract.requestId === requestResponse.id) || null);
+      setLinkedContract(
+        (requestResponse?.linkedContractSummary as ContractSummary | null) || null,
+      );
     } catch (err: unknown) {
       console.error("Failed to fetch request:", err);
       setError("Failed to load project request details.");
@@ -127,6 +129,42 @@ export default function ProjectRequestDetailsPage() {
   useEffect(() => {
     fetchRequest();
   }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const socket = connectSocket();
+    const handleNotificationCreated = (payload: {
+      notification?: {
+        relatedType?: string | null;
+        relatedId?: string | null;
+      };
+      relatedType?: string | null;
+      relatedId?: string | null;
+    }) => {
+      const notification = payload?.notification ?? payload;
+      const relatedType = String(notification?.relatedType || "");
+      const relatedId = String(notification?.relatedId || "");
+
+      const isRelevant =
+        (relatedType === "ProjectRequest" && relatedId === id) ||
+        (relatedType === "Project" &&
+          Boolean(request?.linkedProjectSummary?.id) &&
+          relatedId === request?.linkedProjectSummary?.id) ||
+        (relatedType === "Contract" &&
+          Boolean(request?.linkedContractSummary?.id) &&
+          relatedId === request?.linkedContractSummary?.id) ||
+        (relatedType === "ProjectSpec" && relatedId === id);
+
+      if (isRelevant) {
+        void fetchRequest();
+      }
+    };
+
+    socket.on("NOTIFICATION_CREATED", handleNotificationCreated);
+    return () => {
+      socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
+    };
+  }, [id, request?.linkedContractSummary?.id, request?.linkedProjectSummary?.id]);
 
   if (isLoading) {
     return (
@@ -165,44 +203,10 @@ export default function ProjectRequestDetailsPage() {
 
   const clientSpec = specFlow.clientSpec;
   const fullSpec = specFlow.fullSpec;
-  const freelancerProposalList =
-    ((request as any).freelancerProposals as any[]) ||
-    ((request as any).proposals as any[]) ||
-    [];
-  const acceptedFreelancers = freelancerProposalList.filter(
-    (proposal) => String(proposal?.status || "").toUpperCase() === "ACCEPTED",
-  );
-  const legacyPendingFreelancers = freelancerProposalList.filter(
-    (proposal) => String(proposal?.status || "").toUpperCase() === "PENDING",
-  );
-  const hasSelectedFreelancer =
-    acceptedFreelancers.length > 0 ||
-    (acceptedFreelancers.length === 0 && legacyPendingFreelancers.length === 1);
-  const selectedFreelancerProposal =
-    acceptedFreelancers[0] || (acceptedFreelancers.length === 0 ? legacyPendingFreelancers[0] : null);
-
-  const brokerWorkflowPhase = (() => {
-    const contractStatuses = ["CONTRACT_PENDING", "CONVERTED_TO_PROJECT", "IN_PROGRESS", "COMPLETED"];
-    if (contractStatuses.includes(String(request.status || "").toUpperCase())) return 5;
-    if (fullSpec?.status === ProjectSpecStatus.ALL_SIGNED) return 5;
-    if (!hasSelectedFreelancer) return 3;
-    if (
-      fullSpec &&
-      [
-        ProjectSpecStatus.DRAFT,
-        ProjectSpecStatus.REJECTED,
-        ProjectSpecStatus.FINAL_REVIEW,
-      ].includes(fullSpec.status)
-    ) {
-      return 4;
-    }
-    if (hasSelectedFreelancer) return 4;
-    if (clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED || request.status === "SPEC_APPROVED") {
-      return 3;
-    }
-    if (clientSpec) return 2;
-    return 1;
-  })();
+  const selectedFreelancerProposal = getSelectedFreelancerProposal(request);
+  const hasSelectedFreelancer = Boolean(selectedFreelancerProposal);
+  const flowSnapshot = resolveRequestFlowSnapshot(request, specFlow, linkedContract);
+  const brokerWorkflowPhase = flowSnapshot.phaseNumber;
 
   const canBrokerReviewFinalSpec =
     !!fullSpec &&
@@ -210,6 +214,7 @@ export default function ProjectRequestDetailsPage() {
   const canInitializeContract = fullSpec?.status === ProjectSpecStatus.ALL_SIGNED;
   const contractActivated = isContractActivated(linkedContract);
   const canOpenWorkspace = Boolean(linkedContract?.projectId && contractActivated);
+  const brokerSlotSummary = request?.brokerApplicationSummary?.slots || null;
 
   const getStatusColor = (status: RequestStatus) => {
     switch (status) {
@@ -226,22 +231,24 @@ export default function ProjectRequestDetailsPage() {
     }
   };
 
-  const handleAssign = async () => {
+  const handleAssign = () => {
+    setShowAssignConfirm(true);
+  };
+
+  const confirmAssign = async () => {
     if (!request || !request.id) return;
-    if (!confirm("Are you sure you want to assign this request to yourself?"))
-      return;
 
     try {
-      // Optimistically update UI or show loading
+      setIsAssigning(true);
       await projectRequestsApi.assignBroker(request.id);
-
-      // Refresh data from server to get correct brokerId and status
       await fetchRequest();
-      alert("Request assigned successfully!");
-      // Navigate back or refresh? For now just stay.
+      setShowAssignConfirm(false);
+      toast.success("Request assigned successfully.");
     } catch (err: unknown) {
       console.error("Failed to assign request:", err);
-      alert("Failed to assign request");
+      toast.error("Failed to assign request.");
+    } finally {
+      setIsAssigning(false);
     }
   };
 
@@ -256,11 +263,11 @@ export default function ProjectRequestDetailsPage() {
       const message =
         err?.response?.data?.message || "Failed to create contract from final spec.";
       if (String(message).toLowerCase().includes("already initialized")) {
-        alert(`${message}\nOpening contracts list.`);
+        toast.info(message, { description: "Opening contracts list." });
         navigate("/broker/contracts");
         return;
       }
-      alert(message);
+      toast.error(String(message));
     } finally {
       setIsCreatingContract(false);
     }
@@ -282,8 +289,9 @@ export default function ProjectRequestDetailsPage() {
       return {
         title: "Assign request first",
         description: "You need to assign this request to yourself before drafting specs.",
-        ctaLabel: "Assign to Me",
+        ctaLabel: isAssigning ? "Assigning..." : "Assign to Me",
         onClick: handleAssign,
+        disabled: isAssigning,
         ctaVariant: "primary" as const,
       };
     }
@@ -421,6 +429,60 @@ export default function ProjectRequestDetailsPage() {
         </Button>
         <h1 className="text-2xl font-bold tracking-tight">Request Details</h1>
       </div>
+
+      {(request.attachments?.length || brokerSlotSummary) && (
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Request Attachments</CardTitle>
+              <CardDescription>Shared intake documents that stay attached to the request draft.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {request.attachments?.length ? (
+                request.attachments.map((attachment) => (
+                  <a
+                    key={attachment.url}
+                    href={attachment.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
+                  >
+                    <span className="truncate">{attachment.filename}</span>
+                    <span className="text-xs text-slate-500">{attachment.category || "attachment"}</span>
+                  </a>
+                ))
+              ) : (
+                <p className="text-sm text-slate-500">No attachment uploaded.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          {brokerSlotSummary && (
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Broker Application Window</CardTitle>
+                <CardDescription>
+                  Active broker slots are capped to keep the request review queue manageable.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid grid-cols-3 gap-3">
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Active</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">{brokerSlotSummary.activeApplications}</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Remaining</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">{brokerSlotSummary.remainingSlots}</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-3">
+                  <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Window</p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">{brokerSlotSummary.windowHours}h</p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Main Content Area */}
@@ -800,11 +862,11 @@ export default function ProjectRequestDetailsPage() {
               {request.client ? (
                 <div className="flex items-start gap-3">
                   <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                    {request.client.fullName.charAt(0).toUpperCase()}
+                    {(request.client.fullName || "C").charAt(0).toUpperCase()}
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm font-medium leading-none">
-                      {request.client.fullName}
+                      {request.client.fullName || "Unknown Client"}
                     </p>
                     <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
                       <Mail className="h-3.5 w-3.5" />
@@ -849,6 +911,24 @@ export default function ProjectRequestDetailsPage() {
            </Card>
         </div>
       </div>
+
+      <AlertDialog open={showAssignConfirm} onOpenChange={setShowAssignConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Assign this request to yourself?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will make you the active broker responsible for the client spec, freelancer
+              selection, and contract handoff for this request.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isAssigning}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmAssign} disabled={isAssigning}>
+              {isAssigning ? "Assigning..." : "Assign to Me"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

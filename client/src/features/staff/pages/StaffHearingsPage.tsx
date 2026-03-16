@@ -5,6 +5,7 @@ import { Calendar, Clock, Video } from "lucide-react";
 import { toast } from "sonner";
 import { getMyHearings } from "@/features/hearings/api";
 import type { DisputeHearingSummary } from "@/features/hearings/types";
+import { splitHearingsByLifecycle } from "@/features/hearings/utils/hearingLifecycle";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import {
@@ -31,7 +32,7 @@ export const StaffHearingsPage = () => {
     try {
       setLoading(true);
       const data = await getMyHearings({
-        status: ["IN_PROGRESS", "SCHEDULED"],
+        lifecycle: "all",
       });
       setHearings(data ?? []);
       setSchemaErrorMessage(null);
@@ -60,13 +61,17 @@ export const StaffHearingsPage = () => {
     loadHearings();
   }, [loadHearings]);
 
-  const liveHearings = useMemo(
-    () => hearings.filter((hearing) => hearing.status === "IN_PROGRESS"),
+  const { active: activeHearings, archived: archivedHearings } = useMemo(
+    () => splitHearingsByLifecycle(hearings),
     [hearings],
   );
+  const liveHearings = useMemo(
+    () => activeHearings.filter((hearing) => hearing.status === "IN_PROGRESS"),
+    [activeHearings],
+  );
   const upcomingHearings = useMemo(
-    () => hearings.filter((hearing) => hearing.status === "SCHEDULED"),
-    [hearings],
+    () => activeHearings.filter((hearing) => hearing.status !== "IN_PROGRESS"),
+    [activeHearings],
   );
 
   const formatSchedule = (hearing: DisputeHearingSummary) => {
@@ -83,6 +88,23 @@ export const StaffHearingsPage = () => {
 
   const handleOpenRoom = (hearingId: string) => {
     navigate(`/staff/hearings/${hearingId}`);
+  };
+
+  const statusClass = (status: DisputeHearingSummary["status"]) => {
+    switch (status) {
+      case "IN_PROGRESS":
+        return "bg-emerald-50 text-emerald-700 border-emerald-200";
+      case "SCHEDULED":
+      case "PAUSED":
+        return "bg-blue-50 text-blue-700 border-blue-200";
+      case "COMPLETED":
+        return "bg-slate-100 text-slate-700 border-slate-200";
+      case "CANCELED":
+      case "RESCHEDULED":
+        return "bg-amber-50 text-amber-800 border-amber-200";
+      default:
+        return "bg-slate-100 text-slate-700 border-slate-200";
+    }
   };
 
   const renderHearingCard = (hearing: DisputeHearingSummary) => {
@@ -128,11 +150,9 @@ export const StaffHearingsPage = () => {
 
           <div className="flex flex-col items-end gap-2">
             <span
-              className={`px-2 py-0.5 rounded-full text-xs border ${
-                hearing.status === "IN_PROGRESS"
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                  : "bg-blue-50 text-blue-700 border-blue-200"
-              }`}
+              className={`px-2 py-0.5 rounded-full text-xs border ${statusClass(
+                hearing.status,
+              )}`}
             >
               {hearing.status.replace("_", " ")}
             </span>
@@ -216,6 +236,20 @@ export const StaffHearingsPage = () => {
           <p className="text-sm text-gray-500">No upcoming hearings scheduled.</p>
         ) : (
           <div className="grid gap-3">{upcomingHearings.map(renderHearingCard)}</div>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <Calendar className="w-4 h-4 text-teal-600" />
+          Archived hearings
+        </div>
+        {loading ? (
+          <p className="text-sm text-gray-500">Loading hearings...</p>
+        ) : archivedHearings.length === 0 ? (
+          <p className="text-sm text-gray-500">No archived hearings.</p>
+        ) : (
+          <div className="grid gap-3">{archivedHearings.map(renderHearingCard)}</div>
         )}
       </div>
     </div>

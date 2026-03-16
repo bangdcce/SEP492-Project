@@ -13,6 +13,7 @@ import {
   Briefcase,
   User,
   Video,
+  Scale,
   ShieldCheck,
   FileSignature,
   FolderOpen,
@@ -84,6 +85,14 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     icon: Briefcase,
     path: "/freelancer/projects",
     description: "Manage your projects",
+    section: "workspace",
+  },
+  {
+    id: "disputes",
+    label: "Disputes",
+    icon: Scale,
+    path: "/freelancer/disputes",
+    description: "Track dispute cases and appeals",
     section: "workspace",
   },
   {

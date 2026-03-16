@@ -11,6 +11,7 @@ import {
   PlusCircle,
   Briefcase,
   Video,
+  Scale,
   ShieldCheck,
   FileSignature,
   CreditCard,
@@ -68,6 +69,14 @@ export const clientSidebarMenuItems: ClientSidebarMenuItem[] = [
     icon: FileSignature,
     path: "/client/contracts",
     description: "Review and sign contracts",
+    section: "workspace",
+  },
+  {
+    id: "disputes",
+    label: "Disputes",
+    icon: Scale,
+    path: "/client/disputes",
+    description: "Track dispute cases and appeals",
     section: "workspace",
   },
   {

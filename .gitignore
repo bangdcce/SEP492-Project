@@ -44,8 +44,17 @@ coverage
 # Temporary files
 *.tmp
 *.temp
+*.bak
+*.orig
+*.rej
 .cache
 docs/
+all_rows.json
+tmpclaude-*-cwd
+**/tmpclaude-*-cwd
+nul
+server/tmp_verify_*.sql
 
 # AI/Agent skills (local only)
 .agent/
+.codex/config.toml

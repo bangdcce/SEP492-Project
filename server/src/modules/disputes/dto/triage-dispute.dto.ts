@@ -1,4 +1,4 @@
-import { IsEnum, IsISO8601, IsOptional, IsString, MinLength } from 'class-validator';
+import { IsEnum, IsISO8601, IsOptional, IsString, MinLength, MaxLength } from 'class-validator';
 
 export enum TriageActionType {
   ACCEPT = 'ACCEPT',
@@ -14,6 +14,7 @@ export class TriageDisputeDto {
   @IsOptional()
   @IsString()
   @MinLength(5)
+  @MaxLength(2000)
   reason?: string;
 
   @IsOptional()

@@ -1,7 +1,10 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import type { AuditLogEntry } from "../types";
 import { Badge } from "../../../shared/components/custom/Badge";
 import { formatDistanceToNow } from "date-fns";
+import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
 
 interface AuditLogTableProps {
   logs: AuditLogEntry[];
@@ -12,6 +15,10 @@ export const AuditLogTable: React.FC<AuditLogTableProps> = ({
   logs,
   onRowClick,
 }) => {
+  const currentUser = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+  const disputeDetailBasePath =
+    currentUser?.role === "ADMIN" || currentUser?.role === "STAFF" ? "/staff/caseload" : null;
+
   const getRiskBadgeColor = (risk: string) => {
     switch (risk) {
       case "HIGH":
@@ -100,6 +107,17 @@ export const AuditLogTable: React.FC<AuditLogTableProps> = ({
                 </td>
                 <td className="px-6 py-4 ">
                   <p className="text-sm text-slate-900">{log.entity}</p>
+                  {disputeDetailBasePath &&
+                  log.metadata?.entityType === "Dispute" &&
+                  log.metadata?.entityId ? (
+                    <Link
+                      to={`${disputeDetailBasePath}?disputeId=${log.metadata.entityId}`}
+                      onClick={(event) => event.stopPropagation()}
+                      className="mt-1 inline-flex text-xs font-medium text-teal-700 hover:underline"
+                    >
+                      Open dispute
+                    </Link>
+                  ) : null}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <p className="text-sm text-gray-600 font-mono">

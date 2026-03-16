@@ -64,7 +64,7 @@ export class CalendarEventEntity {
   @Column({ type: 'varchar', length: 255 })
   title: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   description: string;
 
   @Column({ type: 'enum', enum: EventPriority, default: EventPriority.MEDIUM })
@@ -117,10 +117,15 @@ export class CalendarEventEntity {
   lastRescheduledAt: Date;
 
   // === LOCATION/ONLINE ===
-  @Column({ nullable: true, comment: 'Online, Room A, etc.' })
+  @Column({ type: 'varchar', length: 500, nullable: true, comment: 'Online, Room A, etc.' })
   location: string;
 
-  @Column({ nullable: true, comment: 'Link Google Meet/Zoom nếu online (bên thứ 3)' })
+  @Column({
+    type: 'varchar',
+    length: 500,
+    nullable: true,
+    comment: 'Link Google Meet/Zoom nếu online (bên thứ 3)',
+  })
   externalMeetingLink: string;
 
   // === REMINDERS ===
@@ -128,7 +133,7 @@ export class CalendarEventEntity {
   reminderMinutes: number[];
 
   // === NOTES ===
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 1000, nullable: true })
   notes: string;
 
   // === METADATA ===

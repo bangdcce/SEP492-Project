@@ -4,7 +4,7 @@ import { Upload, Camera, User, CheckCircle, ArrowLeft, ArrowRight, Loader2, XCir
 import { Button } from '@/shared/components/custom/Button';
 import { Input } from '@/shared/components/custom/input';
 import { toast } from 'sonner';
-import { ROUTES, STORAGE_KEYS } from '@/constants';
+import { API_CONFIG, ROUTES, STORAGE_KEYS } from '@/constants';
 import { getStoredJson } from '@/shared/utils';
 
 interface KYCFormData {
@@ -44,7 +44,7 @@ export default function KYCPage() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const baseUrl = API_CONFIG.BASE_URL;
 
   const steps = [
     { number: 1, title: 'Personal Info', icon: User },

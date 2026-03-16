@@ -1,370 +1,267 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
-  ArrowRight,
   CheckCircle2,
   Clock,
-  FolderKanban,
   Loader2,
-  Mail,
+  ShieldAlert,
   TrendingUp,
-  XCircle,
 } from "lucide-react";
-import { Link, generatePath } from "react-router-dom";
-import { ROUTES } from "@/constants";
-import type { StaffStats } from "../types/staff.types";
-import {
-  fetchPendingProjectInvites,
-  getActiveSupervisedProjects,
-  respondToProjectStaffInvite,
-} from "@/features/project-workspace/api";
-import type {
-  ActiveSupervisedProject,
-  PendingProjectInvite,
-} from "@/features/project-workspace/types";
+import { getStaffDashboardOverview } from "../api";
+import { useStaffDashboardRealtime } from "../hooks/useStaffDashboardRealtime";
+import type { StaffDashboardOverview, StaffDashboardRange } from "../types/staff.types";
+import { getApiErrorDetails, isSchemaNotReadyErrorCode } from "@/shared/utils/apiError";
 
-// Mock Data (matches StaffStats interface)
-const staffStats: StaffStats = {
-  utilizationRate: 78,
-  activeCases: 12,
-  resolvedThisMonth: 8,
-  avgResolutionTimeHours: 42,
-  tier: 1,
-};
+const rangeOptions: Array<{ value: StaffDashboardRange; label: string }> = [
+  { value: "7d", label: "7 days" },
+  { value: "30d", label: "30 days" },
+  { value: "90d", label: "90 days" },
+];
 
 export const StaffDashboardPage = () => {
-  const [pendingInvites, setPendingInvites] = useState<PendingProjectInvite[]>([]);
-  const [activeSupervisedProjects, setActiveSupervisedProjects] = useState<
-    ActiveSupervisedProject[]
-  >([]);
-  const [loadingInvites, setLoadingInvites] = useState(true);
-  const [loadingActiveProjects, setLoadingActiveProjects] = useState(true);
-  const [respondingProjectId, setRespondingProjectId] = useState<string | null>(null);
+  const [range, setRange] = useState<StaffDashboardRange>("30d");
+  const [overview, setOverview] = useState<StaffDashboardOverview | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [remediation, setRemediation] = useState<string | null>(null);
+  const [schemaNotReady, setSchemaNotReady] = useState(false);
+
+  const loadOverview = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      setRemediation(null);
+      setSchemaNotReady(false);
+      const data = await getStaffDashboardOverview(range);
+      setOverview(data);
+    } catch (err: any) {
+      console.error("Failed to load staff dashboard overview:", err);
+      const details = getApiErrorDetails(err, "Failed to load dashboard overview.");
+      setSchemaNotReady(isSchemaNotReadyErrorCode(details.code));
+      setError(details.message);
+      setRemediation(details.remediation ?? null);
+      setOverview(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [range]);
 
   useEffect(() => {
-    let isCancelled = false;
+    void loadOverview();
+  }, [loadOverview]);
 
-    Promise.all([fetchPendingProjectInvites(), getActiveSupervisedProjects()])
-      .then(([invites, activeProjects]) => {
-        if (isCancelled) {
-          return;
-        }
-        setPendingInvites(invites);
-        setActiveSupervisedProjects(activeProjects);
-      })
-      .catch((error) => {
-        console.error("Failed to load staff project panels:", error);
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setLoadingInvites(false);
-          setLoadingActiveProjects(false);
-        }
-      });
+  useStaffDashboardRealtime({
+    onDisputeCreated: () => void loadOverview(),
+    onHearingEnded: () => void loadOverview(),
+    onVerdictIssued: () => void loadOverview(),
+    onStaffOverloaded: () => void loadOverview(),
+  });
 
-    return () => {
-      isCancelled = true;
-    };
-  }, []);
-
-  const handleInviteResponse = async (
-    projectId: string,
-    status: "ACCEPTED" | "REJECTED",
-  ) => {
-    try {
-      setRespondingProjectId(projectId);
-      await respondToProjectStaffInvite(projectId, status);
-      setPendingInvites((prev) => prev.filter((invite) => invite.id !== projectId));
-      if (status === "ACCEPTED") {
-        setLoadingActiveProjects(true);
-        const activeProjects = await getActiveSupervisedProjects();
-        setActiveSupervisedProjects(activeProjects);
-      }
-    } catch (error) {
-      console.error(`Failed to ${status.toLowerCase()} invite`, error);
-    } finally {
-      setLoadingActiveProjects(false);
-      setRespondingProjectId(null);
-    }
-  };
-
-  const formatBudget = (project: ActiveSupervisedProject) => {
-    const amount = Number(project.totalBudget ?? 0);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      return "Budget TBD";
-    }
-
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: project.currency || "USD",
-      maximumFractionDigits: 2,
-    }).format(amount);
-  };
-
-  const formatProjectStatus = (status: string) =>
-    status
-      .toLowerCase()
-      .split("_")
-      .map((segment) => segment.charAt(0).toUpperCase() + segment.slice(1))
-      .join(" ");
+  const statCards = useMemo(() => {
+    if (!overview) return [];
+    return [
+      {
+        title: "Utilization Rate",
+        value: `${overview.workload.averageUtilizationRate}%`,
+        icon: TrendingUp,
+        color: "bg-blue-50 text-blue-600",
+        subtitle: `${overview.workload.totalStaff} active staff`,
+      },
+      {
+        title: "In Progress",
+        value: overview.throughput.inProgress,
+        icon: AlertCircle,
+        color: "bg-amber-50 text-amber-600",
+        subtitle: `${overview.workload.pendingQueueCount} waiting in queue`,
+      },
+      {
+        title: "Closed Cases",
+        value: overview.throughput.closed,
+        icon: CheckCircle2,
+        color: "bg-green-50 text-green-600",
+        subtitle: `${overview.quality.appealRate}% appeal rate`,
+      },
+      {
+        title: "Median Verdict",
+        value: `${overview.sla.medianTimeToVerdictHours}h`,
+        icon: Clock,
+        color: "bg-slate-100 text-slate-700",
+        subtitle: `${overview.sla.breachRate}% breached SLA`,
+      },
+    ];
+  }, [overview]);
 
   return (
     <div className="space-y-6">
-      {/* Welcome Section */}
-      <div>
-        <h2 className="text-2xl font-bold text-slate-900">
-          Dashboard Overview
-        </h2>
-        <p className="text-gray-500">
-          Welcome back, get ready for your triage session.
-        </p>
-      </div>
-
-      {/* KPI Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <StatCard
-          title="Utilization Rate"
-          value={`${staffStats.utilizationRate}%`}
-          icon={TrendingUp}
-          trend={+2.4}
-          color="bg-blue-50 text-blue-600"
-        />
-        <StatCard
-          title="Active Cases"
-          value={staffStats.activeCases}
-          icon={AlertCircle}
-          trend={-1}
-          color="bg-amber-50 text-amber-600"
-        />
-        <StatCard
-          title="Resolved (Month)"
-          value={staffStats.resolvedThisMonth}
-          icon={CheckCircle2}
-          trend={+4}
-          color="bg-green-50 text-green-600"
-        />
-        <StatCard
-          title="Avg Resolution"
-          value={`${staffStats.avgResolutionTimeHours}h`}
-          icon={Clock}
-          color="bg-purple-50 text-purple-600"
-        />
-      </div>
-
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-slate-900">Pending Project Invites</h3>
-            <p className="text-sm text-gray-500">
-              Review invitations from clients who want you to supervise delivery.
-            </p>
-          </div>
-          <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-            {pendingInvites.length} pending
-          </div>
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-slate-900">Dashboard Overview</h2>
+          <p className="text-gray-500">
+            Live dispute throughput, SLA pressure, scheduling health, and risk signals.
+          </p>
         </div>
+        <div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white p-1">
+          {rangeOptions.map((option) => (
+            <button
+              key={option.value}
+              type="button"
+              onClick={() => setRange(option.value)}
+              className={`rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                range === option.value
+                  ? "bg-slate-900 text-white"
+                  : "text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        {loadingInvites ? (
-          <div className="flex items-center justify-center py-8 text-sm text-slate-500">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Loading invites...
-          </div>
-        ) : pendingInvites.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-            No pending project invites right now.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {pendingInvites.map((invite) => (
-              <div
-                key={invite.id}
-                className="flex flex-col gap-4 rounded-xl border border-slate-200 bg-slate-50 p-4 lg:flex-row lg:items-center lg:justify-between"
-              >
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 text-sm text-slate-500">
-                    <Mail className="h-4 w-4" />
-                    {invite.clientName || "Client"}
-                  </div>
-                  <h4 className="mt-1 text-base font-semibold text-slate-900">
-                    {invite.title}
-                  </h4>
-                  {invite.description && (
-                    <p className="mt-1 line-clamp-2 text-sm text-slate-600">
-                      {invite.description}
-                    </p>
-                  )}
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <button
-                    onClick={() => handleInviteResponse(invite.id, "ACCEPTED")}
-                    disabled={respondingProjectId === invite.id}
-                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-60"
-                  >
-                    {respondingProjectId === invite.id ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <CheckCircle2 className="h-4 w-4" />
-                    )}
-                    Accept
-                  </button>
-                  <button
-                    onClick={() => handleInviteResponse(invite.id, "REJECTED")}
-                    disabled={respondingProjectId === invite.id}
-                    className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm font-semibold text-red-700 transition-colors hover:bg-red-100 disabled:opacity-60"
-                  >
-                    <XCircle className="h-4 w-4" />
-                    Decline
-                  </button>
-                </div>
-              </div>
+      {loading ? (
+        <div className="flex items-center justify-center rounded-xl border border-gray-200 bg-white py-16">
+          <Loader2 className="mr-2 h-6 w-6 animate-spin text-teal-600" />
+          <span className="text-sm text-gray-600">Loading dashboard overview...</span>
+        </div>
+      ) : error ? (
+        <div
+          className={`rounded-xl border p-4 text-sm ${
+            schemaNotReady
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-red-200 bg-red-50 text-red-700"
+          }`}
+        >
+          <p className="font-semibold">
+            {schemaNotReady ? "Schema not ready" : "Dashboard unavailable"}
+          </p>
+          <p className="mt-1">{error}</p>
+          {schemaNotReady && remediation ? (
+            <p className="mt-2 text-xs text-amber-800">{remediation}</p>
+          ) : null}
+        </div>
+      ) : overview ? (
+        <>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            {statCards.map((card) => (
+              <StatCard
+                key={card.title}
+                title={card.title}
+                value={card.value}
+                subtitle={card.subtitle}
+                icon={card.icon}
+                color={card.color}
+              />
             ))}
           </div>
-        )}
-      </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-slate-900">Active Supervised Projects</h3>
-            <p className="text-sm text-gray-500">
-              Open any accepted supervision assignment and continue directly in the workspace.
-            </p>
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            <MetricGroup
+              title="Throughput"
+              items={[
+                ["New disputes", overview.throughput.newDisputes],
+                ["In progress", overview.throughput.inProgress],
+                ["Closed", overview.throughput.closed],
+              ]}
+            />
+            <MetricGroup
+              title="SLA"
+              items={[
+                ["Median first response", `${overview.sla.medianTimeToFirstResponseHours}h`],
+                ["Median verdict", `${overview.sla.medianTimeToVerdictHours}h`],
+                ["Breach rate", `${overview.sla.breachRate}%`],
+              ]}
+            />
+            <MetricGroup
+              title="Scheduling"
+              items={[
+                ["Auto-schedule success", `${overview.scheduling.autoScheduleSuccessRate}%`],
+                ["Reschedules", overview.scheduling.rescheduleCount],
+                ["No-show rate", `${overview.scheduling.noShowRate}%`],
+              ]}
+            />
+            <MetricGroup
+              title="Quality"
+              items={[
+                ["Appeal rate", `${overview.quality.appealRate}%`],
+                ["Overturned verdicts", `${overview.quality.overturnedVerdictRate}%`],
+                ["Feedback score", overview.quality.feedbackScore || "N/A"],
+              ]}
+            />
+            <MetricGroup
+              title="Workload"
+              items={[
+                ["Avg cases/staff", overview.workload.averageCasesPerStaff],
+                ["Avg utilization", `${overview.workload.averageUtilizationRate}%`],
+                ["Pending queue", overview.workload.pendingQueueCount],
+              ]}
+            />
+            <MetricGroup
+              title="Risk Signals"
+              items={[
+                ["Prolonged cases", overview.riskSignals.prolongedCases],
+                ["Multi-party cases", overview.riskSignals.multiPartyCases],
+                ["Conflicting evidence", overview.riskSignals.conflictingEvidenceCases],
+              ]}
+              accent="border-amber-200 bg-amber-50"
+              icon={ShieldAlert}
+            />
           </div>
-          <div className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
-            {activeSupervisedProjects.length} active
-          </div>
-        </div>
-
-        {loadingActiveProjects ? (
-          <div className="flex items-center justify-center py-8 text-sm text-slate-500">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Loading supervised projects...
-          </div>
-        ) : activeSupervisedProjects.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-            No active supervised projects yet. Accepted invites will appear here.
-          </div>
-        ) : (
-          <div className="grid gap-4 md:grid-cols-2">
-            {activeSupervisedProjects.map((project) => (
-              <Link
-                key={project.id}
-                to={generatePath(ROUTES.STAFF_WORKSPACE, { projectId: project.id })}
-                className="group rounded-xl border border-slate-200 bg-slate-50 p-4 transition-colors hover:border-teal-300 hover:bg-teal-50"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2 text-sm text-slate-500">
-                      <FolderKanban className="h-4 w-4" />
-                      {project.clientName || "Client"}
-                    </div>
-                    <h4 className="mt-1 text-base font-semibold text-slate-900">
-                      {project.title}
-                    </h4>
-                    {project.description && (
-                      <p className="mt-1 line-clamp-2 text-sm text-slate-600">
-                        {project.description}
-                      </p>
-                    )}
-                  </div>
-
-                  <span className="rounded-full bg-slate-200 px-2.5 py-1 text-xs font-semibold text-slate-700">
-                    {formatProjectStatus(project.status)}
-                  </span>
-                </div>
-
-                <div className="mt-4 flex items-center justify-between gap-3 border-t border-slate-200 pt-4">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      Budget
-                    </p>
-                    <p className="text-sm font-semibold text-slate-900">
-                      {formatBudget(project)}
-                    </p>
-                  </div>
-                  <span className="inline-flex items-center gap-2 text-sm font-semibold text-teal-700">
-                    Open workspace
-                    <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                  </span>
-                </div>
-              </Link>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Main Content Split */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left: Recent Activity (Placeholder for Phase 2.5 Triage) */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-slate-900">
-              Incoming Disputes (Triage)
-            </h3>
-            <button className="text-sm text-teal-600 font-medium hover:underline">
-              View Queue
-            </button>
-          </div>
-
-          <div className="space-y-4">
-            {/* Creating placeholder skeletons for Triage rows */}
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="flex items-center p-3 bg-gray-50 rounded-lg border border-gray-100"
-              >
-                <div className="w-10 h-10 rounded-full bg-gray-200 animate-pulse mr-4"></div>
-                <div className="flex-1 space-y-2">
-                  <div className="h-4 bg-gray-200 rounded w-1/3 animate-pulse"></div>
-                  <div className="h-3 bg-gray-200 rounded w-1/4 animate-pulse"></div>
-                </div>
-                <div className="h-8 w-20 bg-gray-200 rounded animate-pulse"></div>
-              </div>
-            ))}
-            <div className="text-center text-sm text-gray-500 py-4">
-              Connects to <code>StaffAssignmentService</code> (Phase 2.5) for
-              real data.
-            </div>
-          </div>
-        </div>
-
-        {/* Right: Quick Actions */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-          <h3 className="font-semibold text-slate-900 mb-4">Quick Actions</h3>
-          <div className="space-y-3">
-            <button className="w-full flex items-center justify-center px-4 py-2 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-teal-600 hover:bg-teal-700">
-              Check Availability
-            </button>
-            <button className="w-full flex items-center justify-center px-4 py-2 border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
-              Update Skills Profile
-            </button>
-          </div>
-        </div>
-      </div>
+        </>
+      ) : null}
     </div>
   );
 };
 
-// Simple internal Stat Card Component
-const StatCard = ({ title, value, icon: Icon, trend, color }: any) => (
-  <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200">
+const StatCard = ({
+  title,
+  value,
+  subtitle,
+  icon: Icon,
+  color,
+}: {
+  title: string;
+  value: string | number;
+  subtitle?: string;
+  icon: typeof TrendingUp;
+  color: string;
+}) => (
+  <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
     <div className="flex items-center justify-between">
       <div>
         <p className="text-sm font-medium text-gray-500">{title}</p>
-        <p className="text-2xl font-bold text-slate-900 mt-1">{value}</p>
+        <p className="mt-1 text-2xl font-bold text-slate-900">{value}</p>
+        {subtitle ? <p className="mt-2 text-xs text-gray-500">{subtitle}</p> : null}
       </div>
-      <div className={`p-3 rounded-lg ${color}`}>
-        <Icon className="w-6 h-6" />
+      <div className={`rounded-lg p-3 ${color}`}>
+        <Icon className="h-6 w-6" />
       </div>
     </div>
-    {trend !== undefined && (
-      <div
-        className={`mt-2 text-xs font-medium ${trend > 0 ? "text-green-600" : "text-red-600"}`}
-      >
-        {trend > 0 ? "+" : ""}
-        {trend} from last week
-      </div>
-    )}
+  </div>
+);
+
+const MetricGroup = ({
+  title,
+  items,
+  accent,
+  icon: Icon,
+}: {
+  title: string;
+  items: Array<[string, string | number]>;
+  accent?: string;
+  icon?: typeof ShieldAlert;
+}) => (
+  <div className={`rounded-xl border border-gray-200 bg-white p-6 shadow-sm ${accent || ""}`}>
+    <div className="mb-4 flex items-center gap-2">
+      {Icon ? <Icon className="h-4 w-4 text-amber-700" /> : null}
+      <h3 className="font-semibold text-slate-900">{title}</h3>
+    </div>
+    <div className="space-y-3">
+      {items.map(([label, value]) => (
+        <div key={label} className="flex items-center justify-between gap-4 text-sm">
+          <span className="text-gray-500">{label}</span>
+          <span className="font-semibold text-slate-900">{value}</span>
+        </div>
+      ))}
+    </div>
   </div>
 );

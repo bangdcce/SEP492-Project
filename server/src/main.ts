@@ -6,6 +6,7 @@ import { json, urlencoded } from 'express';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import * as fs from 'fs';
+import { resolveDatabaseRuntimeConfig } from './config/database-runtime.config';
 
 import { AppModule } from './app.module';
 import { RedisIoAdapter } from './realtime/redis-io.adapter';
@@ -154,12 +155,15 @@ async function bootstrap() {
     void closeRedisAdapter();
   });
 
-  const dbPoolMax = parseNumber(process.env.DB_POOL_MAX, 20);
-  const dbPoolIdleMs = parseNumber(process.env.DB_POOL_IDLE_MS, 30000);
-  const dbPoolConnTimeoutMs = parseNumber(process.env.DB_POOL_CONN_TIMEOUT_MS, 10000);
+  const dbRuntime = resolveDatabaseRuntimeConfig(process.env);
   logger.log(
-    `DB pool env: max=${dbPoolMax}, idleTimeoutMillis=${dbPoolIdleMs}, connectionTimeoutMillis=${dbPoolConnTimeoutMs}`,
+    `DB pool env: max=${dbRuntime.poolMax}, idleTimeoutMillis=${dbRuntime.poolIdleMs}, connectionTimeoutMillis=${dbRuntime.poolConnTimeoutMs}, maxUses=${dbRuntime.poolMaxUses}, allowExitOnIdle=${dbRuntime.poolAllowExitOnIdle}`,
   );
+  if (dbRuntime.isSupabaseSessionMode) {
+    logger.warn(
+      'Supabase session mode detected on port 5432. Switch local/shared development to port 6543 to reduce max client connection errors.',
+    );
+  }
 
   app.useStaticAssets(join(__dirname, '..', 'uploads'), {
     prefix: '/uploads/',

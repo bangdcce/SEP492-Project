@@ -282,6 +282,13 @@ class ApiClient {
     return response.data;
   }
 
+  public async getResponse<T = any>(
+    url: string,
+    config?: AxiosRequestConfig,
+  ): Promise<AxiosResponse<T>> {
+    return await this.client.get<T>(url, config);
+  }
+
   public async post<T = any>(
     url: string,
     data?: unknown,

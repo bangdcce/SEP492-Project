@@ -1,0 +1,76 @@
+name: interdev
+
+services:
+  interdev-redis:
+    image: redis:7.4-alpine
+    container_name: interdev-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:-redis123}
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+    ports:
+      - "6379:6379"
+    volumes:
+      - interdev-redis-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  interdev-server:
+    image: ${SERVER_IMAGE:-interdev/server:local}
+    container_name: interdev-server
+    restart: unless-stopped
+    depends_on:
+      interdev-redis:
+        condition: service_healthy
+    env_file:
+      - ./server/.env
+    environment:
+      NODE_ENV: production
+      APP_PORT: 3000
+      APP_URL: http://localhost:3000
+      FRONTEND_URL: http://localhost:5173
+      CLIENT_URL: http://localhost:5173
+      SOCKET_REDIS_ENABLED: "true"
+      REDIS_HOST: interdev-redis
+      REDIS_PORT: 6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-redis123}
+      REDIS_DB: 0
+      REDIS_URL: redis://:${REDIS_PASSWORD:-redis123}@interdev-redis:6379/0
+    ports:
+      - "3000:3000"
+    volumes:
+      - interdev-uploads:/app/uploads
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/health/live').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  interdev-client:
+    image: ${CLIENT_IMAGE:-interdev/client:local}
+    container_name: interdev-client
+    restart: unless-stopped
+    depends_on:
+      interdev-server:
+        condition: service_healthy
+    ports:
+      - "5173:80"
+
+volumes:
+  interdev-redis-data:
+  interdev-uploads:

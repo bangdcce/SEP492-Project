@@ -12,6 +12,7 @@ import {
   User,
   FileSignature,
   Video,
+  Scale,
   ShieldCheck,
   Mail,
   CreditCard,
@@ -68,6 +69,14 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: Briefcase,
     path: "/broker/projects",
     description: "Your active projects",
+    section: "workspace",
+  },
+  {
+    id: "disputes",
+    label: "Disputes",
+    icon: Scale,
+    path: "/broker/disputes",
+    description: "Track dispute cases and appeals",
     section: "workspace",
   },
   {

@@ -16,6 +16,7 @@ import { CalendarEventEntity } from '../../../database/entities/calendar-event.e
 import { UserAvailabilityEntity } from '../../../database/entities/user-availability.entity';
 import { AutoScheduleRuleEntity } from '../../../database/entities/auto-schedule-rule.entity';
 import { DisputeEvidenceEntity } from '../../../database/entities/dispute-evidence.entity';
+import { DisputeHearingEntity } from '../../../database/entities/dispute-hearing.entity';
 import { ProjectEntity } from '../../../database/entities/project.entity';
 
 // Tagging System Entities
@@ -44,6 +45,7 @@ import { StaffAssignmentController } from '../controllers/staff-assignment.contr
       UserAvailabilityEntity,
       AutoScheduleRuleEntity,
       DisputeEvidenceEntity,
+      DisputeHearingEntity,
       // Tagging System Entities
       StaffExpertiseEntity,
       DisputeSkillRequirementEntity,

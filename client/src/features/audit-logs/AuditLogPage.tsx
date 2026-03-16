@@ -1,33 +1,33 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-  Download,
-  Search,
   Calendar,
   AlertTriangle,
   Loader2,
+  Download,
+  FileJson,
+  FileSpreadsheet,
+  Search,
 } from "lucide-react";
+import { toast } from "sonner";
 import type { AuditLogEntry, AuditLogFilters } from "./types";
 import { auditLogsApi } from "./api";
 import { AuditLogTable } from "./components/AuditLogTable";
 import { AuditLogDetailModal } from "./components/AuditLogDetailModal";
 import { Button } from "../../shared/components/custom/Button";
+import { triggerBlobDownload } from "@/shared/utils/download";
 
 export const AuditLogPage: React.FC = () => {
-  // ========== STATE ==========
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exportingFormat, setExportingFormat] = useState<"json" | "csv" | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  // Pagination state
   const [pagination, setPagination] = useState({
     page: 1,
     limit: 20,
     total: 0,
     totalPages: 0,
   });
-
-  // Filter state
   const [filters, setFilters] = useState<AuditLogFilters>({
     searchAction: "",
     dateFrom: "",
@@ -35,23 +35,20 @@ export const AuditLogPage: React.FC = () => {
     riskLevel: "ALL",
   });
 
-  // ========== FETCH DATA ==========
   const fetchLogs = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      // Chuyển đổi filters sang params cho API
-      const params = {
+      const response = await auditLogsApi.getAll({
         page: pagination.page,
         limit: pagination.limit,
         action: filters.searchAction || undefined,
         dateFrom: filters.dateFrom || undefined,
         dateTo: filters.dateTo || undefined,
         riskLevel: filters.riskLevel !== "ALL" ? filters.riskLevel : undefined,
-      };
-
-      const response = await auditLogsApi.getAll(params);
+        entityId: filters.entityId || undefined,
+      });
 
       setLogs(response.data);
       setPagination((prev) => ({
@@ -65,80 +62,94 @@ export const AuditLogPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [pagination.page, pagination.limit, filters]);
+  }, [filters.dateFrom, filters.dateTo, filters.entityId, filters.riskLevel, filters.searchAction, pagination.limit, pagination.page]);
 
-  // Fetch khi component mount hoặc filters/pagination thay đổi
   useEffect(() => {
-    fetchLogs();
+    void fetchLogs();
   }, [fetchLogs]);
 
-  // Reset về page 1 khi filters thay đổi
   useEffect(() => {
     setPagination((prev) => ({ ...prev, page: 1 }));
-  }, [
-    filters.searchAction,
-    filters.dateFrom,
-    filters.dateTo,
-    filters.riskLevel,
-  ]);
+  }, [filters.searchAction, filters.dateFrom, filters.dateTo, filters.riskLevel, filters.entityId]);
 
-  // ========== HANDLERS ==========
-  const handleExport = async () => {
-    try {
-      const dataStr = JSON.stringify(logs, null, 2);
-      const dataBlob = new Blob([dataStr], { type: "application/json" });
-      const url = URL.createObjectURL(dataBlob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `audit-logs-${new Date().toISOString()}.json`;
-      link.click();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error("Export failed:", err);
-    }
-  };
+  const handleExport = useCallback(
+    async (format: "json" | "csv") => {
+      try {
+        setExportingFormat(format);
+        const exported = await auditLogsApi.export({
+          action: filters.searchAction || undefined,
+          dateFrom: filters.dateFrom || undefined,
+          dateTo: filters.dateTo || undefined,
+          riskLevel: filters.riskLevel !== "ALL" ? filters.riskLevel : undefined,
+          entityId: filters.entityId || undefined,
+          format,
+        });
+        triggerBlobDownload(exported.blob, exported.fileName);
+        toast.success(`Audit logs exported as ${format.toUpperCase()}`);
+      } catch (err) {
+        console.error("Export failed:", err);
+        toast.error("Could not export audit logs");
+      } finally {
+        setExportingFormat(null);
+      }
+    },
+    [filters.dateFrom, filters.dateTo, filters.entityId, filters.riskLevel, filters.searchAction],
+  );
 
   const handlePageChange = (newPage: number) => {
     setPagination((prev) => ({ ...prev, page: newPage }));
   };
 
-  // ========== RENDER ==========
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
           <h1 className="text-slate-900">System Audit Logs</h1>
-          <p className="text-gray-600 mt-1">
-            Monitor and track all system activities and changes
+          <p className="mt-1 text-gray-600">
+            Export filtered records and trace dispute-linked activity with consistent evidence metadata.
           </p>
         </div>
-        <Button onClick={handleExport} variant="primary" disabled={loading}>
-          <Download className="h-4 w-4 mr-2" />
-          Export
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={() => void handleExport("json")}
+            variant="secondary"
+            disabled={loading || exportingFormat !== null}
+          >
+            {exportingFormat === "json" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileJson className="mr-2 h-4 w-4" />
+            )}
+            Export JSON
+          </Button>
+          <Button
+            onClick={() => void handleExport("csv")}
+            variant="primary"
+            disabled={loading || exportingFormat !== null}
+          >
+            {exportingFormat === "csv" ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <FileSpreadsheet className="mr-2 h-4 w-4" />
+            )}
+            Export CSV
+          </Button>
+        </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <p className="text-xs text-gray-500 uppercase mb-1">Total Logs</p>
-          <p className="text-2xl text-slate-900">
-            {loading ? "..." : pagination.total}
-          </p>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <p className="mb-1 text-xs uppercase text-gray-500">Total Logs</p>
+          <p className="text-2xl text-slate-900">{loading ? "..." : pagination.total}</p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <p className="text-xs text-gray-500 uppercase mb-1">High Risk</p>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <p className="mb-1 text-xs uppercase text-gray-500">High Risk</p>
           <p className="text-2xl text-red-600">
-            {loading
-              ? "..."
-              : logs.filter((log) => log.riskLevel === "HIGH").length}
+            {loading ? "..." : logs.filter((log) => log.riskLevel === "HIGH").length}
           </p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <p className="text-xs text-gray-500 uppercase mb-1">
-            Today's Activity
-          </p>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <p className="mb-1 text-xs uppercase text-gray-500">Today's Activity</p>
           <p className="text-2xl text-slate-900">
             {loading
               ? "..."
@@ -149,81 +160,88 @@ export const AuditLogPage: React.FC = () => {
                 }).length}
           </p>
         </div>
-        <div className="bg-white rounded-lg border border-gray-200 p-4">
-          <p className="text-xs text-gray-500 uppercase mb-1">Unique Users</p>
+        <div className="rounded-lg border border-gray-200 bg-white p-4">
+          <p className="mb-1 text-xs uppercase text-gray-500">Unique Users</p>
           <p className="text-2xl text-slate-900">
             {loading ? "..." : new Set(logs.map((log) => log.actor.email)).size}
           </p>
         </div>
       </div>
 
-      {/* Filters Bar */}
-      <div className="bg-white rounded-lg border border-gray-200 p-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          {/* Search */}
+      <div className="rounded-lg border border-gray-200 bg-white p-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">Search</label>
             <div className="relative">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 type="text"
                 placeholder="Action, entity, or user..."
                 value={filters.searchAction}
                 onChange={(e) =>
-                  setFilters({ ...filters, searchAction: e.target.value })
+                  setFilters((prev) => ({ ...prev, searchAction: e.target.value }))
                 }
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
           </div>
 
-          {/* Date From */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">
-              From Date
-            </label>
+            <label className="text-xs font-medium text-gray-500">Dispute ID</label>
+            <input
+              type="text"
+              placeholder="Optional dispute/entity id"
+              value={filters.entityId || ""}
+              onChange={(e) =>
+                setFilters((prev) => ({ ...prev, entityId: e.target.value }))
+              }
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
+            />
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-xs font-medium text-gray-500">From Date</label>
             <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 type="date"
                 value={filters.dateFrom}
                 onChange={(e) =>
-                  setFilters({ ...filters, dateFrom: e.target.value })
+                  setFilters((prev) => ({ ...prev, dateFrom: e.target.value }))
                 }
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
           </div>
 
-          {/* Date To */}
           <div className="space-y-1">
             <label className="text-xs font-medium text-gray-500">To Date</label>
             <div className="relative">
-              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <input
                 type="date"
                 value={filters.dateTo}
                 onChange={(e) =>
-                  setFilters({ ...filters, dateTo: e.target.value })
+                  setFilters((prev) => ({ ...prev, dateTo: e.target.value }))
                 }
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                className="w-full rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
               />
             </div>
           </div>
 
-          {/* Risk Level */}
           <div className="space-y-1">
-            <label className="text-xs font-medium text-gray-500">
-              Risk Level
-            </label>
+            <label className="text-xs font-medium text-gray-500">Risk Level</label>
             <div className="relative">
-              <AlertTriangle className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <AlertTriangle className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
               <select
                 value={filters.riskLevel}
                 onChange={(e) =>
-                  setFilters({ ...filters, riskLevel: e.target.value as any })
+                  setFilters((prev) => ({
+                    ...prev,
+                    riskLevel: e.target.value as AuditLogFilters["riskLevel"],
+                  }))
                 }
-                className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm appearance-none"
+                className="w-full appearance-none rounded-lg border border-gray-300 py-2 pl-10 pr-3 text-sm focus:border-transparent focus:outline-none focus:ring-2 focus:ring-teal-500"
               >
                 <option value="ALL">All Risk Levels</option>
                 <option value="LOW">Low Risk</option>
@@ -235,7 +253,6 @@ export const AuditLogPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Loading State */}
       {loading && (
         <div className="flex items-center justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-teal-500" />
@@ -243,12 +260,11 @@ export const AuditLogPage: React.FC = () => {
         </div>
       )}
 
-      {/* Error State */}
       {error && !loading && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-4 text-center">
+        <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-center">
           <p className="text-red-600">{error}</p>
           <button
-            onClick={fetchLogs}
+            onClick={() => void fetchLogs()}
             className="mt-2 text-sm text-red-700 underline hover:no-underline"
           >
             Try again
@@ -256,24 +272,21 @@ export const AuditLogPage: React.FC = () => {
         </div>
       )}
 
-      {/* Table */}
       {!loading && !error && (
         <>
           <AuditLogTable logs={logs} onRowClick={setSelectedLog} />
 
-          {/* Pagination */}
           {pagination.totalPages > 1 && (
-            <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 px-4 py-3">
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 bg-white px-4 py-3">
               <p className="text-sm text-gray-600">
                 Showing {(pagination.page - 1) * pagination.limit + 1} to{" "}
-                {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
-                of {pagination.total} results
+                {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total} results
               </p>
               <div className="flex gap-2">
                 <button
                   onClick={() => handlePageChange(pagination.page - 1)}
                   disabled={pagination.page === 1}
-                  className="px-3 py-1 text-sm border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  className="rounded-lg border border-gray-300 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50"
                 >
                   Previous
                 </button>
@@ -283,7 +296,7 @@ export const AuditLogPage: React.FC = () => {
                 <button
                   onClick={() => handlePageChange(pagination.page + 1)}
                   disabled={pagination.page === pagination.totalPages}
-                  className="px-3 py-1 text-sm border border-gray-300 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-gray-50"
+                  className="rounded-lg border border-gray-300 px-3 py-1 text-sm disabled:cursor-not-allowed disabled:opacity-50 hover:bg-gray-50"
                 >
                   Next
                 </button>
@@ -293,11 +306,7 @@ export const AuditLogPage: React.FC = () => {
         </>
       )}
 
-      {/* Detail Modal */}
-      <AuditLogDetailModal
-        log={selectedLog}
-        onClose={() => setSelectedLog(null)}
-      />
+      <AuditLogDetailModal log={selectedLog} onClose={() => setSelectedLog(null)} />
     </div>
   );
 };

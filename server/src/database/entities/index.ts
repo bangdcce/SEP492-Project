@@ -66,6 +66,7 @@ export {
   HearingStatementEntity,
   HearingQuestionEntity,
   HearingStatus,
+  HearingStatementStatus,
   HearingStatementType,
   HearingQuestionStatus,
   HearingParticipantRole,

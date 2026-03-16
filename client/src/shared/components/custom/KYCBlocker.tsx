@@ -2,7 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { ShieldX, ArrowRight, Clock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
-import { ROUTES } from '@/constants';
+import { API_CONFIG, ROUTES } from '@/constants';
 
 interface KYCBlockerProps {
   kycStatus: string | null;
@@ -112,7 +112,7 @@ export function KYCBlocker({ kycStatus, role, action }: KYCBlockerProps) {
  * Hook to check KYC status
  */
 export function useKYCStatus() {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const baseUrl = API_CONFIG.BASE_URL;
 
   const checkKycStatus = async (): Promise<string> => {
     try {

@@ -13,9 +13,9 @@ export class CreateReportDto {
   @IsEnum(ReportReason)
   reason: ReportReason;
 
-  @ApiPropertyOptional({ description: 'Mô tả chi tiết (tối đa 500 ký tự)' })
+  @ApiPropertyOptional({ description: 'Mô tả chi tiết (tối đa 2000 ký tự)' })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(2000)
   description?: string;
 }

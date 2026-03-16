@@ -34,6 +34,7 @@ const toIsoDateString = (value?: string) => {
 export interface WorkspaceProject {
   id: string;
   title?: string;
+  description?: string | null;
   status?: string;
   hasActiveDispute?: boolean;
   activeDisputeCount?: number;
@@ -45,6 +46,24 @@ export interface WorkspaceProject {
   staffInviteStatus?: ProjectStaffInviteStatus | null;
   staff?: StaffSummary | null;
   currency?: string;
+  client?: ProjectWorkspaceMember | null;
+  broker?: ProjectWorkspaceMember | null;
+  freelancer?: ProjectWorkspaceMember | null;
+  reviewSummary?: {
+    totalReviewSlots: number;
+    completedReviews: number;
+    pendingReviews: number;
+    currentUserPendingReviews: number;
+    currentUserCanReview: boolean;
+  };
+  pendingReviewTargets?: ProjectWorkspaceMember[];
+}
+
+export interface ProjectWorkspaceMember {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+  role: string;
 }
 
 export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {

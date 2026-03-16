@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Ban, UserCheck, Key, Shield, AlertCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { API_CONFIG } from '@/constants';
 
 interface User {
   id: string;
@@ -64,7 +65,7 @@ export default function AdminUsersPage() {
   const [newPassword, setNewPassword] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const API_URL = API_CONFIG.BASE_URL;
 
   // Fetch users
   useEffect(() => {

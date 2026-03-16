@@ -1,4 +1,4 @@
-import { IsEnum, IsString, MinLength } from 'class-validator';
+import { IsEnum, IsString, MinLength, MaxLength } from 'class-validator';
 
 export enum RejectionAppealDecision {
   UPHOLD = 'UPHOLD',
@@ -11,5 +11,6 @@ export class ResolveRejectionAppealDto {
 
   @IsString()
   @MinLength(5)
+  @MaxLength(2000)
   resolution: string;
 }

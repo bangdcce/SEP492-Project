@@ -1,5 +1,7 @@
 
 
+import { API_CONFIG } from '@/constants';
+
 interface GoogleButtonProps {
   onClick?: () => void;
   disabled?: boolean;
@@ -20,7 +22,7 @@ export function GoogleButton({
       onClick();
     } else {
       // Default behavior - redirect to backend OAuth endpoint
-      const baseUrl = `${import.meta.env.VITE_API_URL || 'http://localhost:3000'}/auth/google`;
+      const baseUrl = `${API_CONFIG.BASE_URL}/auth/google`;
       const url = forceAccountSelection ? `${baseUrl}?prompt=select_account` : baseUrl;
       window.location.href = url;
     }

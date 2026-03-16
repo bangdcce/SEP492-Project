@@ -6,6 +6,7 @@ import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import { TaskEntity } from '../../database/entities/task.entity';
 import { ContractEntity } from '../../database/entities/contract.entity';
 import { UserEntity } from '../../database/entities/user.entity';
+import { ReviewEntity } from '../../database/entities/review.entity';
 import { ProjectsService } from './projects.service';
 import { ProjectsController } from './projects.controller';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
@@ -21,6 +22,7 @@ import { PaymentsModule } from '../payments/payments.module';
       TaskEntity,
       ContractEntity,
       UserEntity,
+      ReviewEntity,
     ]),
     AuditLogsModule, // For audit logging milestone approvals
     PaymentsModule,

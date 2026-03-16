@@ -74,6 +74,7 @@ import {
 import { contractsApi } from "@/features/contracts/api";
 import type { Contract as ContractDetail } from "@/features/contracts/types";
 import { DeliverableType } from "@/features/project-specs/types";
+import { CreateReviewModal } from "@/features/trust-profile/modals/CreateReviewModal";
 
 const initialBoard: KanbanBoard = {
   TODO: [],
@@ -87,6 +88,8 @@ const WORKSPACE_CHAT_NAMESPACE = "/ws/workspace";
 const getCurrentUser = (): { id: string; role?: string } | null => {
   return getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
 };
+
+type ReviewTarget = NonNullable<WorkspaceProject["pendingReviewTargets"]>[number];
 
 export function ProjectWorkspace() {
   const navigate = useNavigate();
@@ -139,6 +142,8 @@ export function ProjectWorkspace() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const isChatOpenRef = useRef(false);
+  const [selectedReviewTarget, setSelectedReviewTarget] =
+    useState<ReviewTarget | null>(null);
 
   // Filter State
   const [searchQuery, setSearchQuery] = useState("");
@@ -301,26 +306,53 @@ export function ProjectWorkspace() {
           return "Broker";
         case "FREELANCER":
           return "Freelancer";
+        case "STAFF":
+          return "Staff";
         default:
           return role;
       }
     };
-    const addMember = (id: string | null | undefined, role: string) => {
+    const getDisplayName = (
+      member:
+        | WorkspaceProject["client"]
+        | WorkspaceProject["broker"]
+        | WorkspaceProject["freelancer"]
+        | WorkspaceProject["staff"],
+      label: string,
+      id: string,
+    ) => {
+      return member?.fullName?.trim() || member?.email?.trim() || `${label} (${id.slice(0, 6)})`;
+    };
+    const addMember = (
+      id: string | null | undefined,
+      role: string,
+      member?:
+        | WorkspaceProject["client"]
+        | WorkspaceProject["broker"]
+        | WorkspaceProject["freelancer"]
+        | WorkspaceProject["staff"]
+        | null,
+    ) => {
       if (!id) return;
       if (members.has(id)) return;
       const label = normalizeRole(role);
       members.set(id, {
         id,
-        name: `${label} (${id.slice(0, 6)})`,
+        name: getDisplayName(member, label, id),
         role,
       });
     };
-    addMember(project.clientId, "CLIENT");
-    addMember(project.brokerId, "BROKER");
-    addMember(project.freelancerId ?? null, "FREELANCER");
-    addMember(project.staffId ?? null, "STAFF");
+    addMember(project.clientId, "CLIENT", project.client);
+    addMember(project.brokerId, "BROKER", project.broker);
+    addMember(project.freelancerId ?? null, "FREELANCER", project.freelancer);
+    addMember(project.staffId ?? null, "STAFF", project.staff);
     return Array.from(members.values());
   }, [project]);
+
+  const pendingReviewTargets = useMemo(
+    () => project?.pendingReviewTargets ?? [],
+    [project?.pendingReviewTargets],
+  );
 
   const canRaiseDisputeForMilestone = useCallback((status?: string) => {
     if (!status) return false;
@@ -405,73 +437,61 @@ export function ProjectWorkspace() {
     [project?.currency],
   );
 
-  useEffect(() => {
+  const reloadWorkspace = useCallback(async () => {
     if (!projectId) {
       setError("No project selected. Please choose a project from the list.");
       setLoading(false);
       return;
     }
-    const loadBoard = async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        let [milestoneData, boardData, projectData] = await Promise.all([
-          fetchMilestones(projectId),
-          fetchBoard(projectId),
-          fetchProject(projectId),
-        ]);
-        let contractData: ContractDetail | null = null;
-        const contracts = Array.isArray(projectData?.contracts)
-          ? [...projectData.contracts]
-          : [];
-        contracts.sort((a, b) => {
-          const aActivated = a.activatedAt
-            ? new Date(a.activatedAt).getTime()
-            : 0;
-          const bActivated = b.activatedAt
-            ? new Date(b.activatedAt).getTime()
-            : 0;
-          if (aActivated !== bActivated) return bActivated - aActivated;
-          const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-          const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-          return bCreated - aCreated;
-        });
+    try {
+      setLoading(true);
+      setError(null);
+      const [milestoneData, boardData, projectData] = await Promise.all([
+        fetchMilestones(projectId),
+        fetchBoard(projectId),
+        fetchProject(projectId),
+      ]);
+      let contractData: ContractDetail | null = null;
+      const contracts = Array.isArray(projectData?.contracts) ? [...projectData.contracts] : [];
+      contracts.sort((a, b) => {
+        const aActivated = a.activatedAt ? new Date(a.activatedAt).getTime() : 0;
+        const bActivated = b.activatedAt ? new Date(b.activatedAt).getTime() : 0;
+        if (aActivated !== bActivated) return bActivated - aActivated;
+        const aCreated = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const bCreated = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        return bCreated - aCreated;
+      });
 
-        const primaryContractId = contracts[0]?.id;
-        if (primaryContractId) {
-          try {
-            contractData = await contractsApi.getContract(primaryContractId);
-          } catch (contractErr) {
-            console.warn(
-              "Failed to load contract snapshot for workspace:",
-              contractErr,
-            );
-          }
+      const primaryContractId = contracts[0]?.id;
+      if (primaryContractId) {
+        try {
+          contractData = await contractsApi.getContract(primaryContractId);
+        } catch (contractErr) {
+          console.warn("Failed to load contract snapshot for workspace:", contractErr);
         }
-        console.log("API Data:", { milestoneData, boardData, projectData });
-        setMilestones(milestoneData || []);
-        setProject(projectData);
-        setContractDetail(contractData);
-        setSelectedMilestoneId(
-          milestoneData && milestoneData.length > 0
-            ? milestoneData[0].id
-            : null,
-        );
-        setBoard({
-          TODO: boardData?.TODO || [],
-          IN_PROGRESS: boardData?.IN_PROGRESS || [],
-          IN_REVIEW: boardData?.IN_REVIEW || [],
-          DONE: boardData?.DONE || [],
-        });
-      } catch (err: any) {
-        setContractDetail(null);
-        setError(err?.message || "Failed to load task board");
-      } finally {
-        setLoading(false);
       }
-    };
-
-    loadBoard();
+      console.log("API Data:", { milestoneData, boardData, projectData });
+      setMilestones(milestoneData || []);
+      setProject(projectData);
+      setContractDetail(contractData);
+      setSelectedMilestoneId((currentId) => {
+        if (currentId && milestoneData.some((milestone) => milestone.id === currentId)) {
+          return currentId;
+        }
+        return milestoneData && milestoneData.length > 0 ? milestoneData[0].id : null;
+      });
+      setBoard({
+        TODO: boardData?.TODO || [],
+        IN_PROGRESS: boardData?.IN_PROGRESS || [],
+        IN_REVIEW: boardData?.IN_REVIEW || [],
+        DONE: boardData?.DONE || [],
+      });
+    } catch (err: any) {
+      setContractDetail(null);
+      setError(err?.message || "Failed to load task board");
+    } finally {
+      setLoading(false);
+    }
   }, [projectId]);
 
   useEffect(() => {
@@ -516,6 +536,16 @@ export function ProjectWorkspace() {
       isCancelled = true;
     };
   }, [isClient, isStaffInviteDialogOpen]);
+
+  useEffect(() => {
+    void reloadWorkspace();
+  }, [reloadWorkspace]);
+
+  const handleReviewSuccess = useCallback(async () => {
+    toast.success("Review submitted successfully");
+    setSelectedReviewTarget(null);
+    await reloadWorkspace();
+  }, [reloadWorkspace]);
 
   const columns = useMemo<
     { key: KanbanColumnKey; title: string; description: string }[]
@@ -1326,6 +1356,34 @@ export function ProjectWorkspace() {
         </div>
       )}
 
+      {project?.reviewSummary?.currentUserCanReview && pendingReviewTargets.length > 0 ? (
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold text-emerald-900">
+                Pending reviews
+              </h2>
+              <p className="mt-1 text-sm text-emerald-800">
+                This project is completed. You still need to review {pendingReviewTargets.length}{" "}
+                collaborator{pendingReviewTargets.length === 1 ? "" : "s"}.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {pendingReviewTargets.map((target) => (
+                <button
+                  key={target.id}
+                  type="button"
+                  onClick={() => setSelectedReviewTarget(target)}
+                  className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+                >
+                  Review {target.fullName || target.email || target.role}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {lockedPaymentSchedule.length > 0 && (
         <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
@@ -1845,6 +1903,23 @@ export function ProjectWorkspace() {
         showCommandPopover={true}
         onTaskCreated={handleTaskCreatedFromChat}
       />
+
+      {projectId && selectedReviewTarget ? (
+        <CreateReviewModal
+          isOpen={Boolean(selectedReviewTarget)}
+          onClose={() => setSelectedReviewTarget(null)}
+          projectId={projectId}
+          targetUser={{
+            id: selectedReviewTarget.id,
+            fullName:
+              selectedReviewTarget.fullName ||
+              selectedReviewTarget.email ||
+              selectedReviewTarget.role,
+          }}
+          onSuccess={handleReviewSuccess}
+        />
+      ) : null}
+
     </div>
   );
 }

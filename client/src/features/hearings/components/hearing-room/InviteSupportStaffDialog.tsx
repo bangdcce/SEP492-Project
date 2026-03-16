@@ -37,11 +37,6 @@ const ASSIGNABLE_ROLES: {
     label: "Observer",
     description: "Can observe but not speak",
   },
-  {
-    value: "MODERATOR",
-    label: "Co-Moderator",
-    description: "Full moderation rights",
-  },
 ];
 
 /* ─── Props ─── */
@@ -223,7 +218,7 @@ export const InviteSupportStaffDialog = memo(function InviteSupportStaffDialog({
             <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
               Assign Role
             </label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 gap-2">
               {ASSIGNABLE_ROLES.map((r) => (
                 <button
                   key={r.value}

@@ -1,13 +1,6 @@
 export type RiskLevel = "LOW" | "NORMAL" | "HIGH";
 
-export type ActionType =
-  | "CREATE"
-  | "UPDATE"
-  | "DELETE"
-  | "LOGIN"
-  | "LOGOUT"
-  | "ACCESS"
-  | "EXPORT";
+export type ActionType = string;
 
 export interface AuditLogEntry {
   id: string;
@@ -23,7 +16,12 @@ export interface AuditLogEntry {
   riskLevel: RiskLevel;
   beforeData?: Record<string, any>;
   afterData?: Record<string, any>;
-  metadata?: Record<string, any>;
+  metadata?: {
+    userAgent?: string;
+    entityType?: string;
+    entityId?: string;
+    [key: string]: any;
+  };
 }
 
 export interface AuditLogFilters {
@@ -31,4 +29,6 @@ export interface AuditLogFilters {
   dateFrom?: string;
   dateTo?: string;
   riskLevel?: RiskLevel | "ALL";
+  entityId?: string;
+  format?: "json" | "csv";
 }

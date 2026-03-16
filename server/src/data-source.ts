@@ -1,23 +1,16 @@
-﻿import { DataSource } from 'typeorm';
+import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
+import { resolveDatabaseRuntimeConfig } from './config/database-runtime.config';
 
 dotenv.config();
 
-const parseNumberEnv = (value: string | undefined, fallback: number): number => {
-  if (!value) return fallback;
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const poolMax = parseNumberEnv(process.env.DB_POOL_MAX, 20);
-const poolIdleMs = parseNumberEnv(process.env.DB_POOL_IDLE_MS, 30000);
-const poolConnTimeoutMs = parseNumberEnv(process.env.DB_POOL_CONN_TIMEOUT_MS, 10000);
+const runtime = resolveDatabaseRuntimeConfig(process.env);
 
 const AppDataSource = new DataSource({
   type: 'postgres',
-  host: process.env.DB_HOST,
-  port: parseNumberEnv(process.env.DB_PORT, 5432),
+  host: runtime.host,
+  port: runtime.port,
   username: process.env.DB_USERNAME,
   password: process.env.DB_PASSWORD,
   database: process.env.DB_DATABASE,
@@ -27,10 +20,15 @@ const AppDataSource = new DataSource({
   migrations: [path.join(__dirname, 'database/migrations/*{.ts,.js}')],
   migrationsRun: false,
   extra: {
-    max: poolMax,
-    idleTimeoutMillis: poolIdleMs,
-    connectionTimeoutMillis: poolConnTimeoutMs,
+    max: runtime.poolMax,
+    idleTimeoutMillis: runtime.poolIdleMs,
+    connectionTimeoutMillis: runtime.poolConnTimeoutMs,
+    maxUses: runtime.poolMaxUses,
+    allowExitOnIdle: runtime.poolAllowExitOnIdle,
     keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+    query_timeout: runtime.queryTimeoutMs,
+    statement_timeout: runtime.statementTimeoutMs,
   },
 });
 

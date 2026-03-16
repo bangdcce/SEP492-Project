@@ -51,7 +51,7 @@ export class StaffLeaveRequestEntity {
   @Column({ type: 'int', default: 0, comment: 'T?ng s? phut ngh? (trong gi? lam vi?c)' })
   durationMinutes: number;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 1000, nullable: true })
   reason?: string;
 
   @Column({ default: false, comment: 'TRUE = T? ??ng duy?t (short-term)' })
@@ -63,7 +63,7 @@ export class StaffLeaveRequestEntity {
   @Column({ type: 'timestamptz', nullable: true })
   processedAt?: Date | null;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 1000, nullable: true })
   processedNote?: string | null;
 
   @Column({ type: 'uuid', nullable: true })

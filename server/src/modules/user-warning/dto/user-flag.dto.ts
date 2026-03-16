@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsEnum, IsOptional, IsString, IsInt, Min, Max, MaxLength } from 'class-validator';
 import { UserFlagType, FlagStatus } from '../types';
 
 export class CreateUserFlagDto {
@@ -6,6 +6,7 @@ export class CreateUserFlagDto {
   type: UserFlagType;
 
   @IsString()
+  @MaxLength(2000)
   description: string;
 
   @IsOptional()
@@ -31,10 +32,12 @@ export class UpdateUserFlagDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   adminNote?: string;
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   resolution?: string;
 }
 
@@ -56,6 +59,7 @@ export class QueryUserFlagsDto {
 
 export class AppealFlagDto {
   @IsString()
+  @MaxLength(2000)
   reason: string;
 
   @IsOptional()

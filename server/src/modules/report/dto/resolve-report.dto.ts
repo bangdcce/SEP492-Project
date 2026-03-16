@@ -10,7 +10,7 @@ export class ResolveReportDto {
   @ApiPropertyOptional({ description: 'Ghi chú của admin' })
   @IsOptional()
   @IsString()
-  @MaxLength(500)
+  @MaxLength(2000)
   adminNote?: string;
 
   @ApiPropertyOptional({ description: 'Xóa review nếu resolve (chỉ khi status = RESOLVED)' })

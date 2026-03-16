@@ -49,6 +49,8 @@ import {
   updateTask,
   updateTaskStatus,
   fetchTaskHistory,
+  fetchTaskComments,
+  createComment,
   fetchTaskLinks,
   createTaskLink,
   deleteTaskLink,
@@ -313,11 +315,9 @@ export function TaskDetailModal({
                 .finally(() => setLoadingHistory(false));
         }
         if (activeTab === 'comments' || activeTab === 'all') {
-            import("../../api").then(api => {
-                api.fetchTaskComments(task.id)
-                    .then(setComments)
-                    .catch(console.error);
-            });
+            fetchTaskComments(task.id)
+                .then(setComments)
+                .catch(console.error);
         }
     }
   }, [activeTab, task?.id]);
@@ -451,8 +451,7 @@ export function TaskDetailModal({
 
     setIsSavingComment(true);
     try {
-      const api = await import("../../api");
-      const newComment = await api.createComment(task.id, html);
+      const newComment = await createComment(task.id, html);
       setComments((prev) => [newComment, ...prev]);
       setCommentDraft("");
     } catch (error) {

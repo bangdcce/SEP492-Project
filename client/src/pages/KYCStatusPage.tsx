@@ -13,7 +13,7 @@ import { Button } from '@/shared/components/custom/Button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/components/ui/Card';
 import { Badge } from '@/shared/components/ui/badge';
 import { Spinner } from '@/shared/components/ui';
-import { ROUTES } from '@/constants';
+import { API_CONFIG, ROUTES } from '@/constants';
 
 type KYCStatus = 'NOT_SUBMITTED' | 'NOT_STARTED' | 'PENDING' | 'APPROVED' | 'REJECTED';
 
@@ -29,7 +29,7 @@ export default function KYCStatusPage() {
   const [loading, setLoading] = useState(true);
   const [kycData, setKycData] = useState<KYCData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const baseUrl = API_CONFIG.BASE_URL;
 
   const fetchKYCStatus = async (showRefreshing = false) => {
     try {
