@@ -23,6 +23,7 @@ import {
   KanbanStatus,
   TaskStatusUpdateResult,
   SubmissionReviewResult,
+  ProjectRecentActivityItem,
 } from './tasks.service';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { CreateTaskLinkDto } from './dto/create-task-link.dto';
@@ -57,6 +58,13 @@ export class TasksController {
       this.logger.error(`Error fetching board for project ${projectId}:`, error);
       throw new InternalServerErrorException('Failed to fetch project board');
     }
+  }
+
+  @Get('project/:projectId/recent-activity')
+  getProjectRecentActivity(
+    @Param('projectId') projectId: string,
+  ): Promise<ProjectRecentActivityItem[]> {
+    return this.tasksService.getProjectRecentActivity(projectId);
   }
 
   @Get(':id/history')

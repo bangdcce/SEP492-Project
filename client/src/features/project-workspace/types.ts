@@ -156,6 +156,16 @@ export type TaskStatusUpdateResult = {
   completedTasks: number;
 };
 
+export type ProjectTaskRealtimeEvent = {
+  action: "CREATED" | "UPDATED";
+  projectId: string;
+  task: Task;
+  milestoneId?: string | null;
+  milestoneProgress?: number;
+  totalTasks?: number;
+  completedTasks?: number;
+};
+
 export type TaskHistory = {
   id: string;
   taskId: string;
@@ -169,6 +179,10 @@ export type TaskHistory = {
   oldValue: string;
   newValue: string;
   createdAt: string;
+};
+
+export type ProjectRecentActivity = TaskHistory & {
+  task: Pick<Task, "id" | "title" | "status">;
 };
 
 export type TaskComment = {

@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   Logger,
   InternalServerErrorException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Repository } from 'typeorm';
@@ -31,6 +32,8 @@ import { TaskLinkEntity } from './entities/task-link.entity';
 import { TaskSubmissionEntity, TaskSubmissionStatus } from './entities/task-submission.entity';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { ReviewSubmissionDto } from './dto/review-submission.dto';
+import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
+import { TasksRealtimeBridge } from './tasks.realtime';
 
 /**
  * Response type for submission review
@@ -72,6 +75,35 @@ export interface TaskStatusUpdateResult {
   milestoneProgress: number; // 0-100 percentage
   totalTasks: number;
   completedTasks: number;
+}
+
+export interface ProjectRecentActivityItem {
+  id: string;
+  taskId: string;
+  actorId?: string;
+  actor?: {
+    id: string;
+    fullName: string;
+  } | null;
+  fieldChanged: string;
+  oldValue: string;
+  newValue: string;
+  createdAt: Date;
+  task: {
+    id: string;
+    title: string;
+    status: TaskStatus;
+  };
+}
+
+export interface ProjectTaskRealtimeEvent {
+  action: 'CREATED' | 'UPDATED';
+  projectId: string;
+  task: TaskEntity;
+  milestoneId?: string | null;
+  milestoneProgress?: number;
+  totalTasks?: number;
+  completedTasks?: number;
 }
 
 const COMMENT_SANITIZE_OPTIONS = {
@@ -146,6 +178,15 @@ const COMMENT_SANITIZE_OPTIONS = {
 const ATTACHMENT_BUCKET =
   process.env.SUPABASE_ATTACHMENTS_BUCKET || process.env.SUPABASE_BUCKET || 'task-attachments';
 
+const TASK_CREATION_ALLOWED_MILESTONE_STATUSES = new Set<MilestoneStatus>([
+  MilestoneStatus.PENDING,
+  MilestoneStatus.IN_PROGRESS,
+  MilestoneStatus.REVISIONS_REQUIRED,
+]);
+
+const TASK_CREATION_LOCK_MESSAGE =
+  'Tasks can only be created while the milestone is pending, in progress, or revisions required.';
+
 const TASK_WORKSPACE_RELATIONS = [
   'assignee',
   'reporter',
@@ -179,7 +220,31 @@ export class TasksService {
     private readonly taskLinkRepository: Repository<TaskLinkEntity>,
     @InjectRepository(TaskSubmissionEntity)
     private readonly submissionRepository: Repository<TaskSubmissionEntity>,
+    @Optional()
+    private readonly workspaceChatService?: WorkspaceChatService,
   ) {}
+
+  private async recordWorkspaceSystemMessage(
+    projectId: string,
+    content: string,
+    taskId?: string | null,
+  ): Promise<void> {
+    if (!this.workspaceChatService) {
+      return;
+    }
+
+    try {
+      await this.workspaceChatService.createSystemMessage(projectId, content, {
+        taskId: taskId ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Workspace audit message skipped for project ${projectId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
 
   private getSupabaseClient(): SupabaseClient {
     if (this.supabase) {
@@ -249,6 +314,42 @@ export class TasksService {
       relations: ['actor'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  async getProjectRecentActivity(
+    projectId: string,
+    limit = 5,
+  ): Promise<ProjectRecentActivityItem[]> {
+    const history = await this.historyRepository
+      .createQueryBuilder('history')
+      .innerJoinAndSelect('history.task', 'task')
+      .leftJoinAndSelect('history.actor', 'actor')
+      .where('task.projectId = :projectId', { projectId })
+      .andWhere('task.parentTaskId IS NULL')
+      .orderBy('history.createdAt', 'DESC')
+      .take(limit)
+      .getMany();
+
+    return history.map((item) => ({
+      id: item.id,
+      taskId: item.taskId,
+      actorId: item.actorId,
+      actor: item.actor
+        ? {
+            id: item.actor.id,
+            fullName: item.actor.fullName,
+          }
+        : null,
+      fieldChanged: item.fieldChanged,
+      oldValue: item.oldValue,
+      newValue: item.newValue,
+      createdAt: item.createdAt,
+      task: {
+        id: item.task.id,
+        title: item.task.title,
+        status: item.task.status,
+      },
+    }));
   }
 
   async getTaskComments(taskId: string): Promise<TaskCommentEntity[]> {
@@ -629,6 +730,22 @@ export class TasksService {
       relations: ['submitter', 'reviewer'],
     });
 
+    const reviewAuditMessage =
+      dto.status === TaskSubmissionStatus.APPROVED
+        ? `Submission approved for task "${task.title}". The task is now marked DONE.`
+        : `Changes requested for task "${task.title}". The task has been moved back to IN_PROGRESS.`;
+    await this.recordWorkspaceSystemMessage(task.projectId, reviewAuditMessage, task.id);
+
+    this.emitTaskRealtimeEvent({
+      action: 'UPDATED',
+      projectId: task.projectId,
+      task: updatedTask,
+      milestoneId,
+      milestoneProgress: progress,
+      totalTasks,
+      completedTasks,
+    });
+
     return {
       submission: updatedSubmission!,
       task: updatedTask,
@@ -790,6 +907,10 @@ export class TasksService {
     return this.prepareTaskForWorkspace(task);
   }
 
+  private emitTaskRealtimeEvent(event: ProjectTaskRealtimeEvent): void {
+    TasksRealtimeBridge.emitProjectTaskChanged(event);
+  }
+
   async getKanbanBoard(projectId: string): Promise<BoardWithMilestones> {
     // Fetch all tasks for the project
     const tasks = await this.taskRepository.find({
@@ -862,7 +983,7 @@ export class TasksService {
 
       if (approvedSubmissionCount === 0) {
         throw new BadRequestException(
-          'Không thể chuyển sang DONE khi chưa có bài nộp được duyệt!',
+          'Cannot move to DONE without an approved submission.',
         );
       }
     }
@@ -899,6 +1020,16 @@ export class TasksService {
     );
 
     await this.syncMilestoneStatus(milestoneId, progress);
+
+    this.emitTaskRealtimeEvent({
+      action: 'UPDATED',
+      projectId: updatedTask.projectId,
+      task: updatedTask,
+      milestoneId,
+      milestoneProgress: progress,
+      totalTasks,
+      completedTasks,
+    });
 
     return {
       task: updatedTask,
@@ -1019,6 +1150,22 @@ export class TasksService {
     labels?: string[];
     reporterId?: string;
   }): Promise<TaskEntity> {
+    const milestone = await this.milestoneRepository.findOne({
+      where: { id: data.milestoneId },
+    });
+
+    if (!milestone) {
+      throw new NotFoundException('Milestone not found');
+    }
+
+    if (milestone.projectId !== data.projectId) {
+      throw new BadRequestException('Milestone does not belong to this project');
+    }
+
+    if (!TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(milestone.status)) {
+      throw new ForbiddenException(TASK_CREATION_LOCK_MESSAGE);
+    }
+
     // Step A: Create the task
     const newTask = this.taskRepository.create({
       title: data.title,
@@ -1047,6 +1194,26 @@ export class TasksService {
     if (!created) {
       throw new NotFoundException('Task not found after creation');
     }
+
+    await this.recordWorkspaceSystemMessage(
+      data.projectId,
+      `Task "${created.title}" was created in milestone "${milestone.title}".`,
+      created.id,
+    );
+
+    const { progress, totalTasks, completedTasks } = await this.calculateMilestoneProgress(
+      data.milestoneId,
+    );
+
+    this.emitTaskRealtimeEvent({
+      action: 'CREATED',
+      projectId: data.projectId,
+      task: created,
+      milestoneId: data.milestoneId,
+      milestoneProgress: progress,
+      totalTasks,
+      completedTasks,
+    });
 
     return created;
   }
@@ -1101,6 +1268,14 @@ export class TasksService {
 
     if (!updated) {
       throw new NotFoundException('Task not found after update');
+    }
+
+    if (!updated.parentTaskId) {
+      this.emitTaskRealtimeEvent({
+        action: 'UPDATED',
+        projectId: updated.projectId,
+        task: updated,
+      });
     }
 
     return updated;
