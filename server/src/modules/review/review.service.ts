@@ -17,12 +17,17 @@ import {
   UserEntity,
   UserRole,
 } from 'src/database/entities';
-import { DataSource, In, Repository } from 'typeorm';
-import { TrustScoreService } from '../trust-score/trust-score.service';
+import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DataSource, In, QueryFailedError, Repository } from 'typeorm';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+import {
+  REVIEW_EVENTS,
+  type ReviewMutationCommittedEvent,
+  type ReviewMutationTrigger,
+} from './events/review.events';
 
 // Type for audit log review data
 interface AuditLogReviewData {
@@ -42,6 +47,8 @@ type ModerationAction =
   | 'RELEASE_REVIEW_MODERATION'
   | 'REASSIGN_REVIEW_MODERATION';
 
+const REVIEWABLE_PROJECT_STATUSES = [ProjectStatus.COMPLETED, ProjectStatus.PAID];
+
 @Injectable()
 export class ReviewService {
   private readonly logger = new Logger(ReviewService.name);
@@ -59,10 +66,10 @@ export class ReviewService {
     private userRepo: Repository<UserEntity>,
 
     // Inject trực tiếp TrustScoreService (hoặc dùng Event Emitter nếu muốn decouple mạnh hơn)
-    private trustScoreService: TrustScoreService,
     private auditLogsService: AuditLogsService,
     private notificationsService: NotificationsService,
     private dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   async create(reviewerId: string, dto: CreateReviewDto, reqInfo: RequestContext) {
@@ -78,8 +85,8 @@ export class ReviewService {
 
     // ChềEdự án đã Hoàn Thành mới được review (đềEtránh blackmailing)
 
-    if (project.status !== ProjectStatus.COMPLETED) {
-      throw new BadRequestException('You can only review a completed project (COMPLETE status).');
+    if (!REVIEWABLE_PROJECT_STATUSES.includes(project.status)) {
+      throw new BadRequestException('You can only review a completed or paid project.');
     }
 
     // 2. Security Logic : Kiểm tra quyền thành viên
@@ -131,22 +138,44 @@ export class ReviewService {
       comment,
       weight,
     });
-    const savedReview = await this.reviewRepo.save(review);
+    const savedReview = await this.dataSource.transaction(async (manager) => {
+      const reviewRepository = manager.getRepository(ReviewEntity);
+      const auditRepository = manager.getRepository(AuditLogEntity);
+
+      try {
+        const persistedReview = await reviewRepository.save(review);
+
+        await this.auditLogsService.logOrThrow(
+          {
+            actorId: reviewerId,
+            action: 'CREATE_REVIEW',
+            entityType: 'Review',
+            entityId: String(persistedReview.id),
+            newData: this.serializeReviewForAudit(persistedReview),
+            req: reqInfo,
+            source: 'SERVER',
+            eventCategory: 'DB_CHANGE',
+            eventName: 'review-created',
+          },
+          auditRepository,
+        );
+
+        return persistedReview;
+      } catch (error) {
+        this.rethrowDuplicateReviewError(error);
+        throw error;
+      }
+    });
 
     // 5. Trigger Calculation: Tính lại điểm cho Target User
     // Chạy async (không await) đềEphản hồi nhanh cho Frontend
-    this.recalculateTrustScore(targetUserId);
+    this.emitReviewMutationCommittedEvent(
+      this.buildReviewMutationEvent(savedReview.id, targetUserId, 'created', reviewerId),
+    );
 
     // 6. Audit Log: Ghi lại hành động
 
-    await this.auditLogsService.log({
-      actorId: reviewerId,
-      action: 'CREATE_REVIEW',
-      entityType: 'Review',
-      entityId: String(savedReview.id),
-      newData: savedReview as unknown as Record<string, unknown>,
-      req: reqInfo,
-    });
+    // Audit log persisted inside the transaction above.
     return savedReview;
   }
 
@@ -194,15 +223,39 @@ export class ReviewService {
     // Nếu không có gì thay đổi thì trả vềEluôn, đỡ tốn query DB
     if (!hasChange) return review;
 
-    const updatedReview = await this.reviewRepo.save(review);
+    const updatedReview = await this.dataSource.transaction(async (manager) => {
+      const reviewRepository = manager.getRepository(ReviewEntity);
+      const auditRepository = manager.getRepository(AuditLogEntity);
+      const persistedReview = await reviewRepository.save(review);
+
+      await this.auditLogsService.logOrThrow(
+        {
+          actorId: reviewerId,
+          action: 'UPDATE_REVIEW',
+          entityType: 'Review',
+          entityId: review.id,
+          oldData: this.serializeReviewForAudit(oldData),
+          newData: this.serializeReviewForAudit(persistedReview),
+          req: reqInfo,
+          source: 'SERVER',
+          eventCategory: 'DB_CHANGE',
+          eventName: 'review-updated',
+        },
+        auditRepository,
+      );
+
+      return persistedReview;
+    });
 
     // 5. TÍNH LẠI ĐIềE (Bắt buộc)
     // Vì rating thay đổi nên điểm uy tín của người kia cũng thay đổi theo
-    this.recalculateTrustScore(review.targetUserId);
+    this.emitReviewMutationCommittedEvent(
+      this.buildReviewMutationEvent(updatedReview.id, updatedReview.targetUserId, 'updated', reviewerId),
+    );
 
     // 6. Ghi Audit Log
-    await this.auditLogsService.log({
-      actorId: reviewerId,
+    // Audit log persisted inside the transaction above.
+    /*
       action: 'UPDATE_REVIEW',
       entityType: 'Review',
       entityId: review.id,
@@ -210,6 +263,7 @@ export class ReviewService {
       newData: updatedReview as unknown as Record<string, unknown>,
       req: reqInfo, // Truyền req từ controller vào nếu có
     });
+    */
 
     return updatedReview;
   }
@@ -290,10 +344,75 @@ export class ReviewService {
     return [...historyFromLogs, originalEntry];
   }
 
-  private recalculateTrustScore(targetUserId: string) {
-    this.trustScoreService.calculateTrustScore(targetUserId).catch((err) => {
-      this.logger.error(`Error recalculating trust score for user ${targetUserId}`, err);
+  private calculateReviewWeight(budget: number) {
+    if (budget >= 50000000) {
+      return 2.0;
+    }
+    if (budget >= 10000000) {
+      return 1.5;
+    }
+    if (budget < 2000000) {
+      return 0.8;
+    }
+    return 1.0;
+  }
+
+  private createDuplicateReviewException() {
+    return new BadRequestException('You have already reviewed this user in this project.');
+  }
+
+  private rethrowDuplicateReviewError(error: unknown) {
+    if (
+      error instanceof QueryFailedError &&
+      typeof (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === 'string' &&
+      (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === '23505'
+    ) {
+      throw this.createDuplicateReviewException();
+    }
+  }
+
+  private buildReviewMutationEvent(
+    reviewId: string,
+    targetUserId: string,
+    trigger: ReviewMutationTrigger,
+    triggeredBy: string,
+  ): ReviewMutationCommittedEvent {
+    return {
+      reviewId,
+      targetUserId,
+      trigger,
+      triggeredBy,
+    };
+  }
+
+  private emitReviewMutationCommittedEvent(payload: ReviewMutationCommittedEvent) {
+    void this.eventEmitter.emitAsync(REVIEW_EVENTS.MUTATED, payload).catch((error: unknown) => {
+      this.logger.error(
+        `Failed to emit review mutation event for review ${payload.reviewId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
     });
+  }
+
+  private serializeReviewForAudit(review: Partial<ReviewEntity> & Record<string, unknown>) {
+    return {
+      id: review.id ?? null,
+      projectId: review.projectId ?? null,
+      reviewerId: review.reviewerId ?? null,
+      targetUserId: review.targetUserId ?? null,
+      rating: review.rating ?? null,
+      comment: review.comment ?? null,
+      weight: review.weight ?? null,
+      deletedAt:
+        review.deletedAt instanceof Date ? review.deletedAt.toISOString() : (review.deletedAt ?? null),
+      deletedBy: review.deletedBy ?? null,
+      deleteReason: review.deleteReason ?? null,
+      createdAt:
+        review.createdAt instanceof Date ? review.createdAt.toISOString() : (review.createdAt ?? null),
+      updatedAt:
+        review.updatedAt instanceof Date ? review.updatedAt.toISOString() : (review.updatedAt ?? null),
+      ...('restoreReason' in review ? { restoreReason: review.restoreReason ?? null } : {}),
+    };
   }
 
   private summarizeUser(user?: UserEntity | null) {
@@ -600,20 +719,36 @@ export class ReviewService {
     review.deleteReason = reason;
 
     // TypeORM softRemove sẽ tự động set deletedAt
-    await this.reviewRepo.softRemove(review);
+    const deletedReview = await this.dataSource.transaction(async (manager) => {
+      const reviewRepository = manager.getRepository(ReviewEntity);
+      const auditRepository = manager.getRepository(AuditLogEntity);
+      const persistedReview = await reviewRepository.softRemove(review);
+
+      await this.auditLogsService.logOrThrow(
+        {
+          action: 'DELETE_REVIEW',
+          entityType: 'Review',
+          entityId: reviewId,
+          actorId: adminId,
+          oldData: this.serializeReviewForAudit(oldData),
+          newData: this.serializeReviewForAudit(persistedReview),
+          source: 'SERVER',
+          eventCategory: 'DB_CHANGE',
+          eventName: 'review-soft-deleted',
+        },
+        auditRepository,
+      );
+
+      return persistedReview;
+    });
 
     // QUAN TRỌNG: Tính lại Trust Score cho người được review
-    this.recalculateTrustScore(review.targetUserId);
+    this.emitReviewMutationCommittedEvent(
+      this.buildReviewMutationEvent(deletedReview.id, deletedReview.targetUserId, 'soft_deleted', adminId),
+    );
 
     // Audit log
-    await this.auditLogsService.log({
-      action: 'DELETE_REVIEW',
-      entityType: 'Review',
-      entityId: reviewId,
-      actorId: adminId,
-      oldData: oldData,
-      newData: undefined,
-    });
+    // Audit log persisted inside the transaction above.
 
     await this.notifyModerationWatchers({
       actorId: adminId,
@@ -652,20 +787,39 @@ export class ReviewService {
     review.deletedBy = null;
     review.deleteReason = null;
 
-    await this.reviewRepo.save(review);
+    const restoredReview = await this.dataSource.transaction(async (manager) => {
+      const reviewRepository = manager.getRepository(ReviewEntity);
+      const auditRepository = manager.getRepository(AuditLogEntity);
+      const persistedReview = await reviewRepository.save(review);
+
+      await this.auditLogsService.logOrThrow(
+        {
+          action: 'RESTORE_REVIEW',
+          entityType: 'Review',
+          entityId: reviewId,
+          actorId: adminId,
+          oldData: this.serializeReviewForAudit(oldData),
+          newData: this.serializeReviewForAudit({
+            ...persistedReview,
+            restoreReason: reason,
+          }),
+          source: 'SERVER',
+          eventCategory: 'DB_CHANGE',
+          eventName: 'review-restored',
+        },
+        auditRepository,
+      );
+
+      return persistedReview;
+    });
 
     // QUAN TRỌNG: Tính lại Trust Score cho người được review
-    this.recalculateTrustScore(review.targetUserId);
+    this.emitReviewMutationCommittedEvent(
+      this.buildReviewMutationEvent(restoredReview.id, restoredReview.targetUserId, 'restored', adminId),
+    );
 
     // Audit log
-    await this.auditLogsService.log({
-      action: 'RESTORE_REVIEW',
-      entityType: 'Review',
-      entityId: reviewId,
-      actorId: adminId,
-      oldData: oldData,
-      newData: { ...review, restoreReason: reason },
-    });
+    // Audit log persisted inside the transaction above.
 
     await this.notifyModerationWatchers({
       actorId: adminId,
@@ -674,7 +828,7 @@ export class ReviewService {
       body: `A review was restored by an administrator.`,
     });
 
-    return { message: 'Review restored successfully', review };
+    return { message: 'Review restored successfully', review: restoredReview };
   }
 
   /**
