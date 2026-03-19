@@ -1,0 +1,4 @@
+﻿interface:
+  display_name: "Codebase Sequence Diagram"
+  short_description: "Trace use cases into numbered monochrome sequence diagrams"
+  default_prompt: "Use $codebase-sequence-diagram to trace this use case through the repository and produce a fully numbered monochrome PlantUML sequence diagram with balanced activate/deactivate blocks, including nested activation bars for self-calls."

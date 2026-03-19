@@ -14,7 +14,7 @@ import { projectSpecsApi } from "./api";
 import type { ProjectRequest } from "../project-requests/types";
 import type { CreateProjectSpecDTO, ProjectSpec } from "./types";
 import { SpecPhase } from "./types";
-import Spinner from "@/shared/components/ui/Spinner";
+import Spinner from "@/shared/components/ui/spinner";
 import {
   Alert,
   AlertDescription,
@@ -26,7 +26,7 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@/shared/components/ui/Card";
+} from "@/shared/components/ui/card";
 
 const FULL_SPEC_EDITABLE_STATUSES = new Set(["DRAFT", "REJECTED"]);
 

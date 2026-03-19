@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { ProjectRequestsTable } from './components/ProjectRequestsTable';
 import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
@@ -7,8 +8,8 @@ import { Loader2, Search } from 'lucide-react';
 import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
 import { STORAGE_KEYS } from '@/constants';
 import { getStoredJson } from '@/shared/utils/storage';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
-import { Input } from '@/shared/components/ui/Input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Input } from '@/shared/components/ui/input';
 import { Badge } from '@/shared/components/ui/badge';
 import {
   AlertDialog,
@@ -24,6 +25,7 @@ import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
 import toast from 'react-hot-toast';
 
 export const BrokerProjectsPage: React.FC = () => {
+  const location = useLocation();
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export const BrokerProjectsPage: React.FC = () => {
 
   useEffect(() => {
     fetchRequests();
-  }, []);
+  }, [location.key]);
 
   // Filter for My Projects (Assigned OR Accepted Proposal)
   const myProjects = requests.filter(r => 

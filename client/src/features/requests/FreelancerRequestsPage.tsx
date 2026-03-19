@@ -6,9 +6,9 @@ import { projectRequestsApi } from '@/features/project-requests/api';
 import type { FreelancerRequestAccessItem } from '@/features/project-requests/types';
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert';
 import { Badge } from '@/shared/components/ui/badge';
-import { Button } from '@/shared/components/ui/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
-import { Input } from '@/shared/components/ui/Input';
+import { Button } from '@/shared/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Input } from '@/shared/components/ui/input';
 
 const normalizeProposalStatus = (status?: string | null) => {
   const normalized = String(status || '').toUpperCase();

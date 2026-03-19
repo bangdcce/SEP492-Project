@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useLayoutEffect } from "react";
 import { connectSocket } from "@/shared/realtime/socket";
 
 interface HearingRealtimeHandlers {
@@ -49,7 +49,9 @@ export const useHearingRealtime = (
 ) => {
   // Keep a live ref to the latest handlers so we never need to re-subscribe
   const handlersRef = useRef(handlers);
-  handlersRef.current = handlers;
+  useLayoutEffect(() => {
+    handlersRef.current = handlers;
+  }, [handlers]);
 
   useEffect(() => {
     if (!hearingId) return;

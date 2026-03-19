@@ -12,7 +12,6 @@ Implements UC-13 (View List Current Request), UC-14 (View Request Detail), UC-19
 requests/
 ├── components/
 │   ├── CandidateProfileModal.tsx    # Candidate detail modal
-│   ├── CommentsSection.tsx          # Comments/chat section
 │   ├── ProjectPhaseStepper.tsx      # Visual phase progress indicator
 │   └── ScoreExplanationModal.tsx    # AI matching score explanation
 ├── MyRequestsPage.tsx               # Client's request list (UC-13)
