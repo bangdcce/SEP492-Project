@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
 import {
   LayoutDashboard,
+  FolderKanban,
   Inbox,
   Briefcase,
   Calendar,
@@ -63,6 +64,7 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
 
   const menuItems = [
     { label: "Dashboard", icon: LayoutDashboard, path: "/staff/dashboard" },
+    { label: "Projects", icon: FolderKanban, path: "/staff/projects" },
     { label: "Dispute Queue", icon: Inbox, path: "/staff/queue" },
     { label: "My Caseload", icon: Briefcase, path: "/staff/caseload" },
     { label: "Calendar", icon: Calendar, path: "/staff/calendar" },

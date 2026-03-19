@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
   ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
@@ -31,6 +32,7 @@ import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.e
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
 import { EscrowReleaseService } from '../payments/escrow-release.service';
+import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 
 // Response type with enriched dispute info
 export interface ProjectWithDisputeInfo {
@@ -164,7 +166,31 @@ export class ProjectsService {
     private readonly auditLogsService: AuditLogsService,
     private readonly milestoneLockPolicyService: MilestoneLockPolicyService,
     private readonly escrowReleaseService: EscrowReleaseService,
+    @Optional()
+    private readonly workspaceChatService?: WorkspaceChatService,
   ) {}
+
+  private async recordWorkspaceSystemMessage(
+    projectId: string,
+    content: string,
+    taskId?: string | null,
+  ): Promise<void> {
+    if (!this.workspaceChatService) {
+      return;
+    }
+
+    try {
+      await this.workspaceChatService.createSystemMessage(projectId, content, {
+        taskId: taskId ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Workspace audit message skipped for project ${projectId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
 
   private mapProjectParticipant(
     user:
@@ -1028,6 +1054,10 @@ export class ProjectsService {
     let doneTasks = 0;
     let releaseTransactionIds: string[] = [];
     let logCurrency = 'USD';
+    let auditProjectId: string | null = null;
+    let approvalActorLabel = 'Authorized user';
+    let approvedMilestoneTitle = 'Milestone';
+    let approvedMilestoneAmount = '0.00';
 
     await this.dataSource.transaction(async (manager) => {
       const milestoneRepository = manager.getRepository(MilestoneEntity);
@@ -1064,6 +1094,9 @@ export class ProjectsService {
           'Only the Project Owner (Client) or Broker can approve milestones',
         );
       }
+
+      auditProjectId = project.id;
+      approvalActorLabel = project.clientId === userId ? 'Client' : 'Broker';
 
       if (milestone.status === MilestoneStatus.COMPLETED) {
         throw new BadRequestException('Milestone is already completed');
@@ -1135,6 +1168,8 @@ export class ProjectsService {
 
       updatedMilestone = await milestoneRepository.save(milestone);
       logCurrency = project.currency || 'USD';
+      approvedMilestoneTitle = milestone.title;
+      approvedMilestoneAmount = new Decimal(milestone.amount).toDecimalPlaces(2).toString();
 
       const releaseResult = await this.escrowReleaseService.releaseForApprovedMilestone(
         milestone.id,
@@ -1164,6 +1199,13 @@ export class ProjectsService {
       reqContext,
       userId,
     );
+
+    if (auditProjectId) {
+      await this.recordWorkspaceSystemMessage(
+        auditProjectId,
+        `${approvalActorLabel} authorized release of ${approvedMilestoneAmount} ${logCurrency} for milestone "${approvedMilestoneTitle}".`,
+      );
+    }
 
     this.logger.log(
       `✅ Milestone ${milestoneId} approved: ${previousStatus} → COMPLETED | Tasks: ${doneTasks}/${totalTasks} | ReleaseTx: ${releaseTransactionIds.length}`,

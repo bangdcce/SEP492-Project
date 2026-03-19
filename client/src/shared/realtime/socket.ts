@@ -8,6 +8,14 @@ let activeSocketUserId: string | null = null;
 let authSyncListenersBound = false;
 let isRefreshingToken = false;
 
+const getRealtimeBaseUrl = (): string => {
+  try {
+    return new URL(API_CONFIG.BASE_URL).origin;
+  } catch {
+    return API_CONFIG.BASE_URL.replace(/\/+$/, "");
+  }
+};
+
 const isUserLoggedIn = (): boolean => {
   const user = getStoredItem(STORAGE_KEYS.USER);
   return user !== null && user !== "null";
@@ -142,7 +150,7 @@ const handleSocketConnectError = async (
 };
 
 const createSocket = (namespace: string): Socket => {
-  const instance = io(`${API_CONFIG.BASE_URL}${namespace}`, {
+  const instance = io(`${getRealtimeBaseUrl()}${namespace}`, {
     autoConnect: false,
     transports: ["polling", "websocket"],
     withCredentials: true,

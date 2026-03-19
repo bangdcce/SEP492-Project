@@ -12,6 +12,7 @@ import type {
   ProjectStaffInviteStatus,
   StaffRecommendation,
   StaffSummary,
+  ProjectRecentActivity,
 } from "./types";
 
 // ============================================
@@ -24,7 +25,8 @@ interface BoardWithMilestones {
   milestones: Milestone[];
 }
 
-const toIsoDateString = (value?: string) => {
+const toIsoDateString = (value?: string | null) => {
+  if (value === null) return null;
   if (!value) return undefined;
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? new Date(`${value}T00:00:00.000Z`).toISOString()
@@ -111,6 +113,14 @@ export const updateTaskStatus = async (
 export const fetchTaskHistory = async (taskId: string): Promise<import("./types").TaskHistory[]> => {
   const result = await apiClient.get<import("./types").TaskHistory[]>(`/tasks/${taskId}/history`);
   return result;
+};
+
+export const fetchProjectRecentActivity = async (
+  projectId: string,
+): Promise<ProjectRecentActivity[]> => {
+  return apiClient.get<ProjectRecentActivity[]>(
+    `/tasks/project/${projectId}/recent-activity`,
+  );
 };
 
 export const fetchTaskComments = async (taskId: string): Promise<import("./types").TaskComment[]> => {
@@ -219,7 +229,15 @@ export const updateTask = async (
 ): Promise<Task> => {
   console.log("[API] Updating task details:", { taskId, payload });
 
-  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, payload);
+  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, {
+    ...payload,
+    ...(Object.prototype.hasOwnProperty.call(payload, "startDate")
+      ? { startDate: toIsoDateString(payload.startDate ?? null) }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "dueDate")
+      ? { dueDate: toIsoDateString(payload.dueDate ?? null) }
+      : {}),
+  });
 
   console.log("[API] Task updated:", result);
   return result;
@@ -236,7 +254,11 @@ export const createTask = async (payload: {
 }): Promise<Task> => {
   console.log("[API] Creating task:", payload);
 
-  const result = await apiClient.post<Task>("/tasks", payload);
+  const result = await apiClient.post<Task>("/tasks", {
+    ...payload,
+    startDate: toIsoDateString(payload.startDate),
+    dueDate: toIsoDateString(payload.dueDate),
+  });
 
   console.log("[API] Task created:", result);
   return result;

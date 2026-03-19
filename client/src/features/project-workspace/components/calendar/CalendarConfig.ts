@@ -1,18 +1,7 @@
 import { dateFnsLocalizer } from "react-big-calendar";
-import { format, parse, startOfWeek, getDay } from "date-fns";
+import { addDays, endOfDay, format, getDay, parse, startOfDay, startOfWeek } from "date-fns";
 import { enUS } from "date-fns/locale";
-import {
-  Calendar as CalendarIcon,
-  CheckCircle2,
-  AlertTriangle,
-  Users,
-  FileText,
-} from "lucide-react";
 import type { Task } from "../../types";
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LOCALIZER
-// ─────────────────────────────────────────────────────────────────────────────
 
 const locales = {
   "en-US": enUS,
@@ -26,194 +15,184 @@ export const localizer = dateFnsLocalizer({
   locales,
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// TYPES
-// ─────────────────────────────────────────────────────────────────────────────
-
-/**
- * Calendar view types supported by react-big-calendar
- */
 export type CalendarViewType = "month" | "week" | "work_week" | "day" | "agenda";
+export type CalendarStatusTone = "PLANNED" | "ACTIVE" | "DONE" | "OVERDUE";
 
-/**
- * Event Types for color coding
- * Maps to CalendarEventEntity.type from backend
- */
-export type EventType =
-  | "TASK_DEADLINE"
-  | "DISPUTE_HEARING"
-  | "PROJECT_MEETING"
-  | "REVIEW_SESSION"
-  | "OTHER";
-
-/**
- * Enhanced calendar event interface
- */
 export interface CalendarEvent {
   id: string;
   title: string;
   start: Date;
   end: Date;
+  allDay: boolean;
+  status: string;
+  statusTone: CalendarStatusTone;
   resource: Task;
-  eventType: EventType;
-  allDay?: boolean;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// EVENT STYLES
-// ─────────────────────────────────────────────────────────────────────────────
-
-export type EventStyleConfig = {
-  bg: string;
-  text: string;
-  border: string;
-  bgHex: string;
-  borderHex: string;
-  textHex: string;
-  buttonBg: string;
-  buttonHover: string;
-  icon: typeof CalendarIcon;
+type CalendarStatusMeta = {
   label: string;
+  surface: string;
+  border: string;
+  text: string;
 };
 
-/**
- * Event styling configuration by type
- * Includes both Tailwind classes and hex values for react-big-calendar
- */
-export const EVENT_STYLES: Record<EventType, EventStyleConfig> = {
-  TASK_DEADLINE: {
-    bg: "bg-teal-100",
-    text: "text-teal-700",
-    border: "border-teal-300",
-    bgHex: "#ccfbf1",
-    borderHex: "#5eead4",
-    textHex: "#0f766e",
-    buttonBg: "bg-teal-600 hover:bg-teal-700",
-    buttonHover: "hover:bg-teal-700",
-    icon: CheckCircle2,
-    label: "Task Deadline",
+export const CALENDAR_STATUS_META: Record<CalendarStatusTone, CalendarStatusMeta> = {
+  DONE: {
+    label: "Done",
+    surface: "#dcfce7",
+    border: "#34d399",
+    text: "#166534",
   },
-  DISPUTE_HEARING: {
-    bg: "bg-red-100",
-    text: "text-red-700",
-    border: "border-red-300",
-    bgHex: "#fee2e2",
-    borderHex: "#fca5a5",
-    textHex: "#b91c1c",
-    buttonBg: "bg-red-600 hover:bg-red-700",
-    buttonHover: "hover:bg-red-700",
-    icon: AlertTriangle,
-    label: "Dispute Hearing",
+  ACTIVE: {
+    label: "In progress",
+    surface: "#dbeafe",
+    border: "#60a5fa",
+    text: "#1d4ed8",
   },
-  PROJECT_MEETING: {
-    bg: "bg-indigo-100",
-    text: "text-indigo-700",
-    border: "border-indigo-300",
-    bgHex: "#e0e7ff",
-    borderHex: "#a5b4fc",
-    textHex: "#4338ca",
-    buttonBg: "bg-indigo-600 hover:bg-indigo-700",
-    buttonHover: "hover:bg-indigo-700",
-    icon: Users,
-    label: "Project Meeting",
+  OVERDUE: {
+    label: "Overdue",
+    surface: "#fee2e2",
+    border: "#f87171",
+    text: "#b91c1c",
   },
-  REVIEW_SESSION: {
-    bg: "bg-amber-100",
-    text: "text-amber-700",
-    border: "border-amber-300",
-    bgHex: "#fef3c7",
-    borderHex: "#fcd34d",
-    textHex: "#b45309",
-    buttonBg: "bg-amber-600 hover:bg-amber-700",
-    buttonHover: "hover:bg-amber-700",
-    icon: FileText,
-    label: "Review Session",
-  },
-  OTHER: {
-    bg: "bg-slate-100",
-    text: "text-slate-700",
-    border: "border-slate-300",
-    bgHex: "#f1f5f9",
-    borderHex: "#cbd5e1",
-    textHex: "#475569",
-    buttonBg: "bg-slate-600 hover:bg-slate-700",
-    buttonHover: "hover:bg-slate-700",
-    icon: CalendarIcon,
-    label: "Other",
+  PLANNED: {
+    label: "Planned",
+    surface: "#f1f5f9",
+    border: "#cbd5e1",
+    text: "#475569",
   },
 };
 
-// ─────────────────────────────────────────────────────────────────────────────
-// HELPER FUNCTIONS
-// ─────────────────────────────────────────────────────────────────────────────
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const DONE_STATUSES = new Set(["DONE"]);
+const ACTIVE_STATUSES = new Set([
+  "IN_PROGRESS",
+  "IN_REVIEW",
+  "SUBMITTED",
+  "LOCKED",
+  "REVISIONS_REQUIRED",
+  "PENDING_STAFF_REVIEW",
+  "PENDING_CLIENT_APPROVAL",
+]);
 
-/**
- * Determine event type based on task data
- * In future, this could come from task.eventType or linked calendar event
- */
-export function getEventType(task: Task): EventType {
-  const title = task.title?.toLowerCase() ?? "";
-  
-  if (title.includes("dispute")) {
-    return "DISPUTE_HEARING";
+function parseWorkspaceDate(value?: string | null): Date | null {
+  if (!value) {
+    return null;
   }
-  if (title.includes("meeting")) {
-    return "PROJECT_MEETING";
+
+  const normalizedValue = value.trim();
+  if (!normalizedValue) {
+    return null;
   }
-  if (title.includes("review")) {
-    return "REVIEW_SESSION";
+
+  if (DATE_ONLY_PATTERN.test(normalizedValue)) {
+    const [year, month, day] = normalizedValue.split("-").map(Number);
+    return new Date(year, month - 1, day);
   }
-  return "TASK_DEADLINE";
+
+  const parsedValue = new Date(normalizedValue);
+  return Number.isNaN(parsedValue.getTime()) ? null : parsedValue;
 }
 
-/**
- * Get style configuration for an event type
- */
-export function getEventStyle(eventType: EventType): EventStyleConfig {
-  return EVENT_STYLES[eventType];
-}
+function buildAllDayRange(startValue?: string | null, endValue?: string | null) {
+  const rawStart = parseWorkspaceDate(startValue ?? endValue ?? null);
+  const rawEnd = parseWorkspaceDate(endValue ?? startValue ?? null);
 
-/**
- * Get inline styles for react-big-calendar events
- */
-export function getEventInlineStyles(event: CalendarEvent) {
-  const style = EVENT_STYLES[event.eventType];
+  if (!rawStart || !rawEnd) {
+    return null;
+  }
+
+  const start = rawStart.getTime() <= rawEnd.getTime() ? rawStart : rawEnd;
+  const end = rawStart.getTime() <= rawEnd.getTime() ? rawEnd : rawStart;
 
   return {
+    start: startOfDay(start),
+    end: addDays(startOfDay(end), 1),
+  };
+}
+
+function resolveStatusTone(task: Task): CalendarStatusTone {
+  const normalizedStatus = task.status?.toUpperCase() ?? "";
+
+  if (DONE_STATUSES.has(normalizedStatus)) {
+    return "DONE";
+  }
+
+  const dueDate = parseWorkspaceDate(task.dueDate ?? task.startDate);
+  if (dueDate && endOfDay(dueDate).getTime() < Date.now()) {
+    return "OVERDUE";
+  }
+
+  if (ACTIVE_STATUSES.has(normalizedStatus)) {
+    return "ACTIVE";
+  }
+
+  return "PLANNED";
+}
+
+export function getEventInlineStyles(event: CalendarEvent) {
+  const tone = CALENDAR_STATUS_META[event.statusTone];
+  const priority = event.resource.priority ?? "MEDIUM";
+  const eventClassName = [
+    "interdev-task-event",
+    priority === "HIGH" ? "interdev-task-event-priority-high" : "",
+    priority === "URGENT" ? "interdev-task-event-priority-urgent" : "",
+    event.statusTone === "OVERDUE" ? "interdev-task-event-overdue" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return {
+    className: eventClassName,
     style: {
-      backgroundColor: style.bgHex,
-      borderColor: style.borderHex,
-      borderRadius: "6px",
-      border: `2px solid ${style.borderHex}`,
-      color: style.textHex,
-      fontWeight: 500,
+      backgroundColor: tone.surface,
+      color: tone.text,
+      border: `1.5px solid ${tone.border}`,
+      borderLeftWidth: 4,
+      borderRadius: "8px",
+      boxShadow:
+        priority === "URGENT"
+          ? "0 0 0 1px rgba(239, 68, 68, 0.2), 0 12px 24px rgba(239, 68, 68, 0.18)"
+          : priority === "HIGH"
+            ? "0 0 0 1px rgba(245, 158, 11, 0.18), 0 10px 18px rgba(245, 158, 11, 0.14)"
+            : "0 2px 4px rgba(15, 23, 42, 0.06)",
+      fontWeight: 600,
       fontSize: "0.8rem",
       padding: "2px 8px",
-      boxShadow: "0 1px 2px rgba(0,0,0,0.05)",
-      cursor: "pointer",
+      opacity: event.statusTone === "PLANNED" ? 0.94 : 1,
     },
   };
 }
 
-/**
- * Convert tasks array to calendar events
- */
-export function tasksToCalendarEvents(tasks: Task[]): CalendarEvent[] {
-  return tasks
-    .filter((task) => task.dueDate)
-    .map((task) => {
-      const startDate = task.startDate
-        ? new Date(task.startDate)
-        : new Date(task.dueDate!);
-      const dueDate = new Date(task.dueDate!);
+export function sortCalendarEvents(events: CalendarEvent[]): CalendarEvent[] {
+  return [...events].sort((first, second) => {
+    const startDifference = first.start.getTime() - second.start.getTime();
+    if (startDifference !== 0) {
+      return startDifference;
+    }
 
-      return {
-        id: task.id,
+    return first.title.localeCompare(second.title);
+  });
+}
+
+export function tasksToCalendarEvents(tasks: Task[]): CalendarEvent[] {
+  return tasks.flatMap((task) => {
+    const range = buildAllDayRange(task.startDate ?? task.dueDate, task.dueDate ?? task.startDate);
+    if (!range) {
+      return [];
+    }
+
+    return [
+      {
+        id: `task-${task.id}`,
         title: task.title,
-        start: startDate,
-        end: dueDate,
+        start: range.start,
+        end: range.end,
+        allDay: true,
+        status: task.status,
+        statusTone: resolveStatusTone(task),
         resource: task,
-        eventType: getEventType(task),
-      };
-    });
+      },
+    ];
+  });
 }

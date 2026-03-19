@@ -20,7 +20,11 @@ import {
   ContractMilestoneSnapshotItem,
   ContractStatus,
 } from '../../database/entities/contract.entity';
-import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
+import {
+  ProjectEntity,
+  ProjectStaffInviteStatus,
+  ProjectStatus,
+} from '../../database/entities/project.entity';
 import {
   ProjectSpecEntity,
   ProjectSpecStatus,
@@ -33,7 +37,7 @@ import {
 } from '../../database/entities/milestone.entity';
 import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
-import { UserEntity } from '../../database/entities/user.entity';
+import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { normalizeContractPdfUrl } from '../../common/utils/contract-pdf-url.util';
 import {
@@ -167,6 +171,27 @@ export class ContractsService {
     if (!allowedUserIds.includes(user.id)) {
       throw new ForbiddenException(`You are not allowed to ${action} this contract`);
     }
+  }
+
+  private isAcceptedSupervisingStaff(user: UserEntity, contract: ContractEntity): boolean {
+    const project = contract.project as ProjectEntity | undefined;
+    if (!project) {
+      return false;
+    }
+
+    return (
+      user.role === UserRole.STAFF &&
+      project.staffId === user.id &&
+      project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED
+    );
+  }
+
+  private assertUserCanViewContract(user: UserEntity, contract: ContractEntity) {
+    if (this.isAcceptedSupervisingStaff(user, contract)) {
+      return;
+    }
+
+    this.assertUserIsContractParty(user, contract, 'view');
   }
 
   private assertUserCanManageDraft(user: UserEntity, contract: ContractEntity) {
@@ -1360,7 +1385,7 @@ export class ContractsService {
 
   async findOneForUser(user: UserEntity, id: string) {
     const contract = await this.findContractForRead(id);
-    this.assertUserIsContractParty(user, contract, 'view');
+    this.assertUserCanViewContract(user, contract);
 
     let selectedSpec: ProjectSpecEntity | null = null;
     if (contract.project?.request?.specs) {
@@ -1416,7 +1441,14 @@ export class ContractsService {
         new Brackets((qb) => {
           qb.where('project.clientId = :userId', { userId })
             .orWhere('project.brokerId = :userId', { userId })
-            .orWhere('project.freelancerId = :userId', { userId });
+            .orWhere('project.freelancerId = :userId', { userId })
+            .orWhere(
+              'project.staffId = :userId AND project.staffInviteStatus = :acceptedInviteStatus',
+              {
+                userId,
+                acceptedInviteStatus: ProjectStaffInviteStatus.ACCEPTED,
+              },
+            );
         }),
       )
       .andWhere('contract.status <> :archivedStatus', { archivedStatus: ContractStatus.ARCHIVED })
