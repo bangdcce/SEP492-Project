@@ -45,8 +45,18 @@ export interface WorkspaceProject {
   freelancerId?: string | null;
   staffId?: string | null;
   staffInviteStatus?: ProjectStaffInviteStatus | null;
-  staff?: StaffSummary | null;
+  client?: WorkspaceProjectParticipant | null;
+  broker?: WorkspaceProjectParticipant | null;
+  freelancer?: WorkspaceProjectParticipant | null;
+  staff?: WorkspaceProjectParticipant | null;
   currency?: string;
+}
+
+export interface WorkspaceProjectParticipant {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+  role?: string | null;
 }
 
 export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {

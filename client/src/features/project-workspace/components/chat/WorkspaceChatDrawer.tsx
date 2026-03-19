@@ -7,6 +7,7 @@
   type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import axios from "axios";
 import {
@@ -34,11 +35,23 @@ import { STORAGE_KEYS } from "@/constants";
 import { Sheet, SheetContent, SheetTitle } from "@/shared/components/ui/sheet";
 import { Button } from "@/shared/components/ui/button";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/shared/components/ui/command";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/shared/components/ui/popover";
 import {
   createTask,
   fetchBoard,
@@ -60,6 +73,7 @@ interface WorkspaceChatDrawerProps {
   onClose?: () => void;
   projectId?: string;
   currentUserId?: string;
+  projectMembers?: WorkspaceChatMentionMember[];
   canReviewTasks?: boolean;
   canUseTaskCommand?: boolean;
   taskCommandUnavailableMessage?: string | null;
@@ -85,6 +99,20 @@ interface WorkspaceChatEditHistoryEntry {
   content: string;
   editedAt: string;
   editorId: string | null;
+}
+
+type WorkspaceChatMentionRole = "CLIENT" | "BROKER" | "FREELANCER";
+
+interface WorkspaceChatMentionMember {
+  id: string;
+  fullName: string;
+  role: WorkspaceChatMentionRole;
+}
+
+interface MentionContextState {
+  startIndex: number;
+  endIndex: number;
+  query: string;
 }
 
 type WorkspaceChatMessageType = "USER" | "SYSTEM";
@@ -143,6 +171,10 @@ const FALLBACK_RISK_RULES = [
   { flag: "OFF_PLATFORM", pattern: /\bngoai luong\b/i },
 ] as const;
 const IMAGE_ATTACHMENT_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+const MENTION_HIGHLIGHT_CLASSNAME =
+  "rounded bg-blue-50 px-1 font-semibold text-blue-700";
+const OWN_MENTION_HIGHLIGHT_CLASSNAME =
+  "rounded bg-white/20 px-1 font-semibold text-white";
 
 const getStoredCurrentUserId = (): string | undefined => {
   const user = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
@@ -153,6 +185,13 @@ const getStoredCurrentUserId = (): string | undefined => {
 const normalizeForRiskScan = (content: string): string => {
   return content.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 };
+
+const normalizeMentionSearchValue = (content: string): string => {
+  return normalizeForRiskScan(content).replace(/\s+/g, " ").trim();
+};
+
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const detectFallbackRiskFlags = (content: string): string[] => {
   const normalized = normalizeForRiskScan(content);
@@ -255,6 +294,117 @@ const getVisibleMessageContent = (message: WorkspaceChatMessage): string => {
   }
 
   return message.content;
+};
+
+const getMentionContext = (
+  value: string,
+  caretPosition: number | null | undefined,
+): MentionContextState | null => {
+  if (caretPosition == null) {
+    return null;
+  }
+
+  const safeCaret = Math.max(0, Math.min(caretPosition, value.length));
+  const beforeCaret = value.slice(0, safeCaret);
+  const triggerIndex = beforeCaret.lastIndexOf("@");
+
+  if (triggerIndex < 0) {
+    return null;
+  }
+
+  const charBefore = triggerIndex > 0 ? beforeCaret[triggerIndex - 1] : "";
+  if (charBefore && !/\s/.test(charBefore)) {
+    return null;
+  }
+
+  const query = beforeCaret.slice(triggerIndex + 1);
+  if (/\s/.test(query)) {
+    return null;
+  }
+
+  const trailingSlice = value.slice(safeCaret);
+  const boundaryOffset = trailingSlice.search(/\s/);
+
+  return {
+    startIndex: triggerIndex,
+    endIndex: boundaryOffset === -1 ? value.length : safeCaret + boundaryOffset,
+    query,
+  };
+};
+
+const renderMessageWithMentions = (
+  content: string,
+  members: WorkspaceChatMentionMember[],
+  isOwnMessage: boolean,
+): ReactNode => {
+  if (!content || members.length === 0) {
+    return content;
+  }
+
+  const uniqueNames = Array.from(
+    new Set(
+      members
+        .map((member) => member.fullName.trim())
+        .filter((fullName) => fullName.length > 0),
+    ),
+  ).sort((first, second) => second.length - first.length);
+
+  if (uniqueNames.length === 0) {
+    return content;
+  }
+
+  const mentionPattern = uniqueNames
+    .map((fullName) => escapeRegex(`@${fullName}`))
+    .join("|");
+  const mentionRegex = new RegExp(
+    `(^|\\s)(${mentionPattern})(?=$|[\\s.,!?;:])`,
+    "g",
+  );
+  const segments: ReactNode[] = [];
+  let cursor = 0;
+  let matchCount = 0;
+
+  for (const match of content.matchAll(mentionRegex)) {
+    const leadingWhitespace = match[1] ?? "";
+    const mentionText = match[2] ?? "";
+    const matchStart = match.index ?? 0;
+    const mentionStart = matchStart + leadingWhitespace.length;
+    const mentionEnd = mentionStart + mentionText.length;
+
+    if (!mentionText) {
+      continue;
+    }
+
+    if (cursor < mentionStart) {
+      segments.push(content.slice(cursor, mentionStart));
+    }
+
+    segments.push(
+      <span
+        key={`mention-${matchCount}`}
+        className={
+          isOwnMessage
+            ? OWN_MENTION_HIGHLIGHT_CLASSNAME
+            : MENTION_HIGHLIGHT_CLASSNAME
+        }
+      >
+        {mentionText}
+      </span>,
+    );
+
+    cursor = mentionEnd;
+    matchCount += 1;
+  }
+
+  if (matchCount === 0) {
+    return content;
+  }
+
+  if (cursor < content.length) {
+    segments.push(content.slice(cursor));
+  }
+
+  return segments;
 };
 
 const normalizeWorkspaceMessage = (
@@ -428,6 +578,7 @@ export function WorkspaceChatDrawer({
   onClose,
   projectId,
   currentUserId,
+  projectMembers = [],
   canReviewTasks = false,
   canUseTaskCommand = true,
   taskCommandUnavailableMessage = null,
@@ -449,6 +600,9 @@ export function WorkspaceChatDrawer({
   const [editingValue, setEditingValue] = useState("");
   const [activeMessageActionId, setActiveMessageActionId] = useState<string | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [mentionContext, setMentionContext] = useState<MentionContextState | null>(null);
+  const [isMentionOpen, setIsMentionOpen] = useState(false);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
 
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -489,6 +643,25 @@ export function WorkspaceChatDrawer({
     showCommandPopover &&
     inputValue.trimStart().startsWith("/") &&
     availableSlashCommands.length > 0;
+  const filteredMentionMembers = useMemo(() => {
+    if (!mentionContext || inputValue.trimStart().startsWith("/") || projectMembers.length === 0) {
+      return [];
+    }
+
+    const normalizedQuery = normalizeMentionSearchValue(mentionContext.query);
+    if (!normalizedQuery) {
+      return projectMembers;
+    }
+
+    return projectMembers.filter((member) =>
+      normalizeMentionSearchValue(member.fullName).includes(normalizedQuery),
+    );
+  }, [inputValue, mentionContext, projectMembers]);
+  const shouldShowMentionPopover =
+    isMentionOpen &&
+    !shouldShowCommandPopover &&
+    Boolean(mentionContext) &&
+    projectMembers.length > 0;
   const latestPinnedMessage = useMemo(() => {
     const pinnedMessages = messages.filter(
       (message) => message.isPinned && !isSystemMessage(message) && !message.isDeleted,
@@ -507,6 +680,82 @@ export function WorkspaceChatDrawer({
     !isSending &&
     !isUploadingAttachments &&
     (inputValue.trim().length > 0 || pendingAttachments.length > 0);
+
+  const closeMentionPopover = useCallback(() => {
+    setMentionContext(null);
+    setIsMentionOpen(false);
+    setActiveMentionIndex(0);
+  }, []);
+
+  const syncMentionState = useCallback(
+    (nextValue: string, caretPosition: number | null | undefined) => {
+      if (nextValue.trimStart().startsWith("/") || projectMembers.length === 0) {
+        closeMentionPopover();
+        return;
+      }
+
+      const nextMentionContext = getMentionContext(nextValue, caretPosition);
+      if (!nextMentionContext) {
+        closeMentionPopover();
+        return;
+      }
+
+      setMentionContext(nextMentionContext);
+      setIsMentionOpen(true);
+    },
+    [closeMentionPopover, projectMembers.length],
+  );
+
+  const handleSelectMention = useCallback(
+    (member: WorkspaceChatMentionMember) => {
+      const input = inputRef.current;
+      const currentValue = input?.value ?? inputValue;
+      const caretPosition = input?.selectionStart ?? currentValue.length;
+      const currentMentionContext =
+        getMentionContext(currentValue, caretPosition) ?? mentionContext;
+
+      if (!currentMentionContext) {
+        return;
+      }
+
+      const mentionText = `@${member.fullName} `;
+      const nextValue =
+        currentValue.slice(0, currentMentionContext.startIndex) +
+        mentionText +
+        currentValue.slice(currentMentionContext.endIndex);
+      const nextCaretPosition = currentMentionContext.startIndex + mentionText.length;
+
+      setInputValue(nextValue);
+      closeMentionPopover();
+
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.setSelectionRange(nextCaretPosition, nextCaretPosition);
+      });
+    },
+    [closeMentionPopover, inputValue, mentionContext],
+  );
+
+  useEffect(() => {
+    if (!isMentionOpen) {
+      setActiveMentionIndex(0);
+      return;
+    }
+
+    setActiveMentionIndex((currentIndex) => {
+      if (filteredMentionMembers.length === 0) {
+        return 0;
+      }
+
+      return Math.min(currentIndex, filteredMentionMembers.length - 1);
+    });
+  }, [filteredMentionMembers.length, isMentionOpen]);
+
+  useEffect(() => {
+    if (isMentionOpen) {
+      setActiveMentionIndex(0);
+    }
+  }, [isMentionOpen, mentionContext?.query]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const container = messagesContainerRef.current;
@@ -552,9 +801,10 @@ export function WorkspaceChatDrawer({
       }
 
       setInputValue(`${command} `);
+      closeMentionPopover();
       inputRef.current?.focus();
     },
-    [canUseTaskCommand, resolvedTaskCommandUnavailableMessage],
+    [canUseTaskCommand, closeMentionPopover, resolvedTaskCommandUnavailableMessage],
   );
 
   const getTaskCommandErrorMessage = useCallback(
@@ -980,6 +1230,7 @@ export function WorkspaceChatDrawer({
 
         onTaskCreated?.(persistedTask);
         setInputValue("");
+        closeMentionPopover();
         toast.success(`Task created: ${persistedTask.title}`);
       } catch (error) {
         const errorMessage = getTaskCommandErrorMessage(error);
@@ -1027,6 +1278,7 @@ export function WorkspaceChatDrawer({
 
         onTaskCreated?.(approvedTask);
         setInputValue("");
+        closeMentionPopover();
         toast.success("Task approved successfully!");
       } catch (error) {
         const errorMessage =
@@ -1053,6 +1305,7 @@ export function WorkspaceChatDrawer({
     if (trimmedInput.startsWith("/")) {
       triggerSlashCommand(trimmedInput);
       setInputValue("");
+      closeMentionPopover();
       return;
     }
 
@@ -1096,6 +1349,7 @@ export function WorkspaceChatDrawer({
 
       setInputValue("");
       setPendingAttachments([]);
+      closeMentionPopover();
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to send message";
@@ -1107,6 +1361,7 @@ export function WorkspaceChatDrawer({
   }, [
     canReviewTasks,
     canUseTaskCommand,
+    closeMentionPopover,
     ensureProjectRoomJoin,
     getTaskCommandErrorMessage,
     inputValue,
@@ -1131,8 +1386,68 @@ export function WorkspaceChatDrawer({
     [handleSendMessage],
   );
 
+  const handleInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.value;
+      setInputValue(nextValue);
+      syncMentionState(nextValue, event.target.selectionStart);
+    },
+    [syncMentionState],
+  );
+
+  const handleInputSelectionChange = useCallback(() => {
+    const input = inputRef.current;
+    if (!input) {
+      return;
+    }
+
+    syncMentionState(input.value, input.selectionStart);
+  }, [syncMentionState]);
+
   const handleInputKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
+      if (shouldShowMentionPopover) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (filteredMentionMembers.length > 0) {
+            setActiveMentionIndex((currentIndex) =>
+              (currentIndex + 1) % filteredMentionMembers.length,
+            );
+          }
+          return;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          if (filteredMentionMembers.length > 0) {
+            setActiveMentionIndex((currentIndex) =>
+              currentIndex <= 0
+                ? filteredMentionMembers.length - 1
+                : currentIndex - 1,
+            );
+          }
+          return;
+        }
+
+        if ((event.key === "Enter" || event.key === "Tab") && filteredMentionMembers.length > 0) {
+          event.preventDefault();
+          const selectedMember =
+            filteredMentionMembers[
+              Math.min(activeMentionIndex, filteredMentionMembers.length - 1)
+            ];
+          if (selectedMember) {
+            handleSelectMention(selectedMember);
+          }
+          return;
+        }
+
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeMentionPopover();
+          return;
+        }
+      }
+
       if (event.key !== "Enter" || event.shiftKey) {
         return;
       }
@@ -1144,7 +1459,14 @@ export function WorkspaceChatDrawer({
       event.preventDefault();
       void handleSendMessage();
     },
-    [handleSendMessage],
+    [
+      activeMentionIndex,
+      closeMentionPopover,
+      filteredMentionMembers,
+      handleSelectMention,
+      handleSendMessage,
+      shouldShowMentionPopover,
+    ],
   );
 
   const handleExportChat = useCallback(() => {
@@ -1484,15 +1806,17 @@ export function WorkspaceChatDrawer({
       setEditingValue("");
       setPendingAttachments([]);
       setHighlightedMessageId(null);
+      closeMentionPopover();
     }
-  }, [isOpen]);
+  }, [closeMentionPopover, isOpen]);
 
   useEffect(() => {
     setEditingMessageId(null);
     setEditingValue("");
     setPendingAttachments([]);
     setHighlightedMessageId(null);
-  }, [projectId]);
+    closeMentionPopover();
+  }, [closeMentionPopover, projectId]);
 
   return (
     <Sheet
@@ -1784,7 +2108,13 @@ export function WorkspaceChatDrawer({
                           {message.isDeleted ? (
                             <p className="italic text-slate-500">{DELETED_MESSAGE_PLACEHOLDER}</p>
                           ) : message.content ? (
-                            <p className="whitespace-pre-wrap break-words">{message.content}</p>
+                            <p className="whitespace-pre-wrap break-words">
+                              {renderMessageWithMentions(
+                                message.content,
+                                projectMembers,
+                                isMe,
+                              )}
+                            </p>
                           ) : null}
 
                           {!message.isDeleted && message.attachments.length > 0 && (
@@ -1911,6 +2241,55 @@ export function WorkspaceChatDrawer({
               </div>
             )}
 
+            <Popover
+              open={shouldShowMentionPopover}
+              onOpenChange={(open) => {
+                if (!open) {
+                  closeMentionPopover();
+                }
+              }}
+            >
+              <PopoverAnchor asChild>
+                <div className="absolute bottom-11 left-14 h-0 w-0" aria-hidden="true" />
+              </PopoverAnchor>
+              <PopoverContent
+                align="start"
+                side="top"
+                sideOffset={8}
+                className="w-[22rem] p-0"
+              >
+                <Command className="rounded-xl">
+                  <CommandList className="max-h-64">
+                    <CommandEmpty>No matching member.</CommandEmpty>
+                    <CommandGroup heading="Mention project member">
+                      {filteredMentionMembers.map((member, index) => (
+                        <CommandItem
+                          key={member.id}
+                          value={`${member.fullName}-${member.id}`}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onSelect={() => handleSelectMention(member)}
+                          className={
+                            index === activeMentionIndex
+                              ? "bg-accent text-accent-foreground"
+                              : undefined
+                          }
+                        >
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate font-medium">
+                              {member.fullName}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {member.role.charAt(0) + member.role.slice(1).toLowerCase()}
+                            </span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
             <form onSubmit={handleComposerSubmit} className="flex items-center gap-2">
               <button
                 type="button"
@@ -1929,11 +2308,13 @@ export function WorkspaceChatDrawer({
                 ref={inputRef}
                 type="text"
                 value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
+                onChange={handleInputChange}
+                onClick={handleInputSelectionChange}
                 onKeyDown={handleInputKeyDown}
+                onSelect={handleInputSelectionChange}
                 disabled={!projectId || isSending || isUploadingAttachments}
                 className="h-11 flex-1 rounded-xl border border-slate-300 px-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100"
-                placeholder="Type message, attach files, or '/' for commands"
+                placeholder="Type message, use @mention, attach files, or '/' for commands"
               />
               <button
                 type="submit"
