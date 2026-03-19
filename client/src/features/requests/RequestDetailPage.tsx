@@ -20,11 +20,10 @@ import {
 } from "@/shared/components/ui";
 import { wizardService } from "../wizard/services/wizardService";
 import { format } from "date-fns";
-import { ArrowLeft, AlertTriangle, Check, FileText, HelpCircle, Info, Loader2, Sparkles, Star, Trash2, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Check, FileText, HelpCircle, Loader2, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
-import { CommentsSection } from "./components/CommentsSection";
 import { RequestDraftAlert } from "./components/RequestDraftAlert";
 import { RequestWorkflowBanner } from "./components/RequestWorkflowBanner";
 import {
@@ -60,7 +59,7 @@ const safeFormatDate = (dateStr: string | Date | null | undefined, fmt: string) 
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return "Invalid Date";
         return format(d, fmt);
-    } catch (e) {
+    } catch {
         return "N/A";
     }
 };
@@ -237,13 +236,12 @@ export default function RequestDetailPage() {
           toast.success("Status Updated", {
               description: `Project is now ${(updatedRequest?.status || newStatus).replace('_', ' ').toLowerCase()}`
           });
-      } catch (_error) {
+      } catch {
           toast.error("Failed to update status");
       } finally {
           setIsUpdatingStatus(false);
       }
   };
-
   const handleRevertToDraft = async () => {
       try {
           // explicitly set to PUBLIC_DRAFT
@@ -252,7 +250,7 @@ export default function RequestDetailPage() {
               description: "Redirecting to wizard for editing...",
           });
           navigate(`/client/wizard?draftId=${id}`);
-      } catch (_error) {
+      } catch {
           toast.error("Failed to revert to draft");
       }
   };
@@ -263,7 +261,7 @@ export default function RequestDetailPage() {
           await wizardService.acceptBroker(request.id, brokerId);
           toast.success("Broker Hired", { description: "You have assigned a broker to this project." });
           void fetchData(request.id);
-      } catch (_error) {
+      } catch {
           toast.error("Failed to hire broker");
       }
   };
@@ -341,8 +339,6 @@ export default function RequestDetailPage() {
   const currentPhase = flowSnapshot.phaseNumber;
   const clientSpec = specFlow.clientSpec;
   const fullSpec = specFlow.fullSpec;
-  const freelancerProposalList =
-    request?.freelancerSelectionSummary?.items || request?.freelancerProposals || request?.proposals || [];
   const selectedFreelancerProposal = getSelectedFreelancerProposal(request);
   const hasAcceptedFreelancer = Boolean(selectedFreelancerProposal);
   const brokerApplications =
@@ -582,9 +578,8 @@ export default function RequestDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Main Content */}
-        <div className="lg:col-span-2 space-y-6">
+      <div className="space-y-6">
+        <div className="space-y-6">
             {/* Top Level Navigation Layer */}
             <div className="flex gap-4 border-b pb-2 mb-4">
                  <button 
@@ -718,7 +713,7 @@ export default function RequestDetailPage() {
                                 </div>
 
                                 <div className="mt-4 rounded-md border bg-white p-3 text-sm text-blue-800">
-                                  Next phase after Client Spec approval: select freelancer, then proceed to Phase 4 for Full Spec 3-party sign-off.
+                                  Next phase after Client Spec approval: select a freelancer, then proceed to Phase 4 for full-spec three-party sign-off.
                                 </div>
                            </div>
 
@@ -1050,12 +1045,6 @@ export default function RequestDetailPage() {
         )}
         </div>
 
-        {/* Right Sidebar: Comments */}
-        <div className="lg:col-span-1">
-          <div className="sticky top-6">
-            <CommentsSection />
-          </div>
-        </div>
       </div>
 
       {inviteModalData && (

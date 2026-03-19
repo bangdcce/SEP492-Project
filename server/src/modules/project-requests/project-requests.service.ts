@@ -770,7 +770,7 @@ export class ProjectRequestsService {
       techPreferences: dto.techPreferences,
       attachments: this.normalizeAttachments(dto.attachments),
       wizardProgressStep: dto.wizardProgressStep ?? 1,
-      status: dto.status ?? (dto.isDraft ? RequestStatus.DRAFT : RequestStatus.PUBLIC_DRAFT),
+      status: (dto.status as RequestStatus) ?? RequestStatus.PUBLIC_DRAFT,
     });
 
     const savedRequest = await this.requestRepo.save(request);
@@ -830,7 +830,7 @@ export class ProjectRequestsService {
 
   async findAll(status?: RequestStatus) {
     const options: FindManyOptions<ProjectRequestEntity> = {
-      relations: ['answers', 'answers.question', 'answers.option', 'client', 'broker'],
+      relations: ['answers', 'answers.question', 'answers.option', 'client', 'broker', 'brokerProposals', 'brokerProposals.broker'],
       order: { createdAt: 'DESC' },
     };
     if (status) {
@@ -875,22 +875,7 @@ export class ProjectRequestsService {
       request.status = dto.status;
     }
 
-    // Legacy/Boolean handling (isDraft) - Only apply if status NOT explicitly set (or if we want to support both mixed)
-    // If user sends isDraft=false, we generally mean "Submit/Publish".
-    if (!dto.status && request.status !== RequestStatus.PENDING_SPECS && dto.isDraft === false) {
-      // Only transition to PENDING_SPECS if we are in a draft state
-      if (
-        request.status === RequestStatus.DRAFT ||
-        request.status === RequestStatus.PUBLIC_DRAFT ||
-        request.status === RequestStatus.PRIVATE_DRAFT
-      ) {
-        request.status = RequestStatus.PENDING_SPECS;
-      }
-    }
 
-    if (!dto.status && dto.isDraft === true) {
-      request.status = RequestStatus.DRAFT;
-    }
 
     await this.requestRepo.save(request);
 

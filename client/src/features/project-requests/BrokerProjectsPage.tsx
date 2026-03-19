@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { ProjectRequestsTable } from './components/ProjectRequestsTable';
 import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
@@ -24,6 +25,7 @@ import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
 import toast from 'react-hot-toast';
 
 export const BrokerProjectsPage: React.FC = () => {
+  const location = useLocation();
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigningId, setAssigningId] = useState<string | null>(null);
@@ -55,7 +57,7 @@ export const BrokerProjectsPage: React.FC = () => {
 
   useEffect(() => {
     fetchRequests();
-  }, []);
+  }, [location.key]);
 
   // Filter for My Projects (Assigned OR Accepted Proposal)
   const myProjects = requests.filter(r => 

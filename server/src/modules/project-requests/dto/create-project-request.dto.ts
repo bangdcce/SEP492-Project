@@ -82,9 +82,10 @@ export class CreateProjectRequestDto {
   @IsString()
   techPreferences?: string;
 
-  @ApiPropertyOptional({ default: false, description: 'Set to true to save as draft' })
+  @ApiPropertyOptional({ description: 'Initial status for the request (e.g. PUBLIC_DRAFT, PRIVATE_DRAFT)' })
   @IsOptional()
-  isDraft?: boolean;
+  @IsString()
+  status?: string;
 
   @ApiPropertyOptional({ type: [ProjectRequestAttachmentDto] })
   @IsOptional()
