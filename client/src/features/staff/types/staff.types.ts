@@ -159,4 +159,88 @@ export interface StaffDashboardOverview {
     multiPartyCases: number;
     conflictingEvidenceCases: number;
   };
+  series: {
+    throughput: Array<{
+      label: string;
+      newDisputes: number;
+      closed: number;
+    }>;
+    sla: Array<{
+      label: string;
+      medianTimeToVerdictHours: number;
+      breachRate: number;
+    }>;
+    workload: Array<{
+      label: string;
+      averageUtilizationRate: number;
+      pendingQueueCount: number;
+    }>;
+    risk: Array<{
+      label: string;
+      overloadedStaff: number;
+      conflictingEvidenceCases: number;
+    }>;
+  };
+  members: Array<{
+    id: string;
+    name: string;
+    email: string;
+    resolvedCases: number;
+    pendingCases: number;
+    utilizationRate: number;
+    currentUtilizationRate: number;
+    appealRate: number;
+    overturnRate: number;
+    avgResolutionTimeHours: number;
+    hearingsConducted: number;
+    leaveMinutes: number;
+    isOverloaded: boolean;
+    isActive: boolean;
+    lastActiveAt: string | null;
+    score: number;
+  }>;
+  currentUser: {
+    id: string;
+    name: string;
+    email: string;
+    resolvedCases: number;
+    pendingCases: number;
+    utilizationRate: number;
+    currentUtilizationRate: number;
+    appealRate: number;
+    overturnRate: number;
+    avgResolutionTimeHours: number;
+    hearingsConducted: number;
+    leaveMinutes: number;
+    isOverloaded: boolean;
+    isActive: boolean;
+    lastActiveAt: string | null;
+    score: number;
+    rank: number | null;
+    teamAverages: {
+      resolvedCases: number;
+      pendingCases: number;
+      utilizationRate: number;
+      appealRate: number;
+      overturnRate: number;
+      avgResolutionTimeHours: number;
+    };
+  } | null;
+  highlights: {
+    overloadedStaff: Array<{
+      id: string;
+      name: string;
+      currentUtilizationRate: number;
+      pendingCases: number;
+    }>;
+    backlogPressure: {
+      pendingQueueCount: number;
+      overloadedCount: number;
+    };
+    riskSpikes: Array<{
+      label: string;
+      overloadedStaff: number;
+      conflictingEvidenceCases: number;
+    }>;
+  };
 }

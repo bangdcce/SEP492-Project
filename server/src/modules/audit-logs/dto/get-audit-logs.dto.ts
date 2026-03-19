@@ -1,5 +1,5 @@
 import { IsDateString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 
 export class GetAuditLogsDto {
   @IsOptional()
@@ -17,6 +17,14 @@ export class GetAuditLogsDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @IsOptional()
+  @IsString()
+  requestId?: string;
+
+  @IsOptional()
+  @IsString()
+  sessionId?: string;
 
   @IsOptional()
   @IsString()
@@ -45,6 +53,25 @@ export class GetAuditLogsDto {
 
   @IsOptional()
   @IsString()
-  @IsIn(['json', 'csv'])
-  format?: 'json' | 'csv';
+  @IsIn(['SERVER', 'CLIENT'])
+  source?: 'SERVER' | 'CLIENT';
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['HTTP', 'UI_BREADCRUMB', 'DB_CHANGE', 'ERROR', 'AUTH', 'EXPORT'])
+  eventCategory?: 'HTTP' | 'UI_BREADCRUMB' | 'DB_CHANGE' | 'ERROR' | 'AUTH' | 'EXPORT';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  statusCode?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  errorOnly?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['json', 'csv', 'xlsx'])
+  format?: 'json' | 'csv' | 'xlsx';
 }

@@ -219,9 +219,12 @@ export class StaffAssignmentController {
     required: false,
     enum: ['7d', '30d', '90d'],
   })
-  async getDashboardOverview(@Query('range') range?: '7d' | '30d' | '90d') {
+  async getDashboardOverview(
+    @Query('range') range: '7d' | '30d' | '90d' | undefined,
+    @GetUser() user: UserEntity,
+  ) {
     const normalizedRange = range && ['7d', '30d', '90d'].includes(range) ? range : '30d';
-    return this.staffAssignmentService.getDashboardOverview(normalizedRange);
+    return this.staffAssignmentService.getDashboardOverview(normalizedRange, user);
   }
 
   // ===========================================================================
