@@ -10,6 +10,8 @@ interface ContractPdfUrlOptions {
 const trimTrailingSlash = (value: string): string => value.replace(/\/+$/, '');
 
 const looksLikeAbsoluteHttpUrl = (value: string): boolean => /^https?:\/\//i.test(value);
+const looksLikePlaceholderAppUrl = (value: string): boolean =>
+  /your-domain\.com|example\.com/i.test(value);
 
 const hasLocalHttpsCertificates = (cwd: string): boolean => {
   const candidateRoots = [cwd, resolve(cwd, 'server')];
@@ -25,7 +27,7 @@ export const resolveContractPdfBaseUrl = (
 ): string => {
   const configuredAppUrl =
     options.appUrl?.toString().trim() || process.env.APP_URL?.trim() || null;
-  if (configuredAppUrl) {
+  if (configuredAppUrl && !looksLikePlaceholderAppUrl(configuredAppUrl)) {
     return trimTrailingSlash(configuredAppUrl);
   }
 
@@ -64,11 +66,11 @@ export const normalizeContractPdfUrl = (
     /^https?:\/\/[^/]+\/contracts\/([^/]+)\/pdf\/?$/i,
   );
   if (absoluteBackendMatch) {
-    return absoluteBackendMatch[1] === contractId ? trimTrailingSlash(rawValue) : canonicalUrl;
+    return canonicalUrl;
   }
 
   if (looksLikeAbsoluteHttpUrl(rawValue)) {
-    return rawValue;
+    return canonicalUrl;
   }
 
   const pathMatch = rawValue.match(canonicalPathPattern);
