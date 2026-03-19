@@ -140,8 +140,21 @@ export default function WizardPage() {
 
         let savedRequest;
         if (requestId) {
-            // Update existing
-            savedRequest = await wizardService.updateRequest(requestId, payload);
+            if (mode === 'marketplace') {
+                const updatePayload: Partial<CreateProjectRequestDto> = {
+                    title: payload.title,
+                    description: payload.description,
+                    budgetRange: payload.budgetRange,
+                    intendedTimeline: payload.intendedTimeline,
+                    techPreferences: payload.techPreferences,
+                    answers: payload.answers,
+                };
+                await wizardService.updateRequest(requestId, updatePayload);
+                savedRequest = await wizardService.publishRequest(requestId);
+            } else {
+                // Update existing
+                savedRequest = await wizardService.updateRequest(requestId, payload);
+            }
         } else {
             // Create new
             savedRequest = await wizardService.submitRequest(payload);

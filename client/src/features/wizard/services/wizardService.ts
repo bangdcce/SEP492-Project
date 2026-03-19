@@ -56,6 +56,10 @@ export const wizardService = {
     return await apiClient.patch(`/project-requests/${id}`, data);
   },
 
+  publishRequest: async (id: string) => {
+    return await apiClient.post(`/project-requests/${id}/publish`, {});
+  },
+
   getDrafts: async () => {
     return await apiClient.get("/project-requests/drafts/mine");
   },
@@ -83,6 +87,10 @@ export const wizardService = {
 
   acceptBroker: async (requestId: string, brokerId: string) => {
     return await apiClient.post(`/project-requests/${requestId}/accept-broker`, { brokerId });
+  },
+
+  deleteRequest: async (id: string) => {
+    return await apiClient.delete(`/project-requests/${id}`);
   },
 
   approveSpecs: async (requestId: string) => {

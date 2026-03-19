@@ -107,8 +107,11 @@ export class ProjectRequestsService {
     return this.requestRepo.find(options);
   }
 
-  async update(id: string, dto: UpdateProjectRequestDto) {
-    const request = await this.findOne(id);
+  async update(id: string, dto: UpdateProjectRequestDto, userId?: string, _req?: RequestContext) {
+    const request = await this.findOne(
+      id,
+      userId ? ({ id: userId, role: UserRole.CLIENT } as UserEntity) : undefined,
+    );
     if (!request) {
       throw new Error('Request not found');
     }
@@ -168,6 +171,54 @@ export class ProjectRequestsService {
     }
 
     return this.findOne(id);
+  }
+
+  async publish(requestId: string, userId: string, req?: RequestContext) {
+    const request = await this.findOne(requestId, {
+      id: userId,
+      role: UserRole.CLIENT,
+    } as UserEntity);
+    const previousStatus = request.status;
+
+    const publishableStatuses = [
+      RequestStatus.DRAFT,
+      RequestStatus.PRIVATE_DRAFT,
+      RequestStatus.PUBLIC_DRAFT,
+    ];
+
+    if (!publishableStatuses.includes(request.status)) {
+      throw new BadRequestException(
+        `Request cannot be published from status "${request.status}"`,
+      );
+    }
+
+    if (request.brokerId) {
+      throw new BadRequestException('Cannot publish a request that already has a broker assigned');
+    }
+
+    if (request.status === RequestStatus.PUBLIC_DRAFT) {
+      return request;
+    }
+
+    request.status = RequestStatus.PUBLIC_DRAFT;
+    await this.requestRepo.save(request);
+
+    try {
+      await this.auditLogsService.logUpdate(
+        'ProjectRequest',
+        requestId,
+        { status: previousStatus },
+        { status: RequestStatus.PUBLIC_DRAFT },
+        req,
+      );
+    } catch (error) {
+      console.error('Audit log failed', error);
+    }
+
+    return this.findOne(requestId, {
+      id: userId,
+      role: UserRole.CLIENT,
+    } as UserEntity);
   }
 
   async findAllByClient(clientId: string) {
@@ -384,6 +435,23 @@ export class ProjectRequestsService {
   }
 
   async applyToRequest(requestId: string, brokerId: string, coverLetter: string) {
+    const request = await this.requestRepo.findOne({
+      where: { id: requestId },
+      select: ['id', 'status', 'brokerId'],
+    });
+
+    if (!request) {
+      throw new NotFoundException('Request not found');
+    }
+
+    if (request.status !== RequestStatus.PUBLIC_DRAFT) {
+      throw new BadRequestException('Request is not open for marketplace applications.');
+    }
+
+    if (request.brokerId) {
+      throw new BadRequestException('Request already has a broker assigned.');
+    }
+
     // Check if the broker has already applied to this request
     const existingProposal = await this.brokerProposalRepo.findOne({
       where: { requestId, brokerId }
@@ -456,8 +524,11 @@ export class ProjectRequestsService {
 
   // --- Phase 2: Hire Broker ---
 
-  async acceptBroker(requestId: string, brokerId: string) {
-    const request = await this.findOne(requestId);
+  async acceptBroker(requestId: string, brokerId: string, clientId?: string) {
+    const request = await this.findOne(
+      requestId,
+      clientId ? ({ id: clientId, role: UserRole.CLIENT } as UserEntity) : undefined,
+    );
     if (!request) throw new Error('Request not found');
 
     // Expected state: PUBLIC_DRAFT or PRIVATE_DRAFT
@@ -547,6 +618,73 @@ export class ProjectRequestsService {
     request.status = RequestStatus.CONVERTED_TO_PROJECT;
     return this.requestRepo.save(request);
   }
+  async deleteRequest(requestId: string, userId: string, req?: RequestContext) {
+    const request = await this.requestRepo.findOne({
+      where: { id: requestId },
+      relations: ['proposals'],
+    });
+
+    if (!request) {
+      throw new NotFoundException('Request not found');
+    }
+
+    // 1. Only the owner can delete
+    if (request.clientId !== userId) {
+      throw new ForbiddenException('You can only delete your own requests');
+    }
+
+    // 2. Only deletable in draft statuses
+    const deletableStatuses = [
+      RequestStatus.DRAFT,
+      RequestStatus.PUBLIC_DRAFT,
+      RequestStatus.PRIVATE_DRAFT,
+    ];
+    if (!deletableStatuses.includes(request.status)) {
+      throw new BadRequestException(
+        `Cannot delete request with status "${request.status}". Only draft requests can be deleted.`,
+      );
+    }
+
+    // 3. No broker assigned
+    if (request.brokerId) {
+      throw new BadRequestException(
+        'Cannot delete a request that has a broker assigned. Use Dispute or Report to resolve.',
+      );
+    }
+
+    // 4. No accepted freelancer proposals
+    const acceptedProposal = await this.freelancerProposalRepo.findOne({
+      where: { requestId, status: 'ACCEPTED' },
+    });
+    if (acceptedProposal) {
+      throw new BadRequestException(
+        'Cannot delete a request that has an accepted freelancer.',
+      );
+    }
+
+    // 5. Cascade delete associated data
+    await this.answerRepo.delete({ requestId });
+    await this.brokerProposalRepo.delete({ requestId });
+    await this.freelancerProposalRepo.delete({ requestId });
+
+    // 6. Delete the request
+    await this.requestRepo.remove(request);
+
+    // 7. Audit log
+    try {
+      await this.auditLogsService.logDelete(
+        'ProjectRequest',
+        requestId,
+        { title: request.title, status: request.status },
+        req,
+      );
+    } catch (error) {
+      console.error('Audit log failed for delete', error);
+    }
+
+    return { success: true, message: 'Request deleted successfully' };
+  }
+
   async seedTestData(clientId: string) {
     // 0. Validate Client
     const userRepo = this.requestRepo.manager.getRepository(UserEntity);
