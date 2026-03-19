@@ -1,4 +1,5 @@
 import React, { memo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Gavel,
   ExternalLink,
@@ -26,6 +27,12 @@ import {
 import { EvidenceGallery } from "./EvidenceGallery";
 import type { HearingWorkspaceSummary } from "@/features/hearings/types";
 import type { DisputeEvidence } from "@/features/disputes/types/dispute.types";
+import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
+import {
+  resolveParticipantRoleBasePath,
+  resolveProfileViewerBasePath,
+} from "@/features/hearings/utils/hearingRouting";
 
 interface DossierPaneProps {
   workspace: HearingWorkspaceSummary | null;
@@ -45,6 +52,9 @@ export const DossierPane = memo(function DossierPane({
   disputeId,
 }: DossierPaneProps) {
   const [tab, setTab] = useState<DossierTab>("overview");
+  const currentUser = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+  const contractBasePath = resolveParticipantRoleBasePath(currentUser?.role);
+  const profileBasePath = resolveProfileViewerBasePath(currentUser?.role);
 
   const timelineLog = React.useMemo(
     () =>
@@ -57,6 +67,10 @@ export const DossierPane = memo(function DossierPane({
       }),
     [workspace?.timeline],
   );
+  const raiserProfileId =
+    workspace?.dossier?.dispute?.raiser?.id || workspace?.dossier?.dispute?.raisedBy?.id;
+  const defendantProfileId = workspace?.dossier?.dispute?.defendant?.id;
+  const assignedStaffProfileId = workspace?.dossier?.dispute?.assignedStaff?.id;
 
   return (
     <div className={cn(cardClass, "p-4 overflow-x-hidden")}>
@@ -134,11 +148,24 @@ export const DossierPane = memo(function DossierPane({
                         Raiser
                       </p>
                       <p className="text-sm text-slate-900 truncate">
-                        {workspace.dossier.dispute.raiser?.name ||
+                        {profileBasePath && raiserProfileId ? (
+                          <Link
+                            to={`${profileBasePath}/discovery/profile/${raiserProfileId}`}
+                            className="hover:underline"
+                          >
+                            {workspace.dossier.dispute.raiser?.name ||
+                              workspace.dossier.dispute.raisedBy?.name ||
+                              workspace.dossier.dispute.raiser?.email ||
+                              workspace.dossier.dispute.raisedBy?.email ||
+                              "Unknown"}
+                          </Link>
+                        ) : (
+                          workspace.dossier.dispute.raiser?.name ||
                           workspace.dossier.dispute.raisedBy?.name ||
                           workspace.dossier.dispute.raiser?.email ||
                           workspace.dossier.dispute.raisedBy?.email ||
-                          "Unknown"}
+                          "Unknown"
+                        )}
                       </p>
                       {(workspace.dossier.dispute.raiser?.role ||
                         workspace.dossier.dispute.raisedBy?.role) && (
@@ -161,9 +188,20 @@ export const DossierPane = memo(function DossierPane({
                         Defendant
                       </p>
                       <p className="text-sm text-slate-900 truncate">
-                        {workspace.dossier.dispute.defendant.name ||
+                        {profileBasePath && defendantProfileId ? (
+                          <Link
+                            to={`${profileBasePath}/discovery/profile/${defendantProfileId}`}
+                            className="hover:underline"
+                          >
+                            {workspace.dossier.dispute.defendant.name ||
+                              workspace.dossier.dispute.defendant.email ||
+                              "Unknown"}
+                          </Link>
+                        ) : (
+                          workspace.dossier.dispute.defendant.name ||
                           workspace.dossier.dispute.defendant.email ||
-                          "Unknown"}
+                          "Unknown"
+                        )}
                       </p>
                       {workspace.dossier.dispute.defendant.role && (
                         <p className="text-xs text-slate-400">
@@ -185,9 +223,20 @@ export const DossierPane = memo(function DossierPane({
                         Assigned Staff
                       </p>
                       <p className="text-sm text-slate-900 truncate">
-                        {workspace.dossier.dispute.assignedStaff.name ||
+                        {profileBasePath && assignedStaffProfileId ? (
+                          <Link
+                            to={`${profileBasePath}/discovery/profile/${assignedStaffProfileId}`}
+                            className="hover:underline"
+                          >
+                            {workspace.dossier.dispute.assignedStaff.name ||
+                              workspace.dossier.dispute.assignedStaff.email ||
+                              "Unknown"}
+                          </Link>
+                        ) : (
+                          workspace.dossier.dispute.assignedStaff.name ||
                           workspace.dossier.dispute.assignedStaff.email ||
-                          "Unknown"}
+                          "Unknown"
+                        )}
                       </p>
                     </div>
                   </div>
@@ -256,6 +305,15 @@ export const DossierPane = memo(function DossierPane({
                   <p className="text-xs text-slate-500">
                     {contract.status?.replace(/_/g, " ") || "Unknown"}
                   </p>
+                  {contractBasePath ? (
+                    <Link
+                      to={`${contractBasePath}/contracts/${contract.id}`}
+                      className="inline-flex items-center gap-1 text-xs text-slate-700 hover:text-slate-900 mt-1"
+                    >
+                      <FileText className="h-3 w-3" />
+                      Open contract page
+                    </Link>
+                  ) : null}
                   {contract.contractUrl ? (
                     <a
                       href={contract.contractUrl}

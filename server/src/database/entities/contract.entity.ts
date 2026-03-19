@@ -86,6 +86,15 @@ export class ContractEntity {
   @Column({ type: 'varchar' })
   contractUrl: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  archiveStoragePath: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  archivePersistedAt: Date | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  archiveDocumentHash: string | null;
+
   @Column({ type: 'text', nullable: true })
   termsContent: string;
 

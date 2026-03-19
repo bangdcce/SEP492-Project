@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   Alert,
@@ -14,14 +14,20 @@ import {
 } from "@/shared/components/ui";
 import { ArrowLeft, FileText, Sparkles, UserCheck, Users } from "lucide-react";
 import { wizardService } from "@/features/wizard/services/wizardService";
-import { projectSpecsApi } from "@/features/project-specs/api";
 import type { ProjectSpec } from "@/features/project-specs/types";
 import { ProjectSpecStatus, SpecPhase } from "@/features/project-specs/types";
-import { contractsApi } from "@/features/contracts/api";
 import type { ContractSummary } from "@/features/contracts/types";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
+import { connectSocket } from "@/shared/realtime/socket";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
 import type { ProjectRequest } from "./types";
+import {
+  formatHumanStatus as formatStatus,
+  isContractActivated,
+  pickLatestSpecByPhase,
+  resolveRequestFlowSnapshot,
+} from "./requestFlow";
 
 type RequestWithRelations = ProjectRequest & {
   client?: { id: string; fullName: string; email?: string };
@@ -40,8 +46,9 @@ type RequestWithRelations = ProjectRequest & {
   }>;
 };
 
-const formatStatus = (status?: string | null) =>
-  (status || "UNKNOWN").replace(/_/g, " ");
+type CurrentUserSummary = {
+  id?: string;
+} | null;
 
 const getSpecBadgeClass = (status?: string) => {
   switch (status) {
@@ -59,19 +66,10 @@ const getSpecBadgeClass = (status?: string) => {
   }
 };
 
-const pickLatestSpecByPhase = (specs: ProjectSpec[], phase: SpecPhase): ProjectSpec | null =>
-  [...specs]
-    .filter((spec) => spec.specPhase === phase)
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt || b.createdAt).getTime() -
-        new Date(a.updatedAt || a.createdAt).getTime(),
-    )[0] ?? null;
-
 export default function FreelancerRequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const currentUser = getStoredJson(STORAGE_KEYS.USER) as { id?: string } | null;
+  const currentUser = getStoredJson<CurrentUserSummary>(STORAGE_KEYS.USER);
 
   const [request, setRequest] = useState<RequestWithRelations | null>(null);
   const [specs, setSpecs] = useState<ProjectSpec[]>([]);
@@ -79,57 +77,67 @@ export default function FreelancerRequestDetailPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const fetchRequest = useCallback(async (requestId: string) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const requestData = (await wizardService.getRequestById(requestId)) as RequestWithRelations;
+      setRequest(requestData);
+      setSpecs(Array.isArray(requestData.specs) ? requestData.specs : []);
+      setLinkedContract(
+        (requestData?.linkedContractSummary as ContractSummary | null) || null,
+      );
+    } catch (loadError) {
+      console.error(loadError);
+      const details = getApiErrorDetails(loadError, "Unable to load request details.");
+      setError(details.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!id) return;
+    void fetchRequest(id);
+  }, [fetchRequest, id]);
+
   useEffect(() => {
     if (!id) return;
 
-    let mounted = true;
+    const socket = connectSocket();
+    const handleNotificationCreated = (payload: {
+      notification?: {
+        relatedType?: string | null;
+        relatedId?: string | null;
+      };
+      relatedType?: string | null;
+      relatedId?: string | null;
+    }) => {
+      const notification = payload?.notification ?? payload;
+      const relatedType = String(notification?.relatedType || "");
+      const relatedId = String(notification?.relatedId || "");
 
-    const load = async () => {
-      try {
-        setIsLoading(true);
-        setError(null);
+      const isRelevant =
+        (relatedType === "ProjectRequest" && relatedId === id) ||
+        (relatedType === "Project" &&
+          Boolean(request?.linkedProjectSummary?.id) &&
+          relatedId === request?.linkedProjectSummary?.id) ||
+        (relatedType === "Contract" &&
+          Boolean(request?.linkedContractSummary?.id) &&
+          relatedId === request?.linkedContractSummary?.id) ||
+        (relatedType === "ProjectSpec" && relatedId === id);
 
-        const [requestData, contractList] = await Promise.all([
-          wizardService.getRequestById(id) as Promise<RequestWithRelations>,
-          contractsApi.listContracts().catch((contractError) => {
-            console.warn("Failed to load contracts for freelancer request detail", contractError);
-            return [] as ContractSummary[];
-          }),
-        ]);
-        let specsData: ProjectSpec[] = [];
-
-        try {
-          specsData = await projectSpecsApi.getSpecsByRequest(id);
-        } catch (specError) {
-          console.warn("Falling back to request.specs for freelancer request detail", specError);
-          specsData = Array.isArray((requestData as any)?.specs)
-            ? ((requestData as any).specs as ProjectSpec[])
-            : [];
-        }
-
-        if (!mounted) return;
-        setRequest(requestData);
-        setSpecs(specsData);
-        setLinkedContract(
-          contractList.find((contract) => contract.requestId === requestData.id) || null,
-        );
-      } catch (loadError: any) {
-        console.error(loadError);
-        if (!mounted) return;
-        setError(loadError?.response?.data?.message || "Unable to load request details.");
-      } finally {
-        if (mounted) {
-          setIsLoading(false);
-        }
+      if (isRelevant) {
+        void fetchRequest(id);
       }
     };
 
-    void load();
-
+    socket.on("NOTIFICATION_CREATED", handleNotificationCreated);
     return () => {
-      mounted = false;
+      socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
     };
-  }, [id]);
+  }, [fetchRequest, id, request?.linkedContractSummary?.id, request?.linkedProjectSummary?.id]);
 
   if (isLoading) {
     return (
@@ -152,6 +160,7 @@ export default function FreelancerRequestDetailPage() {
 
   const clientSpec = pickLatestSpecByPhase(specs, SpecPhase.CLIENT_SPEC);
   const fullSpec = pickLatestSpecByPhase(specs, SpecPhase.FULL_SPEC);
+  const flowSnapshot = resolveRequestFlowSnapshot(request, { clientSpec, fullSpec }, linkedContract);
 
   const proposalList = request.freelancerProposals || request.proposals || [];
   const myProposal = proposalList.find((proposal) => proposal.freelancerId === currentUser?.id) || null;
@@ -161,11 +170,7 @@ export default function FreelancerRequestDetailPage() {
     fullSpec?.specPhase === SpecPhase.FULL_SPEC &&
     fullSpec.status === ProjectSpecStatus.FINAL_REVIEW;
   const canOpenContract = Boolean(linkedContract?.id);
-  const contractActivated =
-    Boolean(linkedContract?.activatedAt) ||
-    ["IN_PROGRESS", "TESTING", "COMPLETED", "PAID", "DISPUTED"].includes(
-      String(linkedContract?.projectStatus || "").toUpperCase(),
-    );
+  const contractActivated = isContractActivated(linkedContract);
   const canOpenWorkspace = Boolean(contractActivated && linkedContract?.projectId);
   const freelancerNextAction = (() => {
     if (!myProposal || normalizedProposalStatus === "INVITED") {
@@ -187,12 +192,12 @@ export default function FreelancerRequestDetailPage() {
     }
 
     if (!fullSpec) {
-      return {
-        title: "Waiting for Final Spec",
-        description: "Broker is drafting Final Spec from approved client scope.",
-        ctaLabel: "Refresh",
-        onClick: () => window.location.reload(),
-      };
+        return {
+          title: "Waiting for Final Spec",
+          description: "Broker is drafting Final Spec from approved client scope.",
+          ctaLabel: "Refresh",
+          onClick: () => id && fetchRequest(id),
+        };
     }
 
     if (fullSpec.status === ProjectSpecStatus.FINAL_REVIEW) {
@@ -230,12 +235,12 @@ export default function FreelancerRequestDetailPage() {
     }
 
     if (fullSpec.status === ProjectSpecStatus.ALL_SIGNED) {
-      return {
-        title: "Waiting for contract creation",
-        description: "Broker needs to initialize contract from the signed Final Spec.",
-        ctaLabel: "Refresh",
-        onClick: () => window.location.reload(),
-      };
+        return {
+          title: "Waiting for contract creation",
+          description: "Broker needs to initialize contract from the signed Final Spec.",
+          ctaLabel: "Refresh",
+          onClick: () => id && fetchRequest(id),
+        };
     }
 
     return {
@@ -255,9 +260,9 @@ export default function FreelancerRequestDetailPage() {
         </Button>
         <div>
           <h1 className="text-2xl font-bold">Request Detail</h1>
-          <p className="text-sm text-muted-foreground">
-            Freelancer view (read-only) for spec and contract workflow
-          </p>
+              <p className="text-sm text-muted-foreground">
+                Freelancer view for phase {flowSnapshot.phaseNumber}/5 in the request workflow
+              </p>
         </div>
       </div>
 

@@ -44,14 +44,18 @@ export class DisputeVerdictEntity {
   @Column({ comment: 'Staff/Admin ra phán quyết' })
   adjudicatorId: string;
 
-  @Column({ comment: 'Role của người phán quyết (STAFF/ADMIN)' })
+  @Column({ type: 'varchar', length: 50, comment: 'Role của người phán quyết (STAFF/ADMIN)' })
   adjudicatorRole: string;
 
   // === DECISION ===
   @Column({ type: 'enum', enum: FaultType, comment: 'Lỗi thuộc về nhóm nào?' })
   faultType: FaultType;
 
-  @Column({ comment: 'Bên bị xác định có lỗi chính (raiser/defendant/both/none)' })
+  @Column({
+    type: 'varchar',
+    length: 50,
+    comment: 'Bên bị xác định có lỗi chính (raiser/defendant/both/none)',
+  })
   faultyParty: string;
 
   @Column({
@@ -61,10 +65,17 @@ export class DisputeVerdictEntity {
   })
   reasoning: {
     violatedPolicies: string[];
+    policyReferences?: string[];
+    legalReferences?: string[];
+    contractReferences?: string[];
+    evidenceReferences?: string[];
     supportingEvidenceIds?: string[];
     factualFindings: string;
     legalAnalysis: string;
+    analysis?: string;
     conclusion: string;
+    remedyRationale?: string;
+    trustPenaltyRationale?: string;
   };
 
   // === MONEY SPLIT ===
@@ -87,7 +98,7 @@ export class DisputeVerdictEntity {
   @Column({ type: 'int', default: 0, comment: 'Số ngày bị cấm (nếu ban)' })
   banDurationDays: number;
 
-  @Column({ type: 'text', nullable: true, comment: 'Cảnh cáo gửi cho bên có lỗi' })
+  @Column({ type: 'varchar', length: 2000, nullable: true, comment: 'Cảnh cáo gửi cho bên có lỗi' })
   warningMessage: string;
 
   // === TIER INFO ===

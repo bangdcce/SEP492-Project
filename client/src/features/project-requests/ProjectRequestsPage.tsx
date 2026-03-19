@@ -9,14 +9,28 @@ import { getStoredJson } from '@/shared/utils/storage';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
 import { Input } from '@/shared/components/ui/Input';
 import { Badge } from '@/shared/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/shared/components/ui/alert-dialog';
+import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
+import toast from 'react-hot-toast';
 
 export const ProjectRequestsPage: React.FC = () => {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [assigningId, setAssigningId] = useState<string | null>(null);
+  const [assignConfirmId, setAssignConfirmId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [upgradeModalData, setUpgradeModalData] = useState<any>(null);
   const { checkKycStatus } = useKYCStatus();
 
   useEffect(() => {
@@ -68,17 +82,27 @@ export const ProjectRequestsPage: React.FC = () => {
   }, []);
 
   const handleAssign = async (requestId: string) => {
-    if (!confirm('Are you sure you want to assign this request to yourself?')) return;
-    
+    setAssignConfirmId(requestId);
+  };
+
+  const confirmAssign = async () => {
+    if (!assignConfirmId) return;
+
     try {
-      setAssigningId(requestId);
-      await projectRequestsApi.assignBroker(requestId);
+      setAssigningId(assignConfirmId);
+      await projectRequestsApi.assignBroker(assignConfirmId);
       // Refresh list after successful assignment
       await fetchRequests();
-      alert('Request assigned successfully!');
+      setAssignConfirmId(null);
+      toast.success('Request assigned successfully!');
     } catch (error: any) {
       console.error('Failed to assign request:', error);
-      alert(error.response?.data?.message || 'Failed to assign request');
+      const quotaErr = parseQuotaError(error);
+      if (quotaErr) {
+        setUpgradeModalData(quotaErr);
+      } else {
+        toast.error(error.response?.data?.message || 'Failed to assign request');
+      }
     } finally {
       setAssigningId(null);
     }
@@ -87,11 +111,16 @@ export const ProjectRequestsPage: React.FC = () => {
   const handleApply = async (requestId: string, coverLetter: string) => {
      try {
         await projectRequestsApi.applyToRequest(requestId, coverLetter);
-        alert("Application submitted successfully!");
+        toast.success("Application submitted successfully!");
         fetchRequests();
      } catch (error: any) {
         console.error(error);
-        alert(error.response?.data?.message || "Failed to apply");
+        const quotaErr = parseQuotaError(error);
+        if (quotaErr) {
+          setUpgradeModalData(quotaErr);
+        } else {
+          toast.error(error.response?.data?.message || "Failed to apply");
+        }
      }
   };
 
@@ -175,6 +204,27 @@ export const ProjectRequestsPage: React.FC = () => {
             currentUserId={user?.id}
         />
       </div>
+      <UpgradeModal
+        isOpen={!!upgradeModalData}
+        onClose={() => setUpgradeModalData(null)}
+        quotaInfo={upgradeModalData}
+      />
+      <AlertDialog open={Boolean(assignConfirmId)} onOpenChange={(open) => !open && setAssignConfirmId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Assign this request to yourself?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will become the active broker responsible for the client spec and downstream handoff flow.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(assigningId)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmAssign} disabled={Boolean(assigningId)}>
+              {assigningId ? 'Assigning...' : 'Assign to Me'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 };

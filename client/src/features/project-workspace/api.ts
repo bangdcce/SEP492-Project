@@ -7,6 +7,12 @@ import type {
   TaskLink,
   TaskSubmission,
   TaskStatusUpdateResult,
+  PendingProjectInvite,
+  ActiveSupervisedProject,
+  ProjectStaffInviteStatus,
+  StaffRecommendation,
+  StaffSummary,
+  ProjectRecentActivity,
 } from "./types";
 
 // ============================================
@@ -19,7 +25,8 @@ interface BoardWithMilestones {
   milestones: Milestone[];
 }
 
-const toIsoDateString = (value?: string) => {
+const toIsoDateString = (value?: string | null) => {
+  if (value === null) return null;
   if (!value) return undefined;
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? new Date(`${value}T00:00:00.000Z`).toISOString()
@@ -36,11 +43,40 @@ export interface WorkspaceProject {
   brokerId: string;
   clientId: string;
   freelancerId?: string | null;
+  staffId?: string | null;
+  staffInviteStatus?: ProjectStaffInviteStatus | null;
+  staff?: StaffSummary | null;
   currency?: string;
 }
 
 export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {
   return apiClient.get<WorkspaceProject>(`/projects/${projectId}`);
+};
+
+export const fetchStaffCandidates = async (): Promise<StaffSummary[]> => {
+  return apiClient.get<StaffSummary[]>("/projects/staff-candidates");
+};
+
+export const inviteProjectStaff = async (
+  projectId: string,
+  staffId: string,
+): Promise<WorkspaceProject> => {
+  return apiClient.post<WorkspaceProject>(`/projects/${projectId}/invite-staff`, { staffId });
+};
+
+export const fetchPendingProjectInvites = async (): Promise<PendingProjectInvite[]> => {
+  return apiClient.get<PendingProjectInvite[]>("/projects/pending-invites");
+};
+
+export const getActiveSupervisedProjects = async (): Promise<ActiveSupervisedProject[]> => {
+  return apiClient.get<ActiveSupervisedProject[]>("/projects/staff/active");
+};
+
+export const respondToProjectStaffInvite = async (
+  projectId: string,
+  status: ProjectStaffInviteStatus,
+): Promise<WorkspaceProject> => {
+  return apiClient.post<WorkspaceProject>(`/projects/${projectId}/staff-response`, { status });
 };
 
 export const fetchBoard = async (projectId: string): Promise<KanbanBoard> => {
@@ -77,6 +113,14 @@ export const updateTaskStatus = async (
 export const fetchTaskHistory = async (taskId: string): Promise<import("./types").TaskHistory[]> => {
   const result = await apiClient.get<import("./types").TaskHistory[]>(`/tasks/${taskId}/history`);
   return result;
+};
+
+export const fetchProjectRecentActivity = async (
+  projectId: string,
+): Promise<ProjectRecentActivity[]> => {
+  return apiClient.get<ProjectRecentActivity[]>(
+    `/tasks/project/${projectId}/recent-activity`,
+  );
 };
 
 export const fetchTaskComments = async (taskId: string): Promise<import("./types").TaskComment[]> => {
@@ -142,7 +186,7 @@ export const createTaskSubmission = async (
 
 /**
  * Review a task submission (Approve or Request Changes)
- * Only CLIENT users can call this endpoint
+ * Only CLIENT or STAFF users can call this endpoint
  * 
  * @param taskId - Task ID
  * @param submissionId - Submission ID to review
@@ -178,28 +222,6 @@ export const reviewSubmission = async (
   return result;
 };
 
-/**
- * Submit task with proof of work
- * Marks task as DONE with evidence (required for dispute resolution)
- */
-export const submitTask = async (
-  taskId: string,
-  payload: { submissionNote?: string; proofLink: string }
-): Promise<TaskStatusUpdateResult> => {
-  console.log("[API] Submitting task with proof:", { taskId, proofLink: payload.proofLink });
-
-  const result = await apiClient.post<TaskStatusUpdateResult>(`/tasks/${taskId}/submit`, payload);
-
-  console.log("[API] Task submitted:", result);
-  console.log("[API] Milestone progress after submission:", {
-    milestoneId: result.milestoneId,
-    progress: result.milestoneProgress,
-    completed: `${result.completedTasks}/${result.totalTasks}`,
-  });
-
-  return result;
-};
-
 // Update General Task Details
 export const updateTask = async (
   taskId: string,
@@ -207,7 +229,15 @@ export const updateTask = async (
 ): Promise<Task> => {
   console.log("[API] Updating task details:", { taskId, payload });
 
-  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, payload);
+  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, {
+    ...payload,
+    ...(Object.prototype.hasOwnProperty.call(payload, "startDate")
+      ? { startDate: toIsoDateString(payload.startDate ?? null) }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "dueDate")
+      ? { dueDate: toIsoDateString(payload.dueDate ?? null) }
+      : {}),
+  });
 
   console.log("[API] Task updated:", result);
   return result;
@@ -224,7 +254,11 @@ export const createTask = async (payload: {
 }): Promise<Task> => {
   console.log("[API] Creating task:", payload);
 
-  const result = await apiClient.post<Task>("/tasks", payload);
+  const result = await apiClient.post<Task>("/tasks", {
+    ...payload,
+    startDate: toIsoDateString(payload.startDate),
+    dueDate: toIsoDateString(payload.dueDate),
+  });
 
   console.log("[API] Task created:", result);
   return result;
@@ -299,6 +333,17 @@ export const deleteMilestone = async (
   milestoneId: string
 ): Promise<{ success: boolean }> => {
   return apiClient.delete<{ success: boolean }>(`/projects/milestones/${milestoneId}`);
+};
+
+export const requestMilestoneReview = async (milestoneId: string): Promise<Milestone> => {
+  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/request-review`);
+};
+
+export const reviewMilestoneAsStaff = async (
+  milestoneId: string,
+  payload: { recommendation: StaffRecommendation; note: string },
+): Promise<Milestone> => {
+  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/staff-review`, payload);
 };
 
 /**

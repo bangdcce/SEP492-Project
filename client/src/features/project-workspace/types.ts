@@ -36,6 +36,39 @@ export type TaskSubmissionStatus =
   | "REJECTED"
   | "REQUEST_CHANGES";
 
+export type ProjectStaffInviteStatus = "PENDING" | "ACCEPTED" | "REJECTED";
+
+export type StaffRecommendation = "ACCEPT" | "REJECT";
+
+export type StaffSummary = {
+  id: string;
+  fullName: string;
+  email: string;
+};
+
+export type PendingProjectInvite = {
+  id: string;
+  title: string;
+  description?: string | null;
+  clientId: string;
+  clientName?: string | null;
+  createdAt: string;
+  staffInviteStatus?: ProjectStaffInviteStatus | null;
+};
+
+export type ActiveSupervisedProject = {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: string;
+  totalBudget: number;
+  currency: string;
+  clientId: string;
+  clientName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type TaskSubmission = {
   id: string;
   taskId: string;
@@ -74,7 +107,7 @@ export type Task = {
   reporterId?: string | null;
   reporter?: Assignee | null;
 
-  // Proof of Work fields (for task submission / dispute resolution)
+  // Legacy completion metadata kept for dispute and overview surfaces.
   submissionNote?: string | null;
   proofLink?: string | null;
   submittedAt?: string | null;
@@ -101,6 +134,9 @@ export type Milestone = {
   sortOrder?: number | null;
   createdAt: string;
   submittedAt?: string | null;
+  reviewedByStaffId?: string | null;
+  staffRecommendation?: StaffRecommendation | null;
+  staffReviewNote?: string | null;
   // Progress fields (optional - calculated from tasks)
   progress?: number; // 0-100 percentage
   totalTasks?: number;
@@ -122,6 +158,16 @@ export type TaskStatusUpdateResult = {
   completedTasks: number;
 };
 
+export type ProjectTaskRealtimeEvent = {
+  action: "CREATED" | "UPDATED";
+  projectId: string;
+  task: Task;
+  milestoneId?: string | null;
+  milestoneProgress?: number;
+  totalTasks?: number;
+  completedTasks?: number;
+};
+
 export type TaskHistory = {
   id: string;
   taskId: string;
@@ -135,6 +181,10 @@ export type TaskHistory = {
   oldValue: string;
   newValue: string;
   createdAt: string;
+};
+
+export type ProjectRecentActivity = TaskHistory & {
+  task: Pick<Task, "id" | "title" | "status">;
 };
 
 export type TaskComment = {

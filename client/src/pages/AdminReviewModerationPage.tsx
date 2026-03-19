@@ -3,7 +3,7 @@
  * Admin-only page for moderating reviews (soft delete, restore, manage reports)
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Shield,
   Flag,
@@ -16,6 +16,7 @@ import {
   Search,
   Clock,
   User,
+  Users,
   Star,
   EyeOff,
   Loader2,
@@ -32,7 +33,36 @@ import {
   restoreReview,
   dismissReport,
   getReviewsForModeration,
+  getModerationAssignees,
+  openModerationCase,
+  releaseModerationCase,
+  reassignModerationCase,
+  takeModerationCase,
+  type ModerationAssigneeOption,
 } from "../features/trust-profile/api/adminReviewService";
+import { toast } from "sonner";
+import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
+import { connectSocket } from "@/shared/realtime/socket";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
 
 // Type for review data from server
 interface ServerReviewData {
@@ -44,6 +74,11 @@ interface ServerReviewData {
   updatedAt: string;
   deletedAt?: string;
   deletedBy?: string;
+  deletedByUser?: {
+    id?: string;
+    fullName?: string;
+    email?: string;
+  } | null;
   deleteReason?: string;
   reviewer?: {
     id: string;
@@ -67,6 +102,44 @@ interface ServerReviewData {
     lastReportedAt: string;
     reportedBy?: Array<{ id: string; fullName: string }>;
   };
+  openedBy?: {
+    id?: string;
+    fullName?: string;
+    email?: string;
+    role?: string;
+  } | null;
+  currentAssignee?: {
+    id?: string;
+    fullName?: string;
+    email?: string;
+    role?: string;
+  } | null;
+  lastAssignedBy?: {
+    id?: string;
+    fullName?: string;
+    email?: string;
+    role?: string;
+  } | null;
+  lastAssignedAt?: string | null;
+  assignmentVersion?: number;
+  lockStatus?: {
+    isOpened: boolean;
+    isAssigned: boolean;
+    openedById?: string | null;
+    currentAssigneeId?: string | null;
+  };
+  moderationHistorySummary?: Array<{
+    id: string;
+    action: "SOFT_DELETE" | "RESTORE" | "DISMISS_REPORT" | "ASSIGNED" | "RELEASED";
+    reason?: string | null;
+    performedAt: string;
+    performedBy?: {
+      id?: string;
+      fullName?: string;
+      email?: string;
+      role?: string;
+    } | null;
+  }>;
 }
 
 type FilterTab = "ALL" | "ACTIVE" | "FLAGGED" | "SOFT_DELETED";
@@ -83,25 +156,43 @@ export default function AdminReviewModerationPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [queueActionReviewId, setQueueActionReviewId] = useState<string | null>(null);
+  const [dismissTargetReview, setDismissTargetReview] = useState<AdminReview | null>(null);
+  const [reassignTargetReview, setReassignTargetReview] = useState<AdminReview | null>(null);
+  const [availableAssignees, setAvailableAssignees] = useState<ModerationAssigneeOption[]>([]);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState("");
+  const [reassignReason, setReassignReason] = useState("");
 
-  // Mock admin user - TODO: Get from auth context
-  const currentAdmin = {
-    id: "ADMIN001",
-    fullName: "Admin User",
-    role: "ADMIN",
-  };
+  const currentAdmin = useMemo(
+    () =>
+      getStoredJson<{ id?: string; fullName?: string; role?: string }>(
+        STORAGE_KEYS.USER,
+      ),
+    [],
+  );
 
-  // Fetch reviews from API
   useEffect(() => {
-    const fetchReviews = async () => {
-      setIsDataLoading(true);
-      setError(null);
+    const loadAssignees = async () => {
       try {
-        // Get reviews from API
-        const data = await getReviewsForModeration();
+        const admins = await getModerationAssignees();
+        setAvailableAssignees(admins);
+      } catch (err) {
+        console.warn("Failed to load moderation assignees", err);
+      }
+    };
 
-        // Transform server data to AdminReview format
-        const transformedReviews: AdminReview[] = data.map(
+    void loadAssignees();
+  }, []);
+
+  const fetchReviews = useCallback(async () => {
+    setIsDataLoading(true);
+    setError(null);
+    try {
+      const data = await getReviewsForModeration(
+        activeTab === "ALL" ? undefined : { status: activeTab },
+      );
+
+      const transformedReviews: AdminReview[] = data.map(
           (review: ServerReviewData) => ({
             id: review.id,
             rating: review.rating,
@@ -142,35 +233,81 @@ export default function AdminReviewModerationPage() {
                   reportedBy: review.reportInfo.reportedBy,
                 }
               : undefined,
-            moderationHistory: review.deleteReason
-              ? [
-                  {
-                    id: `mod-${review.id}`,
-                    action: "SOFT_DELETE" as const,
-                    reason: review.deleteReason,
-                    performedBy: {
-                      id: review.deletedBy || "",
-                      fullName: "Admin",
-                      role: "ADMIN",
-                    },
-                    performedAt: review.deletedAt || "",
-                  },
-                ]
+            openedBy: review.openedBy
+              ? {
+                  id: review.openedBy.id || "",
+                  fullName: review.openedBy.fullName,
+                  email: review.openedBy.email,
+                  role: review.openedBy.role,
+                }
               : undefined,
+            currentAssignee: review.currentAssignee
+              ? {
+                  id: review.currentAssignee.id || "",
+                  fullName: review.currentAssignee.fullName,
+                  email: review.currentAssignee.email,
+                  role: review.currentAssignee.role,
+                }
+              : undefined,
+            lastAssignedBy: review.lastAssignedBy
+              ? {
+                  id: review.lastAssignedBy.id || "",
+                  fullName: review.lastAssignedBy.fullName,
+                  email: review.lastAssignedBy.email,
+                  role: review.lastAssignedBy.role,
+                }
+              : undefined,
+            lastAssignedAt: review.lastAssignedAt || undefined,
+            assignmentVersion: review.assignmentVersion ?? 0,
+            lockStatus: review.lockStatus,
+            moderationHistory: review.moderationHistorySummary?.map((action) => ({
+              id: action.id,
+              action,
+            })).map(({ action }) => ({
+              id: action.id,
+              action: action.action,
+              reason: action.reason || undefined,
+              performedBy: {
+                id: action.performedBy?.id || "",
+                fullName: action.performedBy?.fullName || action.performedBy?.email || "Admin",
+                role: action.performedBy?.role || "ADMIN",
+              },
+              performedAt: action.performedAt,
+            })),
           })
         );
 
-        setReviews(transformedReviews);
-      } catch (err) {
-        console.error("Failed to fetch reviews:", err);
-        setError("Failed to load reviews. Please try again later.");
-      } finally {
-        setIsDataLoading(false);
+      setReviews(transformedReviews);
+    } catch (err) {
+      console.error("Failed to fetch reviews:", err);
+      setError("Failed to load reviews. Please try again later.");
+    } finally {
+      setIsDataLoading(false);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    void fetchReviews();
+  }, [fetchReviews]);
+
+  useEffect(() => {
+    const socket = connectSocket();
+    const handleNotificationCreated = (payload: {
+      notification?: { relatedType?: string | null; relatedId?: string | null };
+      relatedType?: string | null;
+      relatedId?: string | null;
+    }) => {
+      const notification = payload?.notification ?? payload;
+      if (String(notification?.relatedType || "") === "Review") {
+        void fetchReviews();
       }
     };
 
-    fetchReviews();
-  }, []);
+    socket.on("NOTIFICATION_CREATED", handleNotificationCreated);
+    return () => {
+      socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
+    };
+  }, [fetchReviews]);
 
   // Filter reviews by tab
   const filteredReviews = reviews.filter((review) => {
@@ -199,36 +336,13 @@ export default function AdminReviewModerationPage() {
     setIsLoading(true);
     try {
       await softDeleteReview(selectedReview.id, reason, notes);
-
-      // Update local state
-      setReviews((prev) =>
-        prev.map((r) =>
-          r.id === selectedReview.id
-            ? {
-                ...r,
-                status: "SOFT_DELETED" as ReviewStatus,
-                moderationHistory: [
-                  {
-                    id: `MOD${Date.now()}`,
-                    action: "SOFT_DELETE" as const,
-                    reason,
-                    notes,
-                    performedBy: currentAdmin,
-                    performedAt: new Date().toISOString(),
-                  },
-                  ...(r.moderationHistory || []),
-                ],
-              }
-            : r
-        )
-      );
-
+      await fetchReviews();
       setShowDeleteModal(false);
       setSelectedReview(null);
-      alert("Review soft deleted successfully!");
+      toast.success("Review soft deleted successfully.");
     } catch (error) {
       console.error("Failed to soft delete review:", error);
-      alert("Failed to delete review. Please try again.");
+      toast.error(getApiErrorDetails(error, "Failed to delete review.").message);
     } finally {
       setIsLoading(false);
     }
@@ -241,68 +355,102 @@ export default function AdminReviewModerationPage() {
     setIsLoading(true);
     try {
       await restoreReview(selectedReview.id, reason);
-
-      // Update local state
-      setReviews((prev) =>
-        prev.map((r) =>
-          r.id === selectedReview.id
-            ? {
-                ...r,
-                status: "ACTIVE" as ReviewStatus,
-                moderationHistory: [
-                  {
-                    id: `MOD${Date.now()}`,
-                    action: "RESTORE" as const,
-                    reason,
-                    performedBy: currentAdmin,
-                    performedAt: new Date().toISOString(),
-                  },
-                  ...(r.moderationHistory || []),
-                ],
-              }
-            : r
-        )
-      );
-
+      await fetchReviews();
       setShowRestoreModal(false);
       setSelectedReview(null);
-      alert("Review restored successfully!");
+      toast.success("Review restored successfully.");
     } catch (error) {
       console.error("Failed to restore review:", error);
-      alert("Failed to restore review. Please try again.");
+      toast.error(getApiErrorDetails(error, "Failed to restore review.").message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // Handle dismiss report
   const handleDismissReport = async (reviewId: string) => {
-    if (
-      !confirm("Are you sure you want to dismiss all reports for this review?")
-    ) {
+    setQueueActionReviewId(reviewId);
+    try {
+      await dismissReport(reviewId, "False report - content is acceptable");
+      await fetchReviews();
+      setDismissTargetReview(null);
+      toast.success("Reports dismissed successfully.");
+    } catch (error) {
+      console.error("Failed to dismiss report:", error);
+      toast.error(getApiErrorDetails(error, "Failed to dismiss report.").message);
+    } finally {
+      setQueueActionReviewId(null);
+    }
+  };
+
+  const handleTakeOwnership = async (review: AdminReview) => {
+    setQueueActionReviewId(review.id);
+    try {
+      const action = review.currentAssignee?.id === currentAdmin?.id
+        ? releaseModerationCase(review.id, review.assignmentVersion ?? 0)
+        : takeModerationCase(review.id, review.assignmentVersion ?? 0);
+      await action;
+      await fetchReviews();
+      toast.success(
+        review.currentAssignee?.id === currentAdmin?.id
+          ? "Queue ownership released."
+          : "Queue ownership assigned to you.",
+      );
+    } catch (error) {
+      toast.error(getApiErrorDetails(error, "Failed to update moderation ownership.").message);
+      await fetchReviews();
+    } finally {
+      setQueueActionReviewId(null);
+    }
+  };
+
+  const handleOpenCase = async (review: AdminReview) => {
+    setQueueActionReviewId(review.id);
+    try {
+      await openModerationCase(review.id, review.assignmentVersion ?? 0);
+      await fetchReviews();
+      toast.success("Moderation case opened.");
+    } catch (error) {
+      toast.error(getApiErrorDetails(error, "Failed to open moderation case.").message);
+      await fetchReviews();
+    } finally {
+      setQueueActionReviewId(null);
+    }
+  };
+
+  const openReassignDialog = (review: AdminReview) => {
+    const fallbackAssigneeId =
+      review.currentAssignee?.id ||
+      availableAssignees.find((assignee) => assignee.id !== currentAdmin?.id)?.id ||
+      "";
+    setSelectedAssigneeId(fallbackAssigneeId);
+    setReassignReason("");
+    setReassignTargetReview(review);
+  };
+
+  const handleReassignCase = async () => {
+    if (!reassignTargetReview || !selectedAssigneeId) {
+      toast.error("Select an assignee first.");
       return;
     }
 
+    setQueueActionReviewId(reassignTargetReview.id);
     try {
-      await dismissReport(reviewId, "False report - content is acceptable");
-
-      // Update local state
-      setReviews((prev) =>
-        prev.map((r) =>
-          r.id === reviewId
-            ? {
-                ...r,
-                status: "ACTIVE" as ReviewStatus,
-                reportInfo: undefined,
-              }
-            : r
-        )
+      await reassignModerationCase(
+        reassignTargetReview.id,
+        selectedAssigneeId,
+        reassignTargetReview.assignmentVersion ?? 0,
+        reassignReason.trim() || undefined,
       );
-
-      alert("Reports dismissed successfully!");
+      await fetchReviews();
+      setReassignTargetReview(null);
+      setSelectedAssigneeId("");
+      setReassignReason("");
+      toast.success("Moderation case reassigned.");
     } catch (error) {
-      console.error("Failed to dismiss report:", error);
-      alert("Failed to dismiss report. Please try again.");
+      toast.error(getApiErrorDetails(error, "Failed to reassign moderation case.").message);
+      await fetchReviews();
+    } finally {
+      setQueueActionReviewId(null);
     }
   };
 
@@ -316,6 +464,46 @@ export default function AdminReviewModerationPage() {
       hour: "2-digit",
       minute: "2-digit",
     }).format(date);
+  };
+
+  const formatActor = (actor?: {
+    fullName?: string;
+    email?: string;
+    role?: string;
+  } | null) => {
+    if (!actor) return "Unassigned";
+    return actor.fullName || actor.email || "Unknown admin";
+  };
+
+  const getQueueStatusBadge = (review: AdminReview) => {
+    if (review.currentAssignee?.id) {
+      const isMine = review.currentAssignee.id === currentAdmin?.id;
+      return (
+        <span
+          className={`px-2 py-1 text-xs rounded-md ${
+            isMine
+              ? "bg-teal-100 text-teal-700"
+              : "bg-blue-100 text-blue-700"
+          }`}
+        >
+          {isMine ? "Assigned to you" : `Assigned to ${formatActor(review.currentAssignee)}`}
+        </span>
+      );
+    }
+
+    if (review.openedBy?.id) {
+      return (
+        <span className="px-2 py-1 bg-amber-100 text-amber-700 text-xs rounded-md">
+          Opened by {formatActor(review.openedBy)}
+        </span>
+      );
+    }
+
+    return (
+      <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded-md">
+        Queue not opened
+      </span>
+    );
   };
 
   // Get status badge
@@ -379,7 +567,7 @@ export default function AdminReviewModerationPage() {
         </h3>
         <p className="text-gray-600 mb-4">{error}</p>
         <button
-          onClick={() => window.location.reload()}
+          onClick={() => void fetchReviews()}
           className="px-4 py-2 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors"
         >
           Try Again
@@ -400,6 +588,9 @@ export default function AdminReviewModerationPage() {
             <h1 className="text-3xl text-slate-900">Review Moderation</h1>
             <p className="text-gray-600">
               Manage reported reviews and moderate content
+            </p>
+            <p className="text-xs text-slate-500">
+              Signed in as {currentAdmin?.fullName || currentAdmin?.id || "Admin"}
             </p>
           </div>
         </div>
@@ -531,7 +722,39 @@ export default function AdminReviewModerationPage() {
                 </div>
 
                 {/* Actions */}
-                <div className="flex gap-2">
+                <div className="flex flex-wrap justify-end gap-2">
+                  {!review.lockStatus?.isOpened && (
+                    <button
+                      onClick={() => handleOpenCase(review)}
+                      disabled={queueActionReviewId === review.id}
+                      className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Shield className="w-4 h-4" />
+                      {queueActionReviewId === review.id ? "Opening..." : "Open Case"}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => handleTakeOwnership(review)}
+                    disabled={queueActionReviewId === review.id}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    <User className="w-4 h-4" />
+                    {queueActionReviewId === review.id
+                      ? "Updating..."
+                      : review.currentAssignee?.id === currentAdmin?.id
+                        ? "Release"
+                        : "Take Ownership"}
+                  </button>
+                  {availableAssignees.length > 1 && (
+                    <button
+                      onClick={() => openReassignDialog(review)}
+                      disabled={queueActionReviewId === review.id}
+                      className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      <Users className="w-4 h-4" />
+                      Reassign
+                    </button>
+                  )}
                   {review.status === "SOFT_DELETED" ? (
                     <button
                       onClick={() => {
@@ -547,8 +770,9 @@ export default function AdminReviewModerationPage() {
                     <>
                       {review.reportInfo && (
                         <button
-                          onClick={() => handleDismissReport(review.id)}
-                          className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2"
+                          onClick={() => setDismissTargetReview(review)}
+                          disabled={queueActionReviewId === review.id}
+                          className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           <XCircle className="w-4 h-4" />
                           Dismiss
@@ -559,7 +783,8 @@ export default function AdminReviewModerationPage() {
                           setSelectedReview(review);
                           setShowDeleteModal(true);
                         }}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={queueActionReviewId === review.id}
                       >
                         <Trash2 className="w-4 h-4" />
                         Soft Delete
@@ -574,6 +799,41 @@ export default function AdminReviewModerationPage() {
                 <p className="text-sm text-gray-700 leading-relaxed">
                   {review.comment}
                 </p>
+              </div>
+
+              <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+                <div className="mb-3 flex flex-wrap items-center gap-2">
+                  {getQueueStatusBadge(review)}
+                  <span className="px-2 py-1 bg-white text-slate-600 text-xs rounded-md border border-slate-200">
+                    Version {review.assignmentVersion ?? 0}
+                  </span>
+                </div>
+                <div className="grid gap-3 text-sm text-slate-600 md:grid-cols-2">
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-slate-400">Opened By</div>
+                    <div className="mt-1 font-medium text-slate-800">
+                      {review.openedBy ? formatActor(review.openedBy) : "Not opened yet"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-slate-400">Current Assignee</div>
+                    <div className="mt-1 font-medium text-slate-800">
+                      {review.currentAssignee ? formatActor(review.currentAssignee) : "Unassigned"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-slate-400">Last Routed By</div>
+                    <div className="mt-1 font-medium text-slate-800">
+                      {review.lastAssignedBy ? formatActor(review.lastAssignedBy) : "No assignment history"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-wide text-slate-400">Last Assignment</div>
+                    <div className="mt-1 font-medium text-slate-800">
+                      {review.lastAssignedAt ? formatDate(review.lastAssignedAt) : "No assignment history"}
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Report Info */}
@@ -661,6 +921,131 @@ export default function AdminReviewModerationPage() {
       </div>
 
       {/* Modals */}
+      <AlertDialog
+        open={Boolean(dismissTargetReview)}
+        onOpenChange={(open) => {
+          if (!open) setDismissTargetReview(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Dismiss all pending reports?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will clear the current pending reports for{" "}
+              <span className="font-medium text-slate-900">
+                {dismissTargetReview?.reviewer.fullName || "this review"}
+              </span>
+              . Use this only when the review content is acceptable and the reports are invalid.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={queueActionReviewId === dismissTargetReview?.id}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={queueActionReviewId === dismissTargetReview?.id}
+              onClick={() => dismissTargetReview && handleDismissReport(dismissTargetReview.id)}
+            >
+              {queueActionReviewId === dismissTargetReview?.id ? "Dismissing..." : "Dismiss Reports"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <Dialog
+        open={Boolean(reassignTargetReview)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setReassignTargetReview(null);
+            setSelectedAssigneeId("");
+            setReassignReason("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reassign moderation case</DialogTitle>
+            <DialogDescription>
+              Choose another admin owner for this review. The request will be rejected if another
+              admin already changed the assignment version.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+              <div className="font-medium text-slate-900">
+                {reassignTargetReview?.project.title || "Review case"}
+              </div>
+              <div className="mt-1">
+                Reviewer: {reassignTargetReview?.reviewer.fullName || "Unknown"}
+              </div>
+              <div className="mt-1">
+                Current assignee:{" "}
+                {reassignTargetReview?.currentAssignee
+                  ? formatActor(reassignTargetReview.currentAssignee)
+                  : "Unassigned"}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-900" htmlFor="moderation-assignee">
+                Assign to
+              </label>
+              <select
+                id="moderation-assignee"
+                value={selectedAssigneeId}
+                onChange={(event) => setSelectedAssigneeId(event.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+              >
+                <option value="">Select an admin</option>
+                {availableAssignees.map((assignee) => (
+                  <option key={assignee.id} value={assignee.id}>
+                    {assignee.fullName}
+                    {assignee.email ? ` (${assignee.email})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-slate-900" htmlFor="moderation-reason">
+                Handoff note
+              </label>
+              <textarea
+                id="moderation-reason"
+                rows={3}
+                value={reassignReason}
+                onChange={(event) => setReassignReason(event.target.value)}
+                placeholder="Optional context for the next admin owner"
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+              />
+            </div>
+          </div>
+
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => {
+                setReassignTargetReview(null);
+                setSelectedAssigneeId("");
+                setReassignReason("");
+              }}
+              className="px-4 py-2 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleReassignCase()}
+              disabled={!selectedAssigneeId || queueActionReviewId === reassignTargetReview?.id}
+              className="px-4 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {queueActionReviewId === reassignTargetReview?.id ? "Reassigning..." : "Confirm Reassign"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {selectedReview && (
         <>
           <SoftDeleteConfirmModal

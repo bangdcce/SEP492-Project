@@ -17,6 +17,7 @@ import {
   FileSignature,
   FolderOpen,
   WalletCards,
+  CreditCard,
 } from "lucide-react";
 
 export interface FreelancerSidebarMenuItem {
@@ -124,6 +125,14 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     icon: WalletCards,
     path: "/freelancer/billing",
     description: "Track released earnings and wallet history",
+    section: "account",
+  },
+  {
+    id: "subscription",
+    label: "Subscription",
+    icon: CreditCard,
+    path: "/freelancer/subscription",
+    description: "Manage your premium plan",
     section: "account",
   },
 ];

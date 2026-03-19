@@ -1,4 +1,12 @@
-import { IsNotEmpty, IsString, IsBoolean, IsOptional, IsArray, IsEnum } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsString,
+  IsBoolean,
+  IsOptional,
+  IsArray,
+  IsEnum,
+  MaxLength,
+} from 'class-validator';
 
 export enum NoteType {
   GENERAL = 'GENERAL',
@@ -14,6 +22,7 @@ export enum NoteType {
 export class AddNoteDto {
   @IsNotEmpty({ message: 'Nội dung ghi chú không được để trống' })
   @IsString()
+  @MaxLength(5000)
   content: string;
 
   /**

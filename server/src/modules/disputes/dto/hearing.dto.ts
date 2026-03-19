@@ -1,4 +1,4 @@
-﻿import {
+import {
   IsNotEmpty,
   IsUUID,
   IsDateString,
@@ -7,11 +7,17 @@
   IsInt,
   Min,
   Max,
+  MaxLength,
   IsString,
   IsArray,
   IsBoolean,
+  IsIn,
+  IsUrl,
+  ValidateIf,
+  ValidateNested,
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { Transform, Type } from 'class-transformer';
 import {
   SpeakerRole,
   HearingTier,
@@ -21,7 +27,7 @@ import {
 } from 'src/database/entities';
 
 /**
- * DTO ﾄ黛ｻ・lﾃｪn l盻議h phiﾃｪn ﾄ訴盻「 tr蘯ｧn
+ * DTO ?? len l?ch phien ?i?u tr?n
  */
 export class ScheduleHearingDto {
   @IsUUID()
@@ -39,21 +45,24 @@ export class ScheduleHearingDto {
   estimatedDurationMinutes?: number; // Default: 60
 
   @IsString()
+  @MaxLength(2000)
   @IsOptional()
-  agenda?: string; // N盻冓 dung c蘯ｧn th蘯｣o lu蘯ｭn
+  agenda?: string; // N?i dung c?n th?o lu?n
 
   @IsArray()
   @IsString({ each: true })
   @IsOptional()
-  requiredDocuments?: string[]; // Tﾃi li盻㎡ yﾃｪu c蘯ｧu chu蘯ｩn b盻・
+  requiredDocuments?: string[]; // Tai li?u yeu c?u chu?n b?
 
   @IsEnum(HearingTier)
   @IsOptional()
   tier?: HearingTier; // Default: TIER_1 (Staff)
 
-  @IsString()
-  @IsOptional()
-  externalMeetingLink?: string; // Link Google Meet/Zoom n蘯ｿu c蘯ｧn video call
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_, value) => typeof value === 'string' && value.length > 0)
+  @IsUrl({ require_protocol: true }, { message: 'externalMeetingLink must be a valid absolute URL' })
+  @MaxLength(500)
+  externalMeetingLink?: string; // Link Google Meet/Zoom n?u c?n video call
 
   @ApiPropertyOptional({
     description: 'Emergency hearing flag to bypass 24h notice rule',
@@ -65,7 +74,7 @@ export class ScheduleHearingDto {
 }
 
 /**
- * DTO ﾄ黛ｻ・Staff/Admin ﾄ訴盻「 khi盻ハ Live Chat trong phiﾃｪn ﾄ訴盻「 tr蘯ｧn
+ * DTO ?? Staff/Admin ?i?u khi?n Live Chat trong phien ?i?u tr?n
  */
 export class ModerateHearingDto {
   @IsUUID()
@@ -78,7 +87,7 @@ export class ModerateHearingDto {
 }
 
 /**
- * DTO ﾄ黛ｻ・b蘯ｯt ﾄ黛ｺｧu/k蘯ｿt thﾃｺc phiﾃｪn ﾄ訴盻「 tr蘯ｧn
+ * DTO ?? b?t ??u/k?t thuc phien ?i?u tr?n
  */
 export class UpdateHearingStatusDto {
   @IsUUID()
@@ -90,10 +99,12 @@ export class UpdateHearingStatusDto {
   action: 'start' | 'end' | 'cancel';
 
   @IsString()
+  @MaxLength(5000)
   @IsNotEmpty()
   summary: string;
 
   @IsString()
+  @MaxLength(5000)
   @IsNotEmpty()
   findings: string;
 
@@ -103,33 +114,60 @@ export class UpdateHearingStatusDto {
   pendingActions?: string[];
 
   @IsString()
+  @MaxLength(2000)
   @IsOptional()
   noShowNote?: string;
 
   @IsString()
+  @MaxLength(1000)
   @IsOptional()
-  cancelReason?: string; // Lﾃｽ do h盻ｧy (khi cancel)
+  cancelReason?: string; // Ly do h?y (khi cancel)
 }
 
 /**
- * DTO ﾄ黛ｻ・participant ph蘯｣n h盻妬 l盻拱 m盻拱
+ * DTO ?? participant ph?n h?i l?i m?i
  */
 export class RespondHearingInviteDto {
   @IsUUID()
   @IsNotEmpty()
-  participantId: string; // HearingParticipantEntity.id
+  participantId: string; // EventParticipantEntity.id (calendar invite participant)
 
   @IsString()
   @IsNotEmpty()
   response: 'accept' | 'decline' | 'tentative';
 
   @IsString()
+  @MaxLength(1000)
   @IsOptional()
   declineReason?: string;
 }
 
+export class HearingStatementContentBlockDto {
+  @IsString()
+  @MaxLength(32)
+  @IsNotEmpty()
+  kind:
+    | 'SUMMARY'
+    | 'FACTS'
+    | 'EVIDENCE_BASIS'
+    | 'ANALYSIS'
+    | 'REMEDY'
+    | 'ATTESTATION'
+    | 'CUSTOM';
+
+  @IsString()
+  @MaxLength(120)
+  @IsOptional()
+  heading?: string;
+
+  @IsString()
+  @MaxLength(4000)
+  @IsNotEmpty()
+  body: string;
+}
+
 /**
- * DTO n盻冪 l盻拱 khai (draft ho蘯ｷc submit)
+ * DTO n?p l?i khai (draft ho?c submit)
  */
 export class SubmitHearingStatementDto {
   @IsUUID()
@@ -141,10 +179,12 @@ export class SubmitHearingStatementDto {
   type: HearingStatementType;
 
   @IsString()
+  @MaxLength(255)
   @IsOptional()
   title?: string;
 
   @IsString()
+  @MaxLength(10000)
   @IsOptional()
   content?: string;
 
@@ -152,6 +192,26 @@ export class SubmitHearingStatementDto {
   @IsString({ each: true })
   @IsOptional()
   attachments?: string[];
+
+  @ValidateNested({ each: true })
+  @Type(() => HearingStatementContentBlockDto)
+  @IsArray()
+  @IsOptional()
+  contentBlocks?: HearingStatementContentBlockDto[];
+
+  @IsArray()
+  @IsString({ each: true })
+  @IsOptional()
+  citedEvidenceIds?: string[];
+
+  @IsBoolean()
+  @IsOptional()
+  platformDeclarationAccepted?: boolean;
+
+  @IsString()
+  @MaxLength(500)
+  @IsOptional()
+  changeSummary?: string;
 
   @IsUUID()
   @IsOptional()
@@ -171,7 +231,20 @@ export class SubmitHearingStatementDto {
 }
 
 /**
- * DTO ﾄ黛ｺｷt cﾃ｢u h盻淑 trong hearing
+ * DTO ph?n quy?t OBJECTION (SUSTAINED ho?c OVERRULED)
+ */
+export class ResolveObjectionDto {
+  @IsUUID()
+  @IsNotEmpty()
+  statementId: string;
+
+  @IsIn(['SUSTAINED', 'OVERRULED'])
+  @IsNotEmpty()
+  ruling: 'SUSTAINED' | 'OVERRULED';
+}
+
+/**
+ * DTO ??t cau h?i trong hearing
  */
 export class AskHearingQuestionDto {
   @IsUUID()
@@ -183,6 +256,7 @@ export class AskHearingQuestionDto {
   targetUserId: string;
 
   @IsString()
+  @MaxLength(2000)
   @IsNotEmpty()
   question: string;
 
@@ -194,16 +268,17 @@ export class AskHearingQuestionDto {
 }
 
 /**
- * DTO tr蘯｣ l盻拱 cﾃ｢u h盻淑 trong hearing
+ * DTO tr? l?i cau h?i trong hearing
  */
 export class AnswerHearingQuestionDto {
   @IsString()
+  @MaxLength(5000)
   @IsNotEmpty()
   answer: string;
 }
 
 /**
- * DTO k蘯ｿt thﾃｺc hearing
+ * DTO k?t thuc hearing
  */
 export class EndHearingDto {
   @IsUUID()
@@ -211,10 +286,12 @@ export class EndHearingDto {
   hearingId: string;
 
   @IsString()
+  @MaxLength(5000)
   @IsNotEmpty()
   summary: string;
 
   @IsString()
+  @MaxLength(5000)
   @IsNotEmpty()
   findings: string;
 
@@ -224,6 +301,7 @@ export class EndHearingDto {
   pendingActions?: string[];
 
   @IsString()
+  @MaxLength(2000)
   @IsOptional()
   noShowNote?: string;
 
@@ -233,7 +311,7 @@ export class EndHearingDto {
 }
 
 /**
- * DTO d盻拱 l盻議h phiﾃｪn ﾄ訴盻「 tr蘯ｧn
+ * DTO d?i l?ch phien ?i?u tr?n
  */
 export class RescheduleHearingDto {
   @IsUUID()
@@ -251,6 +329,7 @@ export class RescheduleHearingDto {
   estimatedDurationMinutes?: number;
 
   @IsString()
+  @MaxLength(2000)
   @IsOptional()
   agenda?: string;
 
@@ -259,8 +338,10 @@ export class RescheduleHearingDto {
   @IsOptional()
   requiredDocuments?: string[];
 
-  @IsString()
-  @IsOptional()
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @ValidateIf((_, value) => typeof value === 'string' && value.length > 0)
+  @IsUrl({ require_protocol: true }, { message: 'externalMeetingLink must be a valid absolute URL' })
+  @MaxLength(500)
   externalMeetingLink?: string;
 
   @ApiPropertyOptional({
@@ -293,6 +374,7 @@ export class ExtendHearingDto {
   additionalMinutes: number;
 
   @IsString()
+  @MaxLength(1000)
   @IsNotEmpty()
   reason: string;
 }
@@ -311,6 +393,7 @@ export class InviteSupportStaffDto {
   participantRole?: HearingParticipantRole;
 
   @IsString()
+  @MaxLength(1000)
   @IsNotEmpty()
   reason: string;
 }
@@ -323,12 +406,14 @@ export class DispatchHearingRemindersDto {
 
 export class OpenEvidenceIntakeDto {
   @IsString()
+  @MaxLength(1000)
   @IsNotEmpty()
   reason: string;
 }
 
 export class PauseHearingDto {
   @IsString()
+  @MaxLength(1000)
   @IsNotEmpty()
   reason: string;
 }

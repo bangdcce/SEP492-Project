@@ -14,4 +14,9 @@ export class HealthController {
   async getReady() {
     return await this.healthService.getReadinessStatus();
   }
+
+  @Get('ready/dispute-workspace')
+  async getDisputeWorkspaceReady() {
+    return await this.healthService.getDisputeWorkspaceReadinessStatus();
+  }
 }

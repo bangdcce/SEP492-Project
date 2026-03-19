@@ -132,6 +132,11 @@ const StaffDashboardPage = lazy(() =>
     default: m.StaffDashboardPage,
   })),
 );
+const StaffProjectsPage = lazy(() =>
+  import("@/features/staff/pages/StaffProjectsPage").then((m) => ({
+    default: m.StaffProjectsPage,
+  })),
+);
 const StaffQueuePage = lazy(() =>
   import("@/features/staff/pages/StaffQueuePage").then((m) => ({
     default: m.StaffQueuePage,
@@ -882,6 +887,7 @@ function App() {
         {/* ========== STAFF ROUTES - /staff/* ========== */}
         <Route path="/staff" element={<StaffLayout />}>
           <Route path="dashboard" element={<StaffDashboardPage />} />
+          <Route path="projects" element={<StaffProjectsPage />} />
           <Route path="queue" element={<StaffQueuePage />} />
           <Route path="caseload" element={<StaffCaseloadPage />} />
           <Route path="calendar" element={<StaffCalendarPage />} />
@@ -891,6 +897,17 @@ function App() {
           <Route path="profile" element={<ProfilePage />} />
           {/* Fallback */}
           <Route index element={<Navigate to="dashboard" replace />} />
+        </Route>
+
+        <Route
+          path={ROUTES.STAFF_WORKSPACE}
+          element={
+            <RoleGuard allowedRoles={["STAFF", "ADMIN"]}>
+              <StaffLayout />
+            </RoleGuard>
+          }
+        >
+          <Route index element={<ProjectWorkspacePage />} />
         </Route>
 
         {/* ========== REDIRECTS ========== */}

@@ -7,6 +7,7 @@ import {
   IsString,
   IsOptional,
   IsBoolean,
+  MaxLength,
 } from 'class-validator';
 
 /**
@@ -24,6 +25,7 @@ export class CreateResolutionFeedbackDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(2000)
   comment?: string; // Nhận xét chi tiết
 
   // === DETAILED CRITERIA (Optional) ===

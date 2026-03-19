@@ -15,6 +15,7 @@ import {
   ShieldCheck,
   Mail,
   WalletCards,
+  CreditCard,
 } from "lucide-react";
 
 export interface BrokerSidebarMenuItem {
@@ -117,6 +118,14 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: WalletCards,
     path: "/broker/billing",
     description: "Track commission releases and wallet history",
+    section: "account",
+  },
+  {
+    id: "subscription",
+    label: "Subscription",
+    icon: CreditCard,
+    path: "/broker/subscription",
+    description: "Manage your premium plan",
     section: "account",
   },
 ];

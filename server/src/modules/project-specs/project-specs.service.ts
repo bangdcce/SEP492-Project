@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
@@ -22,13 +23,12 @@ import {
   RequestStatus,
 } from '../../database/entities/project-request.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
-import { NotificationEntity } from '../../database/entities/notification.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { CreateClientSpecDto } from './dto/create-client-spec.dto';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
-import { v4 as uuidv4 } from 'uuid';
 import sanitizeHtml from 'sanitize-html';
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -84,10 +84,9 @@ export class ProjectSpecsService {
     private readonly projectSpecSignaturesRepository: Repository<ProjectSpecSignatureEntity>,
     @InjectRepository(ProjectRequestProposalEntity)
     private readonly projectRequestProposalsRepository: Repository<ProjectRequestProposalEntity>,
-    @InjectRepository(NotificationEntity)
-    private readonly notificationsRepository: Repository<NotificationEntity>,
     private readonly auditLogsService: AuditLogsService,
     private readonly dataSource: DataSource,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -327,15 +326,13 @@ export class ProjectSpecsService {
       return;
     }
 
-    await this.notificationsRepository.save(
-      this.notificationsRepository.create({
-        userId: payload.userId,
-        title: payload.title,
-        body: payload.body,
-        relatedType: payload.relatedType || null,
-        relatedId: payload.relatedId || null,
-      }),
-    );
+    await this.notificationsService.create({
+      userId: payload.userId,
+      title: payload.title,
+      body: payload.body,
+      relatedType: payload.relatedType || null,
+      relatedId: payload.relatedId || null,
+    });
   }
 
   private async getRequiredSignerIds(spec: ProjectSpecEntity): Promise<string[]> {
@@ -478,7 +475,7 @@ export class ProjectSpecsService {
       const sanitizedTitle = this.sanitizePlainText(dto.title);
       const sanitizedDescription = this.sanitizePlainText(dto.description);
       const mappedFeatures: ClientFeature[] = dto.clientFeatures.map((feature) => ({
-        id: uuidv4(),
+        id: randomUUID(),
         title: this.sanitizePlainText(feature.title),
         description: this.sanitizePlainText(feature.description),
         priority: feature.priority,
@@ -571,7 +568,7 @@ export class ProjectSpecsService {
     const sanitizedTitle = this.sanitizePlainText(dto.title);
     const sanitizedDescription = this.sanitizePlainText(dto.description);
     const mappedFeatures: ClientFeature[] = dto.clientFeatures.map((feature) => ({
-      id: uuidv4(),
+      id: randomUUID(),
       title: this.sanitizePlainText(feature.title),
       description: this.sanitizePlainText(feature.description),
       priority: feature.priority,
@@ -827,7 +824,7 @@ export class ProjectSpecsService {
         title: this.sanitizePlainText(f.title),
         description: this.sanitizePlainText(f.description),
         complexity: f.complexity,
-        id: uuidv4(),
+        id: randomUUID(),
         acceptanceCriteria: (f.acceptanceCriteria || []).map((criteria) =>
           this.sanitizePlainText(criteria),
         ),
@@ -957,7 +954,7 @@ export class ProjectSpecsService {
       title: this.sanitizePlainText(feature.title),
       description: this.sanitizePlainText(feature.description),
       complexity: feature.complexity,
-      id: uuidv4(),
+      id: randomUUID(),
       acceptanceCriteria: (feature.acceptanceCriteria || []).map((criteria) =>
         this.sanitizePlainText(criteria),
       ),

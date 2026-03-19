@@ -1,7 +1,10 @@
 import { Draggable } from "@hello-pangea/dnd";
 import { GripVertical, Clock, Flag, Layout } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Task } from "../../types";
+import type { Task, TaskAttachment } from "../../types";
+
+const TASK_ATTACHMENTS_BUCKET = "task-attachments";
+const IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp)(?:$|[?#])/i;
 
 const getAssigneeVisuals = (task: Task) => {
   const name = task.assignee?.fullName || task.assignee?.email || "Unassigned";
@@ -35,6 +38,44 @@ const PRIORITY_STYLES: Record<string, { color: string; bg: string }> = {
   URGENT: { color: "text-red-600", bg: "bg-red-50" },
 };
 
+const isImageAttachment = (attachment: TaskAttachment) => {
+  const fileType = `${attachment.fileType || ""}`.toLowerCase();
+  const fileName = `${attachment.fileName || ""}`.toLowerCase();
+  const url = `${attachment.url || ""}`.toLowerCase();
+
+  return (
+    fileType.includes("image/") ||
+    fileType === "image" ||
+    IMAGE_EXTENSION_PATTERN.test(fileName) ||
+    IMAGE_EXTENSION_PATTERN.test(url)
+  );
+};
+
+const resolveAttachmentUrl = (rawUrl?: string | null) => {
+  const trimmed = `${rawUrl || ""}`.trim();
+  if (!trimmed) return null;
+
+  if (/^(https?:)?\/\//i.test(trimmed) || trimmed.startsWith("data:")) {
+    return trimmed;
+  }
+
+  const supabaseBaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim().replace(/\/+$/, "");
+  if (!supabaseBaseUrl) {
+    return trimmed;
+  }
+
+  const normalizedPath = trimmed.replace(/^\/+/, "");
+  if (normalizedPath.startsWith("storage/v1/object/public/")) {
+    return `${supabaseBaseUrl}/${normalizedPath}`;
+  }
+
+  if (normalizedPath.startsWith(`${TASK_ATTACHMENTS_BUCKET}/`)) {
+    return `${supabaseBaseUrl}/storage/v1/object/public/${normalizedPath}`;
+  }
+
+  return `${supabaseBaseUrl}/storage/v1/object/public/${TASK_ATTACHMENTS_BUCKET}/${normalizedPath}`;
+};
+
 type TaskCardProps = {
   task: Task;
   index: number;
@@ -43,6 +84,9 @@ type TaskCardProps = {
 };
 
 export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardProps) {
+  const coverAttachment = task.attachments?.find(isImageAttachment);
+  const coverImageUrl = resolveAttachmentUrl(coverAttachment?.url);
+
   return (
     <Draggable draggableId={task.id} index={index} isDragDisabled={isReadOnly}>
       {(dragProvided, snapshot) => (
@@ -52,87 +96,110 @@ export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardP
           {...dragProvided.dragHandleProps}
           onClick={() => onClick(task.id)}
           className={cn(
-            "group bg-white border border-gray-300 rounded-[3px] p-3 shadow-sm hover:bg-gray-50 transition-colors",
+            "group relative overflow-hidden rounded-[3px] border border-gray-300 bg-white shadow-sm transition-colors hover:bg-gray-50",
             isReadOnly ? "cursor-default" : "cursor-pointer",
             snapshot.isDragging
               ? "shadow-lg border-teal-500 ring-1 ring-teal-400/50 z-50 rotate-2"
               : "hover:border-gray-400"
           )}
         >
-          <div className="flex items-start gap-3">
-            {!isReadOnly && (
-              <div className="hidden group-hover:flex h-6 w-6 items-center justify-center rounded bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors absolute top-2 right-2">
-                <GripVertical className="h-3 w-3" />
-              </div>
-            )}
-            <div className="flex-1 space-y-1.5">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900 group-hover:text-blue-600 transition-colors">
-                    {task.title}
-                  </p>
-                  {task.description && (
-                    <p className="text-xs text-gray-600 mt-1 line-clamp-2">
-                      {task.description}
-                    </p>
-                  )}
-                </div>
-              </div>
+          {!isReadOnly && (
+            <div className="absolute right-2 top-2 z-10 hidden h-6 w-6 items-center justify-center rounded bg-slate-100/90 text-slate-400 transition-colors hover:text-slate-600 group-hover:flex">
+              <GripVertical className="h-3 w-3" />
+            </div>
+          )}
 
-              <div className="flex items-center justify-between pt-2 border-t border-gray-100 mt-2">
-                <div className="flex items-center gap-2">
-                  {(() => {
-                    const { name, initials, colorClass } =
-                      getAssigneeVisuals(task);
-                    return (
-                      <>
+          {coverImageUrl ? (
+            <div className="w-full border-b border-gray-200">
+              <img
+                src={coverImageUrl}
+                alt={coverAttachment?.fileName || `${task.title} cover`}
+                className="pointer-events-none h-32 w-full rounded-t-md object-cover select-none"
+                loading="lazy"
+                decoding="async"
+                draggable={false}
+              />
+            </div>
+          ) : null}
+
+          <div className="p-3">
+            <div className="flex items-start gap-3">
+              <div className="flex-1 space-y-1.5">
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900 transition-colors group-hover:text-blue-600">
+                      {task.title}
+                    </p>
+                    {task.description && (
+                      <p className="mt-1 line-clamp-2 text-xs text-gray-600">
+                        {task.description}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-2 flex items-center justify-between border-t border-gray-100 pt-2">
+                  <div className="flex items-center gap-2">
+                    {(() => {
+                      const { name, initials, colorClass } = getAssigneeVisuals(task);
+                      return (
                         <div
                           className={cn(
-                            "h-5 w-5 rounded-full flex items-center justify-center text-[9px] font-bold border border-white shadow-sm ring-1 ring-gray-100",
+                            "flex h-5 w-5 items-center justify-center rounded-full border border-white text-[9px] font-bold shadow-sm ring-1 ring-gray-100",
                             colorClass
                           )}
                           title={name}
                         >
                           {initials}
                         </div>
-                      </>
-                    );
-                  })()}
+                      );
+                    })()}
 
-                  {/* Priority Badge */}
-                  {task.priority && (
+                    {task.priority && (
+                      <div
+                        className={cn(
+                          "flex items-center gap-1 rounded border px-1.5 py-0.5 text-[10px] font-medium",
+                          PRIORITY_STYLES[task.priority]?.bg || "bg-gray-50",
+                          PRIORITY_STYLES[task.priority]?.color || "text-gray-600",
+                          "border-transparent"
+                        )}
+                        title={`Priority: ${task.priority}`}
+                      >
+                        <Flag className="h-3 w-3" />
+                        <span className="hidden xl:inline">{task.priority}</span>
+                      </div>
+                    )}
+
+                    {task.storyPoints !== undefined && task.storyPoints !== null && (
+                      <div
+                        className="flex items-center gap-1 rounded border border-gray-200 bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600"
+                        title="Story Points"
+                      >
+                        <Layout className="h-3 w-3" />
+                        <span>{task.storyPoints}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {task.dueDate && (
                     <div
                       className={cn(
-                        "flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium border",
-                        PRIORITY_STYLES[task.priority]?.bg || "bg-gray-50",
-                        PRIORITY_STYLES[task.priority]?.color || "text-gray-600",
-                        "border-transparent" 
+                        "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px]",
+                        new Date(task.dueDate) < new Date()
+                          ? "border-red-100 bg-red-50 text-red-600"
+                          : "border-gray-200 bg-gray-50 text-gray-500"
                       )}
-                      title={`Priority: ${task.priority}`}
                     >
-                      <Flag className="h-3 w-3" />
-                      <span className="hidden xl:inline">{task.priority}</span>
-                    </div>
-                  )}
-
-                  {/* Story Points */}
-                  {task.storyPoints !== undefined && task.storyPoints !== null && (
-                    <div className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600 border border-gray-200" title="Story Points">
-                      <Layout className="h-3 w-3" />
-                      <span>{task.storyPoints}</span>
+                      <Clock className="h-3 w-3" />
+                      <span>
+                        {new Date(task.dueDate).toLocaleDateString(undefined, {
+                          month: "short",
+                          day: "numeric",
+                        })}
+                      </span>
                     </div>
                   )}
                 </div>
-
-                {task.dueDate && (
-                  <div className={cn(
-                    "flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full border",
-                    new Date(task.dueDate) < new Date() ? "bg-red-50 text-red-600 border-red-100" : "bg-gray-50 text-gray-500 border-gray-200"
-                  )}>
-                    <Clock className="h-3 w-3" />
-                    <span>{new Date(task.dueDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</span>
-                  </div>
-                )}
               </div>
             </div>
           </div>

@@ -17,7 +17,7 @@ import {
 } from '../../common/utils/supabase-storage.util';
 import { hashDocumentNumber } from '../../common/utils/encryption.util';
 import { FptAiService } from '../../common/services/fpt-ai.service';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class KycService {
@@ -289,7 +289,7 @@ export class KycService {
     }
 
     // Generate unique watermark ID for traceability
-    const watermarkId = uuidv4();
+    const watermarkId = randomUUID();
     const timestamp = new Date();
 
     // Log access using existing audit_logs table

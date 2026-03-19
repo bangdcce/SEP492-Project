@@ -1,6 +1,16 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PartialType } from '@nestjs/mapped-types';
-import { IsArray, IsNotEmpty, IsOptional, IsString, ValidateNested } from 'class-validator';
+import {
+  IsArray,
+  IsIn,
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  Max,
+  Min,
+  ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateProjectRequestAnswerDto {
@@ -15,6 +25,35 @@ export class CreateProjectRequestAnswerDto {
   @ApiPropertyOptional()
   @IsOptional()
   valueText?: string;
+}
+
+export class ProjectRequestAttachmentDto {
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
+  filename: string;
+
+  @ApiProperty()
+  @IsNotEmpty()
+  @IsString()
+  url: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  mimetype?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  size?: number;
+
+  @ApiPropertyOptional({ enum: ['requirements', 'attachment'] })
+  @IsOptional()
+  @IsIn(['requirements', 'attachment'])
+  category?: 'requirements' | 'attachment';
 }
 
 export class CreateProjectRequestDto {
@@ -47,10 +86,24 @@ export class CreateProjectRequestDto {
   @IsOptional()
   isDraft?: boolean;
 
+  @ApiPropertyOptional({ type: [ProjectRequestAttachmentDto] })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => ProjectRequestAttachmentDto)
+  attachments?: ProjectRequestAttachmentDto[];
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 5 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(5)
+  wizardProgressStep?: number;
+
   @ApiProperty({ type: [CreateProjectRequestAnswerDto] })
   @IsArray()
   @ValidateNested({ each: true })
-  @Type(() => CreateProjectRequestAnswerDto)
   @Type(() => CreateProjectRequestAnswerDto)
   answers: CreateProjectRequestAnswerDto[];
 }

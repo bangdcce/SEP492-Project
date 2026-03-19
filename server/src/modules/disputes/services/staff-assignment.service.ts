@@ -13,7 +13,7 @@
 
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, LessThan, MoreThan, In, IsNull } from 'typeorm';
+import { Repository, DataSource, Between, LessThan, MoreThan, In, IsNull, Not } from 'typeorm';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { LeaveService } from '../../leave/leave.service';
 import { DISPUTE_EVENTS } from '../events/dispute.events';
@@ -23,6 +23,7 @@ import {
   DisputeEntity,
   DisputeStatus,
   DisputeCategory,
+  DisputeType,
 } from '../../../database/entities/dispute.entity';
 import { ProjectEntity, PricingModel } from '../../../database/entities/project.entity';
 import { UserEntity, UserRole } from '../../../database/entities/user.entity';
@@ -38,6 +39,10 @@ import {
   SchedulingStrategy,
 } from '../../../database/entities/auto-schedule-rule.entity';
 import { DisputeEvidenceEntity } from '../../../database/entities/dispute-evidence.entity';
+import {
+  DisputeHearingEntity,
+  HearingStatus,
+} from '../../../database/entities/dispute-hearing.entity';
 
 // Tagging System Entities
 import { StaffExpertiseEntity } from '../../../database/entities/user-skill.entity';
@@ -162,6 +167,13 @@ const ASSIGNMENT_CONFIG = {
   },
 } as const;
 
+const BROKER_INVOLVED_DISPUTE_TYPES = [
+  DisputeType.CLIENT_VS_BROKER,
+  DisputeType.FREELANCER_VS_BROKER,
+  DisputeType.BROKER_VS_CLIENT,
+  DisputeType.BROKER_VS_FREELANCER,
+] as const;
+
 // =============================================================================
 // SERVICE
 // =============================================================================
@@ -187,6 +199,8 @@ export class StaffAssignmentService {
     private readonly ruleRepository: Repository<AutoScheduleRuleEntity>,
     @InjectRepository(DisputeEvidenceEntity)
     private readonly evidenceRepository: Repository<DisputeEvidenceEntity>,
+    @InjectRepository(DisputeHearingEntity)
+    private readonly hearingRepository: Repository<DisputeHearingEntity>,
     // Tagging System Repositories
     @InjectRepository(StaffExpertiseEntity)
     private readonly staffExpertiseRepository: Repository<StaffExpertiseEntity>,
@@ -203,6 +217,313 @@ export class StaffAssignmentService {
     private readonly eventEmitter: EventEmitter2,
     private readonly leaveService: LeaveService,
   ) {}
+
+  private getRangeDays(range: '7d' | '30d' | '90d'): number {
+    switch (range) {
+      case '7d':
+        return 7;
+      case '90d':
+        return 90;
+      default:
+        return 30;
+    }
+  }
+
+  private getMedian(values: number[]): number {
+    if (!values.length) {
+      return 0;
+    }
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 100) / 100
+      : Math.round(sorted[mid] * 100) / 100;
+  }
+
+  private getPeriodsForRange(start: Date, end: Date): string[] {
+    const periods: string[] = [];
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    const endCursor = new Date(end.getFullYear(), end.getMonth(), 1);
+
+    while (cursor <= endCursor) {
+      const year = cursor.getFullYear();
+      const month = `${cursor.getMonth() + 1}`.padStart(2, '0');
+      periods.push(`${year}-${month}`);
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    return periods;
+  }
+
+  async getDashboardOverview(range: '7d' | '30d' | '90d' = '30d') {
+    const now = new Date();
+    const start = new Date(now.getTime() - this.getRangeDays(range) * 24 * 60 * 60 * 1000);
+    const periods = this.getPeriodsForRange(start, now);
+
+    const [
+      newCount,
+      inProgressCount,
+      closedCount,
+      firstResponseCandidates,
+      resolvedCases,
+      autoScheduledCount,
+      hearingEventCount,
+      hearingRescheduleRaw,
+      completedHearings,
+      noShowHearings,
+      appealedCount,
+      overturnedCount,
+      performanceRows,
+      workloadRows,
+      pendingQueueCount,
+      totalStaff,
+      prolongedCases,
+      multiPartyRaw,
+      contradictoryEvidenceRaw,
+    ] = await Promise.all([
+      this.disputeRepository.count({
+        where: {
+          createdAt: Between(start, now),
+        },
+      }),
+      this.disputeRepository.count({
+        where: {
+          status: In([
+            DisputeStatus.OPEN,
+            DisputeStatus.TRIAGE_PENDING,
+            DisputeStatus.PREVIEW,
+            DisputeStatus.PENDING_REVIEW,
+            DisputeStatus.INFO_REQUESTED,
+            DisputeStatus.IN_MEDIATION,
+            DisputeStatus.APPEALED,
+            DisputeStatus.REJECTION_APPEALED,
+          ]),
+        },
+      }),
+      this.disputeRepository
+        .createQueryBuilder('dispute')
+        .where('dispute.status IN (:...statuses)', {
+          statuses: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED, DisputeStatus.CANCELED],
+        })
+        .andWhere('dispute.updatedAt BETWEEN :start AND :end', { start, end: now })
+        .getCount(),
+      this.disputeRepository.find({
+        where: { createdAt: Between(start, now) },
+        select: [
+          'id',
+          'createdAt',
+          'assignedAt',
+          'triageAt',
+          'infoRequestedAt',
+          'resolvedAt',
+          'resolutionDeadline',
+        ],
+      }),
+      this.disputeRepository.find({
+        where: {
+          resolvedAt: Between(start, now),
+        },
+        select: ['id', 'createdAt', 'resolvedAt', 'resolutionDeadline'],
+      }),
+      this.calendarRepository.count({
+        where: {
+          type: EventType.DISPUTE_HEARING,
+          startTime: Between(start, now),
+          isAutoScheduled: true,
+        },
+      }),
+      this.calendarRepository.count({
+        where: {
+          type: EventType.DISPUTE_HEARING,
+          startTime: Between(start, now),
+        },
+      }),
+      this.hearingRepository
+        .createQueryBuilder('hearing')
+        .select('COALESCE(SUM(hearing.rescheduleCount), 0)', 'count')
+        .where('hearing.createdAt BETWEEN :start AND :end', { start, end: now })
+        .getRawOne<{ count: string }>(),
+      this.hearingRepository.count({
+        where: {
+          createdAt: Between(start, now),
+          status: HearingStatus.COMPLETED,
+        },
+      }),
+      this.hearingRepository
+        .createQueryBuilder('hearing')
+        .where('hearing.createdAt BETWEEN :start AND :end', { start, end: now })
+        .andWhere('hearing.status = :status', { status: HearingStatus.COMPLETED })
+        .andWhere('hearing.noShowNote IS NOT NULL')
+        .andWhere("TRIM(hearing.noShowNote) <> ''")
+        .getCount(),
+      this.disputeRepository.count({
+        where: {
+          appealedAt: Between(start, now),
+        },
+      }),
+      this.disputeRepository
+        .createQueryBuilder('dispute')
+        .where('dispute.appealResolvedAt BETWEEN :start AND :end', { start, end: now })
+        .andWhere('dispute.appealResolvedById IS NOT NULL')
+        .getCount(),
+      periods.length
+        ? this.performanceRepository.find({
+            where: { period: In(periods) },
+          })
+        : Promise.resolve([]),
+      this.workloadRepository.find({
+        where: {
+          date: Between(start, now),
+        },
+      }),
+      this.disputeRepository.count({
+        where: {
+          assignedStaffId: IsNull(),
+          status: In([DisputeStatus.OPEN, DisputeStatus.TRIAGE_PENDING]),
+        },
+      }),
+      this.userRepository.count({
+        where: {
+          role: UserRole.STAFF,
+        },
+      }),
+      this.disputeRepository.count({
+        where: {
+          status: In([
+            DisputeStatus.OPEN,
+            DisputeStatus.TRIAGE_PENDING,
+            DisputeStatus.PREVIEW,
+            DisputeStatus.PENDING_REVIEW,
+            DisputeStatus.INFO_REQUESTED,
+            DisputeStatus.IN_MEDIATION,
+            DisputeStatus.APPEALED,
+            DisputeStatus.REJECTION_APPEALED,
+          ]),
+          resolutionDeadline: LessThan(now),
+        },
+      }),
+      this.disputeRepository
+        .createQueryBuilder('dispute')
+        .where('dispute.createdAt BETWEEN :start AND :end', { start, end: now })
+        .andWhere(
+          '(dispute.groupId IS NOT NULL OR dispute.disputeType IN (:...brokerTypes))',
+          {
+            brokerTypes: [...BROKER_INVOLVED_DISPUTE_TYPES],
+          },
+        )
+        .getCount(),
+      this.evidenceRepository
+        .createQueryBuilder('evidence')
+        .select('COUNT(DISTINCT evidence.disputeId)', 'count')
+        .where('evidence.uploadedAt BETWEEN :start AND :end', { start, end: now })
+        .andWhere('(evidence.isFlagged = true OR evidence.flagReason IS NOT NULL)')
+        .getRawOne<{ count: string }>(),
+    ]);
+
+    const firstResponseHours = firstResponseCandidates
+      .map((item) => {
+        const responseAt =
+          item.triageAt || item.infoRequestedAt || item.assignedAt || item.resolvedAt || null;
+        if (!item.createdAt || !responseAt) {
+          return null;
+        }
+        return (responseAt.getTime() - item.createdAt.getTime()) / (1000 * 60 * 60);
+      })
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+    const verdictHours = resolvedCases
+      .map((item) => {
+        if (!item.createdAt || !item.resolvedAt) {
+          return null;
+        }
+        return (item.resolvedAt.getTime() - item.createdAt.getTime()) / (1000 * 60 * 60);
+      })
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+    const resolvedBreaches = resolvedCases.filter(
+      (item) =>
+        item.resolutionDeadline &&
+        item.resolvedAt &&
+        item.resolvedAt.getTime() > item.resolutionDeadline.getTime(),
+    ).length;
+    const breachRate =
+      resolvedCases.length > 0
+        ? Math.round((resolvedBreaches / resolvedCases.length) * 10000) / 100
+        : 0;
+
+    const averageUtilization =
+      workloadRows.length > 0
+        ? Math.round(
+            (workloadRows.reduce((sum, row) => sum + Number(row.utilizationRate || 0), 0) /
+              workloadRows.length) *
+              100,
+          ) / 100
+        : 0;
+    const averageCasesPerStaff =
+      workloadRows.length > 0
+        ? Math.round(
+            (workloadRows.reduce((sum, row) => sum + Number(row.totalDisputesPending || 0), 0) /
+              workloadRows.length) *
+              100,
+          ) / 100
+        : 0;
+    const autoScheduleSuccessRate =
+      hearingEventCount > 0
+        ? Math.round((autoScheduledCount / hearingEventCount) * 10000) / 100
+        : 0;
+    const noShowRate =
+      completedHearings > 0
+        ? Math.round((noShowHearings / completedHearings) * 10000) / 100
+        : 0;
+
+    const feedbackValues = performanceRows
+      .map((row) => Number(row.avgUserRating || 0))
+      .filter((value) => value > 0);
+    const feedbackScore =
+      feedbackValues.length > 0
+        ? Math.round(
+            (feedbackValues.reduce((sum, value) => sum + value, 0) / feedbackValues.length) * 100,
+          ) / 100
+        : 0;
+
+    return {
+      generatedAt: now.toISOString(),
+      range,
+      throughput: {
+        newDisputes: newCount,
+        inProgress: inProgressCount,
+        closed: closedCount,
+      },
+      sla: {
+        medianTimeToFirstResponseHours: this.getMedian(firstResponseHours),
+        medianTimeToVerdictHours: this.getMedian(verdictHours),
+        breachRate,
+      },
+      scheduling: {
+        autoScheduleSuccessRate,
+        rescheduleCount: Number(hearingRescheduleRaw?.count || 0),
+        noShowRate,
+      },
+      quality: {
+        appealRate:
+          closedCount > 0 ? Math.round((appealedCount / closedCount) * 10000) / 100 : 0,
+        overturnedVerdictRate:
+          appealedCount > 0 ? Math.round((overturnedCount / appealedCount) * 10000) / 100 : 0,
+        feedbackScore,
+      },
+      workload: {
+        averageCasesPerStaff,
+        averageUtilizationRate: averageUtilization,
+        pendingQueueCount,
+        totalStaff,
+      },
+      riskSignals: {
+        prolongedCases,
+        multiPartyCases: Number(multiPartyRaw || 0),
+        conflictingEvidenceCases: Number(contradictoryEvidenceRaw?.count || 0),
+      },
+    };
+  }
 
   // ===========================================================================
   // UNIT FUNCTIONS: COMPLEXITY ESTIMATION

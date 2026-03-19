@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsString, IsArray, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsString, IsArray, IsOptional, MaxLength } from 'class-validator';
 
 /**
  * DTO để bị đơn (Defendant) gửi phản hồi và bằng chứng phản bác
@@ -6,6 +6,7 @@ import { IsNotEmpty, IsString, IsArray, IsOptional } from 'class-validator';
 export class DefendantResponseDto {
   @IsNotEmpty({ message: 'Lời giải trình không được để trống' })
   @IsString()
+  @MaxLength(5000)
   response: string;
 
   /**

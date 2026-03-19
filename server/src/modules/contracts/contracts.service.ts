@@ -7,20 +7,23 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, QueryRunner, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
-import { v4 as uuidv4 } from 'uuid';
 import {
   ContractCommercialContext,
   ContractEntity,
   ContractMilestoneSnapshotItem,
   ContractStatus,
 } from '../../database/entities/contract.entity';
-import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
+import {
+  ProjectEntity,
+  ProjectStaffInviteStatus,
+  ProjectStatus,
+} from '../../database/entities/project.entity';
 import {
   ProjectSpecEntity,
   ProjectSpecStatus,
@@ -33,7 +36,7 @@ import {
 } from '../../database/entities/milestone.entity';
 import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
-import { UserEntity } from '../../database/entities/user.entity';
+import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { normalizeContractPdfUrl } from '../../common/utils/contract-pdf-url.util';
 import {
@@ -45,6 +48,7 @@ import {
   UpdateContractDraftDto,
   UpdateContractDraftMilestoneDto,
 } from './dto';
+import { ContractArchiveStorageService } from './contract-archive.storage';
 
 type ContractPartyRole = 'CLIENT' | 'BROKER' | 'FREELANCER';
 
@@ -73,6 +77,7 @@ export class ContractsService {
     private readonly projectRequestProposalsRepository: Repository<ProjectRequestProposalEntity>,
     private readonly auditLogsService: AuditLogsService,
     private readonly dataSource: DataSource,
+    private readonly contractArchiveStorage: ContractArchiveStorageService,
   ) {}
 
   private sortMilestones(milestones: MilestoneEntity[]): MilestoneEntity[] {
@@ -167,6 +172,27 @@ export class ContractsService {
     if (!allowedUserIds.includes(user.id)) {
       throw new ForbiddenException(`You are not allowed to ${action} this contract`);
     }
+  }
+
+  private isAcceptedSupervisingStaff(user: UserEntity, contract: ContractEntity): boolean {
+    const project = contract.project as ProjectEntity | undefined;
+    if (!project) {
+      return false;
+    }
+
+    return (
+      user.role === UserRole.STAFF &&
+      project.staffId === user.id &&
+      project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED
+    );
+  }
+
+  private assertUserCanViewContract(user: UserEntity, contract: ContractEntity) {
+    if (this.isAcceptedSupervisingStaff(user, contract)) {
+      return;
+    }
+
+    this.assertUserIsContractParty(user, contract, 'view');
   }
 
   private assertUserCanManageDraft(user: UserEntity, contract: ContractEntity) {
@@ -605,7 +631,7 @@ export class ContractsService {
       item.contractMilestoneKey?.trim() ||
       item.sourceSpecMilestoneId ||
       item.projectMilestoneId ||
-      uuidv4();
+      randomUUID();
 
     return {
       contractMilestoneKey,
@@ -656,7 +682,7 @@ export class ContractsService {
     const milestones = this.sortMilestones(spec.milestones || []);
     return milestones.map((milestone, index) =>
       this.normalizeSnapshotItem({
-        contractMilestoneKey: milestone.id || uuidv4(),
+        contractMilestoneKey: milestone.id || randomUUID(),
         sourceSpecMilestoneId: milestone.id ?? null,
         title: milestone.title,
         description: milestone.description ?? null,
@@ -986,6 +1012,105 @@ export class ContractsService {
 
   private normalizeStoredContractUrl(contract: Pick<ContractEntity, 'id' | 'contractUrl'>): string {
     return normalizeContractPdfUrl(contract.id, contract.contractUrl);
+  }
+
+  private async hydrateContractReadModel(
+    contract: ContractEntity,
+  ): Promise<ContractEntity & { documentHash?: string }> {
+    let selectedSpec: ProjectSpecEntity | null = null;
+    if (contract.project?.request?.specs) {
+      selectedSpec = this.selectSpecForContract(
+        contract.project.request.specs,
+        contract.sourceSpecId ?? null,
+      );
+      contract.project.request.spec = selectedSpec;
+    }
+
+    if (!contract.commercialContext) {
+      contract.commercialContext = this.buildCommercialContextFallback(contract, selectedSpec);
+    }
+    if (!Array.isArray(contract.milestoneSnapshot) || contract.milestoneSnapshot.length === 0) {
+      if (selectedSpec?.milestones?.length) {
+        contract.milestoneSnapshot = this.buildSnapshotFromSpecMilestones(selectedSpec);
+      } else {
+        contract.milestoneSnapshot = [];
+      }
+    }
+
+    const updatePayload: Partial<ContractEntity> = {};
+
+    const currentContentHash = this.computeContentHash(contract);
+    if (contract.contentHash !== currentContentHash) {
+      contract.contentHash = currentContentHash;
+      updatePayload.contentHash = currentContentHash;
+    }
+
+    const nextContractUrl = this.normalizeStoredContractUrl(contract);
+    if (contract.contractUrl !== nextContractUrl) {
+      contract.contractUrl = nextContractUrl;
+      updatePayload.contractUrl = nextContractUrl;
+    }
+
+    if (Object.keys(updatePayload).length > 0) {
+      await this.contractsRepository.update(contract.id, updatePayload);
+    }
+
+    (contract as any).documentHash = this.computeContractDocumentHash(contract);
+    return contract as ContractEntity & { documentHash?: string };
+  }
+
+  private async persistSignedContractArchiveIfPossible(contractId: string): Promise<boolean> {
+    try {
+      const contract = await this.findContractForRead(contractId);
+      await this.hydrateContractReadModel(contract);
+
+      if (contract.status !== ContractStatus.SIGNED) {
+        return false;
+      }
+
+      const documentHash =
+        (contract as any).documentHash || this.computeContractDocumentHash(contract);
+
+      if (
+        contract.archiveStoragePath &&
+        contract.archiveDocumentHash === documentHash &&
+        contract.archivePersistedAt
+      ) {
+        return true;
+      }
+
+      const pdfBuffer = await this.buildPdfBufferForContract(
+        contract as ContractEntity & { documentHash?: string },
+      );
+      const persisted = await this.contractArchiveStorage.persistPdfArtifact(
+        contract.id,
+        documentHash,
+        pdfBuffer,
+      );
+
+      if (!persisted) {
+        this.logger.warn(
+          `Contract ${contract.id} signed without persisted archive artifact; dynamic PDF fallback remains available.`,
+        );
+        return false;
+      }
+
+      await this.contractsRepository.update(contract.id, {
+        contractUrl: this.normalizeStoredContractUrl(contract),
+        archiveStoragePath: persisted.storagePath,
+        archivePersistedAt: new Date(),
+        archiveDocumentHash: documentHash,
+      });
+
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `Contract ${contractId} signed but archive persistence was skipped: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+      return false;
+    }
   }
 
   private normalizeClientIp(req: Request): string | null {
@@ -1360,47 +1485,8 @@ export class ContractsService {
 
   async findOneForUser(user: UserEntity, id: string) {
     const contract = await this.findContractForRead(id);
-    this.assertUserIsContractParty(user, contract, 'view');
-
-    let selectedSpec: ProjectSpecEntity | null = null;
-    if (contract.project?.request?.specs) {
-      selectedSpec = this.selectSpecForContract(
-        contract.project.request.specs,
-        contract.sourceSpecId ?? null,
-      );
-      contract.project.request.spec = selectedSpec;
-    }
-
-    if (!contract.commercialContext) {
-      contract.commercialContext = this.buildCommercialContextFallback(contract, selectedSpec);
-    }
-    if (!Array.isArray(contract.milestoneSnapshot) || contract.milestoneSnapshot.length === 0) {
-      if (selectedSpec?.milestones?.length) {
-        contract.milestoneSnapshot = this.buildSnapshotFromSpecMilestones(selectedSpec);
-      } else {
-        contract.milestoneSnapshot = [];
-      }
-    }
-
-    const updatePayload: Partial<ContractEntity> = {};
-
-    const currentContentHash = this.computeContentHash(contract);
-    if (contract.contentHash !== currentContentHash) {
-      contract.contentHash = currentContentHash;
-      updatePayload.contentHash = currentContentHash;
-    }
-
-    const nextContractUrl = this.normalizeStoredContractUrl(contract);
-    if (contract.contractUrl !== nextContractUrl) {
-      contract.contractUrl = nextContractUrl;
-      updatePayload.contractUrl = nextContractUrl;
-    }
-
-    if (Object.keys(updatePayload).length > 0) {
-      await this.contractsRepository.update(contract.id, updatePayload);
-    }
-
-    (contract as any).documentHash = this.computeContractDocumentHash(contract);
+    this.assertUserCanViewContract(user, contract);
+    await this.hydrateContractReadModel(contract);
     (contract as any).requiredSignerCount = this.getRequiredContractSignerIds(contract).length;
     (contract as any).signedCount = Array.isArray(contract.signatures) ? contract.signatures.length : 0;
     return contract;
@@ -1416,7 +1502,14 @@ export class ContractsService {
         new Brackets((qb) => {
           qb.where('project.clientId = :userId', { userId })
             .orWhere('project.brokerId = :userId', { userId })
-            .orWhere('project.freelancerId = :userId', { userId });
+            .orWhere('project.freelancerId = :userId', { userId })
+            .orWhere(
+              'project.staffId = :userId AND project.staffInviteStatus = :acceptedInviteStatus',
+              {
+                userId,
+                acceptedInviteStatus: ProjectStaffInviteStatus.ACCEPTED,
+              },
+            );
         }),
       )
       .andWhere('contract.status <> :archivedStatus', { archivedStatus: ContractStatus.ARCHIVED })
@@ -1963,10 +2056,9 @@ export class ContractsService {
     }
   }
 
-  async generatePdfForUser(user: UserEntity, contractId: string): Promise<Buffer> {
-    const contract = (await this.findOneForUser(user, contractId)) as ContractEntity & {
-      documentHash?: string;
-    };
+  private async buildPdfBufferForContract(
+    contract: ContractEntity & { documentHash?: string },
+  ): Promise<Buffer> {
     const signatures = (contract.signatures || []) as Array<
       DigitalSignatureEntity & { user?: UserEntity | null }
     >;
@@ -2334,6 +2426,32 @@ export class ContractsService {
     return pdfDocument.getBuffer();
   }
 
+  async generatePdfForUser(user: UserEntity, contractId: string): Promise<Buffer> {
+    const contract = (await this.findOneForUser(user, contractId)) as ContractEntity & {
+      documentHash?: string;
+    };
+
+    const canUseArchivedArtifact =
+      Boolean(contract.archiveStoragePath && contract.archiveDocumentHash) &&
+      (contract.status === ContractStatus.SIGNED || contract.status === ContractStatus.ACTIVATED);
+
+    if (canUseArchivedArtifact) {
+      const archivedBuffer = await this.contractArchiveStorage.downloadPdfArtifact(
+        contract.archiveStoragePath!,
+      );
+
+      if (archivedBuffer) {
+        return archivedBuffer;
+      }
+
+      this.logger.warn(
+        `Archived contract PDF missing for ${contract.id} at ${contract.archiveStoragePath}; falling back to dynamic rendering.`,
+      );
+    }
+
+    return this.buildPdfBufferForContract(contract);
+  }
+
   async signContract(user: UserEntity, contractId: string, contentHash: string, req: Request) {
     const normalizedContentHash = contentHash?.trim();
     if (!normalizedContentHash) {
@@ -2347,6 +2465,7 @@ export class ContractsService {
     let requiredSignerCount = 0;
     let signaturesCount = 0;
     let allRequiredSigned = false;
+    let archivePersisted = false;
 
     try {
       const contract = await this.loadContractForUpdate(queryRunner, contractId);
@@ -2428,6 +2547,7 @@ export class ContractsService {
     }
 
     if (allRequiredSigned) {
+      archivePersisted = await this.persistSignedContractArchiveIfPossible(contractId);
       await this.auditLogsService.log({
         actorId: user.id,
         action: 'CONTRACT_FULLY_SIGNED',
@@ -2445,6 +2565,7 @@ export class ContractsService {
       signaturesCount,
       requiredSignerCount,
       allRequiredSigned,
+      archivePersisted,
     };
   }
 

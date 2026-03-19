@@ -10,11 +10,12 @@ import {
 } from "@/shared/components/ui";
 import { Star, Sparkles, CheckCircle2, ShieldCheck, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import type { RequestMatchCandidate } from "../types";
 
 interface CandidateProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
-  candidate: any | null;
+  candidate: RequestMatchCandidate | null;
 }
 
 export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateProfileModalProps) {

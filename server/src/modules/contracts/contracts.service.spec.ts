@@ -25,6 +25,7 @@ import { ProjectRequestEntity } from '../../database/entities/project-request.en
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
+import { ContractArchiveStorageService } from './contract-archive.storage';
 
 describe('ContractsService', () => {
   let service: ContractsService;
@@ -40,6 +41,10 @@ describe('ContractsService', () => {
   const mockProjectRequestsRepo = {};
   const mockProjectRequestProposalsRepo = { find: jest.fn() };
   const mockAuditLogsService = { log: jest.fn() };
+  const mockContractArchiveStorage = {
+    persistPdfArtifact: jest.fn(),
+    downloadPdfArtifact: jest.fn(),
+  };
 
   const mockManager = {
     create: jest.fn((_: unknown, data: unknown) => data),
@@ -158,6 +163,7 @@ describe('ContractsService', () => {
           useValue: mockProjectRequestProposalsRepo,
         },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
+        { provide: ContractArchiveStorageService, useValue: mockContractArchiveStorage },
         { provide: DataSource, useValue: mockDataSource },
       ],
     }).compile();
@@ -502,6 +508,9 @@ describe('ContractsService', () => {
         }
         return [];
       });
+      jest
+        .spyOn<any, any>(service as any, 'persistSignedContractArchiveIfPossible')
+        .mockResolvedValue(true);
 
       const result = await service.signContract(
         brokerUser,
@@ -515,6 +524,7 @@ describe('ContractsService', () => {
       );
 
       expect(result.allRequiredSigned).toBe(true);
+      expect(result.archivePersisted).toBe(true);
       expect(mockManager.save).toHaveBeenCalledWith(
         DigitalSignatureEntity,
         expect.objectContaining({
@@ -532,6 +542,114 @@ describe('ContractsService', () => {
           activatedAt: null,
         }),
       );
+    });
+
+    it('keeps signing successful when archive persistence is unavailable', async () => {
+      const project = buildProject({ freelancerId: null });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.SENT,
+        activatedAt: null,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project, { freelancerId: null }),
+        termsContent: 'Terms',
+      } as ContractEntity;
+      contract.contentHash = (service as any).computeContentHash(contract);
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: any) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        if (entity === DigitalSignatureEntity && options?.where?.userId === brokerUser.id) {
+          return null;
+        }
+        return null;
+      });
+      mockManager.find.mockImplementation(async (entity: unknown) => {
+        if (entity === DigitalSignatureEntity) {
+          return [
+            {
+              contractId: contract.id,
+              userId: 'client-uuid',
+              signedAt: new Date('2026-03-10T10:00:00.000Z'),
+            },
+            {
+              contractId: contract.id,
+              userId: 'broker-uuid',
+              signedAt: new Date('2026-03-10T10:05:00.000Z'),
+            },
+          ];
+        }
+        return [];
+      });
+      jest
+        .spyOn<any, any>(service as any, 'persistSignedContractArchiveIfPossible')
+        .mockResolvedValue(false);
+
+      const result = await service.signContract(
+        brokerUser,
+        contract.id,
+        contract.contentHash,
+        {
+          headers: {},
+          ip: '127.0.0.1',
+          get: jest.fn().mockReturnValue('jest-agent'),
+        } as any,
+      );
+
+      expect(result.allRequiredSigned).toBe(true);
+      expect(result.archivePersisted).toBe(false);
+    });
+  });
+
+  describe('generatePdfForUser', () => {
+    it('streams the archived artifact when one is available', async () => {
+      const archivedBuffer = Buffer.from('archived-contract-pdf');
+      const contract = {
+        id: 'contract-uuid',
+        status: ContractStatus.SIGNED,
+        archiveStoragePath: 'contracts/contract-uuid/archive-hash.pdf',
+        archiveDocumentHash: 'archive-hash',
+      } as ContractEntity;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+      mockContractArchiveStorage.downloadPdfArtifact.mockResolvedValue(archivedBuffer);
+
+      const dynamicPdfSpy = jest
+        .spyOn<any, any>(service as any, 'buildPdfBufferForContract')
+        .mockResolvedValue(Buffer.from('dynamic-pdf'));
+
+      const result = await service.generatePdfForUser(brokerUser, contract.id);
+
+      expect(result).toEqual(archivedBuffer);
+      expect(mockContractArchiveStorage.downloadPdfArtifact).toHaveBeenCalledWith(
+        contract.archiveStoragePath,
+      );
+      expect(dynamicPdfSpy).not.toHaveBeenCalled();
+    });
+
+    it('falls back to dynamic PDF rendering when archive storage is missing the object', async () => {
+      const dynamicBuffer = Buffer.from('dynamic-contract-pdf');
+      const contract = {
+        id: 'contract-uuid',
+        status: ContractStatus.ACTIVATED,
+        archiveStoragePath: 'contracts/contract-uuid/archive-hash.pdf',
+        archiveDocumentHash: 'archive-hash',
+      } as ContractEntity;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+      mockContractArchiveStorage.downloadPdfArtifact.mockResolvedValue(null);
+
+      jest
+        .spyOn<any, any>(service as any, 'buildPdfBufferForContract')
+        .mockResolvedValue(dynamicBuffer);
+
+      const result = await service.generatePdfForUser(brokerUser, contract.id);
+
+      expect(result).toEqual(dynamicBuffer);
     });
   });
 

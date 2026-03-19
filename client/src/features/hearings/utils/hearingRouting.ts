@@ -12,6 +12,21 @@ export const resolveRoleBasePath = (role?: string) => {
   return ROLE_BASE_PATH[key] ?? "/client";
 };
 
+export const resolveParticipantRoleBasePath = (role?: string) => {
+  if (!role) return null;
+  const key = role.toUpperCase();
+  return ROLE_BASE_PATH[key] ?? null;
+};
+
+export const resolveProfileViewerBasePath = (role?: string) => {
+  if (!role) return null;
+  const key = role.toUpperCase();
+  if (key === UserRole.STAFF || key === UserRole.ADMIN) {
+    return "/staff";
+  }
+  return ROLE_BASE_PATH[key] ?? null;
+};
+
 export const resolveRoleLabel = (role?: string) => {
   if (!role) return "Client";
   switch (role.toUpperCase()) {

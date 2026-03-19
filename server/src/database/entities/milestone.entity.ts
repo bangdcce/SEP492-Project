@@ -12,11 +12,18 @@ import type { ProjectSpecEntity } from './project-spec.entity';
 export enum MilestoneStatus {
   PENDING = 'PENDING',
   IN_PROGRESS = 'IN_PROGRESS',
+  PENDING_STAFF_REVIEW = 'PENDING_STAFF_REVIEW',
+  PENDING_CLIENT_APPROVAL = 'PENDING_CLIENT_APPROVAL',
   SUBMITTED = 'SUBMITTED', // Awaiting client approval
   REVISIONS_REQUIRED = 'REVISIONS_REQUIRED',
   LOCKED = 'LOCKED',
   COMPLETED = 'COMPLETED',
   PAID = 'PAID',
+}
+
+export enum StaffRecommendation {
+  ACCEPT = 'ACCEPT',
+  REJECT = 'REJECT',
 }
 
 /**
@@ -103,6 +110,20 @@ export class MilestoneEntity {
   @Column({ type: 'text', nullable: true })
   feedback: string;
 
+  @Column({ type: 'uuid', nullable: true })
+  reviewedByStaffId: string | null;
+
+  @Column({
+    type: 'enum',
+    enum: StaffRecommendation,
+    enumName: 'milestones_staffRecommendation_enum',
+    nullable: true,
+  })
+  staffRecommendation: StaffRecommendation | null;
+
+  @Column({ type: 'text', nullable: true })
+  staffReviewNote: string | null;
+
   @Column({ type: 'int', nullable: true })
   sortOrder: number;
 
@@ -122,4 +143,8 @@ export class MilestoneEntity {
   @ManyToOne('ProjectSpecEntity', 'milestones', { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'projectSpecId' })
   projectSpec: ProjectSpecEntity;
+
+  @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'reviewedByStaffId' })
+  reviewedByStaff: unknown;
 }

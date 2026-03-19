@@ -70,6 +70,7 @@ export const ROUTES = {
 
   // ========== STAFF ROUTES - prefix /staff ==========
   STAFF_PROFILE: "/staff/profile",
+  STAFF_WORKSPACE: "/projects/:projectId",
 
   // ========== LEGACY ALIASES (backward compatibility) ==========
   DASHBOARD: "/admin/dashboard",

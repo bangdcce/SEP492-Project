@@ -20,15 +20,16 @@ import type {
   QuotaUsage,
 } from './types';
 
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/shared/components/ui/Card';
+import { Button } from '@/shared/components/ui/Button';
+import { Badge } from '@/shared/components/ui/badge';
+import { Progress } from '@/shared/components/ui/progress';
+import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/shared/components/ui/dialog';
+import { Check, X, Zap, CreditCard, Sparkles, InfinityIcon, AlertTriangle, CalendarDays, Key, Activity } from 'lucide-react';
+
 /**
  * SubscriptionPage — View and manage current subscription (UC-39).
- *
- * Shows:
- * - Current plan status (Free or Premium)
- * - Plan details and billing info (if premium)
- * - Current perks and their values
- * - Quota usage summary
- * - Upgrade / Cancel actions
  */
 export function SubscriptionPage() {
   const [loading, setLoading] = useState(true);
@@ -42,7 +43,6 @@ export function SubscriptionPage() {
   const [cancelReason, setCancelReason] = useState('');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  // Fetch subscription data
   const fetchData = useCallback(async () => {
     try {
       setLoading(true);
@@ -65,7 +65,6 @@ export function SubscriptionPage() {
     fetchData();
   }, [fetchData]);
 
-  // Handle subscribe
   const handleSubscribe = async (planId: string) => {
     try {
       setSubscribing(true);
@@ -75,7 +74,7 @@ export function SubscriptionPage() {
         billingCycle: selectedCycle,
       });
       setSuccessMessage(response.message);
-      await fetchData(); // Refresh data
+      await fetchData();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
       setError(axiosErr?.response?.data?.message || 'Failed to subscribe');
@@ -84,7 +83,6 @@ export function SubscriptionPage() {
     }
   };
 
-  // Handle cancel
   const handleCancel = async () => {
     try {
       setCancelling(true);
@@ -95,7 +93,7 @@ export function SubscriptionPage() {
       setSuccessMessage(response.message);
       setShowCancelModal(false);
       setCancelReason('');
-      await fetchData(); // Refresh data
+      await fetchData();
     } catch (err: unknown) {
       const axiosErr = err as { response?: { data?: { message?: string } } };
       setError(axiosErr?.response?.data?.message || 'Failed to cancel subscription');
@@ -104,29 +102,27 @@ export function SubscriptionPage() {
     }
   };
 
-  // Loading state
   if (loading) {
     return (
-      <div className="subscription-page">
-        <div className="subscription-loading">
-          <div className="loading-spinner" />
+      <div className="flex h-[400px] w-full items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-muted-foreground">
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
           <p>Loading subscription information...</p>
         </div>
       </div>
     );
   }
 
-  // Error state
   if (error && !subscription) {
     return (
-      <div className="subscription-page">
-        <div className="subscription-error">
-          <h2>⚠️ Unable to load subscription</h2>
-          <p>{error}</p>
-          <button onClick={fetchData} className="btn-retry">
-            Try Again
-          </button>
-        </div>
+      <div className="container mx-auto max-w-4xl py-12">
+        <Alert variant="destructive">
+          <AlertTitle>Unable to load subscription</AlertTitle>
+          <AlertDescription className="mt-2 flex flex-col gap-4">
+            <p>{error}</p>
+            <Button onClick={fetchData} variant="outline" className="w-fit">Try Again</Button>
+          </AlertDescription>
+        </Alert>
       </div>
     );
   }
@@ -137,225 +133,317 @@ export function SubscriptionPage() {
   const usage = subscription?.usage || {};
 
   return (
-    <div className="subscription-page">
-      {/* Success Banner */}
+    <div className="container mx-auto max-w-5xl py-8 space-y-8 animate-in fade-in duration-500">
       {successMessage && (
-        <div className="subscription-success-banner">
-          <span>✅ {successMessage}</span>
-          <button onClick={() => setSuccessMessage(null)}>✕</button>
-        </div>
+        <Alert className="border-green-500/50 bg-green-500/10 text-green-700 dark:text-green-400">
+          <Check className="h-4 w-4" />
+          <AlertTitle>Success</AlertTitle>
+          <AlertDescription>{successMessage}</AlertDescription>
+          <Button variant="ghost" size="icon" className="absolute right-2 top-2 h-6 w-6" onClick={() => setSuccessMessage(null)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </Alert>
       )}
 
-      {/* Error Banner */}
       {error && (
-        <div className="subscription-error-banner">
-          <span>⚠️ {error}</span>
-          <button onClick={() => setError(null)}>✕</button>
-        </div>
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{error}</AlertDescription>
+          <Button variant="ghost" size="icon" className="absolute right-2 top-2 h-6 w-6 text-destructive" onClick={() => setError(null)}>
+            <X className="h-4 w-4" />
+          </Button>
+        </Alert>
       )}
 
-      {/* Header */}
-      <div className="subscription-header">
-        <h1>Subscription</h1>
-        <p className="subscription-subtitle">
-          Manage your plan and view your usage limits
+      <div className="flex flex-col gap-2">
+        <h1 className="text-3xl font-bold tracking-tight">Subscription</h1>
+        <p className="text-muted-foreground">
+          Manage your plan, view usage limits, and explore premium benefits.
         </p>
       </div>
 
-      {/* Current Plan Card */}
-      <div className={`current-plan-card ${isPremium ? 'premium' : 'free'}`}>
-        <div className="plan-badge">
-          {isPremium ? '⭐ Premium' : '🆓 Free Plan'}
-        </div>
-        <div className="plan-details">
-          {isPremium && currentSub ? (
-            <>
-              <h2>{currentSub.plan?.displayName || 'Premium'}</h2>
-              <div className="plan-meta">
-                <span className="billing-cycle">
-                  📅 {getBillingCycleLabel(currentSub.billingCycle)}
-                </span>
-                <span className="amount-paid">
-                  💰 {formatVND(currentSub.amountPaid)}
-                </span>
-                <span className="period">
-                  📆 Until{' '}
-                  {new Date(currentSub.currentPeriodEnd).toLocaleDateString('vi-VN')}
-                </span>
-              </div>
-              {currentSub.cancelAtPeriodEnd && (
-                <div className="cancel-notice">
-                  ⚠️ Your subscription will not renew at the end of this period.
-                  Premium perks remain active until{' '}
-                  {new Date(currentSub.currentPeriodEnd).toLocaleDateString('vi-VN')}.
+      <div className="grid gap-8 md:grid-cols-3">
+        {/* Left Column: Plan & Usage */}
+        <div className="space-y-8 md:col-span-2">
+          {/* Current Plan Card */}
+          <Card className={isPremium ? "border-primary/50 shadow-md shadow-primary/10 overflow-hidden relative" : ""}>
+            {isPremium && (
+              <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500" />
+            )}
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-2xl">
+                    {isPremium ? (
+                      <>
+                        <Sparkles className="h-6 w-6 text-primary" />
+                        {currentSub?.plan?.displayName || 'Premium Plan'}
+                      </>
+                    ) : (
+                      'Free Plan'
+                    )}
+                  </CardTitle>
+                  <CardDescription className="mt-1.5">
+                    {isPremium 
+                      ? "You have full access to premium features." 
+                      : "You are on the free plan with limited features."}
+                  </CardDescription>
                 </div>
-              )}
-            </>
-          ) : (
-            <>
-              <h2>Free Plan</h2>
-              <p>You are on the free plan with limited features. Upgrade to Premium for unlimited access.</p>
-            </>
-          )}
-        </div>
-        <div className="plan-actions">
-          {isPremium && !currentSub?.cancelAtPeriodEnd ? (
-            <button
-              className="btn-cancel"
-              onClick={() => setShowCancelModal(true)}
-            >
-              Cancel Subscription
-            </button>
-          ) : !isPremium ? (
-            <a href="#plans" className="btn-upgrade">
-              ⬆️ Upgrade to Premium
-            </a>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Perks Section */}
-      <div className="subscription-section">
-        <h2>Your Current Perks</h2>
-        <div className="perks-grid">
-          {Object.entries(perks).map(([key, value]) => (
-            <div key={key} className="perk-item">
-              <span className="perk-label">{PERK_LABELS[key] || key}</span>
-              <span className={`perk-value ${value === -1 || value === true ? 'premium-value' : ''}`}>
-                {formatPerkValue(key, value)}
-              </span>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Usage Section */}
-      {Object.keys(usage).length > 0 && (
-        <div className="subscription-section">
-          <h2>Quota Usage</h2>
-          <div className="usage-grid">
-            {Object.entries(usage).map(([action, data]: [string, QuotaUsage]) => {
-              const limitStr = typeof data.limit === 'string' ? data.limit : String(data.limit);
-              const isUnlimited = limitStr === 'Unlimited' || data.limit === -1;
-              const progressPercent = isUnlimited
-                ? 0
-                : Math.min(100, (data.used / (data.limit as number)) * 100);
-              const isNearLimit = !isUnlimited && progressPercent >= 80;
-              const isAtLimit = !isUnlimited && progressPercent >= 100;
-
-              return (
-                <div key={action} className="usage-item">
-                  <div className="usage-header">
-                    <span className="usage-label">
-                      {QUOTA_ACTION_LABELS[action] || action}
-                    </span>
-                    <span className={`usage-count ${isAtLimit ? 'at-limit' : isNearLimit ? 'near-limit' : ''}`}>
-                      {data.used} / {isUnlimited ? '∞' : data.limit}
+                <Badge variant={isPremium ? "default" : "secondary"} className="text-sm px-3 py-1">
+                  {isPremium ? 'Active Premium' : 'Free Tier'}
+                </Badge>
+              </div>
+            </CardHeader>
+            
+            {isPremium && currentSub && (
+              <CardContent>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 bg-muted/50 rounded-lg p-4 mb-4">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted-foreground uppercase font-semibold">Billing</span>
+                    <span className="text-sm font-medium flex items-center gap-1.5">
+                      <CreditCard className="h-3.5 w-3.5 text-primary" />
+                      {getBillingCycleLabel(currentSub.billingCycle)}
                     </span>
                   </div>
-                  {!isUnlimited && (
-                    <div className="usage-bar">
-                      <div
-                        className={`usage-bar-fill ${isAtLimit ? 'full' : isNearLimit ? 'warning' : ''}`}
-                        style={{ width: `${progressPercent}%` }}
-                      />
-                    </div>
-                  )}
+                  <div className="flex flex-col gap-1">
+                    <span className="text-xs text-muted-foreground uppercase font-semibold">Amount</span>
+                    <span className="text-sm font-medium">{formatVND(currentSub.amountPaid)}</span>
+                  </div>
+                  <div className="flex flex-col gap-1 sm:col-span-2">
+                    <span className="text-xs text-muted-foreground uppercase font-semibold">Next Cycle</span>
+                    <span className="text-sm font-medium flex items-center gap-1.5">
+                      <CalendarDays className="h-3.5 w-3.5 text-primary" />
+                      {new Date(currentSub.currentPeriodEnd).toLocaleDateString('vi-VN')}
+                    </span>
+                  </div>
                 </div>
-              );
-            })}
-          </div>
+
+                {currentSub.cancelAtPeriodEnd && (
+                  <Alert variant="destructive" className="bg-destructive/5 text-destructive border-destructive/20 mt-4">
+                    <AlertTriangle className="h-4 w-4" />
+                    <AlertTitle className="text-sm font-semibold">Cancellation Pending</AlertTitle>
+                    <AlertDescription className="text-xs mt-1">
+                      Your subscription will not renew. Premium perks remain active until{' '}
+                      <span className="font-semibold">{new Date(currentSub.currentPeriodEnd).toLocaleDateString('vi-VN')}</span>.
+                    </AlertDescription>
+                  </Alert>
+                )}
+              </CardContent>
+            )}
+            
+            <CardFooter className="pt-2">
+              {isPremium && !currentSub?.cancelAtPeriodEnd ? (
+                <Button variant="destructive" onClick={() => setShowCancelModal(true)}>
+                  Cancel Subscription
+                </Button>
+              ) : !isPremium ? (
+                <Button onClick={() => {
+                  document.getElementById('plans-section')?.scrollIntoView({ behavior: 'smooth' });
+                }}>
+                  <Zap className="mr-2 h-4 w-4" />
+                  Upgrade to Premium
+                </Button>
+              ) : null}
+            </CardFooter>
+          </Card>
+
+          {/* Quota Usage */}
+          {Object.keys(usage).length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-primary" />
+                  Quota Usage
+                </CardTitle>
+                <CardDescription>Track your monthly and lifetime limits.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid sm:grid-cols-2 gap-6">
+                {Object.entries(usage).map(([action, data]: [string, QuotaUsage]) => {
+                  const limitStr = typeof data.limit === 'string' ? data.limit : String(data.limit);
+                  const isUnlimited = limitStr === 'Unlimited' || data.limit === -1;
+                  const progressPercent = isUnlimited ? 0 : Math.min(100, (data.used / (data.limit as number)) * 100);
+                  const isAtLimit = !isUnlimited && progressPercent >= 100;
+                  const isNearLimit = !isUnlimited && progressPercent >= 80;
+
+                  return (
+                    <div key={action} className="space-y-2">
+                      <div className="flex justify-between text-sm">
+                        <span className="font-medium text-foreground">{QUOTA_ACTION_LABELS[action] || action}</span>
+                        <span className={`font-mono ${isAtLimit ? 'text-destructive font-bold' : isNearLimit ? 'text-amber-500 font-bold' : 'text-muted-foreground'}`}>
+                          {data.used} / {isUnlimited ? <InfinityIcon className="inline h-3 w-3" /> : data.limit}
+                        </span>
+                      </div>
+                      {!isUnlimited ? (
+                        <Progress 
+                          value={progressPercent} 
+                          className={`h-2 ${isAtLimit ? '[&>div]:bg-destructive' : isNearLimit ? '[&>div]:bg-amber-500' : ''}`}
+                        />
+                      ) : (
+                        <div className="h-2 w-full rounded-full bg-primary/10 overflow-hidden relative">
+                           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-primary/30 to-transparent w-[200%] animate-[shimmer_2s_infinite]" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </CardContent>
+            </Card>
+          )}
         </div>
-      )}
 
-      {/* Plans Section (shown when not premium) */}
+        {/* Right Column: Perks summary */}
+        <div className="space-y-6">
+          <Card className="bg-muted/30 border-none shadow-none">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Key className="h-5 w-5 text-primary" />
+                Current Access
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ul className="space-y-3">
+                {Object.entries(perks).map(([key, value]) => {
+                  const isPremiumValue = value === -1 || value === true;
+                  return (
+                    <li key={key} className="flex justify-between items-center text-sm border-b border-border/50 pb-2 last:border-0 last:pb-0">
+                      <span className="text-muted-foreground">{PERK_LABELS[key] || key}</span>
+                      <span className={`font-medium ${isPremiumValue ? 'text-primary flex items-center gap-1' : 'text-foreground'}`}>
+                        {isPremiumValue && <Sparkles className="h-3 w-3" />}
+                        {formatPerkValue(key, value)}
+                      </span>
+                    </li>
+                  )
+                })}
+              </ul>
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Plans Section */}
       {!isPremium && plans.length > 0 && (
-        <div id="plans" className="subscription-section">
-          <h2>Available Plans</h2>
-
-          {/* Billing Cycle Selector */}
-          <div className="billing-cycle-selector">
-            {Object.values(BillingCycle).map((cycle) => (
-              <button
-                key={cycle}
-                className={`cycle-btn ${selectedCycle === cycle ? 'active' : ''}`}
-                onClick={() => setSelectedCycle(cycle)}
-              >
-                {getBillingCycleLabel(cycle)}
-                {cycle === BillingCycle.QUARTERLY && (
-                  <span className="discount-badge">-15%</span>
-                )}
-                {cycle === BillingCycle.YEARLY && (
-                  <span className="discount-badge">-30%</span>
-                )}
-              </button>
-            ))}
+        <div id="plans-section" className="pt-12 pb-8 scroll-mt-20">
+          <div className="text-center mb-10 space-y-4">
+            <h2 className="text-3xl font-bold tracking-tight">Upgrade to Premium</h2>
+            <p className="text-muted-foreground max-w-2xl mx-auto">
+              Unlock unlimited potential, match with exactly who you need, and remove all restrictions.
+            </p>
+            
+            <div className="inline-flex items-center justify-center p-1 mt-6 bg-muted rounded-xl">
+              {Object.values(BillingCycle).map((cycle) => (
+                <button
+                  key={cycle}
+                  onClick={() => setSelectedCycle(cycle)}
+                  className={`
+                    flex items-center gap-2 px-6 py-2.5 rounded-lg text-sm font-medium transition-all
+                    ${selectedCycle === cycle 
+                      ? 'bg-background text-foreground shadow-sm ring-1 ring-border' 
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted-foreground/5'}
+                  `}
+                >
+                  {getBillingCycleLabel(cycle)}
+                  {cycle === BillingCycle.QUARTERLY && (
+                    <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0 h-4 bg-green-500/10 text-green-600 hover:bg-green-500/20">Save 15%</Badge>
+                  )}
+                  {cycle === BillingCycle.YEARLY && (
+                    <Badge variant="secondary" className="ml-1 text-[10px] px-1.5 py-0 h-4 bg-green-500/10 text-green-600 hover:bg-green-500/20">Save 30%</Badge>
+                  )}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Plan Cards */}
-          <div className="plans-grid">
+          <div className={`grid gap-6 justify-center mx-auto ${plans.length === 1 ? 'max-w-3xl w-full' : 'md:grid-cols-2 lg:grid-cols-3 max-w-5xl'}`}>
             {plans.map((plan) => {
               const monthlyEquiv = getMonthlyEquivalent(plan, selectedCycle);
               let totalPrice: number;
               switch (selectedCycle) {
-                case BillingCycle.QUARTERLY:
-                  totalPrice = plan.priceQuarterly;
-                  break;
-                case BillingCycle.YEARLY:
-                  totalPrice = plan.priceYearly;
-                  break;
-                default:
-                  totalPrice = plan.priceMonthly;
+                case BillingCycle.QUARTERLY: totalPrice = plan.priceQuarterly; break;
+                case BillingCycle.YEARLY: totalPrice = plan.priceYearly; break;
+                default: totalPrice = plan.priceMonthly;
               }
 
               return (
-                <div key={plan.id} className="plan-card">
-                  <div className="plan-card-header">
-                    <h3>{plan.displayName}</h3>
-                    <div className="plan-price">
-                      <span className="price-amount">
-                        {formatVND(monthlyEquiv)}
-                      </span>
-                      <span className="price-period">/month</span>
+                <Card key={plan.id} className={`relative border-primary/20 shadow-lg hover:shadow-xl transition-all duration-300 ${plans.length === 1 ? 'w-full' : 'flex flex-col hover:-translate-y-1'}`}>
+                  <div className="absolute -top-3 left-0 right-0 flex justify-center">
+                    <Badge className="bg-primary text-primary-foreground uppercase tracking-widest text-[10px] px-3 font-bold">Recommended</Badge>
+                  </div>
+                  
+                  <div className={plans.length === 1 ? "md:grid md:grid-cols-5 md:gap-6 p-6" : ""}>
+                    <div className={plans.length === 1 ? "md:col-span-2 flex flex-col justify-center border-b md:border-b-0 md:border-r border-border pb-6 md:pb-0 md:pr-6" : ""}>
+                      <CardHeader className={`text-center ${plans.length === 1 ? 'p-0' : 'pt-8 pb-4'}`}>
+                        <CardTitle className="text-2xl">{plan.displayName}</CardTitle>
+                    <div className="mt-4 flex items-baseline justify-center gap-1">
+                      <span className="text-4xl font-extrabold tracking-tight">{formatVND(monthlyEquiv)}</span>
+                      <span className="text-sm font-medium text-muted-foreground">/mo</span>
                     </div>
                     {selectedCycle !== BillingCycle.MONTHLY && (
-                      <div className="price-total">
-                        Billed {formatVND(totalPrice)}{' '}
-                        {getBillingCycleLabel(selectedCycle).toLowerCase()}
-                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        Billed {formatVND(totalPrice)} {getBillingCycleLabel(selectedCycle).toLowerCase()}
+                      </p>
                     )}
+                        <CardDescription className="mt-4 text-sm max-w-xs mx-auto">{plan.description}</CardDescription>
+                      </CardHeader>
+                      
+                      {plans.length === 1 && (
+                        <div className="mt-6">
+                          <Button 
+                            className="w-full text-md h-12" 
+                            onClick={() => handleSubscribe(plan.id)}
+                            disabled={subscribing}
+                          >
+                            {subscribing ? (
+                              <><div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" /> Processing</>
+                            ) : (
+                              `Subscribe Now`
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <div className={plans.length === 1 ? "md:col-span-3 pt-6 md:pt-0 pl-0 md:pl-2 flex flex-col justify-center" : "flex-1 pb-6"}>
+                      <CardContent className={plans.length === 1 ? "p-0" : ""}>
+                        <ul className={plans.length === 1 ? "grid grid-cols-1 sm:grid-cols-2 gap-y-4 gap-x-6" : "space-y-3.5"}>
+                          {Object.entries(plan.perks).map(([key, value]) => (
+                            <li key={key} className="flex gap-3 text-sm items-start">
+                              <div className="mt-0.5 rounded-full bg-primary/10 p-1 shrink-0">
+                                {typeof value === 'boolean' ? (
+                                  value ? <Check className="h-3.5 w-3.5 text-primary" /> : <X className="h-3.5 w-3.5 text-muted-foreground" />
+                                ) : value === -1 ? (
+                                  <InfinityIcon className="h-3.5 w-3.5 text-primary" />
+                                ) : (
+                                  <Check className="h-3.5 w-3.5 text-primary" />
+                                )}
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-foreground font-semibold">{PERK_LABELS[key] || key}</span>
+                                <span className="text-xs text-muted-foreground">{formatPerkValue(key, value)}</span>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </CardContent>
+                      
+                      {plans.length > 1 && (
+                        <CardFooter>
+                          <Button 
+                            className="w-full text-md h-12" 
+                            onClick={() => handleSubscribe(plan.id)}
+                            disabled={subscribing}
+                          >
+                            {subscribing ? (
+                              <><div className="mr-2 h-4 w-4 animate-spin rounded-full border-2 border-background border-t-transparent" /> Processing</>
+                            ) : (
+                              `Subscribe Now`
+                            )}
+                          </Button>
+                        </CardFooter>
+                      )}
+                    </div>
                   </div>
-
-                  <p className="plan-description">{plan.description}</p>
-
-                  <div className="plan-perks-list">
-                    {Object.entries(plan.perks).map(([key, value]) => (
-                      <div key={key} className="plan-perk">
-                        <span className="perk-icon">
-                          {typeof value === 'boolean'
-                            ? value
-                              ? '✅'
-                              : '❌'
-                            : value === -1
-                              ? '♾️'
-                              : '📊'}
-                        </span>
-                        <span>
-                          {PERK_LABELS[key] || key}:{' '}
-                          <strong>{formatPerkValue(key, value)}</strong>
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <button
-                    className="btn-subscribe"
-                    onClick={() => handleSubscribe(plan.id)}
-                    disabled={subscribing}
-                  >
-                    {subscribing ? 'Processing...' : `Subscribe — ${formatVND(totalPrice)}`}
-                  </button>
-                </div>
+                </Card>
               );
             })}
           </div>
@@ -363,54 +451,49 @@ export function SubscriptionPage() {
       )}
 
       {/* Cancel Modal */}
-      {showCancelModal && (
-        <div className="modal-overlay" onClick={() => setShowCancelModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>Cancel Subscription</h2>
-            <p>
+      <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
+        <DialogContent className="sm:max-w-[425px]">
+          <DialogHeader>
+            <DialogTitle>Cancel Subscription</DialogTitle>
+            <DialogDescription>
               Are you sure you want to cancel your premium subscription?
-            </p>
-            <p className="cancel-info">
-              Your premium perks will remain active until the end of your current
-              billing period (
-              {currentSub
-                ? new Date(currentSub.currentPeriodEnd).toLocaleDateString('vi-VN')
-                : ''}
-              ). After that, you'll be switched to the free plan.
-            </p>
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="grid gap-4 py-4">
+            <Alert className="bg-amber-500/10 text-amber-600 dark:text-amber-500 border-amber-500/20">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle className="text-sm">Information</AlertTitle>
+              <AlertDescription className="text-xs">
+                Your premium perks remain active until the end of your billing period 
+                ({currentSub ? new Date(currentSub.currentPeriodEnd).toLocaleDateString('vi-VN') : ''}).
+              </AlertDescription>
+            </Alert>
 
-            <div className="cancel-reason-field">
-              <label htmlFor="cancel-reason">
-                Reason for cancelling (optional):
+            <div className="grid gap-2">
+              <label htmlFor="reason" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                Reason for cancelling (optional)
               </label>
               <textarea
-                id="cancel-reason"
+                id="reason"
+                className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 resize-none"
+                placeholder="Tell us why you're leaving..."
                 value={cancelReason}
                 onChange={(e) => setCancelReason(e.target.value)}
-                placeholder="Tell us why you're leaving..."
-                rows={3}
-                maxLength={500}
               />
             </div>
-
-            <div className="modal-actions">
-              <button
-                className="btn-cancel-confirm"
-                onClick={handleCancel}
-                disabled={cancelling}
-              >
-                {cancelling ? 'Cancelling...' : 'Yes, Cancel Subscription'}
-              </button>
-              <button
-                className="btn-keep"
-                onClick={() => setShowCancelModal(false)}
-              >
-                Keep Premium
-              </button>
-            </div>
           </div>
-        </div>
-      )}
+          
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button variant="outline" onClick={() => setShowCancelModal(false)} disabled={cancelling}>
+              Keep Premium
+            </Button>
+            <Button variant="destructive" onClick={handleCancel} disabled={cancelling}>
+              {cancelling ? 'Cancelling...' : 'Yes, Cancel'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

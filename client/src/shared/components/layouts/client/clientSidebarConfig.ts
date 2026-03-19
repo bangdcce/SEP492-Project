@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   FileSignature,
   WalletCards,
+  CreditCard,
 } from "lucide-react";
 
 export interface ClientSidebarMenuItem {
@@ -100,6 +101,14 @@ export const clientSidebarMenuItems: ClientSidebarMenuItem[] = [
     icon: WalletCards,
     path: "/client/billing",
     description: "Manage wallet, escrow, and payment methods",
+    section: "account",
+  },
+  {
+    id: "subscription",
+    label: "Subscription",
+    icon: CreditCard,
+    path: "/client/subscription",
+    description: "Manage your premium plan",
     section: "account",
   },
 ];

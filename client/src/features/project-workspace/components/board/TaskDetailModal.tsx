@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   X,
@@ -6,6 +6,7 @@ import {
   User,
   Link2,
   CheckCircle2,
+  ShieldCheck,
   ExternalLink,
   Loader2,
   MoreHorizontal,
@@ -21,12 +22,26 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/shared/components/ui/popover";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/components/ui/alert-dialog";
+import { Input } from "@/shared/components/ui/Input";
 import { Progress } from "@/shared/components/ui/progress";
 import RichTextEditor from "../editor/RichTextEditor";
 import AttachmentGallery from "./AttachmentGallery";
+import { WorkspaceDatePicker } from "../shared/WorkspaceDatePicker";
 import "highlight.js/styles/github.css";
 import type {
   Task,
+  TaskComment,
+  TaskHistory,
   TaskLink,
   TaskPriority,
   TaskSubmission,
@@ -48,8 +63,14 @@ import {
   createTaskSubmission,
   reviewSubmission,
 } from "../../api";
+import {
+  getLatestApprovedSubmission,
+  getSubmissionEvidenceUrl,
+  getSubmissionPreviewText,
+} from "../../utils";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
+import { toast } from "sonner";
 
 // Helper for robust date parsing (force UTC if naked ISO)
 const normalizeToUTC = (d: string | Date | undefined): Date => {
@@ -69,12 +90,10 @@ type TaskDetailModalProps = {
   isOpen: boolean;
   task: Task | null;
   specFeatures?: SpecFeatureOption[];
+  canReviewSubmissions?: boolean;
+  allowTaskStatusEditing?: boolean;
   onClose: () => void;
   onUpdate?: (updatedTask: Task) => void;
-  onSubmitTask?: (
-    taskId: string,
-    data: { submissionNote?: string; proofLink: string }
-  ) => Promise<void>;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -203,8 +222,8 @@ function EditableText({
 
 // Helper for "All" tab sorting
 type TimelineItem =
-  | { type: "history"; data: import("../../types").TaskHistory; date: Date }
-  | { type: "comment"; date: Date }; // Placeholder for comment type until real comments exist
+  | { type: "history"; data: TaskHistory; date: Date }
+  | { type: "comment"; data: TaskComment; date: Date };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
@@ -214,23 +233,19 @@ export function TaskDetailModal({
   isOpen,
   task: initialTask,
   specFeatures = [],
+  canReviewSubmissions = false,
+  allowTaskStatusEditing = false,
   onClose,
   onUpdate,
-  onSubmitTask,
 }: TaskDetailModalProps) {
   const [task, setTask] = useState<Task | null>(initialTask);
   const [activeTab, setActiveTab] = useState<"all" | "comments" | "history">("all");
-  
-  // Submission State
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submissionNote, setSubmissionNote] = useState("");
-  const [proofLink, setProofLink] = useState("");
-  const [submitError, setSubmitError] = useState<string | null>(null);
 
   // History State
-  const [history, setHistory] = useState<import("../../types").TaskHistory[]>([]);
-  const [comments, setComments] = useState<import("../../types").TaskComment[]>([]);
+  const [history, setHistory] = useState<TaskHistory[]>([]);
+  const [comments, setComments] = useState<TaskComment[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingComments, setLoadingComments] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [isSavingComment, setIsSavingComment] = useState(false);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(5);
@@ -263,18 +278,27 @@ export function TaskDetailModal({
   const [submissionError, setSubmissionError] = useState<string | null>(null);
   const [expandedSubmissions, setExpandedSubmissions] = useState<Record<string, boolean>>({});
 
-  // Review State (Client-only)
+  // Review State
   const [isReviewing, setIsReviewing] = useState(false);
   const [reviewingSubmissionId, setReviewingSubmissionId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [isReviewNotePopoverOpen, setIsReviewNotePopoverOpen] = useState(false);
+  const [isLabelPopoverOpen, setIsLabelPopoverOpen] = useState(false);
+  const [labelDraft, setLabelDraft] = useState("");
+  const [approveDialogSubmission, setApproveDialogSubmission] =
+    useState<TaskSubmission | null>(null);
 
   // Get current user for role-based UI
   const currentUser = getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
-  const canReview = currentUser?.role?.toUpperCase() === "CLIENT";
+  const currentUserRole = currentUser?.role?.toUpperCase();
+  const canReview = canReviewSubmissions || currentUserRole === "CLIENT";
+  const isFreelancer = currentUserRole === "FREELANCER";
 
   useEffect(() => {
     setTask(initialTask);
+    setApproveDialogSubmission(null);
+    setIsLabelPopoverOpen(false);
+    setLabelDraft("");
   }, [initialTask]);
 
   useEffect(() => {
@@ -289,21 +313,27 @@ export function TaskDetailModal({
 
   // Load History & Comments when tab changes
   useEffect(() => {
-    if (task) {
-        if (activeTab === 'history' || activeTab === 'all') {
-            setLoadingHistory(true);
-            fetchTaskHistory(task.id)
-                .then(setHistory)
-                .catch(console.error)
-                .finally(() => setLoadingHistory(false));
-        }
-        if (activeTab === 'comments' || activeTab === 'all') {
-            import("../../api").then(api => {
-                api.fetchTaskComments(task.id)
-                    .then(setComments)
-                    .catch(console.error);
-            });
-        }
+    const taskId = task?.id;
+    if (!taskId) {
+      return;
+    }
+
+    if (activeTab === "history" || activeTab === "all") {
+      setLoadingHistory(true);
+      fetchTaskHistory(taskId)
+        .then(setHistory)
+        .catch(console.error)
+        .finally(() => setLoadingHistory(false));
+    }
+
+    if (activeTab === "comments" || activeTab === "all") {
+      setLoadingComments(true);
+      import("../../api").then((api) => {
+        api.fetchTaskComments(taskId)
+          .then(setComments)
+          .catch(console.error)
+          .finally(() => setLoadingComments(false));
+      });
     }
   }, [activeTab, task?.id]);
 
@@ -312,7 +342,7 @@ export function TaskDetailModal({
 
     setTaskLinks([]);
     setSubtasks([]);
-    setSubmissions([]);
+    setSubmissions(task.submissions ?? []);
     setExpandedSubmissions({});
     setIsLoadingLinks(true);
     fetchTaskLinks(task.id)
@@ -337,26 +367,96 @@ export function TaskDetailModal({
         console.error("Failed to load submissions:", error);
       })
       .finally(() => setIsLoadingSubmissions(false));
-  }, [task?.id]);
+  }, [task?.id, task?.submissions]);
 
   // Combine and Sort for "All" Tab
-  const getAllTimelineItems = (): TimelineItem[] => {
-      const historyItems: TimelineItem[] = history.map(h => ({
-          type: 'history', 
-          data: h, 
-          date: normalizeToUTC(h.createdAt)
-      }));
-      
-      const commentItems: TimelineItem[] = comments.map(c => ({
-          type: 'comment', 
-          data: c, 
-          date: normalizeToUTC(c.createdAt)
-      }));
+  const timelineItems = useMemo(() => {
+    const historyItems: TimelineItem[] = history.map((entry) => ({
+      type: "history",
+      data: entry,
+      date: normalizeToUTC(entry.createdAt),
+    }));
 
-      return [...historyItems, ...commentItems].sort((a, b) => b.date.getTime() - a.date.getTime());
-  };
+    const commentItems: TimelineItem[] = comments.map((entry) => ({
+      type: "comment",
+      data: entry,
+      date: normalizeToUTC(entry.createdAt),
+    }));
 
-  const timelineItems = getAllTimelineItems();
+    return [...historyItems, ...commentItems].sort(
+      (first, second) => second.date.getTime() - first.date.getTime(),
+    );
+  }, [comments, history]);
+
+  const _renderHistoryItem = (record: TaskHistory) => (
+    <div key={record.id} className="flex gap-3 text-sm">
+      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+        {record.actor?.avatarUrl ? (
+          <img src={record.actor.avatarUrl} className="w-full h-full rounded-full" />
+        ) : (
+          <User className="w-4 h-4 text-gray-500" />
+        )}
+      </div>
+      <div>
+        <div className="text-gray-900">
+          <span className="font-semibold">{record.actor?.fullName || "System"}</span>
+          <span className="text-gray-500 mx-1">updated</span>
+          <span className="font-medium text-gray-700">{record.fieldChanged}</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs mt-1">
+          {record.oldValue && (
+            <span className="text-red-500 line-through bg-red-50 px-1 rounded">
+              {record.oldValue}
+            </span>
+          )}
+          {record.oldValue && <span className="text-gray-400">→</span>}
+          <span className="text-green-600 bg-green-50 px-1 rounded font-medium">
+            {record.newValue}
+          </span>
+        </div>
+        <p
+          className="text-xs text-gray-400 mt-1"
+          title={normalizeToUTC(record.createdAt).toLocaleString()}
+        >
+          {formatDistanceToNow(normalizeToUTC(record.createdAt), { addSuffix: true })}
+        </p>
+      </div>
+    </div>
+  );
+
+  const renderCommentItem = (comment: TaskComment) => (
+    <div key={comment.id} className="flex gap-3 text-sm group">
+      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+        {comment.actor?.avatarUrl ? (
+          <img src={comment.actor.avatarUrl} className="w-full h-full rounded-full" />
+        ) : (
+          <User className="w-4 h-4 text-gray-500" />
+        )}
+      </div>
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-gray-900">
+            {comment.actor?.fullName || "System"}
+          </span>
+          <span
+            className="text-xs text-gray-400"
+            title={normalizeToUTC(comment.createdAt).toLocaleString()}
+          >
+            {formatDistanceToNow(normalizeToUTC(comment.createdAt), { addSuffix: true })}
+          </span>
+        </div>
+        <div
+          className={cn(
+            "prose prose-sm max-w-none text-gray-700 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1",
+            "[&_[data-type=taskList]]:pl-2",
+            "[&_[data-type=taskItem]]:flex [&_[data-type=taskItem]]:items-start [&_[data-type=taskItem]]:gap-2",
+            "[&_[data-type=taskItem]_input]:mt-1 [&_[data-type=taskItem]_input]:accent-blue-600",
+          )}
+          dangerouslySetInnerHTML={{ __html: comment.content }}
+        />
+      </div>
+    </div>
+  );
 
   if (!isOpen || !task) return null;
 
@@ -365,7 +465,6 @@ export function TaskDetailModal({
     : null;
 
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-  const dueDateInputValue = dueDate ? format(dueDate, "yyyy-MM-dd") : "";
   const dueDateLabel = dueDate ? format(dueDate, "MMM d, yyyy") : "";
   const isDueDateOverdue =
     !!dueDate && dueDate.getTime() < Date.now() && task.status !== "DONE";
@@ -374,52 +473,90 @@ export function TaskDetailModal({
   const subtaskProgress = totalSubtasks
     ? Math.round((completedSubtasks / totalSubtasks) * 100)
     : 0;
+  const submissionFeed =
+    submissions.length > 0 ? submissions : (task.submissions ?? []);
+  const latestApprovedSubmission = getLatestApprovedSubmission({
+    submissions: submissionFeed,
+  });
+  const approvedSubmissionEvidenceUrl = getSubmissionEvidenceUrl(
+    latestApprovedSubmission
+  );
+  const approvedSubmissionPreview = getSubmissionPreviewText(
+    latestApprovedSubmission
+  );
+  const canTransitionTaskToDone = Boolean(latestApprovedSubmission);
+  const visibleStatusOptions = STATUS_OPTIONS.filter(
+    (option) =>
+      option.value !== "DONE" ||
+      task.status === "DONE" ||
+      (!isFreelancer && canTransitionTaskToDone)
+  );
 
   // HANDLERS
   const handleUpdate = async (patch: Partial<Task>) => {
     if (!task) return;
     try {
       const updated = await updateTask(task.id, patch);
-      setTask({ ...task, ...updated });
-      onUpdate?.({ ...task, ...updated }); // Notify parent
+      const nextTask = { ...task, ...updated };
+      setTask(nextTask);
+      onUpdate?.(nextTask); // Notify parent
+      return nextTask;
     } catch (error) {
       console.error("Failed to update task:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update task",
+      );
+      return null;
+    }
+  };
+
+  const handleAddLabel = async () => {
+    if (!task) return;
+
+    const trimmedLabel = labelDraft.trim();
+    if (!trimmedLabel) {
+      return;
+    }
+
+    const existingLabels = new Set(
+      (task.labels || []).map((label) => label.toLowerCase()),
+    );
+    if (existingLabels.has(trimmedLabel.toLowerCase())) {
+      toast.info("This label already exists on the task.");
+      return;
+    }
+
+    const updatedTask = await handleUpdate({
+      labels: [...(task.labels || []), trimmedLabel],
+    });
+
+    if (updatedTask) {
+      setLabelDraft("");
+      setIsLabelPopoverOpen(false);
     }
   };
 
   const handleStatusChange = async (newStatus: KanbanColumnKey) => {
     if (!task) return;
-    try {
-      await updateTaskStatus(task.id, newStatus);
-      setTask({ ...task, status: newStatus });
-      onUpdate?.({ ...task, status: newStatus }); // Notify parent
-    } catch (error) {
-      console.error("Failed to update status:", error);
-    }
-  };
+    if (!allowTaskStatusEditing) return;
 
-  const handleSubmitWork = async () => {
-    if (!proofLink.trim()) {
-      setSubmitError("Please provide a proof link.");
+    if (newStatus === "DONE" && !canTransitionTaskToDone) {
+      toast.warning("Cannot move to DONE without an approved submission.");
       return;
     }
-    if (!onSubmitTask) return;
 
-    setIsSubmitting(true);
-    setSubmitError(null);
     try {
-      await onSubmitTask(task.id, {
-        submissionNote: submissionNote.trim() || undefined,
-        proofLink: proofLink.trim(),
-      });
-      setSubmissionNote("");
-      setProofLink("");
-      // Ideally re-fetch or update task provided by parent
-      onClose(); // Close modal or refresh check
-    } catch (err) {
-        setSubmitError("Submission failed. check console.");
-    } finally {
-      setIsSubmitting(false);
+      const result = await updateTaskStatus(task.id, newStatus);
+      const updatedTask: Task = {
+        ...task,
+        ...result.task,
+        status: newStatus,
+        submissions: result.task.submissions ?? task.submissions,
+      };
+      setTask(updatedTask);
+      onUpdate?.(updatedTask);
+    } catch (error) {
+      console.error("Failed to update status:", error);
     }
   };
 
@@ -581,9 +718,15 @@ export function TaskDetailModal({
         content: html,
         attachments: [],
       });
-      setSubmissions((prev) => [created, ...prev]);
-      setTask((prev) => (prev ? { ...prev, status: "IN_REVIEW" } : prev));
-      onUpdate?.({ ...task, status: "IN_REVIEW" });
+      const nextSubmissions = [created, ...submissionFeed];
+      const updatedTask: Task = {
+        ...task,
+        status: "IN_REVIEW",
+        submissions: nextSubmissions,
+      };
+      setSubmissions(nextSubmissions);
+      setTask(updatedTask);
+      onUpdate?.(updatedTask);
     } catch (error) {
       console.error("Failed to submit work:", error);
       setSubmissionError("Failed to submit work. Please try again.");
@@ -600,27 +743,32 @@ export function TaskDetailModal({
     }));
   };
 
-  // Review Handlers (Client-only)
-  const handleApproveSubmission = async (submissionId: string) => {
+  // Review Handlers
+  const handleApproveSubmission = (submission: TaskSubmission) => {
     if (!task || !canReview) return;
+    setSubmissionError(null);
+    setApproveDialogSubmission(submission);
+  };
 
-    const confirmApprove = window.confirm(
-      "Are you sure you want to approve this submission? The task will be marked as DONE."
-    );
-    if (!confirmApprove) return;
+  const confirmApproveSubmission = async () => {
+    if (!task || !canReview || !approveDialogSubmission) return;
 
+    const submissionId = approveDialogSubmission.id;
     setIsReviewing(true);
     setReviewingSubmissionId(submissionId);
     try {
       const result = await reviewSubmission(task.id, submissionId, {
         status: "APPROVED",
       });
-      // Update local state
-      setSubmissions((prev) =>
-        prev.map((s) => (s.id === submissionId ? result.submission : s))
-      );
-      setTask((prev) => (prev ? { ...prev, status: result.task.status } : prev));
-      onUpdate?.({ ...task, status: result.task.status });
+      const updatedTask: Task = {
+        ...task,
+        ...result.task,
+        submissions: result.task.submissions ?? submissionFeed,
+      };
+      setSubmissions(updatedTask.submissions ?? []);
+      setTask(updatedTask);
+      onUpdate?.(updatedTask);
+      setApproveDialogSubmission(null);
     } catch (error) {
       console.error("Failed to approve submission:", error);
       setSubmissionError("Failed to approve submission. Please try again.");
@@ -645,12 +793,14 @@ export function TaskDetailModal({
         status: "REQUEST_CHANGES",
         reviewNote: reviewNote.trim(),
       });
-      // Update local state
-      setSubmissions((prev) =>
-        prev.map((s) => (s.id === submissionId ? result.submission : s))
-      );
-      setTask((prev) => (prev ? { ...prev, status: result.task.status } : prev));
-      onUpdate?.({ ...task, status: result.task.status });
+      const updatedTask: Task = {
+        ...task,
+        ...result.task,
+        submissions: result.task.submissions ?? submissionFeed,
+      };
+      setSubmissions(updatedTask.submissions ?? []);
+      setTask(updatedTask);
+      onUpdate?.(updatedTask);
       // Reset form
       setReviewNote("");
       setIsReviewNotePopoverOpen(false);
@@ -664,8 +814,9 @@ export function TaskDetailModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-0 md:p-8 overflow-hidden">
-      <div className="bg-white w-full h-full md:h-[90vh] md:max-w-6xl md:rounded-lg shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
+    <>
+      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-0 md:p-8 overflow-hidden">
+        <div className="bg-white w-full h-full md:h-[90vh] md:max-w-6xl md:rounded-lg shadow-2xl flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200">
         
         {/* HEADER (BREADCRUMB & ACTIONS) */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-white flex-shrink-0">
@@ -742,18 +893,32 @@ export function TaskDetailModal({
                  </div>
               )}
 
-              {/* PROOF OF WORK DISPLAY */}
-              {task.status === "DONE" && task.proofLink && (
+              {/* APPROVED SUBMISSION DISPLAY */}
+              {task.status === "DONE" && latestApprovedSubmission && (
                   <div className="bg-emerald-50 border border-emerald-200 rounded-md p-4">
                       <div className="flex items-center gap-2 mb-2">
                           <CheckCircle2 className="w-5 h-5 text-emerald-600" />
-                          <h4 className="text-sm font-bold text-emerald-800">Work Submitted</h4>
+                          <h4 className="text-sm font-bold text-emerald-800">Approved Submission</h4>
                       </div>
-                      {task.submissionNote && <p className="text-sm text-emerald-900 mb-2">{task.submissionNote}</p>}
-                      <a href={task.proofLink} target="_blank" rel="noreferrer" className="text-sm text-emerald-700 hover:underline flex items-center gap-1 font-medium">
+                      <p className="text-xs font-medium uppercase tracking-wide text-emerald-700 mb-2">
+                        Version {latestApprovedSubmission.version}
+                      </p>
+                      {approvedSubmissionPreview && (
+                        <p className="text-sm text-emerald-900 mb-2">
+                          {approvedSubmissionPreview}
+                        </p>
+                      )}
+                      {approvedSubmissionEvidenceUrl && (
+                        <a
+                          href={approvedSubmissionEvidenceUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-sm text-emerald-700 hover:underline flex items-center gap-1 font-medium"
+                        >
                           <ExternalLink className="w-3 h-3" />
-                          View Proof of Work
-                      </a>
+                          View Submission Evidence
+                        </a>
+                      )}
                   </div>
               )}
 
@@ -1259,14 +1424,14 @@ export function TaskDetailModal({
                                   </div>
                                 )}
 
-                                {/* CLIENT-ONLY: Review Actions for PENDING submissions */}
+                                {/* REVIEWER-ONLY: Review Actions for PENDING submissions */}
                                 {submission.status === "PENDING" && canReview && (
                                   <div className="mt-3 pt-3 border-t border-gray-200">
                                     <div className="flex items-center gap-2">
                                       {/* Approve Button */}
                                       <button
                                         type="button"
-                                        onClick={() => handleApproveSubmission(submission.id)}
+                                        onClick={() => handleApproveSubmission(submission)}
                                         disabled={isReviewing && reviewingSubmissionId === submission.id}
                                         className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
                                       >
@@ -1375,12 +1540,15 @@ export function TaskDetailModal({
                   {/* ALL TAB (Merged View) */}
                   {activeTab === 'all' && (
                      <div className="space-y-4">
-                         {loadingHistory ? (
+                         {loadingHistory || loadingComments ? (
                              <div className="flex justify-center py-4"><Loader2 className="animate-spin text-gray-400" /></div>
                          ) : timelineItems.length === 0 ? (
                              <p className="text-sm text-gray-500 text-center py-4">No recent activity.</p>
                          ) : (
                              timelineItems.map((item) => {
+                                 if (item.type === "comment") {
+                                     return renderCommentItem(item.data);
+                                 }
                                  if (item.type === 'history') {
                                      const record = item.data;
                                      return (
@@ -1532,14 +1700,16 @@ export function TaskDetailModal({
                    <select 
                       value={task.status}
                       onChange={(e) => handleStatusChange(e.target.value as KanbanColumnKey)}
+                      disabled={!allowTaskStatusEditing}
                       className={cn(
-                          "w-full appearance-none px-3 py-2 rounded-md font-semibold text-sm border-0 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-blue-500 cursor-pointer",
+                          "w-full appearance-none px-3 py-2 rounded-md font-semibold text-sm border-0 ring-1 ring-inset ring-gray-300 focus:ring-2 focus:ring-blue-500",
+                          allowTaskStatusEditing ? "cursor-pointer" : "cursor-not-allowed opacity-70",
                           STATUS_OPTIONS.find(o => o.value === task.status)?.color
                       )}
                    >
-                       {STATUS_OPTIONS.map(opt => (
-                           <option key={opt.value} value={opt.value}>{opt.label}</option>
-                       ))}
+                        {visibleStatusOptions.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                        ))}
                    </select>
                    <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-gray-500 pointer-events-none" />
                 </div>
@@ -1619,96 +1789,95 @@ export function TaskDetailModal({
                                    {label}
                                </span>
                            ))}
-                           <button 
-                                onClick={() => {
-                                    const newLabel = prompt("Enter label:");
-                                    if(newLabel) handleUpdate({ labels: [...(task.labels || []), newLabel] })
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
-                            >
-                               <Plus className="w-3 h-3" />
-                               Add
-                           </button>
+                           <Popover open={isLabelPopoverOpen} onOpenChange={setIsLabelPopoverOpen}>
+                               <PopoverTrigger asChild>
+                                   <button
+                                       type="button"
+                                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+                                   >
+                                       <Plus className="w-3 h-3" />
+                                       Add
+                                   </button>
+                               </PopoverTrigger>
+                               <PopoverContent align="start" className="w-72 space-y-3 p-3">
+                                   <div className="space-y-1">
+                                       <p className="text-sm font-semibold text-gray-900">Add label</p>
+                                       <p className="text-xs text-gray-500">
+                                           Create a label for faster task filtering and grouping.
+                                       </p>
+                                   </div>
+                                   <Input
+                                       value={labelDraft}
+                                       onChange={(event) => setLabelDraft(event.target.value)}
+                                       onKeyDown={(event) => {
+                                           if (event.key === "Enter") {
+                                               event.preventDefault();
+                                               void handleAddLabel();
+                                           }
+                                       }}
+                                       placeholder="e.g. frontend"
+                                       autoFocus
+                                   />
+                                   <div className="flex justify-end gap-2">
+                                       <button
+                                           type="button"
+                                           onClick={() => {
+                                               setIsLabelPopoverOpen(false);
+                                               setLabelDraft("");
+                                           }}
+                                           className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                                       >
+                                           Cancel
+                                       </button>
+                                       <button
+                                           type="button"
+                                           onClick={() => void handleAddLabel()}
+                                           disabled={!labelDraft.trim()}
+                                           className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                       >
+                                           Add label
+                                       </button>
+                                   </div>
+                               </PopoverContent>
+                           </Popover>
                        </div>
                   </div>
 
-                   {/* Start Date */}
-                   <div className="flex items-center justify-between">
+                  {/* Start Date */}
+                   <div className="space-y-2">
                       <span className="text-sm text-gray-600 font-medium">Start Date</span>
-                      <div className="relative">
-                          {/* Simplistic Date Input for demo */}
-                          <input 
-                             type="date" 
-                             value={task.startDate ? format(new Date(task.startDate), 'yyyy-MM-dd') : ""}
-                             onChange={(e) => handleUpdate({ startDate: e.target.value })}
-                             className="text-xs border-0 p-0 text-slate-600 focus:ring-0 text-right w-24 bg-transparent cursor-pointer"
-                          />
-                      </div>
+                      <WorkspaceDatePicker
+                        value={task.startDate ?? null}
+                        onChange={(value) => void handleUpdate({ startDate: value })}
+                        placeholder="Set start date"
+                      />
                   </div>
 
                   {/* Due Date */}
-                  <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600 font-medium">Due Date</span>
-                      <div className="relative">
-                          {isDueDateOverdue && dueDate ? (
-                            <div className="relative">
-                              <div className="flex items-center gap-2 rounded-md border border-red-500 px-2 py-1 text-red-600 bg-red-50/40">
-                                <AlertTriangle className="w-4 h-4" />
-                                <span className="text-xs font-semibold">{dueDateLabel}</span>
-                              </div>
-                              <input
-                                type="date"
-                                value={dueDateInputValue}
-                                onChange={(e) => handleUpdate({ dueDate: e.target.value })}
-                                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                                aria-label="Due date"
-                              />
-                            </div>
-                          ) : (
-                            <input
-                              type="date"
-                              value={dueDateInputValue}
-                              onChange={(e) => handleUpdate({ dueDate: e.target.value })}
-                              className="text-xs border-0 p-0 text-slate-600 focus:ring-0 text-right w-24 bg-transparent cursor-pointer"
-                            />
-                          )}
+                  <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600 font-medium">Due Date</span>
+                        {isDueDateOverdue && dueDate ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            Overdue
+                          </span>
+                        ) : null}
                       </div>
+                      <WorkspaceDatePicker
+                        value={task.dueDate ?? null}
+                        onChange={(value) => void handleUpdate({ dueDate: value })}
+                        placeholder="Set due date"
+                        tone={isDueDateOverdue ? "danger" : "default"}
+                      />
+                      {isDueDateOverdue && dueDate ? (
+                        <p className="flex items-center gap-1 text-[11px] text-red-600">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          Due since {dueDateLabel}
+                        </p>
+                      ) : null}
                   </div>
               </div>
-
-              {/* SUBMIT WORK ACTION */}
-              {!task.proofLink && task.status !== "DONE" && onSubmitTask && (
-                 <div className="mt-6 border border-teal-200 rounded-md bg-teal-50 p-4 space-y-3">
-                     <SectionHeader title="Submit Work" />
-                     <p className="text-xs text-teal-800 mb-2">Ready to mark this done? Provide proof below.</p>
-                     
-                     <div className="space-y-2">
-                         <input 
-                             placeholder="Proof URL (GitHub PR, Loom...)" 
-                             value={proofLink}
-                             onChange={(e) => setProofLink(e.target.value)}
-                             className="w-full text-sm border-teal-200 rounded focus:border-teal-500 focus:ring-teal-500"
-                         />
-                         <textarea 
-                             placeholder="Completion note (optional)" 
-                             value={submissionNote}
-                             onChange={(e) => setSubmissionNote(e.target.value)}
-                             className="w-full text-sm border-teal-200 rounded focus:border-teal-500 focus:ring-teal-500 resize-none h-16"
-                         />
-                     </div>
-                     
-                     <button 
-                        onClick={handleSubmitWork}
-                        disabled={isSubmitting}
-                        className="w-full flex items-center justify-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold py-2 rounded transition-colors text-sm shadow-sm disabled:opacity-50"
-                     >
-                         {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Submit & Mark Done"}
-                     </button>
-                     
-                     {submitError && <p className="text-xs text-red-600">{submitError}</p>}
-                 </div>
-              )}
-              
               <div className="text-xs text-gray-400 pt-4 flex justify-between">
                   <span>Created {task.id ? format(new Date(), "MMM d, yyyy") : "-"}</span>
                   <span>Updated {format(new Date(), "MMM d, yyyy")}</span>
@@ -1718,8 +1887,94 @@ export function TaskDetailModal({
           </div>
         </div>
 
+        </div>
       </div>
-    </div>
+
+      <AlertDialog
+        open={Boolean(approveDialogSubmission)}
+        onOpenChange={(open) => {
+          if (!open && !isReviewing) {
+            setApproveDialogSubmission(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md border border-slate-200 bg-white p-0 shadow-2xl">
+          <div className="border-b border-slate-200 px-6 py-5">
+            <AlertDialogHeader className="gap-3 text-left">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <div className="space-y-1">
+                  <AlertDialogTitle className="text-base font-semibold text-slate-900">
+                    Confirm Submission Approval
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-sm leading-6 text-slate-600">
+                    By approving this, you verify that the work submitted in{" "}
+                    Version {approveDialogSubmission?.version ?? "-"} meets the
+                    required standards. The task will be marked as DONE.
+                  </AlertDialogDescription>
+                </div>
+              </div>
+            </AlertDialogHeader>
+          </div>
+
+          <div className="space-y-4 px-6 py-5">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Approval Scope
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                Submission Version {approveDialogSubmission?.version ?? "-"}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                This action finalizes the current review cycle and records the
+                submission as the approved deliverable for this task.
+              </p>
+            </div>
+
+            <div className="rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <div className="flex items-start gap-2">
+                <ShieldCheck className="mt-0.5 h-4 w-4 text-emerald-600" />
+                <p className="text-xs leading-5 text-slate-600">
+                  Approval will update the task status immediately and notify the
+                  workspace that this deliverable has passed review.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <AlertDialogFooter className="border-t border-slate-200 bg-slate-50 px-6 py-4 sm:justify-between">
+            <AlertDialogCancel
+              disabled={isReviewing}
+              className="border-slate-300 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isReviewing}
+              className="bg-slate-900 text-white hover:bg-slate-800 focus-visible:ring-slate-400"
+              onClick={(event) => {
+                event.preventDefault();
+                void confirmApproveSubmission();
+              }}
+            >
+              {isReviewing ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Confirming...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                  Confirm & Mark as Done
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

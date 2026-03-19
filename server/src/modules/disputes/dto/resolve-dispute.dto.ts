@@ -8,6 +8,7 @@ import {
   Min,
   IsBoolean,
   ValidateNested,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { DisputeResult, FaultType } from 'src/database/entities';
@@ -28,6 +29,7 @@ export class ResolveDisputeDto {
 
   @IsNotEmpty({ message: 'Admin comment (lý do phán quyết) là bắt buộc' })
   @IsString()
+  @MaxLength(2000)
   adminComment: string;
 
   @IsEnum(FaultType)
@@ -36,6 +38,7 @@ export class ResolveDisputeDto {
 
   @IsString()
   @IsNotEmpty({ message: 'Bên có lỗi không được để trống (raiser/defendant/both/none)' })
+  @MaxLength(50)
   faultyParty: string;
 
   @ValidateNested()
@@ -70,6 +73,7 @@ export class ResolveDisputeDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(2000)
   warningMessage?: string;
 
   /**

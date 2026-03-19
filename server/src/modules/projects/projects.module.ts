@@ -5,17 +5,29 @@ import { DisputeEntity } from '../../database/entities/dispute.entity';
 import { MilestoneEntity } from '../../database/entities/milestone.entity';
 import { TaskEntity } from '../../database/entities/task.entity';
 import { ContractEntity } from '../../database/entities/contract.entity';
+import { UserEntity } from '../../database/entities/user.entity';
+import { ReviewEntity } from '../../database/entities/review.entity';
 import { ProjectsService } from './projects.service';
 import { ProjectsController } from './projects.controller';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
 import { PaymentsModule } from '../payments/payments.module';
+import { WorkspaceChatModule } from '../workspace-chat/workspace-chat.module';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([ProjectEntity, DisputeEntity, MilestoneEntity, TaskEntity, ContractEntity]),
+    TypeOrmModule.forFeature([
+      ProjectEntity,
+      DisputeEntity,
+      MilestoneEntity,
+      TaskEntity,
+      ContractEntity,
+      UserEntity,
+      ReviewEntity,
+    ]),
     AuditLogsModule, // For audit logging milestone approvals
     PaymentsModule,
+    WorkspaceChatModule,
   ],
   controllers: [ProjectsController],
   providers: [ProjectsService, MilestoneLockPolicyService],

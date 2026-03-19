@@ -18,7 +18,7 @@ import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { DeliverableType } from '../../database/entities/milestone.entity';
 import { ProjectSpecSignatureEntity } from '../../database/entities/project-spec-signature.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
-import { NotificationEntity } from '../../database/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('ProjectSpecsService', () => {
   let service: ProjectSpecsService;
@@ -41,9 +41,8 @@ describe('ProjectSpecsService', () => {
   const mockProjectRequestProposalsRepo = {
     find: jest.fn(),
   };
-  const mockNotificationsRepo = {
-    create: jest.fn((data) => data),
-    save: jest.fn(),
+  const mockNotificationsService = {
+    create: jest.fn(),
   };
   const mockAuditLogsService = {
     log: jest.fn(),
@@ -89,7 +88,7 @@ describe('ProjectSpecsService', () => {
           provide: getRepositoryToken(ProjectRequestProposalEntity),
           useValue: mockProjectRequestProposalsRepo,
         },
-        { provide: getRepositoryToken(NotificationEntity), useValue: mockNotificationsRepo },
+        { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
         { provide: DataSource, useValue: mockDataSource },
       ],

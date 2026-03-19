@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ArrowUpRight,
   TrendingDown,
@@ -7,7 +7,8 @@ import {
   Minus,
   ChevronDown,
 } from "lucide-react";
-import type { Milestone, Task } from "../../types";
+import { fetchProjectRecentActivity } from "../../api";
+import type { Milestone, ProjectRecentActivity, Task } from "../../types";
 import {
   formatDistanceToNow,
   isWithinInterval,
@@ -21,6 +22,7 @@ import { formatCurrency } from "@/shared/utils/formatters";
 // ─────────────────────────────────────────────────────────────────────────────
 
 interface ProjectOverviewProps {
+  projectId?: string;
   milestones: Milestone[];
   tasks: Task[];
 }
@@ -81,6 +83,51 @@ function SectionHeader({ title, action }: { title: string; action?: string }) {
     </div>
   );
 }
+
+const ACTIVITY_LIMIT = 5;
+
+const humanizeActivityValue = (value?: string) => {
+  if (!value) return "";
+  if (/^[A-Z0-9_ -]+$/.test(value)) {
+    return value
+      .toLowerCase()
+      .replace(/_/g, " ")
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  return value;
+};
+
+const getActivityVerb = (activity: ProjectRecentActivity) => {
+  if (activity.fieldChanged === "status") {
+    if (activity.newValue === "DONE") return "completed";
+    if (activity.newValue === "IN_REVIEW") return "submitted";
+    if (activity.oldValue === "DONE") return "reopened";
+  }
+
+  if (activity.fieldChanged === "assignee") {
+    return "reassigned";
+  }
+
+  return "updated";
+};
+
+const getActivityDetail = (activity: ProjectRecentActivity) => {
+  const fieldLabel =
+    activity.fieldChanged.charAt(0).toUpperCase() + activity.fieldChanged.slice(1);
+  const oldValue = humanizeActivityValue(activity.oldValue);
+  const newValue = humanizeActivityValue(activity.newValue);
+
+  if (oldValue && newValue) {
+    return `${fieldLabel}: ${oldValue} -> ${newValue}`;
+  }
+
+  if (newValue) {
+    return `${fieldLabel}: ${newValue}`;
+  }
+
+  return fieldLabel;
+};
 
 // Custom SVG Donut Chart
 function StatusDonutChart({
@@ -207,8 +254,22 @@ function StatusDonutChart({
   );
 }
 
-function RecentActivityList({ tasks }: { tasks: Task[] }) {
-  if (tasks.length === 0) {
+function RecentActivityList({
+  activities,
+  isLoading,
+}: {
+  activities: ProjectRecentActivity[];
+  isLoading: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-32 text-gray-400 text-sm border border-dashed border-gray-300 rounded-[3px]">
+        Loading recent activity...
+      </div>
+    );
+  }
+
+  if (activities.length === 0) {
     return (
       <div className="flex items-center justify-center h-32 text-gray-400 text-sm border border-dashed border-gray-300 rounded-[3px]">
         No recent activity
@@ -218,40 +279,41 @@ function RecentActivityList({ tasks }: { tasks: Task[] }) {
 
   return (
     <ul className="space-y-0">
-      {tasks.map((task) => (
+      {activities.map((activity) => (
         <li
-          key={task.id}
+          key={activity.id}
           className="group flex items-center gap-3 py-2.5 px-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 rounded-[3px] transition-colors cursor-pointer"
         >
           <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 flex-shrink-0">
-            {task.assignee?.avatarUrl ? (
+            {activity.actor?.avatarUrl ? (
               <img
-                src={task.assignee.avatarUrl}
+                src={activity.actor.avatarUrl}
                 className="w-8 h-8 rounded-full"
                 alt=""
               />
             ) : (
               <span className="text-xs font-bold">
-                {task.assignee?.fullName?.charAt(0) || "U"}
+                {activity.actor?.fullName?.charAt(0) || "S"}
               </span>
             )}
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm text-slate-800">
               <span className="font-semibold text-blue-700 hover:underline">
-                {task.assignee?.fullName || "Unassigned"}
+                {activity.actor?.fullName || "System"}
               </span>
-              <span className="text-slate-600 mx-1">
-                {task.status === "DONE" ? "completed" : "updated"}
-              </span>
+              <span className="text-slate-600 mx-1">{getActivityVerb(activity)}</span>
               <span className="font-medium text-slate-900 truncate">
-                {task.title}
+                {activity.task.title}
               </span>
             </p>
             <p className="text-xs text-slate-400 mt-0.5">
-              {task.submittedAt
-                ? formatDistanceToNow(new Date(task.submittedAt)) + " ago"
-                : "Recently"}
+              {getActivityDetail(activity)}
+            </p>
+            <p className="text-xs text-slate-400 mt-0.5">
+              {formatDistanceToNow(new Date(activity.createdAt), {
+                addSuffix: true,
+              })}
             </p>
           </div>
         </li>
@@ -389,7 +451,44 @@ function PriorityBarChart({
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 
-export function ProjectOverview({ milestones, tasks }: ProjectOverviewProps) {
+export function ProjectOverview({
+  projectId,
+  milestones,
+  tasks,
+}: ProjectOverviewProps) {
+  const [recentActivity, setRecentActivity] = useState<ProjectRecentActivity[]>([]);
+  const [isLoadingRecentActivity, setIsLoadingRecentActivity] = useState(false);
+
+  useEffect(() => {
+    if (!projectId) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingRecentActivity(true);
+
+    fetchProjectRecentActivity(projectId)
+      .then((activity) => {
+        if (!cancelled) {
+          setRecentActivity(activity.slice(0, ACTIVITY_LIMIT));
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load recent activity", error);
+        if (!cancelled) {
+          setRecentActivity([]);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingRecentActivity(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectId, tasks]);
   // ─────────────────────────────────────────────────────────────────────────
   // METRICS CALCULATIONS
   // ─────────────────────────────────────────────────────────────────────────
@@ -457,16 +556,6 @@ export function ProjectOverview({ milestones, tasks }: ProjectOverviewProps) {
       { label: "In Progress", value: counts.IN_PROGRESS, color: "#0052CC" }, // Jira Blue
       { label: "To Do", value: counts.TODO, color: "#DFE1E6" }, // Jira Gray
     ];
-  }, [tasks]);
-
-  const recentTasks = useMemo(() => {
-    return [...tasks]
-      .sort((a, b) => {
-        const dateA = a.submittedAt ? new Date(a.submittedAt).getTime() : 0;
-        const dateB = b.submittedAt ? new Date(b.submittedAt).getTime() : 0;
-        return dateB - dateA; // Descending
-      })
-      .slice(0, 5);
   }, [tasks]);
 
   // Mock Workload Data
@@ -579,7 +668,10 @@ export function ProjectOverview({ milestones, tasks }: ProjectOverviewProps) {
         {/* Recent Activity (Right) */}
         <div className="lg:col-span-7 bg-white border border-gray-300 rounded-[3px] p-5 shadow-sm">
           <SectionHeader title="Recent Activity" />
-          <RecentActivityList tasks={recentTasks} />
+          <RecentActivityList
+            activities={recentActivity}
+            isLoading={isLoadingRecentActivity}
+          />
         </div>
       </div>
 

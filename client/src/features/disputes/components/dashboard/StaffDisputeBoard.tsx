@@ -859,14 +859,25 @@ export const StaffDisputeBoard = ({
                     <div className="text-xs text-gray-500 truncate max-w-[200px] ml-3.5">
                       {projectTitle}
                     </div>
-                    <span
-                      className={`inline-flex mt-1 ml-3.5 px-2 py-0.5 rounded text-xs font-medium border ${statusPill(
-                        dispute.status,
-                      )}`}
-                    >
-                      {dispute.status.replace("_", " ")}
-                    </span>
-                  </td>
+                     <span
+                       className={`inline-flex mt-1 ml-3.5 px-2 py-0.5 rounded text-xs font-medium border ${statusPill(
+                         dispute.status,
+                       )}`}
+                     >
+                       {dispute.status.replace("_", " ")}
+                     </span>
+                     {dispute.isAppealed ? (
+                       <div className="ml-3.5 mt-1 text-[11px] text-amber-700">
+                         Appeal filed
+                         {dispute.appealedAt
+                           ? ` ${new Date(dispute.appealedAt).toLocaleDateString()}`
+                           : ""}
+                         {dispute.appealResolvedAt
+                           ? ` • resolved ${new Date(dispute.appealResolvedAt).toLocaleDateString()}`
+                           : ""}
+                       </div>
+                     ) : null}
+                   </td>
                   <td className="px-4 py-3 text-slate-700">
                     {raiserLabel}
                     <div className="text-xs text-slate-400">

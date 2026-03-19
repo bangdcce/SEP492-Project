@@ -1,3 +1,7 @@
+jest.mock('../contracts/contracts.service', () => ({
+  ContractsService: class ContractsService {},
+}));
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProjectRequestsService } from './project-requests.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -12,7 +16,12 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ProjectRequestAnswerEntity } from '../../database/entities/project-request-answer.entity';
 import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
+import { ProjectEntity } from '../../database/entities/project.entity';
+import { ContractEntity } from '../../database/entities/contract.entity';
 import { MatchingService } from '../matching/matching.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { ContractsService } from '../contracts/contracts.service';
+import { QuotaService } from '../subscriptions/quota.service';
 
 describe('ProjectRequestsService', () => {
   let service: ProjectRequestsService;
@@ -33,6 +42,29 @@ describe('ProjectRequestsService', () => {
 
   const mockMatchingService = {
     findMatches: jest.fn(),
+  };
+
+  const mockProjectRepository = {
+    findOne: jest.fn(),
+    find: jest.fn(),
+  };
+
+  const mockContractRepository = {
+    find: jest.fn(),
+  };
+
+  const mockNotificationsService = {
+    create: jest.fn(),
+    createMany: jest.fn(),
+  };
+
+  const mockContractsService = {
+    initializeContract: jest.fn(),
+  };
+
+  const mockQuotaService = {
+    ensureQuotaForAction: jest.fn(),
+    recordUsage: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -57,21 +89,45 @@ describe('ProjectRequestsService', () => {
         },
         {
           provide: getRepositoryToken(BrokerProposalEntity),
-          useValue: { find: jest.fn(), save: jest.fn(), create: jest.fn() },
+          useValue: { find: jest.fn(), save: jest.fn(), create: jest.fn(), count: jest.fn() },
         },
         {
           provide: getRepositoryToken(ProjectRequestProposalEntity),
           useValue: { find: jest.fn(), save: jest.fn(), create: jest.fn() },
         },
         {
+          provide: getRepositoryToken(ProjectEntity),
+          useValue: mockProjectRepository,
+        },
+        {
+          provide: getRepositoryToken(ContractEntity),
+          useValue: mockContractRepository,
+        },
+        {
           provide: MatchingService,
           useValue: mockMatchingService,
+        },
+        {
+          provide: NotificationsService,
+          useValue: mockNotificationsService,
+        },
+        {
+          provide: ContractsService,
+          useValue: mockContractsService,
+        },
+        {
+          provide: QuotaService,
+          useValue: mockQuotaService,
         },
       ],
     }).compile();
 
     service = module.get<ProjectRequestsService>(ProjectRequestsService);
     repositoryMock = module.get(getRepositoryToken(ProjectRequestEntity));
+    module.get(getRepositoryToken(BrokerProposalEntity)).count.mockResolvedValue(0);
+    mockProjectRepository.findOne.mockResolvedValue(null);
+    mockProjectRepository.find.mockResolvedValue([]);
+    mockContractRepository.find.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -99,7 +155,7 @@ describe('ProjectRequestsService', () => {
       repositoryMock.findOne.mockResolvedValue(request);
 
       const result = await service.findOne(requestId, admin);
-      expect(result).toEqual(request);
+      expect(result).toEqual(expect.objectContaining(request));
     });
 
     it('should allow Client to view their OWN request', async () => {
@@ -107,7 +163,7 @@ describe('ProjectRequestsService', () => {
       repositoryMock.findOne.mockResolvedValue(request);
 
       const result = await service.findOne(requestId, clientA);
-      expect(result).toEqual(request);
+      expect(result).toEqual(expect.objectContaining(request));
     });
 
     it('should MASK data when Broker views PENDING request (Unassigned)', async () => {
@@ -144,7 +200,7 @@ describe('ProjectRequestsService', () => {
       repositoryMock.findOne.mockResolvedValue(request);
 
       const result = await service.findOne(requestId, brokerMe);
-      expect(result).toEqual(request);
+      expect(result).toEqual(expect.objectContaining(request));
       expect(result!.client.email).toBe('show@email.com'); // Not masked
     });
 
