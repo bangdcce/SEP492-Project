@@ -245,7 +245,7 @@ export default function RequestDetailPage() {
   const handleRevertToDraft = async () => {
       try {
           // explicitly set to PUBLIC_DRAFT
-          await wizardService.updateRequest(id!, { status: RequestStatus.PUBLIC_DRAFT, isDraft: true });
+          await wizardService.updateRequest(id!, { status: RequestStatus.PUBLIC_DRAFT });
           toast.success("Reverted to Draft", {
               description: "Redirecting to wizard for editing...",
           });
