@@ -113,17 +113,17 @@ export class DisputeEntity {
   disputedAmount: number; // S盻・ti盻］ tranh ch蘯･p
 
   // === RAISER'S CLAIM ===
-  @Column({ type: 'text' })
+  @Column({ type: 'varchar', length: 5000 })
   reason: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 5000, nullable: true })
   messages: string;
 
   @Column({ type: 'jsonb', nullable: true })
   evidence: string[]; // URLs b蘯ｱng ch盻ｩng
 
   // === DEFENDANT'S RESPONSE ===
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 5000, nullable: true })
   defendantResponse: string; // L盻拱 gi蘯｣i trﾃｬnh
 
   @Column({ type: 'jsonb', nullable: true })
@@ -143,7 +143,7 @@ export class DisputeEntity {
   isOverdue: boolean;
 
   // === PRELIMINARY REVIEW ===
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   triageReason: string;
 
   @Column({ nullable: true })
@@ -155,7 +155,7 @@ export class DisputeEntity {
   @Column({ type: 'varchar', length: 50, nullable: true })
   triagePreviousStatus: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   infoRequestReason: string;
 
   @Column({ nullable: true })
@@ -199,7 +199,7 @@ export class DisputeEntity {
   result: DisputeResult;
 
   // === RESOLUTION ===
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   adminComment: string; // Public comment (user th蘯･y ﾄ柁ｰ盻｣c)
 
   @Column({ nullable: true })
@@ -209,7 +209,7 @@ export class DisputeEntity {
   resolvedAt: Date;
 
   // === DISMISSAL APPEAL (REJECTION REVIEW) ===
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   rejectionAppealReason: string;
 
   @Column({ type: 'timestamp', nullable: true })
@@ -218,7 +218,7 @@ export class DisputeEntity {
   @Column({ nullable: true })
   rejectionAppealResolvedById: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   rejectionAppealResolution: string;
 
   @Column({ type: 'timestamp', nullable: true })
@@ -247,7 +247,7 @@ export class DisputeEntity {
   @Column({ type: 'timestamp', nullable: true })
   escalatedAt: Date;
 
-  @Column({ type: 'text', nullable: true, comment: 'Lﾃｽ do escalate lﾃｪn Admin' })
+  @Column({ type: 'varchar', length: 2000, nullable: true, comment: 'Lﾃｽ do escalate lﾃｪn Admin' })
   escalationReason: string;
 
   // === SETTLEMENT LINK ===
@@ -265,7 +265,7 @@ export class DisputeEntity {
   @Column({ default: false })
   isAppealed: boolean;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   appealReason: string;
 
   @Column({ type: 'timestamp', nullable: true })
@@ -277,7 +277,7 @@ export class DisputeEntity {
   @Column({ nullable: true })
   appealResolvedById: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 2000, nullable: true })
   appealResolution: string;
 
   @Column({ type: 'timestamp', nullable: true })

@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { Button } from '@/shared/components/ui/Button';
+import { Button } from '@/shared/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert';
-import Spinner from '@/shared/components/ui/Spinner';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
+import Spinner from '@/shared/components/ui/spinner';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
 import { projectRequestsApi } from '../project-requests/api';
 import type { ProjectRequest } from '../project-requests/types';
 import { projectSpecsApi } from './api';

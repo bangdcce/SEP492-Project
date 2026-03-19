@@ -45,6 +45,59 @@ export interface CalendarEventParticipant {
   responseDeadline?: string | null;
   respondedAt?: string | null;
   responseNote?: string | null;
+  user?: {
+    id: string;
+    fullName?: string;
+    email?: string;
+    handle?: string;
+    role?: string;
+  } | null;
+}
+
+export interface CalendarDisputeSummaryMetadata {
+  id: string;
+  displayCode: string;
+  displayTitle: string;
+  projectTitle?: string;
+  reasonExcerpt: string;
+  status?: string;
+  appealState: string;
+}
+
+export interface CalendarHearingSummaryMetadata {
+  hearingId: string;
+  hearingNumber?: number;
+  tier?: string;
+  status?: string;
+  isActionable: boolean;
+  isArchived: boolean;
+  freezeReason?: string;
+  scheduledAt?: string;
+  nextAction?: string;
+  appealState: string;
+  externalMeetingLink?: string;
+}
+
+export interface CalendarDisputeContext {
+  disputeId: string;
+  hearingId: string;
+  displayCode: string;
+  hearingNumber?: number;
+  projectId?: string;
+  projectTitle?: string;
+  claimantName?: string;
+  defendantName?: string;
+  counterpartyName?: string;
+  perspective?: "CLAIMANT" | "DEFENDANT" | "OTHER";
+  viewerSystemRole?: string;
+  viewerHearingRole?: "CLAIMANT" | "DEFENDANT" | "WITNESS" | "MODERATOR" | "OBSERVER";
+}
+
+export interface CalendarEventMetadata {
+  hearingId?: string;
+  disputeSummary?: CalendarDisputeSummaryMetadata;
+  hearingSummary?: CalendarHearingSummaryMetadata;
+  [key: string]: any;
 }
 
 export interface CalendarEvent {
@@ -61,7 +114,8 @@ export interface CalendarEvent {
   organizerId: string;
   referenceType?: string;
   referenceId?: string;
-  metadata?: Record<string, any>;
+  metadata?: CalendarEventMetadata;
+  disputeContext?: CalendarDisputeContext;
   participants?: CalendarEventParticipant[];
   createdAt: string;
   updatedAt: string;

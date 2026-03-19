@@ -785,6 +785,50 @@ export class DisputeEventListener {
     }
   }
 
+  @OnEvent('hearing.objectionResolved')
+  async handleHearingObjectionResolved(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    statementId?: string;
+    ruling?: string;
+    resolvedBy?: string;
+    resolvedAt?: Date;
+  }): Promise<void> {
+    if (!payload?.hearingId || !payload?.statementId) {
+      return;
+    }
+
+    const normalizedPayload = {
+      ...payload,
+      serverTimestamp: this.toIsoString(payload.resolvedAt),
+    };
+    this.gateway.emitHearingEvent(
+      payload.hearingId,
+      'HEARING_OBJECTION_RESOLVED',
+      normalizedPayload,
+    );
+
+    if (payload.disputeId) {
+      this.gateway.emitDisputeEvent(
+        payload.disputeId,
+        'HEARING_OBJECTION_RESOLVED',
+        normalizedPayload,
+      );
+    }
+
+    if (payload.disputeId) {
+      await this.appendLedger(payload.disputeId, 'HEARING_OBJECTION_RESOLVED', {
+        actorId: payload.resolvedBy || null,
+        metadata: {
+          hearingId: payload.hearingId,
+          statementId: payload.statementId,
+          ruling: payload.ruling || null,
+          resolvedAt: payload.resolvedAt ? this.toIsoString(payload.resolvedAt) : null,
+        },
+      });
+    }
+  }
+
   @OnEvent('hearing.presenceChanged')
   handleHearingPresenceChanged(payload: {
     hearingId?: string;

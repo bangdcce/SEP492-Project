@@ -9,8 +9,6 @@ import {
 import { sectionCardClass } from "./constants";
 import type { HearingParticipantConfirmationSummary as ConfSummary } from "@/features/hearings/types";
 
-/* ─── Status icon mapping ─── */
-
 const STATUS_CONFIG: Record<
   string,
   {
@@ -30,8 +28,6 @@ const STATUS_CONFIG: Record<
   NO_RESPONSE: { icon: Clock, color: "text-slate-300", label: "No response" },
 };
 
-/* ─── Props ─── */
-
 interface ConfirmationSummaryProps {
   summary: ConfSummary | null | undefined;
 }
@@ -47,7 +43,10 @@ export const ConfirmationSummary = memo(function ConfirmationSummary({
     declined,
     tentative,
     pending,
-    allRequiredAccepted,
+    confirmationSatisfied,
+    hasModeratorAccepted,
+    primaryPartyAcceptedCount,
+    primaryPartyPendingCount,
     participants,
   } = summary;
 
@@ -57,7 +56,6 @@ export const ConfirmationSummary = memo(function ConfirmationSummary({
         Confirmation Status
       </h4>
 
-      {/* Summary bar */}
       <div className="flex items-center gap-3 text-xs">
         <span className="inline-flex items-center gap-1 text-emerald-700">
           <CheckCircle className="h-3.5 w-3.5" />
@@ -80,7 +78,6 @@ export const ConfirmationSummary = memo(function ConfirmationSummary({
         </span>
       </div>
 
-      {/* Progress bar */}
       <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
         <div className="flex h-full">
           {accepted > 0 && (
@@ -104,38 +101,46 @@ export const ConfirmationSummary = memo(function ConfirmationSummary({
         </div>
       </div>
 
-      {/* Status label */}
       <div
         className={cn(
-          "rounded-md px-2.5 py-1.5 text-xs font-medium text-center",
-          allRequiredAccepted
-            ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
-            : "bg-amber-50 text-amber-700 border border-amber-200",
+          "rounded-md border px-2.5 py-1.5 text-center text-xs font-medium",
+          confirmationSatisfied
+            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+            : "border-amber-200 bg-amber-50 text-amber-700",
         )}
       >
-        {allRequiredAccepted
-          ? "All required participants confirmed"
-          : "Awaiting required confirmations"}
+        {confirmationSatisfied
+          ? "Moderator and at least one primary side confirmed"
+          : `Waiting for moderator + primary party confirmation (${primaryPartyAcceptedCount} accepted, ${primaryPartyPendingCount} pending)`}
       </div>
 
-      {/* Individual participants */}
+      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-500">
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+          Moderator: {hasModeratorAccepted ? "confirmed" : "pending"}
+        </div>
+        <div className="rounded-md border border-slate-200 bg-slate-50 px-2 py-1.5">
+          Primary sides: {primaryPartyAcceptedCount} accepted
+        </div>
+      </div>
+
       {participants.length > 0 && (
         <div className="space-y-1">
-          {participants.map((p) => {
-            const cfg = STATUS_CONFIG[p.status] ?? STATUS_CONFIG.PENDING;
+          {participants.map((participant) => {
+            const cfg = STATUS_CONFIG[participant.status] ?? STATUS_CONFIG.PENDING;
             const Icon = cfg.icon;
             return (
-              <Tooltip key={p.userId}>
+              <Tooltip key={participant.userId}>
                 <TooltipTrigger asChild>
-                  <div className="flex items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-slate-50 transition-colors">
+                  <div className="flex items-center gap-2 rounded-md px-2 py-1 text-xs transition-colors hover:bg-slate-50">
                     <Icon className={cn("h-3.5 w-3.5 shrink-0", cfg.color)} />
                     <span className="truncate text-slate-700">
-                      {p.userId.slice(0, 8)}…
+                      {participant.caseRole ? `${participant.caseRole} �E ` : ""}
+                      {participant.userId.slice(0, 8)}...
                     </span>
                     <span className="ml-auto text-slate-400 capitalize">
-                      {p.role.toLowerCase()}
+                      {participant.role.toLowerCase()}
                     </span>
-                    {p.isRequired && (
+                    {participant.isRequired && (
                       <span className="shrink-0 rounded bg-slate-200 px-1 py-0.5 text-xs font-medium text-slate-600">
                         REQ
                       </span>
@@ -144,8 +149,8 @@ export const ConfirmationSummary = memo(function ConfirmationSummary({
                 </TooltipTrigger>
                 <TooltipContent>
                   {cfg.label}
-                  {p.respondedAt
-                    ? ` · ${new Date(p.respondedAt).toLocaleString()}`
+                  {participant.respondedAt
+                    ? ` �E ${new Date(participant.respondedAt).toLocaleString()}`
                     : ""}
                 </TooltipContent>
               </Tooltip>

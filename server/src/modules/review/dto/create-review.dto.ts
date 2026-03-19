@@ -31,6 +31,6 @@ export class CreateReviewDto {
   @ApiProperty({ description: 'Nhận xét chi tiết', required: false })
   @IsOptional()
   @IsString()
-  @MaxLength(1000, { message: 'Nhận xét không được quá 1000 ký tự' })
+  @MaxLength(2000, { message: 'Nhận xét không được quá 2000 ký tự' })
   comment?: string;
 }

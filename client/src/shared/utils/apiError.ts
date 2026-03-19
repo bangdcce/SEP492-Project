@@ -3,11 +3,14 @@ import axios from "axios";
 type ApiErrorDetails = {
   code?: string;
   message: string;
+  remediation?: string;
 };
 
 const SCHEMA_NOT_READY_CODES = new Set<string>([
   "DISPUTE_INTERNAL_MEMBERSHIP_TABLE_MISSING",
   "DISPUTE_HEARING_NOSHOWNOTE_COLUMN_MISSING",
+  "STAFF_PERFORMANCE_UPSERT_CONSTRAINT_MISSING",
+  "STAFF_WORKLOAD_UPSERT_CONSTRAINT_MISSING",
   "DISPUTE_SCHEMA_NOT_READY",
 ]);
 
@@ -40,12 +43,19 @@ export const getApiErrorDetails = (
           message?:
             | string
             | string[]
-            | { code?: string; message?: string | string[]; error?: string };
+            | {
+                code?: string;
+                message?: string | string[];
+                error?: string;
+                remediation?: string;
+              };
           error?: string;
+          remediation?: string;
         }
       | undefined;
 
     let code = responseData?.code;
+    let remediation = resolveStringMessage(responseData?.remediation) ?? undefined;
     let message =
       resolveStringMessage(responseData?.message) ??
       resolveStringMessage(responseData?.error) ??
@@ -57,6 +67,8 @@ export const getApiErrorDetails = (
       !Array.isArray(responseData.message)
     ) {
       code = code ?? responseData.message.code;
+      remediation =
+        remediation ?? resolveStringMessage(responseData.message.remediation) ?? undefined;
       message =
         resolveStringMessage(responseData.message.message) ??
         resolveStringMessage(responseData.message.error) ??
@@ -67,7 +79,7 @@ export const getApiErrorDetails = (
       message = resolveStringMessage(error.message) ?? fallbackMessage;
     }
 
-    return { code, message };
+    return { code, message, remediation };
   }
 
   if (error instanceof Error) {

@@ -28,6 +28,7 @@ import {
 } from "@/features/hearings/api";
 import type {
   HearingParticipantRole,
+  HearingStatementContentBlock,
   HearingStatementType,
   HearingWorkspaceSummary,
   SpeakerRole,
@@ -214,6 +215,16 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     [hearing?.participants, currentUserId],
   );
 
+  const ownStatementDrafts = useMemo(
+    () =>
+      (workspace?.statements ?? []).filter(
+        (statement) =>
+          statement.status === "DRAFT" &&
+          statement.participant?.userId === currentUserId,
+      ),
+    [workspace?.statements, currentUserId],
+  );
+
   const pendingQuestionsForMe = useMemo(
     () =>
       (workspace?.questions ?? []).filter(
@@ -333,24 +344,21 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   }, [verdict?.appealDeadline]);
 
   const handleAppealSubmit = useCallback(
-    async (input: { reason: string; appealType?: string }) => {
+    async (input: { reason: string }) => {
       if (!hearing?.disputeId) return;
       setAppealLoading(true);
       try {
-        await submitAppeal(hearing.disputeId, {
-          reason: input.reason,
-          appealType: input.appealType,
-        });
+        await submitAppeal(hearing.disputeId, { reason: input.reason });
         toast.success("Appeal submitted successfully");
         setAppealDialogOpen(false);
-        await fetchVerdict();
+        await Promise.all([fetchVerdict(), refreshWorkspace(true)]);
       } catch (err: any) {
         toast.error(err?.response?.data?.message || "Failed to submit appeal");
       } finally {
         setAppealLoading(false);
       }
     },
-    [hearing?.disputeId, fetchVerdict],
+    [fetchVerdict, hearing?.disputeId, refreshWorkspace],
   );
 
   /* ─── Unified timeline ─── */
@@ -1160,6 +1168,11 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       type: HearingStatementType;
       title?: string;
       content: string;
+      contentBlocks: HearingStatementContentBlock[];
+      citedEvidenceIds?: string[];
+      platformDeclarationAccepted?: boolean;
+      changeSummary?: string;
+      draftId?: string;
       isDraft?: boolean;
     }) => {
       if (!hearing) return;
@@ -1490,6 +1503,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         onSubmit={onSubmitStatement}
         currentPhase={workspace?.phase?.current}
         participantRole={currentParticipant?.role}
+        draftStatements={ownStatementDrafts}
       />
       {hearing && (
         <InviteSupportStaffDialog

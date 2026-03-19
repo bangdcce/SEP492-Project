@@ -16,6 +16,7 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  UseFilters,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -32,6 +33,7 @@ import { GetUser } from '../../auth/decorators/get-user.decorator';
 
 // Services
 import { StaffAssignmentService } from '../services/staff-assignment.service';
+import { DisputeSchemaReadinessFilter } from '../filters/dispute-schema-readiness.filter';
 
 // Types
 import { UserEntity, UserRole } from '../../../database/entities/user.entity';
@@ -47,6 +49,7 @@ import {
 @ApiTags('Staff Assignment')
 @Controller('staff')
 @UseGuards(JwtAuthGuard, RolesGuard)
+@UseFilters(DisputeSchemaReadinessFilter)
 @ApiBearerAuth()
 export class StaffAssignmentController {
   constructor(private readonly staffAssignmentService: StaffAssignmentService) {}
@@ -203,6 +206,22 @@ export class StaffAssignmentController {
         },
       },
     };
+  }
+
+  @Get('dashboard/overview')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get staff dashboard overview metrics',
+    description: 'Aggregates throughput, SLA, scheduling, quality, workload, and risk signals.',
+  })
+  @ApiQuery({
+    name: 'range',
+    required: false,
+    enum: ['7d', '30d', '90d'],
+  })
+  async getDashboardOverview(@Query('range') range?: '7d' | '30d' | '90d') {
+    const normalizedRange = range && ['7d', '30d', '90d'].includes(range) ? range : '30d';
+    return this.staffAssignmentService.getDashboardOverview(normalizedRange);
   }
 
   // ===========================================================================

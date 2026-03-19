@@ -12,6 +12,7 @@ type KanbanColumnProps = {
   onTaskClick: (taskId: string) => void;
   /** If true, hide "Add Task" button (for CLIENT read-only mode) */
   isReadOnly?: boolean;
+  canAddTask?: boolean;
 };
 
 export function KanbanColumn({
@@ -21,6 +22,7 @@ export function KanbanColumn({
   onAddTask,
   onTaskClick,
   isReadOnly = false,
+  canAddTask = true,
 }: KanbanColumnProps) {
 
   return (
@@ -62,7 +64,7 @@ export function KanbanColumn({
             )}
             {provided.placeholder}
             {/* Hide Add Task button in read-only mode (CLIENT users) */}
-            {!isReadOnly && (
+            {!isReadOnly && canAddTask && (
               <button
                 type="button"
                 className="mt-1 flex items-center gap-2 px-2 py-1.5 text-xs font-medium text-slate-500 hover:bg-slate-200 rounded-[3px] transition-colors w-full"

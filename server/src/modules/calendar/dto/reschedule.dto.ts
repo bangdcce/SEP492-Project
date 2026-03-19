@@ -7,6 +7,7 @@ import {
   ValidateNested,
   IsBoolean,
   IsDateString,
+  MaxLength,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -33,6 +34,7 @@ export class CreateRescheduleRequestDto {
 
   @IsString()
   @IsNotEmpty({ message: 'Lý do dời lịch không được để trống' })
+  @MaxLength(2000)
   reason: string;
 
   // === Có thể chọn 1 trong 2 cách ===
@@ -69,6 +71,7 @@ export class ProcessRescheduleRequestDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(1000)
   processNote?: string;
 }
 
@@ -86,5 +89,6 @@ export class RespondEventInviteDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(1000)
   responseNote?: string;
 }

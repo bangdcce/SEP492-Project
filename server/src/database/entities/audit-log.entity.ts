@@ -31,7 +31,7 @@ export class AuditLogEntity {
   @Column({ name: 'ip_address', nullable: true, length: 45 })
   ipAddress: string;
 
-  @Column({ name: 'user_agent', nullable: true, type: 'text' })
+  @Column({ name: 'user_agent', nullable: true, type: 'varchar', length: 500 })
   userAgent: string;
   // --------------------
 

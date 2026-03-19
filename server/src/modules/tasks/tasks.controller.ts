@@ -23,9 +23,9 @@ import {
   KanbanStatus,
   TaskStatusUpdateResult,
   SubmissionReviewResult,
+  ProjectRecentActivityItem,
 } from './tasks.service';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
-import { SubmitTaskDto } from './dto/submit-task.dto';
 import { CreateTaskLinkDto } from './dto/create-task-link.dto';
 import { CreateSubtaskDto } from './dto/create-subtask.dto';
 import { LinkSubtaskDto } from './dto/link-subtask.dto';
@@ -58,6 +58,13 @@ export class TasksController {
       this.logger.error(`Error fetching board for project ${projectId}:`, error);
       throw new InternalServerErrorException('Failed to fetch project board');
     }
+  }
+
+  @Get('project/:projectId/recent-activity')
+  getProjectRecentActivity(
+    @Param('projectId') projectId: string,
+  ): Promise<ProjectRecentActivityItem[]> {
+    return this.tasksService.getProjectRecentActivity(projectId);
   }
 
   @Get(':id/history')
@@ -154,36 +161,6 @@ export class TasksController {
     return this.tasksService.updateStatus(id, status as KanbanStatus, req.user?.id);
   }
 
-  /**
-   * Submit task with proof of work
-   * Freelancer marks task as DONE with evidence (proof link required)
-   *
-   * @param id - Task ID
-   * @param dto - SubmitTaskDto (validated by ValidationPipe)
-   * @param req - Request object for audit logging context
-   */
-  @Post(':id/submit')
-  async submitTask(
-    @Param('id') id: string,
-    @Body() dto: SubmitTaskDto,
-    @Req() req: AuthenticatedRequest,
-  ): Promise<TaskStatusUpdateResult> {
-    this.logger.log(`Task submission: ${id} | Proof: ${dto.proofLink}`);
-
-    // Extract actor ID from authenticated user (if available)
-    const actorId = req.user?.id;
-
-    // Extract request context for audit logging
-    const reqContext = {
-      ip: req.ip,
-      userAgent: req.get('user-agent'),
-      method: req.method,
-      path: req.path,
-    };
-
-    return await this.tasksService.submitTask(id, dto, actorId, reqContext);
-  }
-
   @Post(':id/submissions')
   submitWork(
     @Param('id') id: string,
@@ -196,7 +173,7 @@ export class TasksController {
   /**
    * Review a task submission (Approve or Request Changes)
    * 
-   * SECURITY: Only CLIENT users can review submissions
+   * SECURITY: Only CLIENT or STAFF users can review submissions
    * Freelancers cannot review their own work
    * 
    * @param id - Task ID
@@ -213,15 +190,21 @@ export class TasksController {
   ): Promise<SubmissionReviewResult> {
     const currentUser = req.user;
 
-    // Security Check: Only CLIENT can review submissions
+    // Security Check: Only CLIENT or STAFF can review submissions
     if (!currentUser) {
       throw new ForbiddenException('Authentication required');
     }
 
     const userRole = currentUser.role?.toUpperCase();
-    if (userRole !== 'CLIENT' && userRole !== UserRole.CLIENT) {
+    const canReview =
+      userRole === 'CLIENT' ||
+      userRole === UserRole.CLIENT ||
+      userRole === 'STAFF' ||
+      userRole === UserRole.STAFF;
+
+    if (!canReview) {
       throw new ForbiddenException(
-        'Only Clients can review submissions. Freelancers cannot review their own work.',
+        'Only Clients or Staff can review submissions. Freelancers cannot review their own work.',
       );
     }
 
@@ -229,7 +212,13 @@ export class TasksController {
       `Submission review: Task ${id}, Submission ${submissionId}, Status: ${dto.status}, Reviewer: ${currentUser.id}`,
     );
 
-    return this.tasksService.reviewSubmission(id, submissionId, dto, currentUser.id);
+    return this.tasksService.reviewSubmission(
+      id,
+      submissionId,
+      dto,
+      currentUser.id,
+      currentUser.role,
+    );
   }
 
   @Patch(':id')

@@ -132,7 +132,12 @@ export interface ReportInfo {
 // Moderation History Entry (for tracking admin actions)
 export interface ModerationHistoryEntry {
   id: string;
-  action: "SOFT_DELETE" | "RESTORE" | "DISMISS_REPORT";
+  action:
+    | "SOFT_DELETE"
+    | "RESTORE"
+    | "DISMISS_REPORT"
+    | "ASSIGNED"
+    | "RELEASED";
   reason?: string;
   notes?: string;
   performedBy: {
@@ -148,4 +153,30 @@ export interface AdminReview extends Review {
   status: ReviewStatus;
   reportInfo?: ReportInfo;
   moderationHistory?: ModerationHistoryEntry[];
+  openedBy?: {
+    id: string;
+    fullName?: string;
+    email?: string;
+    role?: string;
+  } | null;
+  currentAssignee?: {
+    id: string;
+    fullName?: string;
+    email?: string;
+    role?: string;
+  } | null;
+  lastAssignedBy?: {
+    id: string;
+    fullName?: string;
+    email?: string;
+    role?: string;
+  } | null;
+  lastAssignedAt?: string | null;
+  assignmentVersion?: number;
+  lockStatus?: {
+    isOpened: boolean;
+    isAssigned: boolean;
+    openedById?: string | null;
+    currentAssigneeId?: string | null;
+  };
 }

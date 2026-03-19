@@ -1,4 +1,13 @@
-import { IsNotEmpty, IsUUID, IsEnum, IsString, IsOptional, IsObject } from 'class-validator';
+import {
+  IsNotEmpty,
+  IsUUID,
+  IsEnum,
+  IsString,
+  IsOptional,
+  IsObject,
+  IsArray,
+  MaxLength,
+} from 'class-validator';
 import { MessageType } from 'src/database/entities';
 
 /**
@@ -16,6 +25,7 @@ export class SendDisputeMessageDto {
 
   @IsString()
   @IsOptional()
+  @MaxLength(5000)
   content?: string; // Nội dung text (required cho TEXT type)
 
   // === Reply tin nhắn khác (Thread) ===
@@ -27,6 +37,12 @@ export class SendDisputeMessageDto {
   @IsUUID()
   @IsOptional()
   relatedEvidenceId?: string;
+
+  // === Zalo-style multi-attach evidence ===
+  @IsArray()
+  @IsUUID('all', { each: true })
+  @IsOptional()
+  attachedEvidenceIds?: string[];
 
   // === Hearing Context (Nếu chat trong phiên điều trần) ===
   @IsUUID()
@@ -55,5 +71,6 @@ export class HideMessageDto {
 
   @IsString()
   @IsNotEmpty({ message: 'Lý do ẩn tin nhắn không được để trống' })
+  @MaxLength(1000)
   hiddenReason: string;
 }

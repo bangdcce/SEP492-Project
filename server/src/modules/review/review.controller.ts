@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   Patch,
   Post,
@@ -23,11 +24,22 @@ import { GetUser } from '../auth/decorators/get-user.decorator';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
 import { DeleteReviewDto } from './dto/delete-review.dto';
+import {
+  ReviewModerationReassignDto,
+  ReviewModerationVersionDto,
+} from './dto/review-moderation.dto';
 
 @ApiTags('Reviews')
 @Controller('reviews')
 export class ReviewController {
   constructor(private readonly reviewService: ReviewService) {}
+
+  private assertDevOnlyRoute() {
+    const env = (process.env.NODE_ENV || 'development').trim().toLowerCase();
+    if (env === 'production' || env === 'staging') {
+      throw new NotFoundException('Route not available.');
+    }
+  }
 
   // ============ PUBLIC TEST ENDPOINTS (DEV ONLY - REMOVE IN PRODUCTION) ============
   @Get('test/moderation')
@@ -37,18 +49,21 @@ export class ReviewController {
     @Query('page') page?: number,
     @Query('limit') limit?: number,
   ) {
+    this.assertDevOnlyRoute();
     return this.reviewService.getReviewsForModeration({ status, page, limit });
   }
 
   @Get('test/all')
   @ApiOperation({ summary: '[DEV] Test endpoint - Get all reviews without auth' })
   async testGetAllReviews() {
+    this.assertDevOnlyRoute();
     return this.reviewService.getAllReviewsForTest();
   }
 
   @Delete('test/:id')
   @ApiOperation({ summary: '[DEV] Test endpoint - Soft delete review without auth' })
   async testSoftDelete(@Param('id') id: string, @Body() dto: DeleteReviewDto) {
+    this.assertDevOnlyRoute();
     // Use fake admin ID for testing
     const fakeAdminId = '11111111-1111-1111-1111-111111111111';
     return this.reviewService.softDelete(id, fakeAdminId, dto.reason);
@@ -57,6 +72,7 @@ export class ReviewController {
   @Post('test/:id/restore')
   @ApiOperation({ summary: '[DEV] Test endpoint - Restore review without auth' })
   async testRestore(@Param('id') id: string, @Body() dto: { reason: string }) {
+    this.assertDevOnlyRoute();
     const fakeAdminId = '11111111-1111-1111-1111-111111111111';
     return this.reviewService.restore(id, fakeAdminId, dto.reason);
   }
@@ -64,6 +80,7 @@ export class ReviewController {
   @Post('test/:id/dismiss-report')
   @ApiOperation({ summary: '[DEV] Test endpoint - Dismiss report without auth' })
   async testDismissReport(@Param('id') id: string, @Body() dto: { reason?: string }) {
+    this.assertDevOnlyRoute();
     const fakeAdminId = '11111111-1111-1111-1111-111111111111';
     return this.reviewService.dismissReport(id, fakeAdminId, dto.reason);
   }
@@ -87,6 +104,8 @@ export class ReviewController {
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Chỉnh sửa đánh giá (Trong vòng 72h)' })
   async update(
     @GetUser('id') reviewerId: string,
@@ -99,6 +118,8 @@ export class ReviewController {
 
   // 1. GET reviews by targetUserId (với relations)
   @Get()
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Lấy danh sách reviews cho một user' })
   async findByTargetUser(@Query('targetUserId') targetUserId: string) {
     return this.reviewService.findByTargetUser(targetUserId);
@@ -106,6 +127,8 @@ export class ReviewController {
 
   // 2. GET edit history for a review
   @Get(':id/history')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
   @ApiOperation({ summary: 'Xem lịch sử chỉnh sửa của review' })
   async getEditHistory(@Param('id') reviewId: string) {
     return this.reviewService.getEditHistory(reviewId);
@@ -113,7 +136,8 @@ export class ReviewController {
 
   // 3. DELETE (soft delete) - Admin only
   @Delete(':id')
-  @UseGuards(RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Xóa mềm review vi phạm' })
   async softDelete(
@@ -126,7 +150,8 @@ export class ReviewController {
 
   // 4. POST restore - Admin only
   @Post(':id/restore')
-  @UseGuards(RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Khôi phục review đã bị xóa mềm' })
   async restore(
@@ -139,7 +164,8 @@ export class ReviewController {
 
   // 5. POST dismiss report - Admin only
   @Post(':id/dismiss-report')
-  @UseGuards(RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Bỏ qua report của review' })
   async dismissReport(
@@ -152,7 +178,8 @@ export class ReviewController {
 
   // 6. GET flagged reviews - Admin only
   @Get('admin/flagged')
-  @UseGuards(RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Lấy danh sách reviews bị flag' })
   async getFlaggedReviews() {
@@ -161,7 +188,8 @@ export class ReviewController {
 
   // 7. GET all reviews for moderation - Admin only
   @Get('admin/moderation')
-  @UseGuards(RolesGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Lấy danh sách reviews để moderation' })
   async getReviewsForModeration(
@@ -170,5 +198,59 @@ export class ReviewController {
     @Query('limit') limit?: number,
   ) {
     return this.reviewService.getReviewsForModeration({ status, page, limit });
+  }
+
+  @Post('admin/moderation/:id/open')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  async openModerationCase(
+    @GetUser('id') adminId: string,
+    @Param('id') id: string,
+    @Body() dto: ReviewModerationVersionDto,
+  ) {
+    return this.reviewService.openModerationCase(id, adminId, dto.assignmentVersion);
+  }
+
+  @Post('admin/moderation/:id/take')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  async takeModerationCase(
+    @GetUser('id') adminId: string,
+    @Param('id') id: string,
+    @Body() dto: ReviewModerationVersionDto,
+  ) {
+    return this.reviewService.takeModerationCase(id, adminId, dto.assignmentVersion);
+  }
+
+  @Post('admin/moderation/:id/release')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  async releaseModerationCase(
+    @GetUser('id') adminId: string,
+    @Param('id') id: string,
+    @Body() dto: ReviewModerationVersionDto,
+  ) {
+    return this.reviewService.releaseModerationCase(id, adminId, dto.assignmentVersion);
+  }
+
+  @Post('admin/moderation/:id/reassign')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  async reassignModerationCase(
+    @GetUser('id') adminId: string,
+    @Param('id') id: string,
+    @Body() dto: ReviewModerationReassignDto,
+  ) {
+    return this.reviewService.reassignModerationCase(
+      id,
+      adminId,
+      dto.assigneeId,
+      dto.assignmentVersion,
+      dto.reason,
+    );
   }
 }

@@ -1,12 +1,43 @@
 export interface ContractSignature {
   userId: string;
   signatureHash: string;
+  contentHash?: string | null;
+  signerRole?: string | null;
   signedAt: string;
+  userAgent?: string | null;
   user?: {
     id?: string;
     fullName?: string;
     email?: string;
   };
+}
+
+export interface ContractCommercialContext {
+  sourceSpecId?: string | null;
+  sourceSpecUpdatedAt?: string | null;
+  requestId?: string | null;
+  projectTitle: string;
+  clientId: string;
+  brokerId: string;
+  freelancerId?: string | null;
+  totalBudget: number;
+  currency: string;
+  description?: string | null;
+  techStack?: string | null;
+  scopeNarrativeRichContent?: Record<string, unknown> | null;
+  scopeNarrativePlainText?: string | null;
+  features?: Array<{
+    title: string;
+    description: string;
+    complexity: "LOW" | "MEDIUM" | "HIGH";
+    acceptanceCriteria: string[];
+    inputOutputSpec?: string | null;
+  }> | null;
+  escrowSplit?: {
+    developerPercentage: number;
+    brokerPercentage: number;
+    platformPercentage: number;
+  } | null;
 }
 
 export interface ContractSummary {
@@ -17,18 +48,20 @@ export interface ContractSummary {
   projectStatus?: string | null;
   projectTitle: string;
   title: string;
-  status: "DRAFT" | "SENT" | "SIGNED" | "ACTIVE";
+  status: "DRAFT" | "SENT" | "SIGNED" | "ACTIVATED" | "ACTIVE" | "ARCHIVED";
   createdAt: string;
   clientName: string;
   freelancerName?: string | null;
 }
 
 export interface ContractMilestoneSnapshotItem {
-  projectMilestoneId: string;
+  contractMilestoneKey: string;
+  projectMilestoneId?: string | null;
   sourceSpecMilestoneId: string | null;
   title: string;
   description?: string | null;
   amount: number;
+  startDate?: string | null;
   dueDate?: string | null;
   sortOrder?: number | null;
   deliverableType?: string | null;
@@ -42,16 +75,21 @@ export interface Contract {
   sourceSpecId?: string | null;
   title: string;
   termsContent: string;
-  status: 'DRAFT' | 'SENT' | 'SIGNED' | 'ACTIVE';
+  status: "DRAFT" | "SENT" | "SIGNED" | "ACTIVATED" | "ACTIVE" | "ARCHIVED";
   activatedAt?: string | null;
+  contentHash?: string | null;
   documentHash?: string | null;
+  commercialContext?: ContractCommercialContext | null;
   milestoneSnapshot?: ContractMilestoneSnapshotItem[] | null;
+  requiredSignerCount?: number;
+  signedCount?: number;
   createdAt: string;
   project: {
     id: string;
     title: string;
     description: string;
     totalBudget: number;
+    currency?: string;
     clientId: string;
     brokerId: string;
     freelancerId?: string | null;
@@ -72,7 +110,7 @@ export interface Contract {
           id: string;
           title: string;
           description: string;
-          complexity: 'LOW' | 'MEDIUM' | 'HIGH';
+          complexity: "LOW" | "MEDIUM" | "HIGH";
           acceptanceCriteria: string[];
           inputOutputSpec?: string;
         }>;

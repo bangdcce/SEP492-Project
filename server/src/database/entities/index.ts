@@ -20,7 +20,12 @@ export { ProjectEntity, ProjectStatus, PricingModel } from './project.entity';
 export { ProjectCategoryEntity } from './project-category.entity';
 export { MilestoneEntity, MilestoneStatus } from './milestone.entity';
 export { TaskEntity, TaskStatus } from './task.entity';
-export { WorkspaceMessageEntity } from './workspace-message.entity';
+export {
+  WorkspaceMessageEntity,
+  WorkspaceMessageType,
+  type WorkspaceMessageAttachment,
+  type WorkspaceMessageEditHistoryEntry,
+} from './workspace-message.entity';
 export { ContractEntity } from './contract.entity';
 export { DigitalSignatureEntity } from './digital-signature.entity';
 export { DocumentEntity, DocType } from './document.entity';
@@ -29,6 +34,12 @@ export { DocumentEntity, DocType } from './document.entity';
 export { WalletEntity, WalletStatus } from './wallet.entity';
 export { TransactionEntity, TransactionType, TransactionStatus } from './transaction.entity';
 export { EscrowEntity, EscrowStatus } from './escrow.entity';
+export { PaymentMethodEntity, PaymentMethodType } from './payment-method.entity';
+export {
+  FundingIntentEntity,
+  FundingGateway,
+  FundingIntentStatus,
+} from './funding-intent.entity';
 export { PayoutMethodEntity } from './payout-method.entity';
 export { FeeConfigEntity, FeeType } from './fee-config.entity';
 export { PayoutRequestEntity, PayoutStatus } from './payout-request.entity';
@@ -60,6 +71,7 @@ export {
   HearingStatementEntity,
   HearingQuestionEntity,
   HearingStatus,
+  HearingStatementStatus,
   HearingStatementType,
   HearingQuestionStatus,
   HearingParticipantRole,
