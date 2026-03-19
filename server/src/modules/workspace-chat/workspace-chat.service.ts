@@ -31,11 +31,14 @@ const OFF_PLATFORM_RISK_RULES = [
 const normalizeForRiskScan = (content: string): string =>
   content.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
+const escapeIlikePattern = (value: string): string => value.replace(/[\\%_]/g, '\\$&');
+
 interface WorkspaceMessageRow {
   id: string;
   projectId: string;
   senderId: string | null;
   taskId: string | null;
+  replyToId: string | null;
   messageType: WorkspaceMessageType | string;
   content: string;
   attachments: unknown;
@@ -49,6 +52,29 @@ interface WorkspaceMessageRow {
   senderUserId: string | null;
   senderFullName: string | null;
   senderRole: UserRole | null;
+  replyMessageId: string | null;
+  replyMessageType: WorkspaceMessageType | string | null;
+  replyMessageContent: string | null;
+  replyMessageAttachments: unknown;
+  replyMessageIsDeleted: boolean | null;
+  replyMessageCreatedAt: Date | null;
+  replySenderUserId: string | null;
+  replySenderFullName: string | null;
+  replySenderRole: UserRole | null;
+}
+
+export interface WorkspaceChatReplySummary {
+  id: string;
+  messageType: WorkspaceMessageType;
+  content: string;
+  attachments: WorkspaceMessageAttachment[];
+  isDeleted: boolean;
+  createdAt: Date;
+  sender: {
+    id: string;
+    fullName: string;
+    role: UserRole | null;
+  } | null;
 }
 
 export interface WorkspaceChatMessage {
@@ -56,6 +82,7 @@ export interface WorkspaceChatMessage {
   projectId: string;
   senderId: string | null;
   taskId: string | null;
+  replyToId: string | null;
   messageType: WorkspaceMessageType;
   content: string;
   attachments: WorkspaceMessageAttachment[];
@@ -71,6 +98,7 @@ export interface WorkspaceChatMessage {
     fullName: string;
     role: UserRole | null;
   } | null;
+  replyTo: WorkspaceChatReplySummary | null;
 }
 
 @Injectable()
@@ -137,6 +165,7 @@ export class WorkspaceChatService {
     content: string,
     attachments?: WorkspaceMessageAttachment[],
     taskId?: string,
+    replyToId?: string,
   ): Promise<WorkspaceChatMessage> {
     await this.assertProjectAccess(projectId, senderId);
 
@@ -146,6 +175,7 @@ export class WorkspaceChatService {
       content,
       attachments,
       taskId,
+      replyToId,
       messageType: WorkspaceMessageType.USER,
     });
   }
@@ -325,6 +355,7 @@ export class WorkspaceChatService {
     projectId: string,
     limit = 30,
     offset = 0,
+    query?: string,
     requesterId?: string,
   ): Promise<WorkspaceChatMessage[]> {
     if (requesterId) {
@@ -333,9 +364,21 @@ export class WorkspaceChatService {
 
     const normalizedLimit = Number.isFinite(limit) ? Math.max(1, Math.min(100, limit)) : 30;
     const normalizedOffset = Number.isFinite(offset) ? Math.max(0, offset) : 0;
+    const normalizedQuery = query?.trim() ?? '';
 
-    const rows = await this.messageSelectQuery()
-      .where('message.projectId = :projectId', { projectId })
+    const queryBuilder = this.messageSelectQuery().where('message.projectId = :projectId', {
+      projectId,
+    });
+
+    if (normalizedQuery) {
+      queryBuilder
+        .andWhere('message.isDeleted = false')
+        .andWhere(`message.content ILIKE :searchQuery ESCAPE '\\'`, {
+          searchQuery: `%${escapeIlikePattern(normalizedQuery)}%`,
+        });
+    }
+
+    const rows = await queryBuilder
       .orderBy('message.createdAt', 'DESC')
       .take(normalizedLimit)
       .skip(normalizedOffset)
@@ -360,6 +403,7 @@ export class WorkspaceChatService {
       .addSelect('message.projectId', 'projectId')
       .addSelect('message.senderId', 'senderId')
       .addSelect('message.taskId', 'taskId')
+      .addSelect('message.replyToId', 'replyToId')
       .addSelect('message.messageType', 'messageType')
       .addSelect('message.content', 'content')
       .addSelect('message.attachments', 'attachments')
@@ -372,7 +416,18 @@ export class WorkspaceChatService {
       .addSelect('message.updatedAt', 'updatedAt')
       .addSelect('sender.id', 'senderUserId')
       .addSelect('sender.fullName', 'senderFullName')
-      .addSelect('sender.role', 'senderRole');
+      .addSelect('sender.role', 'senderRole')
+      .leftJoin('message.replyTo', 'replyTo')
+      .leftJoin('replyTo.sender', 'replySender')
+      .addSelect('replyTo.id', 'replyMessageId')
+      .addSelect('replyTo.messageType', 'replyMessageType')
+      .addSelect('replyTo.content', 'replyMessageContent')
+      .addSelect('replyTo.attachments', 'replyMessageAttachments')
+      .addSelect('replyTo.isDeleted', 'replyMessageIsDeleted')
+      .addSelect('replyTo.createdAt', 'replyMessageCreatedAt')
+      .addSelect('replySender.id', 'replySenderUserId')
+      .addSelect('replySender.fullName', 'replySenderFullName')
+      .addSelect('replySender.role', 'replySenderRole');
   }
 
   private async assertProjectExists(projectId: string): Promise<void> {
@@ -390,6 +445,7 @@ export class WorkspaceChatService {
     projectId: string;
     senderId: string | null;
     taskId?: string | null;
+    replyToId?: string | null;
     content: string;
     attachments?: WorkspaceMessageAttachment[];
     messageType: WorkspaceMessageType;
@@ -401,6 +457,7 @@ export class WorkspaceChatService {
     }
 
     const normalizedTaskId = data.taskId?.trim() || null;
+    const normalizedReplyToId = data.replyToId?.trim() || null;
     if (normalizedTaskId) {
       const task = await this.taskRepo.findOne({
         where: { id: normalizedTaskId, projectId: data.projectId },
@@ -412,10 +469,22 @@ export class WorkspaceChatService {
       }
     }
 
+    if (normalizedReplyToId) {
+      const replyTarget = await this.workspaceMessageRepo.findOne({
+        where: { id: normalizedReplyToId, projectId: data.projectId },
+        select: ['id'],
+      });
+
+      if (!replyTarget) {
+        throw new BadRequestException('Reply target not found in this project');
+      }
+    }
+
     const created = this.workspaceMessageRepo.create({
       projectId: data.projectId,
       senderId: data.senderId,
       taskId: normalizedTaskId,
+      replyToId: normalizedReplyToId,
       content: trimmedContent,
       attachments,
       messageType: data.messageType,
@@ -566,6 +635,7 @@ export class WorkspaceChatService {
       projectId: row.projectId,
       senderId: row.senderId,
       taskId: row.taskId,
+      replyToId: row.replyToId,
       messageType:
         row.messageType === WorkspaceMessageType.SYSTEM
           ? WorkspaceMessageType.SYSTEM
@@ -584,6 +654,26 @@ export class WorkspaceChatService {
             id: row.senderUserId,
             fullName: row.senderFullName || 'Unknown',
             role: row.senderRole,
+          }
+        : null,
+      replyTo: row.replyMessageId
+        ? {
+            id: row.replyMessageId,
+            messageType:
+              row.replyMessageType === WorkspaceMessageType.SYSTEM
+                ? WorkspaceMessageType.SYSTEM
+                : WorkspaceMessageType.USER,
+            content: row.replyMessageContent || '',
+            attachments: this.normalizeAttachments(row.replyMessageAttachments),
+            isDeleted: Boolean(row.replyMessageIsDeleted),
+            createdAt: row.replyMessageCreatedAt ?? row.createdAt,
+            sender: row.replySenderUserId
+              ? {
+                  id: row.replySenderUserId,
+                  fullName: row.replySenderFullName || 'Unknown',
+                  role: row.replySenderRole,
+                }
+              : null,
           }
         : null,
     };

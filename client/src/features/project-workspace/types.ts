@@ -68,6 +68,85 @@ export type ActiveSupervisedProject = {
   updatedAt: string;
 };
 
+export type WorkspaceChatMentionRole = "CLIENT" | "BROKER" | "FREELANCER";
+
+export type WorkspaceChatSender = {
+  id: string;
+  fullName: string;
+  role: string | null;
+};
+
+export type WorkspaceChatAttachment = {
+  url: string;
+  name: string;
+  type: string;
+};
+
+export type WorkspaceChatEditHistoryEntry = {
+  content: string;
+  editedAt: string;
+  editorId: string | null;
+};
+
+export type WorkspaceChatMessageType = "USER" | "SYSTEM";
+
+export type WorkspaceChatMentionMember = {
+  id: string;
+  fullName: string;
+  role: WorkspaceChatMentionRole;
+};
+
+export type WorkspaceChatReplySummary = {
+  id: string;
+  messageType: WorkspaceChatMessageType;
+  content: string;
+  attachments: WorkspaceChatAttachment[];
+  isDeleted: boolean;
+  createdAt: string;
+  sender: WorkspaceChatSender | null;
+};
+
+export type WorkspaceChatMessage = {
+  id: string;
+  projectId: string;
+  senderId: string | null;
+  taskId: string | null;
+  replyToId: string | null;
+  messageType: WorkspaceChatMessageType;
+  content: string;
+  attachments: WorkspaceChatAttachment[];
+  isPinned: boolean;
+  isEdited: boolean;
+  editHistory: WorkspaceChatEditHistoryEntry[];
+  isDeleted: boolean;
+  riskFlags: string[];
+  createdAt: string;
+  updatedAt: string;
+  sender: WorkspaceChatSender | null;
+  replyTo: WorkspaceChatReplySummary | null;
+};
+
+export type WorkspaceChatHistoryQuery = {
+  limit?: number;
+  offset?: number;
+  query?: string;
+};
+
+export type WorkspaceChatHistoryResponse = {
+  success: boolean;
+  data: WorkspaceChatMessage[];
+  pagination?: {
+    limit: number;
+    offset: number;
+    count: number;
+  };
+};
+
+export type WorkspaceChatMutationResponse = {
+  success: boolean;
+  data: WorkspaceChatMessage;
+};
+
 export type TaskSubmission = {
   id: string;
   taskId: string;
