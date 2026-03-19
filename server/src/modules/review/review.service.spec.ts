@@ -1,4 +1,5 @@
 import { ConflictException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -6,13 +7,14 @@ import { DataSource } from 'typeorm';
 import {
   AuditLogEntity,
   ProjectEntity,
+  ProjectStatus,
   ReportEntity,
   ReviewEntity,
   UserEntity,
 } from 'src/database/entities';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { TrustScoreService } from '../trust-score/trust-score.service';
+import { REVIEW_EVENTS } from './events/review.events';
 import { ReviewService } from './review.service';
 
 const repoMock = () => ({
@@ -29,18 +31,30 @@ const repoMock = () => ({
 
 describe('ReviewService', () => {
   let service: ReviewService;
-  let auditLogsService: { log: jest.Mock };
-  let dataSource: { createQueryRunner: jest.Mock };
+  let auditLogsService: { log: jest.Mock; logOrThrow: jest.Mock };
+  let dataSource: { createQueryRunner: jest.Mock; transaction: jest.Mock };
+  let eventEmitter: { emitAsync: jest.Mock };
 
   const reviewRepo = repoMock();
   const projectRepo = repoMock();
   const auditLogRepo = repoMock();
   const reportRepo = repoMock();
   const userRepo = repoMock();
+  const transactionProjectRepo = {
+    findOne: jest.fn(),
+  };
+  const transactionAuditRepo = {
+    create: jest.fn().mockImplementation((payload) => payload),
+    save: jest.fn().mockImplementation(async (payload) => payload),
+  };
   const transactionReviewRepo = {
     findOne: jest.fn(),
     save: jest.fn(),
     createQueryBuilder: jest.fn(),
+    softRemove: jest.fn(),
+  };
+  const transactionManager = {
+    getRepository: jest.fn(),
   };
   const transactionReviewQueryBuilder = {
     withDeleted: jest.fn(),
@@ -104,6 +118,8 @@ describe('ReviewService', () => {
       auditLogRepo,
       reportRepo,
       userRepo,
+      transactionProjectRepo,
+      transactionAuditRepo,
       transactionReviewRepo,
       transactionReviewQueryBuilder,
     }).forEach((repo) => {
@@ -120,6 +136,29 @@ describe('ReviewService', () => {
     queryRunner.rollbackTransaction.mockReset().mockResolvedValue(undefined);
     queryRunner.release.mockReset().mockResolvedValue(undefined);
     queryRunner.manager.getRepository.mockReset().mockReturnValue(transactionReviewRepo);
+    transactionReviewRepo.softRemove.mockReset().mockImplementation(async (review) => ({
+      ...review,
+      deletedAt: new Date('2026-03-19T10:00:00.000Z'),
+    }));
+    transactionProjectRepo.findOne.mockReset();
+    transactionAuditRepo.create.mockClear();
+    transactionAuditRepo.save.mockClear();
+    transactionManager.getRepository.mockReset().mockImplementation((entity) => {
+      switch (entity) {
+        case ReviewEntity:
+          return transactionReviewRepo;
+        case ProjectEntity:
+          return transactionProjectRepo;
+        case AuditLogEntity:
+          return transactionAuditRepo;
+        case ReportEntity:
+          return reportRepo;
+        case UserEntity:
+          return userRepo;
+        default:
+          return reviewRepo;
+      }
+    });
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -130,15 +169,16 @@ describe('ReviewService', () => {
         { provide: getRepositoryToken(ReportEntity), useValue: reportRepo },
         { provide: getRepositoryToken(UserEntity), useValue: userRepo },
         {
-          provide: TrustScoreService,
-          useValue: {
-            calculateTrustScore: jest.fn(),
-          },
-        },
-        {
           provide: AuditLogsService,
           useValue: {
             log: jest.fn(),
+            logOrThrow: jest.fn().mockResolvedValue(undefined),
+          },
+        },
+        {
+          provide: EventEmitter2,
+          useValue: {
+            emitAsync: jest.fn().mockResolvedValue([]),
           },
         },
         {
@@ -151,6 +191,9 @@ describe('ReviewService', () => {
           provide: DataSource,
           useValue: {
             createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+            transaction: jest.fn().mockImplementation(async (callback: (manager: typeof transactionManager) => unknown) =>
+              callback(transactionManager),
+            ),
           },
         },
       ],
@@ -159,6 +202,7 @@ describe('ReviewService', () => {
     service = module.get<ReviewService>(ReviewService);
     auditLogsService = module.get(AuditLogsService);
     dataSource = module.get(DataSource);
+    eventEmitter = module.get(EventEmitter2);
   });
 
   afterEach(() => {
@@ -167,6 +211,259 @@ describe('ReviewService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  it('creates a review for PAID projects and emits a post-commit trust score event', async () => {
+    projectRepo.findOne.mockResolvedValue({
+      id: 'project-1',
+      status: ProjectStatus.PAID,
+      clientId: 'reviewer-1',
+      freelancerId: 'target-1',
+      brokerId: null,
+      totalBudget: 20000000,
+    });
+    reviewRepo.findOne.mockResolvedValue(null);
+    reviewRepo.create.mockImplementation((payload) => payload);
+    transactionReviewRepo.save.mockResolvedValue({
+      id: 'review-2',
+      projectId: 'project-1',
+      reviewerId: 'reviewer-1',
+      targetUserId: 'target-1',
+      rating: 5,
+      comment: 'Great work',
+      weight: 1.5,
+      createdAt: new Date('2026-03-19T09:00:00.000Z'),
+      updatedAt: new Date('2026-03-19T09:00:00.000Z'),
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: null,
+    });
+
+    const result = await service.create(
+      'reviewer-1',
+      {
+        projectId: 'project-1',
+        targetUserId: 'target-1',
+        rating: 5,
+        comment: 'Great work',
+      },
+      { requestId: 'req-1', sessionId: 'sess-1' },
+    );
+
+    expect(dataSource.transaction).toHaveBeenCalled();
+    expect(auditLogsService.logOrThrow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'CREATE_REVIEW',
+        entityId: 'review-2',
+        eventName: 'review-created',
+      }),
+      transactionAuditRepo,
+    );
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      REVIEW_EVENTS.MUTATED,
+      expect.objectContaining({
+        reviewId: 'review-2',
+        targetUserId: 'target-1',
+        trigger: 'created',
+        triggeredBy: 'reviewer-1',
+      }),
+    );
+    expect(result).toEqual(expect.objectContaining({ id: 'review-2', weight: 1.5 }));
+  });
+
+  it('rejects review creation when project is not completed or paid', async () => {
+    projectRepo.findOne.mockResolvedValue({
+      id: 'project-1',
+      status: ProjectStatus.IN_PROGRESS,
+      clientId: 'reviewer-1',
+      freelancerId: 'target-1',
+      brokerId: null,
+      totalBudget: 20000000,
+    });
+
+    await expect(
+      service.create(
+        'reviewer-1',
+        {
+          projectId: 'project-1',
+          targetUserId: 'target-1',
+          rating: 5,
+          comment: 'Great work',
+        },
+        {},
+      ),
+    ).rejects.toThrow('completed or paid project');
+
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+  });
+
+  it('rolls back review creation when audit logging inside the transaction fails', async () => {
+    projectRepo.findOne.mockResolvedValue({
+      id: 'project-1',
+      status: ProjectStatus.COMPLETED,
+      clientId: 'reviewer-1',
+      freelancerId: 'target-1',
+      brokerId: null,
+      totalBudget: 5000000,
+    });
+    reviewRepo.findOne.mockResolvedValue(null);
+    reviewRepo.create.mockImplementation((payload) => payload);
+    transactionReviewRepo.save.mockResolvedValue({
+      id: 'review-rollback',
+      projectId: 'project-1',
+      reviewerId: 'reviewer-1',
+      targetUserId: 'target-1',
+      rating: 4,
+      comment: 'Good',
+      weight: 1,
+      createdAt: new Date('2026-03-19T09:00:00.000Z'),
+      updatedAt: new Date('2026-03-19T09:00:00.000Z'),
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: null,
+    });
+    auditLogsService.logOrThrow.mockRejectedValueOnce(new Error('audit failure'));
+
+    await expect(
+      service.create(
+        'reviewer-1',
+        {
+          projectId: 'project-1',
+          targetUserId: 'target-1',
+          rating: 4,
+          comment: 'Good',
+        },
+        {},
+      ),
+    ).rejects.toThrow('audit failure');
+
+    expect(transactionReviewRepo.save).toHaveBeenCalled();
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+  });
+
+  it('updates a review and emits a post-commit trust score event', async () => {
+    reviewRepo.findOne.mockResolvedValue({
+      id: 'review-3',
+      reviewerId: 'reviewer-1',
+      targetUserId: 'target-1',
+      rating: 3,
+      comment: 'Old',
+      createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: null,
+    });
+    transactionReviewRepo.save.mockImplementation(async (review) => ({
+      ...review,
+      updatedAt: new Date('2026-03-19T10:00:00.000Z'),
+    }));
+
+    const result = await service.update(
+      'reviewer-1',
+      'review-3',
+      { rating: 5, comment: 'Updated' },
+      { requestId: 'req-update' },
+    );
+
+    expect(auditLogsService.logOrThrow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'UPDATE_REVIEW',
+        entityId: 'review-3',
+        eventName: 'review-updated',
+      }),
+      transactionAuditRepo,
+    );
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      REVIEW_EVENTS.MUTATED,
+      expect.objectContaining({
+        reviewId: 'review-3',
+        targetUserId: 'target-1',
+        trigger: 'updated',
+      }),
+    );
+    expect(result).toEqual(expect.objectContaining({ rating: 5, comment: 'Updated' }));
+  });
+
+  it('soft deletes a review and emits a post-commit trust score event', async () => {
+    jest
+      .spyOn(service as never, 'notifyModerationWatchers' as never)
+      .mockResolvedValue(undefined as never);
+    reviewRepo.findOne.mockResolvedValue({
+      id: 'review-4',
+      targetUserId: 'target-2',
+      reviewerId: 'reviewer-2',
+      rating: 2,
+      comment: 'Bad',
+      weight: 1,
+      createdAt: new Date('2026-03-10T09:00:00.000Z'),
+      updatedAt: new Date('2026-03-10T09:00:00.000Z'),
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: null,
+    });
+
+    await service.softDelete('review-4', 'admin-1', 'policy');
+
+    expect(auditLogsService.logOrThrow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DELETE_REVIEW',
+        entityId: 'review-4',
+        eventName: 'review-soft-deleted',
+      }),
+      transactionAuditRepo,
+    );
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      REVIEW_EVENTS.MUTATED,
+      expect.objectContaining({
+        reviewId: 'review-4',
+        targetUserId: 'target-2',
+        trigger: 'soft_deleted',
+      }),
+    );
+  });
+
+  it('restores a review and emits a post-commit trust score event', async () => {
+    jest
+      .spyOn(service as never, 'notifyModerationWatchers' as never)
+      .mockResolvedValue(undefined as never);
+    reviewRepo.findOne.mockResolvedValue({
+      id: 'review-5',
+      targetUserId: 'target-3',
+      reviewerId: 'reviewer-3',
+      rating: 5,
+      comment: 'Excellent',
+      weight: 1,
+      createdAt: new Date('2026-03-10T09:00:00.000Z'),
+      updatedAt: new Date('2026-03-10T09:00:00.000Z'),
+      deletedAt: new Date('2026-03-18T09:00:00.000Z'),
+      deletedBy: 'admin-old',
+      deleteReason: 'policy',
+    });
+    transactionReviewRepo.save.mockImplementation(async (review) => ({
+      ...review,
+      updatedAt: new Date('2026-03-19T10:30:00.000Z'),
+    }));
+
+    await service.restore('review-5', 'admin-1', 'restored');
+
+    expect(auditLogsService.logOrThrow).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'RESTORE_REVIEW',
+        entityId: 'review-5',
+        eventName: 'review-restored',
+      }),
+      transactionAuditRepo,
+    );
+    expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
+      REVIEW_EVENTS.MUTATED,
+      expect.objectContaining({
+        reviewId: 'review-5',
+        targetUserId: 'target-3',
+        trigger: 'restored',
+      }),
+    );
   });
 
   it('opens a moderation case and records openedBy/version', async () => {
