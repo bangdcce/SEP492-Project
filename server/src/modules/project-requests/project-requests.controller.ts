@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -145,6 +146,18 @@ export class ProjectRequestsController {
   @ApiResponse({ status: 200, type: ProjectRequestEntity })
   async update(@Param('id') id: string, @Body() updateDto: UpdateProjectRequestDto) {
     return this.projectRequestsService.update(id, updateDto);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Delete a project request before any broker is assigned' })
+  @ApiResponse({ status: 200, description: 'Project request deleted successfully' })
+  async delete(
+    @Param('id') id: string,
+    @GetUser() user: UserEntity,
+    @Req() req: RequestContext,
+  ) {
+    await this.projectRequestsService.deleteRequest(id, user, req);
+    return { success: true };
   }
 
   @Post('upload')

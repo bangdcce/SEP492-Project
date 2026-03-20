@@ -160,6 +160,34 @@ export class ProjectRequestsService {
     return this.findOne(id);
   }
 
+  async deleteRequest(id: string, user: UserEntity, req?: RequestContext): Promise<void> {
+    const request = await this.findOne(id);
+
+    if (user.role !== UserRole.CLIENT) {
+      throw new ForbiddenException('Only clients can delete project requests');
+    }
+
+    if (request.clientId !== user.id) {
+      throw new ForbiddenException('You can only delete your own project requests');
+    }
+
+    if (request.brokerId) {
+      throw new BadRequestException(
+        'Project request cannot be deleted after a broker has been assigned',
+      );
+    }
+
+    await this.requestRepo.remove(request);
+
+    await this.auditLogsService.logDelete(
+      'ProjectRequest',
+      request.id,
+      request as unknown as Record<string, unknown>,
+      req,
+      user.id,
+    );
+  }
+
   async findAllByClient(clientId: string) {
     return this.requestRepo.find({
       where: { clientId },

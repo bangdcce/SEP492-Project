@@ -21,10 +21,12 @@ describe('ProjectRequestsService', () => {
   const mockProjectRequestRepository = {
     findOne: jest.fn(),
     createQueryBuilder: jest.fn(),
+    remove: jest.fn(),
   };
 
   const mockAuditLogsService = {
     logCustom: jest.fn(),
+    logDelete: jest.fn(),
   };
 
   const mockDataSource = {
@@ -157,6 +159,78 @@ describe('ProjectRequestsService', () => {
       repositoryMock.findOne.mockResolvedValue(request);
 
       await expect(service.findOne(requestId, brokerMe)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('deleteRequest', () => {
+    const requestId = 'req-delete';
+    const clientUser: UserEntity = { id: 'client-a', role: UserRole.CLIENT } as any;
+    const otherClient: UserEntity = { id: 'client-b', role: UserRole.CLIENT } as any;
+    const brokerUser: UserEntity = { id: 'broker-a', role: UserRole.BROKER } as any;
+
+    it('should delete own request when no broker has been assigned', async () => {
+      const request = {
+        id: requestId,
+        clientId: clientUser.id,
+        brokerId: null,
+        status: RequestStatus.PUBLIC_DRAFT,
+      } as ProjectRequestEntity;
+      repositoryMock.findOne.mockResolvedValue(request);
+      repositoryMock.remove.mockResolvedValue(request);
+
+      await service.deleteRequest(requestId, clientUser);
+
+      expect(repositoryMock.remove).toHaveBeenCalledWith(request);
+      expect(mockAuditLogsService.logDelete).toHaveBeenCalledWith(
+        'ProjectRequest',
+        requestId,
+        request,
+        undefined,
+        clientUser.id,
+      );
+    });
+
+    it('should reject non-client users', async () => {
+      const request = {
+        id: requestId,
+        clientId: clientUser.id,
+        brokerId: null,
+      } as ProjectRequestEntity;
+      repositoryMock.findOne.mockResolvedValue(request);
+
+      await expect(service.deleteRequest(requestId, brokerUser)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(repositoryMock.remove).not.toHaveBeenCalled();
+    });
+
+    it('should reject deleting another client request', async () => {
+      const request = {
+        id: requestId,
+        clientId: clientUser.id,
+        brokerId: null,
+      } as ProjectRequestEntity;
+      repositoryMock.findOne.mockResolvedValue(request);
+
+      await expect(service.deleteRequest(requestId, otherClient)).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(repositoryMock.remove).not.toHaveBeenCalled();
+    });
+
+    it('should reject deletion after a broker has been assigned', async () => {
+      const request = {
+        id: requestId,
+        clientId: clientUser.id,
+        brokerId: 'broker-1',
+        status: RequestStatus.BROKER_ASSIGNED,
+      } as ProjectRequestEntity;
+      repositoryMock.findOne.mockResolvedValue(request);
+
+      await expect(service.deleteRequest(requestId, clientUser)).rejects.toThrow(
+        'Project request cannot be deleted after a broker has been assigned',
+      );
+      expect(repositoryMock.remove).not.toHaveBeenCalled();
     });
   });
 });

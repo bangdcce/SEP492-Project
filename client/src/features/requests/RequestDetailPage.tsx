@@ -82,6 +82,7 @@ export default function RequestDetailPage() {
   });
   const [linkedContract, setLinkedContract] = useState<ContractSummary | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [isDeletingRequest, setIsDeletingRequest] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isScoreExplanationOpen, setIsScoreExplanationOpen] = useState(false);
@@ -284,6 +285,31 @@ export default function RequestDetailPage() {
       }
   };
 
+  const handleDeleteRequest = async () => {
+      if (!request?.id || request?.brokerId) return;
+
+      const confirmed = window.confirm(
+        "Delete this request? This can only be done before any broker is assigned.",
+      );
+      if (!confirmed) return;
+
+      try {
+          setIsDeletingRequest(true);
+          await wizardService.deleteRequest(request.id);
+          toast.success("Request deleted", {
+              description: "Your project request has been removed.",
+          });
+          navigate(ROUTES.CLIENT_DASHBOARD);
+      } catch (error: any) {
+          console.error("Failed to delete request", error);
+          toast.error("Delete failed", {
+              description: error?.response?.data?.message || "Could not delete this request.",
+          });
+      } finally {
+          setIsDeletingRequest(false);
+      }
+  };
+
   const handleOpenInviteModal = (partnerId: string, partnerName: string, role: "BROKER" | "FREELANCER") => {
       setInviteModalData({
         id: partnerId,
@@ -457,6 +483,16 @@ export default function RequestDetailPage() {
                 onClick={() => navigate(`/client/workspace/${linkedContract!.projectId}`)}
               >
                 Open Workspace
+              </Button>
+            )}
+            {!request.brokerId && (
+              <Button
+                variant="outline"
+                className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={handleDeleteRequest}
+                disabled={isDeletingRequest}
+              >
+                {isDeletingRequest ? "Deleting..." : "Delete Request"}
               </Button>
             )}
         </div>
