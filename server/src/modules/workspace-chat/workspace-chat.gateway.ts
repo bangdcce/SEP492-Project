@@ -106,6 +106,10 @@ class SendProjectMessageDto {
   @IsUUID()
   @IsOptional()
   taskId?: string;
+
+  @IsUUID()
+  @IsOptional()
+  replyToId?: string;
 }
 
 class WorkspaceMessageAttachmentDto {
@@ -219,6 +223,7 @@ export class WorkspaceChatGateway
         dto.content ?? '',
         dto.attachments,
         dto.taskId,
+        dto.replyToId,
       );
 
       return {

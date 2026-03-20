@@ -38,11 +38,18 @@ export class WorkspaceChatController {
     @GetUser() user: UserEntity,
     @Query('limit') limitRaw?: string,
     @Query('offset') offsetRaw?: string,
+    @Query('query') query?: string,
   ) {
     const limit = limitRaw ? Number(limitRaw) : 30;
     const offset = offsetRaw ? Number(offsetRaw) : 0;
 
-    const messages = await this.workspaceChatService.getMessages(projectId, limit, offset, user.id);
+    const messages = await this.workspaceChatService.getMessages(
+      projectId,
+      limit,
+      offset,
+      query,
+      user.id,
+    );
 
     return {
       success: true,

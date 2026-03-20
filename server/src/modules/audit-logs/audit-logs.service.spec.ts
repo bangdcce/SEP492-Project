@@ -111,4 +111,48 @@ describe('AuditLogsService', () => {
     expect(csv).toContain('"entityId"');
     expect(csv).toContain('"dispute-2"');
   });
+
+  it('exports XLSX workbooks for audit analytics exports', async () => {
+    builder.getMany.mockResolvedValue([
+      {
+        id: 'log-1',
+        action: 'EXPORT',
+        entityType: 'AuditLog',
+        entityId: 'export-1',
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest',
+        route: '/admin/audit-logs/export',
+        httpMethod: 'GET',
+        statusCode: 200,
+        riskLevel: 'HIGH',
+        requestId: 'req-1',
+        sessionId: 'sess-1',
+        source: 'SERVER',
+        eventCategory: 'EXPORT',
+        eventName: 'EXPORT_AUDIT_LOG',
+        changedFields: [{ field: 'status', before: 'OPEN', after: 'EXPORTED' }],
+        beforeData: null,
+        afterData: null,
+        metadata: { userAgent: 'jest' },
+        createdAt: new Date('2026-03-15T10:00:00.000Z'),
+        actor: {
+          id: 'admin-1',
+          email: 'admin@example.com',
+          fullName: 'Admin',
+          role: 'ADMIN',
+        },
+      },
+    ]);
+
+    const exported = await service.exportLogs({
+      format: 'xlsx',
+      requestId: 'req-1',
+    });
+
+    expect(exported.contentType).toBe(
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+    expect(exported.fileName).toMatch(/audit-logs-.*\.xlsx/);
+    expect(exported.buffer.subarray(0, 2).toString('utf8')).toBe('PK');
+  });
 });

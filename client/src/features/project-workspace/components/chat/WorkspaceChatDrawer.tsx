@@ -7,6 +7,7 @@
   type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
 import axios from "axios";
 import {
@@ -21,9 +22,11 @@ import {
   Pencil,
   Pin,
   PinOff,
+  Reply,
+  Search,
   Send,
-  Sparkles,
   Trash2,
+  Video,
   X,
   Zap,
 } from "lucide-react";
@@ -34,20 +37,42 @@ import { STORAGE_KEYS } from "@/constants";
 import { Sheet, SheetContent, SheetTitle } from "@/shared/components/ui/sheet";
 import { Button } from "@/shared/components/ui/button";
 import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/shared/components/ui/command";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/shared/components/ui/popover";
+import {
   createTask,
+  deleteWorkspaceChatMessage,
+  editWorkspaceChatMessage,
   fetchBoard,
   fetchMilestones,
   fetchTaskSubmissions,
+  fetchWorkspaceChatMessages,
   reviewSubmission,
+  toggleWorkspaceChatPin,
 } from "../../api";
-import type { Task, TaskSubmission } from "../../types";
-import { apiClient } from "@/shared/api/client";
+import type {
+  Task,
+  TaskSubmission,
+  WorkspaceChatAttachment,
+  WorkspaceChatMentionMember,
+  WorkspaceChatMessage,
+  WorkspaceChatReplySummary,
+} from "../../types";
 import { uploadImageToServer } from "../../utils/file-upload.service";
 import {
   connectNamespacedSocket,
@@ -60,6 +85,7 @@ interface WorkspaceChatDrawerProps {
   onClose?: () => void;
   projectId?: string;
   currentUserId?: string;
+  projectMembers?: WorkspaceChatMentionMember[];
   canReviewTasks?: boolean;
   canUseTaskCommand?: boolean;
   taskCommandUnavailableMessage?: string | null;
@@ -69,57 +95,10 @@ interface WorkspaceChatDrawerProps {
   onTaskCreated?: (task: Task) => void;
 }
 
-interface WorkspaceChatSender {
-  id: string;
-  fullName: string;
-  role: string | null;
-}
-
-interface WorkspaceChatAttachment {
-  url: string;
-  name: string;
-  type: string;
-}
-
-interface WorkspaceChatEditHistoryEntry {
-  content: string;
-  editedAt: string;
-  editorId: string | null;
-}
-
-type WorkspaceChatMessageType = "USER" | "SYSTEM";
-
-interface WorkspaceChatMessage {
-  id: string;
-  projectId: string;
-  senderId: string | null;
-  taskId: string | null;
-  messageType: WorkspaceChatMessageType;
-  content: string;
-  attachments: WorkspaceChatAttachment[];
-  isPinned: boolean;
-  isEdited: boolean;
-  editHistory: WorkspaceChatEditHistoryEntry[];
-  isDeleted: boolean;
-  riskFlags: string[];
-  createdAt: string;
-  updatedAt: string;
-  sender: WorkspaceChatSender | null;
-}
-
-interface WorkspaceChatHistoryResponse {
-  success: boolean;
-  data: WorkspaceChatMessage[];
-  pagination?: {
-    limit: number;
-    offset: number;
-    count: number;
-  };
-}
-
-interface WorkspaceChatMutationResponse {
-  success: boolean;
-  data: WorkspaceChatMessage;
+interface MentionContextState {
+  startIndex: number;
+  endIndex: number;
+  query: string;
 }
 
 const WORKSPACE_CHAT_NAMESPACE = "/ws/workspace";
@@ -143,6 +122,16 @@ const FALLBACK_RISK_RULES = [
   { flag: "OFF_PLATFORM", pattern: /\bngoai luong\b/i },
 ] as const;
 const IMAGE_ATTACHMENT_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+const URL_PATTERN = /(https?:\/\/[^\s]+)/gi;
+const MENTION_HIGHLIGHT_CLASSNAME =
+  "rounded bg-blue-50 px-1 font-semibold text-blue-700";
+const OWN_MENTION_HIGHLIGHT_CLASSNAME =
+  "rounded bg-blue-200/80 px-1 font-semibold text-blue-900";
+const SEARCH_HIGHLIGHT_CLASSNAME =
+  "rounded bg-amber-200 px-1 font-semibold text-slate-900";
+const OWN_SEARCH_HIGHLIGHT_CLASSNAME =
+  "rounded bg-amber-200/95 px-1 font-semibold text-slate-900";
+const VIDEO_CALL_MESSAGE_PREFIX = "Khởi tạo phòng họp trực tuyến:";
 
 const getStoredCurrentUserId = (): string | undefined => {
   const user = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
@@ -153,6 +142,13 @@ const getStoredCurrentUserId = (): string | undefined => {
 const normalizeForRiskScan = (content: string): string => {
   return content.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
 };
+
+const normalizeMentionSearchValue = (content: string): string => {
+  return normalizeForRiskScan(content).replace(/\s+/g, " ").trim();
+};
+
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 const detectFallbackRiskFlags = (content: string): string[] => {
   const normalized = normalizeForRiskScan(content);
@@ -257,6 +253,279 @@ const getVisibleMessageContent = (message: WorkspaceChatMessage): string => {
   return message.content;
 };
 
+const getReplyPreviewText = (
+  message: Pick<WorkspaceChatMessage, "content" | "attachments" | "isDeleted"> |
+    Pick<WorkspaceChatReplySummary, "content" | "attachments" | "isDeleted">,
+): string => {
+  if (message.isDeleted) {
+    return DELETED_MESSAGE_PLACEHOLDER;
+  }
+
+  if (message.content.trim()) {
+    return message.content.trim();
+  }
+
+  if (message.attachments.length > 0) {
+    return `Attachment: ${message.attachments[0].name}`;
+  }
+
+  return "Empty message";
+};
+
+const getMentionContext = (
+  value: string,
+  caretPosition: number | null | undefined,
+): MentionContextState | null => {
+  if (caretPosition == null) {
+    return null;
+  }
+
+  const safeCaret = Math.max(0, Math.min(caretPosition, value.length));
+  const beforeCaret = value.slice(0, safeCaret);
+  const triggerIndex = beforeCaret.lastIndexOf("@");
+
+  if (triggerIndex < 0) {
+    return null;
+  }
+
+  const charBefore = triggerIndex > 0 ? beforeCaret[triggerIndex - 1] : "";
+  if (charBefore && !/\s/.test(charBefore)) {
+    return null;
+  }
+
+  const query = beforeCaret.slice(triggerIndex + 1);
+  if (/\s/.test(query)) {
+    return null;
+  }
+
+  const trailingSlice = value.slice(safeCaret);
+  const boundaryOffset = trailingSlice.search(/\s/);
+
+  return {
+    startIndex: triggerIndex,
+    endIndex: boundaryOffset === -1 ? value.length : safeCaret + boundaryOffset,
+    query,
+  };
+};
+
+const normalizeWorkspaceChatReplySummary = (
+  value: Partial<WorkspaceChatReplySummary> | null | undefined,
+): WorkspaceChatReplySummary | null => {
+  if (!value?.id) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    messageType: value.messageType === "SYSTEM" ? "SYSTEM" : "USER",
+    content: typeof value.content === "string" ? value.content : "",
+    attachments: normalizeAttachments(value.attachments),
+    isDeleted: Boolean(value.isDeleted),
+    createdAt: toIsoDate(value.createdAt),
+    sender: value.sender
+      ? {
+          id: value.sender.id,
+          fullName: value.sender.fullName,
+          role: value.sender.role,
+        }
+      : null,
+  };
+};
+
+const renderHighlightedText = (
+  text: string,
+  searchTerm: string,
+  keyPrefix: string,
+  isOwnMessage: boolean,
+): ReactNode[] => {
+  if (!text) {
+    return [];
+  }
+
+  if (!searchTerm.trim()) {
+    return [text];
+  }
+
+  const escapedSearch = escapeRegex(searchTerm.trim());
+  const searchRegex = new RegExp(`(${escapedSearch})`, "gi");
+  const parts = text.split(searchRegex).filter((segment) => segment.length > 0);
+
+  if (parts.length === 1) {
+    return [text];
+  }
+
+  let partIndex = 0;
+  return parts.map((part) => {
+    const isMatch = part.toLowerCase() === searchTerm.trim().toLowerCase();
+    const node = isMatch ? (
+      <span
+        key={`${keyPrefix}-search-${partIndex}`}
+        className={isOwnMessage ? OWN_SEARCH_HIGHLIGHT_CLASSNAME : SEARCH_HIGHLIGHT_CLASSNAME}
+      >
+        {part}
+      </span>
+    ) : (
+      <span key={`${keyPrefix}-text-${partIndex}`}>{part}</span>
+    );
+    partIndex += 1;
+    return node;
+  });
+};
+
+const renderTextWithLinksAndHighlight = (
+  text: string,
+  searchTerm: string,
+  keyPrefix: string,
+  isOwnMessage: boolean,
+): ReactNode[] => {
+  if (!text) {
+    return [];
+  }
+
+  const segments: ReactNode[] = [];
+  let cursor = 0;
+  let matchIndex = 0;
+
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const url = match[0] ?? "";
+    const matchStart = match.index ?? 0;
+
+    if (cursor < matchStart) {
+      segments.push(
+        ...renderHighlightedText(
+          text.slice(cursor, matchStart),
+          searchTerm,
+          `${keyPrefix}-segment-${matchIndex}`,
+          isOwnMessage,
+        ),
+      );
+    }
+
+    segments.push(
+      <a
+        key={`${keyPrefix}-url-${matchIndex}`}
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className={isOwnMessage ? "underline underline-offset-2 text-white" : "text-blue-600 underline underline-offset-2"}
+      >
+        {renderHighlightedText(
+          url,
+          searchTerm,
+          `${keyPrefix}-url-highlight-${matchIndex}`,
+          isOwnMessage,
+        )}
+      </a>,
+    );
+
+    cursor = matchStart + url.length;
+    matchIndex += 1;
+  }
+
+  if (cursor < text.length) {
+    segments.push(
+      ...renderHighlightedText(
+        text.slice(cursor),
+        searchTerm,
+        `${keyPrefix}-tail`,
+        isOwnMessage,
+      ),
+    );
+  }
+
+  return segments.length > 0 ? segments : [text];
+};
+
+const renderMessageContent = (
+  content: string,
+  members: WorkspaceChatMentionMember[],
+  isOwnMessage: boolean,
+  searchTerm = "",
+): ReactNode => {
+  if (!content) {
+    return content;
+  }
+
+  const uniqueNames = Array.from(
+    new Set(
+      members
+        .map((member) => member.fullName.trim())
+        .filter((fullName) => fullName.length > 0),
+    ),
+  ).sort((first, second) => second.length - first.length);
+
+  if (uniqueNames.length === 0) {
+    return renderTextWithLinksAndHighlight(content, searchTerm, "message", isOwnMessage);
+  }
+
+  const mentionPattern = uniqueNames
+    .map((fullName) => escapeRegex(`@${fullName}`))
+    .join("|");
+  const mentionRegex = new RegExp(
+    `(^|\\s)(${mentionPattern})(?=$|[\\s.,!?;:])`,
+    "g",
+  );
+  const segments: ReactNode[] = [];
+  let cursor = 0;
+  let matchCount = 0;
+
+  for (const match of content.matchAll(mentionRegex)) {
+    const leadingWhitespace = match[1] ?? "";
+    const mentionText = match[2] ?? "";
+    const matchStart = match.index ?? 0;
+    const mentionStart = matchStart + leadingWhitespace.length;
+    const mentionEnd = mentionStart + mentionText.length;
+
+    if (!mentionText) {
+      continue;
+    }
+
+    if (cursor < mentionStart) {
+      segments.push(
+        ...renderTextWithLinksAndHighlight(
+          content.slice(cursor, mentionStart),
+          searchTerm,
+          `segment-${matchCount}`,
+          isOwnMessage,
+        ),
+      );
+    }
+
+    segments.push(
+      <span
+        key={`mention-${matchCount}`}
+        className={
+          isOwnMessage
+            ? OWN_MENTION_HIGHLIGHT_CLASSNAME
+            : MENTION_HIGHLIGHT_CLASSNAME
+        }
+      >
+        {mentionText}
+      </span>,
+    );
+
+    cursor = mentionEnd;
+    matchCount += 1;
+  }
+
+  if (matchCount === 0) {
+    return renderTextWithLinksAndHighlight(content, searchTerm, "message", isOwnMessage);
+  }
+
+  if (cursor < content.length) {
+    segments.push(
+      ...renderTextWithLinksAndHighlight(
+        content.slice(cursor),
+        searchTerm,
+        "segment-tail",
+        isOwnMessage,
+      ),
+    );
+  }
+
+  return segments;
+};
+
 const normalizeWorkspaceMessage = (
   value: Partial<WorkspaceChatMessage> | null | undefined,
 ): WorkspaceChatMessage | null => {
@@ -269,6 +538,7 @@ const normalizeWorkspaceMessage = (
     projectId: value.projectId,
     senderId: value.senderId ?? null,
     taskId: value.taskId ?? null,
+    replyToId: value.replyToId ?? null,
     messageType: value.messageType === "SYSTEM" ? "SYSTEM" : "USER",
     content: typeof value.content === "string" ? value.content : "",
     attachments: normalizeAttachments(value.attachments),
@@ -288,6 +558,7 @@ const normalizeWorkspaceMessage = (
           role: value.sender.role,
         }
       : null,
+    replyTo: normalizeWorkspaceChatReplySummary(value.replyTo),
   };
 };
 
@@ -428,6 +699,7 @@ export function WorkspaceChatDrawer({
   onClose,
   projectId,
   currentUserId,
+  projectMembers = [],
   canReviewTasks = false,
   canUseTaskCommand = true,
   taskCommandUnavailableMessage = null,
@@ -449,6 +721,15 @@ export function WorkspaceChatDrawer({
   const [editingValue, setEditingValue] = useState("");
   const [activeMessageActionId, setActiveMessageActionId] = useState<string | null>(null);
   const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [mentionContext, setMentionContext] = useState<MentionContextState | null>(null);
+  const [isMentionOpen, setIsMentionOpen] = useState(false);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<WorkspaceChatMessage[]>([]);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [searchRefreshNonce, setSearchRefreshNonce] = useState(0);
+  const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -489,6 +770,39 @@ export function WorkspaceChatDrawer({
     showCommandPopover &&
     inputValue.trimStart().startsWith("/") &&
     availableSlashCommands.length > 0;
+  const filteredMentionMembers = useMemo(() => {
+    if (!mentionContext || inputValue.trimStart().startsWith("/") || projectMembers.length === 0) {
+      return [];
+    }
+
+    const normalizedQuery = normalizeMentionSearchValue(mentionContext.query);
+    if (!normalizedQuery) {
+      return projectMembers;
+    }
+
+    return projectMembers.filter((member) =>
+      normalizeMentionSearchValue(member.fullName).includes(normalizedQuery),
+    );
+  }, [inputValue, mentionContext, projectMembers]);
+  const shouldShowMentionPopover =
+    isMentionOpen &&
+    !shouldShowCommandPopover &&
+    Boolean(mentionContext) &&
+    projectMembers.length > 0;
+  const allKnownMessages = useMemo(
+    () => mergeUniqueMessages(messages, searchResults),
+    [messages, searchResults],
+  );
+  const replyingToMessage = useMemo(
+    () =>
+      replyingToMessageId
+        ? allKnownMessages.find((message) => message.id === replyingToMessageId) ?? null
+        : null,
+    [allKnownMessages, replyingToMessageId],
+  );
+  const normalizedSearchQuery = debouncedSearchQuery.trim();
+  const isSearchActive = normalizedSearchQuery.length > 0;
+  const visibleMessages = isSearchActive ? searchResults : messages;
   const latestPinnedMessage = useMemo(() => {
     const pinnedMessages = messages.filter(
       (message) => message.isPinned && !isSystemMessage(message) && !message.isDeleted,
@@ -507,6 +821,92 @@ export function WorkspaceChatDrawer({
     !isSending &&
     !isUploadingAttachments &&
     (inputValue.trim().length > 0 || pendingAttachments.length > 0);
+
+  const closeMentionPopover = useCallback(() => {
+    setMentionContext(null);
+    setIsMentionOpen(false);
+    setActiveMentionIndex(0);
+  }, []);
+
+  const syncMentionState = useCallback(
+    (nextValue: string, caretPosition: number | null | undefined) => {
+      if (nextValue.trimStart().startsWith("/") || projectMembers.length === 0) {
+        closeMentionPopover();
+        return;
+      }
+
+      const nextMentionContext = getMentionContext(nextValue, caretPosition);
+      if (!nextMentionContext) {
+        closeMentionPopover();
+        return;
+      }
+
+      setMentionContext(nextMentionContext);
+      setIsMentionOpen(true);
+    },
+    [closeMentionPopover, projectMembers.length],
+  );
+
+  const handleSelectMention = useCallback(
+    (member: WorkspaceChatMentionMember) => {
+      const input = inputRef.current;
+      const currentValue = input?.value ?? inputValue;
+      const caretPosition = input?.selectionStart ?? currentValue.length;
+      const currentMentionContext =
+        getMentionContext(currentValue, caretPosition) ?? mentionContext;
+
+      if (!currentMentionContext) {
+        return;
+      }
+
+      const mentionText = `@${member.fullName} `;
+      const nextValue =
+        currentValue.slice(0, currentMentionContext.startIndex) +
+        mentionText +
+        currentValue.slice(currentMentionContext.endIndex);
+      const nextCaretPosition = currentMentionContext.startIndex + mentionText.length;
+
+      setInputValue(nextValue);
+      closeMentionPopover();
+
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.setSelectionRange(nextCaretPosition, nextCaretPosition);
+      });
+    },
+    [closeMentionPopover, inputValue, mentionContext],
+  );
+
+  useEffect(() => {
+    if (!isMentionOpen) {
+      setActiveMentionIndex(0);
+      return;
+    }
+
+    setActiveMentionIndex((currentIndex) => {
+      if (filteredMentionMembers.length === 0) {
+        return 0;
+      }
+
+      return Math.min(currentIndex, filteredMentionMembers.length - 1);
+    });
+  }, [filteredMentionMembers.length, isMentionOpen]);
+
+  useEffect(() => {
+    if (isMentionOpen) {
+      setActiveMentionIndex(0);
+    }
+  }, [isMentionOpen, mentionContext?.query]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchQuery]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const container = messagesContainerRef.current;
@@ -552,9 +952,10 @@ export function WorkspaceChatDrawer({
       }
 
       setInputValue(`${command} `);
+      closeMentionPopover();
       inputRef.current?.focus();
     },
-    [canUseTaskCommand, resolvedTaskCommandUnavailableMessage],
+    [canUseTaskCommand, closeMentionPopover, resolvedTaskCommandUnavailableMessage],
   );
 
   const getTaskCommandErrorMessage = useCallback(
@@ -699,6 +1100,16 @@ export function WorkspaceChatDrawer({
 
   const upsertMutatedMessage = useCallback((message: WorkspaceChatMessage) => {
     setMessages((currentMessages) => mergeUniqueMessages(currentMessages, [message]));
+    setSearchRefreshNonce((currentValue) => currentValue + 1);
+  }, []);
+
+  const clearReplyTarget = useCallback(() => {
+    setReplyingToMessageId(null);
+  }, []);
+
+  const handleReplyToMessage = useCallback((messageId: string) => {
+    setReplyingToMessageId(messageId);
+    inputRef.current?.focus();
   }, []);
 
   const scrollToMessage = useCallback((messageId: string) => {
@@ -775,10 +1186,7 @@ export function WorkspaceChatDrawer({
 
       setActiveMessageActionId(message.id);
       try {
-        const response = await apiClient.patch<WorkspaceChatMutationResponse>(
-          `/workspace-chat/projects/${projectId}/messages/${message.id}/pin`,
-          { isPinned: !message.isPinned },
-        );
+        const response = await toggleWorkspaceChatPin(projectId, message.id, !message.isPinned);
         const normalized = normalizeWorkspaceMessage(response.data);
         if (normalized) {
           upsertMutatedMessage(normalized);
@@ -818,10 +1226,7 @@ export function WorkspaceChatDrawer({
 
       setActiveMessageActionId(messageId);
       try {
-        const response = await apiClient.patch<WorkspaceChatMutationResponse>(
-          `/workspace-chat/projects/${projectId}/messages/${messageId}`,
-          { content: trimmedContent },
-        );
+        const response = await editWorkspaceChatMessage(projectId, messageId, trimmedContent);
         const normalized = normalizeWorkspaceMessage(response.data);
         if (normalized) {
           upsertMutatedMessage(normalized);
@@ -846,15 +1251,16 @@ export function WorkspaceChatDrawer({
 
       setActiveMessageActionId(messageId);
       try {
-        const response = await apiClient.delete<WorkspaceChatMutationResponse>(
-          `/workspace-chat/projects/${projectId}/messages/${messageId}`,
-        );
+        const response = await deleteWorkspaceChatMessage(projectId, messageId);
         const normalized = normalizeWorkspaceMessage(response.data);
         if (normalized) {
           upsertMutatedMessage(normalized);
         }
         if (editingMessageId === messageId) {
           handleCancelEdit();
+        }
+        if (replyingToMessageId === messageId) {
+          clearReplyTarget();
         }
       } catch (error) {
         const messageText = getApiErrorDetails(error, "Failed to delete message").message;
@@ -864,7 +1270,14 @@ export function WorkspaceChatDrawer({
         setActiveMessageActionId(null);
       }
     },
-    [editingMessageId, handleCancelEdit, projectId, upsertMutatedMessage],
+    [
+      clearReplyTarget,
+      editingMessageId,
+      handleCancelEdit,
+      projectId,
+      replyingToMessageId,
+      upsertMutatedMessage,
+    ],
   );
 
   const ensureProjectRoomJoin = useCallback(
@@ -929,6 +1342,98 @@ export function WorkspaceChatDrawer({
     [],
   );
 
+  const sendMessagePayload = useCallback(
+    async ({
+      content,
+      attachments = [],
+      replyToId = null,
+      successToast,
+    }: {
+      content: string;
+      attachments?: WorkspaceChatAttachment[];
+      replyToId?: string | null;
+      successToast?: string | null;
+    }) => {
+      if (!projectId) {
+        throw new Error("Missing project context");
+      }
+
+      const socket = connectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
+
+      await waitForSocketConnection(socket, 10000);
+      await ensureProjectRoomJoin(socket, projectId);
+      lastSendAttemptAtRef.current = Date.now();
+
+      await new Promise<void>((resolve, reject) => {
+        const timeoutId = window.setTimeout(() => {
+          reject(new Error("Send message timeout"));
+        }, 6000);
+
+        socket.emit(
+          "sendProjectMessage",
+          {
+            projectId,
+            content,
+            attachments,
+            replyToId: replyToId ?? undefined,
+          },
+          (ack?: unknown) => {
+            window.clearTimeout(timeoutId);
+            const socketError = extractSocketError(ack);
+            if (socketError) {
+              reject(new Error(socketError));
+              return;
+            }
+            resolve();
+          },
+        );
+      });
+
+      if (successToast) {
+        toast.success(successToast);
+      }
+    },
+    [ensureProjectRoomJoin, projectId],
+  );
+
+  const sendQuickVideoCall = useCallback(async () => {
+    if (!projectId || isSending || isUploadingAttachments) {
+      return;
+    }
+
+    const safeProjectId = projectId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const randomSuffix = Math.random().toString(36).slice(2, 10);
+    const roomId = `Workspace_${safeProjectId}_${randomSuffix}`;
+    const meetingUrl = `https://meet.jit.si/${roomId}`;
+    const messageContent = `${VIDEO_CALL_MESSAGE_PREFIX} ${meetingUrl}`;
+
+    setIsSending(true);
+    try {
+      await sendMessagePayload({
+        content: messageContent,
+        replyToId: replyingToMessageId,
+        successToast: "Video call link sent.",
+      });
+      clearReplyTarget();
+      closeMentionPopover();
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to start video call";
+      console.error("Failed to send workspace video call link", error);
+      toast.error(errorMessage);
+    } finally {
+      setIsSending(false);
+    }
+  }, [
+    clearReplyTarget,
+    closeMentionPopover,
+    isSending,
+    isUploadingAttachments,
+    projectId,
+    replyingToMessageId,
+    sendMessagePayload,
+  ]);
+
   const handleSendMessage = useCallback(async () => {
     const trimmedInput = inputValue.trim();
     if (
@@ -980,6 +1485,8 @@ export function WorkspaceChatDrawer({
 
         onTaskCreated?.(persistedTask);
         setInputValue("");
+        clearReplyTarget();
+        closeMentionPopover();
         toast.success(`Task created: ${persistedTask.title}`);
       } catch (error) {
         const errorMessage = getTaskCommandErrorMessage(error);
@@ -1027,6 +1534,8 @@ export function WorkspaceChatDrawer({
 
         onTaskCreated?.(approvedTask);
         setInputValue("");
+        clearReplyTarget();
+        closeMentionPopover();
         toast.success("Task approved successfully!");
       } catch (error) {
         const errorMessage =
@@ -1053,49 +1562,22 @@ export function WorkspaceChatDrawer({
     if (trimmedInput.startsWith("/")) {
       triggerSlashCommand(trimmedInput);
       setInputValue("");
+      closeMentionPopover();
       return;
     }
-
-    const socket = connectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
 
     setIsSending(true);
 
     try {
-      await waitForSocketConnection(socket, 10000);
-      await ensureProjectRoomJoin(socket, projectId);
-      lastSendAttemptAtRef.current = Date.now();
-
-      console.log("Sending message:", trimmedInput || "[attachment-only]", {
-        projectId,
-        socketId: socket.id,
-        attachmentCount: pendingAttachments.length,
+      await sendMessagePayload({
+        content: trimmedInput,
+        attachments: pendingAttachments,
+        replyToId: replyingToMessageId,
       });
-      await new Promise<void>((resolve, reject) => {
-        const timeoutId = window.setTimeout(() => {
-          reject(new Error("Send message timeout"));
-        }, 6000);
-
-        socket.emit(
-          "sendProjectMessage",
-          {
-            projectId,
-            content: trimmedInput,
-            attachments: pendingAttachments,
-          },
-          (ack?: unknown) => {
-            window.clearTimeout(timeoutId);
-            const socketError = extractSocketError(ack);
-            if (socketError) {
-              reject(new Error(socketError));
-              return;
-            }
-            resolve();
-          },
-        );
-      });
-
       setInputValue("");
       setPendingAttachments([]);
+      clearReplyTarget();
+      closeMentionPopover();
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to send message";
@@ -1105,23 +1587,26 @@ export function WorkspaceChatDrawer({
       setIsSending(false);
     }
   }, [
-    canReviewTasks,
-    canUseTaskCommand,
-    ensureProjectRoomJoin,
-    getTaskCommandErrorMessage,
-    inputValue,
-    isSending,
-    isUploadingAttachments,
-    onTaskCreated,
-    pendingAttachments,
-    projectId,
-    resolvedTaskCommandUnavailableMessage,
-    resolveLatestPendingSubmission,
-    resolveTaskForApproval,
-    resolveTaskMilestoneId,
-    verifyPersistedTaskFromBoard,
-    triggerSlashCommand,
-  ]);
+      canReviewTasks,
+      canUseTaskCommand,
+      clearReplyTarget,
+      closeMentionPopover,
+      getTaskCommandErrorMessage,
+      inputValue,
+      isSending,
+      isUploadingAttachments,
+      onTaskCreated,
+      pendingAttachments,
+      projectId,
+      replyingToMessageId,
+      resolvedTaskCommandUnavailableMessage,
+      resolveLatestPendingSubmission,
+      resolveTaskForApproval,
+      resolveTaskMilestoneId,
+      sendMessagePayload,
+      verifyPersistedTaskFromBoard,
+      triggerSlashCommand,
+    ]);
 
   const handleComposerSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -1131,8 +1616,68 @@ export function WorkspaceChatDrawer({
     [handleSendMessage],
   );
 
+  const handleInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.value;
+      setInputValue(nextValue);
+      syncMentionState(nextValue, event.target.selectionStart);
+    },
+    [syncMentionState],
+  );
+
+  const handleInputSelectionChange = useCallback(() => {
+    const input = inputRef.current;
+    if (!input) {
+      return;
+    }
+
+    syncMentionState(input.value, input.selectionStart);
+  }, [syncMentionState]);
+
   const handleInputKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
+      if (isMentionOpen && mentionContext) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (filteredMentionMembers.length > 0) {
+            setActiveMentionIndex((currentIndex) =>
+              (currentIndex + 1) % filteredMentionMembers.length,
+            );
+          }
+          return;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          if (filteredMentionMembers.length > 0) {
+            setActiveMentionIndex((currentIndex) =>
+              currentIndex <= 0
+                ? filteredMentionMembers.length - 1
+                : currentIndex - 1,
+            );
+          }
+          return;
+        }
+
+        if ((event.key === "Enter" || event.key === "Tab") && filteredMentionMembers.length > 0) {
+          event.preventDefault();
+          const selectedMember =
+            filteredMentionMembers[
+              Math.min(activeMentionIndex, filteredMentionMembers.length - 1)
+            ];
+          if (selectedMember) {
+            handleSelectMention(selectedMember);
+          }
+          return;
+        }
+
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeMentionPopover();
+          return;
+        }
+      }
+
       if (event.key !== "Enter" || event.shiftKey) {
         return;
       }
@@ -1144,7 +1689,15 @@ export function WorkspaceChatDrawer({
       event.preventDefault();
       void handleSendMessage();
     },
-    [handleSendMessage],
+    [
+      activeMentionIndex,
+      closeMentionPopover,
+      filteredMentionMembers,
+      handleSelectMention,
+      handleSendMessage,
+      isMentionOpen,
+      mentionContext,
+    ],
   );
 
   const handleExportChat = useCallback(() => {
@@ -1226,6 +1779,7 @@ export function WorkspaceChatDrawer({
     if (
       !isOpen ||
       !projectId ||
+      normalizedSearchQuery.length > 0 ||
       !hasMore ||
       isHistoryLoading ||
       isLoadingMoreRef.current
@@ -1241,9 +1795,10 @@ export function WorkspaceChatDrawer({
     setIsLoadingMore(true);
 
     try {
-      const response = await apiClient.get<WorkspaceChatHistoryResponse>(
-        `/workspace-chat/projects/${projectId}/messages?limit=${HISTORY_PAGE_SIZE}&offset=${offset}`,
-      );
+      const response = await fetchWorkspaceChatMessages(projectId, {
+        limit: HISTORY_PAGE_SIZE,
+        offset,
+      });
 
       const receivedCount = Array.isArray(response.data) ? response.data.length : 0;
       const normalized = (response.data || [])
@@ -1273,7 +1828,7 @@ export function WorkspaceChatDrawer({
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [hasMore, isHistoryLoading, isOpen, offset, projectId]);
+  }, [hasMore, isHistoryLoading, isOpen, normalizedSearchQuery.length, offset, projectId]);
 
   const handleMessagesScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -1301,9 +1856,10 @@ export function WorkspaceChatDrawer({
 
     const loadInitialHistory = async () => {
       try {
-        const response = await apiClient.get<WorkspaceChatHistoryResponse>(
-          `/workspace-chat/projects/${projectId}/messages?limit=${HISTORY_PAGE_SIZE}&offset=0`,
-        );
+        const response = await fetchWorkspaceChatMessages(projectId, {
+          limit: HISTORY_PAGE_SIZE,
+          offset: 0,
+        });
 
         if (cancelled) {
           return;
@@ -1341,6 +1897,54 @@ export function WorkspaceChatDrawer({
       cancelled = true;
     };
   }, [isOpen, projectId, scrollToBottom]);
+
+  useEffect(() => {
+    if (!isOpen || !projectId || normalizedSearchQuery.length === 0) {
+      setSearchResults([]);
+      setIsSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsSearchLoading(true);
+
+    const loadSearchResults = async () => {
+      try {
+        const response = await fetchWorkspaceChatMessages(projectId, {
+          limit: 50,
+          offset: 0,
+          query: normalizedSearchQuery,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        const normalized = (response.data || [])
+          .map((message) => normalizeWorkspaceMessage(message))
+          .filter((message): message is WorkspaceChatMessage => Boolean(message));
+
+        setSearchResults(sortMessagesAsc(normalized));
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error("Failed to search workspace chat messages", error);
+        toast.error("Failed to search messages");
+      } finally {
+        if (!cancelled) {
+          setIsSearchLoading(false);
+        }
+      }
+    };
+
+    void loadSearchResults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, normalizedSearchQuery, projectId, searchRefreshNonce]);
 
   useEffect(() => {
     if (!isOpen || !projectId) {
@@ -1387,6 +1991,7 @@ export function WorkspaceChatDrawer({
       setMessages((currentMessages) =>
         mergeUniqueMessages(currentMessages, [normalizedMessage]),
       );
+      setSearchRefreshNonce((currentValue) => currentValue + 1);
 
       if (shouldAutoScroll) {
         window.requestAnimationFrame(() => {
@@ -1484,15 +2089,25 @@ export function WorkspaceChatDrawer({
       setEditingValue("");
       setPendingAttachments([]);
       setHighlightedMessageId(null);
+      setReplyingToMessageId(null);
+      setSearchQuery("");
+      setDebouncedSearchQuery("");
+      setSearchResults([]);
+      closeMentionPopover();
     }
-  }, [isOpen]);
+  }, [closeMentionPopover, isOpen]);
 
   useEffect(() => {
     setEditingMessageId(null);
     setEditingValue("");
     setPendingAttachments([]);
     setHighlightedMessageId(null);
-  }, [projectId]);
+    setReplyingToMessageId(null);
+    setSearchQuery("");
+    setDebouncedSearchQuery("");
+    setSearchResults([]);
+    closeMentionPopover();
+  }, [closeMentionPopover, projectId]);
 
   return (
     <Sheet
@@ -1509,79 +2124,98 @@ export function WorkspaceChatDrawer({
         showOverlay={false}
         className="h-screen w-96 max-w-[100vw] gap-0 border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[24rem]"
       >
-        <header className="border-b border-slate-200 px-4 py-4 pr-14">
-          <div className="mb-3">
+        <header className="border-b border-slate-200 px-3 py-3 pr-12">
+          <div className="mb-2">
             <SheetTitle className="text-sm font-semibold text-slate-900">
               {projectTitle}
             </SheetTitle>
-            <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
               <span>Online</span>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleExportChat}
-              disabled={!projectId || messages.length === 0}
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              <Download className="h-4 w-4" />
-              <span>Export Record</span>
-            </button>
+          <div className="space-y-1">
+            <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search messages"
+                  className="h-8 w-full rounded-lg border border-transparent bg-white pl-8 pr-8 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500"
+                />
+                {searchQuery.trim().length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchQuery("");
+                      setDebouncedSearchQuery("");
+                      setSearchResults([]);
+                    }}
+                    className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-blue-600"
+                    aria-label="Clear chat search"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleExportChat}
+                disabled={!projectId || messages.length === 0}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Export record"
+                title="Export record"
+              >
+                <Download className="h-4 w-4" />
+                <span className="sr-only">Export record</span>
+              </button>
+            </div>
 
-            <button
-              type="button"
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
-            >
-              <Sparkles className="h-4 w-4" />
-              <span>AI Summary</span>
-            </button>
-          </div>
-        </header>
-
-        {latestPinnedMessage && (
-          <div className="border-b border-amber-200 bg-amber-50/80 px-4 py-3">
-            <button
-              type="button"
-              onClick={() => scrollToMessage(latestPinnedMessage.id)}
-              className="flex w-full items-start gap-3 rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-left transition-colors hover:bg-white"
-            >
-              <Pin className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-              <div className="min-w-0 flex-1">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-amber-700">
-                  Pinned message
-                </p>
-                <p className="mt-1 truncate text-sm text-slate-700">
+            {latestPinnedMessage && (
+              <button
+                type="button"
+                onClick={() => scrollToMessage(latestPinnedMessage.id)}
+                className="flex w-full items-center gap-2 rounded-md border border-orange-100 bg-orange-50 px-2 py-1 text-left text-xs text-orange-700 transition-colors hover:bg-orange-100/70"
+              >
+                <Pin className="h-3.5 w-3.5 shrink-0" />
+                <span className="line-clamp-1 flex-1">
                   {(latestPinnedMessage.sender?.fullName || "Unknown User")}:{" "}
                   {getVisibleMessageContent(latestPinnedMessage) ||
                     latestPinnedMessage.attachments[0]?.name ||
                     "Attachment"}
-                </p>
-              </div>
-            </button>
+                </span>
+              </button>
+            )}
           </div>
-        )}
+        </header>
 
         <div
           ref={messagesContainerRef}
           onScroll={handleMessagesScroll}
-          className="flex-1 space-y-4 overflow-y-auto bg-slate-50/80 px-4 py-4"
+          className="flex-1 space-y-6 overflow-y-auto bg-white px-5 py-5"
         >
-          {isLoadingMore && (
+          {isLoadingMore && !isSearchActive && (
             <p className="text-center text-xs text-slate-400">Loading older messages...</p>
           )}
           {!projectId ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
               Missing project context. Unable to load chat.
             </div>
-          ) : isHistoryLoading ? (
+          ) : isHistoryLoading && !isSearchActive ? (
             <p className="text-sm text-slate-500">Loading messages...</p>
-          ) : messages.length === 0 ? (
-            <p className="text-sm text-slate-500">No messages yet. Start the conversation.</p>
+          ) : isSearchLoading ? (
+            <p className="text-sm text-slate-500">Searching messages...</p>
+          ) : visibleMessages.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              {isSearchActive
+                ? "No messages matched your search."
+                : "No messages yet. Start the conversation."}
+            </p>
           ) : (
-            messages.map((message) => {
+            visibleMessages.map((message) => {
               const systemMessage = isSystemMessage(message);
               const riskFlags = getMessageRiskFlags(message);
               const isRiskFlagged = !message.isDeleted && riskFlags.length > 0;
@@ -1590,6 +2224,7 @@ export function WorkspaceChatDrawer({
                 message.senderId === resolvedCurrentUserId;
               const isEditing = editingMessageId === message.id;
               const isBusy = activeMessageActionId === message.id;
+              const replyPreview = !message.isDeleted ? message.replyTo : null;
 
               if (systemMessage) {
                 return (
@@ -1598,13 +2233,30 @@ export function WorkspaceChatDrawer({
                     ref={(node) => {
                       messageRefs.current[message.id] = node;
                     }}
-                    className="flex justify-center"
+                    className="flex justify-center py-1"
                   >
                     <div className="max-w-[85%] text-center">
-                      <p className="text-xs italic text-slate-500">{message.content}</p>
-                      <p className="mt-1 text-[10px] text-slate-400">
-                        {formatMessageTime(message.createdAt)}
+                      <p className="text-xs font-normal text-gray-400">
+                        {renderMessageContent(
+                          message.content,
+                          projectMembers,
+                          false,
+                          normalizedSearchQuery,
+                        )}
                       </p>
+                      <div className="mt-1 flex items-center justify-center gap-1.5 text-[10px] text-gray-400">
+                        <span>{formatMessageTime(message.createdAt)}</span>
+                        {!message.isDeleted && (
+                          <button
+                            type="button"
+                            onClick={() => handleReplyToMessage(message.id)}
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:text-blue-600"
+                          >
+                            <Reply className="h-3 w-3" />
+                            <span>Reply</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );
@@ -1615,23 +2267,21 @@ export function WorkspaceChatDrawer({
                 : message.sender?.fullName ||
                   (message.senderId ? `User ${message.senderId.slice(0, 6)}` : "Unknown User");
               const bubbleClassName = message.isDeleted
-                ? "border border-rose-300 bg-rose-50/80 text-rose-700 shadow-sm"
+                ? "rounded-2xl border border-rose-100 bg-white text-rose-700"
                 : isMe
                   ? isRiskFlagged
-                    ? "rounded-tr-md bg-rose-600 text-white ring-1 ring-rose-200"
-                    : "rounded-tr-md bg-blue-600 text-white"
+                    ? "rounded-2xl rounded-tr-md border border-rose-100 bg-rose-50 text-rose-900"
+                    : "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
                   : isRiskFlagged
-                    ? "rounded-tl-md border border-rose-200 bg-rose-50 text-rose-950 shadow-sm"
-                    : "rounded-tl-md bg-white text-slate-800 shadow-sm ring-1 ring-slate-200";
+                    ? "rounded-2xl rounded-tl-md border border-rose-100 bg-rose-50 text-rose-900"
+                    : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
               const editingShellClassName = isMe
-                ? "rounded-tr-md bg-blue-600 text-white shadow-lg ring-1 ring-blue-300/70"
-                : "rounded-tl-md border border-slate-200 bg-white text-slate-800 shadow-sm ring-1 ring-slate-200";
+                ? "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
+                : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
               const warningClassName = isMe ? "justify-end text-right text-rose-700" : "text-rose-700";
               const actionTriggerClassName = message.isDeleted
-                ? "border border-rose-200 bg-white text-rose-600 hover:bg-rose-100"
-                : isMe
-                  ? "border border-white/20 bg-white/15 text-white hover:bg-white/25"
-                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50";
+                ? "text-rose-400 hover:text-rose-600"
+                : "text-gray-400 hover:text-blue-600";
 
               return (
                 <div
@@ -1652,14 +2302,14 @@ export function WorkspaceChatDrawer({
                       {senderLabel}
                     </p>
                     <div
-                      className={
-                        isEditing
-                          ? "text-sm leading-relaxed"
-                          : `relative rounded-2xl px-3 py-2 pr-12 text-sm leading-relaxed ${
-                              message.isDeleted ? "italic" : ""
-                            } ${bubbleClassName}`
-                      }
-                    >
+                        className={
+                          isEditing
+                            ? "text-sm leading-relaxed"
+                            : `relative rounded-2xl px-5 py-3 pr-12 text-sm leading-relaxed ${
+                                message.isDeleted ? "" : ""
+                              } ${bubbleClassName}`
+                        }
+                      >
                       {isEditing ? (
                         <div
                           className={`space-y-3 rounded-2xl px-4 py-4 ${editingShellClassName}`}
@@ -1713,18 +2363,53 @@ export function WorkspaceChatDrawer({
                       ) : (
                         <div className="space-y-3">
                           <div
-                            className={`absolute right-2 top-2 z-10 transition-all duration-150 ${
+                            className={`absolute -top-3 -right-2 z-10 flex items-center gap-0.5 rounded-md border border-gray-200 bg-white p-0.5 shadow-sm transition-opacity duration-150 ${
                               message.isDeleted
                                 ? "opacity-100"
-                                : "translate-y-1 opacity-0 group-hover:translate-y-0 group-hover:opacity-100 group-focus-within:translate-y-0 group-focus-within:opacity-100"
+                                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
                             }`}
                           >
+                            {!message.isDeleted && (
+                              <button
+                                type="button"
+                                onClick={() => handleReplyToMessage(message.id)}
+                                disabled={isBusy}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label="Reply to message"
+                              >
+                                <Reply className="h-4 w-4" />
+                              </button>
+                            )}
+                            {isMe && !message.isDeleted && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartEdit(message)}
+                                disabled={isBusy}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label="Edit message"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            )}
+                            {isMe && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void handleDeleteMessage(message.id);
+                                }}
+                                disabled={isBusy || message.isDeleted}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label="Delete message"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <button
                                   type="button"
-                                  aria-label="Message actions"
-                                  className={`inline-flex h-8 w-8 items-center justify-center rounded-full shadow-sm transition-colors ${actionTriggerClassName}`}
+                                  aria-label="More message actions"
+                                  className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${actionTriggerClassName}`}
                                 >
                                   <MoreHorizontal className="h-4 w-4" />
                                 </button>
@@ -1740,9 +2425,9 @@ export function WorkspaceChatDrawer({
                                   }}
                                   disabled={message.isDeleted}
                                 >
-                                  <Flag className="h-4 w-4" />
-                                  <span>Mark as evidence</span>
-                                </DropdownMenuItem>
+                                    <Flag className="h-4 w-4" />
+                                    <span>Mark as evidence</span>
+                                  </DropdownMenuItem>
                                 <DropdownMenuItem
                                   onSelect={() => {
                                     void handleTogglePin(message);
@@ -1753,39 +2438,47 @@ export function WorkspaceChatDrawer({
                                     <PinOff className="h-4 w-4" />
                                   ) : (
                                     <Pin className="h-4 w-4" />
-                                  )}
-                                  <span>{message.isPinned ? "Unpin" : "Pin"}</span>
-                                </DropdownMenuItem>
-                                {isMe && !message.isDeleted && (
-                                  <DropdownMenuItem
-                                    onSelect={() => handleStartEdit(message)}
-                                    disabled={isBusy}
-                                  >
-                                    <Pencil className="h-4 w-4" />
-                                    <span>Edit</span>
+                                    )}
+                                    <span>{message.isPinned ? "Unpin" : "Pin"}</span>
                                   </DropdownMenuItem>
-                                )}
-                                {isMe && (
-                                  <DropdownMenuItem
-                                    onSelect={() => {
-                                      void handleDeleteMessage(message.id);
-                                    }}
-                                    disabled={isBusy || message.isDeleted}
-                                    className="text-rose-600 focus:text-rose-600"
-                                  >
-                                    <Trash2 className="h-4 w-4" />
-                                    <span>Delete</span>
-                                  </DropdownMenuItem>
-                                )}
                               </DropdownMenuContent>
                             </DropdownMenu>
                           </div>
 
                           {message.isDeleted ? (
-                            <p className="italic text-slate-500">{DELETED_MESSAGE_PLACEHOLDER}</p>
-                          ) : message.content ? (
-                            <p className="whitespace-pre-wrap break-words">{message.content}</p>
-                          ) : null}
+                            <p className="text-gray-500">{DELETED_MESSAGE_PLACEHOLDER}</p>
+                          ) : (
+                            <>
+                              {replyPreview && (
+                                <button
+                                  type="button"
+                                  onClick={() => scrollToMessage(replyPreview.id)}
+                                    className={`w-full rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
+                                      isMe
+                                        ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
+                                        : "border-gray-100 bg-white text-gray-600 hover:bg-gray-50"
+                                    }`}
+                                >
+                                  <p className="font-semibold">
+                                    {replyPreview.sender?.fullName || "Unknown User"}
+                                  </p>
+                                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words opacity-90">
+                                    {getReplyPreviewText(replyPreview)}
+                                  </p>
+                                </button>
+                              )}
+                              {message.content ? (
+                                <p className="whitespace-pre-wrap break-words">
+                                  {renderMessageContent(
+                                    message.content,
+                                    projectMembers,
+                                    isMe,
+                                    normalizedSearchQuery,
+                                  )}
+                                </p>
+                              ) : null}
+                            </>
+                          )}
 
                           {!message.isDeleted && message.attachments.length > 0 && (
                             <div className="grid gap-2">
@@ -1796,7 +2489,7 @@ export function WorkspaceChatDrawer({
                                     href={attachment.url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="block overflow-hidden rounded-xl border border-black/10 bg-black/5"
+                                    className="block overflow-hidden rounded-xl border border-gray-100 bg-white"
                                   >
                                     <img
                                       src={attachment.url}
@@ -1811,11 +2504,11 @@ export function WorkspaceChatDrawer({
                                     href={attachment.url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className={`flex items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
-                                      isMe
-                                        ? "border-white/20 bg-white/10 text-white hover:bg-white/15"
-                                        : "border-slate-200 bg-slate-100 text-slate-700 hover:bg-slate-200"
-                                    }`}
+                                      className={`flex items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
+                                        isMe
+                                          ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
+                                          : "border-gray-100 bg-white text-gray-700 hover:bg-gray-50"
+                                      }`}
                                   >
                                     <FileText className="h-4 w-4 shrink-0" />
                                     <span className="truncate text-sm">{attachment.name}</span>
@@ -1890,7 +2583,7 @@ export function WorkspaceChatDrawer({
                 {pendingAttachments.map((attachment) => (
                   <div
                     key={attachment.url}
-                    className="inline-flex max-w-full items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs text-slate-600"
+                    className="inline-flex max-w-full items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-slate-600"
                   >
                     {isImageAttachment(attachment) ? (
                       <span className="font-medium text-slate-700">Image</span>
@@ -1911,42 +2604,139 @@ export function WorkspaceChatDrawer({
               </div>
             )}
 
-            <form onSubmit={handleComposerSubmit} className="flex items-center gap-2">
+            {replyingToMessage && (
+              <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-gray-200 bg-white px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Replying to {replyingToMessage.sender?.fullName || "Unknown User"}
+                  </p>
+                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-xs text-slate-700">
+                    {getReplyPreviewText(replyingToMessage)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearReplyTarget}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700"
+                  aria-label="Cancel reply"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
+            <Popover
+              open={shouldShowMentionPopover}
+              onOpenChange={(open) => {
+                if (!open) {
+                  closeMentionPopover();
+                }
+              }}
+            >
+              <PopoverAnchor asChild>
+                <div className="absolute bottom-11 left-14 h-0 w-0" aria-hidden="true" />
+              </PopoverAnchor>
+              <PopoverContent
+                align="start"
+                side="top"
+                sideOffset={8}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+                onCloseAutoFocus={(event) => event.preventDefault()}
+                className="w-[22rem] border border-gray-200 bg-white p-0 text-slate-900 shadow-lg"
+              >
+                <Command className="rounded-xl bg-white text-slate-900">
+                  <CommandList className="max-h-64">
+                    <CommandEmpty className="py-4 text-sm text-slate-500">
+                      No matching member.
+                    </CommandEmpty>
+                    <CommandGroup
+                      heading="Mention project member"
+                      className="text-slate-900 [&_[cmdk-group-heading]]:text-slate-500"
+                    >
+                      {filteredMentionMembers.map((member, index) => (
+                        <CommandItem
+                          key={member.id}
+                          value={`${member.fullName}-${member.id}`}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onSelect={() => handleSelectMention(member)}
+                          className={
+                            index === activeMentionIndex
+                              ? "border border-blue-100 bg-blue-50 text-slate-900"
+                              : "text-slate-800 data-[selected=true]:border data-[selected=true]:border-blue-100 data-[selected=true]:bg-blue-50 data-[selected=true]:text-slate-900"
+                          }
+                        >
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate font-medium">
+                              {member.fullName}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {member.role.charAt(0) + member.role.slice(1).toLowerCase()}
+                            </span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            <form
+              onSubmit={handleComposerSubmit}
+              className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1 transition-all focus-within:border-transparent focus-within:ring-2 focus-within:ring-blue-500"
+            >
               <button
                 type="button"
                 onClick={handleAttachmentPickerClick}
                 disabled={!projectId || isSending || isUploadingAttachments}
-                className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-slate-300 text-slate-600 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-400"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:text-gray-300"
                 aria-label="Attach files"
               >
                 {isUploadingAttachments ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
-                  <Paperclip className="h-4 w-4" />
+                  <Paperclip className="h-5 w-5" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void sendQuickVideoCall();
+                }}
+                disabled={!projectId || isSending || isUploadingAttachments}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:text-gray-300"
+                aria-label="Start video call"
+              >
+                {isSending && !inputValue.trim() && pendingAttachments.length === 0 ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Video className="h-5 w-5" />
                 )}
               </button>
               <input
                 ref={inputRef}
                 type="text"
                 value={inputValue}
-                onChange={(event) => setInputValue(event.target.value)}
+                onChange={handleInputChange}
+                onClick={handleInputSelectionChange}
                 onKeyDown={handleInputKeyDown}
+                onSelect={handleInputSelectionChange}
                 disabled={!projectId || isSending || isUploadingAttachments}
-                className="h-11 flex-1 rounded-xl border border-slate-300 px-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100"
-                placeholder="Type message, attach files, or '/' for commands"
+                className="h-9 flex-1 rounded-md border-0 bg-transparent px-2 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:outline-none focus:ring-0 disabled:cursor-not-allowed disabled:bg-gray-50"
+                placeholder="Type message, use @mention, attach files, or '/' for commands"
               />
               <button
                 type="submit"
                 disabled={!canSendCurrentMessage}
-                className="inline-flex h-11 shrink-0 items-center gap-1 rounded-xl bg-blue-600 px-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 aria-label="Send message"
               >
                 {isSending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
-                  <Send className="h-4 w-4" />
+                  <Send className="h-5 w-5" />
                 )}
-                <span>Send</span>
+                <span className="sr-only">Send</span>
               </button>
             </form>
           </div>

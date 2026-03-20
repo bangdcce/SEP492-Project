@@ -1,127 +1,132 @@
-import React from "react";
-import { X } from "lucide-react";
-import type { AuditLogEntry } from "../types";
-import { format } from "date-fns";
+import { Badge } from "@/shared/components/ui";
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/shared/components/ui/sheet";
+import type { AuditLogEntry, AuditLogTimelineResponse } from "../types";
 
-interface AuditLogDetailModalProps {
-  log: AuditLogEntry | null;
-  onClose: () => void;
-}
-
-export const AuditLogDetailModal: React.FC<AuditLogDetailModalProps> = ({
+export const AuditLogDetailModal = ({
   log,
+  timeline,
   onClose,
+}: {
+  log: AuditLogEntry | null;
+  timeline: AuditLogTimelineResponse | null;
+  onClose: () => void;
 }) => {
-  if (!log) return null;
   return (
-    <div
-      className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
-          <div>
-            <h2 className="text-slate-900">Audit Log Details</h2>
-            <p className="text-sm text-gray-500 mt-1">
-              {format(new Date(log.timestamp), "PPpp")}
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-          >
-            <X className="h-5 w-5 text-gray-500" />
-          </button>
-        </div>
+    <Sheet open={Boolean(log)} onOpenChange={(open) => !open && onClose()}>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-3xl">
+        {log ? (
+          <>
+            <SheetHeader>
+              <SheetTitle>{log.eventName}</SheetTitle>
+              <SheetDescription>
+                {log.actor.name} • {new Date(log.timestamp).toLocaleString()}
+              </SheetDescription>
+            </SheetHeader>
 
-        {/* Content - Scrollable */}
-        <div className="p-6 overflow-y-auto flex-1">
-          {/* Basic Info */}
-          <div className="mb-6">
-            <h3 className="text-slate-900 mb-3">Basic Information</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs text-gray-500 uppercase mb-1">Actor</p>
-                <p className="text-sm text-slate-900">{log.actor.name}</p>
-                <p className="text-xs text-gray-500">{log.actor.email}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 uppercase mb-1">Action</p>
-                <p className="text-sm text-slate-900">{log.action}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 uppercase mb-1">Entity</p>
-                <p className="text-sm text-slate-900">{log.entity}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500 uppercase mb-1">
-                  IP Address
-                </p>
-                <p className="text-sm text-slate-900 font-mono">
-                  {log.ipAddress}
-                </p>
-              </div>
-            </div>
-          </div>
+            <div className="space-y-6 px-4 pb-6">
+              <section className="grid gap-3 md:grid-cols-2">
+                <InfoCard label="Action" value={log.action} />
+                <InfoCard label="Entity" value={log.entity} />
+                <InfoCard label="Route" value={log.route || "No route"} />
+                <InfoCard label="Correlation" value={log.requestId || log.sessionId || "No correlation"} />
+                <InfoCard label="Status" value={log.statusCode ? `${log.httpMethod || ""} ${log.statusCode}` : log.httpMethod || "N/A"} />
+                <InfoCard label="Risk" value={log.riskLevel} />
+              </section>
 
-          {/* Data Changes */}
-          {(log.beforeData || log.afterData) && (
-            <div className="space-y-4">
-              <h3 className="text-slate-900">Data Changes</h3>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Before Data */}
-                {log.beforeData && (
-                  <div>
-                    <p className="text-xs text-gray-500 uppercase mb-2">
-                      Before
-                    </p>
-                    <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs overflow-x-auto max-h-48 overflow-y-auto">
-                      {JSON.stringify(log.beforeData, null, 2)}
-                    </pre>
+              {log.changedFields.length > 0 ? (
+                <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="mb-3 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-slate-950">Changed Fields</h3>
+                    <Badge variant="outline">{log.changedFields.length} diffs</Badge>
                   </div>
-                )}
-
-                {/* After Data */}
-                {log.afterData && (
-                  <div>
-                    <p className="text-xs text-gray-500 uppercase mb-2">
-                      After
-                    </p>
-                    <pre className="bg-teal-50 border border-teal-200 rounded-lg p-4 text-xs overflow-x-auto max-h-48 overflow-y-auto">
-                      {JSON.stringify(log.afterData, null, 2)}
-                    </pre>
+                  <div className="space-y-2">
+                    {log.changedFields.map((field) => (
+                      <div key={field.path} className="rounded-xl bg-slate-50 p-3 text-sm">
+                        <p className="font-medium text-slate-900">{field.path}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          Before: {JSON.stringify(field.before)}
+                        </p>
+                        <p className="text-xs text-slate-500">
+                          After: {JSON.stringify(field.after)}
+                        </p>
+                      </div>
+                    ))}
                   </div>
+                </section>
+              ) : null}
+
+              {log.errorMessage ? (
+                <section className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+                  <h3 className="text-sm font-semibold text-rose-900">Error Context</h3>
+                  <p className="mt-2 text-sm text-rose-800">{log.errorCode || "Unspecified error"}</p>
+                  <p className="mt-1 text-sm text-rose-700">{log.errorMessage}</p>
+                </section>
+              ) : null}
+
+              <section className="rounded-2xl border border-slate-200 bg-white p-4">
+                <h3 className="mb-3 text-sm font-semibold text-slate-950">Timeline</h3>
+                {timeline?.data?.length ? (
+                  <div className="space-y-3">
+                    {timeline.data.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className={`rounded-2xl border p-3 ${
+                          entry.id === log.id
+                            ? "border-teal-200 bg-teal-50"
+                            : "border-slate-200 bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge variant="outline">{entry.eventCategory}</Badge>
+                          <Badge variant="outline">{entry.source}</Badge>
+                          <span className="text-xs text-slate-500">
+                            {new Date(entry.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        <p className="mt-2 text-sm font-medium text-slate-950">
+                          {entry.eventName}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {entry.journeyStep || entry.route || entry.entity}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-500">No correlated timeline was found.</p>
                 )}
-              </div>
-            </div>
-          )}
+              </section>
 
-          {/* Metadata */}
-          {log.metadata && (
-            <div className="mt-6">
-              <h3 className="text-slate-900 mb-3">Additional Metadata</h3>
-              <pre className="bg-gray-50 border border-gray-200 rounded-lg p-4 text-xs overflow-x-auto max-h-32 overflow-y-auto">
-                {JSON.stringify(log.metadata, null, 2)}
-              </pre>
+              <section className="grid gap-4 md:grid-cols-2">
+                <JsonBlock title="Before Data" value={log.beforeData} />
+                <JsonBlock title="After Data" value={log.afterData} />
+              </section>
             </div>
-          )}
-        </div>
-
-        {/* Footer - Always visible */}
-        <div className="px-6 py-4 border-t border-gray-200 flex justify-end flex-shrink-0 bg-white">
-          <button
-            onClick={onClose}
-            className="px-6 py-2.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors font-medium"
-          >
-            Close
-          </button>
-        </div>
-      </div>
-    </div>
+          </>
+        ) : null}
+      </SheetContent>
+    </Sheet>
   );
 };
+
+const InfoCard = ({ label, value }: { label: string; value: string }) => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+    <p className="text-xs uppercase tracking-[0.2em] text-slate-500">{label}</p>
+    <p className="mt-2 text-sm font-medium text-slate-950">{value}</p>
+  </div>
+);
+
+const JsonBlock = ({
+  title,
+  value,
+}: {
+  title: string;
+  value: Record<string, any> | null | undefined;
+}) => (
+  <div className="rounded-2xl border border-slate-200 bg-white p-4">
+    <h3 className="mb-3 text-sm font-semibold text-slate-950">{title}</h3>
+    <pre className="max-h-80 overflow-auto rounded-xl bg-slate-50 p-3 text-xs text-slate-600">
+      {value ? JSON.stringify(value, null, 2) : "No data"}
+    </pre>
+  </div>
+);
