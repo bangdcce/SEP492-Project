@@ -13,6 +13,9 @@ import type {
   StaffRecommendation,
   StaffSummary,
   ProjectRecentActivity,
+  WorkspaceChatHistoryQuery,
+  WorkspaceChatHistoryResponse,
+  WorkspaceChatMutationResponse,
 } from "./types";
 
 // ============================================
@@ -45,12 +48,75 @@ export interface WorkspaceProject {
   freelancerId?: string | null;
   staffId?: string | null;
   staffInviteStatus?: ProjectStaffInviteStatus | null;
-  staff?: StaffSummary | null;
+  client?: WorkspaceProjectParticipant | null;
+  broker?: WorkspaceProjectParticipant | null;
+  freelancer?: WorkspaceProjectParticipant | null;
+  staff?: WorkspaceProjectParticipant | null;
   currency?: string;
+}
+
+export interface WorkspaceProjectParticipant {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+  role?: string | null;
 }
 
 export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {
   return apiClient.get<WorkspaceProject>(`/projects/${projectId}`);
+};
+
+export const fetchWorkspaceChatMessages = async (
+  projectId: string,
+  query: WorkspaceChatHistoryQuery = {},
+): Promise<WorkspaceChatHistoryResponse> => {
+  const searchParams = new URLSearchParams();
+
+  if (typeof query.limit === "number") {
+    searchParams.set("limit", String(query.limit));
+  }
+  if (typeof query.offset === "number") {
+    searchParams.set("offset", String(query.offset));
+  }
+  if (typeof query.query === "string" && query.query.trim().length > 0) {
+    searchParams.set("query", query.query.trim());
+  }
+
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return apiClient.get<WorkspaceChatHistoryResponse>(
+    `/workspace-chat/projects/${projectId}/messages${suffix}`,
+  );
+};
+
+export const toggleWorkspaceChatPin = async (
+  projectId: string,
+  messageId: string,
+  isPinned: boolean,
+): Promise<WorkspaceChatMutationResponse> => {
+  return apiClient.patch<WorkspaceChatMutationResponse>(
+    `/workspace-chat/projects/${projectId}/messages/${messageId}/pin`,
+    { isPinned },
+  );
+};
+
+export const editWorkspaceChatMessage = async (
+  projectId: string,
+  messageId: string,
+  content: string,
+): Promise<WorkspaceChatMutationResponse> => {
+  return apiClient.patch<WorkspaceChatMutationResponse>(
+    `/workspace-chat/projects/${projectId}/messages/${messageId}`,
+    { content },
+  );
+};
+
+export const deleteWorkspaceChatMessage = async (
+  projectId: string,
+  messageId: string,
+): Promise<WorkspaceChatMutationResponse> => {
+  return apiClient.delete<WorkspaceChatMutationResponse>(
+    `/workspace-chat/projects/${projectId}/messages/${messageId}`,
+  );
 };
 
 export const fetchStaffCandidates = async (): Promise<StaffSummary[]> => {
