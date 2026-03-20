@@ -78,7 +78,9 @@ export const wizardService = {
     return await apiClient.post(`/project-requests/${id}/publish`, {});
   },
 
-
+  getDrafts: async () => {
+    return await apiClient.get("/project-requests/drafts/mine");
+  },
 
   getMatches: async (requestId: string) => {
     return await apiClient.get(`/project-requests/${requestId}/matches`);

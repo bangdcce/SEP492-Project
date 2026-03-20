@@ -97,6 +97,7 @@ export {
   SkillVerificationStatus,
   StaffExpertiseEntity,
 } from './user-skill.entity';
+export { UserSkillDomainEntity } from './user-skill-domain.entity';
 export {
   DisputeSkillRequirementEntity,
   DisputeSkillSource,

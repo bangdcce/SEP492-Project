@@ -575,6 +575,16 @@ export default function RequestDetailPage() {
                 Open Workspace
               </Button>
             )}
+            {!request.brokerId && (
+              <Button
+                variant="outline"
+                className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+                onClick={handleDeleteRequest}
+                disabled={isDeleting}
+              >
+                {isDeleting ? "Deleting..." : "Delete Request"}
+              </Button>
+            )}
         </div>
       </div>
 

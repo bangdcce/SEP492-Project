@@ -770,7 +770,9 @@ export class ProjectRequestsService {
       techPreferences: dto.techPreferences,
       attachments: this.normalizeAttachments(dto.attachments),
       wizardProgressStep: dto.wizardProgressStep ?? 1,
-      status: (dto.status as RequestStatus) ?? RequestStatus.PUBLIC_DRAFT,
+      status:
+        (dto.status as RequestStatus) ??
+        (dto.isDraft ? RequestStatus.DRAFT : RequestStatus.PUBLIC_DRAFT),
     });
 
     const savedRequest = await this.requestRepo.save(request);

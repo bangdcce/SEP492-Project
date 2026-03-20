@@ -358,6 +358,153 @@ export async function seedSkills(dataSource: DataSource) {
       forBroker: false,
     },
 
+    // Finance & Fintech
+    {
+      name: 'Banking Systems',
+      slug: 'banking-systems',
+      category: 'BACKEND',
+      domainSlug: 'finance-fintech',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'Payment Gateways',
+      slug: 'payment-gateways',
+      category: 'BACKEND',
+      domainSlug: 'finance-fintech',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'Trading Platforms',
+      slug: 'trading-platforms',
+      category: 'BACKEND',
+      domainSlug: 'finance-fintech',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'DeFi / Smart Contracts',
+      slug: 'defi-smart-contracts',
+      category: 'BACKEND',
+      domainSlug: 'finance-fintech',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'KYC / AML Compliance',
+      slug: 'kyc-aml-compliance',
+      category: 'OTHER',
+      domainSlug: 'finance-fintech',
+      forFreelancer: true,
+      forBroker: true,
+    },
+
+    // E-Commerce & Retail
+    {
+      name: 'Shopify Development',
+      slug: 'shopify-development',
+      category: 'FRONTEND',
+      domainSlug: 'ecommerce-retail',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'Magento',
+      slug: 'magento',
+      category: 'BACKEND',
+      domainSlug: 'ecommerce-retail',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'WooCommerce',
+      slug: 'woocommerce',
+      category: 'FRONTEND',
+      domainSlug: 'ecommerce-retail',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'Inventory Management',
+      slug: 'inventory-management',
+      category: 'BACKEND',
+      domainSlug: 'ecommerce-retail',
+      forFreelancer: true,
+      forBroker: false,
+    },
+
+    // Healthcare
+    {
+      name: 'EHR / EMR Systems',
+      slug: 'ehr-emr-systems',
+      category: 'BACKEND',
+      domainSlug: 'healthcare',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'Telemedicine API',
+      slug: 'telemedicine-api',
+      category: 'BACKEND',
+      domainSlug: 'healthcare',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'HIPAA Compliance',
+      slug: 'hipaa-compliance',
+      category: 'OTHER',
+      domainSlug: 'healthcare',
+      forFreelancer: true,
+      forBroker: true,
+    },
+
+    // Legal & Compliance
+    {
+      name: 'Case Management',
+      slug: 'case-management',
+      category: 'BACKEND',
+      domainSlug: 'legal-compliance',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'Document Automation',
+      slug: 'document-automation',
+      category: 'OTHER',
+      domainSlug: 'legal-compliance',
+      forFreelancer: true,
+      forBroker: false,
+    },
+
+    // AI & Advanced Tech (Data Science domain)
+    {
+      name: 'OpenAI / GPT Integration',
+      slug: 'openai-gpt-integration',
+      category: 'AI_ML',
+      domainSlug: 'data-science-ai',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'LangChain',
+      slug: 'langchain',
+      category: 'AI_ML',
+      domainSlug: 'data-science-ai',
+      forFreelancer: true,
+      forBroker: false,
+    },
+    {
+      name: 'Computer Vision',
+      slug: 'computer-vision',
+      category: 'AI_ML',
+      domainSlug: 'data-science-ai',
+      forFreelancer: true,
+      forBroker: false,
+    },
+
+
     // Broker skills (Business & Management)
     {
       name: 'Project Management',
