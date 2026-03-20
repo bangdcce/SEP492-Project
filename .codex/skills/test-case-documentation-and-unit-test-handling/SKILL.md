@@ -4,7 +4,7 @@ description: Generate comprehensive unit tests and traceability documentation fr
 ---
 
 # Test Case Documentation and Unit Test Handling
-
+- Use xlsx file in D:\GradProject\SEP492-Project\docs\template\unit-test for reference, this file is from another project, but we could use it as a referene point to our doc
 ## Core behavior
 - Support two starting points: direct code input or requirement / use-case input.
 - Treat provided code as the source of truth when the user gives code directly.
