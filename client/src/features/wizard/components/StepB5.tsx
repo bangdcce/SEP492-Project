@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Input } from "@/shared/components/ui/Input";
+import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Textarea } from "@/shared/components/ui/textarea";
 import {
@@ -137,7 +137,7 @@ export function StepB5({
                       <p className="text-xs text-slate-500">
                         {attachment.mimetype || "Unknown type"}
                         {typeof attachment.size === "number"
-                          ? ` ÅE ${(attachment.size / 1024 / 1024).toFixed(2)} MB`
+                          ? ` ÔøΩE ${(attachment.size / 1024 / 1024).toFixed(2)} MB`
                           : ""}
                       </p>
                     </div>

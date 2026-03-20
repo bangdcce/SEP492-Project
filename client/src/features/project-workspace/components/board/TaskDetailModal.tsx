@@ -32,7 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/shared/components/ui/alert-dialog";
-import { Input } from "@/shared/components/ui/Input";
+import { Input } from "@/shared/components/ui/input";
 import { Progress } from "@/shared/components/ui/progress";
 import RichTextEditor from "../editor/RichTextEditor";
 import AttachmentGallery from "./AttachmentGallery";

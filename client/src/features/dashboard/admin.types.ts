@@ -1,0 +1,114 @@
+export type DashboardRange = "7d" | "30d" | "90d";
+
+export interface AdminMetricSummary {
+  value: number;
+  previous: number;
+  delta: number;
+  currency?: string | null;
+}
+
+export interface AdminTrendPoint {
+  label: string;
+  revenue: number;
+  newUsers: number;
+  completedProjects: number;
+}
+
+export interface AdminTeamMember {
+  id: string;
+  name: string;
+  email: string;
+  totalActions: number;
+  highRiskActions: number;
+  exports: number;
+  approvals: number;
+  userModeration: number;
+  reviewAudit: number;
+  other: number;
+  lastActiveAt: string | null;
+  isActive: boolean;
+  score: number;
+}
+
+export interface StaffAnalyticsMember {
+  id: string;
+  name: string;
+  email: string;
+  resolvedCases: number;
+  pendingCases: number;
+  utilizationRate: number;
+  currentUtilizationRate: number;
+  appealRate: number;
+  overturnRate: number;
+  avgResolutionTimeHours: number;
+  hearingsConducted: number;
+  leaveMinutes: number;
+  isOverloaded: boolean;
+  isActive: boolean;
+  lastActiveAt: string | null;
+  score: number;
+}
+
+export interface AdminDashboardOverview {
+  generatedAt: string;
+  range: DashboardRange;
+  summary: {
+    revenue: AdminMetricSummary;
+    newUsers: AdminMetricSummary;
+    completedProjects: AdminMetricSummary;
+    activeAdmins: AdminMetricSummary;
+    activeStaff: AdminMetricSummary;
+  };
+  series: AdminTrendPoint[];
+  adminTeam: {
+    totalMembers: number;
+    activeMembers: number;
+    aggregate: {
+      totalActions: number;
+      highRiskActions: number;
+      exports: number;
+      approvals: number;
+      userModeration: number;
+      reviewAudit: number;
+      other: number;
+    };
+    members: AdminTeamMember[];
+  };
+  staffTeam: {
+    totalMembers: number;
+    activeMembers: number;
+    averages: {
+      resolvedCases: number;
+      pendingCases: number;
+      utilizationRate: number;
+      appealRate: number;
+      overturnRate: number;
+      avgResolutionTimeHours: number;
+      hearingsConducted: number;
+      leaveMinutes: number;
+    };
+    members: StaffAnalyticsMember[];
+  };
+  riskHighlights: {
+    highRiskAdminActions: Array<{
+      id: string;
+      actorName: string;
+      action: string;
+      eventName: string;
+      timestamp: string;
+      requestId?: string | null;
+      entity: string;
+      riskLevel: string;
+    }>;
+    overloadedStaff: Array<{
+      id: string;
+      name: string;
+      utilizationRate: number;
+      pendingCases: number;
+    }>;
+    backlogPressure: {
+      pendingCases: number;
+      overloadedCount: number;
+    };
+  };
+}

@@ -1,0 +1,122 @@
+@startuml
+title UC-60 Apply To Public Request Sequence Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam sequence {
+    ActorFontColor black
+    ParticipantFontColor black
+    TitleFontColor black
+    GroupFontColor black
+    GroupBorderColor black
+}
+
+actor "Broker" as Actor
+boundary "Broker Marketplace Page" as Page
+boundary "Proposal Modal" as Modal
+participant "ProjectRequestsController" as RequestController
+participant "ProjectRequestsService" as RequestService
+participant "QuotaService" as QuotaService
+participant "NotificationService" as NotificationService
+database "Database" as DB
+
+Actor -> Page : 1. Open Broker Marketplace
+activate Actor
+activate Page
+
+Page -> RequestController : 2. Request public request list
+activate RequestController
+RequestController -> RequestService : 3. Load open marketplace requests
+activate RequestService
+RequestService -> DB : 4. Fetch PUBLIC_DRAFT requests without an assigned broker
+activate DB
+DB --> RequestService : 5. Return open request list
+deactivate DB
+RequestService --> RequestController : 6. Return request list
+deactivate RequestService
+RequestController --> Page : 7. Return request list
+deactivate RequestController
+Page --> Actor : 8. Display public requests and apply actions
+deactivate Page
+deactivate Actor
+
+Actor -> Page : 9. Click Apply on a public request
+activate Actor
+activate Page
+Page --> Actor : 10. Show proposal modal with cover letter field
+
+Actor -> Modal : 11. Enter cover letter and submit application
+activate Modal
+Modal -> Modal : 12. Validate proposal message before sending
+activate Modal
+deactivate Modal
+
+Modal -> RequestController : 13. Submit broker application
+activate RequestController
+RequestController -> RequestService : 14. Apply to the selected public request
+activate RequestService
+RequestService -> DB : 15. Load request and current assignment state
+activate DB
+DB --> RequestService : 16. Return request detail
+deactivate DB
+
+alt [Request is PUBLIC_DRAFT and no broker is assigned]
+    RequestService -> DB : 17. Count active broker application slots for this request
+    activate DB
+    DB --> RequestService : 18. Return slot availability
+    deactivate DB
+
+    RequestService -> DB : 19. Check whether this broker already applied or was invited
+    activate DB
+    DB --> RequestService : 20. Return existing proposal result
+    deactivate DB
+
+    RequestService -> QuotaService : 21. Check broker application quota
+    activate QuotaService
+    QuotaService -> DB : 22. Read application quota usage
+    activate DB
+    DB --> QuotaService : 23. Return quota status
+    deactivate DB
+    QuotaService --> RequestService : 24. Allow application
+    deactivate QuotaService
+
+    RequestService -> DB : 25. Save broker proposal with PENDING status and cover letter
+    activate DB
+    DB --> RequestService : 26. Return saved proposal
+    deactivate DB
+
+    RequestService -> QuotaService : 27. Track successful application usage
+    activate QuotaService
+    QuotaService -> DB : 28. Store application usage log
+    activate DB
+    DB --> QuotaService : 29. Confirm usage tracking
+    deactivate DB
+    QuotaService --> RequestService : 30. Confirm quota update
+    deactivate QuotaService
+
+    RequestService -> NotificationService : 31. Notify the client about the new broker application
+    activate NotificationService
+    NotificationService --> RequestService : 32. Confirm notification delivery
+    deactivate NotificationService
+
+    RequestService --> RequestController : 33. Return saved application
+    deactivate RequestService
+    RequestController --> Modal : 34. Return application response
+    deactivate RequestController
+    Modal --> Page : 35. Close modal and refresh marketplace state
+    deactivate Modal
+    Page --> Actor : 36. Show application submitted successfully
+
+else [Request is no longer open or the broker already has a proposal]
+    RequestService --> RequestController : 37. Return validation error
+    deactivate RequestService
+    RequestController --> Modal : 38. Return error response
+    deactivate RequestController
+    Modal --> Actor : 39. Show application cannot be submitted
+    deactivate Modal
+end
+
+deactivate Page
+deactivate Actor
+@enduml

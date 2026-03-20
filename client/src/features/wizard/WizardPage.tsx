@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -21,37 +21,13 @@ import {
   wizardService,
 } from "./services/wizardService";
 import { ROUTES } from "@/constants";
-import { ArrowLeft, ArrowRight, Check, AlertCircle, Cloud, CloudOff, Save } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/shared/api/client";
 
 const TOTAL_STEPS = 5;
 
-type SubmitMode = "draft" | "marketplace" | "invite";
-type AutosaveState = "idle" | "saving" | "saved" | "error";
-
-type DraftRequestResponse = {
-  id: string;
-  title?: string | null;
-  description?: string | null;
-  budgetRange?: string | null;
-  intendedTimeline?: string | null;
-  status?: string | null;
-  attachments?: ProjectRequestAttachment[] | null;
-  wizardProgressStep?: number | null;
-  answers?: Array<{
-    valueText?: string | null;
-    question?: { code?: string | null } | null;
-    option?: { label?: string | null } | null;
-  }>;
-};
-
-const autosaveCopy: Record<AutosaveState, string> = {
-  idle: "Draft changes not saved yet",
-  saving: "Saving draft...",
-  saved: "Draft saved",
-  error: "Draft save failed",
-};
+type SubmitMode = "marketplace" | "invite";
 
 type KycProfileResponse = {
   status?: string | null;
@@ -59,16 +35,12 @@ type KycProfileResponse = {
 
 export default function WizardPage() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const draftId = searchParams.get("draftId");
 
   const [currentStep, setCurrentStep] = useState(1);
   const [questions, setQuestions] = useState<WizardQuestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
-  const [requestId, setRequestId] = useState<string | null>(draftId);
-  const [autosaveState, setAutosaveState] = useState<AutosaveState>("idle");
 
   const [productType, setProductType] = useState("");
   const [industry, setIndustry] = useState("");
@@ -78,10 +50,6 @@ export default function WizardPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [attachments, setAttachments] = useState<ProjectRequestAttachment[]>([]);
-
-  const hydratingRef = useRef(true);
-  const autosaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const latestPayloadRef = useRef<string>("");
 
   useEffect(() => {
     const fetchQuestions = async () => {
@@ -107,58 +75,12 @@ export default function WizardPage() {
     });
   }, []);
 
-  useEffect(() => {
-    if (!draftId) {
-      hydratingRef.current = false;
-      return;
-    }
-
-    const loadDraft = async () => {
-      try {
-        setLoading(true);
-        const draft = (await wizardService.getRequestById(draftId)) as DraftRequestResponse;
-        setRequestId(draft.id);
-        setTitle(draft.title || "");
-        setDescription(draft.description || "");
-        setBudget(draft.budgetRange || "");
-        setTimeline(draft.intendedTimeline || "");
-        setAttachments(Array.isArray(draft.attachments) ? draft.attachments : []);
-        setCurrentStep(Math.min(Math.max(draft.wizardProgressStep || 1, 1), TOTAL_STEPS));
-
-        const answersByCode = new Map<string, string[]>();
-        for (const answer of draft.answers || []) {
-          const code = String(answer.question?.code || "").trim();
-          if (!code) continue;
-          const value = String(answer.valueText || answer.option?.label || "").trim();
-          if (!value) continue;
-          const existing = answersByCode.get(code) || [];
-          existing.push(value);
-          answersByCode.set(code, existing);
-        }
-
-        setProductType(answersByCode.get("PRODUCT_TYPE")?.[0] || "");
-        setIndustry(answersByCode.get("INDUSTRY")?.[0] || "");
-        setFeatures(answersByCode.get("FEATURES") || []);
-        setAutosaveState("saved");
-      } catch (error) {
-        console.error("Failed to load draft", error);
-        toast.error("Could not load the saved draft.");
-      } finally {
-        hydratingRef.current = false;
-        setLoading(false);
-      }
-    };
-
-    void loadDraft();
-  }, [draftId]);
-
   const progress = (currentStep / TOTAL_STEPS) * 100;
   const canPublish = kycStatus === "APPROVED";
 
   const getQuestion = (code: string) => questions.find((question) => question.code === code);
 
   const buildPayload = (mode: SubmitMode): CreateProjectRequestDto => {
-    const isDraftMode = mode === "draft";
     const answers: CreateProjectRequestDto["answers"] = [];
     const productTypeQuestion = getQuestion("PRODUCT_TYPE");
     const industryQuestion = getQuestion("INDUSTRY");
@@ -177,117 +99,19 @@ export default function WizardPage() {
     }
 
     return {
-      title: title.trim() || (isDraftMode ? "Draft Project Request" : "New Project Request"),
-      description: description.trim() || "Project intake draft",
+      title: title.trim() || "New Project Request",
+      description: description.trim() || "Project description",
       budgetRange: budget || undefined,
       intendedTimeline: timeline || undefined,
-      isDraft: isDraftMode,
       status:
         mode === "marketplace"
           ? "PUBLIC_DRAFT"
-          : mode === "invite"
-            ? "PRIVATE_DRAFT"
-            : undefined,
+          : "PRIVATE_DRAFT",
       wizardProgressStep: currentStep,
       attachments,
       answers,
     };
   };
-
-  const hasMeaningfulDraftContent = useMemo(
-    () =>
-      Boolean(
-        title.trim() ||
-          description.trim() ||
-          productType ||
-          industry ||
-          budget ||
-          timeline ||
-          features.length ||
-          attachments.length,
-      ),
-    [attachments.length, budget, description, features.length, industry, productType, timeline, title],
-  );
-
-  const persistDraft = async (showToast = false) => {
-    if (!hasMeaningfulDraftContent) {
-      return null;
-    }
-
-    const payload = buildPayload("draft");
-    setAutosaveState("saving");
-
-    try {
-      const savedRequest = requestId
-        ? await wizardService.updateRequest(requestId, payload)
-        : await wizardService.submitRequest(payload);
-      if (!requestId && savedRequest?.id) {
-        setRequestId(savedRequest.id);
-        setSearchParams({ draftId: savedRequest.id }, { replace: true });
-      }
-      setAutosaveState("saved");
-      if (showToast) {
-        toast.success("Draft saved.");
-      }
-      return savedRequest;
-    } catch (error) {
-      console.error("Failed to persist draft", error);
-      setAutosaveState("error");
-      if (showToast) {
-        toast.error("Could not save draft.");
-      }
-      return null;
-    }
-  };
-
-  useEffect(() => {
-    if (hydratingRef.current || !questions.length || !hasMeaningfulDraftContent) {
-      return;
-    }
-
-    const payloadKey = JSON.stringify({
-      currentStep,
-      productType,
-      industry,
-      budget,
-      timeline,
-      features,
-      title,
-      description,
-      attachments,
-    });
-
-    if (payloadKey === latestPayloadRef.current) {
-      return;
-    }
-
-    if (autosaveTimeoutRef.current) {
-      clearTimeout(autosaveTimeoutRef.current);
-    }
-
-    autosaveTimeoutRef.current = setTimeout(() => {
-      latestPayloadRef.current = payloadKey;
-      void persistDraft(false);
-    }, 1200);
-
-    return () => {
-      if (autosaveTimeoutRef.current) {
-        clearTimeout(autosaveTimeoutRef.current);
-      }
-    };
-  }, [
-    attachments,
-    budget,
-    currentStep,
-    description,
-    features,
-    hasMeaningfulDraftContent,
-    industry,
-    productType,
-    questions.length,
-    timeline,
-    title,
-  ]);
 
   const handleNext = () => {
     if (currentStep < TOTAL_STEPS) setCurrentStep((previous) => previous + 1);
@@ -301,33 +125,24 @@ export default function WizardPage() {
     try {
       setSubmitting(true);
 
-      if (mode !== "draft" && !canPublish) {
+      if (!canPublish) {
         toast.error("KYC approval is required before posting or inviting.");
         return;
       }
 
-      if (mode === "draft") {
-        await persistDraft(true);
-        return;
-      }
-
       const payload = buildPayload(mode);
-      const savedRequest = requestId
-        ? await wizardService.updateRequest(requestId, payload)
-        : await wizardService.submitRequest(payload);
-
-      if (savedRequest?.id) {
-        setRequestId(savedRequest.id);
-      }
 
       if (mode === "marketplace") {
+        await wizardService.submitRequest(payload);
         toast.success("Request posted to the broker marketplace.");
         navigate(ROUTES.CLIENT_DASHBOARD);
         return;
       }
 
-      toast.success("Draft is ready for broker outreach.");
-      navigate(`/client/requests/${savedRequest.id}?tab=recruitment&action=find`);
+      // "invite" mode — create as PRIVATE_DRAFT
+      const savedRequest = await wizardService.submitRequest(payload);
+      toast.success("Request created. Find & invite brokers now.");
+      navigate(`/client/requests/${savedRequest.id}?tab=phase1`);
     } catch (error) {
       console.error("Wizard submit failed", error);
       toast.error("Submission failed. Please try again.");
@@ -344,20 +159,13 @@ export default function WizardPage() {
     );
   }
 
-  const autosaveIcon = autosaveState === "error" ? CloudOff : autosaveState === "saving" ? Save : Cloud;
-  const AutosaveIcon = autosaveIcon;
-
   return (
     <div className="flex min-h-screen flex-col items-center bg-background px-4 pb-10 pt-10">
       <div className="mb-6 flex w-full max-w-4xl items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.24em] text-teal-600">Guided Intake</p>
           <h1 className="text-xl font-semibold text-slate-900">Project Request Wizard</h1>
-          <p className="text-sm text-slate-500">Drafts save step progress, answers, and attachments while you refine scope.</p>
-        </div>
-        <div className="flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600">
-          <AutosaveIcon className="h-3.5 w-3.5" />
-          {autosaveCopy[autosaveState]}
+          <p className="text-sm text-slate-500">Complete all steps to submit your project request.</p>
         </div>
       </div>
 
@@ -378,7 +186,7 @@ export default function WizardPage() {
                 {kycStatus === "PENDING" ? "KYC review is still pending" : "KYC is required to post this request"}
               </h3>
               <p className={`text-sm ${kycStatus === "PENDING" ? "text-amber-800" : "text-blue-800"}`}>
-                Draft save and autosave stay available. Marketplace posting and broker invites remain locked until KYC is approved.
+                You can fill out the wizard, but marketplace posting and broker invites remain locked until KYC is approved.
               </p>
               {kycStatus !== "PENDING" && (
                 <button
@@ -456,9 +264,6 @@ export default function WizardPage() {
             </Button>
           ) : (
             <div className="flex flex-wrap gap-3">
-              <Button onClick={() => void handleSubmit("draft")} disabled={submitting} variant="secondary" className="w-32">
-                Save Draft
-              </Button>
               <Button
                 onClick={() => void handleSubmit("marketplace")}
                 disabled={submitting || !title || !description || !canPublish}

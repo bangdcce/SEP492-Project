@@ -52,8 +52,6 @@ export const ParticipantList = memo(function ParticipantList({
   currentSpeakerRole,
   confirmationSummary,
 }: ParticipantListProps) {
-  if (!participants?.length) return null;
-
   const currentUser = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
   const profileBasePath = resolveProfileViewerBasePath(currentUser?.role);
   const confirmationByUserId = useMemo(
@@ -66,6 +64,8 @@ export const ParticipantList = memo(function ParticipantList({
       ),
     [confirmationSummary?.participants],
   );
+
+  if (!participants?.length) return null;
 
   return (
     <div className="space-y-2">

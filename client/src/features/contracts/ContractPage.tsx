@@ -16,7 +16,7 @@ import {
   Users,
   WalletCards,
 } from "lucide-react";
-import { Button } from "@/shared/components/ui/Button";
+import { Button } from "@/shared/components/ui/button";
 import {
   Alert,
   AlertDescription,
@@ -29,10 +29,10 @@ import {
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/shared/components/ui/Card";
+} from "@/shared/components/ui/card";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Label } from "@/shared/components/ui/label";
-import Spinner from "@/shared/components/ui/Spinner";
+import Spinner from "@/shared/components/ui/spinner";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { contractsApi } from "./api";

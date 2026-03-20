@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -190,14 +191,43 @@ export class ProjectRequestsController {
   }
 
   @Patch(':id')
+  @Roles(UserRole.CLIENT)
   @ApiOperation({ summary: 'Update a project request (e.g. save draft)' })
   @ApiResponse({ status: 200, type: ProjectRequestEntity })
   async update(
     @Param('id') id: string,
     @Body() updateDto: UpdateProjectRequestDto,
     @GetUser() user: UserEntity,
+    @Req() req: RequestContext,
   ) {
-    return this.projectRequestsService.update(id, updateDto, user);
+    return this.projectRequestsService.update(id, updateDto, user, req);
+  }
+
+  @Post(':id/publish')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Publish a project request to the marketplace' })
+  @ApiResponse({ status: 200, description: 'Request published to marketplace' })
+  async publish(
+    @Param('id') id: string,
+    @GetUser('id') userId: string,
+    @Req() req: RequestContext,
+  ) {
+    return this.projectRequestsService.publish(id, userId, req);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Delete a project request (draft only, no broker/freelancer assigned)' })
+  @ApiResponse({ status: 200, description: 'Request deleted successfully' })
+  @ApiResponse({ status: 400, description: 'Cannot delete request in this state' })
+  @ApiResponse({ status: 403, description: 'Not authorized to delete this request' })
+  @ApiResponse({ status: 404, description: 'Request not found' })
+  async delete(
+    @Param('id') id: string,
+    @GetUser('id') userId: string,
+    @Req() req: RequestContext,
+  ) {
+    return this.projectRequestsService.deleteRequest(id, userId, req);
   }
 
   @Post('upload')
@@ -273,6 +303,7 @@ export class ProjectRequestsController {
   }
 
   @Post(':id/apply')
+  @Roles(UserRole.BROKER)
   @ApiOperation({ summary: 'Broker applies to a project request' })
   @ApiResponse({ status: 201, description: 'Application submitted' })
   async apply(
@@ -283,10 +314,15 @@ export class ProjectRequestsController {
     return this.projectRequestsService.applyToRequest(id, brokerId, coverLetter);
   }
   @Post(':id/accept-broker')
+  @Roles(UserRole.CLIENT)
   @ApiOperation({ summary: 'Client accepts a broker proposal' })
   @ApiResponse({ status: 200, description: 'Broker accepted' })
-  async acceptBroker(@Param('id') id: string, @Body('brokerId') brokerId: string) {
-    return this.projectRequestsService.acceptBroker(id, brokerId);
+  async acceptBroker(
+    @Param('id') id: string,
+    @GetUser('id') clientId: string,
+    @Body('brokerId') brokerId: string,
+  ) {
+    return this.projectRequestsService.acceptBroker(id, brokerId, clientId);
   }
 
   @Post(':id/release-broker-slot')

@@ -1,120 +1,96 @@
-import React from "react";
-import type { AuditLogEntry } from "../types";
-import { Badge } from "../../../shared/components/custom/Badge";
 import { formatDistanceToNow } from "date-fns";
+import type { AuditLogEntry } from "../types";
+import { Badge } from "@/shared/components/ui";
 
-interface AuditLogTableProps {
-  logs: AuditLogEntry[];
-  onRowClick: (log: AuditLogEntry) => void;
-}
-
-export const AuditLogTable: React.FC<AuditLogTableProps> = ({
+export const AuditLogTable = ({
   logs,
   onRowClick,
+}: {
+  logs: AuditLogEntry[];
+  onRowClick: (log: AuditLogEntry) => void;
 }) => {
-  const getRiskBadgeColor = (risk: string) => {
-    switch (risk) {
-      case "HIGH":
-        return "bg-red-100 text-red-700";
-      case "LOW":
-        return "bg-teal-100 text-teal-700";
-      default:
-        return "bg-green-100 text-green-700";
-    }
-  };
-
-  const getActionBadgeColor = (action: string) => {
-    switch (action) {
-      case "DELETE":
-        return "bg-red-100 text-red-700";
-      case "CREATE":
-        return "bg-green-100 text-green-700";
-      case "UPDATE":
-        return "bg-blue-100 text-blue-700";
-      default:
-        return "bg-slate-100 text-slate-700";
-    }
-  };
-
-  const getRowBackgroundClass = (riskLevel: string) => {
-    return riskLevel === "HIGH" ? "bg-red-50" : "bg-white";
-  };
-
   return (
-    <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+    <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
       <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-gray-50 border-b border-gray-200">
+        <table className="w-full min-w-[1080px]">
+          <thead className="border-b border-slate-200 bg-slate-50">
             <tr>
-              <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                Actor
-              </th>
-              <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                Action
-              </th>
-              <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                Entity
-              </th>
-              <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                IP Address
-              </th>
-              <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                Time
-              </th>
-              <th className="px-6 py-3 text-left text-xs text-gray-600 uppercase tracking-wider">
-                Risk Level
-              </th>
+              {["Actor", "Category", "Entity", "Route", "Correlation", "Time", "Risk"].map((label) => (
+                <th
+                  key={label}
+                  className="px-5 py-3 text-left text-xs uppercase tracking-[0.2em] text-slate-500"
+                >
+                  {label}
+                </th>
+              ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-200">
+          <tbody className="divide-y divide-slate-100">
             {logs.map((log) => (
               <tr
                 key={log.id}
                 onClick={() => onRowClick(log)}
-                className={`${getRowBackgroundClass(
-                  log.riskLevel
-                )} hover:bg-gray-50 cursor-pointer transition-colors`}
+                className="cursor-pointer transition hover:bg-slate-50"
               >
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center gap-3">
-                    <img
-                      src={
-                        log.actor.avatar ||
-                        `https://ui-avatars.com/api/?name=${encodeURIComponent(
-                          log.actor.name
-                        )}&background=14b8a6&color=fff `
-                      }
-                      alt={log.actor.name}
-                      className="h-10 w-10 rounded-full"
-                    />
-                    <div>
-                      <p className="text-sm text-slate-900">{log.actor.name}</p>
-                      <p className="text-xs text-gray-500">{log.actor.email}</p>
-                    </div>
+                <td className="px-5 py-4">
+                  <div>
+                    <p className="text-sm font-medium text-slate-950">{log.actor.name}</p>
+                    <p className="text-xs text-slate-500">{log.actor.email}</p>
                   </div>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <Badge className={getActionBadgeColor(log.action)}>
-                    {log.action}
-                  </Badge>
+                <td className="px-5 py-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline">{log.eventCategory}</Badge>
+                    <Badge
+                      className={
+                        log.source === "CLIENT"
+                          ? "border-violet-200 bg-violet-50 text-violet-700"
+                          : "border-slate-200 bg-slate-100 text-slate-700"
+                      }
+                    >
+                      {log.source}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">{log.eventName}</p>
                 </td>
-                <td className="px-6 py-4 ">
+                <td className="px-5 py-4">
                   <p className="text-sm text-slate-900">{log.entity}</p>
+                  <p className="mt-1 text-xs text-slate-500">{log.action}</p>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <p className="text-sm text-gray-600 font-mono">
-                    {log.ipAddress}
+                <td className="px-5 py-4">
+                  <p className="max-w-[220px] truncate text-sm text-slate-900">
+                    {log.route || "No route"}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {log.httpMethod || "N/A"} {log.statusCode ? `• ${log.statusCode}` : ""}
                   </p>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <p className="text-sm text-gray-600">
-                    {formatDistanceToNow(new Date(log.timestamp), {
-                      addSuffix: true,
-                    })}
+                <td className="px-5 py-4">
+                  <p className="max-w-[200px] truncate text-sm text-slate-900">
+                    {log.requestId || "No request ID"}
+                  </p>
+                  <p className="mt-1 max-w-[200px] truncate text-xs text-slate-500">
+                    {log.sessionId || "No session ID"}
                   </p>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <Badge className={getRiskBadgeColor(log.riskLevel)}>
+                <td className="px-5 py-4">
+                  <p className="text-sm text-slate-900">
+                    {formatDistanceToNow(new Date(log.timestamp), { addSuffix: true })}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {new Date(log.timestamp).toLocaleString()}
+                  </p>
+                </td>
+                <td className="px-5 py-4">
+                  <Badge
+                    className={
+                      log.riskLevel === "HIGH"
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : log.riskLevel === "LOW"
+                          ? "border-teal-200 bg-teal-50 text-teal-700"
+                          : "border-amber-200 bg-amber-50 text-amber-700"
+                    }
+                  >
                     {log.riskLevel}
                   </Badge>
                 </td>

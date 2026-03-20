@@ -4,8 +4,8 @@ import * as z from "zod";
 import { Plus, Trash2, AlertTriangle } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { Button } from "@/shared/components/ui/Button";
-import { Input } from "@/shared/components/ui/Input";
+import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
 import { Textarea } from "@/shared/components/ui/textarea";
 import {
   Card,
@@ -13,7 +13,7 @@ import {
   CardHeader,
   CardTitle,
   CardDescription,
-} from "@/shared/components/ui/Card";
+} from "@/shared/components/ui/card";
 import {
   Form,
   FormControl,

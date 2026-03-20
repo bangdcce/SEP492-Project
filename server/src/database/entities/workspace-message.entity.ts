@@ -5,6 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
   ManyToOne,
+  OneToMany,
   JoinColumn,
   Index,
 } from 'typeorm';
@@ -41,6 +42,9 @@ export class WorkspaceMessageEntity {
 
   @Column({ type: 'uuid', nullable: true })
   taskId: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  replyToId: string | null;
 
   @Column({
     type: 'varchar',
@@ -87,5 +91,15 @@ export class WorkspaceMessageEntity {
   @ManyToOne('TaskEntity', { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'taskId' })
   task: any;
+
+  @ManyToOne(() => WorkspaceMessageEntity, (message) => message.replies, {
+    onDelete: 'SET NULL',
+    nullable: true,
+  })
+  @JoinColumn({ name: 'replyToId' })
+  replyTo: WorkspaceMessageEntity | null;
+
+  @OneToMany(() => WorkspaceMessageEntity, (message) => message.replyTo)
+  replies: WorkspaceMessageEntity[];
 }
 

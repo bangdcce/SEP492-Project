@@ -10,7 +10,7 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/components/ui/Card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/components/ui/card';
 import { Badge } from '@/shared/components/ui/badge';
 import { Spinner } from '@/shared/components/ui';
 import { ROUTES } from '@/constants';

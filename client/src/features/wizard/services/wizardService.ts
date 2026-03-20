@@ -31,7 +31,6 @@ export interface CreateProjectRequestDto {
   budgetRange?: string;
   intendedTimeline?: string;
   techPreferences?: string;
-  isDraft?: boolean;
   status?: string;
   wizardProgressStep?: number;
   attachments?: ProjectRequestAttachment[];
@@ -75,9 +74,11 @@ export const wizardService = {
     return await apiClient.patch(`/project-requests/${id}`, data);
   },
 
-  getDrafts: async () => {
-    return await apiClient.get("/project-requests/drafts/mine");
+  publishRequest: async (id: string) => {
+    return await apiClient.post(`/project-requests/${id}/publish`, {});
   },
+
+
 
   getMatches: async (requestId: string) => {
     return await apiClient.get(`/project-requests/${requestId}/matches`);
@@ -101,6 +102,10 @@ export const wizardService = {
 
   acceptBroker: async (requestId: string, brokerId: string) => {
     return await apiClient.post(`/project-requests/${requestId}/accept-broker`, { brokerId });
+  },
+
+  deleteRequest: async (id: string) => {
+    return await apiClient.delete(`/project-requests/${id}`);
   },
 
   releaseBrokerSlot: async (requestId: string, proposalId: string) => {

@@ -119,6 +119,14 @@ const TASK_CREATION_LOCK_MESSAGE =
 const normalizeMilestoneKey = (value?: string | null) =>
   value == null ? null : String(value);
 
+type ProjectWorkspaceMember = {
+  id: string;
+  name: string;
+  fullName: string;
+  role: "CLIENT" | "BROKER" | "FREELANCER" | "STAFF";
+  avatarUrl?: string;
+};
+
 // Helper to get current user from storage (session/local)
 const getCurrentUser = (): { id: string; role?: string } | null => {
   return getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
@@ -324,11 +332,11 @@ export function ProjectWorkspace() {
     );
   }, [isAssignedBroker, isProjectDisputed, isMilestoneStructureLocked]);
 
-  const projectMembers = useMemo(() => {
+  const projectMembers = useMemo<ProjectWorkspaceMember[]>(() => {
     if (!project) return [];
     const members = new Map<
       string,
-      { id: string; name: string; role: string }
+      ProjectWorkspaceMember
     >();
     const normalizeRole = (role: string) => {
       switch (role.toUpperCase()) {
@@ -342,22 +350,51 @@ export function ProjectWorkspace() {
           return role;
       }
     };
-    const addMember = (id: string | null | undefined, role: string) => {
+    const addMember = (
+      participant:
+        | { id?: string | null; fullName?: string | null }
+        | null
+        | undefined,
+      fallbackId: string | null | undefined,
+      role: ProjectWorkspaceMember["role"],
+    ) => {
+      const id = participant?.id ?? fallbackId;
       if (!id) return;
       if (members.has(id)) return;
       const label = normalizeRole(role);
+      const fullName = participant?.fullName?.trim() || `${label} (${id.slice(0, 6)})`;
       members.set(id, {
         id,
-        name: `${label} (${id.slice(0, 6)})`,
+        name: fullName,
+        fullName,
         role,
       });
     };
-    addMember(project.clientId, "CLIENT");
-    addMember(project.brokerId, "BROKER");
-    addMember(project.freelancerId ?? null, "FREELANCER");
-    addMember(project.staffId ?? null, "STAFF");
+    addMember(project.client, project.clientId, "CLIENT");
+    addMember(project.broker, project.brokerId, "BROKER");
+    addMember(project.freelancer, project.freelancerId ?? null, "FREELANCER");
+    addMember(project.staff, project.staffId ?? null, "STAFF");
     return Array.from(members.values());
   }, [project]);
+
+  const chatMentionMembers = useMemo(
+    () =>
+      projectMembers
+        .filter(
+          (member): member is ProjectWorkspaceMember & {
+            role: "CLIENT" | "BROKER" | "FREELANCER";
+          } =>
+            member.role === "CLIENT" ||
+            member.role === "BROKER" ||
+            member.role === "FREELANCER",
+        )
+        .map(({ id, fullName, role }) => ({
+          id,
+          fullName,
+          role,
+        })),
+    [projectMembers],
+  );
 
   const canRaiseDisputeForMilestone = useCallback((status?: string) => {
     if (!status) return false;
@@ -2225,6 +2262,7 @@ export function ProjectWorkspace() {
         onClose={() => setIsChatOpen(false)}
         projectId={projectId}
         currentUserId={currentUser?.id}
+        projectMembers={chatMentionMembers}
         canReviewTasks={canReviewTaskSubmissions}
         canUseTaskCommand={canCreateTasksForSelectedMilestone}
         taskCommandUnavailableMessage={taskCommandUnavailableMessage}

@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { Textarea } from "@/shared/components/ui/textarea";
-import { Input } from "@/shared/components/ui/Input";
+import { Input } from "@/shared/components/ui/input";
 import { cn } from "@/shared/components/ui/utils";
 import {
   getHearingSupportCandidates,

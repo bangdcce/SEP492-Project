@@ -1,7 +1,7 @@
 // Core UI Components
-export * from "./Button";
-export * from "./Input";
-export * from "./Card";
+export * from "./button";
+export * from "./input";
+export * from "./card";
 export * from "./badge";
 export * from "./dialog";
 export * from "./dropdown-menu";
@@ -16,7 +16,7 @@ export * from "./scroll-area";
 export * from "./textarea";
 
 // Spinner component (commonly used for loading states)
-export { default as Spinner } from "./Spinner";
+export { default as Spinner } from "./spinner";
 
 // Form components
 export * from "./label";

@@ -1,0 +1,45 @@
+@startuml
+title InterDev Platform - Layered Package Diagram
+left to right direction
+skinparam linetype ortho
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam rectangle {
+  RoundCorner 12
+}
+
+rectangle "Presentation Layer" as presentation {
+  rectangle "Pages & Shared UI\n(client/src/pages,\nclient/src/shared)" as ui
+  rectangle "Feature Modules\n(client/src/features)" as features
+}
+
+rectangle "Business Logic Layer" as business {
+  rectangle "Controllers\n(NestJS Controllers)" as controllers
+  rectangle "Services\n(auth, users, wizard, matching,\nprojects, project-specs, contracts,\ntasks, disputes, calendar,\nnotifications, review)" as services
+  rectangle "Gateways\n(workspace-chat,\nrealtime events)" as gateways
+}
+
+rectangle "Data Access Layer" as access {
+  rectangle "Common & Config\n(server/src/common,\nserver/src/config)" as support
+  rectangle "TypeORM Access\n(server/src/database,\nentities, migrations,\nrepository access)" as repository
+}
+
+rectangle "Data / External Layer" as data {
+  rectangle "Supabase PostgreSQL" as db
+  rectangle "Supabase Storage" as storage
+  rectangle "Redis" as redis
+  rectangle "External Integrations\n(SMTP, Google Services,\nAI Providers)" as external
+}
+
+ui <--> features : Render / Reuse UI
+features <--> controllers : Request / Response
+controllers <--> services : Delegate / Return
+services <--> gateways : Realtime Events
+services <--> support : Shared Utils / Config
+services <--> repository : Query / Update
+repository <--> db : Read / Write
+services <--> storage : Upload / Fetch Files
+gateways <--> redis : Pub/Sub / Socket Scaling
+services <--> external : Email / OAuth / AI
+
+@enduml

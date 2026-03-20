@@ -3,7 +3,7 @@ import { addDays, format } from "date-fns";
 import { CalendarDays, ChevronDown, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { Button } from "@/shared/components/ui/Button";
+import { Button } from "@/shared/components/ui/button";
 import { Calendar } from "@/shared/components/ui/calendar";
 import {
   Popover,
