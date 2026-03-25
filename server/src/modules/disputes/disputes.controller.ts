@@ -6,6 +6,7 @@ import {
   Delete,
   ForbiddenException,
   Get,
+  Res,
   HttpCode,
   HttpStatus,
   Param,
@@ -16,8 +17,10 @@ import {
   UseFilters,
   UseGuards,
 } from '@nestjs/common';
+import { Response } from 'express';
 import { DisputesService } from './disputes.service';
 import { CreateDisputeDto } from './dto/create-dispute.dto';
+import { CreateDisputeGroupDto } from './dto/create-dispute-group.dto';
 import { JwtAuthGuard, Roles, RolesGuard, GetUser } from '../auth';
 import { UpdateDisputeDto } from './dto/update-disputes.dto';
 import { UpdateDisputePhaseDto } from './dto/update-dispute-phase.dto';
@@ -54,6 +57,15 @@ export class DisputesController {
   @Post()
   async createDisputes(@GetUser() user: UserEntity, @Body() createDisputes: CreateDisputeDto) {
     return await this.disputesService.create(user.id, createDisputes);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('group')
+  async createDisputeGroup(
+    @GetUser() user: UserEntity,
+    @Body() createGroupDto: CreateDisputeGroupDto,
+  ) {
+    return await this.disputesService.createGroup(user.id, createGroupDto);
   }
 
   // =============================================================================
@@ -109,7 +121,7 @@ export class DisputesController {
   @UseGuards(JwtAuthGuard)
   @Get('my')
   async getMyDisputes(@GetUser() user: UserEntity, @Query() filters: DisputeFilterDto) {
-    return await this.disputesService.getMyDisputes(user.id, filters);
+    return await this.disputesService.getMyDisputes(user.id, user.role, filters);
   }
 
   /**
@@ -178,15 +190,67 @@ export class DisputesController {
     return await this.disputesService.getSchedulingWorklist(user.id, user.role);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('rules/catalog')
+  async getDisputeRuleCatalog() {
+    return await this.disputesService.getRuleCatalog();
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Get('admin/diagnostics/projections')
+  async getProjectionDiagnostics(@Query('disputeId') disputeId?: string) {
+    if (disputeId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(disputeId)) {
+      throw new BadRequestException('Invalid disputeId');
+    }
+
+    return await this.disputesService.getProjectionDiagnostics(disputeId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post('admin/diagnostics/repair-calendar-projections')
+  async repairCalendarProjectionChains(@Query('disputeId') disputeId?: string) {
+    if (disputeId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(disputeId)) {
+      throw new BadRequestException('Invalid disputeId');
+    }
+
+    return await this.disputesService.repairStaleCalendarProjections(disputeId);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Get(':id/queue-preview')
+  async getDisputeQueuePreview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.getQueuePreview(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
-  async getDetailDisputes(@Param('id', ParseUUIDPipe) id: string) {
-    return await this.disputesService.getDetail(id);
+  async getDetailDisputes(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
+    return await this.disputesService.getDetail(id, user.id, user.role);
   }
 
   @UseGuards(JwtAuthGuard)
   @Get(':id/dossier')
   async getDisputeDossier(@Param('id', ParseUUIDPipe) id: string, @GetUser() user: UserEntity) {
     return await this.disputesService.getDisputeDossier(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/dossier/export')
+  async exportDisputeDossier(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+    @Res() res: Response,
+  ) {
+    const exported = await this.disputesService.exportDisputeDossier(id, user.id, user.role);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="${exported.fileName}"`);
+    res.send(exported.buffer);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -281,7 +345,7 @@ export class DisputesController {
 
   // =============================================================================
   // DISPUTE MESSAGES
-  // - Dispute-level: Nộp hồ sơ, bằng chứng, comment (Async - không giới hạn lượt)
+  // - Dispute-level: Nộp hềEsơ, bằng chứng, comment (Async - không giới hạn lượt)
   // - Hearing-level: Chat realtime trong phiên tòa (kiểm soát bởi SpeakerRole)
   // =============================================================================
 
@@ -389,7 +453,7 @@ export class DisputesController {
   /**
    * Lấy timeline hoạt động của dispute
    * GET /disputes/:id/activities
-   * Query: includeInternal (chỉ Admin mới xem được internal)
+   * Query: includeInternal (chềEAdmin mới xem được internal)
    */
   @UseGuards(JwtAuthGuard)
   @Get(':id/activities')
@@ -398,7 +462,7 @@ export class DisputesController {
     @Query('includeInternal') includeInternal: string,
     @GetUser() user: UserEntity,
   ) {
-    // Chỉ Admin/Staff mới xem được hoạt động internal
+    // ChềEAdmin/Staff mới xem được hoạt động internal
     const canViewInternal = [UserRole.ADMIN, UserRole.STAFF].includes(user.role);
     const showInternal = includeInternal === 'true' && canViewInternal;
     return await this.disputesService.getActivities(user.id, user.role, id, showInternal);
@@ -462,7 +526,7 @@ export class DisputesController {
   // =============================================================================
 
   /**
-   * Bị đơn gửi phản hồi và bằng chứng phản bác
+   * BềEđơn gửi phản hồi và bằng chứng phản bác
    * POST /disputes/:id/respond
    */
   @UseGuards(JwtAuthGuard)
@@ -480,7 +544,7 @@ export class DisputesController {
   // =============================================================================
 
   /**
-   * Get the latest verdict for a dispute (public — any authenticated user)
+   * Get the latest verdict for a dispute (public  Eany authenticated user)
    * GET /disputes/:id/verdict
    */
   @UseGuards(JwtAuthGuard)
@@ -564,7 +628,7 @@ export class DisputesController {
    * PATCH /disputes/:id/appeal/resolve
    */
   @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.STAFF)
+  @Roles(UserRole.ADMIN)
   @Patch(':id/appeal/resolve')
   async resolveAppeal(
     @Param('id', ParseUUIDPipe) id: string,
@@ -653,7 +717,7 @@ export class DisputesController {
   }
 
   /**
-   * 🔥 API Phán quyết tranh chấp (Chỉ ADMIN/STAFF)
+   * 🔥 API Phán quyết tranh chấp (ChềEADMIN/STAFF)
    *
    * POST /disputes/:id/resolve
    * Body: { verdict: 'WIN_CLIENT' | 'WIN_FREELANCER' | 'SPLIT', adminComment: string, splitRatioClient?: number }
@@ -718,7 +782,7 @@ export class DisputesController {
   }
 
   /**
-   * Staff chấp nhận dispute từ queue vào caseload (OPEN → PENDING_REVIEW)
+   * Staff chấp nhận dispute từ queue vào caseload (OPEN ↁEPENDING_REVIEW)
    *
    * PATCH /disputes/:id/accept
    */
@@ -752,7 +816,7 @@ export class DisputesController {
   }
 
   /**
-   * Từ chối Dispute (không hợp lệ)
+   * Từ chối Dispute (không hợp lềE
    *
    * PATCH /disputes/:id/reject
    */
@@ -767,3 +831,4 @@ export class DisputesController {
     return await this.disputesService.rejectDispute(user.id, id, reason);
   }
 }
+

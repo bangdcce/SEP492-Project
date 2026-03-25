@@ -85,11 +85,11 @@ export class CreateMilestoneDto {
 
   @IsOptional()
   @IsDateString()
-  startDate?: Date;
+  startDate?: string;
 
   @IsOptional()
   @IsDateString()
-  dueDate?: Date;
+  dueDate?: string;
 }
 
 export class CreateProjectSpecDto {

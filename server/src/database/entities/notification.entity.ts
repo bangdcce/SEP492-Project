@@ -18,7 +18,7 @@ export class NotificationEntity {
   @Column({ type: 'varchar', length: 255 })
   title: string;
 
-  @Column({ type: 'text' })
+  @Column({ type: 'varchar', length: 2000 })
   body: string;
 
   @Column({ type: 'boolean', default: false })
@@ -27,10 +27,10 @@ export class NotificationEntity {
   @Column({ type: 'timestamp', nullable: true })
   readAt: Date;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', length: 50, nullable: true })
   relatedType: string;
 
-  @Column({ type: 'varchar', nullable: true })
+  @Column({ type: 'varchar', length: 36, nullable: true })
   relatedId: string;
 
   @CreateDateColumn()

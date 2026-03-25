@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Calendar } from "react-big-calendar";
+import FullCalendar from "@fullcalendar/react";
+import dayGridPlugin from "@fullcalendar/daygrid";
+import interactionPlugin from "@fullcalendar/interaction";
+import listPlugin from "@fullcalendar/list";
+import timeGridPlugin from "@fullcalendar/timegrid";
+import type {
+  DatesSetArg,
+  EventClickArg,
+  EventContentArg,
+} from "@fullcalendar/core";
 import {
   addDays,
   endOfMonth,
@@ -9,7 +18,6 @@ import {
   startOfMonth,
   startOfWeek,
 } from "date-fns";
-import "react-big-calendar/lib/css/react-big-calendar.css";
 import { toast } from "sonner";
 import {
   Calendar as CalendarIcon,
@@ -29,10 +37,13 @@ import {
 } from "@/features/calendar/api";
 import {
   AvailabilityType,
+  type CalendarDisputeContext,
   EventStatus,
   EventType,
   type CalendarEvent,
+  type CalendarDisputeSummaryMetadata,
   type CalendarEventParticipant,
+  type CalendarHearingSummaryMetadata,
   type EventInviteResponse,
 } from "@/features/calendar/types";
 import {
@@ -45,7 +56,6 @@ import {
   provideDisputeInfo,
   submitSchedulingProposals,
 } from "@/features/disputes/api";
-import { localizer } from "@/features/project-workspace/components/calendar";
 import { STORAGE_KEYS } from "@/constants";
 import { cn } from "@/lib/utils";
 import { getStoredJson } from "@/shared/utils/storage";
@@ -57,18 +67,21 @@ import type {
 import { SchedulingCaseList } from "@/features/hearings/components/SchedulingCaseList";
 import { SchedulingActionPanel } from "@/features/hearings/components/SchedulingActionPanel";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/shared/components/ui/dialog";
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetFooter,
+  SheetHeader,
+  SheetTitle,
+} from "@/shared/components/ui/sheet";
 import { resolveRoleBasePath } from "../utils/hearingRouting";
+import { isActiveCalendarHearingStatus } from "../utils/hearingLifecycle";
 
 type HearingCalendarEvent = {
   id: string;
   title: string;
+  displayTitle: string;
+  displayCode: string;
   start: Date;
   end: Date;
   status: EventStatus;
@@ -77,10 +90,27 @@ type HearingCalendarEvent = {
   referenceType?: string;
   externalMeetingLink?: string;
   metadata?: Record<string, unknown>;
+  disputeId?: string;
+  projectTitle?: string;
+  reasonExcerpt?: string;
+  hearingNumber?: number;
+  tier?: string;
+  nextAction?: string;
+  appealState?: string;
+  isActionable?: boolean;
+  isArchived?: boolean;
+  freezeReason?: string;
+  disputeSummary?: CalendarDisputeSummaryMetadata;
+  hearingSummary?: CalendarHearingSummaryMetadata;
   participants?: CalendarEventParticipant[];
+  disputeContext?: CalendarDisputeContext;
 };
 
-type CalendarViewType = "month" | "week" | "day" | "agenda";
+type CalendarViewType =
+  | "dayGridMonth"
+  | "timeGridWeek"
+  | "timeGridDay"
+  | "listWeek";
 type MobileStep = "cases" | "actions";
 
 const STATUS_STYLES: Record<
@@ -130,6 +160,16 @@ const statusLabelMap: Record<EventStatus, string> = {
   [EventStatus.CANCELLED]: "Cancelled",
 };
 
+const statusShortLabelMap: Record<EventStatus, string> = {
+  [EventStatus.DRAFT]: "Draft",
+  [EventStatus.SCHEDULED]: "Set",
+  [EventStatus.PENDING_CONFIRMATION]: "Hold",
+  [EventStatus.RESCHEDULING]: "Shift",
+  [EventStatus.IN_PROGRESS]: "Live",
+  [EventStatus.COMPLETED]: "Done",
+  [EventStatus.CANCELLED]: "Stop",
+};
+
 const EVENT_TYPE_LABELS: Record<EventType, string> = {
   [EventType.DISPUTE_HEARING]: "Dispute Hearing",
   [EventType.PROJECT_MEETING]: "Project Meeting",
@@ -150,6 +190,25 @@ const EVENT_TYPE_BADGE_STYLE: Record<EventType, string> = {
   [EventType.OTHER]: "bg-purple-100 text-purple-700",
 };
 
+const CALENDAR_STATUS_LEGEND = [
+  {
+    label: "Scheduled / ready",
+    color: "bg-emerald-100 text-emerald-700 border-emerald-200",
+  },
+  {
+    label: "Pending confirmation",
+    color: "bg-amber-100 text-amber-700 border-amber-200",
+  },
+  {
+    label: "In progress / live",
+    color: "bg-blue-100 text-blue-700 border-blue-200",
+  },
+  {
+    label: "Archive / reference",
+    color: "bg-slate-100 text-slate-600 border-slate-200",
+  },
+];
+
 type AvailabilityEntry = {
   id: string;
   type: AvailabilityType;
@@ -159,10 +218,74 @@ type AvailabilityEntry = {
   isRecurring?: boolean;
 };
 
-const isActiveStatus = (status: EventStatus) =>
-  ![EventStatus.CANCELLED, EventStatus.COMPLETED].includes(status);
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null;
+
+const getStringValue = (value: unknown): string | undefined =>
+  typeof value === "string" ? value : undefined;
+
+const getNumberValue = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined;
+
+const getBooleanValue = (value: unknown): boolean | undefined =>
+  typeof value === "boolean" ? value : undefined;
+
+const normalizeDisputeSummary = (
+  value: unknown,
+): CalendarDisputeSummaryMetadata | undefined => {
+  if (!isObjectRecord(value)) {
+    return undefined;
+  }
+  const id = getStringValue(value.id);
+  if (!id) {
+    return undefined;
+  }
+  return {
+    id,
+    displayCode: getStringValue(value.displayCode) ?? id.slice(0, 8).toUpperCase(),
+    displayTitle: getStringValue(value.displayTitle) ?? "Dispute hearing",
+    projectTitle: getStringValue(value.projectTitle),
+    reasonExcerpt: getStringValue(value.reasonExcerpt) ?? "No dispute summary provided.",
+    status: getStringValue(value.status),
+    appealState: getStringValue(value.appealState) ?? "NONE",
+  };
+};
+
+const normalizeHearingSummary = (
+  value: unknown,
+): CalendarHearingSummaryMetadata | undefined => {
+  if (!isObjectRecord(value)) {
+    return undefined;
+  }
+  const hearingId = getStringValue(value.hearingId);
+  if (!hearingId) {
+    return undefined;
+  }
+  return {
+    hearingId,
+    hearingNumber: getNumberValue(value.hearingNumber),
+    tier: getStringValue(value.tier),
+    status: getStringValue(value.status),
+    isActionable: getBooleanValue(value.isActionable) ?? false,
+    isArchived: getBooleanValue(value.isArchived) ?? false,
+    freezeReason: getStringValue(value.freezeReason),
+    scheduledAt: getStringValue(value.scheduledAt),
+    nextAction: getStringValue(value.nextAction),
+    appealState: getStringValue(value.appealState) ?? "NONE",
+    externalMeetingLink: getStringValue(value.externalMeetingLink),
+  };
+};
+
+const isActionableEvent = (event: HearingCalendarEvent) =>
+  event.isActionable ?? isActiveCalendarHearingStatus(event.status);
+
+const isArchivedEvent = (event: HearingCalendarEvent) =>
+  event.isArchived ?? !isActionableEvent(event);
 
 const getHearingId = (event: HearingCalendarEvent) => {
+  if (event.hearingSummary?.hearingId) {
+    return event.hearingSummary.hearingId;
+  }
   if (event.referenceType === "DisputeHearing" && event.referenceId) {
     return event.referenceId;
   }
@@ -175,12 +298,12 @@ const getHearingId = (event: HearingCalendarEvent) => {
 };
 
 const resolveRange = (baseDate: Date, view: CalendarViewType) => {
-  if (view === "month" || view === "agenda") {
+  if (view === "dayGridMonth") {
     const start = startOfWeek(startOfMonth(baseDate));
     const end = addDays(endOfWeek(endOfMonth(baseDate)), 1);
     return { start, end };
   }
-  if (view === "week") {
+  if (view === "timeGridWeek" || view === "listWeek") {
     const start = startOfWeek(baseDate);
     const end = addDays(endOfWeek(baseDate), 1);
     return { start, end };
@@ -205,11 +328,17 @@ const toDurationLabel = (durationMinutes: number) => {
   return `${hours}h ${minutes}m`;
 };
 
+const truncate = (value: string | undefined, maxLength: number) => {
+  if (!value) return "";
+  if (value.length <= maxLength) return value;
+  return `${value.slice(0, maxLength - 3).trimEnd()}...`;
+};
+
 export const ParticipantHearingsPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [date, setDate] = useState(new Date());
-  const [view, setView] = useState<CalendarViewType>("month");
+  const [view, setView] = useState<CalendarViewType>("timeGridWeek");
   const [events, setEvents] = useState<HearingCalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
   const [savingAvailability, setSavingAvailability] = useState(false);
@@ -416,7 +545,37 @@ export const ParticipantHearingsPage = () => {
             referenceType: event.referenceType,
             externalMeetingLink: event.externalMeetingLink,
             metadata: (event.metadata as Record<string, unknown>) || undefined,
+            disputeId:
+              event.disputeContext?.disputeId ||
+              normalizeDisputeSummary(event.metadata?.disputeSummary)?.id,
+            displayTitle:
+              normalizeDisputeSummary(event.metadata?.disputeSummary)?.displayTitle ||
+              event.title ||
+              "Dispute Hearing",
+            displayCode:
+              normalizeDisputeSummary(event.metadata?.disputeSummary)?.displayCode ||
+              event.disputeContext?.displayCode ||
+              `DSP-${(event.referenceId || event.id).slice(0, 8).toUpperCase()}`,
+            projectTitle:
+              normalizeDisputeSummary(event.metadata?.disputeSummary)?.projectTitle ||
+              event.disputeContext?.projectTitle,
+            reasonExcerpt: normalizeDisputeSummary(event.metadata?.disputeSummary)?.reasonExcerpt,
+            hearingNumber: normalizeHearingSummary(event.metadata?.hearingSummary)?.hearingNumber,
+            tier: normalizeHearingSummary(event.metadata?.hearingSummary)?.tier,
+            nextAction: normalizeHearingSummary(event.metadata?.hearingSummary)?.nextAction,
+            appealState:
+              normalizeDisputeSummary(event.metadata?.disputeSummary)?.appealState ||
+              normalizeHearingSummary(event.metadata?.hearingSummary)?.appealState,
+            isActionable:
+              normalizeHearingSummary(event.metadata?.hearingSummary)?.isActionable,
+            isArchived:
+              normalizeHearingSummary(event.metadata?.hearingSummary)?.isArchived,
+            freezeReason:
+              normalizeHearingSummary(event.metadata?.hearingSummary)?.freezeReason,
+            disputeSummary: normalizeDisputeSummary(event.metadata?.disputeSummary),
+            hearingSummary: normalizeHearingSummary(event.metadata?.hearingSummary),
             participants: event.participants ?? [],
+            disputeContext: event.disputeContext,
           };
         })
         .filter((event): event is HearingCalendarEvent => {
@@ -569,11 +728,11 @@ export const ParticipantHearingsPage = () => {
   }, [markingViewedIds, selectedCase]);
 
   useEffect(() => {
-    if (!events.length) return;
-    const notify = () => {
-      const now = new Date();
-      events.forEach((event) => {
-        if (!isActiveStatus(event.status)) return;
+        if (!events.length) return;
+        const notify = () => {
+          const now = new Date();
+          events.forEach((event) => {
+        if (!isActionableEvent(event)) return;
         const minutesUntil = (event.start.getTime() - now.getTime()) / 60000;
         if (minutesUntil > 10 || minutesUntil < -5) return;
         const key = `${event.id}:${event.start.toISOString()}`;
@@ -594,32 +753,23 @@ export const ParticipantHearingsPage = () => {
   const upcomingEvents = useMemo(() => {
     const now = new Date();
     return [...events]
-      .filter((event) => event.end.getTime() >= now.getTime())
+      .filter(
+        (event) =>
+          !isArchivedEvent(event) && event.end.getTime() >= now.getTime(),
+      )
       .sort((a, b) => a.start.getTime() - b.start.getTime())
       .slice(0, 4);
+  }, [events]);
+  const archivedEvents = useMemo(() => {
+    return [...events]
+      .filter((event) => isArchivedEvent(event))
+      .sort((a, b) => b.start.getTime() - a.start.getTime())
+      .slice(0, 6);
   }, [events]);
 
   const handleSelectEvent = useCallback((event: HearingCalendarEvent) => {
     setSelectedEvent(event);
     setDetailOpen(true);
-  }, []);
-
-  const eventPropGetter = useCallback((event: HearingCalendarEvent) => {
-    const style =
-      STATUS_STYLES[event.status] ?? STATUS_STYLES[EventStatus.SCHEDULED];
-    return {
-      style: {
-        backgroundColor: style.bg,
-        borderColor: style.border,
-        color: style.text,
-        borderRadius: "8px",
-        borderWidth: "2px",
-        borderStyle: "solid",
-        fontWeight: 600,
-        padding: "4px 8px",
-        cursor: "pointer",
-      },
-    };
   }, []);
 
   const selectedParticipant = useMemo(() => {
@@ -630,6 +780,25 @@ export const ParticipantHearingsPage = () => {
       ) ?? null
     );
   }, [selectedEvent, userId]);
+  const selectedParticipantRoster = useMemo(() => {
+    if (!selectedEvent?.participants?.length) {
+      return [];
+    }
+
+    return selectedEvent.participants.map((participant) => ({
+      id: participant.id,
+      userId: participant.userId,
+      displayName:
+        participant.user?.fullName ||
+        participant.user?.handle ||
+        participant.user?.email ||
+        participant.userId,
+      handle: participant.user?.handle,
+      systemRole: participant.user?.role,
+      hearingRole: participant.role,
+      inviteStatus: participant.status,
+    }));
+  }, [selectedEvent?.participants]);
 
   const canRespondInvite =
     selectedEvent?.status === EventStatus.PENDING_CONFIRMATION &&
@@ -674,6 +843,147 @@ export const ParticipantHearingsPage = () => {
     },
     [fetchEvents, selectedEvent, selectedParticipant],
   );
+
+  const calendarEvents = useMemo(
+    () =>
+      events.map((event) => ({
+        id: event.id,
+        title: event.displayTitle,
+        start: event.start,
+        end: event.end,
+        extendedProps: {
+          interdevEvent: event,
+        },
+      })),
+    [events],
+  );
+
+  const renderCalendarEvent = useCallback((arg: EventContentArg) => {
+    const event = (arg.event.extendedProps as { interdevEvent?: HearingCalendarEvent })
+      .interdevEvent;
+    if (!event) {
+      return <div className="text-xs font-medium text-slate-700">{arg.event.title}</div>;
+    }
+    const statusStyle =
+      STATUS_STYLES[event.status] ?? STATUS_STYLES[EventStatus.SCHEDULED];
+    const isMonthView = arg.view.type === "dayGridMonth";
+    const isListView = arg.view.type === "listWeek";
+    const isCompact = isMonthView || isListView;
+
+    if (isMonthView) {
+      return (
+        <div
+          className={cn(
+            "flex min-w-0 items-center gap-1 rounded-full border px-2 py-1 text-[10px] font-semibold shadow-sm",
+            isArchivedEvent(event) ? "bg-slate-50" : "bg-white",
+          )}
+          style={{
+            borderColor: statusStyle.border,
+            backgroundColor: statusStyle.bg,
+            color: statusStyle.text,
+          }}
+        >
+          <span className="truncate">{event.displayCode}</span>
+          <span className="shrink-0 rounded-full bg-white/80 px-1 py-0.5 text-[9px]">
+            {event.hearingNumber ? `H${event.hearingNumber}` : statusShortLabelMap[event.status]}
+          </span>
+        </div>
+      );
+    }
+
+    return (
+      <div
+        className={cn(
+          "rounded-xl border px-2.5 py-2 shadow-sm transition-all",
+          isArchivedEvent(event)
+            ? "border-slate-200 bg-slate-50/95"
+            : "border-teal-200 bg-white/95",
+        )}
+        style={{
+          borderColor: statusStyle.border,
+          backgroundColor: statusStyle.bg,
+          color: statusStyle.text,
+        }}
+      >
+        <div className="flex items-center justify-between gap-2">
+          <span className="truncate text-[10px] font-semibold uppercase tracking-[0.14em]">
+            {event.displayCode}
+          </span>
+          <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold">
+            {event.hearingNumber ? `H${event.hearingNumber}` : statusShortLabelMap[event.status]}
+          </span>
+        </div>
+        <div className="mt-1 line-clamp-2 text-xs font-semibold leading-4 text-slate-900">
+          {event.displayTitle}
+        </div>
+        {event.projectTitle ? (
+          <div className="mt-1 truncate text-[11px] text-slate-700">
+            {event.projectTitle}
+          </div>
+        ) : null}
+        {!isListView && event.reasonExcerpt ? (
+          <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-700">
+            {truncate(event.reasonExcerpt, 96)}
+          </div>
+        ) : null}
+        <div className="mt-2 flex flex-wrap gap-1">
+          <span className="rounded-full bg-white/75 px-1.5 py-0.5 text-[10px] font-medium">
+            {statusLabelMap[event.status]}
+          </span>
+          {event.tier ? (
+            <span className="rounded-full bg-white/75 px-1.5 py-0.5 text-[10px] font-medium">
+              {event.tier.replaceAll("_", " ")}
+            </span>
+          ) : null}
+          {event.nextAction && !isListView ? (
+            <span className="rounded-full bg-white/75 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+              {truncate(event.nextAction, 26)}
+            </span>
+          ) : null}
+        </div>
+        {!isCompact ? (
+          <div className="mt-2 truncate text-[11px] text-slate-600">
+            {format(event.start, "h:mm a")} - {format(event.end, "h:mm a")}
+          </div>
+        ) : null}
+        {isListView && event.reasonExcerpt ? (
+          <div className="mt-2 flex flex-wrap gap-1">
+            <div className="line-clamp-2 text-[11px] leading-4 text-slate-700">
+              {truncate(event.reasonExcerpt, 120)}
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }, []);
+
+  const handleCalendarEventClick = useCallback((arg: EventClickArg) => {
+    const event = (arg.event.extendedProps as { interdevEvent?: HearingCalendarEvent })
+      .interdevEvent;
+    if (!event) return;
+    handleSelectEvent(event);
+  }, [handleSelectEvent]);
+
+  const handleDatesSet = useCallback((arg: DatesSetArg) => {
+    setDate((current) =>
+      current.getTime() === arg.start.getTime() ? current : arg.start,
+    );
+    setView((current) =>
+      current === (arg.view.type as CalendarViewType)
+        ? current
+        : (arg.view.type as CalendarViewType),
+    );
+  }, []);
+
+  const copyDisputeId = useCallback(async () => {
+    if (!selectedEvent?.disputeId) return;
+    try {
+      await navigator.clipboard.writeText(selectedEvent.disputeId);
+      toast.success("Dispute ID copied");
+    } catch {
+      toast.error("Could not copy dispute ID");
+    }
+  }, [selectedEvent?.disputeId]);
 
   const handleSaveAvailability = useCallback(async () => {
     if (!availabilityStart || !availabilityEnd) {
@@ -981,28 +1291,59 @@ export const ParticipantHearingsPage = () => {
 
       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
         <div className="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-200 bg-slate-50 text-sm text-slate-600">
-            Click any hearing event to view details, respond invite, or join
-            hearing room.
+          <div className="border-b border-gray-200 bg-slate-50 px-4 py-3">
+            <div className="text-sm text-slate-600">
+              Review the docket by month, week, day, or list view. Month view stays compact;
+              full dispute detail opens in the drawer.
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {CALENDAR_STATUS_LEGEND.map((item) => (
+                <span
+                  key={item.label}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium",
+                    item.color,
+                  )}
+                >
+                  <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80" />
+                  {item.label}
+                </span>
+              ))}
+            </div>
           </div>
           <div className="px-4 pb-4">
-            <div className="h-[600px] interdev-calendar">
-              <Calendar
-                localizer={localizer}
-                events={events}
-                startAccessor="start"
-                endAccessor="end"
-                style={{ height: "100%" }}
-                views={["month", "week", "day", "agenda"]}
-                date={date}
-                view={view}
-                onNavigate={setDate}
-                onView={(nextView) => setView(nextView as CalendarViewType)}
-                eventPropGetter={eventPropGetter}
-                onSelectEvent={handleSelectEvent}
-                toolbar
-                popup
-                showMultiDayTimes
+            <div className="interdev-fc h-[700px] overflow-hidden rounded-2xl border border-slate-200">
+              <FullCalendar
+                plugins={[
+                  dayGridPlugin,
+                  timeGridPlugin,
+                  listPlugin,
+                  interactionPlugin,
+                ]}
+                initialView={view}
+                headerToolbar={{
+                  left: "prev,next today",
+                  center: "title",
+                  right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek",
+                }}
+                buttonText={{
+                  today: "Today",
+                  month: "Month",
+                  week: "Week",
+                  day: "Day",
+                  list: "List",
+                }}
+                events={calendarEvents}
+                datesSet={handleDatesSet}
+                eventClick={handleCalendarEventClick}
+                eventContent={renderCalendarEvent}
+                height="100%"
+                slotEventOverlap={false}
+                dayMaxEventRows={3}
+                progressiveEventRendering
+                nowIndicator
+                allDaySlot={false}
+                stickyHeaderDates
               />
             </div>
           </div>
@@ -1025,8 +1366,13 @@ export const ParticipantHearingsPage = () => {
                   className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100 transition-colors"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <div className="font-medium text-slate-900 truncate">
-                      {event.title}
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        {event.displayCode}
+                      </div>
+                      <div className="truncate font-medium text-slate-900">
+                        {event.displayTitle}
+                      </div>
                     </div>
                     <span
                       className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${EVENT_TYPE_BADGE_STYLE[event.type]}`}
@@ -1035,9 +1381,53 @@ export const ParticipantHearingsPage = () => {
                     </span>
                   </div>
                   <div className="mt-1 text-xs text-slate-500">
-                    {format(event.start, "MMM d, h:mm a")} -{" "}
-                    {statusLabelMap[event.status]}
+                    {format(event.start, "MMM d, h:mm a")} | {statusLabelMap[event.status]}
                   </div>
+                  {event.reasonExcerpt ? (
+                    <div className="mt-1 line-clamp-2 text-xs text-slate-600">
+                      {truncate(event.reasonExcerpt, 96)}
+                    </div>
+                  ) : null}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+            <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <Clock3 className="h-4 w-4 text-slate-600" />
+              Archived hearings
+            </h3>
+            <div className="mt-3 space-y-3 text-sm text-slate-600">
+              {archivedEvents.length === 0 && (
+                <p className="text-sm text-slate-500">No archived hearings yet.</p>
+              )}
+              {archivedEvents.map((event) => (
+                <button
+                  key={event.id}
+                  onClick={() => handleSelectEvent(event)}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-left hover:bg-slate-100 transition-colors"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        {event.displayCode}
+                      </div>
+                      <div className="truncate font-medium text-slate-900">
+                        {event.displayTitle}
+                      </div>
+                    </div>
+                    <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700">
+                      {statusLabelMap[event.status]}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xs text-slate-500">
+                    {format(event.start, "MMM d, h:mm a")}
+                  </div>
+                  {event.freezeReason ? (
+                    <div className="mt-1 line-clamp-2 text-xs text-slate-600">
+                      {event.freezeReason}
+                    </div>
+                  ) : null}
                 </button>
               ))}
             </div>
@@ -1244,7 +1634,7 @@ export const ParticipantHearingsPage = () => {
         </div>
       </div>
 
-      <Dialog
+      <Sheet
         open={detailOpen}
         onOpenChange={(open) => {
           setDetailOpen(open);
@@ -1253,62 +1643,198 @@ export const ParticipantHearingsPage = () => {
           }
         }}
       >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{selectedEvent?.title ?? "Event details"}</DialogTitle>
-            <DialogDescription>
+        <SheetContent side="right" className="w-full sm:max-w-xl">
+          <SheetHeader className="border-b border-slate-200 pb-4">
+            <SheetTitle>{selectedEvent?.displayTitle ?? "Event details"}</SheetTitle>
+            <SheetDescription>
               {selectedEvent
                 ? format(selectedEvent.start, "MMM d, yyyy - h:mm a")
-                : "Hearing schedule"}
-            </DialogDescription>
-          </DialogHeader>
+                : "Hearing schedule or archive record"}
+            </SheetDescription>
+          </SheetHeader>
           {selectedEvent && (
-            <div className="space-y-3 text-sm text-slate-600">
-              <div>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
-                  Status
-                </p>
-                <p className="font-medium text-slate-900">
-                  {statusLabelMap[selectedEvent.status]}
-                </p>
+            <div className="flex-1 space-y-5 overflow-y-auto p-4 text-sm text-slate-600">
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+                    {selectedEvent.displayCode}
+                  </span>
+                  <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700">
+                    {statusLabelMap[selectedEvent.status]}
+                  </span>
+                  {selectedEvent.tier ? (
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700">
+                      {selectedEvent.tier.replaceAll("_", " ")}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                      Schedule
+                    </p>
+                    <p className="mt-1 font-medium text-slate-900">
+                      {format(selectedEvent.start, "MMM d, yyyy h:mm a")} -{" "}
+                      {format(selectedEvent.end, "h:mm a")}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                      Hearing
+                    </p>
+                    <p className="mt-1 font-medium text-slate-900">
+                      {selectedEvent.hearingNumber
+                        ? `Hearing #${selectedEvent.hearingNumber}`
+                        : "Hearing record"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                      Project
+                    </p>
+                    <p className="mt-1 font-medium text-slate-900">
+                      {selectedEvent.projectTitle || "Unnamed project"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                      Appeal state
+                    </p>
+                    <p className="mt-1 font-medium text-slate-900">
+                      {selectedEvent.appealState || "None"}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <p className="text-xs uppercase tracking-wide text-gray-400">
-                  Time
-                </p>
-                <p className="font-medium text-slate-900">
-                  {format(selectedEvent.start, "h:mm a")} -{" "}
-                  {format(selectedEvent.end, "h:mm a")}
-                </p>
-              </div>
-              {selectedParticipant && (
+
+              {selectedEvent.reasonExcerpt ? (
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                    Dispute summary
+                  </p>
+                  <p className="mt-1 rounded-xl border border-slate-200 bg-white px-4 py-3 leading-6 text-slate-700">
+                    {selectedEvent.reasonExcerpt}
+                  </p>
+                </div>
+              ) : null}
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                    Claimant
+                  </p>
+                  <p className="mt-1 font-medium text-slate-900">
+                    {selectedEvent.disputeContext?.claimantName || "Unavailable"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                    Respondent
+                  </p>
+                  <p className="mt-1 font-medium text-slate-900">
+                    {selectedEvent.disputeContext?.defendantName || "Unavailable"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                    Next action
+                  </p>
+                  <p className="mt-1 font-medium text-slate-900">
+                    {selectedEvent.nextAction ||
+                      (isActionableEvent(selectedEvent)
+                        ? "Join or confirm this hearing."
+                        : "Read-only docket record.")}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                    Full dispute id
+                  </p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <code className="truncate text-xs text-slate-700">
+                      {selectedEvent.disputeId || "Unavailable"}
+                    </code>
+                    {selectedEvent.disputeId ? (
+                      <button
+                        type="button"
+                        onClick={() => void copyDisputeId()}
+                        className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                      >
+                        Copy
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+
+              {selectedParticipantRoster.length ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                    Hearing participants
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {selectedParticipantRoster.map((participant) => (
+                      <div
+                        key={participant.id}
+                        className="flex items-center justify-between gap-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-slate-900">
+                            {participant.displayName}
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
+                            <span>{participant.hearingRole.replaceAll("_", " ")}</span>
+                            {participant.handle ? <span>{participant.handle}</span> : null}
+                            {participant.systemRole ? <span>{participant.systemRole}</span> : null}
+                          </div>
+                        </div>
+                        <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                          {participant.inviteStatus.replaceAll("_", " ")}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {selectedParticipant ? (
+                <div className="rounded-xl border border-slate-200 bg-white p-4">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                     Your response
                   </p>
-                  <p className="font-medium text-slate-900">
+                  <p className="mt-1 font-medium text-slate-900">
                     {selectedParticipant.status.replaceAll("_", " ")}
                   </p>
                 </div>
-              )}
-              {selectedEvent.externalMeetingLink && (
+              ) : null}
+
+              {selectedEvent.freezeReason ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  {selectedEvent.freezeReason}
+                </div>
+              ) : null}
+
+              {selectedEvent.externalMeetingLink ? (
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-gray-400">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                     Meeting link
                   </p>
                   <a
                     href={selectedEvent.externalMeetingLink}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-teal-600 hover:text-teal-700 font-medium"
+                    className="mt-1 inline-flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 font-medium text-teal-700 hover:bg-teal-100"
                   >
-                    Open meeting link
+                    Open external meeting room
                   </a>
                 </div>
-              )}
+              ) : null}
             </div>
           )}
-          <DialogFooter className="flex flex-wrap gap-2 sm:gap-0">
+          <SheetFooter className="border-t border-slate-200">
             {canRespondInvite && (
               <>
                 <button
@@ -1340,9 +1866,7 @@ export const ParticipantHearingsPage = () => {
             >
               Close
             </button>
-            {selectedHearingId &&
-              selectedEvent &&
-              isActiveStatus(selectedEvent.status) && (
+            {selectedHearingId && selectedEvent && (
                 <button
                   className="px-4 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700"
                   onClick={() => {
@@ -1350,48 +1874,80 @@ export const ParticipantHearingsPage = () => {
                     navigate(`${roleBasePath}/hearings/${selectedHearingId}`);
                   }}
                 >
-                  Join hearing room
+                  {isActionableEvent(selectedEvent)
+                    ? "Join hearing room"
+                    : "View hearing record"}
                 </button>
               )}
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       <style>{`
-        .interdev-calendar .rbc-toolbar {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-          padding: 12px 16px;
-          border-bottom: 1px solid #e2e8f0;
+        .interdev-fc .fc {
+          height: 100%;
         }
-        .interdev-calendar .rbc-toolbar-label {
-          font-weight: 600;
+        .interdev-fc .fc-toolbar {
+          gap: 8px;
+          padding: 14px 16px;
+          border-bottom: 1px solid #e2e8f0;
+          background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+        }
+        .interdev-fc .fc-toolbar-title {
+          font-size: 1rem;
+          font-weight: 700;
           color: #0f172a;
         }
-        .interdev-calendar .rbc-header {
-          padding: 10px 8px;
-          font-weight: 600;
-          font-size: 0.75rem;
+        .interdev-fc .fc-button {
+          border-radius: 9999px;
+          border: 1px solid #cbd5e1;
+          background: white;
+          color: #334155;
+          box-shadow: none;
+          text-transform: none;
+        }
+        .interdev-fc .fc-button-primary:not(:disabled).fc-button-active,
+        .interdev-fc .fc-button-primary:not(:disabled):active {
+          background: #0f766e;
+          border-color: #0f766e;
+          color: white;
+        }
+        .interdev-fc .fc-theme-standard td,
+        .interdev-fc .fc-theme-standard th {
+          border-color: #e2e8f0;
+        }
+        .interdev-fc .fc-col-header-cell {
+          background: #f8fafc;
+          padding: 8px 0;
+          font-size: 0.72rem;
+          letter-spacing: 0.08em;
           text-transform: uppercase;
-          letter-spacing: 0.05em;
           color: #64748b;
-          background-color: #f8fafc;
-          border-bottom: 1px solid #e2e8f0;
         }
-        .interdev-calendar .rbc-time-view,
-        .interdev-calendar .rbc-month-view {
-          border: 1px solid #e2e8f0;
-          border-radius: 12px;
-          overflow: hidden;
+        .interdev-fc .fc-daygrid-day-frame,
+        .interdev-fc .fc-timegrid-slot {
+          min-height: 76px;
         }
-        .interdev-calendar .rbc-today {
-          background-color: #f0fdfa !important;
+        .interdev-fc .fc-timegrid-event,
+        .interdev-fc .fc-daygrid-event,
+        .interdev-fc .fc-list-event {
+          border: none;
+          background: transparent;
+          box-shadow: none;
+          margin: 3px 6px;
         }
-        .interdev-calendar .rbc-event-content {
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+        .interdev-fc .fc-daygrid-event-harness {
+          margin-top: 2px;
+        }
+        .interdev-fc .fc-daygrid-day-events {
+          margin: 0 2px;
+        }
+        .interdev-fc .fc-event-main {
+          padding: 0;
+          min-width: 0;
+        }
+        .interdev-fc .fc-day-today {
+          background: #f0fdfa !important;
         }
       `}</style>
     </div>

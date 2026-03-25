@@ -1,16 +1,110 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { ArrowLeft } from 'lucide-react';
-import { Button } from '@/shared/components/ui/Button';
+import { Button } from '@/shared/components/ui/button';
 import { Alert, AlertDescription, AlertTitle } from '@/shared/components/ui/alert';
-import Spinner from '@/shared/components/ui/Spinner';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
+import Spinner from '@/shared/components/ui/spinner';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
 import { projectRequestsApi } from '../project-requests/api';
 import type { ProjectRequest } from '../project-requests/types';
 import { projectSpecsApi } from './api';
 import type { CreateClientSpecDTO, ProjectSpec } from './types';
 import { SpecPhase } from './types';
 import { CreateClientSpecForm } from './components/CreateClientSpecForm';
+import { CLIENT_SPEC_TEMPLATES } from './templates';
+
+const PRODUCT_TYPE_TEMPLATE_BY_CODE: Partial<Record<string, string>> = {
+  LANDING_PAGE: 'LANDING_PAGE_STARTER',
+  ECOMMERCE: 'ECOMMERCE_STANDARD',
+  WEB_APP: 'SAAS_PORTAL',
+};
+
+const PRODUCT_TYPE_LABELS: Record<string, string> = {
+  LANDING_PAGE: 'Landing Page',
+  CORP_WEBSITE: 'Corporate Website',
+  ECOMMERCE: 'E-commerce Website',
+  MOBILE_APP: 'Mobile App',
+  WEB_APP: 'Web App / SaaS Platform',
+  SYSTEM: 'Internal Management System',
+};
+
+const FEATURE_LABELS: Record<string, string> = {
+  AUTH: 'Authentication',
+  PRODUCT_CATALOG: 'Product Catalog & Search',
+  CART_PAYMENT: 'Cart & Online Payment',
+  BOOKING: 'Booking / Scheduling',
+  CHAT: 'Live Chat',
+  MAPS: 'Maps & Location',
+  BLOG_NEWS: 'Blog & News',
+  ADMIN_DASHBOARD: 'Admin Dashboard',
+  REPORTING: 'Reporting & Analytics',
+  NOTIFICATIONS: 'Notifications',
+  MULTI_LANG: 'Multi-language',
+};
+
+const normalizeWizardCode = (value?: string | null) =>
+  String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .toUpperCase();
+
+const toTitleLabel = (value?: string | null) =>
+  String(value || '')
+    .trim()
+    .replace(/[_/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const getFeatureLabel = (value?: string | null) => {
+  const normalizedValue = normalizeWizardCode(value);
+  return FEATURE_LABELS[normalizedValue] || toTitleLabel(value);
+};
+
+const buildRequestSeedValues = (
+  request: ProjectRequest | null,
+  requestId?: string,
+): Partial<CreateClientSpecDTO> | null => {
+  if (!request || !requestId) {
+    return null;
+  }
+
+  const answers = request.answers || [];
+  const productTypeAnswer = answers.find((answer) => answer.question?.code === 'PRODUCT_TYPE');
+  const productTypeCode = normalizeWizardCode(productTypeAnswer?.valueText || productTypeAnswer?.option?.label);
+  const matchedTemplate = CLIENT_SPEC_TEMPLATES.find(
+    (template) => template.code === PRODUCT_TYPE_TEMPLATE_BY_CODE[productTypeCode],
+  );
+
+  const derivedFeatures = answers
+    .filter((answer) => answer.question?.code === 'FEATURES')
+    .map((answer) => answer.option?.label || getFeatureLabel(answer.valueText))
+    .filter((label): label is string => Boolean(label))
+    .map((label) => ({
+      title: label,
+      description: `Include ${label.toLowerCase()} in the initial client-approved scope.`,
+      priority: 'SHOULD_HAVE' as const,
+    }));
+
+  return {
+    requestId,
+    title: request.title || '',
+    description: request.description || '',
+    estimatedBudget: 0,
+    estimatedTimeline: matchedTemplate?.estimatedTimeline || request.intendedTimeline || '',
+    projectCategory:
+      matchedTemplate?.projectCategory ||
+      PRODUCT_TYPE_LABELS[productTypeCode] ||
+      productTypeAnswer?.option?.label ||
+      productTypeAnswer?.valueText ||
+      '',
+    templateCode: matchedTemplate?.code,
+    clientFeatures:
+      matchedTemplate?.clientFeatures ||
+      (derivedFeatures.length > 0 ? derivedFeatures : undefined),
+    referenceLinks: [],
+  };
+};
 
 export default function CreateClientSpecPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +118,7 @@ export default function CreateClientSpecPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestSeedValues = useMemo(() => buildRequestSeedValues(request, id), [request, id]);
 
   useEffect(() => {
     if (!id) return;
@@ -134,7 +229,7 @@ export default function CreateClientSpecPage() {
         })),
         referenceLinks: editableExistingSpec.referenceLinks || [],
       }
-    : null;
+    : requestSeedValues;
 
   return (
     <div className="container mx-auto max-w-5xl space-y-6 py-8">

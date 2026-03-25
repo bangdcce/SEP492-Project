@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -52,12 +54,60 @@ import { UserRole, UserEntity } from '../../database/entities/user.entity';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
 import { CreateProjectRequestDto, UpdateProjectRequestDto } from './dto/create-project-request.dto';
 
+const REQUEST_ATTACHMENT_WHITELIST = {
+  mimeTypes: new Set([
+    'application/pdf',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.ms-powerpoint',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'image/png',
+    'image/jpeg',
+    'image/webp',
+    'text/plain',
+    'text/csv',
+  ]),
+  extensions: new Set([
+    '.pdf',
+    '.doc',
+    '.docx',
+    '.xls',
+    '.xlsx',
+    '.ppt',
+    '.pptx',
+    '.png',
+    '.jpg',
+    '.jpeg',
+    '.webp',
+    '.txt',
+    '.csv',
+  ]),
+};
+
 @ApiTags('Project Requests')
 @Controller('project-requests')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @ApiBearerAuth()
 export class ProjectRequestsController {
   constructor(private readonly projectRequestsService: ProjectRequestsService) {}
+
+  private assertFilesAllowed(files: MulterFile[] = []) {
+    for (const file of files) {
+      const original = String(file.originalname || '').toLowerCase();
+      const extension = original.includes('.') ? original.slice(original.lastIndexOf('.')) : '';
+      const mime = String(file.mimetype || '').toLowerCase();
+      if (
+        !REQUEST_ATTACHMENT_WHITELIST.mimeTypes.has(mime) &&
+        !REQUEST_ATTACHMENT_WHITELIST.extensions.has(extension)
+      ) {
+        throw new BadRequestException(
+          `Unsupported attachment type for "${file.originalname}". Allowed formats: PDF, Office, PNG, JPG, WEBP, TXT, CSV.`,
+        );
+      }
+    }
+  }
 
   @Post('seed-test-data')
   @ApiOperation({ summary: 'Seed test data for UI verification (Phase 3 & 4)' })
@@ -141,10 +191,43 @@ export class ProjectRequestsController {
   }
 
   @Patch(':id')
+  @Roles(UserRole.CLIENT)
   @ApiOperation({ summary: 'Update a project request (e.g. save draft)' })
   @ApiResponse({ status: 200, type: ProjectRequestEntity })
-  async update(@Param('id') id: string, @Body() updateDto: UpdateProjectRequestDto) {
-    return this.projectRequestsService.update(id, updateDto);
+  async update(
+    @Param('id') id: string,
+    @Body() updateDto: UpdateProjectRequestDto,
+    @GetUser() user: UserEntity,
+    @Req() req: RequestContext,
+  ) {
+    return this.projectRequestsService.update(id, updateDto, user, req);
+  }
+
+  @Post(':id/publish')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Publish a project request to the marketplace' })
+  @ApiResponse({ status: 200, description: 'Request published to marketplace' })
+  async publish(
+    @Param('id') id: string,
+    @GetUser('id') userId: string,
+    @Req() req: RequestContext,
+  ) {
+    return this.projectRequestsService.publish(id, userId, req);
+  }
+
+  @Delete(':id')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Delete a project request (draft only, no broker/freelancer assigned)' })
+  @ApiResponse({ status: 200, description: 'Request deleted successfully' })
+  @ApiResponse({ status: 400, description: 'Cannot delete request in this state' })
+  @ApiResponse({ status: 403, description: 'Not authorized to delete this request' })
+  @ApiResponse({ status: 404, description: 'Request not found' })
+  async delete(
+    @Param('id') id: string,
+    @GetUser('id') userId: string,
+    @Req() req: RequestContext,
+  ) {
+    return this.projectRequestsService.deleteRequest(id, userId, req);
   }
 
   @Post('upload')
@@ -175,16 +258,23 @@ export class ProjectRequestsController {
     },
   })
   uploadFile(@UploadedFiles() files: UploadedFilesMap) {
+    this.assertFilesAllowed([...(files.requirements || []), ...(files.attachments || [])]);
     // In a real app, upload to S3/Firebase and return URL.
     // Here we just return a mock URL or the filename.
     return {
       requirements: files.requirements?.map((file) => ({
         filename: file.originalname,
         url: `/uploads/${file.originalname}`,
+        mimetype: file.mimetype,
+        size: file.size,
+        category: 'requirements',
       })),
       attachments: files.attachments?.map((file) => ({
         filename: file.originalname,
         url: `/uploads/${file.originalname}`,
+        mimetype: file.mimetype,
+        size: file.size,
+        category: 'attachment',
       })),
     };
   }
@@ -194,24 +284,52 @@ export class ProjectRequestsController {
   @ApiResponse({ status: 201, description: 'Invitation sent' })
   async inviteBroker(
     @Param('id') id: string,
+    @GetUser('id') inviterId: string,
     @Body('brokerId') brokerId: string,
     @Body('message') message?: string,
   ) {
-    return this.projectRequestsService.inviteBroker(id, brokerId, message);
+    return this.projectRequestsService.inviteBroker(id, brokerId, message, inviterId);
   }
 
   @Post(':id/invite/freelancer')
+  @Roles(UserRole.BROKER, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Invite a freelancer to a project request (Phase 3)' })
   @ApiResponse({ status: 201, description: 'Invitation sent' })
   async inviteFreelancer(
     @Param('id') id: string,
+    @GetUser() user: UserEntity,
     @Body('freelancerId') freelancerId: string,
     @Body('message') message?: string,
   ) {
-    return this.projectRequestsService.inviteFreelancer(id, freelancerId, message);
+    return this.projectRequestsService.inviteFreelancer(id, freelancerId, message, user);
+  }
+
+  @Post(':id/approve-freelancer-invite')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Client approves a broker freelancer recommendation' })
+  @ApiResponse({ status: 200, description: 'Freelancer recommendation approved' })
+  async approveFreelancerInvite(
+    @Param('id') id: string,
+    @GetUser('id') clientId: string,
+    @Body('proposalId') proposalId: string,
+  ) {
+    return this.projectRequestsService.approveFreelancerInvite(id, proposalId, clientId);
+  }
+
+  @Post(':id/reject-freelancer-invite')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Client rejects a broker freelancer recommendation' })
+  @ApiResponse({ status: 200, description: 'Freelancer recommendation rejected' })
+  async rejectFreelancerInvite(
+    @Param('id') id: string,
+    @GetUser('id') clientId: string,
+    @Body('proposalId') proposalId: string,
+  ) {
+    return this.projectRequestsService.rejectFreelancerInvite(id, proposalId, clientId);
   }
 
   @Post(':id/apply')
+  @Roles(UserRole.BROKER)
   @ApiOperation({ summary: 'Broker applies to a project request' })
   @ApiResponse({ status: 201, description: 'Application submitted' })
   async apply(
@@ -222,10 +340,25 @@ export class ProjectRequestsController {
     return this.projectRequestsService.applyToRequest(id, brokerId, coverLetter);
   }
   @Post(':id/accept-broker')
+  @Roles(UserRole.CLIENT)
   @ApiOperation({ summary: 'Client accepts a broker proposal' })
   @ApiResponse({ status: 200, description: 'Broker accepted' })
-  async acceptBroker(@Param('id') id: string, @Body('brokerId') brokerId: string) {
-    return this.projectRequestsService.acceptBroker(id, brokerId);
+  async acceptBroker(
+    @Param('id') id: string,
+    @GetUser('id') clientId: string,
+    @Body('brokerId') brokerId: string,
+  ) {
+    return this.projectRequestsService.acceptBroker(id, brokerId, clientId);
+  }
+
+  @Post(':id/release-broker-slot')
+  @ApiOperation({ summary: 'Release an active broker application slot for this request' })
+  async releaseBrokerSlot(
+    @Param('id') id: string,
+    @Body('proposalId') proposalId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    return this.projectRequestsService.releaseBrokerSlot(id, proposalId, user);
   }
 
   @Post(':id/approve-specs')
@@ -236,10 +369,11 @@ export class ProjectRequestsController {
   }
 
   @Post(':id/convert')
+  @Roles(UserRole.BROKER, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Convert finalized request to project' })
   @ApiResponse({ status: 201, description: 'Project created' })
-  async convertToProject(@Param('id') id: string) {
-    return this.projectRequestsService.convertToProject(id);
+  async convertToProject(@Param('id') id: string, @GetUser() user: UserEntity) {
+    return this.projectRequestsService.convertToProject(id, user);
   }
 
   @Patch('invitations/:id/respond')

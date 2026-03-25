@@ -71,7 +71,7 @@ export class EventParticipantEntity {
   @Column({ type: 'timestamp', nullable: true })
   respondedAt: Date;
 
-  @Column({ type: 'text', nullable: true, comment: 'Lý do từ chối/ghi chú' })
+  @Column({ type: 'varchar', length: 1000, nullable: true, comment: 'Lý do từ chối/ghi chú' })
   responseNote: string;
 
   // === ATTENDANCE (Sau khi event diễn ra) ===
@@ -95,7 +95,7 @@ export class EventParticipantEntity {
   lateMinutes: number;
 
   // === EXCUSE (Nếu vắng có phép) ===
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 1000, nullable: true })
   excuseReason: string;
 
   @Column({ default: false })

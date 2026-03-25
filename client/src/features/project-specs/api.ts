@@ -67,6 +67,15 @@ export const projectSpecsApi = {
     return apiClient.post(`/project-specs/${specId}/sign`);
   },
 
+  requestFullSpecChanges: (
+    specId: string,
+    reason: string,
+  ): Promise<ProjectSpec> => {
+    return apiClient.post(`/project-specs/${specId}/request-changes`, {
+      reason,
+    });
+  },
+
   getFullSpec: (parentSpecId: string): Promise<ProjectSpec> => {
     return apiClient.get(`/project-specs/full-spec/${parentSpecId}`);
   },

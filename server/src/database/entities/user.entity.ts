@@ -179,12 +179,18 @@ export class UserEntity {
   @OneToMany('ProjectEntity', 'freelancer')
   freelancerProjects: any[];
 
+  @OneToMany('ProjectEntity', 'staff')
+  staffProjects: any[];
+
   // NEW: Relation với user_flags
   @OneToMany('UserFlagEntity', 'user')
   flags: any[];
 
   @OneToMany('UserSkillEntity', 'user')
   userSkills: any[];
+
+  @OneToMany('UserSkillDomainEntity', 'user')
+  userSkillDomains: any[];
 
   // --- E05: LOGIC HUY HIỆU (VIRTUAL PROPERTY) ---
   // @Expose: Báo cho NestJS biết là "Hãy trả field này về cho Frontend dù nó không có trong DB"

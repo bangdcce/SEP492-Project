@@ -41,7 +41,7 @@ export class EventRescheduleRequestEntity {
   requesterId: string;
 
   // === LÝ DO ===
-  @Column({ type: 'text', comment: 'Lý do xin dời lịch' })
+  @Column({ type: 'varchar', length: 2000, comment: 'Lý do xin dời lịch' })
   reason: string;
 
   // === PROPOSED TIME (Nếu user tự chọn) ===
@@ -66,7 +66,7 @@ export class EventRescheduleRequestEntity {
   @Column({ type: 'timestamp', nullable: true })
   processedAt: Date;
 
-  @Column({ type: 'text', nullable: true, comment: 'Ghi chú khi approve/reject' })
+  @Column({ type: 'varchar', length: 1000, nullable: true, comment: 'Ghi chú khi approve/reject' })
   processNote: string;
 
   // === RESULT ===

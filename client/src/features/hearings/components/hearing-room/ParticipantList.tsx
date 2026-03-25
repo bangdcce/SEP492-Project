@@ -1,4 +1,5 @@
-import React, { memo } from "react";
+import React, { memo, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { Users, Mic, MicOff, Clock } from "lucide-react";
 import { Badge } from "@/shared/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/shared/components/ui/avatar";
@@ -17,13 +18,18 @@ import {
   relativeTime,
 } from "./constants";
 import type {
+  HearingParticipantConfirmationSummary,
   HearingParticipantSummary,
   SpeakerRole,
 } from "@/features/hearings/types";
+import { STORAGE_KEYS } from "@/constants";
+import { getStoredJson } from "@/shared/utils/storage";
+import { resolveProfileViewerBasePath } from "@/features/hearings/utils/hearingRouting";
 
 interface ParticipantListProps {
   participants: HearingParticipantSummary[] | undefined;
   currentSpeakerRole?: SpeakerRole | null;
+  confirmationSummary?: HearingParticipantConfirmationSummary | null;
 }
 
 /** Determine if a participant can speak given the current floor mode */
@@ -44,7 +50,21 @@ const canSpeak = (
 export const ParticipantList = memo(function ParticipantList({
   participants,
   currentSpeakerRole,
+  confirmationSummary,
 }: ParticipantListProps) {
+  const currentUser = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+  const profileBasePath = resolveProfileViewerBasePath(currentUser?.role);
+  const confirmationByUserId = useMemo(
+    () =>
+      new Map(
+        (confirmationSummary?.participants ?? []).map((participant) => [
+          participant.userId,
+          participant.status,
+        ]),
+      ),
+    [confirmationSummary?.participants],
+  );
+
   if (!participants?.length) return null;
 
   return (
@@ -61,6 +81,11 @@ export const ParticipantList = memo(function ParticipantList({
         {participants.map((p) => {
           const name = p.user?.fullName || p.user?.email || p.userId;
           const speaking = canSpeak(p.role, currentSpeakerRole);
+          const responseStatus =
+            confirmationByUserId.get(p.userId) || (p.confirmedAt ? "ACCEPTED" : undefined);
+          const profileLink = profileBasePath
+            ? `${profileBasePath}/discovery/profile/${p.user?.id || p.userId}`
+            : null;
           return (
             <div
               key={p.id}
@@ -98,14 +123,26 @@ export const ParticipantList = memo(function ParticipantList({
               {/* Name + role */}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <span
-                    className={cn(
-                      "text-sm font-medium truncate",
-                      p.isOnline ? "text-slate-900" : "text-slate-500",
-                    )}
-                  >
-                    {name}
-                  </span>
+                  {profileLink ? (
+                    <Link
+                      to={profileLink}
+                      className={cn(
+                        "text-sm font-medium truncate hover:underline",
+                        p.isOnline ? "text-slate-900" : "text-slate-500",
+                      )}
+                    >
+                      {name}
+                    </Link>
+                  ) : (
+                    <span
+                      className={cn(
+                        "text-sm font-medium truncate",
+                        p.isOnline ? "text-slate-900" : "text-slate-500",
+                      )}
+                    >
+                      {name}
+                    </span>
+                  )}
                   {p.isRequired && (
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -125,6 +162,24 @@ export const ParticipantList = memo(function ParticipantList({
                 >
                   {roleLabel(p.role)}
                 </Badge>
+                {responseStatus ? (
+                  <Badge
+                    className={cn(
+                      "ml-1 mt-0.5 text-xs px-1.5 py-0 border",
+                      responseStatus === "ACCEPTED"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : responseStatus === "DECLINED"
+                          ? "border-rose-200 bg-rose-50 text-rose-700"
+                          : responseStatus === "TENTATIVE"
+                            ? "border-amber-200 bg-amber-50 text-amber-700"
+                            : "border-slate-200 bg-slate-100 text-slate-600",
+                    )}
+                  >
+                    {responseStatus === "NO_RESPONSE"
+                      ? "Pending reply"
+                      : responseStatus.replace(/_/g, " ")}
+                  </Badge>
+                ) : null}
                 {/* Online duration or last seen */}
                 {p.isOnline &&
                   p.totalOnlineMinutes != null &&
@@ -139,6 +194,16 @@ export const ParticipantList = memo(function ParticipantList({
                     Left {relativeTime(p.leftAt)}
                   </span>
                 )}
+                {!p.confirmedAt && p.invitedAt && (
+                  <span className="block text-xs text-slate-400 mt-0.5">
+                    Invited {relativeTime(p.invitedAt)}
+                  </span>
+                )}
+                {p.declineReason ? (
+                  <span className="block text-xs text-rose-600 mt-0.5 line-clamp-2">
+                    Decline reason: {p.declineReason}
+                  </span>
+                ) : null}
               </div>
 
               {/* Speaking indicator */}

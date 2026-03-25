@@ -7,6 +7,8 @@ import {
   CalendarEventEntity,
   EventStatus,
   EventType,
+  HearingParticipantEntity,
+  HearingParticipantRole,
   UserEntity,
   UserRole,
 } from 'src/database/entities';
@@ -23,7 +25,7 @@ import { EventRescheduleRequestEntity, RescheduleRequestStatus } from 'src/datab
 import { StaffWorkloadEntity } from 'src/database/entities/staff-workload.entity';
 import { CalendarService, FindAvailableSlotsInput } from './calendar.service';
 
-const DEFAULT_RESPONSE_DEADLINE_HOURS = 24;
+const DEFAULT_RESPONSE_DEADLINE_HOURS = 12;
 const DEFAULT_RESCHEDULE_WINDOW_DAYS = 7;
 const DEFAULT_MIN_RESCHEDULE_NOTICE_HOURS = 2;
 const AUTO_RESCHEDULE_LIMIT = 2;
@@ -89,9 +91,60 @@ export class AutoScheduleService {
     private readonly availabilityRepository: Repository<UserAvailabilityEntity>,
     @InjectRepository(EventRescheduleRequestEntity)
     private readonly rescheduleRepository: Repository<EventRescheduleRequestEntity>,
+    @InjectRepository(HearingParticipantEntity)
+    private readonly hearingParticipantRepository: Repository<HearingParticipantEntity>,
     private readonly calendarService: CalendarService,
     private readonly dataSource: DataSource,
   ) {}
+
+  private async loadDisputeHearingRoleMap(
+    event: Pick<CalendarEventEntity, 'referenceType' | 'referenceId'>,
+  ): Promise<Map<string, HearingParticipantRole>> {
+    if (event.referenceType !== 'DisputeHearing' || !event.referenceId) {
+      return new Map();
+    }
+
+    const participants = await this.hearingParticipantRepository.find({
+      where: { hearingId: event.referenceId },
+      select: ['userId', 'role'],
+    });
+
+    return new Map(
+      participants.map((participant) => [participant.userId, participant.role]),
+    );
+  }
+
+  private evaluateDisputeHearingConfirmation(
+    participants: EventParticipantEntity[],
+    hearingRoleByUserId: Map<string, HearingParticipantRole>,
+  ) {
+    let hasModeratorAccepted = false;
+    let primaryPartyAcceptedCount = 0;
+
+    for (const participant of participants) {
+      const hearingRole = hearingRoleByUserId.get(participant.userId);
+      if (
+        participant.role === ParticipantRole.MODERATOR &&
+        participant.status === ParticipantStatus.ACCEPTED
+      ) {
+        hasModeratorAccepted = true;
+      }
+
+      if (
+        (hearingRole === HearingParticipantRole.RAISER ||
+          hearingRole === HearingParticipantRole.DEFENDANT) &&
+        participant.status === ParticipantStatus.ACCEPTED
+      ) {
+        primaryPartyAcceptedCount += 1;
+      }
+    }
+
+    return {
+      hasModeratorAccepted,
+      primaryPartyAcceptedCount,
+      confirmationSatisfied: hasModeratorAccepted && primaryPartyAcceptedCount > 0,
+    };
+  }
 
   async autoScheduleEvent(input: AutoScheduleEventInput): Promise<AutoScheduleResult> {
     if (!input.participantIds || input.participantIds.length === 0) {
@@ -699,7 +752,16 @@ export class AutoScheduleService {
     participant.responseNote = responseNote;
     await this.participantRepository.save(participant);
 
-    if (participant.role === ParticipantRole.REQUIRED && response === 'decline') {
+    const hearingRoleByUserId = await this.loadDisputeHearingRoleMap(event);
+    const participantCaseRole = hearingRoleByUserId.get(participant.userId);
+    const isPrimarySideParticipant =
+      participantCaseRole === HearingParticipantRole.RAISER ||
+      participantCaseRole === HearingParticipantRole.DEFENDANT;
+    const shouldTriggerAutoRescheduleOnDecline =
+      response === 'decline' &&
+      (participant.role === ParticipantRole.MODERATOR || isPrimarySideParticipant);
+
+    if (shouldTriggerAutoRescheduleOnDecline) {
       const rule = await this.resolveRule(event.type);
       const rescheduleLimit = Math.min(
         AUTO_RESCHEDULE_LIMIT,
@@ -753,15 +815,22 @@ export class AutoScheduleService {
     const requiredParticipants = await this.participantRepository.find({
       where: {
         eventId: event.id,
-        role: ParticipantRole.REQUIRED,
       },
     });
 
-    const allRequiredAccepted = requiredParticipants.every(
-      (p) => p.status === ParticipantStatus.ACCEPTED,
-    );
+    const isDisputeHearingEvent =
+      event.referenceType === 'DisputeHearing' || event.type === EventType.DISPUTE_HEARING;
+    const allRequiredAccepted = requiredParticipants
+      .filter(
+        (participant) =>
+          participant.role === ParticipantRole.REQUIRED || participant.role === ParticipantRole.MODERATOR,
+      )
+      .every((participant) => participant.status === ParticipantStatus.ACCEPTED);
+    const confirmation = isDisputeHearingEvent
+      ? this.evaluateDisputeHearingConfirmation(requiredParticipants, hearingRoleByUserId)
+      : { confirmationSatisfied: allRequiredAccepted };
 
-    if (allRequiredAccepted) {
+    if (confirmation.confirmationSatisfied) {
       await this.calendarRepository.update(event.id, {
         status: EventStatus.SCHEDULED,
       });

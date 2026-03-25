@@ -82,6 +82,34 @@ export async function seedSkillDomains(dataSource: DataSource) {
       icon: '🔍',
       sortOrder: 10,
     },
+    {
+      name: 'Finance & Fintech',
+      slug: 'finance-fintech',
+      description: 'Banking, Payments, Trading, Insurance, DeFi',
+      icon: '💰',
+      sortOrder: 11,
+    },
+    {
+      name: 'E-Commerce & Retail',
+      slug: 'ecommerce-retail',
+      description: 'Online stores, Inventory management, Point of Sale',
+      icon: '🛍️',
+      sortOrder: 12,
+    },
+    {
+      name: 'Healthcare',
+      slug: 'healthcare',
+      description: 'Telemedicine, Health records, Medical informatics',
+      icon: '🏥',
+      sortOrder: 13,
+    },
+    {
+      name: 'Legal & Compliance',
+      slug: 'legal-compliance',
+      description: 'Case management, Document automation, Regulatory tech',
+      icon: '⚖️',
+      sortOrder: 14,
+    },
   ];
 
   await domainRepo.save(domains);

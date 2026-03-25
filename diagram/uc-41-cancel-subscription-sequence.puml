@@ -1,0 +1,79 @@
+@startuml
+title UC-41 Cancel Subscription Sequence Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam sequence {
+    ActorFontColor black
+    ParticipantFontColor black
+    TitleFontColor black
+    GroupFontColor black
+    GroupBorderColor black
+}
+
+actor "Client" as Actor
+boundary "Subscription Plans Page" as Page
+participant "SubscriptionController" as SubscriptionController
+participant "SubscriptionService" as SubscriptionService
+database "Database" as DB
+
+Actor -> Page : 1. Open Manage Subscription page
+activate Actor
+activate Page
+
+Page -> SubscriptionController : 2. Request current subscription details
+activate SubscriptionController
+SubscriptionController -> SubscriptionService : 3. Load subscription status
+activate SubscriptionService
+SubscriptionService -> DB : 4. Fetch active plan, renewal setting, and billing dates
+activate DB
+DB --> SubscriptionService : 5. Return subscription detail
+deactivate DB
+SubscriptionService --> SubscriptionController : 6. Return subscription detail
+deactivate SubscriptionService
+SubscriptionController --> Page : 7. Return subscription detail
+deactivate SubscriptionController
+Page --> Actor : 8. Display active plan and cancel-renewal action
+
+Actor -> Page : 9. Click Cancel Subscription
+Page --> Actor : 10. Show renewal-cancellation confirmation dialog
+
+Actor -> Page : 11. Confirm cancellation of future renewal
+Page -> SubscriptionController : 12. Submit cancel-renewal request
+activate SubscriptionController
+SubscriptionController -> SubscriptionService : 13. Cancel future renewal
+activate SubscriptionService
+SubscriptionService -> DB : 14. Load active subscription record
+activate DB
+DB --> SubscriptionService : 15. Return active subscription
+deactivate DB
+
+alt [Subscription is active and auto-renew is enabled]
+    SubscriptionService -> DB : 16. Disable automatic renewal for the current plan
+    activate DB
+    DB --> SubscriptionService : 17. Confirm renewal cancellation
+    deactivate DB
+
+    SubscriptionService -> DB : 18. Preserve plan access until the current billing cycle ends
+    activate DB
+    DB --> SubscriptionService : 19. Confirm end-of-cycle access
+    deactivate DB
+
+    SubscriptionService --> SubscriptionController : 20. Return canceled-renewal status
+    deactivate SubscriptionService
+    SubscriptionController --> Page : 21. Return updated subscription detail
+    deactivate SubscriptionController
+    Page --> Actor : 22. Show renewal canceled and display the plan end date
+
+else [There is no renewable paid plan to cancel]
+    SubscriptionService --> SubscriptionController : 23. Return validation error
+    deactivate SubscriptionService
+    SubscriptionController --> Page : 24. Return error response
+    deactivate SubscriptionController
+    Page --> Actor : 25. Show there is no renewal to cancel
+end
+
+deactivate Page
+deactivate Actor
+@enduml

@@ -1,4 +1,4 @@
-﻿import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
@@ -10,6 +10,9 @@ import * as fs from 'fs';
 import { AppModule } from './app.module';
 import { RedisIoAdapter } from './realtime/redis-io.adapter';
 import { HealthService } from './modules/health/health.service';
+import { AuditLogsService } from './modules/audit-logs/audit-logs.service';
+import { AuditTrailExceptionFilter } from './modules/audit-logs/filters/audit-trail-exception.filter';
+import { randomUUID } from 'crypto';
 
 const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (value === undefined) return fallback;
@@ -168,6 +171,19 @@ async function bootstrap() {
   app.use(json({ limit: '10mb' }));
   app.use(urlencoded({ limit: '10mb', extended: true }));
   app.use(cookieParser());
+  app.use((req, res, next) => {
+    const headerRequestId = req.headers['x-request-id'];
+    const headerSessionId = req.headers['x-session-id'];
+    const requestId =
+      (Array.isArray(headerRequestId) ? headerRequestId[0] : headerRequestId) || randomUUID();
+    const sessionId =
+      (Array.isArray(headerSessionId) ? headerSessionId[0] : headerSessionId) || null;
+
+    (req as typeof req & { requestId?: string; sessionId?: string }).requestId = requestId;
+    (req as typeof req & { requestId?: string; sessionId?: string }).sessionId = sessionId;
+    res.setHeader('X-Request-Id', requestId);
+    next();
+  });
 
   const corsOrigins = parseCorsOrigins();
   if (parseBoolean(process.env.CORS_ALLOW_NULL_ORIGIN, false)) {
@@ -178,7 +194,15 @@ async function bootstrap() {
     origin: corsOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
     credentials: parseBoolean(process.env.CORS_CREDENTIALS, true),
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Timezone'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'X-Requested-With',
+      'X-Timezone',
+      'X-Request-Id',
+      'X-Session-Id',
+    ],
+    exposedHeaders: ['X-Request-Id'],
   });
 
   app.useGlobalPipes(
@@ -191,6 +215,7 @@ async function bootstrap() {
       },
     }),
   );
+  app.useGlobalFilters(new AuditTrailExceptionFilter(app.get(AuditLogsService)));
 
   const config = new DocumentBuilder()
     .setTitle('InterDev API')
@@ -243,6 +268,15 @@ async function bootstrap() {
   const protocol = httpsOptions ? 'https' : 'http';
   logger.log(`Application is running on: ${protocol}://localhost:${port}`);
   logger.log(`Swagger documentation: ${protocol}://localhost:${port}/api-docs`);
+
+  if (httpsOptions) {
+    logger.log('\n==================================================================');
+    logger.log('⚠️  HTTPS IS ENABLED ON LOCALHOST');
+    logger.log(`Please visit ${protocol}://localhost:${port} in your browser`);
+    logger.log('and click "Advanced" -> "Proceed to localhost" to trust the');
+    logger.log('self-signed certificate, otherwise frontend requests will fail.');
+    logger.log('==================================================================\n');
+  }
 }
 
 void bootstrap();

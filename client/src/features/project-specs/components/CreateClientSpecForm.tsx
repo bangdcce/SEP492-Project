@@ -3,9 +3,9 @@ import { useFieldArray, useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Plus, Trash2 } from 'lucide-react';
-import { Button } from '@/shared/components/ui/Button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/components/ui/Card';
-import { Input } from '@/shared/components/ui/Input';
+import { Button } from '@/shared/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Input } from '@/shared/components/ui/input';
 import { Textarea } from '@/shared/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/shared/components/ui/select';
 import { Badge } from '@/shared/components/ui/badge';
@@ -203,7 +203,9 @@ export function CreateClientSpecForm({
       <Card>
         <CardHeader>
           <CardTitle>Template Starter</CardTitle>
-          <CardDescription>Choose one of 3 starter templates to pre-fill common requirements.</CardDescription>
+          <CardDescription>
+            Choose one of {CLIENT_SPEC_TEMPLATES.length} starter templates to pre-fill common requirements.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Select

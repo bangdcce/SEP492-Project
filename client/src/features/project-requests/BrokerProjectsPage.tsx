@@ -1,5 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { ProjectRequestsTable } from './components/ProjectRequestsTable';
 import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
@@ -7,17 +8,20 @@ import { Loader2, Search } from 'lucide-react';
 import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
 import { STORAGE_KEYS } from '@/constants';
 import { getStoredJson } from '@/shared/utils/storage';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
-import { Input } from '@/shared/components/ui/Input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Input } from '@/shared/components/ui/input';
 import { Badge } from '@/shared/components/ui/badge';
+import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
+import toast from 'react-hot-toast';
 
 export const BrokerProjectsPage: React.FC = () => {
+  const location = useLocation();
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [assigningId, setAssigningId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [upgradeModalData, setUpgradeModalData] = useState<any>(null);
   const { checkKycStatus } = useKYCStatus();
 
   useEffect(() => {
@@ -25,7 +29,7 @@ export const BrokerProjectsPage: React.FC = () => {
     
     // Check KYC status
     checkKycStatus().then(setKycStatus);
-  }, []);
+  }, [checkKycStatus]);
 
   const fetchRequests = async () => {
     try {
@@ -41,7 +45,7 @@ export const BrokerProjectsPage: React.FC = () => {
 
   useEffect(() => {
     fetchRequests();
-  }, []);
+  }, [location.key]);
 
   // Filter for My Projects (Assigned OR Accepted Proposal)
   const myProjects = requests.filter(r => 
@@ -72,33 +76,20 @@ export const BrokerProjectsPage: React.FC = () => {
     (request) => request.status === 'CONTRACT_PENDING',
   ).length;
 
-  const handleAssign = async (requestId: string) => {
-    // Re-implementation of assign logic if needed locally, although usually "My Projects" are already assigned/accepted.
-    // Keeping it here just in case status changes or needed.
-     if (!confirm('Are you sure you want to assign this request to yourself?')) return;
-    
-    try {
-      setAssigningId(requestId);
-      await projectRequestsApi.assignBroker(requestId);
-      await fetchRequests();
-      alert('Request assigned successfully!');
-    } catch (error: any) {
-      console.error('Failed to assign request:', error);
-      alert(error.response?.data?.message || 'Failed to assign request');
-    } finally {
-      setAssigningId(null);
-    }
-  };
-
   const handleApply = async (requestId: string, coverLetter: string) => {
      // Re-implement apply if they can re-apply or apply to others here? Unlikely but good to have signature match.
      try {
         await projectRequestsApi.applyToRequest(requestId, coverLetter);
-        alert("Application submitted successfully!");
+        toast.success("Application submitted successfully!");
         fetchRequests();
      } catch (error: any) {
         console.error(error);
-        alert(error.response?.data?.message || "Failed to apply");
+        const quotaErr = parseQuotaError(error);
+        if (quotaErr) {
+          setUpgradeModalData(quotaErr);
+        } else {
+          toast.error(error.response?.data?.message || "Failed to apply");
+        }
      }
   };
 
@@ -181,13 +172,16 @@ export const BrokerProjectsPage: React.FC = () => {
          ) : (
             <ProjectRequestsTable 
                 requests={filteredProjects} 
-                onAssign={handleAssign}
                 onApply={handleApply}
-                assigningId={assigningId}
                 currentUserId={user?.id}
             />
          )}
       </div>
+      <UpgradeModal
+        isOpen={!!upgradeModalData}
+        onClose={() => setUpgradeModalData(null)}
+        quotaInfo={upgradeModalData}
+      />
     </div>
   );
 };

@@ -20,50 +20,47 @@ import {
 } from "@/shared/components/ui";
 import { wizardService } from "../wizard/services/wizardService";
 import { format } from "date-fns";
-import { ArrowLeft, Check, FileText, UserPlus, HelpCircle, Info, Users, Star, AlertTriangle, Sparkles, Loader2 } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Check, FileText, HelpCircle, Loader2, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
-import { CommentsSection } from "./components/CommentsSection";
-import { RequestStatus } from "./types";
+import { RequestDraftAlert } from "./components/RequestDraftAlert";
+import { RequestWorkflowBanner } from "./components/RequestWorkflowBanner";
+import {
+  type BrokerApplicationItem,
+  type ProjectRequest,
+  type RequestMatchCandidate,
+  RequestStatus,
+} from "./types";
 import { InviteModal } from "../discovery/InviteModal";
 import { UserRole } from "@/shared/types/user.types";
 import { CandidateProfileModal } from "./components/CandidateProfileModal";
 import { ScoreExplanationModal } from "./components/ScoreExplanationModal";
-import { projectSpecsApi } from "@/features/project-specs/api";
+import { RequestBrokerMarketPanel } from "./components/RequestBrokerMarketPanel";
+import { RequestContractHandoffPanel } from "./components/RequestContractHandoffPanel";
 import type { ProjectSpec } from "@/features/project-specs/types";
 import { ProjectSpecStatus, SpecPhase } from "@/features/project-specs/types";
-import { contractsApi } from "@/features/contracts/api";
 import type { ContractSummary } from "@/features/contracts/types";
-
-const pickLatestSpecByPhase = (specs: ProjectSpec[], phase: SpecPhase): ProjectSpec | null =>
-  [...specs]
-    .filter((spec) => spec.specPhase === phase)
-    .sort(
-      (a, b) =>
-        new Date(b.updatedAt || b.createdAt).getTime() -
-        new Date(a.updatedAt || a.createdAt).getTime(),
-    )[0] ?? null;
+import { connectSocket } from "@/shared/realtime/socket";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
+import {
+  getSelectedFreelancerProposal,
+  isContractActivated,
+  pickLatestSpecByPhase,
+  resolveRequestFlowSnapshot,
+} from "./requestFlow";
+import { buildClientNextAction } from "./requestDetailActions";
 
 // Helper for safe date formatting
-const safeFormatDate = (dateStr: any, fmt: string) => {
+const safeFormatDate = (dateStr: string | Date | null | undefined, fmt: string) => {
     try {
         if (!dateStr) return "N/A";
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return "Invalid Date";
         return format(d, fmt);
-    } catch (e) {
+    } catch {
         return "N/A";
     }
-};
-
-const isContractActivated = (contract?: ContractSummary | null) => {
-  if (!contract) return false;
-  const normalizedProjectStatus = String(contract.projectStatus || "").toUpperCase();
-  return (
-    Boolean(contract.activatedAt) ||
-    ["IN_PROGRESS", "TESTING", "COMPLETED", "PAID", "DISPUTED"].includes(normalizedProjectStatus)
-  );
 };
 
 export default function RequestDetailPage() {
@@ -71,18 +68,20 @@ export default function RequestDetailPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
-  const [request, setRequest] = useState<any>(null);
-  const [matches, setMatches] = useState<any[]>([]);
-  const [freelancerMatches, setFreelancerMatches] = useState<any[]>([]);
+  const [request, setRequest] = useState<ProjectRequest | null>(null);
+  const [matches, setMatches] = useState<RequestMatchCandidate[]>([]);
+  const [freelancerMatches, setFreelancerMatches] = useState<RequestMatchCandidate[]>([]);
   const [freelancerMatchesLoading, setFreelancerMatchesLoading] = useState(false);
+  const [brokerMatchesLoading, setBrokerMatchesLoading] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [specFlow, setSpecFlow] = useState<{ clientSpec: ProjectSpec | null; fullSpec: ProjectSpec | null }>({
     clientSpec: null,
     fullSpec: null,
   });
   const [linkedContract, setLinkedContract] = useState<ContractSummary | null>(null);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
-  const [selectedCandidate, setSelectedCandidate] = useState<any>(null);
+  const [selectedCandidate, setSelectedCandidate] = useState<RequestMatchCandidate | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isScoreExplanationOpen, setIsScoreExplanationOpen] = useState(false);
   
@@ -90,6 +89,15 @@ export default function RequestDetailPage() {
   const [viewMode, setViewMode] = useState("workflow");
   const [activeTab, setActiveTab] = useState("phase1");
   const [showDraftAlert, setShowDraftAlert] = useState(false);
+
+  // Delete Request State
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Hire Broker Warning State
+  const [showHireBrokerWarning, setShowHireBrokerWarning] = useState(false);
+  const [pendingHireBrokerId, setPendingHireBrokerId] = useState<string | null>(null);
+  const [reviewingFreelancerProposalId, setReviewingFreelancerProposalId] = useState<string | null>(null);
 
   // Invite Modal State
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -100,87 +108,6 @@ export default function RequestDetailPage() {
     if (tabParam) setActiveTab(tabParam);
   }, [searchParams]);
 
-  // Legacy status-only phase mapping (fallback)
-  const getPhase = useCallback((status: string) => {
-    if (status === RequestStatus.DRAFT || status === RequestStatus.PUBLIC_DRAFT || status === RequestStatus.PRIVATE_DRAFT) return 1;
-    if (
-      status === RequestStatus.BROKER_ASSIGNED ||
-      status === RequestStatus.PENDING_SPECS ||
-      status === RequestStatus.PENDING ||
-      status === RequestStatus.SPEC_SUBMITTED
-    ) return 2;
-    if (status === RequestStatus.SPEC_APPROVED || status === RequestStatus.HIRING) return 3;
-    if (status === RequestStatus.CONTRACT_PENDING) return 5;
-    if (status === RequestStatus.CONVERTED_TO_PROJECT || status === RequestStatus.IN_PROGRESS || status === RequestStatus.COMPLETED) return 5;
-    return 1; // Default
-  }, []);
-
-  const getWorkflowPhase = useCallback((
-    reqData: any,
-    flow: { clientSpec: ProjectSpec | null; fullSpec: ProjectSpec | null },
-    linkedContractData?: ContractSummary | null,
-  ) => {
-    if (!reqData?.status) return 1;
-
-    if (isContractActivated(linkedContractData)) {
-      return 5;
-    }
-
-    const status = reqData.status as string;
-    if (
-      status === RequestStatus.CONTRACT_PENDING ||
-      status === RequestStatus.CONVERTED_TO_PROJECT ||
-      status === RequestStatus.IN_PROGRESS ||
-      status === RequestStatus.COMPLETED
-    ) {
-      return 5;
-    }
-
-    const proposals = reqData.freelancerProposals || reqData.proposals || [];
-    const acceptedFreelancerCount = proposals.filter(
-      (proposal: any) => String(proposal?.status || '').toUpperCase() === 'ACCEPTED',
-    ).length;
-    const legacyPendingFreelancerCount = proposals.filter(
-      (proposal: any) => String(proposal?.status || '').toUpperCase() === 'PENDING',
-    ).length;
-    const hasSelectedFreelancer =
-      acceptedFreelancerCount > 0 ||
-      (acceptedFreelancerCount === 0 && legacyPendingFreelancerCount === 1);
-
-    const clientSpecApproved =
-      flow.clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED ||
-      Boolean(
-        status === RequestStatus.SPEC_APPROVED ||
-        status === RequestStatus.HIRING,
-      );
-
-    const brokerAssigned =
-      Boolean(reqData.brokerId) ||
-      [
-        RequestStatus.BROKER_ASSIGNED,
-        RequestStatus.PENDING_SPECS,
-        RequestStatus.SPEC_SUBMITTED,
-        RequestStatus.SPEC_APPROVED,
-        RequestStatus.HIRING,
-      ].includes(status as any);
-
-    if (!brokerAssigned) {
-      return getPhase(status);
-    }
-    if (!clientSpecApproved) {
-      return 2;
-    }
-    if (!hasSelectedFreelancer) {
-      return 3;
-    }
-
-    if (flow.fullSpec?.status === ProjectSpecStatus.ALL_SIGNED) {
-      return 5;
-    }
-
-    return 4;
-  }, [getPhase]);
-
   const fetchFreelancerMatches = useCallback(async (requestId: string, useAi: boolean = false) => {
     try {
       setFreelancerMatchesLoading(true);
@@ -188,43 +115,60 @@ export default function RequestDetailPage() {
         ? await wizardService.getFreelancerMatches(requestId, { enableAi: true, topN: 10 })
         : await wizardService.getFreelancerMatchesQuick(requestId);
       setFreelancerMatches(data || []);
+      if (useAi) toast.success("AI analysis complete");
     } catch (error) {
       console.error('Freelancer matching failed', error);
       setFreelancerMatches([]);
+      toast.error("AI analysis failed");
     } finally {
       setFreelancerMatchesLoading(false);
+    }
+  }, []);
+
+  const fetchBrokerMatches = useCallback(async (requestId: string, useAi: boolean = false) => {
+    try {
+      setBrokerMatchesLoading(true);
+      const data = useAi
+        ? await wizardService.getBrokerMatches(requestId, { enableAi: true, topN: 10 })
+        : await wizardService.getBrokerMatchesQuick(requestId);
+      setMatches(data || []);
+      if (useAi) toast.success("AI analysis complete");
+    } catch (error) {
+      console.error('Broker matching failed', error);
+      setMatches([]);
+      toast.error("AI analysis failed");
+    } finally {
+      setBrokerMatchesLoading(false);
     }
   }, []);
 
   const fetchData = useCallback(async (requestId: string) => {
     try {
       setLoading(true);
-      const [reqData, matchData, specsData, contractList] = await Promise.all([
-        wizardService.getRequestById(requestId),
-        wizardService.getBrokerMatchesQuick(requestId),
-        projectSpecsApi.getSpecsByRequest(requestId).catch((error) => {
-          console.warn("Failed to load project specs for request detail page", error);
-          return [] as ProjectSpec[];
-        }),
-        contractsApi.listContracts().catch((error) => {
-          console.warn("Failed to load contracts for request detail page", error);
-          return [] as ContractSummary[];
-        }),
-      ]);
+      setLoadError(null);
+      const reqData = (await wizardService.getRequestById(requestId)) as ProjectRequest;
       setRequest(reqData);
+      const requestSpecs = Array.isArray(reqData?.specs) ? reqData.specs : [];
       const nextSpecFlow = {
-        clientSpec: pickLatestSpecByPhase(specsData, SpecPhase.CLIENT_SPEC),
-        fullSpec: pickLatestSpecByPhase(specsData, SpecPhase.FULL_SPEC),
+        clientSpec: pickLatestSpecByPhase(requestSpecs, SpecPhase.CLIENT_SPEC),
+        fullSpec: pickLatestSpecByPhase(requestSpecs, SpecPhase.FULL_SPEC),
       };
       setSpecFlow(nextSpecFlow);
-      const nextLinkedContract = contractList.find((contract) => contract.requestId === requestId) || null;
+      const nextLinkedContract = (reqData?.linkedContractSummary as ContractSummary | null) || null;
       setLinkedContract(nextLinkedContract);
 
       // Handle matches only if request found
       if (reqData) {
-        setMatches(matchData || []);
-        // Auto-select main tab based on phase
-        const phase = getWorkflowPhase(reqData, nextSpecFlow, nextLinkedContract);
+        const canViewBrokerMatches = reqData?.viewerPermissions?.canViewBrokerMatches !== false;
+        const applicationItems = reqData?.brokerApplicationSummary?.items || [];
+        const matchData = canViewBrokerMatches
+          ? await wizardService.getBrokerMatchesQuick(requestId).catch((error) => {
+              console.warn("Failed to load broker matches for request detail page", error);
+              return [] as BrokerApplicationItem[];
+            })
+          : [];
+        setMatches(applicationItems.length > 0 ? applicationItems : matchData || []);
+        const phase = resolveRequestFlowSnapshot(reqData, nextSpecFlow, nextLinkedContract).phaseNumber;
         if (phase > 0) setActiveTab(`phase${phase}`);
 
         // Auto-fetch freelancer matches for Phase 3+
@@ -234,11 +178,13 @@ export default function RequestDetailPage() {
       }
     } catch (error) {
       console.error("Failed to load request details", error);
-      toast.error("Error", { description: "Could not load request details." });
+      const details = getApiErrorDetails(error, "Could not load request details.");
+      setLoadError(details.message);
+      toast.error("Error", { description: details.message });
     } finally {
       setLoading(false);
     }
-  }, [getWorkflowPhase, fetchFreelancerMatches]);
+  }, [fetchFreelancerMatches]);
 
   useEffect(() => {
     if (id) {
@@ -246,41 +192,116 @@ export default function RequestDetailPage() {
     }
   }, [id, fetchData]);
 
+  useEffect(() => {
+    if (!id) return;
+    const socket = connectSocket();
+    const handleNotificationCreated = (payload: {
+      notification?: {
+        relatedType?: string | null;
+        relatedId?: string | null;
+      };
+      relatedType?: string | null;
+      relatedId?: string | null;
+    }) => {
+      const notification = payload?.notification ?? payload;
+      const relatedType = String(notification?.relatedType || "");
+      const relatedId = String(notification?.relatedId || "");
+      const linkedProjectId = request?.linkedProjectSummary?.id;
+      const linkedContractId = request?.linkedContractSummary?.id;
+
+      const isRelevant =
+        (relatedType === "ProjectRequest" && relatedId === id) ||
+        (relatedType === "Project" && Boolean(linkedProjectId) && relatedId === linkedProjectId) ||
+        (relatedType === "Contract" && Boolean(linkedContractId) && relatedId === linkedContractId) ||
+        (relatedType === "ProjectSpec" && id === request?.id);
+
+      if (isRelevant) {
+        void fetchData(id);
+      }
+    };
+
+    socket.on("NOTIFICATION_CREATED", handleNotificationCreated);
+    return () => {
+      socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
+    };
+  }, [fetchData, id, request?.id, request?.linkedContractSummary?.id, request?.linkedProjectSummary?.id]);
+
   const handleStatusChange = async (newStatus: RequestStatus) => {
       try {
           setIsUpdatingStatus(true);
-          await wizardService.updateRequest(id!, { status: newStatus });
-          setRequest((prev: any) => ({ ...prev, status: newStatus }));
+          const updatedRequest = newStatus === RequestStatus.PUBLIC_DRAFT
+            ? await wizardService.publishRequest(id!)
+            : await wizardService.updateRequest(id!, { status: newStatus });
+          setRequest((prev: any) => ({ ...prev, ...(updatedRequest || {}), status: updatedRequest?.status || newStatus }));
           toast.success("Status Updated", {
-              description: `Project is now ${newStatus.replace('_', ' ').toLowerCase()}`
+              description: `Project is now ${(updatedRequest?.status || newStatus).replace('_', ' ').toLowerCase()}`
           });
-      } catch (_error) {
+      } catch {
           toast.error("Failed to update status");
       } finally {
           setIsUpdatingStatus(false);
       }
   };
-
   const handleRevertToDraft = async () => {
       try {
           // explicitly set to PUBLIC_DRAFT
-          await wizardService.updateRequest(id!, { status: RequestStatus.PUBLIC_DRAFT, isDraft: true });
+          await wizardService.updateRequest(id!, { status: RequestStatus.PUBLIC_DRAFT });
           toast.success("Reverted to Draft", {
               description: "Redirecting to wizard for editing...",
           });
           navigate(`/client/wizard?draftId=${id}`);
-      } catch (_error) {
+      } catch {
           toast.error("Failed to revert to draft");
       }
   };
 
   const handleAcceptBroker = async (brokerId: string) => {
+      if (!request) return;
       try {
           await wizardService.acceptBroker(request.id, brokerId);
           toast.success("Broker Hired", { description: "You have assigned a broker to this project." });
-          fetchData(request.id);
-      } catch (_error) {
+          void fetchData(request.id);
+      } catch {
           toast.error("Failed to hire broker");
+      }
+  };
+
+  const handleHireBrokerClick = (brokerId: string) => {
+      setPendingHireBrokerId(brokerId);
+      setShowHireBrokerWarning(true);
+  };
+
+  const handleConfirmHireBroker = () => {
+      if (pendingHireBrokerId) {
+          handleAcceptBroker(pendingHireBrokerId);
+      }
+      setShowHireBrokerWarning(false);
+      setPendingHireBrokerId(null);
+  };
+
+  const handleDeleteRequest = async () => {
+      try {
+          setIsDeleting(true);
+          await wizardService.deleteRequest(id!);
+          toast.success("Request Deleted", { description: "Your project request has been permanently deleted." });
+          navigate(ROUTES.CLIENT_DASHBOARD);
+      } catch (error: any) {
+          const message = error?.response?.data?.message || "Failed to delete request";
+          toast.error("Delete Failed", { description: message });
+      } finally {
+          setIsDeleting(false);
+          setShowDeleteConfirm(false);
+      }
+  };
+
+  const handleReleaseBrokerSlot = async (proposalId: string) => {
+      if (!request) return;
+      try {
+          await wizardService.releaseBrokerSlot(request.id, proposalId);
+          toast.success("Broker slot released.");
+          void fetchData(request.id);
+      } catch (error) {
+          toast.error(getApiErrorDetails(error, "Failed to release broker slot.").message);
       }
   };
 
@@ -297,27 +318,70 @@ export default function RequestDetailPage() {
     handleOpenInviteModal(brokerId, brokerName, "BROKER");
   };
 
+  const handleOpenCandidateProfile = (candidate: RequestMatchCandidate) => {
+    setSelectedCandidate(candidate);
+    setIsProfileModalOpen(true);
+  };
+
+  const handleApproveFreelancerInvite = async (proposalId: string) => {
+    if (!id) return;
+    try {
+      setReviewingFreelancerProposalId(proposalId);
+      await wizardService.approveFreelancerInvite(id, proposalId);
+      toast.success("Freelancer recommendation approved");
+      void fetchData(id);
+    } catch (error) {
+      toast.error(getApiErrorDetails(error, "Failed to approve freelancer recommendation.").message);
+    } finally {
+      setReviewingFreelancerProposalId(null);
+    }
+  };
+
+  const handleRejectFreelancerInvite = async (proposalId: string) => {
+    if (!id) return;
+    try {
+      setReviewingFreelancerProposalId(proposalId);
+      await wizardService.rejectFreelancerInvite(id, proposalId);
+      toast.success("Freelancer recommendation rejected");
+      void fetchData(id);
+    } catch (error) {
+      toast.error(getApiErrorDetails(error, "Failed to reject freelancer recommendation.").message);
+    } finally {
+      setReviewingFreelancerProposalId(null);
+    }
+  };
+
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Spinner size="lg" />
       </div>
     );
+  if (loadError) {
+    return <div className="p-10 text-center text-sm text-slate-600">{loadError}</div>;
+  }
   if (!request)
     return <div className="p-10 text-center">Request not found</div>;
 
-  const currentPhase = request ? getWorkflowPhase(request, specFlow, linkedContract) : 0;
+  const flowSnapshot = resolveRequestFlowSnapshot(request, specFlow, linkedContract);
+  const currentPhase = flowSnapshot.phaseNumber;
   const clientSpec = specFlow.clientSpec;
   const fullSpec = specFlow.fullSpec;
-  const freelancerProposalList = request?.freelancerProposals || request?.proposals || [];
-  const acceptedFreelancerProposal = freelancerProposalList.find(
-    (proposal: any) => String(proposal?.status || '').toUpperCase() === 'ACCEPTED',
-  );
-  const legacyPendingFreelancerProposal = freelancerProposalList.find(
-    (proposal: any) => String(proposal?.status || '').toUpperCase() === 'PENDING',
-  );
-  const selectedFreelancerProposal = acceptedFreelancerProposal || legacyPendingFreelancerProposal;
+  const selectedFreelancerProposal = getSelectedFreelancerProposal(request);
   const hasAcceptedFreelancer = Boolean(selectedFreelancerProposal);
+  const brokerApplications =
+    request?.brokerSelectionSummary?.items || request?.brokerApplicationSummary?.items || request?.brokerProposals || [];
+  const pendingBrokerApplications = brokerApplications.filter(
+    (proposal) => String(proposal?.status || '').toUpperCase() === 'PENDING',
+  );
+  const nonPendingBrokerApplications = brokerApplications.filter(
+    (proposal) => String(proposal?.status || '').toUpperCase() !== 'PENDING',
+  );
+  const brokerSlotSummary = request?.brokerApplicationSummary?.slots || null;
+  const pendingFreelancerRecommendations =
+    request?.freelancerSelectionSummary?.items?.filter(
+      (proposal) => String(proposal?.status || "").toUpperCase() === "PENDING_CLIENT_APPROVAL",
+    ) || [];
   const formatSpecStatus = (status: string) => status.replace(/_/g, " ");
   const getSpecStatusColor = (status: string) => {
     switch (status) {
@@ -338,31 +402,104 @@ export default function RequestDetailPage() {
     clientSpec?.status === ProjectSpecStatus.CLIENT_REVIEW ? "Review Client Spec" : "View Client Spec";
   const fullSpecActionLabel =
     fullSpec?.status === ProjectSpecStatus.FINAL_REVIEW ? "Review & Sign Final Spec" : "View Final Spec";
+  const canDeleteRequest = !request.brokerId && [
+    RequestStatus.DRAFT,
+    RequestStatus.PUBLIC_DRAFT,
+    RequestStatus.PRIVATE_DRAFT,
+  ].includes(request.status as any);
+  const canEditRequest = !request.brokerId && [
+    RequestStatus.DRAFT,
+    RequestStatus.PUBLIC_DRAFT,
+    RequestStatus.PRIVATE_DRAFT,
+  ].includes(request.status as any);
   const canOpenContract = Boolean(linkedContract?.id);
   const contractActivated = isContractActivated(linkedContract);
   const canOpenWorkspace = Boolean(linkedContract?.projectId && contractActivated);
-
-  // Custom Alert Dialog Component
-  const DraftAlertDialog = () => (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-          <Card className="w-full max-w-md p-6 shadow-2xl border-2 border-primary/20">
-              <h3 className="text-lg font-bold mb-2">Switch back to Draft?</h3>
-              <p className="text-muted-foreground mb-4 text-sm">
-                  <strong className="text-orange-600 block mb-1">Warning:</strong> 
-                  Switching to draft will hide your project from the marketplace. 
-                  Brokers cannot see it, and you cannot send new invitations until you post it again.
-              </p>
-              <div className="flex justify-end gap-3">
-                  <Button variant="outline" onClick={() => setShowDraftAlert(false)}>Cancel</Button>
-                  <Button variant="destructive" onClick={handleRevertToDraft}>Confirm & Edit</Button>
-              </div>
-          </Card>
-      </div>
-  );
+  const assignedBrokerProfileId = request.broker?.id ?? null;
+  const clientNextAction = buildClientNextAction({
+    currentPhase,
+    clientSpec,
+    fullSpec,
+    hasAcceptedFreelancer,
+    linkedContract,
+    canOpenContract,
+    canOpenWorkspace,
+    onRefresh: () => {
+      if (id) {
+        void fetchData(id);
+      }
+    },
+    onSetPhase: (phase) => setActiveTab(`phase${phase}`),
+    onOpenClientSpec: (specId) => navigate(`/client/spec-review/${specId}`),
+    onOpenFullSpec: (specId) => navigate(`/client/spec-review/${specId}`),
+    onOpenContract: (contractId) => navigate(`/client/contracts/${contractId}`),
+    onOpenWorkspace: (projectId) => navigate(`/client/workspace/${projectId}`),
+  });
 
   return (
     <div className="container mx-auto p-4 md:p-6 max-w-7xl relative">
-      {showDraftAlert && <DraftAlertDialog />}
+      {showDraftAlert && (
+        <RequestDraftAlert
+          onCancel={() => setShowDraftAlert(false)}
+          onConfirm={handleRevertToDraft}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <Card className="w-full max-w-md p-6 shadow-2xl border-2 border-red-200">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-red-100 rounded-full">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-red-900">Delete This Request?</h3>
+            </div>
+            <p className="text-muted-foreground mb-2 text-sm">
+              This action is <strong className="text-red-600">permanent and cannot be undone</strong>.
+            </p>
+            <p className="text-muted-foreground mb-4 text-sm">
+              The request, all associated answers, and any pending broker proposals will be permanently deleted.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>Cancel</Button>
+              <Button variant="destructive" onClick={handleDeleteRequest} disabled={isDeleting}>
+                {isDeleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                Delete Permanently
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Hire Broker Warning Dialog */}
+      {showHireBrokerWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <Card className="w-full max-w-md p-6 shadow-2xl border-2 border-amber-200">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-amber-100 rounded-full">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+              </div>
+              <h3 className="text-lg font-bold text-amber-900">Important: Read Before Hiring</h3>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-amber-900 leading-relaxed">
+                Once you hire a broker, you will <strong>no longer be able to delete</strong> this request.
+                If you need to cancel later, you must use the <strong>Dispute</strong> or <strong>Report</strong> system.
+              </p>
+            </div>
+            <p className="text-muted-foreground mb-4 text-xs">
+              This safeguard exists to protect brokers from having their work discarded without proper resolution.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => { setShowHireBrokerWarning(false); setPendingHireBrokerId(null); }}>Cancel</Button>
+              <Button onClick={handleConfirmHireBroker}>
+                I Understand, Hire Broker
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
 
       <div className="flex justify-between items-center mb-4">
         <Button
@@ -396,22 +533,29 @@ export default function RequestDetailPage() {
                          <div className="flex gap-3">
                              <div className="bg-primary/10 p-2 rounded-full h-fit"><FileText className="w-4 h-4 text-primary"/></div>
                              <div>
-                                 <h4 className="font-semibold">2. Finalize Specs</h4>
-                                 <p className="text-sm text-muted-foreground">Chat with your broker to lock in the Detailed Requirement Specs (DRS).</p>
+                                 <h4 className="font-semibold">2. Approve Client Spec</h4>
+                                 <p className="text-sm text-muted-foreground">Review the client-readable scope and approve/reject it.</p>
                              </div>
                          </div>
                          <div className="flex gap-3">
                              <div className="bg-primary/10 p-2 rounded-full h-fit"><Check className="w-4 h-4 text-primary"/></div>
                              <div>
                                  <h4 className="font-semibold">3. Hire Freelancer</h4>
-                                 <p className="text-sm text-muted-foreground">Your Broker will suggest freelancers. Approve them to build the team.</p>
+                                 <p className="text-sm text-muted-foreground">Invite freelancer and accept one signer for the project.</p>
                              </div>
                          </div>
                          <div className="flex gap-3">
                              <div className="bg-primary/10 p-2 rounded-full h-fit"><Check className="w-4 h-4 text-primary"/></div>
                              <div>
-                                 <h4 className="font-semibold">4. Sign Contract</h4>
-                                 <p className="text-sm text-muted-foreground">Review the generated contract and sign to officially start the project.</p>
+                                 <h4 className="font-semibold">4. Sign Final Spec</h4>
+                                 <p className="text-sm text-muted-foreground">Client + broker + freelancer sign Final Spec together.</p>
+                             </div>
+                         </div>
+                         <div className="flex gap-3">
+                             <div className="bg-primary/10 p-2 rounded-full h-fit"><Check className="w-4 h-4 text-primary"/></div>
+                             <div>
+                                 <h4 className="font-semibold">5. Sign Contract</h4>
+                                 <p className="text-sm text-muted-foreground">Contract is created from Final Spec. All parties sign to start workspace.</p>
                              </div>
                          </div>
                     </div>
@@ -443,6 +587,24 @@ export default function RequestDetailPage() {
         </div>
         
         <div className="flex gap-2">
+            {canEditRequest && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate(`/client/wizard?draftId=${request.id}`)}
+              >
+                <FileText className="w-4 h-4 mr-2" /> Edit Request
+              </Button>
+            )}
+            {canDeleteRequest && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" /> Delete Request
+              </Button>
+            )}
             {canOpenContract && (
               <Button
                 className="bg-green-600 hover:bg-green-700"
@@ -462,9 +624,8 @@ export default function RequestDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Main Content */}
-        <div className="lg:col-span-2 space-y-6">
+      <div className="space-y-6">
+        <div className="space-y-6">
             {/* Top Level Navigation Layer */}
             <div className="flex gap-4 border-b pb-2 mb-4">
                  <button 
@@ -491,6 +652,12 @@ export default function RequestDetailPage() {
             </CardContent>
           </Card>
 
+          <RequestWorkflowBanner
+            action={clientNextAction}
+            currentPhase={currentPhase}
+            requestStatus={request.status}
+          />
+
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-5 mb-4">
               <TabsTrigger value="phase1" className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">1. Hire Broker</TabsTrigger>
@@ -500,264 +667,32 @@ export default function RequestDetailPage() {
               <TabsTrigger value="phase5" disabled={currentPhase < 5} className="data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">5. Contract</TabsTrigger>
             </TabsList>
 
-            {/* PHASE 1: HIRE BROKER */}
-            {/* PHASE 1: HIRE BROKER */}
             <TabsContent value="phase1">
-               <Card>
-                <CardHeader>
-                     <h2 className="text-xl font-semibold">Broker Recruitment</h2>
-                </CardHeader>
-                <CardContent>
-                    {/* Project Brief Summary for Context */}
-                    <div className="mb-6 p-4 bg-muted/20 rounded-lg border">
-                        <h3 className="font-semibold mb-2">Project Brief</h3>
-                        <p className="text-sm text-muted-foreground line-clamp-3">{request.description}</p>
-                    </div>
-
-                    {currentPhase >= 2 ? (
-                        <div className="bg-green-50 border-green-200 border rounded-lg p-8 text-center">
-                            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                <Check className="w-8 h-8 text-green-600" />
-                            </div>
-                            <h3 className="text-xl font-bold text-green-800 mb-2">Broker Hired</h3>
-                            <p className="text-green-700 mb-6 max-w-md mx-auto">
-                                You have successfully hired <strong>{request.broker?.fullName || 'a Broker'}</strong> for this project. 
-                                Proceed to the next phase to finalize specifications.
-                            </p>
-                            <div className="flex justify-center gap-4">
-                                <Button variant="outline" className="border-green-600 text-green-600 hover:bg-green-100 bg-white">
-                                    View Broker Profile
-                                </Button>
-                                <Button onClick={() => setActiveTab('phase2')}>
-                                    Go to Finalize Specs
-                                </Button>
-                            </div>
-                        </div>
-                    ) : (
-                        <>
-                            {/* Visibility Control Section */}
-                            {(request.status === RequestStatus.PUBLIC_DRAFT || request.status === RequestStatus.PRIVATE_DRAFT) && (
-                            <div className="bg-background border rounded-lg p-4 mb-6 shadow-sm">
-                                <div className="flex items-center justify-between flex-wrap gap-4">
-                                    <div className="flex items-center gap-3">
-                                        <div>
-                                            <div className="text-sm text-muted-foreground font-medium uppercase tracking-wider">Current Visibility</div>
-                                            <div className="flex items-center gap-2">
-                                                <div className={`w-3 h-3 rounded-full ${request.status === RequestStatus.PUBLIC_DRAFT ? 'bg-green-500' : 'bg-amber-500'}`} />
-                                                <span className="font-bold text-lg">{request.status === RequestStatus.PUBLIC_DRAFT ? 'Public (Open to All)' : 'Private (Invite Only)'}</span>
-                                            </div>
-                                        </div>
-                                        <Dialog>
-                                            <DialogTrigger asChild>
-                                                <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full text-muted-foreground hover:text-primary"><Info className="w-5 h-5"/></Button>
-                                            </DialogTrigger>
-                                            <DialogContent>
-                                                <DialogHeader>
-                                                    <DialogTitle>Public vs. Private Requests</DialogTitle>
-                                                </DialogHeader>
-                                                <div className="space-y-4 pt-2">
-                                                    <div className="border-l-4 border-green-500 pl-4 py-1">
-                                                        <h4 className="font-bold text-green-700">Public Request</h4>
-                                                        <p className="text-sm text-muted-foreground">Visible to ALL brokers on the marketplace. Any broker can submit a proposal. Good for getting competitive offers.</p>
-                                                    </div>
-                                                    <div className="border-l-4 border-amber-500 pl-4 py-1">
-                                                        <h4 className="font-bold text-amber-700">Private Request</h4>
-                                                        <p className="text-sm text-muted-foreground">Hidden from the marketplace. Only brokers you explicitly invite can see and apply. Good for confidentiality or when you have specific brokers in mind.</p>
-                                                    </div>
-                                                    <div className="bg-muted p-3 rounded text-xs">
-                                                        <strong>Note:</strong> Switching from Public to Private will automatically REJECT all pending proposals to ensure confidentiality.
-                                                    </div>
-                                                </div>
-                                            </DialogContent>
-                                        </Dialog>
-                                    </div>
-                                    
-                                    <Button 
-                                        variant={request.status === RequestStatus.PUBLIC_DRAFT ? "outline" : "default"}
-                                        onClick={() => handleStatusChange(request.status === RequestStatus.PUBLIC_DRAFT ? RequestStatus.PRIVATE_DRAFT : RequestStatus.PUBLIC_DRAFT)}
-                                        disabled={isUpdatingStatus}
-                                    >
-                                        {request.status === RequestStatus.PUBLIC_DRAFT ? "Make Project Private" : "Make Project Public"}
-                                    </Button>
-                                </div>
-                            </div>
-                            )}
-
-                            {/* PUBLIC DRAFT: Show Proposals & Invitations */}
-                            {request.status === RequestStatus.PUBLIC_DRAFT && (
-                                <div className="space-y-8 mb-8">
-                                     {/* 1. Incoming Applications (PENDING) */}
-                                     <div>
-                                         <h3 className="font-semibold text-lg flex items-center gap-2 mb-4">
-                                            <FileText className="w-5 h-5" /> Incoming Applications
-                                            <Badge variant="secondary">
-                                                {request.brokerProposals?.filter((p: any) => p.status === 'PENDING').length || 0}
-                                            </Badge>
-                                         </h3>
-                                         
-                                         {(!request.brokerProposals || request.brokerProposals.filter((p: any) => p.status === 'PENDING').length === 0) ? (
-                                            <div className="text-center py-6 bg-muted/10 border-2 border-dashed rounded-lg">
-                                                <p className="text-muted-foreground">No applications received yet.</p>
-                                            </div>
-                                         ) : (
-                                            <div className="space-y-4">
-                                                {request.brokerProposals.filter((p: any) => p.status === 'PENDING').map((proposal: any) => (
-                                                    <div key={proposal.id} className="border rounded-lg p-4 flex justify-between items-start bg-card hover:bg-muted/10 transition-colors">
-                                                        <div>
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <h4 className="font-bold text-lg">{proposal.broker?.fullName || 'Unknown Broker'}</h4>
-                                                                <Badge>{proposal.status}</Badge>
-                                                            </div>
-                                                            <p className="text-muted-foreground text-sm mb-2">Applied on {safeFormatDate(proposal.createdAt, "MMM d, yyyy")}</p>
-                                                            <div className="bg-muted p-3 rounded-md text-sm italic">
-                                                                "{proposal.coverLetter || 'No cover letter provided.'}"
-                                                            </div>
-                                                        </div>
-                                                        <Button onClick={() => handleAcceptBroker(proposal.brokerId)}>
-                                                            Hire Broker
-                                                        </Button>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                         )}
-                                     </div>
-
-                                     {/* 2. Sent Invitations (INVITED / REJECTED / ACCEPTED) */}
-                                     <div>
-                                         <h3 className="font-semibold text-lg flex items-center gap-2 mb-4">
-                                            <UserPlus className="w-5 h-5" /> Sent Invitations
-                                            <Badge variant="secondary">
-                                                {request.brokerProposals?.filter((p: any) => p.status !== 'PENDING').length || 0}
-                                            </Badge>
-                                         </h3>
-                                         
-                                         {(!request.brokerProposals || request.brokerProposals.filter((p: any) => p.status !== 'PENDING').length === 0) ? (
-                                            <div className="text-center py-6 bg-muted/10 border-2 border-dashed rounded-lg">
-                                                <p className="text-muted-foreground">No invitations sent yet.</p>
-                                            </div>
-                                         ) : (
-                                            <div className="space-y-4">
-                                                {request.brokerProposals.filter((p: any) => p.status !== 'PENDING').map((proposal: any) => (
-                                                    <div key={proposal.id} className="border rounded-lg p-4 flex justify-between items-center bg-card">
-                                                        <div>
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <h4 className="font-semibold">{proposal.broker?.fullName || 'Unknown Broker'}</h4>
-                                                                <Badge variant="outline">{proposal.status}</Badge>
-                                                            </div>
-                                                            <p className="text-muted-foreground text-sm">Invited on {safeFormatDate(proposal.createdAt, "MMM d, yyyy")}</p>
-                                                        </div>
-                                                        {proposal.status === 'ACCEPTED' && (
-                                                            <Button onClick={() => handleAcceptBroker(proposal.brokerId)} size="sm">
-                                                                Hire Candidate
-                                                            </Button>
-                                                        )}
-                                                         {proposal.status === 'INVITED' && (
-                                                            <span className="text-sm text-muted-foreground italic">Waiting for response...</span>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                         )}
-                                     </div>
-                                </div>
-                            )}
-
-                            {/* Show Find Brokers for BOTH (If Public, users might still want to invite specific people) */}
-                            {(request.status === RequestStatus.PUBLIC_DRAFT || request.status === RequestStatus.PRIVATE_DRAFT) && (
-                                <div className="space-y-4">
-                                        <div className="flex justify-between items-center pb-2 border-b">
-                                            <h3 className="font-semibold text-lg flex items-center gap-2">
-                                                <UserPlus className="w-5 h-5" /> Find & Invite Brokers
-                                            </h3>
-                                            <div className="flex gap-2 items-center">
-                                                <span className="text-xs text-muted-foreground mr-1 flex items-center gap-1">
-                                                    {matches?.length || 0} Top Matches
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted" onClick={() => setIsScoreExplanationOpen(true)}>
-                                                        <HelpCircle className="w-5 h-5 text-muted-foreground" />
-                                                    </Button>
-                                                </span>
-                                                <Button size="sm" variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.BROKER}`)}>
-                                                    Search Marketplace
-                                                </Button>
-                                            </div>
-                                        </div>
-                                        {(!matches || matches.length === 0) ? (
-                                            <p className="text-muted-foreground text-center py-8">
-                                                No brokers found matching your criteria.
-                                            </p>
-                                        ) : (
-                                        matches.map((broker: any) => (
-                                            <div key={broker.candidateId || broker.id} className="flex items-center justify-between p-4 border rounded-lg bg-background hover:bg-muted/30 transition-colors">
-                                            <div className="flex items-center gap-4">
-                                                <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg border-2 ${
-                                                        broker.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                        broker.classificationLabel === 'POTENTIAL' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                                        broker.classificationLabel === 'HIGH_RISK' ? 'bg-red-50 text-red-700 border-red-200' :
-                                                        'bg-gray-50 text-gray-700 border-gray-200'
-                                                    }`}>
-                                                    {broker.fullName?.charAt(0) || '?'}
-                                                </div>
-                                                <div>
-                                                <h4 className="font-semibold text-lg">{broker.fullName || "Unknown Broker"}</h4>
-                                                
-                                                {/* AI Score Rendering */}
-                                                <div className="flex items-center gap-2 mt-1 mb-1">
-                                                    {broker.classificationLabel && (
-                                                        <Badge variant={broker.classificationLabel === 'PERFECT_MATCH' ? 'default' : 'outline'}
-                                                            className={`text-[10px] ${
-                                                                broker.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-600' :
-                                                                broker.classificationLabel === 'POTENTIAL' ? 'border-amber-400 text-amber-700' :
-                                                                broker.classificationLabel === 'HIGH_RISK' ? 'border-red-400 text-red-700' : ''
-                                                            }`}
-                                                        >
-                                                            {broker.classificationLabel?.replace('_', ' ')}
-                                                        </Badge>
-                                                    )}
-                                                    
-                                                    {broker.matchScore !== undefined && (
-                                                        <div className="flex gap-3 text-sm text-muted-foreground">
-                                                            <span className="flex items-center gap-1">
-                                                                <Star className="w-3 h-3" /> Score: {broker.matchScore}
-                                                            </span>
-                                                            {broker.aiRelevanceScore !== null && broker.aiRelevanceScore !== undefined && (
-                                                                <span className="flex items-center gap-1">
-                                                                    <Sparkles className="w-3 h-3 text-indigo-500" /> AI: {broker.aiRelevanceScore}
-                                                                </span>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </div>
-
-                                                {/* Matched Skills */}
-                                                {broker.matchedSkills && broker.matchedSkills.length > 0 && (
-                                                    <div className="flex gap-1 flex-wrap mb-1">
-                                                        {broker.matchedSkills.map((skill: string) => (
-                                                            <Badge key={skill} variant="secondary" className="text-[10px] px-2 py-0.5">{skill}</Badge>
-                                                        ))}
-                                                    </div>
-                                                )}
-
-                                                {/* Reasoning */}
-                                                {broker.reasoning && (
-                                                    <p className="text-xs text-muted-foreground italic line-clamp-2 mt-1">{broker.reasoning}</p>
-                                                )}
-                                                 </div>
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <Button size="sm" variant="outline" onClick={() => { setSelectedCandidate(broker); setIsProfileModalOpen(true); }}>Profile</Button>
-                                                <Button size="sm" onClick={() => handleInvite(broker.id || broker.candidateId, broker.fullName)}>
-                                                <UserPlus className="w-4 h-4 mr-2" /> Invite
-                                                </Button>
-                                            </div>
-                                            </div>
-                                        ))
-                                        )}
-                                </div>
-                            )}
-                        </>
-                    )}
-                </CardContent>
-               </Card>
+              <RequestBrokerMarketPanel
+                request={request}
+                currentPhase={currentPhase}
+                isUpdatingStatus={isUpdatingStatus}
+                brokerSlotSummary={brokerSlotSummary}
+                pendingBrokerApplications={pendingBrokerApplications}
+                nonPendingBrokerApplications={nonPendingBrokerApplications}
+                matches={matches}
+                brokerMatchesLoading={brokerMatchesLoading}
+                onChangeVisibility={handleStatusChange}
+                onAcceptBroker={handleHireBrokerClick}
+                onReleaseBrokerSlot={handleReleaseBrokerSlot}
+                onInviteBroker={handleInvite}
+                onOpenProfile={handleOpenCandidateProfile}
+                onPhaseAdvance={() => setActiveTab("phase2")}
+                onOpenAssignedBrokerProfile={
+                  assignedBrokerProfileId
+                    ? () => navigate(`/client/discovery/profile/${assignedBrokerProfileId}`)
+                    : null
+                }
+                onOpenScoreExplanation={() => setIsScoreExplanationOpen(true)}
+                onSearchMarketplace={() => navigate(`/client/discovery?role=${UserRole.BROKER}`)}
+                onGetAiSuggestions={() => id && fetchBrokerMatches(id, true)}
+                formatDate={safeFormatDate}
+              />
             </TabsContent>
 
             {/* PHASE 2: FINALIZING SPECS */}
@@ -766,7 +701,17 @@ export default function RequestDetailPage() {
                 <CardHeader>
                     <div className="flex justify-between items-center">
                         <h2 className="text-xl font-semibold">Client Spec Review</h2>
-                        <Button variant="destructive" size="sm" onClick={() => window.alert('Report sent to Admin.')}>Report Broker</Button>
+                        <Button
+                          variant="destructive"
+                          size="sm"
+                          onClick={() =>
+                            toast.info("Report sent to Admin.", {
+                              description: "The moderation team has been notified for follow-up.",
+                            })
+                          }
+                        >
+                          Report Broker
+                        </Button>
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -814,7 +759,7 @@ export default function RequestDetailPage() {
                                 </div>
 
                                 <div className="mt-4 rounded-md border bg-white p-3 text-sm text-blue-800">
-                                  Next phase after Client Spec approval: select freelancer, then proceed to Phase 4 for Full Spec 3-party sign-off.
+                                  Next phase after Client Spec approval: select a freelancer, then proceed to Phase 4 for full-spec three-party sign-off.
                                 </div>
                            </div>
 
@@ -834,157 +779,132 @@ export default function RequestDetailPage() {
               </Card>
             </TabsContent>
 
-            {/* PHASE 3: HIRE FREELANCER — AI Matching Engine */}
+            {/* PHASE 3: HIRE FREELANCER  EAI Matching Engine */}
             <TabsContent value="phase3">
-                <Card>
-                    <CardHeader>
-                        <div className="flex justify-between items-center">
-                            <h2 className="text-xl font-semibold flex items-center gap-2">
-                                <Sparkles className="w-5 h-5 text-indigo-500" /> Freelancer Recruitment
-                            </h2>
-                            {currentPhase >= 3 && (
-                                <div className="flex gap-2">
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        onClick={() => id && fetchFreelancerMatches(id, false)}
-                                        disabled={freelancerMatchesLoading}
-                                    >
-                                        {freelancerMatchesLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
-                                        Quick Match
-                                    </Button>
-                                    <Button
-                                        size="sm"
-                                        className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white"
-                                        onClick={() => id && fetchFreelancerMatches(id, true)}
-                                        disabled={freelancerMatchesLoading}
-                                    >
-                                        {freelancerMatchesLoading ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Sparkles className="w-4 h-4 mr-1" />}
-                                        AI Match
-                                    </Button>
-                                </div>
-                            )}
+              <Card>
+                <CardHeader>
+                  <h2 className="text-xl font-semibold">Freelancer Recommendations</h2>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {currentPhase < 3 ? (
+                    <div className="rounded-lg border-2 border-dashed bg-muted/20 py-12 text-center">
+                      <p className="text-muted-foreground">
+                        Client Spec approval unlocks broker-led freelancer recommendations.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-4">
+                        <h3 className="font-semibold text-indigo-900">Phase 3 Goal: Review broker recommendations</h3>
+                        <p className="mt-1 text-sm text-indigo-700">
+                          Your broker recommends freelancers first. Approving a recommendation sends the invite to that freelancer. Rejecting it keeps the request private until a better candidate is proposed.
+                        </p>
+                      </div>
+
+                      {hasAcceptedFreelancer && selectedFreelancerProposal ? (
+                        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <h4 className="font-semibold text-green-900">Freelancer selected</h4>
+                              <p className="text-sm text-green-700">
+                                {selectedFreelancerProposal.freelancer?.fullName || "A freelancer"} accepted the invite and is now the signer for final spec review.
+                              </p>
+                            </div>
+                            <Button size="sm" onClick={() => setActiveTab("phase4")}>
+                              Continue to Final Spec
+                            </Button>
+                          </div>
                         </div>
-                    </CardHeader>
-                    <CardContent>
-                        {currentPhase < 3 ? (
-                            <div className="text-center py-12 bg-muted/20 border-2 border-dashed rounded-lg">
-                                <p className="text-muted-foreground">Finalize specs to unlock freelancer recruitment.</p>
-                            </div>
-                        ) : (
-                            <div className="space-y-6">
-                                {hasAcceptedFreelancer && (
-                                    <div className="rounded-lg border border-green-200 bg-green-50 p-4">
-                                        <div className="flex flex-wrap items-center justify-between gap-3">
-                                            <div>
-                                                <h4 className="font-semibold text-green-900">Freelancer selected</h4>
-                                                <p className="text-sm text-green-700">
-                                                    Next step: broker prepares `full_spec` for 3-party review and sign-off.
-                                                </p>
-                                            </div>
-                                            <Button size="sm" onClick={() => setActiveTab('phase4')}>
-                                                Go to Final Spec Step
-                                            </Button>
-                                        </div>
-                                    </div>
-                                )}
+                      ) : null}
 
-                                {/* Search marketplace link */}
-                                <div className="flex justify-between items-center bg-muted/20 p-4 rounded-lg">
+                      {pendingFreelancerRecommendations.length === 0 ? (
+                        <div className="rounded-lg border-2 border-dashed bg-muted/10 py-10 text-center">
+                          <p className="font-medium">No pending recommendations right now</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Your assigned broker will recommend freelancers here after reviewing matches.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">
+                              {pendingFreelancerRecommendations.length} recommendation{pendingFreelancerRecommendations.length > 1 ? "s" : ""} awaiting your decision
+                            </p>
+                            {request.viewerPermissions?.canApproveFreelancerInvite ? (
+                              <Badge variant="outline">Client approval required</Badge>
+                            ) : null}
+                          </div>
+
+                          {pendingFreelancerRecommendations.map((proposal) => {
+                            const freelancerName = proposal.freelancer?.fullName || "Unknown freelancer";
+                            const brokerName =
+                              proposal.broker?.fullName ||
+                              request.broker?.fullName ||
+                              "Assigned broker";
+                            const isReviewing = reviewingFreelancerProposalId === proposal.id;
+
+                            return (
+                              <div key={proposal.id} className="rounded-xl border bg-background p-4 shadow-sm">
+                                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                  <div className="space-y-3">
                                     <div>
-                                        <h4 className="font-semibold flex items-center gap-2">
-                                            Find Freelancers
-                                            <Button variant="ghost" size="icon" className="h-8 w-8 rounded-full hover:bg-muted" onClick={() => setIsScoreExplanationOpen(true)}>
-                                                <HelpCircle className="w-5 h-5 text-muted-foreground" />
-                                            </Button>
-                                        </h4>
-                                        <p className="text-sm text-muted-foreground">AI-matched candidates or search the marketplace.</p>
+                                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                                        <h4 className="text-lg font-semibold">{freelancerName}</h4>
+                                        <Badge variant="outline">
+                                          {String(proposal.status || "").replace(/_/g, " ")}
+                                        </Badge>
+                                      </div>
+                                      <p className="text-sm text-muted-foreground">
+                                        Recommended by {brokerName}
+                                      </p>
                                     </div>
-                                    <Button variant="outline" onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>
-                                        Search Marketplace
-                                    </Button>
-                                </div>
 
-                                {/* Results */}
-                                {freelancerMatchesLoading ? (
-                                    <div className="text-center py-12">
-                                        <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-500 mb-3" />
-                                        <p className="text-muted-foreground">Running matching pipeline...</p>
+                                    <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                                      <p>
+                                        Trust Score: {Number(proposal.freelancer?.currentTrustScore || 0).toFixed(1)}
+                                      </p>
+                                      <p>
+                                        Successful Projects: {proposal.freelancer?.totalProjectsFinished || 0}
+                                      </p>
                                     </div>
-                                ) : freelancerMatches.length === 0 ? (
-                                    <div className="text-center py-8 bg-muted/10 border-2 border-dashed rounded-lg">
-                                        <p className="text-muted-foreground">No freelancer matches found. Click "Quick Match" or "AI Match" above.</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-4">
-                                        <p className="text-sm text-muted-foreground">{freelancerMatches.length} candidates ranked</p>
-                                        {freelancerMatches.map((match: any) => (
-                                            <div key={match.userId} className="border rounded-xl p-4 bg-background hover:bg-muted/10 transition-all shadow-sm">
-                                                <div className="flex items-start justify-between">
-                                                    <div className="flex items-start gap-4">
-                                                        <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-lg border-2 ${
-                                                            match.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-50 text-emerald-700 border-emerald-200' :
-                                                            match.classificationLabel === 'POTENTIAL' ? 'bg-amber-50 text-amber-700 border-amber-200' :
-                                                            match.classificationLabel === 'HIGH_RISK' ? 'bg-red-50 text-red-700 border-red-200' :
-                                                            'bg-gray-50 text-gray-700 border-gray-200'
-                                                        }`}>
-                                                            {match.fullName?.charAt(0) || '?'}
-                                                        </div>
-                                                        <div>
-                                                            <div className="flex items-center gap-2 mb-1">
-                                                                <h4 className="font-semibold text-lg">{match.fullName}</h4>
-                                                                <Badge variant={match.classificationLabel === 'PERFECT_MATCH' ? 'default' : 'outline'}
-                                                                    className={`text-[10px] ${
-                                                                        match.classificationLabel === 'PERFECT_MATCH' ? 'bg-emerald-600' :
-                                                                        match.classificationLabel === 'POTENTIAL' ? 'border-amber-400 text-amber-700' :
-                                                                        match.classificationLabel === 'HIGH_RISK' ? 'border-red-400 text-red-700' : ''
-                                                                    }`}
-                                                                >
-                                                                    {match.classificationLabel === 'PERFECT_MATCH' && '🟢 '}
-                                                                    {match.classificationLabel === 'POTENTIAL' && '🟡 '}
-                                                                    {match.classificationLabel === 'HIGH_RISK' && '🔴 '}
-                                                                    {match.classificationLabel?.replace('_', ' ')}
-                                                                </Badge>
-                                                            </div>
-                                                            <div className="flex gap-3 text-sm text-muted-foreground mb-2">
-                                                                <span className="flex items-center gap-1">
-                                                                    <Star className="w-3 h-3" /> Score: {match.matchScore}
-                                                                </span>
-                                                                {match.aiRelevanceScore !== null && (
-                                                                    <span className="flex items-center gap-1">
-                                                                        <Sparkles className="w-3 h-3 text-indigo-500" /> AI: {match.aiRelevanceScore}
-                                                                    </span>
-                                                                )}
-                                                                <span>Tag: {match.tagOverlapScore}</span>
-                                                                <span>Trust: {match.normalizedTrust}</span>
-                                                            </div>
-                                                            {match.matchedSkills?.length > 0 && (
-                                                                <div className="flex gap-1 flex-wrap mb-2">
-                                                                    {match.matchedSkills.map((skill: string) => (
-                                                                        <Badge key={skill} variant="secondary" className="text-[10px] px-2 py-0.5">{skill}</Badge>
-                                                                    ))}
-                                                                </div>
-                                                            )}
-                                                            {match.reasoning && (
-                                                                <p className="text-xs text-muted-foreground italic line-clamp-2">{match.reasoning}</p>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex gap-2 shrink-0">
-                                                        <Button size="sm" variant="outline" onClick={() => { setSelectedCandidate(match); setIsProfileModalOpen(true); }}>Profile</Button>
-                                                        <Button size="sm" onClick={() => handleOpenInviteModal(match.userId, match.fullName, 'FREELANCER')}>
-                                                            <UserPlus className="w-4 h-4 mr-1" /> Invite
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
+
+                                    {proposal.coverLetter ? (
+                                      <div className="rounded-lg border bg-muted/30 p-3">
+                                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                          Broker note
+                                        </p>
+                                        <p className="text-sm leading-relaxed text-foreground">
+                                          {proposal.coverLetter}
+                                        </p>
+                                      </div>
+                                    ) : null}
+                                  </div>
+
+                                  <div className="flex flex-col gap-2 md:w-44">
+                                    <Button
+                                      disabled={isReviewing}
+                                      onClick={() => handleApproveFreelancerInvite(proposal.id)}
+                                    >
+                                      {isReviewing ? "Updating..." : "Approve"}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      disabled={isReviewing}
+                                      onClick={() => handleRejectFreelancerInvite(proposal.id)}
+                                    >
+                                      Reject
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {/* PHASE 4: FINAL SPEC SIGN-OFF */}
@@ -1007,7 +927,7 @@ export default function RequestDetailPage() {
                                         <div>
                                             <h3 className="font-semibold text-blue-900">Phase 4 goal</h3>
                                             <p className="text-sm text-blue-700">
-                                                Broker prepares `full_spec`, then Client + Broker + Freelancer review and sign it.
+                                                Broker prepares Final Spec, then Client + Broker + Freelancer review and sign it.
                                             </p>
                                         </div>
                                         <Badge variant="outline" className="bg-white">
@@ -1045,7 +965,7 @@ export default function RequestDetailPage() {
 
                                     <div className="rounded-lg border bg-background p-4">
                                         <div className="mb-2 flex items-center justify-between gap-2">
-                                            <h4 className="font-medium">full_spec (3-party sign)</h4>
+                                            <h4 className="font-medium">Final Spec (3-party sign)</h4>
                                             {fullSpec ? (
                                               <Badge className={`${getSpecStatusColor(fullSpec.status)} border-0`}>
                                                 {formatSpecStatus(fullSpec.status)}
@@ -1081,7 +1001,7 @@ export default function RequestDetailPage() {
                                   <div className="rounded-lg border border-green-200 bg-green-50 p-4">
                                     <div className="flex flex-wrap items-center justify-between gap-3">
                                       <div>
-                                        <h4 className="font-semibold text-green-900">Final spec fully signed</h4>
+                                        <h4 className="font-semibold text-green-900">Final Spec fully signed</h4>
                                         <p className="text-sm text-green-700">
                                           Contract generation is unlocked. Continue to the contract phase.
                                         </p>
@@ -1100,78 +1020,17 @@ export default function RequestDetailPage() {
 
             {/* PHASE 5: CONTRACT */}
             <TabsContent value="phase5">
-                <Card>
-                    <CardHeader>
-                        <h2 className="text-xl font-semibold">Finalize Project & Contract</h2>
-                    </CardHeader>
-                    <CardContent>
-                        {currentPhase < 5 ? (
-                            <div className="text-center py-12 bg-muted/20 border-2 border-dashed rounded-lg">
-                                <p className="text-muted-foreground">Complete final spec 3-party sign-off to generate contract.</p>
-                            </div>
-                        ) : (
-                             <div className="space-y-6">
-                                <div className="rounded-lg border bg-muted/20 p-4">
-                                  <p className="text-sm text-muted-foreground">
-                                    Phase 5 uses the actual contract record generated from the fully signed `full_spec`.
-                                  </p>
-                                </div>
-
-                                {canOpenContract ? (
-                                  <div className="rounded-lg border bg-background p-4">
-                                    <div className="flex flex-wrap items-center justify-between gap-3">
-                                      <div>
-                                        <h3 className="font-semibold">{linkedContract?.title}</h3>
-                                        <p className="text-sm text-muted-foreground">
-                                          Created {safeFormatDate(linkedContract?.createdAt, "PPP")}
-                                        </p>
-                                        <p className="text-xs text-muted-foreground">
-                                          {contractActivated
-                                            ? "Project activated. Continue execution in workspace."
-                                            : "Signatures/activation are in progress."}
-                                        </p>
-                                      </div>
-                                      <Badge variant={linkedContract?.status === "SIGNED" ? "default" : "outline"}>
-                                        {linkedContract?.status || "DRAFT"}
-                                      </Badge>
-                                    </div>
-                                    <div className="mt-4 flex flex-wrap gap-2">
-                                      <Button
-                                        onClick={() => navigate(`/client/contracts/${linkedContract!.id}`)}
-                                      >
-                                        Open Contract
-                                      </Button>
-                                      {canOpenWorkspace && (
-                                        <Button
-                                          variant="default"
-                                          onClick={() => navigate(`/client/workspace/${linkedContract!.projectId}`)}
-                                        >
-                                          Open Workspace
-                                        </Button>
-                                      )}
-                                      <Button
-                                        variant="outline"
-                                        onClick={() => void fetchData(request.id)}
-                                      >
-                                        Refresh Status
-                                      </Button>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
-                                    <h3 className="font-semibold text-amber-900">
-                                      Contract not initialized yet
-                                    </h3>
-                                    <p className="mt-1 text-sm text-amber-800">
-                                      Broker must click <strong>Create Contract</strong> after `full_spec` reaches
-                                      `ALL_SIGNED`.
-                                    </p>
-                                  </div>
-                                )}
-                             </div>
-                        )}
-                    </CardContent>
-                </Card>
+              <RequestContractHandoffPanel
+                currentPhase={currentPhase}
+                linkedContract={linkedContract}
+                canOpenContract={canOpenContract}
+                contractActivated={contractActivated}
+                canOpenWorkspace={canOpenWorkspace}
+                onOpenContract={() => navigate(`/client/contracts/${linkedContract!.id}`)}
+                onOpenWorkspace={() => navigate(`/client/workspace/${linkedContract!.projectId}`)}
+                onRefreshStatus={() => void fetchData(request.id)}
+                formatDate={safeFormatDate}
+              />
             </TabsContent>
           </Tabs>
         </>
@@ -1186,7 +1045,7 @@ export default function RequestDetailPage() {
                                 <Users className="w-5 h-5 text-indigo-600" /> Project Team
                             </h2>
                             <Button variant="outline" size="sm" onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>
-                                <UserPlus className="w-4 h-4 mr-2" /> Add Member
+                                <UserPlus className="w-4 h-4 mr-2" /> Browse Freelancer Profiles
                             </Button>
                         </div>
                     </CardHeader>
@@ -1195,7 +1054,7 @@ export default function RequestDetailPage() {
                         <div className="flex items-start justify-between p-4 bg-white rounded-lg border border-indigo-100 shadow-sm">
                             <div className="flex items-center gap-4">
                                 <div className="w-12 h-12 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 font-bold border-2 border-indigo-200">
-                                    {request.broker ? request.broker.fullName.charAt(0) : "B"}
+                                    {request.broker ? (request.broker.fullName || "B").charAt(0) : "B"}
                                 </div>
                                 <div>
                                     <div className="flex items-center gap-2">
@@ -1340,12 +1199,6 @@ export default function RequestDetailPage() {
         )}
         </div>
 
-        {/* Right Sidebar: Comments */}
-        <div className="lg:col-span-1">
-          <div className="sticky top-6">
-            <CommentsSection />
-          </div>
-        </div>
       </div>
 
       {inviteModalData && (

@@ -7,6 +7,7 @@ import {
 } from "@/shared/utils/requestCache";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
+import { getFileNameFromDisposition } from "@/shared/utils/download";
 import type {
   DisputeActivity,
   DisputeEvidence,
@@ -20,6 +21,7 @@ import type {
   DisputeMessage,
   DisputeScheduleProposal,
   SchedulingWorklistResponse,
+  DisputeDossier,
 } from "./types/dispute.types";
 import type { CreateDisputeDto } from "./types/dispute.dto";
 import type { DisputePhase } from "../staff/types/staff.types";
@@ -31,6 +33,58 @@ import type {
 export interface ProjectBoard {
   tasks: KanbanBoard;
   milestones: Milestone[];
+}
+
+export interface DisputeAppealInput {
+  reason: string;
+  additionalEvidence?: string[];
+}
+
+export interface DisputeAppealVerdictInput {
+  result: string;
+  adminComment?: string;
+  faultType: string;
+  faultyParty: string;
+  reasoning: {
+    violatedPolicies: string[];
+    factualFindings: string;
+    legalAnalysis: string;
+    conclusion: string;
+    supportingEvidenceIds?: string[];
+    policyReferences?: string[];
+    legalReferences?: string[];
+    contractReferences?: string[];
+    evidenceReferences?: string[];
+    analysis?: string;
+    remedyRationale?: string;
+    trustPenaltyRationale?: string;
+  };
+  amountToFreelancer: number;
+  amountToClient: number;
+  trustScorePenalty?: number;
+  banUser?: boolean;
+  banDurationDays?: number;
+  warningMessage?: string;
+  overridesVerdictId: string;
+  overrideReason: string;
+}
+
+export interface DisputeRuleCatalogItem {
+  code: string;
+  title: string;
+  category:
+    | "CONTRACT_PERFORMANCE"
+    | "DELIVERY_QUALITY"
+    | "DEADLINE_DELAY"
+    | "PAYMENT_ESCROW"
+    | "SCOPE_CHANGE"
+    | "COOPERATION_DUTY"
+    | "FRAUD_MISREPRESENTATION"
+    | "EVIDENCE_INTEGRITY"
+    | "HEARING_CONDUCT";
+  summary: string;
+  legalBasis: string[];
+  operationalGuidance: string[];
 }
 
 type CacheOptions = {
@@ -157,10 +211,28 @@ export const getDisputeDetail = async (
   );
 };
 
+export const getDisputeRuleCatalog = async (): Promise<DisputeRuleCatalogItem[]> => {
+  return await apiClient.get<DisputeRuleCatalogItem[]>("/disputes/rules/catalog");
+};
+
 export const createDispute = async (
   input: CreateDisputeDto,
 ): Promise<DisputeSummary> => {
   return await apiClient.post<DisputeSummary>("/disputes", input);
+};
+
+export const submitDisputeAppeal = async (
+  disputeId: string,
+  input: DisputeAppealInput,
+): Promise<DisputeSummary> => {
+  return await apiClient.post<DisputeSummary>(`/disputes/${disputeId}/appeal`, input);
+};
+
+export const resolveDisputeAppeal = async (
+  disputeId: string,
+  input: DisputeAppealVerdictInput,
+): Promise<DisputeSummary> => {
+  return await apiClient.patch<DisputeSummary>(`/disputes/${disputeId}/appeal/resolve`, input);
 };
 
 export const getProjectBoard = async (
@@ -266,8 +338,24 @@ export const completeDisputePreview = async (
   });
 };
 
-export const getDisputeDossier = async (disputeId: string) => {
-  return await apiClient.get(`/disputes/${disputeId}/dossier`);
+export const getDisputeDossier = async (disputeId: string): Promise<DisputeDossier> => {
+  return await apiClient.get<DisputeDossier>(`/disputes/${disputeId}/dossier`);
+};
+
+export const exportDisputeDossier = async (
+  disputeId: string,
+): Promise<{ blob: Blob; fileName: string }> => {
+  const response = await apiClient.getResponse<Blob>(`/disputes/${disputeId}/dossier/export`, {
+    responseType: "blob" as const,
+  });
+
+  return {
+    blob: response.data,
+    fileName: getFileNameFromDisposition(
+      response.headers["content-disposition"],
+      `dispute-${disputeId.slice(0, 8)}-dossier.zip`,
+    ),
+  };
 };
 
 export const getDisputeLedger = async (disputeId: string) => {
@@ -471,6 +559,7 @@ export const invalidateDisputesCache = () => {
   invalidateCacheByPrefix("disputes:list:");
   invalidateCacheByPrefix("disputes:queue:");
   invalidateCacheByPrefix("disputes:caseload:");
+  invalidateCacheByPrefix("disputes:mine:");
 };
 
 export const invalidateDisputeDetailCache = (disputeId?: string) => {

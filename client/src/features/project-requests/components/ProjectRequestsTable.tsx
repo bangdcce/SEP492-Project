@@ -14,22 +14,21 @@ import type { ProjectRequest } from '../types';
 import { RequestStatus } from '../types';
 import { Badge } from '@/shared/components/ui/badge';
 import { ArrowUpRight, Clock3, DollarSign, Eye, FilePenLine, UserPlus } from 'lucide-react';
+import { ProposalModal } from './ProposalModal';
 
 interface ProjectRequestsTableProps {
   requests: ProjectRequest[];
-  onAssign: (id: string) => void;
   onApply?: (id: string, coverLetter: string) => void;
-  assigningId: string | null;
   currentUserId?: string;
 }
 
 export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
   requests,
-  onAssign,
   onApply,
-  assigningId,
   currentUserId,
 }) => {
+  const [proposalModalOpen, setProposalModalOpen] = React.useState(false);
+  const [selectedRequestId, setSelectedRequestId] = React.useState<string | null>(null);
   const getStatusBadgeClass = (status?: string) => {
     switch (status) {
       case RequestStatus.PUBLIC_DRAFT:
@@ -127,16 +126,6 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex flex-wrap justify-end gap-2">
-                  {request.status === RequestStatus.PENDING && (
-                    <Button
-                      onClick={() => onAssign(request.id)}
-                      disabled={assigningId === request.id}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {assigningId === request.id ? 'Assigning...' : 'Assign'}
-                    </Button>
-                  )}
-
                   {request.status === RequestStatus.PUBLIC_DRAFT &&
                     onApply &&
                     (() => {
@@ -161,13 +150,8 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
                           variant="outline"
                           className="h-8 px-3 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
                           onClick={() => {
-                            const letter = prompt(
-                              "Write a short proposal message:",
-                              "I'm available to handle this request and can start immediately.",
-                            );
-                            if (letter && letter.trim()) {
-                              onApply(request.id, letter.trim());
-                            }
+                            setSelectedRequestId(request.id);
+                            setProposalModalOpen(true);
                           }}
                         >
                           <UserPlus className="mr-1.5 h-3.5 w-3.5" />
@@ -202,6 +186,19 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
           )}
         </TableBody>
       </Table>
+
+      <ProposalModal 
+        isOpen={proposalModalOpen}
+        onClose={() => {
+          setProposalModalOpen(false);
+          setSelectedRequestId(null);
+        }}
+        onSubmit={(letter) => {
+          if (selectedRequestId && onApply) {
+            onApply(selectedRequestId, letter);
+          }
+        }}
+      />
     </div>
   );
 };

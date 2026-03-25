@@ -1,5 +1,5 @@
-import { IsOptional, IsInt, IsString, Min, IsDateString, IsIn } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsDateString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { Transform, Type } from 'class-transformer';
 
 export class GetAuditLogsDto {
   @IsOptional()
@@ -15,30 +15,63 @@ export class GetAuditLogsDto {
   limit?: number = 20;
 
   @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  userId?: number; // Lọc theo ID người thực hiện
+  @IsString()
+  userId?: string;
 
   @IsOptional()
   @IsString()
-  entityType?: string; // Lọc theo loại đối tượng (Project, User...)
+  requestId?: string;
 
   @IsOptional()
   @IsString()
-  action?: string; // Lọc theo hành động (LOGIN, CREATE...)
+  sessionId?: string;
 
-  // ===== NEW FILTERS =====
+  @IsOptional()
+  @IsString()
+  entityType?: string;
+
+  @IsOptional()
+  @IsString()
+  entityId?: string;
+
+  @IsOptional()
+  @IsString()
+  action?: string;
 
   @IsOptional()
   @IsDateString()
-  dateFrom?: string; // Lọc từ ngày (ISO format: 2024-12-01)
+  dateFrom?: string;
 
   @IsOptional()
   @IsDateString()
-  dateTo?: string; // Lọc đến ngày (ISO format: 2024-12-31)
+  dateTo?: string;
 
   @IsOptional()
   @IsString()
   @IsIn(['LOW', 'NORMAL', 'HIGH'])
-  riskLevel?: string; // Lọc theo mức độ rủi ro
+  riskLevel?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['SERVER', 'CLIENT'])
+  source?: 'SERVER' | 'CLIENT';
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['HTTP', 'UI_BREADCRUMB', 'DB_CHANGE', 'ERROR', 'AUTH', 'EXPORT'])
+  eventCategory?: 'HTTP' | 'UI_BREADCRUMB' | 'DB_CHANGE' | 'ERROR' | 'AUTH' | 'EXPORT';
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  statusCode?: number;
+
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  errorOnly?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(['json', 'csv', 'xlsx'])
+  format?: 'json' | 'csv' | 'xlsx';
 }

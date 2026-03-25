@@ -45,14 +45,18 @@ export class DisputeMessageEntity {
   @Column({ nullable: true, comment: 'User ID (null = System message)' })
   senderId: string | null;
 
-  @Column({ comment: 'Role lúc gửi: CLIENT/FREELANCER/BROKER/STAFF/ADMIN/SYSTEM' })
+  @Column({
+    type: 'varchar',
+    length: 50,
+    comment: 'Role lúc gửi: CLIENT/FREELANCER/BROKER/STAFF/ADMIN/SYSTEM',
+  })
   senderRole: string;
 
   // === NỘI DUNG CHAT ===
   @Column({ type: 'enum', enum: MessageType, default: MessageType.TEXT })
   type: MessageType;
 
-  @Column({ type: 'text', nullable: true, comment: 'Nội dung chat text' })
+  @Column({ type: 'varchar', length: 5000, nullable: true, comment: 'Nội dung chat text' })
   content: string;
 
   // === TÍNH NĂNG REPLY / QUOTE (Giống Zalo/Messenger) ===
@@ -62,6 +66,15 @@ export class DisputeMessageEntity {
   // === TÍNH NĂNG ĐỐI CHẤT BẰNG CHỨNG (Evidence Rebuttal) ===
   @Column({ nullable: true, comment: 'Tin nhắn này đang bàn luận về bằng chứng nào?' })
   relatedEvidenceId: string;
+
+  @Column({
+    name: 'attached_evidence_ids',
+    type: 'jsonb',
+    nullable: true,
+    default: null,
+    comment: 'Evidence IDs attached to this message (Zalo-style multi-attach)',
+  })
+  attachedEvidenceIds: string[] | null;
 
   // === HEARING CONTEXT (Nếu chat trong phiên điều trần) ===
   @Column({ nullable: true, comment: 'Phiên điều trần (nếu chat trong hearing)' })
@@ -81,7 +94,7 @@ export class DisputeMessageEntity {
   @Column({ default: false, comment: 'Admin ẩn tin nhắn này' })
   isHidden: boolean;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'varchar', length: 1000, nullable: true })
   hiddenReason: string;
 
   @Column({ nullable: true })

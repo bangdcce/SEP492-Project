@@ -3,7 +3,7 @@ import { TaskSubmissionStatus } from '../entities/task-submission.entity';
 
 /**
  * DTO for reviewing a task submission
- * Only CLIENT users can review submissions
+ * Only CLIENT or STAFF users can review submissions
  */
 export class ReviewSubmissionDto {
   @IsEnum([TaskSubmissionStatus.APPROVED, TaskSubmissionStatus.REQUEST_CHANGES], {

@@ -33,7 +33,13 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import {
   CalendarEventEntity,
+  DisputeEntity,
+  DisputeHearingEntity,
   EventStatus,
+  EventType,
+  HearingParticipantEntity,
+  HearingParticipantRole,
+  ProjectEntity,
   RescheduleRequestStatus,
   UserEntity,
   UserRole,
@@ -57,8 +63,61 @@ import {
   RespondEventInviteDto,
   SetAvailabilityDto,
 } from './dto';
+import {
+  buildHearingDocket,
+  resolveDisputeAppealState,
+  resolveDisputeDisplayTitle,
+  resolveReasonExcerpt,
+} from '../disputes/dispute-docket';
 
 const DEFAULT_RESPONSE_DEADLINE_HOURS = 24;
+
+type CalendarDisputeContext = {
+  disputeId: string;
+  hearingId: string;
+  displayCode: string;
+  hearingNumber?: number;
+  projectId?: string;
+  projectTitle?: string;
+  claimantName?: string;
+  defendantName?: string;
+  counterpartyName?: string;
+  perspective?: 'CLAIMANT' | 'DEFENDANT' | 'OTHER';
+  viewerSystemRole?: UserRole;
+  viewerHearingRole?: 'CLAIMANT' | 'DEFENDANT' | 'WITNESS' | 'MODERATOR' | 'OBSERVER';
+};
+
+type CalendarDisputeSummaryMetadata = {
+  id: string;
+  displayCode: string;
+  displayTitle: string;
+  projectTitle?: string;
+  reasonExcerpt: string;
+  status?: string;
+  appealState: string;
+};
+
+type CalendarHearingSummaryMetadata = {
+  hearingId: string;
+  hearingNumber?: number;
+  tier?: string;
+  status?: string;
+  isActionable: boolean;
+  isArchived: boolean;
+  freezeReason?: string;
+  scheduledAt?: string;
+  nextAction?: string;
+  appealState: string;
+  externalMeetingLink?: string;
+};
+
+type CalendarParticipantSummary = {
+  id: string;
+  fullName?: string;
+  email?: string;
+  handle?: string;
+  role?: UserRole;
+};
 
 @ApiTags('Calendar')
 @Controller('calendar')
@@ -76,6 +135,14 @@ export class CalendarController {
     private readonly availabilityRepository: Repository<UserAvailabilityEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    @InjectRepository(DisputeEntity)
+    private readonly disputeRepository: Repository<DisputeEntity>,
+    @InjectRepository(DisputeHearingEntity)
+    private readonly hearingRepository: Repository<DisputeHearingEntity>,
+    @InjectRepository(HearingParticipantEntity)
+    private readonly hearingParticipantRepository: Repository<HearingParticipantEntity>,
+    @InjectRepository(ProjectEntity)
+    private readonly projectRepository: Repository<ProjectEntity>,
     private readonly calendarService: CalendarService,
     private readonly autoScheduleService: AutoScheduleService,
     private readonly availabilityService: AvailabilityService,
@@ -273,18 +340,20 @@ export class CalendarController {
     }
 
     const page = query.page && query.page > 0 ? query.page : 1;
-    const limit = query.limit && query.limit > 0 ? query.limit : 20;
+    const limit = Math.min(query.limit && query.limit > 0 ? query.limit : 20, 200);
 
     qb.orderBy('event.startTime', 'ASC')
       .skip((page - 1) * limit)
       .take(limit);
 
     const [items, total] = await qb.getManyAndCount();
+    const effectiveItems = this.dedupeCalendarEventRows(items);
+    const enrichedItems = await this.enrichCalendarEvents(effectiveItems, user);
 
     return {
       success: true,
       data: {
-        items,
+        items: enrichedItems,
         total,
         page,
         limit,
@@ -910,6 +979,431 @@ export class CalendarController {
   // ===========================================================================
   // Helpers
   // ===========================================================================
+
+  private async enrichCalendarEvents(
+    items: CalendarEventEntity[],
+    user: UserEntity,
+  ): Promise<
+    Array<
+      CalendarEventEntity & {
+        disputeContext?: CalendarDisputeContext | null;
+      }
+    >
+  > {
+    const participantUserIds = Array.from(
+      new Set(
+        items.flatMap((event) =>
+          (event.participants || []).map((participant) => participant.userId).filter(Boolean),
+        ),
+      ),
+    );
+    const participantUsers =
+      participantUserIds.length > 0
+        ? await this.userRepository.find({
+            where: { id: In(participantUserIds) },
+            select: ['id', 'fullName', 'email', 'role'],
+          })
+        : [];
+    const participantUserById = new Map(participantUsers.map((actor) => [actor.id, actor]));
+    const hearingEventItems = items.filter((event) => this.isDisputeHearingEvent(event));
+    if (hearingEventItems.length === 0) {
+      return items.map((event) => ({
+        ...event,
+        participants: this.mapCalendarParticipants(event, participantUserById),
+      }));
+    }
+
+    const hearingIds = Array.from(
+      new Set(
+        hearingEventItems
+          .map((event) => this.resolveHearingIdFromEvent(event))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    if (hearingIds.length === 0) {
+      return items;
+    }
+
+    const [hearings, viewerParticipantRows] = await Promise.all([
+      this.hearingRepository.find({
+        where: { id: In(hearingIds) },
+        select: [
+          'id',
+          'disputeId',
+          'hearingNumber',
+          'status',
+          'tier',
+          'scheduledAt',
+          'summary',
+          'findings',
+          'noShowNote',
+          'externalMeetingLink',
+        ],
+      }),
+      this.hearingParticipantRepository.find({
+        where: { hearingId: In(hearingIds), userId: user.id },
+        select: ['hearingId', 'role', 'userId'],
+      }),
+    ]);
+
+    const hearingById = new Map(hearings.map((hearing) => [hearing.id, hearing]));
+    const disputeIds = Array.from(new Set(hearings.map((hearing) => hearing.disputeId).filter(Boolean)));
+
+    if (disputeIds.length === 0) {
+      return items;
+    }
+
+    const disputes = await this.disputeRepository.find({
+      where: { id: In(disputeIds) },
+      select: [
+        'id',
+        'projectId',
+        'raisedById',
+        'defendantId',
+        'status',
+        'reason',
+        'isAppealed',
+        'appealDeadline',
+        'appealResolvedAt',
+        'appealResolution',
+      ],
+    });
+    const disputeById = new Map(disputes.map((dispute) => [dispute.id, dispute]));
+
+    const projectIds = Array.from(
+      new Set(disputes.map((dispute) => dispute.projectId).filter((value): value is string => Boolean(value))),
+    );
+    const userIds = Array.from(
+      new Set(
+        disputes
+          .flatMap((dispute) => [dispute.raisedById, dispute.defendantId])
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    const [projects, users] = await Promise.all([
+      projectIds.length > 0
+        ? this.projectRepository.find({
+            where: { id: In(projectIds) },
+            select: ['id', 'title'],
+          })
+        : Promise.resolve([]),
+      userIds.length > 0
+        ? this.userRepository.find({
+            where: { id: In(userIds) },
+            select: ['id', 'fullName', 'email', 'role'],
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const projectById = new Map(projects.map((project) => [project.id, project]));
+    const userById = new Map(users.map((actor) => [actor.id, actor]));
+    const viewerParticipantRoleByHearingId = new Map(
+      viewerParticipantRows.map((participant) => [participant.hearingId, participant.role]),
+    );
+    const hearingsByDisputeId = new Map<string, DisputeHearingEntity[]>();
+    for (const hearing of hearings) {
+      const existing = hearingsByDisputeId.get(hearing.disputeId);
+      if (existing) {
+        existing.push(hearing);
+      } else {
+        hearingsByDisputeId.set(hearing.disputeId, [hearing]);
+      }
+    }
+    const docketByDisputeId = new Map(
+      disputes.map((dispute) => [
+        dispute.id,
+        buildHearingDocket(hearingsByDisputeId.get(dispute.id) || [], dispute.status),
+      ]),
+    );
+
+    const enrichedItems = items.map((event) => {
+      if (!this.isDisputeHearingEvent(event)) {
+        return {
+          ...event,
+          participants: this.mapCalendarParticipants(event, participantUserById),
+        };
+      }
+
+      const hearingId = this.resolveHearingIdFromEvent(event);
+      if (!hearingId) {
+        return {
+          ...event,
+          participants: this.mapCalendarParticipants(event, participantUserById),
+        };
+      }
+
+      const hearing = hearingById.get(hearingId);
+      const dispute = hearing ? disputeById.get(hearing.disputeId) : undefined;
+      if (!hearing || !dispute) {
+        return event;
+      }
+
+      const claimant = userById.get(dispute.raisedById);
+      const defendant = userById.get(dispute.defendantId);
+      const project = dispute.projectId ? projectById.get(dispute.projectId) : undefined;
+      const docket = docketByDisputeId.get(dispute.id);
+      const docketEntry = docket?.items.find((item) => item.hearingId === hearing.id);
+      const appealState = resolveDisputeAppealState({
+        status: dispute.status,
+        isAppealed: dispute.isAppealed,
+        appealDeadline: dispute.appealDeadline,
+        appealResolvedAt: dispute.appealResolvedAt,
+        appealResolution: dispute.appealResolution,
+      });
+      const perspective =
+        user.id === dispute.raisedById
+          ? 'CLAIMANT'
+          : user.id === dispute.defendantId
+            ? 'DEFENDANT'
+            : 'OTHER';
+      const counterpartyName =
+        perspective === 'CLAIMANT'
+          ? this.resolveDisplayName(defendant)
+          : perspective === 'DEFENDANT'
+            ? this.resolveDisplayName(claimant)
+            : undefined;
+      const disputeSummary: CalendarDisputeSummaryMetadata = {
+        id: dispute.id,
+        displayCode: this.buildDisputeDisplayCode(dispute.id),
+        displayTitle: resolveDisputeDisplayTitle({
+          disputeId: dispute.id,
+          projectTitle: project?.title,
+          reason: dispute.reason,
+        }),
+        projectTitle: project?.title,
+        reasonExcerpt: resolveReasonExcerpt(dispute.reason),
+        status: dispute.status,
+        appealState,
+      };
+      const hearingSummary: CalendarHearingSummaryMetadata = {
+        hearingId: hearing.id,
+        hearingNumber: hearing.hearingNumber,
+        tier: hearing.tier,
+        status: hearing.status,
+        isActionable: docketEntry?.isActionable ?? false,
+        isArchived: docketEntry?.isArchived ?? true,
+        freezeReason: docketEntry?.freezeReason,
+        scheduledAt: hearing.scheduledAt?.toISOString?.() ?? undefined,
+        nextAction:
+          docketEntry?.isActionable === true
+            ? 'Join or confirm this hearing.'
+            : docketEntry?.freezeReason ?? 'Reference-only hearing record.',
+        appealState,
+        externalMeetingLink: hearing.externalMeetingLink ?? undefined,
+      };
+
+      return {
+        ...event,
+        participants: this.mapCalendarParticipants(event, participantUserById),
+        metadata: {
+          ...(event.metadata || {}),
+          disputeSummary,
+          hearingSummary,
+        },
+        disputeContext: {
+          disputeId: dispute.id,
+          hearingId: hearing.id,
+          displayCode: disputeSummary.displayCode,
+          hearingNumber: hearing.hearingNumber,
+          projectId: dispute.projectId,
+          projectTitle: project?.title,
+          claimantName: this.resolveDisplayName(claimant),
+          defendantName: this.resolveDisplayName(defendant),
+          counterpartyName,
+          perspective,
+          viewerSystemRole: user.role,
+          viewerHearingRole: this.resolveViewerHearingRole(
+            user.id,
+            dispute,
+            viewerParticipantRoleByHearingId.get(hearing.id),
+          ),
+        },
+      };
+    });
+
+    if ([UserRole.CLIENT, UserRole.BROKER, UserRole.FREELANCER].includes(user.role)) {
+      return enrichedItems.filter((event) => {
+        if (!this.isDisputeHearingEvent(event)) {
+          return true;
+        }
+
+        const hearingSummary = event.metadata?.hearingSummary as
+          | CalendarHearingSummaryMetadata
+          | undefined;
+        if (!hearingSummary) {
+          return event.status !== EventStatus.RESCHEDULING;
+        }
+
+        return (
+          hearingSummary.isArchived !== true &&
+          ![EventStatus.RESCHEDULING, EventStatus.COMPLETED, EventStatus.CANCELLED].includes(
+            event.status,
+          )
+        );
+      });
+    }
+
+    return enrichedItems;
+  }
+
+  private isDisputeHearingEvent(event: CalendarEventEntity): boolean {
+    return event.type === EventType.DISPUTE_HEARING || event.referenceType === 'DisputeHearing';
+  }
+
+  private resolveHearingIdFromEvent(event: CalendarEventEntity): string | null {
+    if (event.referenceType === 'DisputeHearing' && event.referenceId) {
+      return event.referenceId;
+    }
+
+    const metadata = event.metadata ?? {};
+    if (typeof metadata.hearingId === 'string' && metadata.hearingId.trim().length > 0) {
+      return metadata.hearingId;
+    }
+
+    return null;
+  }
+
+  private buildDisputeDisplayCode(disputeId: string): string {
+    return `DSP-${disputeId.slice(0, 8).toUpperCase()}`;
+  }
+
+  private resolveDisplayName(
+    actor?: Pick<UserEntity, 'fullName' | 'email' | 'id'> | null,
+  ): string | undefined {
+    if (!actor) {
+      return undefined;
+    }
+    return actor.fullName || actor.email || actor.id;
+  }
+
+  private resolveViewerHearingRole(
+    userId: string,
+    dispute: Pick<DisputeEntity, 'raisedById' | 'defendantId'>,
+    participantRole?: HearingParticipantRole,
+  ): CalendarDisputeContext['viewerHearingRole'] {
+    if (userId === dispute.raisedById) {
+      return 'CLAIMANT';
+    }
+    if (userId === dispute.defendantId) {
+      return 'DEFENDANT';
+    }
+
+    switch (participantRole) {
+      case HearingParticipantRole.RAISER:
+        return 'CLAIMANT';
+      case HearingParticipantRole.DEFENDANT:
+        return 'DEFENDANT';
+      case HearingParticipantRole.WITNESS:
+        return 'WITNESS';
+      case HearingParticipantRole.MODERATOR:
+        return 'MODERATOR';
+      case HearingParticipantRole.OBSERVER:
+        return 'OBSERVER';
+      default:
+        return undefined;
+    }
+  }
+
+  private mapCalendarParticipants(
+    event: CalendarEventEntity,
+    userById: Map<string, Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'>>,
+  ) {
+    return (event.participants || []).map((participant) => {
+      const actor = userById.get(participant.userId);
+      const userSummary: CalendarParticipantSummary | null = actor
+        ? {
+            id: actor.id,
+            fullName: actor.fullName || actor.email,
+            email: actor.email,
+            handle: this.toUserHandle(actor.email),
+            role: actor.role,
+          }
+        : null;
+
+      return {
+        ...participant,
+        user: userSummary,
+      };
+    });
+  }
+
+  private dedupeCalendarEventRows(items: CalendarEventEntity[]): CalendarEventEntity[] {
+    if (items.length <= 1) {
+      return items;
+    }
+
+    const grouped = new Map<string, CalendarEventEntity[]>();
+    const passthrough: CalendarEventEntity[] = [];
+
+    items.forEach((event) => {
+      if (!this.isDisputeHearingEvent(event)) {
+        passthrough.push(event);
+        return;
+      }
+
+      const hearingId = this.resolveHearingIdFromEvent(event);
+      if (!hearingId) {
+        passthrough.push(event);
+        return;
+      }
+
+      const group = grouped.get(hearingId);
+      if (group) {
+        group.push(event);
+      } else {
+        grouped.set(hearingId, [event]);
+      }
+    });
+
+    const effective = Array.from(grouped.values()).map((group) =>
+      this.pickEffectiveCalendarEvent(group),
+    );
+
+    return [...passthrough, ...effective].sort(
+      (a, b) => a.startTime.getTime() - b.startTime.getTime(),
+    );
+  }
+
+  private pickEffectiveCalendarEvent(group: CalendarEventEntity[]): CalendarEventEntity {
+    if (group.length === 1) {
+      return group[0];
+    }
+
+    const groupIds = new Set(group.map((event) => event.id));
+    const supersededIds = new Set(
+      group
+        .map((event) => event.previousEventId)
+        .filter((value): value is string => Boolean(value && groupIds.has(value))),
+    );
+
+    const terminalCandidates = group.filter((event) => !supersededIds.has(event.id));
+    const ranked = (terminalCandidates.length > 0 ? terminalCandidates : group).sort((a, b) => {
+      const updatedDiff = b.updatedAt.getTime() - a.updatedAt.getTime();
+      if (updatedDiff !== 0) {
+        return updatedDiff;
+      }
+
+      const createdDiff = b.createdAt.getTime() - a.createdAt.getTime();
+      if (createdDiff !== 0) {
+        return createdDiff;
+      }
+
+      return b.startTime.getTime() - a.startTime.getTime();
+    });
+
+    return ranked[0];
+  }
+
+  private toUserHandle(email?: string | null): string | undefined {
+    if (!email) {
+      return undefined;
+    }
+
+    const localPart = email.split('@')[0]?.trim();
+    return localPart ? `@${localPart}` : undefined;
+  }
 
   private parseDate(value: string, field: string): Date {
     const date = new Date(value);

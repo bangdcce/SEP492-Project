@@ -13,7 +13,7 @@
 
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, LessThan, MoreThan, In, IsNull } from 'typeorm';
+import { Repository, DataSource, Between, LessThan, MoreThan, In, IsNull, Not } from 'typeorm';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { LeaveService } from '../../leave/leave.service';
 import { DISPUTE_EVENTS } from '../events/dispute.events';
@@ -23,6 +23,7 @@ import {
   DisputeEntity,
   DisputeStatus,
   DisputeCategory,
+  DisputeType,
 } from '../../../database/entities/dispute.entity';
 import { ProjectEntity, PricingModel } from '../../../database/entities/project.entity';
 import { UserEntity, UserRole } from '../../../database/entities/user.entity';
@@ -38,6 +39,10 @@ import {
   SchedulingStrategy,
 } from '../../../database/entities/auto-schedule-rule.entity';
 import { DisputeEvidenceEntity } from '../../../database/entities/dispute-evidence.entity';
+import {
+  DisputeHearingEntity,
+  HearingStatus,
+} from '../../../database/entities/dispute-hearing.entity';
 
 // Tagging System Entities
 import { StaffExpertiseEntity } from '../../../database/entities/user-skill.entity';
@@ -162,6 +167,13 @@ const ASSIGNMENT_CONFIG = {
   },
 } as const;
 
+const BROKER_INVOLVED_DISPUTE_TYPES = [
+  DisputeType.CLIENT_VS_BROKER,
+  DisputeType.FREELANCER_VS_BROKER,
+  DisputeType.BROKER_VS_CLIENT,
+  DisputeType.BROKER_VS_FREELANCER,
+] as const;
+
 // =============================================================================
 // SERVICE
 // =============================================================================
@@ -187,6 +199,8 @@ export class StaffAssignmentService {
     private readonly ruleRepository: Repository<AutoScheduleRuleEntity>,
     @InjectRepository(DisputeEvidenceEntity)
     private readonly evidenceRepository: Repository<DisputeEvidenceEntity>,
+    @InjectRepository(DisputeHearingEntity)
+    private readonly hearingRepository: Repository<DisputeHearingEntity>,
     // Tagging System Repositories
     @InjectRepository(StaffExpertiseEntity)
     private readonly staffExpertiseRepository: Repository<StaffExpertiseEntity>,
@@ -203,6 +217,644 @@ export class StaffAssignmentService {
     private readonly eventEmitter: EventEmitter2,
     private readonly leaveService: LeaveService,
   ) {}
+
+  private getRangeDays(range: '7d' | '30d' | '90d'): number {
+    switch (range) {
+      case '7d':
+        return 7;
+      case '90d':
+        return 90;
+      default:
+        return 30;
+    }
+  }
+
+  private getMedian(values: number[]): number {
+    if (!values.length) {
+      return 0;
+    }
+    const sorted = [...values].sort((a, b) => a - b);
+    const mid = Math.floor(sorted.length / 2);
+    return sorted.length % 2 === 0
+      ? Math.round(((sorted[mid - 1] + sorted[mid]) / 2) * 100) / 100
+      : Math.round(sorted[mid] * 100) / 100;
+  }
+
+  private getPeriodsForRange(start: Date, end: Date): string[] {
+    const periods: string[] = [];
+    const cursor = new Date(start.getFullYear(), start.getMonth(), 1);
+    const endCursor = new Date(end.getFullYear(), end.getMonth(), 1);
+
+    while (cursor <= endCursor) {
+      const year = cursor.getFullYear();
+      const month = `${cursor.getMonth() + 1}`.padStart(2, '0');
+      periods.push(`${year}-${month}`);
+      cursor.setMonth(cursor.getMonth() + 1);
+    }
+
+    return periods;
+  }
+
+  private buildDashboardBuckets(range: '7d' | '30d' | '90d', start: Date, end: Date) {
+    const useWeekly = range === '90d';
+    const buckets: Array<{
+      start: Date;
+      end: Date;
+      label: string;
+      newDisputes: number;
+      closed: number;
+      breachCount: number;
+      verdictHours: number[];
+      utilizationSum: number;
+      workloadSamples: number;
+      pendingQueueTotal: number;
+      overloadedStaff: number;
+      conflictingEvidenceCases: number;
+    }> = [];
+
+    let cursor = new Date(start);
+    while (cursor <= end) {
+      const bucketStart = new Date(cursor);
+      const bucketEnd = useWeekly
+        ? new Date(bucketStart.getTime() + 6 * 24 * 60 * 60 * 1000)
+        : new Date(bucketStart);
+      buckets.push({
+        start: new Date(
+          bucketStart.getFullYear(),
+          bucketStart.getMonth(),
+          bucketStart.getDate(),
+          0,
+          0,
+          0,
+          0,
+        ),
+        end: new Date(
+          bucketEnd.getFullYear(),
+          bucketEnd.getMonth(),
+          bucketEnd.getDate(),
+          23,
+          59,
+          59,
+          999,
+        ),
+        label: useWeekly
+          ? `Wk ${bucketStart.getMonth() + 1}/${bucketStart.getDate()}`
+          : `${bucketStart.getMonth() + 1}/${bucketStart.getDate()}`,
+        newDisputes: 0,
+        closed: 0,
+        breachCount: 0,
+        verdictHours: [],
+        utilizationSum: 0,
+        workloadSamples: 0,
+        pendingQueueTotal: 0,
+        overloadedStaff: 0,
+        conflictingEvidenceCases: 0,
+      });
+      cursor = new Date(bucketEnd.getTime() + 24 * 60 * 60 * 1000);
+    }
+
+    return buckets;
+  }
+
+  private findDashboardBucket<T extends { start: Date; end: Date }>(buckets: T[], value?: Date | null) {
+    if (!value) {
+      return null;
+    }
+
+    return buckets.find((bucket) => value >= bucket.start && value <= bucket.end) || null;
+  }
+
+  private buildStaffDashboardMembers(
+    staffUsers: Pick<UserEntity, 'id' | 'fullName' | 'email'>[],
+    performanceRows: StaffPerformanceEntity[],
+    workloadRows: StaffWorkloadEntity[],
+  ) {
+    const performanceMap = new Map<string, StaffPerformanceEntity[]>();
+    const workloadMap = new Map<string, StaffWorkloadEntity[]>();
+
+    (performanceRows ?? []).forEach((row) => {
+      const current = performanceMap.get(row.staffId) || [];
+      current.push(row);
+      performanceMap.set(row.staffId, current);
+    });
+
+    (workloadRows ?? []).forEach((row) => {
+      const current = workloadMap.get(row.staffId) || [];
+      current.push(row);
+      workloadMap.set(row.staffId, current);
+    });
+
+    return (staffUsers ?? [])
+      .map((staff) => {
+        const performances = performanceMap.get(staff.id) || [];
+        const workloads = (workloadMap.get(staff.id) || []).sort(
+          (left, right) => new Date(left.date).getTime() - new Date(right.date).getTime(),
+        );
+        const latestWorkload = workloads[workloads.length - 1];
+        const resolvedCases = performances.reduce(
+          (sum, row) => sum + Number(row.totalDisputesResolved || 0),
+          0,
+        );
+        const finalizedCases = performances.reduce(
+          (sum, row) => sum + Number(row.totalCasesFinalized || 0),
+          0,
+        );
+        const appealedCases = performances.reduce(
+          (sum, row) => sum + Number(row.totalAppealed || 0),
+          0,
+        );
+        const overturnedCases = performances.reduce(
+          (sum, row) => sum + Number(row.totalOverturnedByAdmin || 0),
+          0,
+        );
+        const hearingsConducted = performances.reduce(
+          (sum, row) => sum + Number(row.totalHearingsConducted || 0),
+          0,
+        );
+        const leaveMinutes = performances.reduce(
+          (sum, row) => sum + Number(row.totalLeaveMinutes || 0),
+          0,
+        );
+        const utilizationRate =
+          workloads.length > 0
+            ? Math.round(
+                (workloads.reduce((sum, row) => sum + Number(row.utilizationRate || 0), 0) /
+                  workloads.length) *
+                  100,
+              ) / 100
+            : 0;
+        const currentUtilizationRate = Number(latestWorkload?.utilizationRate || 0);
+        const pendingCases = Number(latestWorkload?.totalDisputesPending || 0);
+        const avgResolutionTimeHours =
+          resolvedCases > 0
+            ? Math.round(
+                (performances.reduce(
+                  (sum, row) =>
+                    sum +
+                    Number(row.avgResolutionTimeHours || 0) *
+                      Number(row.totalDisputesResolved || 0),
+                  0,
+                ) /
+                  resolvedCases) *
+                  100,
+              ) / 100
+            : 0;
+        const appealRate =
+          finalizedCases > 0 ? Math.round((appealedCases / finalizedCases) * 10000) / 100 : 0;
+        const overturnRate =
+          appealedCases > 0 ? Math.round((overturnedCases / appealedCases) * 10000) / 100 : 0;
+        const lastActiveAt =
+          latestWorkload?.updatedAt?.toISOString() || performances.at(-1)?.updatedAt?.toISOString() || null;
+
+        return {
+          id: staff.id,
+          name: staff.fullName,
+          email: staff.email,
+          resolvedCases,
+          pendingCases,
+          utilizationRate,
+          currentUtilizationRate,
+          appealRate,
+          overturnRate,
+          avgResolutionTimeHours,
+          hearingsConducted,
+          leaveMinutes,
+          isOverloaded: Boolean(latestWorkload?.isOverloaded),
+          isActive: Boolean(lastActiveAt || resolvedCases || pendingCases || hearingsConducted),
+          lastActiveAt,
+          score:
+            resolvedCases * 1.5 +
+            hearingsConducted * 0.75 -
+            appealRate * 0.4 -
+            overturnRate * 0.5 -
+            Math.max(currentUtilizationRate - 85, 0),
+        };
+      })
+      .sort((left, right) => right.score - left.score);
+  }
+
+  async getDashboardOverview(
+    range: '7d' | '30d' | '90d' = '30d',
+    currentUser?: Pick<UserEntity, 'id' | 'role'>,
+  ) {
+    const now = new Date();
+    const start = new Date(now.getTime() - this.getRangeDays(range) * 24 * 60 * 60 * 1000);
+    const periods = this.getPeriodsForRange(start, now);
+
+    const [
+      newCount,
+      inProgressCount,
+      closedCount,
+      firstResponseCandidates,
+      resolvedCases,
+      autoScheduledCount,
+      hearingEventCount,
+      hearingRescheduleRaw,
+      completedHearings,
+      noShowHearings,
+      appealedCount,
+      overturnedCount,
+      performanceRows,
+      workloadRows,
+      pendingQueueCount,
+      totalStaff,
+      prolongedCases,
+      multiPartyRaw,
+      contradictoryEvidenceRaw,
+      staffUsers,
+      contradictoryEvidenceRows,
+    ] = await Promise.all([
+      this.disputeRepository.count({
+        where: {
+          createdAt: Between(start, now),
+        },
+      }),
+      this.disputeRepository.count({
+        where: {
+          status: In([
+            DisputeStatus.OPEN,
+            DisputeStatus.TRIAGE_PENDING,
+            DisputeStatus.PREVIEW,
+            DisputeStatus.PENDING_REVIEW,
+            DisputeStatus.INFO_REQUESTED,
+            DisputeStatus.IN_MEDIATION,
+            DisputeStatus.APPEALED,
+            DisputeStatus.REJECTION_APPEALED,
+          ]),
+        },
+      }),
+      this.disputeRepository
+        .createQueryBuilder('dispute')
+        .where('dispute.status IN (:...statuses)', {
+          statuses: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED, DisputeStatus.CANCELED],
+        })
+        .andWhere('dispute.updatedAt BETWEEN :start AND :end', { start, end: now })
+        .getCount(),
+      this.disputeRepository.find({
+        where: { createdAt: Between(start, now) },
+        select: [
+          'id',
+          'createdAt',
+          'assignedAt',
+          'triageAt',
+          'infoRequestedAt',
+          'resolvedAt',
+          'resolutionDeadline',
+        ],
+      }),
+      this.disputeRepository.find({
+        where: {
+          resolvedAt: Between(start, now),
+        },
+        select: ['id', 'createdAt', 'resolvedAt', 'resolutionDeadline'],
+      }),
+      this.calendarRepository.count({
+        where: {
+          type: EventType.DISPUTE_HEARING,
+          startTime: Between(start, now),
+          isAutoScheduled: true,
+        },
+      }),
+      this.calendarRepository.count({
+        where: {
+          type: EventType.DISPUTE_HEARING,
+          startTime: Between(start, now),
+        },
+      }),
+      this.hearingRepository
+        .createQueryBuilder('hearing')
+        .select('COALESCE(SUM(hearing.rescheduleCount), 0)', 'count')
+        .where('hearing.createdAt BETWEEN :start AND :end', { start, end: now })
+        .getRawOne<{ count: string }>(),
+      this.hearingRepository.count({
+        where: {
+          createdAt: Between(start, now),
+          status: HearingStatus.COMPLETED,
+        },
+      }),
+      this.hearingRepository
+        .createQueryBuilder('hearing')
+        .where('hearing.createdAt BETWEEN :start AND :end', { start, end: now })
+        .andWhere('hearing.status = :status', { status: HearingStatus.COMPLETED })
+        .andWhere('hearing.noShowNote IS NOT NULL')
+        .andWhere("TRIM(hearing.noShowNote) <> ''")
+        .getCount(),
+      this.disputeRepository.count({
+        where: {
+          appealedAt: Between(start, now),
+        },
+      }),
+      this.disputeRepository
+        .createQueryBuilder('dispute')
+        .where('dispute.appealResolvedAt BETWEEN :start AND :end', { start, end: now })
+        .andWhere('dispute.appealResolvedById IS NOT NULL')
+        .getCount(),
+      periods.length
+        ? this.performanceRepository.find({
+            where: { period: In(periods) },
+          })
+        : Promise.resolve([]),
+      this.workloadRepository.find({
+        where: {
+          date: Between(start, now),
+        },
+      }),
+      this.disputeRepository.count({
+        where: {
+          assignedStaffId: IsNull(),
+          status: In([DisputeStatus.OPEN, DisputeStatus.TRIAGE_PENDING]),
+        },
+      }),
+      this.userRepository.count({
+        where: {
+          role: UserRole.STAFF,
+        },
+      }),
+      this.disputeRepository.count({
+        where: {
+          status: In([
+            DisputeStatus.OPEN,
+            DisputeStatus.TRIAGE_PENDING,
+            DisputeStatus.PREVIEW,
+            DisputeStatus.PENDING_REVIEW,
+            DisputeStatus.INFO_REQUESTED,
+            DisputeStatus.IN_MEDIATION,
+            DisputeStatus.APPEALED,
+            DisputeStatus.REJECTION_APPEALED,
+          ]),
+          resolutionDeadline: LessThan(now),
+        },
+      }),
+      this.disputeRepository
+        .createQueryBuilder('dispute')
+        .where('dispute.createdAt BETWEEN :start AND :end', { start, end: now })
+        .andWhere(
+          '(dispute.groupId IS NOT NULL OR dispute.disputeType IN (:...brokerTypes))',
+          {
+            brokerTypes: [...BROKER_INVOLVED_DISPUTE_TYPES],
+          },
+        )
+        .getCount(),
+      this.evidenceRepository
+        .createQueryBuilder('evidence')
+        .select('COUNT(DISTINCT evidence.disputeId)', 'count')
+        .where('evidence.uploadedAt BETWEEN :start AND :end', { start, end: now })
+        .andWhere('(evidence.isFlagged = true OR evidence.flagReason IS NOT NULL)')
+        .getRawOne<{ count: string }>(),
+      this.userRepository.find({
+        where: {
+          role: UserRole.STAFF,
+        },
+        select: ['id', 'fullName', 'email'],
+      }),
+      this.evidenceRepository.find({
+        where: {
+          uploadedAt: Between(start, now),
+        },
+        select: ['id', 'uploadedAt', 'isFlagged', 'flagReason'],
+      }),
+    ]);
+
+    const firstResponseHours = firstResponseCandidates
+      .map((item) => {
+        const responseAt =
+          item.triageAt || item.infoRequestedAt || item.assignedAt || item.resolvedAt || null;
+        if (!item.createdAt || !responseAt) {
+          return null;
+        }
+        return (responseAt.getTime() - item.createdAt.getTime()) / (1000 * 60 * 60);
+      })
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+    const verdictHours = resolvedCases
+      .map((item) => {
+        if (!item.createdAt || !item.resolvedAt) {
+          return null;
+        }
+        return (item.resolvedAt.getTime() - item.createdAt.getTime()) / (1000 * 60 * 60);
+      })
+      .filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+    const resolvedBreaches = resolvedCases.filter(
+      (item) =>
+        item.resolutionDeadline &&
+        item.resolvedAt &&
+        item.resolvedAt.getTime() > item.resolutionDeadline.getTime(),
+    ).length;
+    const breachRate =
+      resolvedCases.length > 0
+        ? Math.round((resolvedBreaches / resolvedCases.length) * 10000) / 100
+        : 0;
+
+    const averageUtilization =
+      workloadRows.length > 0
+        ? Math.round(
+            (workloadRows.reduce((sum, row) => sum + Number(row.utilizationRate || 0), 0) /
+              workloadRows.length) *
+              100,
+          ) / 100
+        : 0;
+    const averageCasesPerStaff =
+      workloadRows.length > 0
+        ? Math.round(
+            (workloadRows.reduce((sum, row) => sum + Number(row.totalDisputesPending || 0), 0) /
+              workloadRows.length) *
+              100,
+          ) / 100
+        : 0;
+    const autoScheduleSuccessRate =
+      hearingEventCount > 0
+        ? Math.round((autoScheduledCount / hearingEventCount) * 10000) / 100
+        : 0;
+    const noShowRate =
+      completedHearings > 0
+        ? Math.round((noShowHearings / completedHearings) * 10000) / 100
+        : 0;
+
+    const feedbackValues = performanceRows
+      .map((row) => Number(row.avgUserRating || 0))
+      .filter((value) => value > 0);
+    const feedbackScore =
+      feedbackValues.length > 0
+        ? Math.round(
+            (feedbackValues.reduce((sum, value) => sum + value, 0) / feedbackValues.length) * 100,
+          ) / 100
+        : 0;
+
+    const buckets = this.buildDashboardBuckets(range, start, now);
+    firstResponseCandidates.forEach((item) => {
+      const bucket = this.findDashboardBucket(buckets, item.createdAt);
+      if (bucket) {
+        bucket.newDisputes += 1;
+      }
+    });
+    resolvedCases.forEach((item) => {
+      const bucket = this.findDashboardBucket(buckets, item.resolvedAt);
+      if (!bucket || !item.createdAt || !item.resolvedAt) {
+        return;
+      }
+      bucket.closed += 1;
+      bucket.verdictHours.push(
+        (item.resolvedAt.getTime() - item.createdAt.getTime()) / (1000 * 60 * 60),
+      );
+      if (
+        item.resolutionDeadline &&
+        item.resolvedAt.getTime() > item.resolutionDeadline.getTime()
+      ) {
+        bucket.breachCount += 1;
+      }
+    });
+    workloadRows.forEach((row) => {
+      const bucket = this.findDashboardBucket(
+        buckets,
+        row.date ? new Date(row.date) : undefined,
+      );
+      if (!bucket) {
+        return;
+      }
+      bucket.utilizationSum += Number(row.utilizationRate || 0);
+      bucket.workloadSamples += 1;
+      bucket.pendingQueueTotal += Number(row.totalDisputesPending || 0);
+      if (row.isOverloaded) {
+        bucket.overloadedStaff += 1;
+      }
+    });
+    (contradictoryEvidenceRows ?? [])
+      .filter((row) => row.isFlagged || row.flagReason)
+      .forEach((row) => {
+        const bucket = this.findDashboardBucket(
+          buckets,
+          row.uploadedAt ? new Date(row.uploadedAt) : undefined,
+        );
+        if (bucket) {
+          bucket.conflictingEvidenceCases += 1;
+        }
+      });
+
+    const members = this.buildStaffDashboardMembers(staffUsers, performanceRows, workloadRows);
+    const memberDivisor = members.length || 1;
+    const teamAverages = {
+      resolvedCases:
+        Math.round((members.reduce((sum, member) => sum + member.resolvedCases, 0) / memberDivisor) * 100) / 100,
+      pendingCases:
+        Math.round((members.reduce((sum, member) => sum + member.pendingCases, 0) / memberDivisor) * 100) / 100,
+      utilizationRate:
+        Math.round((members.reduce((sum, member) => sum + member.utilizationRate, 0) / memberDivisor) * 100) / 100,
+      appealRate:
+        Math.round((members.reduce((sum, member) => sum + member.appealRate, 0) / memberDivisor) * 100) / 100,
+      overturnRate:
+        Math.round((members.reduce((sum, member) => sum + member.overturnRate, 0) / memberDivisor) * 100) / 100,
+      avgResolutionTimeHours:
+        Math.round(
+          (members.reduce((sum, member) => sum + member.avgResolutionTimeHours, 0) / memberDivisor) * 100,
+        ) / 100,
+    };
+    const currentUserMember =
+      currentUser?.role === UserRole.STAFF
+        ? members.find((member) => member.id === currentUser.id) || null
+        : null;
+    const currentUserRank = currentUserMember
+      ? members.findIndex((member) => member.id === currentUserMember.id) + 1
+      : null;
+
+    return {
+      generatedAt: now.toISOString(),
+      range,
+      throughput: {
+        newDisputes: newCount,
+        inProgress: inProgressCount,
+        closed: closedCount,
+      },
+      sla: {
+        medianTimeToFirstResponseHours: this.getMedian(firstResponseHours),
+        medianTimeToVerdictHours: this.getMedian(verdictHours),
+        breachRate,
+      },
+      scheduling: {
+        autoScheduleSuccessRate,
+        rescheduleCount: Number(hearingRescheduleRaw?.count || 0),
+        noShowRate,
+      },
+      quality: {
+        appealRate:
+          closedCount > 0 ? Math.round((appealedCount / closedCount) * 10000) / 100 : 0,
+        overturnedVerdictRate:
+          appealedCount > 0 ? Math.round((overturnedCount / appealedCount) * 10000) / 100 : 0,
+        feedbackScore,
+      },
+      workload: {
+        averageCasesPerStaff,
+        averageUtilizationRate: averageUtilization,
+        pendingQueueCount,
+        totalStaff,
+      },
+      riskSignals: {
+        prolongedCases,
+        multiPartyCases: Number(multiPartyRaw || 0),
+        conflictingEvidenceCases: Number(contradictoryEvidenceRaw?.count || 0),
+      },
+      series: {
+        throughput: buckets.map((bucket) => ({
+          label: bucket.label,
+          newDisputes: bucket.newDisputes,
+          closed: bucket.closed,
+        })),
+        sla: buckets.map((bucket) => ({
+          label: bucket.label,
+          medianTimeToVerdictHours: this.getMedian(bucket.verdictHours),
+          breachRate:
+            bucket.closed > 0 ? Math.round((bucket.breachCount / bucket.closed) * 10000) / 100 : 0,
+        })),
+        workload: buckets.map((bucket) => ({
+          label: bucket.label,
+          averageUtilizationRate:
+            bucket.workloadSamples > 0
+              ? Math.round((bucket.utilizationSum / bucket.workloadSamples) * 100) / 100
+              : 0,
+          pendingQueueCount:
+            bucket.workloadSamples > 0
+              ? Math.round((bucket.pendingQueueTotal / bucket.workloadSamples) * 100) / 100
+              : 0,
+        })),
+        risk: buckets.map((bucket) => ({
+          label: bucket.label,
+          overloadedStaff: bucket.overloadedStaff,
+          conflictingEvidenceCases: bucket.conflictingEvidenceCases,
+        })),
+      },
+      members,
+      currentUser: currentUserMember
+        ? {
+            ...currentUserMember,
+            rank: currentUserRank,
+            teamAverages,
+          }
+        : null,
+      highlights: {
+        overloadedStaff: members
+          .filter((member) => member.isOverloaded)
+          .slice(0, 5)
+          .map((member) => ({
+            id: member.id,
+            name: member.name,
+            currentUtilizationRate: member.currentUtilizationRate,
+            pendingCases: member.pendingCases,
+          })),
+        backlogPressure: {
+          pendingQueueCount,
+          overloadedCount: members.filter((member) => member.isOverloaded).length,
+        },
+        riskSpikes: buckets
+          .filter((bucket) => bucket.overloadedStaff > 0 || bucket.conflictingEvidenceCases > 0)
+          .slice(-5)
+          .map((bucket) => ({
+            label: bucket.label,
+            overloadedStaff: bucket.overloadedStaff,
+            conflictingEvidenceCases: bucket.conflictingEvidenceCases,
+          })),
+      },
+    };
+  }
 
   // ===========================================================================
   // UNIT FUNCTIONS: COMPLEXITY ESTIMATION

@@ -1,47 +1,29 @@
-/**
- * VerdictAnnouncement  EPublic verdict display in the hearing room
- * ─────────────────────────────────────────────────────────────────
- * Courtroom-style transparent verdict with:
- *   • Result (WIN_CLIENT / WIN_FREELANCER / SPLIT)
- *   • Fault type + faulty party
- *   • Full reasoning (violated policies, factual findings, legal analysis, conclusion)
- *   • Money distribution
- *   • Appeal info + button
- */
-
 import { useMemo, useState } from "react";
 import {
-  Gavel,
-  Scale,
   AlertTriangle,
+  Ban,
   ChevronDown,
   ChevronUp,
   Clock,
   DollarSign,
   FileText,
+  Gavel,
+  Scale,
   ShieldAlert,
   Trophy,
   Users,
-  Ban,
 } from "lucide-react";
 import { cn } from "@/shared/components/ui/utils";
 import type { VerdictSummary } from "@/features/hearings/types";
 
-/* ─── Types ─── */
-
 interface VerdictAnnouncementProps {
   verdict: VerdictSummary;
-  /** The current user's hearing role  Eused for appeal eligibility */
   participantRole?: string | null;
-  /** Whether the appeal deadline has passed */
+  canAppealOverride?: boolean;
   appealDeadlinePassed?: boolean;
-  /** Called when user clicks "Appeal Verdict" */
   onAppeal?: () => void;
-  /** Whether appeal is in progress */
   appealLoading?: boolean;
 }
-
-/* ─── Helpers ─── */
 
 const RESULT_DISPLAY: Record<
   string,
@@ -90,7 +72,7 @@ const FAULT_LABELS: Record<string, string> = {
 };
 
 const PARTY_LABELS: Record<string, string> = {
-  raiser: "Dispute Raiser (Plaintiff)",
+  raiser: "Dispute Raiser",
   defendant: "Defendant",
   both: "Both Parties",
   none: "Neither Party",
@@ -104,29 +86,30 @@ const formatCurrency = (amount: number) =>
     maximumFractionDigits: 2,
   }).format(amount);
 
-const formatDeadline = (deadline: string) => {
+const formatAppealDeadline = (deadline: string) => {
   const date = new Date(deadline);
   const now = new Date();
   const diff = date.getTime() - now.getTime();
+  if (diff <= 0) return "Expired";
+
   const hours = Math.max(0, Math.floor(diff / (1000 * 60 * 60)));
   const minutes = Math.max(
     0,
     Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60)),
   );
 
-  if (diff <= 0) return "Expired";
   if (hours >= 24) {
     const days = Math.floor(hours / 24);
     return `${days}d ${hours % 24}h remaining`;
   }
+
   return `${hours}h ${minutes}m remaining`;
 };
-
-/* ─── Component ─── */
 
 export const VerdictAnnouncement = ({
   verdict,
   participantRole,
+  canAppealOverride,
   appealDeadlinePassed,
   onAppeal,
   appealLoading,
@@ -135,26 +118,72 @@ export const VerdictAnnouncement = ({
 
   const display = RESULT_DISPLAY[verdict.result] ?? RESULT_DISPLAY.SPLIT;
   const ResultIcon = display.icon;
+  const reasoning = useMemo(
+    () => ({
+      violatedPolicies: verdict.reasoning?.violatedPolicies ?? [],
+      supportingEvidenceIds: verdict.reasoning?.supportingEvidenceIds ?? [],
+      policyReferences: verdict.reasoning?.policyReferences ?? [],
+      legalReferences: verdict.reasoning?.legalReferences ?? [],
+      contractReferences: verdict.reasoning?.contractReferences ?? [],
+      evidenceReferences: verdict.reasoning?.evidenceReferences ?? [],
+      factualFindings: verdict.reasoning?.factualFindings ?? "",
+      legalAnalysis: verdict.reasoning?.legalAnalysis ?? "",
+      analysis: verdict.reasoning?.analysis ?? "",
+      conclusion: verdict.reasoning?.conclusion ?? "",
+      remedyRationale: verdict.reasoning?.remedyRationale ?? "",
+      trustPenaltyRationale: verdict.reasoning?.trustPenaltyRationale ?? "",
+    }),
+    [verdict.reasoning],
+  );
+  const hasDetailedReasoning = useMemo(() => {
+    return (
+      reasoning.violatedPolicies.length > 0 ||
+      reasoning.policyReferences.length > 0 ||
+      reasoning.legalReferences.length > 0 ||
+      reasoning.contractReferences.length > 0 ||
+      reasoning.evidenceReferences.length > 0 ||
+      reasoning.factualFindings.trim().length > 0 ||
+      reasoning.legalAnalysis.trim().length > 0 ||
+      reasoning.analysis.trim().length > 0 ||
+      reasoning.remedyRationale.trim().length > 0 ||
+      reasoning.trustPenaltyRationale.trim().length > 0 ||
+      reasoning.conclusion.trim().length > 0
+    );
+  }, [reasoning]);
 
   const canAppeal = useMemo(() => {
+    if (typeof canAppealOverride === "boolean") {
+      return canAppealOverride;
+    }
     if (appealDeadlinePassed) return false;
-    if (verdict.isAppealVerdict) return false; // can't re-appeal
-    // Only raiser/defendant can appeal
+    if (verdict.isAppealVerdict) return false;
+    if (verdict.isAppealed) return false;
     return participantRole === "RAISER" || participantRole === "DEFENDANT";
-  }, [participantRole, appealDeadlinePassed, verdict.isAppealVerdict]);
+  }, [
+    canAppealOverride,
+    participantRole,
+    appealDeadlinePassed,
+    verdict.isAppealVerdict,
+    verdict.isAppealed,
+  ]);
 
   const totalAmount =
     (verdict.amountToClient ?? 0) + (verdict.amountToFreelancer ?? 0);
+  const appealedAtText = verdict.appealedAt
+    ? new Date(verdict.appealedAt).toLocaleString()
+    : null;
+  const appealResolvedAtText = verdict.appealResolvedAt
+    ? new Date(verdict.appealResolvedAt).toLocaleString()
+    : null;
 
   return (
     <div
       className={cn(
-        "rounded-xl border-2 shadow-md overflow-hidden",
+        "overflow-hidden rounded-xl border-2 shadow-md",
         display.border,
       )}
     >
-      {/* ── Header banner ── */}
-      <div className={cn("px-4 py-3 flex items-center gap-3", display.bg)}>
+      <div className={cn("flex items-center gap-3 px-4 py-3", display.bg)}>
         <div
           className={cn(
             "flex h-10 w-10 items-center justify-center rounded-full border-2",
@@ -164,10 +193,8 @@ export const VerdictAnnouncement = ({
         >
           <Gavel className={cn("h-5 w-5", display.color)} />
         </div>
-        <div className="flex-1 min-w-0">
-          <h3
-            className={cn("text-base font-bold tracking-tight", display.color)}
-          >
+        <div className="min-w-0 flex-1">
+          <h3 className={cn("text-base font-bold tracking-tight", display.color)}>
             VERDICT ANNOUNCED
           </h3>
           <p className={cn("text-sm font-medium", display.color)}>
@@ -177,23 +204,32 @@ export const VerdictAnnouncement = ({
         <ResultIcon className={cn("h-6 w-6 shrink-0", display.color)} />
       </div>
 
-      {/* ── Verdict body ── */}
-      <div className="bg-white p-4 space-y-4">
-        {/* Appeal verdict badge */}
-        {verdict.isAppealVerdict && (
+      <div className="space-y-4 bg-white p-4">
+        {verdict.isAppealVerdict ? (
           <div className="flex items-center gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-800">
             <Scale className="h-4 w-4" />
             <span className="font-semibold">Appeal Verdict</span>
             <span className="text-purple-600">
-               EThis overrides the original ruling
+              This verdict overrides the original ruling.
             </span>
           </div>
-        )}
+        ) : null}
 
-        {/* Fault + Party */}
+        {!verdict.isAppealVerdict && verdict.isAppealed ? (
+          <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            <Scale className="h-4 w-4" />
+            <span className="font-semibold">Appeal Filed</span>
+            <span className="text-amber-700">
+              {appealedAtText
+                ? `Submitted ${appealedAtText}`
+                : "The original verdict is under appeal review."}
+            </span>
+          </div>
+        ) : null}
+
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1">
+            <div className="mb-1 flex items-center gap-1.5 text-xs text-slate-500">
               <ShieldAlert className="h-3.5 w-3.5" />
               Fault Type
             </div>
@@ -202,7 +238,7 @@ export const VerdictAnnouncement = ({
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-1">
+            <div className="mb-1 flex items-center gap-1.5 text-xs text-slate-500">
               <Users className="h-3.5 w-3.5" />
               At-Fault Party
             </div>
@@ -212,9 +248,8 @@ export const VerdictAnnouncement = ({
           </div>
         </div>
 
-        {/* Money distribution */}
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-          <div className="flex items-center gap-1.5 text-xs text-slate-500 mb-2">
+          <div className="mb-2 flex items-center gap-1.5 text-xs text-slate-500">
             <DollarSign className="h-3.5 w-3.5" />
             Financial Resolution
           </div>
@@ -224,76 +259,71 @@ export const VerdictAnnouncement = ({
               <p className="text-lg font-bold text-slate-800">
                 {formatCurrency(verdict.amountToClient)}
               </p>
-              {totalAmount > 0 && (
-                <div className="mt-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+              {totalAmount > 0 ? (
+                <div className="mt-1 overflow-hidden rounded-full bg-slate-200">
                   <div
-                    className="h-full bg-sky-500 rounded-full transition-all"
+                    className="h-1.5 rounded-full bg-sky-500"
                     style={{
                       width: `${Math.round((verdict.amountToClient / totalAmount) * 100)}%`,
                     }}
                   />
                 </div>
-              )}
+              ) : null}
             </div>
             <div>
               <p className="text-xs text-slate-500">To Freelancer</p>
               <p className="text-lg font-bold text-slate-800">
                 {formatCurrency(verdict.amountToFreelancer)}
               </p>
-              {totalAmount > 0 && (
-                <div className="mt-1 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+              {totalAmount > 0 ? (
+                <div className="mt-1 overflow-hidden rounded-full bg-slate-200">
                   <div
-                    className="h-full bg-emerald-500 rounded-full transition-all"
+                    className="h-1.5 rounded-full bg-emerald-500"
                     style={{
                       width: `${Math.round((verdict.amountToFreelancer / totalAmount) * 100)}%`,
                     }}
                   />
                 </div>
-              )}
+              ) : null}
             </div>
           </div>
-          {verdict.platformFee != null && verdict.platformFee > 0 && (
+          {verdict.platformFee != null && verdict.platformFee > 0 ? (
             <p className="mt-2 text-xs text-slate-400">
               Platform fee: {formatCurrency(verdict.platformFee)}
             </p>
-          )}
+          ) : null}
         </div>
 
-        {/* Warning / Ban */}
-        {(verdict.warningMessage || verdict.isBanTriggered) && (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-3 space-y-1">
-            {verdict.warningMessage && (
+        {verdict.warningMessage || verdict.isBanTriggered ? (
+          <div className="space-y-1 rounded-lg border border-rose-200 bg-rose-50 p-3">
+            {verdict.warningMessage ? (
               <div className="flex items-start gap-2 text-sm text-rose-800">
-                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                 <span>{verdict.warningMessage}</span>
               </div>
-            )}
-            {verdict.isBanTriggered && (
+            ) : null}
+            {verdict.isBanTriggered ? (
               <div className="flex items-center gap-2 text-xs text-rose-700">
                 <Ban className="h-3.5 w-3.5" />
                 <span>
                   Account restriction applied
-                  {verdict.banDurationDays
-                    ? ` (${verdict.banDurationDays} days)`
-                    : ""}
+                  {verdict.banDurationDays ? ` (${verdict.banDurationDays} days)` : ""}
                 </span>
               </div>
-            )}
-            {verdict.trustScorePenalty != null &&
-              verdict.trustScorePenalty > 0 && (
-                <p className="text-xs text-rose-600">
-                  Trust score penalty: −{verdict.trustScorePenalty}
-                </p>
-              )}
+            ) : null}
+            {verdict.trustScorePenalty != null && verdict.trustScorePenalty > 0 ? (
+              <p className="text-xs text-rose-600">
+                Trust score penalty: -{verdict.trustScorePenalty}
+              </p>
+            ) : null}
           </div>
-        )}
+        ) : null}
 
-        {/* Reasoning (collapsible) */}
-        <div className="border border-slate-200 rounded-lg overflow-hidden">
+        <div className="overflow-hidden rounded-lg border border-slate-200">
           <button
             type="button"
-            onClick={() => setReasoningExpanded((v) => !v)}
-            className="flex w-full items-center justify-between px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+            onClick={() => setReasoningExpanded((value) => !value)}
+            className="flex w-full items-center justify-between px-3 py-2.5 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50"
           >
             <span className="flex items-center gap-2">
               <FileText className="h-4 w-4 text-slate-400" />
@@ -306,18 +336,17 @@ export const VerdictAnnouncement = ({
             )}
           </button>
 
-          {reasoningExpanded && (
-            <div className="border-t border-slate-200 p-4 space-y-4 bg-slate-50/50">
-              {/* Violated policies */}
-              {verdict.reasoning.violatedPolicies.length > 0 && (
+          {reasoningExpanded ? (
+            <div className="space-y-4 border-t border-slate-200 bg-slate-50/50 p-4">
+              {reasoning.violatedPolicies.length > 0 ? (
                 <div>
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
+                  <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
                     Violated Policies
                   </h4>
                   <ul className="space-y-1">
-                    {verdict.reasoning.violatedPolicies.map((policy, i) => (
+                    {reasoning.violatedPolicies.map((policy, index) => (
                       <li
-                        key={i}
+                        key={`${policy}-${index}`}
                         className="flex items-start gap-2 text-sm text-slate-700"
                       >
                         <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-rose-400" />
@@ -326,92 +355,184 @@ export const VerdictAnnouncement = ({
                     ))}
                   </ul>
                 </div>
+              ) : null}
+
+              {[
+                {
+                  title: "Policy References",
+                  items: reasoning.policyReferences,
+                },
+                {
+                  title: "Legal References",
+                  items: reasoning.legalReferences,
+                },
+                {
+                  title: "Contract References",
+                  items: reasoning.contractReferences,
+                },
+                {
+                  title: "Evidence References",
+                  items: reasoning.evidenceReferences,
+                },
+              ].map((section) =>
+                section.items.length > 0 ? (
+                  <div key={section.title}>
+                    <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      {section.title}
+                    </h4>
+                    <ul className="space-y-1">
+                      {section.items.map((item, index) => (
+                        <li
+                          key={`${section.title}-${index}`}
+                          className="flex items-start gap-2 text-sm text-slate-700"
+                        >
+                          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null,
               )}
 
-              {/* Factual findings */}
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Factual Findings
-                </h4>
-                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                  {verdict.reasoning.factualFindings}
-                </p>
-              </div>
+              {hasDetailedReasoning ? (
+                <>
+                  {reasoning.factualFindings.trim().length > 0 ? (
+                    <div>
+                      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Factual Findings
+                      </h4>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                        {reasoning.factualFindings}
+                      </p>
+                    </div>
+                  ) : null}
 
-              {/* Legal analysis */}
-              <div>
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Legal Analysis
-                </h4>
-                <p className="text-sm text-slate-700 whitespace-pre-wrap leading-relaxed">
-                  {verdict.reasoning.legalAnalysis}
-                </p>
-              </div>
+                  {reasoning.legalAnalysis.trim().length > 0 ? (
+                    <div>
+                      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Legal Analysis
+                      </h4>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                        {reasoning.legalAnalysis}
+                      </p>
+                    </div>
+                  ) : null}
 
-              {/* Conclusion */}
-              <div className="rounded-lg border border-slate-300 bg-white p-3">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Conclusion
-                </h4>
-                <p className="text-sm font-medium text-slate-800 whitespace-pre-wrap leading-relaxed">
-                  {verdict.reasoning.conclusion}
-                </p>
-              </div>
+                  {reasoning.analysis.trim().length > 0 ? (
+                    <div>
+                      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Platform Analysis
+                      </h4>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                        {reasoning.analysis}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {reasoning.remedyRationale.trim().length > 0 ? (
+                    <div>
+                      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Remedy Rationale
+                      </h4>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                        {reasoning.remedyRationale}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {reasoning.trustPenaltyRationale.trim().length > 0 ? (
+                    <div>
+                      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Trust / Penalty Rationale
+                      </h4>
+                      <p className="whitespace-pre-wrap text-sm leading-relaxed text-slate-700">
+                        {reasoning.trustPenaltyRationale}
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {reasoning.conclusion.trim().length > 0 ? (
+                    <div className="rounded-lg border border-slate-300 bg-white p-3">
+                      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                        Conclusion
+                      </h4>
+                      <p className="whitespace-pre-wrap text-sm font-medium leading-relaxed text-slate-800">
+                        {reasoning.conclusion}
+                      </p>
+                    </div>
+                  ) : null}
+                </>
+              ) : (
+                <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                  Detailed reasoning is unavailable for this verdict record.
+                </div>
+              )}
             </div>
-          )}
+          ) : null}
         </div>
 
-        {/* Adjudicator + timestamp */}
-        <div className="flex items-center justify-between text-xs text-slate-500 pt-1">
+        <div className="flex items-center justify-between pt-1 text-xs text-slate-500">
           <span>
-            Issued by{" "}
-            <span className="font-medium text-slate-700">
+            Issued by <span className="font-medium text-slate-700">
               {verdict.adjudicator?.fullName ?? "Staff"}
             </span>
-            {verdict.tier === 2 && (
-              <span className="ml-1 text-purple-600">(Tier 2  EAdmin)</span>
-            )}
+            {verdict.tier === 2 ? (
+              <span className="ml-1 text-purple-600">(Tier 2 Admin)</span>
+            ) : null}
           </span>
           <span>{new Date(verdict.issuedAt).toLocaleString()}</span>
         </div>
 
-        {/* Appeal section */}
-        {!verdict.isAppealVerdict && verdict.appealDeadline && (
-          <div className="border-t border-slate-200 pt-3 mt-1">
-            <div className="flex items-center justify-between">
+        {!verdict.isAppealVerdict && verdict.appealDeadline ? (
+          <div className="mt-1 border-t border-slate-200 pt-3">
+            <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs text-slate-500">
                 <Clock className="h-3.5 w-3.5" />
                 <span>
                   Appeal deadline:{" "}
                   <span className="font-medium text-slate-700">
-                    {formatDeadline(verdict.appealDeadline)}
+                    {formatAppealDeadline(verdict.appealDeadline)}
                   </span>
                 </span>
               </div>
-              {canAppeal && onAppeal && (
+              {canAppeal && onAppeal ? (
                 <button
                   type="button"
                   onClick={onAppeal}
                   disabled={appealLoading}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100 transition-colors disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
                 >
                   <Scale className="h-3.5 w-3.5" />
-                  {appealLoading ? "Submitting…" : "Appeal Verdict"}
+                  {appealLoading ? "Submitting..." : "Appeal Verdict"}
                 </button>
-              )}
+              ) : null}
             </div>
-            {!canAppeal && !appealDeadlinePassed && (
-              <p className="mt-1 text-xs text-slate-400">
-                Only dispute parties (raiser/defendant) may file an appeal.
+            {verdict.isAppealed && !verdict.isAppealVerdict ? (
+              <p className="mt-1 text-xs text-amber-700">
+                Appeal is pending Tier 2 review
+                {appealedAtText ? ` since ${appealedAtText}.` : "."}
               </p>
-            )}
-            {appealDeadlinePassed && (
+            ) : null}
+            {!canAppeal && !appealDeadlinePassed ? (
+              <p className="mt-1 text-xs text-slate-400">
+                {verdict.isAppealed
+                  ? "An appeal has already been filed for this verdict."
+                  : "Only dispute parties may file an appeal."}
+              </p>
+            ) : null}
+            {appealDeadlinePassed ? (
               <p className="mt-1 text-xs text-slate-400">
                 The appeal window has closed.
               </p>
-            )}
+            ) : null}
+            {verdict.appealResolution && verdict.appealResolvedAt ? (
+              <p className="mt-1 text-xs text-slate-500">
+                Appeal resolution recorded {appealResolvedAtText}: {verdict.appealResolution}
+              </p>
+            ) : null}
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

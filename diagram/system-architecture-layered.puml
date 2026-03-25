@@ -1,0 +1,39 @@
+@startuml
+title InterDev Platform - System Architecture
+left to right direction
+skinparam linetype ortho
+skinparam shadowing false
+skinparam defaultTextAlignment center
+skinparam rectangle {
+  RoundCorner 12
+}
+
+rectangle "Presentation Layer" as presentation {
+  rectangle "Front End\nReact + Vite\n(client/src)" as frontend
+}
+
+rectangle "Business Logic Layer" as business {
+  rectangle "Controllers\n(NestJS Controllers)" as controllers
+  rectangle "Services\n(Business Logic Services)" as services
+  rectangle "Gateways\n(Realtime / WebSocket)" as gateways
+}
+
+rectangle "Data Access Layer" as access {
+  rectangle "TypeORM Access\n(server/src/database,\nentities, repository access)" as repository
+}
+
+rectangle "Data Layer" as data {
+  rectangle "Supabase PostgreSQL" as db
+  rectangle "Supabase Storage" as storage
+  rectangle "Redis" as redis
+}
+
+frontend <--> controllers : Request / Response
+controllers <--> services : Delegate / Return
+services <--> gateways : Realtime Events
+services <--> repository : Query / Update
+repository <--> db : Read / Write
+services <--> storage : Upload / Fetch Files
+gateways <--> redis : Pub/Sub / Socket Scaling
+
+@enduml

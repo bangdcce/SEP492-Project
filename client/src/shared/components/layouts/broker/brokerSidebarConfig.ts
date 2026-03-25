@@ -8,12 +8,12 @@ import {
   LayoutGrid,
   FileSearch,
   Briefcase,
-  Users,
   User,
   FileSignature,
   Video,
   ShieldCheck,
   Mail,
+  CreditCard,
 } from "lucide-react";
 
 export interface BrokerSidebarMenuItem {
@@ -78,14 +78,6 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     section: "workspace",
   },
   {
-    id: "freelancers",
-    label: "My Freelancers",
-    icon: Users,
-    path: "/broker/freelancers",
-    description: "Assigned freelancers",
-    section: "workspace",
-  },
-  {
     id: "contracts",
     label: "Contracts",
     icon: FileSignature,
@@ -108,6 +100,14 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: ShieldCheck,
     path: "/broker/kyc-status",
     description: "Verify your identity",
+    section: "account",
+  },
+  {
+    id: "subscription",
+    label: "Subscription",
+    icon: CreditCard,
+    path: "/broker/subscription",
+    description: "Manage your premium plan",
     section: "account",
   },
 ];

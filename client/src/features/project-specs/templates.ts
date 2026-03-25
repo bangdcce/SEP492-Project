@@ -11,6 +11,30 @@ export interface ClientSpecTemplate {
 
 export const CLIENT_SPEC_TEMPLATES: ClientSpecTemplate[] = [
   {
+    code: 'LANDING_PAGE_STARTER',
+    name: 'Landing Page Starter',
+    description: 'Lean conversion-focused scope for a one-page product or campaign launch.',
+    projectCategory: 'LANDING_PAGE',
+    estimatedTimeline: '2-4 weeks',
+    clientFeatures: [
+      {
+        title: 'Hero Section',
+        description: 'Present the core value proposition with a clear headline, supporting copy, and visual focus.',
+        priority: 'MUST_HAVE',
+      },
+      {
+        title: 'Lead Capture Form',
+        description: 'Collect visitor inquiries or sign-ups with a short form and clear call to action.',
+        priority: 'MUST_HAVE',
+      },
+      {
+        title: 'Trust & Conversion Blocks',
+        description: 'Show testimonials, partner logos, FAQs, or other proof points to improve conversion.',
+        priority: 'SHOULD_HAVE',
+      },
+    ],
+  },
+  {
     code: 'ECOMMERCE_STANDARD',
     name: 'E-commerce Standard',
     description: 'Baseline flow for catalog, cart, checkout, and admin product management.',

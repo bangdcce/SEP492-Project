@@ -1,3 +1,5 @@
+import type { DeliverableType } from "@/features/project-specs/types";
+
 export type KanbanColumnKey = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
 
 export type Assignee = {
@@ -32,6 +34,118 @@ export type TaskSubmissionStatus =
   | "APPROVED"
   | "REJECTED"
   | "REQUEST_CHANGES";
+
+export type ProjectStaffInviteStatus = "PENDING" | "ACCEPTED" | "REJECTED";
+
+export type StaffRecommendation = "ACCEPT" | "REJECT";
+
+export type StaffSummary = {
+  id: string;
+  fullName: string;
+  email: string;
+};
+
+export type PendingProjectInvite = {
+  id: string;
+  title: string;
+  description?: string | null;
+  clientId: string;
+  clientName?: string | null;
+  createdAt: string;
+  staffInviteStatus?: ProjectStaffInviteStatus | null;
+};
+
+export type ActiveSupervisedProject = {
+  id: string;
+  title: string;
+  description?: string | null;
+  status: string;
+  totalBudget: number;
+  currency: string;
+  clientId: string;
+  clientName?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type WorkspaceChatMentionRole = "CLIENT" | "BROKER" | "FREELANCER";
+
+export type WorkspaceChatSender = {
+  id: string;
+  fullName: string;
+  role: string | null;
+};
+
+export type WorkspaceChatAttachment = {
+  url: string;
+  name: string;
+  type: string;
+};
+
+export type WorkspaceChatEditHistoryEntry = {
+  content: string;
+  editedAt: string;
+  editorId: string | null;
+};
+
+export type WorkspaceChatMessageType = "USER" | "SYSTEM";
+
+export type WorkspaceChatMentionMember = {
+  id: string;
+  fullName: string;
+  role: WorkspaceChatMentionRole;
+};
+
+export type WorkspaceChatReplySummary = {
+  id: string;
+  messageType: WorkspaceChatMessageType;
+  content: string;
+  attachments: WorkspaceChatAttachment[];
+  isDeleted: boolean;
+  createdAt: string;
+  sender: WorkspaceChatSender | null;
+};
+
+export type WorkspaceChatMessage = {
+  id: string;
+  projectId: string;
+  senderId: string | null;
+  taskId: string | null;
+  replyToId: string | null;
+  messageType: WorkspaceChatMessageType;
+  content: string;
+  attachments: WorkspaceChatAttachment[];
+  isPinned: boolean;
+  isEdited: boolean;
+  editHistory: WorkspaceChatEditHistoryEntry[];
+  isDeleted: boolean;
+  riskFlags: string[];
+  createdAt: string;
+  updatedAt: string;
+  sender: WorkspaceChatSender | null;
+  replyTo: WorkspaceChatReplySummary | null;
+};
+
+export type WorkspaceChatHistoryQuery = {
+  limit?: number;
+  offset?: number;
+  query?: string;
+};
+
+export type WorkspaceChatHistoryResponse = {
+  success: boolean;
+  data: WorkspaceChatMessage[];
+  pagination?: {
+    limit: number;
+    offset: number;
+    count: number;
+  };
+};
+
+export type WorkspaceChatMutationResponse = {
+  success: boolean;
+  data: WorkspaceChatMessage;
+};
 
 export type TaskSubmission = {
   id: string;
@@ -71,7 +185,7 @@ export type Task = {
   reporterId?: string | null;
   reporter?: Assignee | null;
 
-  // Proof of Work fields (for task submission / dispute resolution)
+  // Legacy completion metadata kept for dispute and overview surfaces.
   submissionNote?: string | null;
   proofLink?: string | null;
   submittedAt?: string | null;
@@ -85,15 +199,22 @@ export type Milestone = {
   id: string;
   projectId: string;
   projectSpecId?: string | null;
+  sourceContractMilestoneKey?: string | null;
   title: string;
   description?: string;
   amount: number;
   startDate?: string;
   dueDate?: string;
+  deliverableType?: DeliverableType | null;
+  retentionAmount?: number | null;
+  acceptanceCriteria?: string[] | null;
   status: string;
   sortOrder?: number | null;
   createdAt: string;
   submittedAt?: string | null;
+  reviewedByStaffId?: string | null;
+  staffRecommendation?: StaffRecommendation | null;
+  staffReviewNote?: string | null;
   // Progress fields (optional - calculated from tasks)
   progress?: number; // 0-100 percentage
   totalTasks?: number;
@@ -114,6 +235,16 @@ export type TaskStatusUpdateResult = {
   completedTasks: number;
 };
 
+export type ProjectTaskRealtimeEvent = {
+  action: "CREATED" | "UPDATED";
+  projectId: string;
+  task: Task;
+  milestoneId?: string | null;
+  milestoneProgress?: number;
+  totalTasks?: number;
+  completedTasks?: number;
+};
+
 export type TaskHistory = {
   id: string;
   taskId: string;
@@ -127,6 +258,10 @@ export type TaskHistory = {
   oldValue: string;
   newValue: string;
   createdAt: string;
+};
+
+export type ProjectRecentActivity = TaskHistory & {
+  task: Pick<Task, "id" | "title" | "status">;
 };
 
 export type TaskComment = {

@@ -1,4 +1,4 @@
-import { Input } from "@/shared/components/ui/Input";
+import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import {
   Select,

@@ -122,3 +122,125 @@ export interface StaffStats {
   avgResolutionTimeHours: number;
   tier: 1 | 2;
 }
+
+export type StaffDashboardRange = "7d" | "30d" | "90d";
+
+export interface StaffDashboardOverview {
+  generatedAt: string;
+  range: StaffDashboardRange;
+  throughput: {
+    newDisputes: number;
+    inProgress: number;
+    closed: number;
+  };
+  sla: {
+    medianTimeToFirstResponseHours: number;
+    medianTimeToVerdictHours: number;
+    breachRate: number;
+  };
+  scheduling: {
+    autoScheduleSuccessRate: number;
+    rescheduleCount: number;
+    noShowRate: number;
+  };
+  quality: {
+    appealRate: number;
+    overturnedVerdictRate: number;
+    feedbackScore: number;
+  };
+  workload: {
+    averageCasesPerStaff: number;
+    averageUtilizationRate: number;
+    pendingQueueCount: number;
+    totalStaff: number;
+  };
+  riskSignals: {
+    prolongedCases: number;
+    multiPartyCases: number;
+    conflictingEvidenceCases: number;
+  };
+  series: {
+    throughput: Array<{
+      label: string;
+      newDisputes: number;
+      closed: number;
+    }>;
+    sla: Array<{
+      label: string;
+      medianTimeToVerdictHours: number;
+      breachRate: number;
+    }>;
+    workload: Array<{
+      label: string;
+      averageUtilizationRate: number;
+      pendingQueueCount: number;
+    }>;
+    risk: Array<{
+      label: string;
+      overloadedStaff: number;
+      conflictingEvidenceCases: number;
+    }>;
+  };
+  members: Array<{
+    id: string;
+    name: string;
+    email: string;
+    resolvedCases: number;
+    pendingCases: number;
+    utilizationRate: number;
+    currentUtilizationRate: number;
+    appealRate: number;
+    overturnRate: number;
+    avgResolutionTimeHours: number;
+    hearingsConducted: number;
+    leaveMinutes: number;
+    isOverloaded: boolean;
+    isActive: boolean;
+    lastActiveAt: string | null;
+    score: number;
+  }>;
+  currentUser: {
+    id: string;
+    name: string;
+    email: string;
+    resolvedCases: number;
+    pendingCases: number;
+    utilizationRate: number;
+    currentUtilizationRate: number;
+    appealRate: number;
+    overturnRate: number;
+    avgResolutionTimeHours: number;
+    hearingsConducted: number;
+    leaveMinutes: number;
+    isOverloaded: boolean;
+    isActive: boolean;
+    lastActiveAt: string | null;
+    score: number;
+    rank: number | null;
+    teamAverages: {
+      resolvedCases: number;
+      pendingCases: number;
+      utilizationRate: number;
+      appealRate: number;
+      overturnRate: number;
+      avgResolutionTimeHours: number;
+    };
+  } | null;
+  highlights: {
+    overloadedStaff: Array<{
+      id: string;
+      name: string;
+      currentUtilizationRate: number;
+      pendingCases: number;
+    }>;
+    backlogPressure: {
+      pendingQueueCount: number;
+      overloadedCount: number;
+    };
+    riskSpikes: Array<{
+      label: string;
+      overloadedStaff: number;
+      conflictingEvidenceCases: number;
+    }>;
+  };
+}

@@ -45,15 +45,22 @@ import {
   getApiErrorDetails,
   isSchemaNotReadyErrorCode,
 } from "@/shared/utils/apiError";
+import { splitHearingsByLifecycle } from "@/features/hearings/utils/hearingLifecycle";
+import {
+  getSchedulingErrorMessage,
+  HEARING_RESCHEDULE_FREEZE_HOURS,
+} from "@/features/hearings/utils/schedulingFeedback";
 
 interface DisputeHearingPanelProps {
   disputeId: string;
   refreshToken?: number;
+  readOnly?: boolean;
 }
 
 export const DisputeHearingPanel = ({
   disputeId,
   refreshToken,
+  readOnly = false,
 }: DisputeHearingPanelProps) => {
   const [hearings, setHearings] = useState<DisputeHearingSummary[]>([]);
   const [loading, setLoading] = useState(false);
@@ -62,7 +69,9 @@ export const DisputeHearingPanel = ({
   const [duration, setDuration] = useState(60);
   const [agenda, setAgenda] = useState("");
   const [requiredDocs, setRequiredDocs] = useState("");
+  const [meetingLink, setMeetingLink] = useState("");
   const [isEmergency, setIsEmergency] = useState(false);
+  const [scheduleConfirmed, setScheduleConfirmed] = useState(false);
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
   const [rescheduleOpen, setRescheduleOpen] = useState(false);
@@ -72,6 +81,9 @@ export const DisputeHearingPanel = ({
   const [rescheduleDuration, setRescheduleDuration] = useState(60);
   const [rescheduleAgenda, setRescheduleAgenda] = useState("");
   const [rescheduleDocs, setRescheduleDocs] = useState("");
+  const [rescheduleMeetingLink, setRescheduleMeetingLink] = useState("");
+  const [rescheduleEmergency, setRescheduleEmergency] = useState(false);
+  const [rescheduleConfirmed, setRescheduleConfirmed] = useState(false);
 
   const [endOpen, setEndOpen] = useState(false);
   const [endHearingTarget, setEndHearingTarget] =
@@ -122,9 +134,9 @@ export const DisputeHearingPanel = ({
   }, []);
   const currentUserRole = currentUser?.role ?? null;
 
-  const canManageSchedule = currentUserRole === UserRole.ADMIN;
+  const canManageSchedule = !readOnly && currentUserRole === UserRole.ADMIN;
   const canModerate =
-    currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF;
+    !readOnly && (currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF);
   const isDisputeTestToolsEnabled = useMemo(() => {
     const raw = (import.meta.env.VITE_DISPUTE_TEST_TOOLS || "").toLowerCase();
     return import.meta.env.DEV || raw === "true" || raw === "1";
@@ -144,6 +156,10 @@ export const DisputeHearingPanel = ({
       toast.error("Select a hearing time.");
       return;
     }
+    if (!scheduleConfirmed) {
+      toast.error("Confirm the schedule details before creating the hearing.");
+      return;
+    }
 
     try {
       setScheduleLoading(true);
@@ -155,7 +171,7 @@ export const DisputeHearingPanel = ({
         requiredDocuments: requiredDocs
           ? requiredDocs.split(",").map((item) => item.trim()).filter(Boolean)
           : undefined,
-        externalMeetingLink: undefined,
+        externalMeetingLink: meetingLink.trim() || undefined,
         isEmergency,
       });
       if (result.manualRequired) {
@@ -168,11 +184,14 @@ export const DisputeHearingPanel = ({
       setScheduleAt("");
       setAgenda("");
       setRequiredDocs("");
+      setMeetingLink("");
       setIsEmergency(false);
+      setScheduleConfirmed(false);
       await loadHearings();
     } catch (error) {
+      const details = getApiErrorDetails(error, "Could not schedule hearing.");
       console.error("Failed to schedule hearing:", error);
-      toast.error("Could not schedule hearing.");
+      toast.error(getSchedulingErrorMessage(details, "schedule"));
     } finally {
       setScheduleLoading(false);
     }
@@ -225,10 +244,151 @@ export const DisputeHearingPanel = ({
     summary?: HearingParticipantConfirmationSummary,
   ) => {
     if (!summary) return "No confirmation data";
-    if (summary.allRequiredAccepted) {
-      return "All required participants confirmed";
+    if (summary.confirmationSatisfied) {
+      return "Moderator + one primary side confirmed";
     }
-    return `${summary.requiredAccepted}/${summary.requiredParticipants} required confirmed`;
+    return `${summary.primaryPartyAcceptedCount} primary confirmations, moderator ${summary.hasModeratorAccepted ? "ready" : "pending"}`;
+  };
+
+  const renderHearingCard = (hearing: DisputeHearingSummary) => {
+    const durationMinutes = hearing.estimatedDurationMinutes ?? 60;
+    const canStart =
+      canModerate && hearing.status === "SCHEDULED" && hearing.isActionable !== false;
+    const canEnd = canModerate && hearing.status === "IN_PROGRESS";
+    const canReschedule =
+      canManageSchedule && hearing.status === "SCHEDULED" && hearing.isActionable !== false;
+
+    return (
+      <div
+        key={hearing.id}
+        className="border border-gray-100 rounded-lg p-4 bg-gray-50"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-2">
+            <div>
+              <p className="text-sm font-semibold text-slate-900">
+                Hearing #{hearing.hearingNumber ?? "-"}
+              </p>
+              <p className="text-xs text-gray-500 mt-1 flex items-center gap-2">
+                <Clock className="w-3 h-3" />
+                {formatScheduledRange(hearing)} ({durationMinutes}m)
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-500">
+              <div>Started: {formatTimestamp(hearing.startedAt)}</div>
+              <div>Ended: {formatTimestamp(hearing.endedAt)}</div>
+              <div>Speaker: {speakerLabel(hearing.currentSpeakerRole)}</div>
+              <div>Chat: {hearing.isChatRoomActive ? "Active" : "Inactive"}</div>
+              <div>
+                Docket: {hearing.isActionable ? "Actionable" : hearing.isArchived ? "Archived" : "Open"}
+              </div>
+              <div>
+                Minutes: {hearing.minutesRecorded ? "Recorded" : "Pending"}
+              </div>
+              <div className="sm:col-span-2">
+                Confirmation: {confirmationSummaryLabel(hearing.participantConfirmationSummary)}
+              </div>
+            </div>
+
+            {hearing.agenda ? (
+              <p className="text-xs text-gray-600">
+                <span className="font-semibold">Agenda:</span> {hearing.agenda}
+              </p>
+            ) : null}
+
+            {hearing.freezeReason ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                {hearing.freezeReason}
+              </div>
+            ) : null}
+
+            {hearing.summary ? (
+              <p className="text-xs text-gray-600">
+                <span className="font-semibold">Minutes:</span> {hearing.summary}
+              </p>
+            ) : null}
+
+            {hearing.requiredDocuments && hearing.requiredDocuments.length > 0 ? (
+              <div className="flex flex-wrap gap-2 text-xs text-gray-600">
+                {hearing.requiredDocuments.map((doc) => (
+                  <span
+                    key={`${hearing.id}-${doc}`}
+                    className="px-2 py-1 rounded-full bg-white border border-gray-200"
+                  >
+                    {doc}
+                  </span>
+                ))}
+              </div>
+            ) : null}
+
+            {hearing.externalMeetingLink ? (
+              <a
+                href={hearing.externalMeetingLink}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs text-teal-600 hover:text-teal-700 font-medium"
+              >
+                Open meeting link
+              </a>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col items-end gap-2">
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs border ${statusBadge(
+                hearing.status,
+              )}`}
+            >
+              {hearing.status.replace("_", " ")}
+            </span>
+            <div className="flex items-center gap-2">
+              {canModerate ? (
+                <button
+                  onClick={() => handleOpenRoom(hearing.id)}
+                  className="px-2 py-1 text-xs rounded-md bg-slate-900 text-white hover:bg-slate-800"
+                >
+                  Open room
+                </button>
+              ) : null}
+              {canModerate ? (
+                <button
+                  onClick={() => handleStart(hearing)}
+                  disabled={!canStart || actionLoadingId === hearing.id}
+                  className="px-2 py-1 text-xs rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 flex items-center gap-1"
+                >
+                  {actionLoadingId === hearing.id && canStart ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : (
+                    <Play className="w-3 h-3" />
+                  )}
+                  Start
+                </button>
+              ) : null}
+              {canReschedule ? (
+                <button
+                  onClick={() => handleRescheduleOpen(hearing)}
+                  className="px-2 py-1 text-xs rounded-md border border-gray-200 text-gray-600 hover:bg-white flex items-center gap-1"
+                >
+                  <RefreshCw className="w-3 h-3" />
+                  Reschedule
+                </button>
+              ) : null}
+              {canModerate ? (
+                <button
+                  onClick={() => handleEndOpen(hearing)}
+                  disabled={!canEnd || actionLoadingId === hearing.id}
+                  className="px-2 py-1 text-xs rounded-md border border-red-200 text-red-600 hover:bg-red-50 flex items-center gap-1 disabled:opacity-50"
+                >
+                  <StopCircle className="w-3 h-3" />
+                  End
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   };
 
   const handleStart = async (hearing: DisputeHearingSummary) => {
@@ -253,6 +413,9 @@ export const DisputeHearingPanel = ({
     setRescheduleDuration(hearing.estimatedDurationMinutes ?? 60);
     setRescheduleAgenda(hearing.agenda ?? "");
     setRescheduleDocs(hearing.requiredDocuments?.join(", ") ?? "");
+    setRescheduleMeetingLink(hearing.externalMeetingLink ?? "");
+    setRescheduleEmergency(false);
+    setRescheduleConfirmed(false);
     setRescheduleOpen(true);
   };
 
@@ -260,6 +423,10 @@ export const DisputeHearingPanel = ({
     if (!rescheduleHearingTarget) return;
     if (!rescheduleAt) {
       toast.error("Select a new time.");
+      return;
+    }
+    if (!rescheduleConfirmed) {
+      toast.error("Confirm the updated hearing details before rescheduling.");
       return;
     }
 
@@ -273,7 +440,8 @@ export const DisputeHearingPanel = ({
         requiredDocuments: rescheduleDocs
           ? rescheduleDocs.split(",").map((item) => item.trim()).filter(Boolean)
           : undefined,
-        externalMeetingLink: undefined,
+        externalMeetingLink: rescheduleMeetingLink.trim() || undefined,
+        isEmergency: rescheduleEmergency,
       });
       if (result.manualRequired) {
         toast.error(
@@ -285,8 +453,9 @@ export const DisputeHearingPanel = ({
       setRescheduleOpen(false);
       await loadHearings();
     } catch (error) {
+      const details = getApiErrorDetails(error, "Could not reschedule hearing.");
       console.error("Failed to reschedule hearing:", error);
-      toast.error("Could not reschedule hearing.");
+      toast.error(getSchedulingErrorMessage(details, "reschedule"));
     } finally {
       setActionLoadingId(null);
     }
@@ -323,8 +492,9 @@ export const DisputeHearingPanel = ({
       setEndOpen(false);
       await loadHearings();
     } catch (error) {
+      const details = getApiErrorDetails(error, "Could not end hearing.");
       console.error("Failed to end hearing:", error);
-      toast.error("Could not end hearing.");
+      toast.error(details.code ? `[${details.code}] ${details.message}` : details.message);
     } finally {
       setActionLoadingId(null);
     }
@@ -336,6 +506,8 @@ export const DisputeHearingPanel = ({
         return "bg-emerald-50 text-emerald-700 border-emerald-200";
       case "SCHEDULED":
         return "bg-blue-50 text-blue-700 border-blue-200";
+      case "PAUSED":
+        return "bg-amber-50 text-amber-700 border-amber-200";
       case "RESCHEDULED":
         return "bg-amber-50 text-amber-700 border-amber-200";
       case "CANCELED":
@@ -353,6 +525,10 @@ export const DisputeHearingPanel = ({
         new Date(a.scheduledAt).getTime() - new Date(b.scheduledAt).getTime(),
     );
   }, [hearings]);
+  const { active: activeHearings, archived: archivedHearings } = useMemo(
+    () => splitHearingsByLifecycle(sortedHearings),
+    [sortedHearings],
+  );
 
   const handleRunAutoScheduleTest = useCallback(async () => {
     try {
@@ -550,7 +726,7 @@ export const DisputeHearingPanel = ({
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
             <Calendar className="w-4 h-4 text-teal-600" />
-            Scheduled Hearings
+            Hearing Timeline
           </h3>
         </div>
         <div className="mt-4 space-y-3">
@@ -562,136 +738,37 @@ export const DisputeHearingPanel = ({
           ) : sortedHearings.length === 0 ? (
             <p className="text-sm text-gray-500">No hearings scheduled yet.</p>
           ) : (
-            sortedHearings.map((hearing) => {
-              const durationMinutes = hearing.estimatedDurationMinutes ?? 60;
-              const canStart = canModerate && hearing.status === "SCHEDULED";
-              const canEnd = canModerate && hearing.status === "IN_PROGRESS";
-              const canReschedule =
-                canManageSchedule && hearing.status === "SCHEDULED";
-
-              return (
-                <div
-                  key={hearing.id}
-                  className="border border-gray-100 rounded-lg p-4 bg-gray-50"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-2">
-                      <div>
-                        <p className="text-sm font-semibold text-slate-900">
-                          Hearing #{hearing.hearingNumber ?? "-"}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1 flex items-center gap-2">
-                          <Clock className="w-3 h-3" />
-                          {formatScheduledRange(hearing)} ({durationMinutes}m)
-                        </p>
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-500">
-                        <div>Started: {formatTimestamp(hearing.startedAt)}</div>
-                        <div>Ended: {formatTimestamp(hearing.endedAt)}</div>
-                        <div>
-                          Speaker: {speakerLabel(hearing.currentSpeakerRole)}
-                        </div>
-                        <div>
-                          Chat: {hearing.isChatRoomActive ? "Active" : "Inactive"}
-                        </div>
-                        <div className="sm:col-span-2">
-                          Confirmation:{" "}
-                          {confirmationSummaryLabel(
-                            hearing.participantConfirmationSummary,
-                          )}
-                        </div>
-                      </div>
-
-                      {hearing.agenda ? (
-                        <p className="text-xs text-gray-600">
-                          <span className="font-semibold">Agenda:</span>{" "}
-                          {hearing.agenda}
-                        </p>
-                      ) : null}
-
-                      {hearing.requiredDocuments &&
-                      hearing.requiredDocuments.length > 0 ? (
-                        <div className="flex flex-wrap gap-2 text-xs text-gray-600">
-                          {hearing.requiredDocuments.map((doc) => (
-                            <span
-                              key={`${hearing.id}-${doc}`}
-                              className="px-2 py-1 rounded-full bg-white border border-gray-200"
-                            >
-                              {doc}
-                            </span>
-                          ))}
-                        </div>
-                      ) : null}
-
-                      {hearing.externalMeetingLink ? (
-                        <a
-                          href={hearing.externalMeetingLink}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-xs text-teal-600 hover:text-teal-700 font-medium"
-                        >
-                          Open meeting link
-                        </a>
-                      ) : null}
-                    </div>
-
-                    <div className="flex flex-col items-end gap-2">
-                      <span
-                        className={`px-2 py-0.5 rounded-full text-xs border ${statusBadge(
-                          hearing.status,
-                        )}`}
-                      >
-                        {hearing.status.replace("_", " ")}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {canModerate ? (
-                          <button
-                            onClick={() => handleOpenRoom(hearing.id)}
-                            className="px-2 py-1 text-xs rounded-md bg-slate-900 text-white hover:bg-slate-800"
-                          >
-                            Open room
-                          </button>
-                        ) : null}
-                        {canModerate ? (
-                          <button
-                            onClick={() => handleStart(hearing)}
-                            disabled={!canStart || actionLoadingId === hearing.id}
-                            className="px-2 py-1 text-xs rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 flex items-center gap-1"
-                          >
-                            {actionLoadingId === hearing.id && canStart ? (
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Play className="w-3 h-3" />
-                            )}
-                            Start
-                          </button>
-                        ) : null}
-                        {canReschedule ? (
-                          <button
-                            onClick={() => handleRescheduleOpen(hearing)}
-                            className="px-2 py-1 text-xs rounded-md border border-gray-200 text-gray-600 hover:bg-white flex items-center gap-1"
-                          >
-                            <RefreshCw className="w-3 h-3" />
-                            Reschedule
-                          </button>
-                        ) : null}
-                        {canModerate ? (
-                          <button
-                            onClick={() => handleEndOpen(hearing)}
-                            disabled={!canEnd || actionLoadingId === hearing.id}
-                            className="px-2 py-1 text-xs rounded-md border border-red-200 text-red-600 hover:bg-red-50 flex items-center gap-1 disabled:opacity-50"
-                          >
-                            <StopCircle className="w-3 h-3" />
-                            End
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
+            <>
+              <div className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Active Hearings
+                  </h4>
+                  <span className="text-xs text-slate-400">{activeHearings.length}</span>
                 </div>
-              );
-            })
+                {activeHearings.length === 0 ? (
+                  <p className="text-sm text-gray-500">
+                    No active hearings are waiting for action.
+                  </p>
+                ) : (
+                  activeHearings.map(renderHearingCard)
+                )}
+              </div>
+
+              <div className="pt-2 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                    Archived Hearings
+                  </h4>
+                  <span className="text-xs text-slate-400">{archivedHearings.length}</span>
+                </div>
+                {archivedHearings.length === 0 ? (
+                  <p className="text-sm text-gray-500">No archived hearings yet.</p>
+                ) : (
+                  archivedHearings.map(renderHearingCard)
+                )}
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -700,7 +777,12 @@ export const DisputeHearingPanel = ({
         <h3 className="text-sm font-semibold text-slate-900 mb-4">
           Schedule New Hearing
         </h3>
-        {canManageSchedule ? (
+        {readOnly ? (
+          <div className="text-sm text-gray-500 bg-gray-50 border border-dashed border-gray-200 rounded-lg p-4">
+            This dispute is closed. Hearing scheduling and moderation controls are locked for this
+            archive record.
+          </div>
+        ) : canManageSchedule ? (
           <div className="grid gap-3">
             <div>
               <label className="block text-xs text-gray-500 mb-1">
@@ -749,6 +831,24 @@ export const DisputeHearingPanel = ({
                 placeholder="Contract, screenshots, invoices"
               />
             </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Manual meeting link
+              </label>
+              <input
+                value={meetingLink}
+                onChange={(event) => setMeetingLink(event.target.value)}
+                className="w-full border border-gray-200 rounded-lg p-2 text-sm"
+                placeholder="https://meet.google.com/... or https://zoom.us/..."
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Optional. This is a manual external link, not an integrated provider room.
+              </p>
+            </div>
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Standard reschedules lock inside {HEARING_RESCHEDULE_FREEZE_HOURS} hours of the hearing
+              start. Use emergency scheduling only for real exceptions.
+            </div>
             <label className="flex items-center gap-2 text-sm text-gray-600">
               <input
                 type="checkbox"
@@ -757,10 +857,19 @@ export const DisputeHearingPanel = ({
               />
               Emergency hearing (bypass 24h rule)
             </label>
+            <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={scheduleConfirmed}
+                onChange={(event) => setScheduleConfirmed(event.target.checked)}
+                className="mt-0.5"
+              />
+              I confirmed the time, duration, and manual meeting link before notifying participants.
+            </label>
             <div className="flex justify-end">
               <button
                 onClick={handleSchedule}
-                disabled={scheduleLoading}
+                disabled={scheduleLoading || !scheduleConfirmed}
                 className="px-4 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-800 disabled:opacity-50"
               >
                 {scheduleLoading ? "Scheduling..." : "Schedule hearing"}
@@ -779,10 +888,14 @@ export const DisputeHearingPanel = ({
           <DialogHeader>
             <DialogTitle>Reschedule hearing</DialogTitle>
             <DialogDescription>
-              Pick a new time and update the hearing details.
+              Pick a new time, update the manual meeting link if needed, then confirm the change.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              Reschedule requests are locked within {HEARING_RESCHEDULE_FREEZE_HOURS} hours of the
+              hearing start unless you use the emergency path.
+            </div>
             <input
               type="datetime-local"
               value={rescheduleAt}
@@ -813,6 +926,37 @@ export const DisputeHearingPanel = ({
               className="w-full border border-gray-200 rounded-lg p-2 text-sm"
               placeholder="Required documents"
             />
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Manual meeting link
+              </label>
+              <input
+                value={rescheduleMeetingLink}
+                onChange={(event) => setRescheduleMeetingLink(event.target.value)}
+                className="w-full border border-gray-200 rounded-lg p-2 text-sm"
+                placeholder="https://meet.google.com/... or https://zoom.us/..."
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Optional. Enter a full URL for any manual external room.
+              </p>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={rescheduleEmergency}
+                onChange={(event) => setRescheduleEmergency(event.target.checked)}
+              />
+              Emergency reschedule request
+            </label>
+            <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={rescheduleConfirmed}
+                onChange={(event) => setRescheduleConfirmed(event.target.checked)}
+                className="mt-0.5"
+              />
+              I confirmed the updated time, duration, and meeting link before notifying participants.
+            </label>
           </div>
           <DialogFooter>
             <button
@@ -824,7 +968,7 @@ export const DisputeHearingPanel = ({
             <button
               className="px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
               onClick={handleRescheduleSubmit}
-              disabled={actionLoadingId === rescheduleHearingTarget?.id}
+              disabled={actionLoadingId === rescheduleHearingTarget?.id || !rescheduleConfirmed}
             >
               {actionLoadingId === rescheduleHearingTarget?.id
                 ? "Saving..."

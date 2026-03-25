@@ -12,6 +12,7 @@ import { UserWarningModule } from '../user-warning/user-warning.module';
 import { CalendarModule } from '../calendar/calendar.module';
 import { AuthModule } from '../auth/auth.module';
 import {
+  ContractEntity,
   DisputeActivityEntity,
   DisputeEntity,
   DisputeEvidenceEntity,
@@ -48,7 +49,9 @@ import { HearingVerdictOrchestratorService } from './services/hearing-verdict-or
 import { DisputeGateway } from './gateways/dispute.gateway';
 import { DisputeEventListener } from './events/dispute-event.listener';
 import { DisputeNotificationListener } from './events/dispute-notification.listener';
+import { NotificationRealtimeListener } from './events/notification-realtime.listener';
 import { DisputeSchemaReadinessFilter } from './filters/dispute-schema-readiness.filter';
+import { DisputeMediationTimeoutScheduler } from './services/dispute-mediation-timeout.scheduler';
 
 @Module({
   imports: [
@@ -77,6 +80,7 @@ import { DisputeSchemaReadinessFilter } from './filters/dispute-schema-readiness
       MilestoneEntity,
       TaskEntity,
       ProjectEntity,
+      ContractEntity,
       UserEntity,
       WalletEntity,
       TransactionEntity,
@@ -103,7 +107,9 @@ import { DisputeSchemaReadinessFilter } from './filters/dispute-schema-readiness
     DisputeGateway,
     DisputeEventListener,
     DisputeNotificationListener,
+    NotificationRealtimeListener,
     DisputeSchemaReadinessFilter,
+    DisputeMediationTimeoutScheduler,
   ],
   exports: [DisputesService, VerdictService, VerdictReadinessService, HearingVerdictOrchestratorService],
 })

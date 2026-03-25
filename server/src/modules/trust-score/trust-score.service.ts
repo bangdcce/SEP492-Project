@@ -2,7 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { OnEvent } from '@nestjs/event-emitter';
 import { ReviewEntity, TrustScoreHistoryEntity, UserEntity } from 'src/database/entities';
-import { Repository } from 'typeorm';
+import { IsNull, Repository } from 'typeorm';
+import { REVIEW_EVENTS, type ReviewMutationCommittedEvent } from '../review/events/review.events';
 
 // Event interface for type safety
 interface UserWarningFlagEvent {
@@ -55,6 +56,22 @@ export class TrustScoreService {
     }
   }
 
+  @OnEvent(REVIEW_EVENTS.MUTATED)
+  async handleReviewMutationCommitted(payload: ReviewMutationCommittedEvent): Promise<void> {
+    this.logger.log(
+      `Received review mutation event (${payload.trigger}) for review ${payload.reviewId}, recalculating trust score for user ${payload.targetUserId}...`,
+    );
+
+    try {
+      await this.calculateTrustScore(payload.targetUserId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to recalculate trust score after review mutation ${payload.reviewId}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    }
+  }
+
   // ===========================================================================
   // MAIN CALCULATION
   // ===========================================================================
@@ -86,7 +103,13 @@ export class TrustScoreService {
     this.logger.log(`Start calculating Trust Score for User: ${userId}`);
 
     // --- TRỤ CỘT 1: CHẤT LƯỢNG (Dựa trên Review có trọng số) ---
-    const reviews = await this.reviewRepo.find({ where: { targetUserId: userId } });
+    const reviews = await this.reviewRepo.find({
+      where: {
+        targetUserId: userId,
+        deletedAt: IsNull(),
+      },
+      select: ['id', 'rating', 'weight'],
+    });
 
     let qualityScore = 50; // Mặc định 50/100 cho người mới (Neutral)
     if (reviews.length > 0) {

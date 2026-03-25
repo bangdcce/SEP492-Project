@@ -23,9 +23,10 @@ import {
 } from '../../database/entities/project-request.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { CreateClientSpecDto } from './dto/create-client-spec.dto';
-import { UserEntity } from '../../database/entities/user.entity';
+import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
 import { v4 as uuidv4 } from 'uuid';
 import sanitizeHtml from 'sanitize-html';
@@ -85,6 +86,7 @@ export class ProjectSpecsService {
     private readonly projectRequestProposalsRepository: Repository<ProjectRequestProposalEntity>,
     private readonly auditLogsService: AuditLogsService,
     private readonly dataSource: DataSource,
+    private readonly notificationsService: NotificationsService,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -145,6 +147,92 @@ export class ProjectSpecsService {
     this.logger.log(
       `Milestone budget validation passed: First=${firstPercent.toFixed(1)}%, Last=${lastPercent.toFixed(1)}%`,
     );
+  }
+
+  private validateMilestoneStructure(
+    milestones: CreateProjectSpecDto['milestones'],
+  ): void {
+    const seenSortOrders = new Set<number>();
+
+    milestones.forEach((milestone, index) => {
+      const amount = new Decimal(milestone.amount);
+      const retentionAmount = new Decimal(milestone.retentionAmount ?? 0);
+
+      if (retentionAmount.greaterThan(amount)) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} retention amount cannot exceed the milestone amount.`,
+        );
+      }
+
+      const sortOrder = milestone.sortOrder ?? index;
+      if (!Number.isInteger(sortOrder) || sortOrder < 0) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} must have a non-negative integer sort order.`,
+        );
+      }
+
+      if (seenSortOrders.has(sortOrder)) {
+        throw new BadRequestException(
+          `Milestones must have unique sortOrder values. Duplicate value: ${sortOrder}.`,
+        );
+      }
+      seenSortOrders.add(sortOrder);
+
+      if (milestone.startDate && milestone.dueDate) {
+        const startDate = new Date(milestone.startDate);
+        const dueDate = new Date(milestone.dueDate);
+
+        if (
+          Number.isNaN(startDate.getTime()) ||
+          Number.isNaN(dueDate.getTime())
+        ) {
+          throw new BadRequestException(
+            `Milestone ${index + 1} has an invalid start or due date.`,
+          );
+        }
+
+        if (dueDate.getTime() < startDate.getTime()) {
+          throw new BadRequestException(
+            `Milestone ${index + 1} due date must be on or after the start date.`,
+          );
+        }
+      }
+    });
+  }
+
+  private validateFullSpecBudgetAgainstParent(
+    totalBudget: number,
+    parentSpec: ProjectSpecEntity | null,
+  ): void {
+    if (!parentSpec) {
+      return;
+    }
+
+    const fullSpecBudget = new Decimal(totalBudget);
+    const approvedClientBudget = new Decimal(parentSpec.totalBudget);
+    const budgetDiff = fullSpecBudget.minus(approvedClientBudget);
+
+    if (budgetDiff.greaterThan(GOVERNANCE_RULES.BUDGET_TOLERANCE)) {
+      throw new BadRequestException(
+        `Full spec budget cannot exceed approved client spec budget. Full spec: $${fullSpecBudget.toFixed(2)}, ` +
+          `Client approved: $${approvedClientBudget.toFixed(2)}`,
+      );
+    }
+  }
+
+  private assertSpecNotLockedForCommercialChanges(
+    spec: ProjectSpecEntity,
+    action: string,
+  ): void {
+    if (spec.specPhase !== SpecPhase.FULL_SPEC) {
+      return;
+    }
+
+    if (spec.lockedByContractId) {
+      throw new BadRequestException(
+        `This full spec is locked by contract ${spec.lockedByContractId} and can no longer be ${action}.`,
+      );
+    }
   }
 
   /**
@@ -225,6 +313,26 @@ export class ProjectSpecsService {
     }
 
     return null;
+  }
+
+  private async notifyUser(payload: {
+    userId?: string | null;
+    title: string;
+    body: string;
+    relatedType?: string;
+    relatedId?: string;
+  }): Promise<void> {
+    if (!payload.userId) {
+      return;
+    }
+
+    await this.notificationsService.create({
+      userId: payload.userId,
+      title: payload.title,
+      body: payload.body,
+      relatedType: payload.relatedType || null,
+      relatedId: payload.relatedId || null,
+    });
   }
 
   private async getRequiredSignerIds(spec: ProjectSpecEntity): Promise<string[]> {
@@ -391,8 +499,10 @@ export class ProjectSpecsService {
         projectCategory: dto.projectCategory || undefined,
         clientFeatures: mappedFeatures,
         referenceLinks: dto.referenceLinks || [],
-        richContentJson: (this.sanitizeStructuredJson(dto.richContentJson) ??
-          null) as Record<string, unknown> | null,
+        richContentJson: (this.sanitizeStructuredJson(dto.richContentJson) ?? null) as Record<
+          string,
+          unknown
+        > | null,
         status: ProjectSpecStatus.DRAFT,
       });
       const savedSpec = await queryRunner.manager.save(newSpec);
@@ -473,13 +583,13 @@ export class ProjectSpecsService {
     spec.description = sanitizedDescription;
     spec.totalBudget = dto.estimatedBudget;
     spec.estimatedTimeline = this.sanitizePlainText(dto.estimatedTimeline);
-    spec.projectCategory = dto.projectCategory
-      ? this.sanitizePlainText(dto.projectCategory)
-      : null;
+    spec.projectCategory = dto.projectCategory ? this.sanitizePlainText(dto.projectCategory) : null;
     spec.clientFeatures = mappedFeatures;
     spec.referenceLinks = dto.referenceLinks || [];
-    spec.richContentJson = (this.sanitizeStructuredJson(dto.richContentJson) ??
-      null) as Record<string, unknown> | null;
+    spec.richContentJson = (this.sanitizeStructuredJson(dto.richContentJson) ?? null) as Record<
+      string,
+      unknown
+    > | null;
     // Preserve REJECTED until broker explicitly re-submits for review.
 
     await this.projectSpecsRepository.save(spec);
@@ -517,7 +627,9 @@ export class ProjectSpecsService {
       throw new BadRequestException('Only client specs can be submitted for client review');
     }
     if (spec.status !== ProjectSpecStatus.DRAFT && spec.status !== ProjectSpecStatus.REJECTED) {
-      throw new BadRequestException(`Spec must be in DRAFT or REJECTED status. Current: ${spec.status}`);
+      throw new BadRequestException(
+        `Spec must be in DRAFT or REJECTED status. Current: ${spec.status}`,
+      );
     }
     if (!spec.clientFeatures || spec.clientFeatures.length === 0) {
       throw new BadRequestException('Client spec must have at least one feature');
@@ -562,11 +674,22 @@ export class ProjectSpecsService {
       throw new BadRequestException('This action is only for client specs');
     }
     if (spec.status !== ProjectSpecStatus.CLIENT_REVIEW) {
-      throw new BadRequestException(`Spec must be in CLIENT_REVIEW status. Current: ${spec.status}`);
+      throw new BadRequestException(
+        `Spec must be in CLIENT_REVIEW status. Current: ${spec.status}`,
+      );
     }
     if (!spec.request || spec.request.clientId !== user.id) {
       throw new ForbiddenException('Only the project client can review this spec');
     }
+
+    const brokerId = spec.request.brokerId;
+    const requestTitle = spec.request.title || 'project request';
+    let brokerNotification:
+      | {
+          title: string;
+          body: string;
+        }
+      | undefined;
 
     if (action === 'APPROVE') {
       spec.status = ProjectSpecStatus.CLIENT_APPROVED;
@@ -575,15 +698,30 @@ export class ProjectSpecsService {
         spec.request.status = RequestStatus.SPEC_APPROVED;
         await this.projectRequestsRepository.save(spec.request);
       }
+      brokerNotification = {
+        title: 'Client Spec approved',
+        body: `Client approved "${spec.title}" for ${requestTitle}.`,
+      };
     } else {
       if (!reason || reason.trim().length < 10) {
         throw new BadRequestException('Rejection reason must be at least 10 characters');
       }
       spec.status = ProjectSpecStatus.REJECTED;
       spec.rejectionReason = reason;
+      brokerNotification = {
+        title: 'Client Spec rejected',
+        body: `Client rejected "${spec.title}". Reason: ${reason.trim().slice(0, 200)}`,
+      };
     }
 
     await this.projectSpecsRepository.save(spec);
+    await this.notifyUser({
+      userId: brokerId,
+      title: brokerNotification?.title || 'Client Spec updated',
+      body: brokerNotification?.body || `Client updated "${spec.title}".`,
+      relatedType: 'ProjectSpec',
+      relatedId: spec.id,
+    });
 
     await this.auditLogsService.log({
       actorId: user.id,
@@ -661,7 +799,9 @@ export class ProjectSpecsService {
         );
       }
       if (strictParent && !parentSpec) {
-        throw new BadRequestException('Cannot create full spec: Client spec must be approved first.');
+        throw new BadRequestException(
+          'Cannot create full spec: Client spec must be approved first.',
+        );
       }
 
       // Check no existing non-rejected full spec
@@ -688,17 +828,19 @@ export class ProjectSpecsService {
         acceptanceCriteria: (f.acceptanceCriteria || []).map((criteria) =>
           this.sanitizePlainText(criteria),
         ),
-        inputOutputSpec: f.inputOutputSpec
-          ? this.sanitizePlainText(f.inputOutputSpec)
-          : '',
+        inputOutputSpec: f.inputOutputSpec ? this.sanitizePlainText(f.inputOutputSpec) : '',
       }));
 
       // 4. GOVERNANCE VALIDATION
+      this.validateMilestoneStructure(milestones);
       this.validateMilestoneBudget(milestones, totalBudget);
+      this.validateFullSpecBudgetAgainstParent(totalBudget, parentSpec);
       this.validateFeatures(mappedFeatures);
 
       // 5. Check banned keywords (non-blocking)
-      warnings.push(...this.checkBannedKeywords(this.sanitizePlainText(specData.description || '')));
+      warnings.push(
+        ...this.checkBannedKeywords(this.sanitizePlainText(specData.description || '')),
+      );
       for (const feature of mappedFeatures) {
         warnings.push(...this.checkBannedKeywords(feature.description || ''));
       }
@@ -714,8 +856,10 @@ export class ProjectSpecsService {
         features: mappedFeatures,
         techStack: techStack ? this.sanitizePlainText(techStack) : '',
         referenceLinks: referenceLinks || [],
-        richContentJson: (this.sanitizeStructuredJson(richContentJson) ??
-          null) as Record<string, unknown> | null,
+        richContentJson: (this.sanitizeStructuredJson(richContentJson) ?? null) as Record<
+          string,
+          unknown
+        > | null,
         status: createSpecDto.status || ProjectSpecStatus.DRAFT,
         projectCategory: parentSpec?.projectCategory || null,
         estimatedTimeline: parentSpec?.estimatedTimeline || null,
@@ -785,6 +929,7 @@ export class ProjectSpecsService {
     if (spec.specPhase !== SpecPhase.FULL_SPEC) {
       throw new BadRequestException('Only full specs can be edited with this endpoint');
     }
+    this.assertSpecNotLockedForCommercialChanges(spec, 'edited');
     if (spec.status !== ProjectSpecStatus.DRAFT && spec.status !== ProjectSpecStatus.REJECTED) {
       throw new BadRequestException(
         `Full spec can only be edited in DRAFT or REJECTED status. Current: ${spec.status}`,
@@ -818,7 +963,9 @@ export class ProjectSpecsService {
         : '',
     }));
 
+    this.validateMilestoneStructure(dto.milestones);
     this.validateMilestoneBudget(dto.milestones, dto.totalBudget);
+    this.validateFullSpecBudgetAgainstParent(dto.totalBudget, spec.parentSpec ?? null);
     this.validateFeatures(mappedFeatures);
 
     const sanitizedDescription = this.sanitizePlainText(dto.description);
@@ -914,8 +1061,11 @@ export class ProjectSpecsService {
     if (spec.specPhase !== SpecPhase.FULL_SPEC) {
       throw new BadRequestException('Only full specs can be submitted for final review');
     }
+    this.assertSpecNotLockedForCommercialChanges(spec, 'submitted for final review');
     if (spec.status !== ProjectSpecStatus.DRAFT && spec.status !== ProjectSpecStatus.REJECTED) {
-      throw new BadRequestException(`Spec must be in DRAFT or REJECTED status. Current: ${spec.status}`);
+      throw new BadRequestException(
+        `Spec must be in DRAFT or REJECTED status. Current: ${spec.status}`,
+      );
     }
     if (!spec.milestones || spec.milestones.length === 0) {
       throw new BadRequestException('Full spec must have at least one milestone');
@@ -962,6 +1112,7 @@ export class ProjectSpecsService {
     if (spec.specPhase !== SpecPhase.FULL_SPEC) {
       throw new BadRequestException('Only full specs can be signed');
     }
+    this.assertSpecNotLockedForCommercialChanges(spec, 'signed again');
     if (spec.status !== ProjectSpecStatus.FINAL_REVIEW) {
       throw new BadRequestException(`Spec must be in FINAL_REVIEW status. Current: ${spec.status}`);
     }
@@ -1020,6 +1171,98 @@ export class ProjectSpecsService {
     return this.findOne(specId);
   }
 
+  async requestFullSpecChanges(
+    user: UserEntity,
+    specId: string,
+    reason: string,
+    req: RequestContext,
+  ): Promise<ProjectSpecEntity> {
+    const spec = await this.findOne(specId);
+
+    if (spec.specPhase !== SpecPhase.FULL_SPEC) {
+      throw new BadRequestException('Only full specs can be returned for changes');
+    }
+    this.assertSpecNotLockedForCommercialChanges(spec, 'returned for changes');
+    if (spec.status !== ProjectSpecStatus.FINAL_REVIEW) {
+      throw new BadRequestException(
+        `Only specs in FINAL_REVIEW can be returned for changes. Current: ${spec.status}`,
+      );
+    }
+
+    const sanitizedReason = this.sanitizePlainText(reason);
+    if (sanitizedReason.length < 10) {
+      throw new BadRequestException('Change request reason must be at least 10 characters');
+    }
+
+    const requiredSignerIds = await this.getRequiredSignerIds(spec);
+    if (!requiredSignerIds.includes(user.id)) {
+      throw new ForbiddenException('You are not an eligible reviewer for this full spec');
+    }
+
+    const existingSignatureCount = spec.signatures?.length ?? 0;
+    const queryRunner = this.dataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
+    try {
+      const managedSpec = await queryRunner.manager.findOne(ProjectSpecEntity, {
+        where: { id: specId },
+        relations: ['request'],
+      });
+
+      if (!managedSpec) {
+        throw new NotFoundException('Project spec not found');
+      }
+
+      managedSpec.status = ProjectSpecStatus.REJECTED;
+      managedSpec.rejectionReason = sanitizedReason;
+      await queryRunner.manager.save(managedSpec);
+
+      await queryRunner.manager.delete(ProjectSpecSignatureEntity, { specId });
+
+      await queryRunner.commitTransaction();
+
+      const requestTitle = spec.request?.title || 'project request';
+      const notifiedUserIds = new Set<string>();
+
+      for (const signerId of requiredSignerIds) {
+        if (signerId === user.id || notifiedUserIds.has(signerId)) {
+          continue;
+        }
+        notifiedUserIds.add(signerId);
+        await this.notifyUser({
+          userId: signerId,
+          title: 'Full Spec changes requested',
+          body: `${user.role} requested changes for "${spec.title}" on ${requestTitle}. Reason: ${sanitizedReason.slice(0, 200)}`,
+          relatedType: 'ProjectSpec',
+          relatedId: spec.id,
+        });
+      }
+
+      await this.auditLogsService.log({
+        actorId: user.id,
+        action: 'REQUEST_FULL_SPEC_CHANGES',
+        entityType: 'ProjectSpec',
+        entityId: specId,
+        newData: {
+          newStatus: ProjectSpecStatus.REJECTED,
+          clearedSignatureCount: existingSignatureCount,
+          requestedBy: user.id,
+          role: user.role,
+          reason: sanitizedReason,
+        },
+        req,
+      });
+
+      return this.findOne(specId);
+    } catch (err) {
+      await queryRunner.rollbackTransaction();
+      throw err;
+    } finally {
+      await queryRunner.release();
+    }
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // LEGACY: createSpec → routes to createFullSpec for backward compat
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1061,9 +1304,16 @@ export class ProjectSpecsService {
     return spec;
   }
 
-  async approveSpec(user: UserEntity, specId: string, req: RequestContext): Promise<ProjectSpecEntity> {
+  async approveSpec(
+    user: UserEntity,
+    specId: string,
+    req: RequestContext,
+  ): Promise<ProjectSpecEntity> {
     const spec = await this.findOne(specId);
-    if (spec.status !== ProjectSpecStatus.PENDING_APPROVAL && spec.status !== ProjectSpecStatus.PENDING_AUDIT) {
+    if (
+      spec.status !== ProjectSpecStatus.PENDING_APPROVAL &&
+      spec.status !== ProjectSpecStatus.PENDING_AUDIT
+    ) {
       throw new BadRequestException(`Cannot approve spec in ${spec.status} status`);
     }
 
@@ -1086,7 +1336,12 @@ export class ProjectSpecsService {
     return spec;
   }
 
-  async rejectSpec(user: UserEntity, specId: string, reason: string, req: RequestContext): Promise<ProjectSpecEntity> {
+  async rejectSpec(
+    user: UserEntity,
+    specId: string,
+    reason: string,
+    req: RequestContext,
+  ): Promise<ProjectSpecEntity> {
     const spec = await this.findOne(specId);
     spec.status = ProjectSpecStatus.REJECTED;
     spec.rejectionReason = reason;
@@ -1101,6 +1356,32 @@ export class ProjectSpecsService {
       req,
     });
     return spec;
+  }
+
+  private assertUserCanViewSpec(user: UserEntity, spec: ProjectSpecEntity): void {
+    if (user.role === UserRole.ADMIN || user.role === UserRole.STAFF) {
+      return;
+    }
+
+    const request = spec.request;
+    if (!request) {
+      throw new ForbiddenException('You are not authorized to view this spec');
+    }
+
+    if (request.clientId === user.id || request.brokerId === user.id) {
+      return;
+    }
+
+    const hasMatchingFreelancerProposal = (request.proposals || []).some(
+      (proposal) =>
+        proposal.freelancerId === user.id &&
+        ['ACCEPTED', 'PENDING'].includes(String(proposal.status || '').toUpperCase()),
+    );
+    if (hasMatchingFreelancerProposal) {
+      return;
+    }
+
+    throw new ForbiddenException('You are not authorized to view this spec');
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -1125,6 +1406,12 @@ export class ProjectSpecsService {
     return spec;
   }
 
+  async findOneForUser(user: UserEntity, id: string): Promise<ProjectSpecEntity> {
+    const spec = await this.findOne(id);
+    this.assertUserCanViewSpec(user, spec);
+    return spec;
+  }
+
   async findPendingSpecs(): Promise<ProjectSpecEntity[]> {
     return this.projectSpecsRepository.find({
       where: [
@@ -1142,9 +1429,20 @@ export class ProjectSpecsService {
   async findSpecsByRequestId(requestId: string): Promise<ProjectSpecEntity[]> {
     return this.projectSpecsRepository.find({
       where: { requestId },
-      relations: ['milestones', 'parentSpec'],
+      relations: ['milestones', 'parentSpec', 'request', 'request.proposals'],
       order: { createdAt: 'ASC' },
     });
+  }
+
+  async findSpecsByRequestIdForUser(
+    user: UserEntity,
+    requestId: string,
+  ): Promise<ProjectSpecEntity[]> {
+    const specs = await this.findSpecsByRequestId(requestId);
+    if (specs.length > 0) {
+      this.assertUserCanViewSpec(user, specs[0]);
+    }
+    return specs;
   }
 
   /**
@@ -1153,8 +1451,17 @@ export class ProjectSpecsService {
   async findClientSpec(requestId: string): Promise<ProjectSpecEntity | null> {
     return this.projectSpecsRepository.findOne({
       where: { requestId, specPhase: SpecPhase.CLIENT_SPEC },
-      relations: ['milestones', 'request', 'request.client', 'request.broker'],
+      relations: ['milestones', 'request', 'request.client', 'request.broker', 'request.proposals'],
     });
+  }
+
+  async findClientSpecForUser(user: UserEntity, requestId: string): Promise<ProjectSpecEntity | null> {
+    const spec = await this.findClientSpec(requestId);
+    if (!spec) {
+      return null;
+    }
+    this.assertUserCanViewSpec(user, spec);
+    return spec;
   }
 
   /**
@@ -1163,8 +1470,24 @@ export class ProjectSpecsService {
   async findFullSpec(parentSpecId: string): Promise<ProjectSpecEntity | null> {
     return this.projectSpecsRepository.findOne({
       where: { parentSpecId, specPhase: SpecPhase.FULL_SPEC },
-      relations: ['milestones', 'parentSpec', 'request', 'request.client', 'request.broker'],
+      relations: [
+        'milestones',
+        'parentSpec',
+        'request',
+        'request.client',
+        'request.broker',
+        'request.proposals',
+      ],
     });
+  }
+
+  async findFullSpecForUser(user: UserEntity, parentSpecId: string): Promise<ProjectSpecEntity | null> {
+    const spec = await this.findFullSpec(parentSpecId);
+    if (!spec) {
+      return null;
+    }
+    this.assertUserCanViewSpec(user, spec);
+    return spec;
   }
 
   /**

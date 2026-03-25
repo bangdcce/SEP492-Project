@@ -8,6 +8,30 @@ import {
 } from "@/shared/utils/storage";
 import { tokenRefreshManager } from "./token-refresh-manager";
 
+const TRACE_SESSION_KEY = "interdev-trace-session-id";
+
+const generateTraceId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `trace-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const getBrowserSessionId = () => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const cached = window.sessionStorage.getItem(TRACE_SESSION_KEY);
+  if (cached) {
+    return cached;
+  }
+
+  const created = generateTraceId();
+  window.sessionStorage.setItem(TRACE_SESSION_KEY, created);
+  return created;
+};
+
 type InternalRequestConfig = AxiosRequestConfig & {
   _retry?: boolean;
   _skipAuthRefresh?: boolean;
@@ -69,6 +93,17 @@ class ApiClient {
             (config.headers as Record<string, string>)["X-Timezone"] = tz;
           }
         }
+
+        config.headers = config.headers ?? {};
+        if (!(config.headers as Record<string, string>)["X-Request-Id"]) {
+          (config.headers as Record<string, string>)["X-Request-Id"] = generateTraceId();
+        }
+
+        const sessionId = getBrowserSessionId();
+        if (sessionId) {
+          (config.headers as Record<string, string>)["X-Session-Id"] = sessionId;
+        }
+
         return config;
       },
       (error) => {
@@ -280,6 +315,13 @@ class ApiClient {
   public async get<T = any>(url: string, config?: AxiosRequestConfig): Promise<T> {
     const response: AxiosResponse<T> = await this.client.get(url, config);
     return response.data;
+  }
+
+  public async getResponse<T = any>(
+    url: string,
+    config?: AxiosRequestConfig,
+  ): Promise<AxiosResponse<T>> {
+    return await this.client.get<T>(url, config);
   }
 
   public async post<T = any>(

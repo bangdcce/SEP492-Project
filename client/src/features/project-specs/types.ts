@@ -128,6 +128,8 @@ export interface ProjectSpec {
   totalBudget: number;
   status: ProjectSpecStatus;
   rejectionReason?: string | null;
+  lockedByContractId?: string | null;
+  lockedAt?: string | null;
   createdAt: string;
   updatedAt?: string;
   clientApprovedAt?: string | null;

@@ -4,21 +4,35 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
-import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
-import { ContractEntity } from '../../database/entities/contract.entity';
+import {
+  ProjectEntity,
+  ProjectStatus,
+  ProjectStaffInviteStatus,
+} from '../../database/entities/project.entity';
+import {
+  ContractEntity,
+  ContractMilestoneSnapshotItem,
+} from '../../database/entities/contract.entity';
 import { DisputeEntity, DisputeStatus } from '../../database/entities/dispute.entity';
+import { ReviewEntity } from '../../database/entities/review.entity';
 import {
   DeliverableType,
   MilestoneEntity,
   MilestoneStatus,
+  StaffRecommendation,
 } from '../../database/entities/milestone.entity';
 import { TaskEntity, TaskStatus } from '../../database/entities/task.entity';
+import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
+import { EscrowReleaseService } from '../payments/escrow-release.service';
+import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 
 // Response type with enriched dispute info
 export interface ProjectWithDisputeInfo {
@@ -32,9 +46,71 @@ export interface ProjectWithDisputeInfo {
   totalBudget: number;
   currency: string;
   createdAt: Date;
+  staffId: string | null;
+  staffInviteStatus: ProjectStaffInviteStatus | null;
   // Dispute enrichment
   hasActiveDispute: boolean;
   activeDisputeCount: number;
+  client?: ProjectParticipantSummary | null;
+  broker?: ProjectParticipantSummary | null;
+  freelancer?: ProjectParticipantSummary | null;
+  reviewSummary?: ProjectReviewSummary;
+  pendingReviewTargets?: PendingReviewTarget[];
+}
+
+export interface ProjectParticipantSummary {
+  id: string;
+  fullName: string | null;
+  email: string | null;
+  role: string;
+}
+
+export interface PendingReviewTarget {
+  id: string;
+  fullName: string;
+  role: string;
+}
+
+export interface ProjectReviewSummary {
+  totalReviewSlots: number;
+  completedReviews: number;
+  pendingReviews: number;
+  currentUserPendingReviews: number;
+  currentUserCanReview: boolean;
+}
+
+export interface StaffCandidateSummary {
+  id: string;
+  fullName: string;
+  email: string;
+}
+
+export interface PendingProjectInvite {
+  id: string;
+  title: string;
+  description: string | null;
+  clientId: string;
+  clientName: string | null;
+  createdAt: Date;
+  staffInviteStatus: ProjectStaffInviteStatus | null;
+}
+
+export interface ActiveSupervisedProjectSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  status: ProjectStatus;
+  totalBudget: number;
+  currency: string;
+  clientId: string;
+  clientName: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface StaffReviewMilestoneInput {
+  recommendation: StaffRecommendation;
+  note: string;
 }
 
 // Response type for milestone approval
@@ -78,13 +154,164 @@ export class ProjectsService {
     private readonly projectRepository: Repository<ProjectEntity>,
     @InjectRepository(DisputeEntity)
     private readonly disputeRepository: Repository<DisputeEntity>,
+    @InjectRepository(ReviewEntity)
+    private readonly reviewRepository: Repository<ReviewEntity>,
     @InjectRepository(MilestoneEntity)
     private readonly milestoneRepository: Repository<MilestoneEntity>,
     @InjectRepository(TaskEntity)
     private readonly taskRepository: Repository<TaskEntity>,
+    @InjectRepository(UserEntity)
+    private readonly userRepository: Repository<UserEntity>,
+    private readonly dataSource: DataSource,
     private readonly auditLogsService: AuditLogsService,
     private readonly milestoneLockPolicyService: MilestoneLockPolicyService,
+    private readonly escrowReleaseService: EscrowReleaseService,
+    @Optional()
+    private readonly workspaceChatService?: WorkspaceChatService,
   ) {}
+
+  private async recordWorkspaceSystemMessage(
+    projectId: string,
+    content: string,
+    taskId?: string | null,
+  ): Promise<void> {
+    if (!this.workspaceChatService) {
+      return;
+    }
+
+    try {
+      await this.workspaceChatService.createSystemMessage(projectId, content, {
+        taskId: taskId ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Workspace audit message skipped for project ${projectId}: ${
+          error instanceof Error ? error.message : 'unknown error'
+        }`,
+      );
+    }
+  }
+
+  private mapProjectParticipant(
+    user:
+      | Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'>
+      | null
+      | undefined,
+  ): ProjectParticipantSummary | null {
+    if (!user?.id) {
+      return null;
+    }
+    return {
+      id: user.id,
+      fullName: user.fullName || null,
+      email: user.email || null,
+      role: user.role,
+    };
+  }
+
+  private buildProjectMemberList(project: {
+    clientId: string;
+    brokerId: string;
+    freelancerId?: string | null;
+    client?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+    broker?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+    freelancer?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+  }): ProjectParticipantSummary[] {
+    const members = [
+      project.client
+        ? this.mapProjectParticipant(project.client)
+        : {
+            id: project.clientId,
+            fullName: null,
+            email: null,
+            role: 'CLIENT',
+          },
+      project.broker
+        ? this.mapProjectParticipant(project.broker)
+        : {
+            id: project.brokerId,
+            fullName: null,
+            email: null,
+            role: 'BROKER',
+          },
+      project.freelancerId
+        ? project.freelancer
+          ? this.mapProjectParticipant(project.freelancer)
+          : {
+              id: project.freelancerId,
+              fullName: null,
+              email: null,
+              role: 'FREELANCER',
+            }
+        : null,
+    ].filter((member): member is ProjectParticipantSummary => Boolean(member?.id));
+
+    return Array.from(new Map(members.map((member) => [member.id, member])).values());
+  }
+
+  private buildReviewState(
+    project: {
+      id: string;
+      status: string;
+      clientId: string;
+      brokerId: string;
+      freelancerId?: string | null;
+      client?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+      broker?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+      freelancer?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
+    },
+    viewerId: string | null,
+    existingPairs: Set<string>,
+  ): {
+    reviewSummary: ProjectReviewSummary;
+    pendingReviewTargets: PendingReviewTarget[];
+  } {
+    const members = this.buildProjectMemberList(project);
+    const totalReviewSlots =
+      members.length > 1 ? members.length * (members.length - 1) : 0;
+    let completedReviews = 0;
+    for (const member of members) {
+      for (const target of members) {
+        if (member.id === target.id) continue;
+        if (existingPairs.has(`${project.id}:${member.id}:${target.id}`)) {
+          completedReviews += 1;
+        }
+      }
+    }
+
+    const currentUserCanReview =
+      project.status === ProjectStatus.COMPLETED &&
+      Boolean(viewerId && members.some((member) => member.id === viewerId));
+
+    const pendingReviewTargets =
+      currentUserCanReview && viewerId
+        ? members
+            .filter((member) => member.id !== viewerId)
+            .filter(
+              (member) =>
+                !existingPairs.has(`${project.id}:${viewerId}:${member.id}`),
+            )
+            .map((member) => ({
+              id: member.id,
+              fullName:
+                member.fullName ||
+                member.email ||
+                `${member.role.charAt(0)}${member.role.slice(1).toLowerCase()}`,
+              role: member.role,
+            }))
+        : [];
+
+    return {
+      reviewSummary: {
+        totalReviewSlots,
+        completedReviews,
+        pendingReviews: Math.max(totalReviewSlots - completedReviews, 0),
+        currentUserPendingReviews: pendingReviewTargets.length,
+        currentUserCanReview,
+      },
+      pendingReviewTargets,
+    };
+  }
 
   private parseAmountOrDefault(input: unknown, fallback: number): number {
     if (input === undefined || input === null || input === '') {
@@ -102,7 +329,11 @@ export class ProjectsService {
       return null;
     }
 
-    const parsed = new Date(String(input));
+    if (typeof input !== 'string' && typeof input !== 'number' && !(input instanceof Date)) {
+      throw new BadRequestException('Invalid date format. Use ISO date string.');
+    }
+
+    const parsed = new Date(input);
     if (Number.isNaN(parsed.getTime())) {
       throw new BadRequestException('Invalid date format. Use ISO date string.');
     }
@@ -134,12 +365,373 @@ export class ProjectsService {
     return project;
   }
 
+  private assertRetentionDoesNotExceedAmount(amount: number, retentionAmount: number): void {
+    if (new Decimal(retentionAmount).greaterThan(new Decimal(amount))) {
+      throw new BadRequestException('Milestone retentionAmount cannot exceed milestone amount');
+    }
+  }
+
+  private async assertMilestoneBudgetWithinProject(project: ProjectEntity): Promise<void> {
+    const milestones = await this.milestoneRepository.find({
+      where: { projectId: project.id },
+    });
+
+    const totalMilestoneAmount = milestones.reduce(
+      (sum, milestone) => sum.plus(new Decimal(milestone.amount || 0)),
+      new Decimal(0),
+    );
+    const projectBudget = new Decimal(project.totalBudget || 0);
+
+    for (const milestone of milestones) {
+      this.assertRetentionDoesNotExceedAmount(
+        Number(milestone.amount || 0),
+        Number(milestone.retentionAmount || 0),
+      );
+    }
+
+    if (totalMilestoneAmount.greaterThan(projectBudget)) {
+      throw new BadRequestException(
+        `Milestone total exceeds project budget (${totalMilestoneAmount.toFixed(2)} > ${projectBudget.toFixed(2)}).`,
+      );
+    }
+  }
+
+  private findSnapshotEntryForMilestone(
+    snapshot: ContractMilestoneSnapshotItem[],
+    milestone: MilestoneEntity,
+  ): ContractMilestoneSnapshotItem | undefined {
+    return (
+      (milestone.sourceContractMilestoneKey
+        ? snapshot.find(
+            (entry) => entry.contractMilestoneKey === milestone.sourceContractMilestoneKey,
+          )
+        : undefined) ??
+      snapshot.find((entry) => entry.projectMilestoneId === milestone.id) ??
+      (Number.isInteger(milestone.sortOrder)
+        ? snapshot.find((entry) => entry.sortOrder === milestone.sortOrder)
+        : undefined)
+    );
+  }
+
+  private async getProjectOrThrow(projectId: string, relations: string[] = []): Promise<ProjectEntity> {
+    const project = await this.projectRepository.findOne({
+      where: { id: projectId },
+      relations,
+    });
+
+    if (!project) {
+      throw new NotFoundException(`Project ${projectId} not found`);
+    }
+
+    return project;
+  }
+
+  private async getMilestoneWithProjectOrThrow(
+    milestoneId: string,
+  ): Promise<{ milestone: MilestoneEntity; project: ProjectEntity }> {
+    const milestone = await this.milestoneRepository.findOne({
+      where: { id: milestoneId },
+    });
+    if (!milestone) {
+      throw new NotFoundException(`Milestone ${milestoneId} not found`);
+    }
+
+    if (!milestone.projectId) {
+      throw new BadRequestException('Milestone is not linked to a project');
+    }
+
+    const project = await this.getProjectOrThrow(milestone.projectId);
+    return { milestone, project };
+  }
+
+  private async calculateMilestoneTaskProgress(milestoneId: string): Promise<{
+    progress: number;
+    totalTasks: number;
+    completedTasks: number;
+  }> {
+    const totalTasks = await this.taskRepository.count({
+      where: { milestoneId, parentTaskId: IsNull() },
+    });
+
+    if (totalTasks === 0) {
+      return { progress: 0, totalTasks: 0, completedTasks: 0 };
+    }
+
+    const completedTasks = await this.taskRepository.count({
+      where: { milestoneId, status: TaskStatus.DONE, parentTaskId: IsNull() },
+    });
+
+    return {
+      progress: Math.round((completedTasks / totalTasks) * 100),
+      totalTasks,
+      completedTasks,
+    };
+  }
+
+  private clearStaffReviewDecision(milestone: MilestoneEntity): void {
+    milestone.reviewedByStaffId = null;
+    milestone.staffRecommendation = null;
+    milestone.staffReviewNote = null;
+  }
+
+  private sanitizeProjectStaffRelation(project: ProjectEntity | null): ProjectEntity | null {
+    if (!project?.staff) {
+      return project;
+    }
+
+    project.staff = {
+      id: project.staff.id,
+      fullName: project.staff.fullName,
+      email: project.staff.email,
+    };
+
+    return project;
+  }
+
+  async listStaffCandidates(): Promise<StaffCandidateSummary[]> {
+    const staffUsers = await this.userRepository.find({
+      where: {
+        role: UserRole.STAFF,
+        isBanned: false,
+        status: UserStatus.ACTIVE,
+      },
+      select: ['id', 'fullName', 'email'],
+      order: { fullName: 'ASC' },
+    });
+
+    return staffUsers.map((staff) => ({
+      id: staff.id,
+      fullName: staff.fullName,
+      email: staff.email,
+    }));
+  }
+
+  async inviteStaff(projectId: string, clientId: string, staffId: string): Promise<ProjectEntity> {
+    const project = await this.getProjectOrThrow(projectId, ['staff']);
+
+    if (project.clientId !== clientId) {
+      throw new ForbiddenException('Only the project client can invite a staff reviewer');
+    }
+
+    if (project.status === ProjectStatus.DISPUTED) {
+      throw new ConflictException('Cannot invite staff while the project is under dispute');
+    }
+
+    const staffUser = await this.userRepository.findOne({
+      where: {
+        id: staffId,
+        role: UserRole.STAFF,
+        isBanned: false,
+        status: UserStatus.ACTIVE,
+      },
+    });
+    if (!staffUser) {
+      throw new BadRequestException('Selected staff user is invalid or unavailable');
+    }
+
+    if (
+      project.staffId &&
+      project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED &&
+      project.staffId !== staffId
+    ) {
+      throw new BadRequestException('This project already has an accepted staff reviewer');
+    }
+
+    if (
+      project.staffId === staffId &&
+      project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED
+    ) {
+      const refreshedProject = await this.findOne(project.id);
+      return refreshedProject ?? project;
+    }
+
+    project.staffId = staffUser.id;
+    project.staffInviteStatus = ProjectStaffInviteStatus.PENDING;
+
+    const savedProject = await this.projectRepository.save(project);
+    const refreshedProject = await this.findOne(savedProject.id);
+    if (!refreshedProject) {
+      throw new NotFoundException(`Project ${savedProject.id} not found`);
+    }
+    return refreshedProject;
+  }
+
+  async respondToStaffInvite(
+    projectId: string,
+    staffUserId: string,
+    status: ProjectStaffInviteStatus.ACCEPTED | ProjectStaffInviteStatus.REJECTED,
+  ): Promise<ProjectEntity> {
+    const project = await this.getProjectOrThrow(projectId, ['contracts', 'staff']);
+
+    if (project.staffId !== staffUserId) {
+      throw new ForbiddenException('You are not the invited staff reviewer for this project');
+    }
+
+    if (project.staffInviteStatus !== ProjectStaffInviteStatus.PENDING) {
+      throw new BadRequestException('This staff invite is no longer pending');
+    }
+
+    if (status === ProjectStaffInviteStatus.REJECTED) {
+      project.staffInviteStatus = ProjectStaffInviteStatus.REJECTED;
+      project.staffId = null;
+    } else {
+      project.staffInviteStatus = ProjectStaffInviteStatus.ACCEPTED;
+    }
+
+    const savedProject = await this.projectRepository.save(project);
+    const refreshedProject = await this.findOne(savedProject.id);
+    if (!refreshedProject) {
+      throw new NotFoundException(`Project ${savedProject.id} not found`);
+    }
+    return refreshedProject;
+  }
+
+  async getPendingInvitesForStaff(staffUserId: string): Promise<PendingProjectInvite[]> {
+    const pendingProjects = await this.projectRepository.find({
+      where: {
+        staffId: staffUserId,
+        staffInviteStatus: ProjectStaffInviteStatus.PENDING,
+      },
+      relations: ['client'],
+      order: { createdAt: 'DESC' },
+    });
+
+    return pendingProjects.map((project) => ({
+      id: project.id,
+      title: project.title,
+      description: project.description,
+      clientId: project.clientId,
+      clientName: project.client?.fullName ?? null,
+      createdAt: project.createdAt,
+      staffInviteStatus: project.staffInviteStatus ?? null,
+    }));
+  }
+
+  async getActiveSupervisedProjectsForStaff(
+    staffUserId: string,
+  ): Promise<ActiveSupervisedProjectSummary[]> {
+    const activeProjects = await this.projectRepository.find({
+      where: {
+        staffId: staffUserId,
+        staffInviteStatus: ProjectStaffInviteStatus.ACCEPTED,
+      },
+      relations: ['client'],
+      order: { updatedAt: 'DESC' },
+    });
+
+    return activeProjects.map((project) => ({
+      id: project.id,
+      title: project.title,
+      description: project.description ?? null,
+      status: project.status,
+      totalBudget: Number(project.totalBudget ?? 0),
+      currency: project.currency || 'USD',
+      clientId: project.clientId,
+      clientName: project.client?.fullName ?? null,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt,
+    }));
+  }
+
+  async requestMilestoneReview(milestoneId: string, requesterId: string): Promise<MilestoneEntity> {
+    const { milestone, project } = await this.getMilestoneWithProjectOrThrow(milestoneId);
+
+    if (project.freelancerId !== requesterId) {
+      throw new ForbiddenException('Only the assigned freelancer can request milestone review');
+    }
+
+    if (project.status === ProjectStatus.DISPUTED) {
+      throw new ConflictException('Cannot request milestone review while the project is disputed');
+    }
+
+    if (
+      [MilestoneStatus.COMPLETED, MilestoneStatus.PAID, MilestoneStatus.LOCKED].includes(
+        milestone.status,
+      )
+    ) {
+      throw new BadRequestException(
+        `Cannot request review for milestone with status "${milestone.status}"`,
+      );
+    }
+
+    if (
+      [
+        MilestoneStatus.SUBMITTED,
+        MilestoneStatus.PENDING_STAFF_REVIEW,
+        MilestoneStatus.PENDING_CLIENT_APPROVAL,
+      ].includes(milestone.status)
+    ) {
+      throw new BadRequestException('Milestone review has already been requested');
+    }
+
+    const { progress, totalTasks } = await this.calculateMilestoneTaskProgress(milestone.id);
+    if (totalTasks === 0) {
+      throw new BadRequestException('Milestone has no tasks to review');
+    }
+
+    if (progress < 100) {
+      throw new BadRequestException('All milestone tasks must be DONE before requesting review');
+    }
+
+    milestone.status =
+      project.staffId && project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED
+        ? MilestoneStatus.PENDING_STAFF_REVIEW
+        : MilestoneStatus.SUBMITTED;
+    milestone.submittedAt = new Date();
+    this.clearStaffReviewDecision(milestone);
+
+    return this.milestoneRepository.save(milestone);
+  }
+
+  async reviewMilestoneAsStaff(
+    milestoneId: string,
+    reviewerId: string,
+    payload: StaffReviewMilestoneInput,
+  ): Promise<MilestoneEntity> {
+    const { milestone, project } = await this.getMilestoneWithProjectOrThrow(milestoneId);
+
+    if (project.status === ProjectStatus.DISPUTED) {
+      throw new ConflictException('Cannot review milestone while the project is disputed');
+    }
+
+    const isAssignedStaff =
+      project.staffId === reviewerId &&
+      project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED;
+    if (!isAssignedStaff) {
+      throw new ForbiddenException('Only the assigned staff reviewer can review this milestone');
+    }
+
+    if (milestone.status !== MilestoneStatus.PENDING_STAFF_REVIEW) {
+      throw new BadRequestException(
+        `Cannot staff-review milestone with status "${milestone.status}"`,
+      );
+    }
+
+    const trimmedNote = payload.note.trim();
+    if (!trimmedNote) {
+      throw new BadRequestException('Staff review note is required');
+    }
+
+    milestone.reviewedByStaffId = reviewerId;
+    milestone.staffRecommendation = payload.recommendation;
+    milestone.staffReviewNote = trimmedNote;
+
+    if (payload.recommendation === StaffRecommendation.ACCEPT) {
+      milestone.status = MilestoneStatus.PENDING_CLIENT_APPROVAL;
+    } else {
+      milestone.status = MilestoneStatus.IN_PROGRESS;
+      milestone.submittedAt = null;
+    }
+
+    return this.milestoneRepository.save(milestone);
+  }
+
   async createMilestone(
     projectId: string,
     userId: string,
     payload: CreateProjectMilestoneInput,
   ): Promise<MilestoneEntity> {
-    await this.assertBrokerCanMutateMilestones(projectId, userId);
+    const project = await this.assertBrokerCanMutateMilestones(projectId, userId);
     await this.milestoneLockPolicyService.assertCanMutateMilestoneStructure(projectId);
 
     const title = payload.title?.trim();
@@ -155,6 +747,7 @@ export class ProjectsService {
     const retentionAmount = this.parseAmountOrDefault(payload.retentionAmount, 0);
     const startDate = this.parseOptionalDate(payload.startDate);
     const dueDate = this.parseOptionalDate(payload.dueDate);
+    this.assertRetentionDoesNotExceedAmount(amount, retentionAmount);
 
     if (startDate && dueDate && dueDate < startDate) {
       throw new BadRequestException('Milestone dueDate must be greater than or equal to startDate');
@@ -176,7 +769,15 @@ export class ProjectsService {
       status: MilestoneStatus.PENDING,
     });
 
-    return this.milestoneRepository.save(milestone);
+    const savedMilestone = await this.milestoneRepository.save(milestone);
+
+    try {
+      await this.assertMilestoneBudgetWithinProject(project);
+      return savedMilestone;
+    } catch (error) {
+      await this.milestoneRepository.remove(savedMilestone);
+      throw error;
+    }
   }
 
   async updateMilestoneStructure(
@@ -193,8 +794,9 @@ export class ProjectsService {
     if (!milestone.projectId) {
       throw new BadRequestException('Milestone is not linked to a project');
     }
+    const previousMilestoneState = { ...milestone };
 
-    await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
+    const project = await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
     await this.milestoneLockPolicyService.assertCanMutateMilestoneStructure(milestone.projectId);
 
     const hasAnyUpdate =
@@ -265,13 +867,26 @@ export class ProjectsService {
       }
     }
 
+    this.assertRetentionDoesNotExceedAmount(
+      Number(milestone.amount || 0),
+      Number(milestone.retentionAmount || 0),
+    );
+
     if (payload.acceptanceCriteria !== undefined) {
       milestone.acceptanceCriteria = Array.isArray(payload.acceptanceCriteria)
         ? payload.acceptanceCriteria
         : (null as unknown as string[]);
     }
 
-    return this.milestoneRepository.save(milestone);
+    const savedMilestone = await this.milestoneRepository.save(milestone);
+
+    try {
+      await this.assertMilestoneBudgetWithinProject(project);
+      return savedMilestone;
+    } catch (error) {
+      await this.milestoneRepository.save(previousMilestoneState);
+      throw error;
+    }
   }
 
   async deleteMilestoneStructure(milestoneId: string, userId: string): Promise<void> {
@@ -285,10 +900,17 @@ export class ProjectsService {
       throw new BadRequestException('Milestone is not linked to a project');
     }
 
-    await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
+    const project = await this.assertBrokerCanMutateMilestones(milestone.projectId, userId);
     await this.milestoneLockPolicyService.assertCanMutateMilestoneStructure(milestone.projectId);
 
+    const milestoneBackup = { ...milestone };
     await this.milestoneRepository.remove(milestone);
+    try {
+      await this.assertMilestoneBudgetWithinProject(project);
+    } catch (error) {
+      await this.milestoneRepository.save(milestoneBackup);
+      throw error;
+    }
   }
 
   /**
@@ -296,10 +918,16 @@ export class ProjectsService {
    * Returns projects where user is client, broker, or freelancer
    * Enriched with hasActiveDispute and activeDisputeCount
    */
-  async listByUser(userId: string): Promise<ProjectWithDisputeInfo[]> {
+  async listByUser(userId: string, viewerId?: string): Promise<ProjectWithDisputeInfo[]> {
     // Step 1: Fetch base projects
     const projects = await this.projectRepository.find({
-      where: [{ clientId: userId }, { brokerId: userId }, { freelancerId: userId }],
+      where: [
+        { clientId: userId },
+        { brokerId: userId },
+        { freelancerId: userId },
+        { staffId: userId },
+      ],
+      relations: ['client', 'broker', 'freelancer', 'staff'],
       select: [
         'id',
         'title',
@@ -308,9 +936,15 @@ export class ProjectsService {
         'clientId',
         'brokerId',
         'freelancerId',
+        'staffId',
+        'staffInviteStatus',
         'totalBudget',
         'currency',
         'createdAt',
+        'client',
+        'broker',
+        'freelancer',
+        'staff',
       ],
       order: { createdAt: 'DESC' },
     });
@@ -340,6 +974,16 @@ export class ProjectsService {
       .groupBy('dispute.projectId')
       .getRawMany<{ projectId: string; count: string }>();
 
+    const reviews = await this.reviewRepository.find({
+      where: { projectId: In(projectIds) },
+      select: ['projectId', 'reviewerId', 'targetUserId'],
+    });
+    const reviewPairSet = new Set(
+      reviews.map(
+        (review) => `${review.projectId}:${review.reviewerId}:${review.targetUserId}`,
+      ),
+    );
+
     // Step 3: Create a map for quick lookup
     const disputeCountMap = new Map<string, number>();
     for (const dc of disputeCounts) {
@@ -351,6 +995,15 @@ export class ProjectsService {
     // Step 4: Enrich projects with dispute info
     const enrichedProjects: ProjectWithDisputeInfo[] = projects.map((project) => {
       const activeDisputeCount = disputeCountMap.get(project.id) || 0;
+      const reviewState = this.buildReviewState(
+        project as ProjectEntity & {
+          client?: UserEntity | null;
+          broker?: UserEntity | null;
+          freelancer?: UserEntity | null;
+        },
+        viewerId || userId,
+        reviewPairSet,
+      );
       return {
         id: project.id,
         title: project.title,
@@ -359,11 +1012,18 @@ export class ProjectsService {
         clientId: project.clientId,
         brokerId: project.brokerId,
         freelancerId: project.freelancerId,
+        staffId: project.staffId,
+        staffInviteStatus: project.staffInviteStatus,
         totalBudget: Number(project.totalBudget),
         currency: project.currency,
         createdAt: project.createdAt,
         hasActiveDispute: activeDisputeCount > 0,
         activeDisputeCount,
+        client: this.mapProjectParticipant(project.client),
+        broker: this.mapProjectParticipant(project.broker),
+        freelancer: this.mapProjectParticipant(project.freelancer),
+        reviewSummary: reviewState.reviewSummary,
+        pendingReviewTargets: reviewState.pendingReviewTargets,
       };
     });
 
@@ -387,143 +1047,189 @@ export class ProjectsService {
     feedback?: string,
     reqContext?: RequestContext,
   ): Promise<MilestoneApprovalResult> {
-    // Step 1: Fetch the milestone with project relation
-    const milestone = await this.milestoneRepository.findOne({
-      where: { id: milestoneId },
-      relations: ['project'],
-    });
+    let oldData: { status: MilestoneStatus; feedback: string | null } | null = null;
+    let previousStatus: MilestoneStatus | null = null;
+    let updatedMilestone: MilestoneEntity | null = null;
+    let totalTasks = 0;
+    let doneTasks = 0;
+    let releaseTransactionIds: string[] = [];
+    let logCurrency = 'USD';
+    let auditProjectId: string | null = null;
+    let approvalActorLabel = 'Authorized user';
+    let approvedMilestoneTitle = 'Milestone';
+    let approvedMilestoneAmount = '0.00';
 
-    if (!milestone) {
-      throw new NotFoundException(`Milestone ${milestoneId} not found`);
-    }
+    await this.dataSource.transaction(async (manager) => {
+      const milestoneRepository = manager.getRepository(MilestoneEntity);
+      const projectRepository = manager.getRepository(ProjectEntity);
+      const taskRepository = manager.getRepository(TaskEntity);
 
-    // Step 2: Check user authorization (must be Client or Broker of the project)
-    let project: ProjectEntity | null = (milestone.project as ProjectEntity) || null;
+      const milestone = await milestoneRepository
+        .createQueryBuilder('milestone')
+        .setLock('pessimistic_write')
+        .where('milestone.id = :milestoneId', { milestoneId })
+        .getOne();
 
-    // If no project relation, try to find by projectId
-    if (!project && milestone.projectId) {
-      project = await this.projectRepository.findOne({
-        where: { id: milestone.projectId },
+      if (!milestone) {
+        throw new NotFoundException(`Milestone ${milestoneId} not found`);
+      }
+
+      const project = await projectRepository
+        .createQueryBuilder('project')
+        .setLock('pessimistic_write')
+        .where('project.id = :projectId', { projectId: milestone.projectId })
+        .getOne();
+
+      if (!project) {
+        throw new NotFoundException('Project not found for this milestone');
+      }
+
+      if (project.status === ProjectStatus.DISPUTED) {
+        throw new ConflictException('Cannot approve milestone while the project is under dispute');
+      }
+
+      const isAuthorized = project.clientId === userId || project.brokerId === userId;
+      if (!isAuthorized) {
+        throw new ForbiddenException(
+          'Only the Project Owner (Client) or Broker can approve milestones',
+        );
+      }
+
+      auditProjectId = project.id;
+      approvalActorLabel = project.clientId === userId ? 'Client' : 'Broker';
+
+      if (milestone.status === MilestoneStatus.COMPLETED) {
+        throw new BadRequestException('Milestone is already completed');
+      }
+
+      if (milestone.status === MilestoneStatus.PAID) {
+        throw new BadRequestException('Milestone has already been paid');
+      }
+
+      const approvableStatuses = [
+        MilestoneStatus.SUBMITTED,
+        MilestoneStatus.PENDING_CLIENT_APPROVAL,
+      ];
+      if (!approvableStatuses.includes(milestone.status)) {
+        throw new BadRequestException(
+          `Cannot approve milestone with status "${milestone.status}". Only SUBMITTED or PENDING_CLIENT_APPROVAL milestones can be approved.`,
+        );
+      }
+
+      const tasks = await taskRepository.find({
+        where: { milestoneId },
       });
-    }
 
-    if (!project) {
-      throw new NotFoundException('Project not found for this milestone');
-    }
+      totalTasks = tasks.length;
+      doneTasks = tasks.filter((task) => task.status === TaskStatus.DONE).length;
 
-    const isAuthorized = project.clientId === userId || project.brokerId === userId;
-    if (!isAuthorized) {
-      throw new ForbiddenException(
-        'Only the Project Owner (Client) or Broker can approve milestones',
+      if (totalTasks === 0) {
+        throw new BadRequestException('Milestone has no tasks to approve');
+      }
+
+      if (doneTasks < totalTasks) {
+        throw new BadRequestException(
+          `Cannot approve milestone: ${doneTasks}/${totalTasks} tasks completed. All tasks must be done before approval.`,
+        );
+      }
+
+      const activeContract = await this.milestoneLockPolicyService.findLatestActivatedContract(
+        project.id,
       );
-    }
+      const snapshot = Array.isArray(activeContract?.milestoneSnapshot)
+        ? activeContract.milestoneSnapshot
+        : [];
+      if (snapshot.length > 0) {
+        const snapshotEntry = this.findSnapshotEntryForMilestone(snapshot, milestone);
+        if (!snapshotEntry) {
+          throw new BadRequestException('Milestone not found in contract snapshot');
+        }
 
-    // Step 3: Check if milestone is already completed or paid
-    if (milestone.status === MilestoneStatus.COMPLETED) {
-      throw new BadRequestException('Milestone is already completed');
-    }
+        const currentAmount = new Decimal(milestone.amount).toDecimalPlaces(2);
+        const snapshotAmount = new Decimal(snapshotEntry.amount).toDecimalPlaces(2);
+        if (!currentAmount.equals(snapshotAmount)) {
+          throw new BadRequestException('Milestone amount mismatch with contract snapshot');
+        }
+        if (snapshotEntry.title !== milestone.title) {
+          throw new BadRequestException('Milestone title mismatch with contract snapshot');
+        }
+      }
 
-    if (milestone.status === MilestoneStatus.PAID) {
-      throw new BadRequestException('Milestone has already been paid');
-    }
+      oldData = {
+        status: milestone.status,
+        feedback: milestone.feedback ?? null,
+      };
 
-    // Step 4: Check if all tasks in this milestone are DONE
-    const tasks = await this.taskRepository.find({
-      where: { milestoneId },
+      previousStatus = milestone.status;
+      milestone.status = MilestoneStatus.COMPLETED;
+      if (feedback) {
+        milestone.feedback = feedback;
+      }
+
+      updatedMilestone = await milestoneRepository.save(milestone);
+      logCurrency = project.currency || 'USD';
+      approvedMilestoneTitle = milestone.title;
+      approvedMilestoneAmount = new Decimal(milestone.amount).toDecimalPlaces(2).toString();
+
+      const releaseResult = await this.escrowReleaseService.releaseForApprovedMilestone(
+        milestone.id,
+        userId,
+        manager,
+      );
+      releaseTransactionIds = releaseResult.releaseTransactionIds;
+
+      this.logger.log(
+        `💰 FUNDS RELEASED: Milestone "${milestone.title}" (${milestone.amount} ${logCurrency}) approved by user ${userId} | tx=${releaseTransactionIds.join(',')}`,
+      );
     });
 
-    const totalTasks = tasks.length;
-    const doneTasks = tasks.filter((t) => t.status === TaskStatus.DONE).length;
-
-    if (totalTasks === 0) {
-      throw new BadRequestException('Milestone has no tasks to approve');
-    }
-
-    if (doneTasks < totalTasks) {
-      throw new BadRequestException(
-        `Cannot approve milestone: ${doneTasks}/${totalTasks} tasks completed. All tasks must be done before approval.`,
-      );
-    }
-
-    const activeContract = await this.milestoneLockPolicyService.findLatestActivatedContract(project.id);
-    const snapshot = Array.isArray(activeContract?.milestoneSnapshot)
-      ? activeContract.milestoneSnapshot
-      : [];
-    if (snapshot.length > 0) {
-      const snapshotEntry = snapshot.find((entry) => entry.projectMilestoneId === milestone.id);
-      if (!snapshotEntry) {
-        throw new BadRequestException('Milestone not found in contract snapshot');
-      }
-
-      const currentAmount = new Decimal(milestone.amount).toDecimalPlaces(2);
-      const snapshotAmount = new Decimal(snapshotEntry.amount).toDecimalPlaces(2);
-      if (!currentAmount.equals(snapshotAmount)) {
-        throw new BadRequestException('Milestone amount mismatch with contract snapshot');
-      }
-    }
-
-    // Step 5: Prepare old data for audit log
-    const oldData = {
-      status: milestone.status,
-      feedback: milestone.feedback,
-    };
-
-    const previousStatus = milestone.status;
-
-    // Step 6: Update milestone status to COMPLETED
-    milestone.status = MilestoneStatus.COMPLETED;
-    if (feedback) {
-      milestone.feedback = feedback;
-    }
-
-    const updatedMilestone = await this.milestoneRepository.save(milestone);
-
-    // Step 7: Simulate fund release (in real system, this would call payment service)
-    this.logger.log(
-      `💰 FUNDS RELEASED: Milestone "${milestone.title}" (${milestone.amount} ${
-        project.currency || 'USD'
-      }) approved by user ${userId}`,
-    );
-
-    // Step 8: Create audit log for milestone approval (Critical financial action)
     const newData = {
       status: MilestoneStatus.COMPLETED,
       feedback: feedback || null,
       approvedBy: userId,
       approvedAt: new Date().toISOString(),
+      releaseTransactionIds,
     };
 
     await this.auditLogsService.logUpdate(
       'Milestone',
       milestoneId,
-      oldData,
+      oldData ?? {},
       newData,
       reqContext,
       userId,
     );
 
+    if (auditProjectId) {
+      await this.recordWorkspaceSystemMessage(
+        auditProjectId,
+        `${approvalActorLabel} authorized release of ${approvedMilestoneAmount} ${logCurrency} for milestone "${approvedMilestoneTitle}".`,
+      );
+    }
+
     this.logger.log(
-      `✅ Milestone ${milestoneId} approved: ${previousStatus} → COMPLETED | Tasks: ${doneTasks}/${totalTasks} | Amount: ${milestone.amount}`,
+      `✅ Milestone ${milestoneId} approved: ${previousStatus} → COMPLETED | Tasks: ${doneTasks}/${totalTasks} | ReleaseTx: ${releaseTransactionIds.length}`,
     );
 
     return {
-      milestone: updatedMilestone,
-      previousStatus,
+      milestone: updatedMilestone as MilestoneEntity,
+      previousStatus: previousStatus as MilestoneStatus,
       fundsReleased: true,
-      message: `Milestone "${milestone.title}" has been approved. Funds will be released.`,
+      message: `Milestone "${updatedMilestone?.title}" has been approved. Funds have been released.`,
     };
   }
-  async findOne(id: string): Promise<ProjectEntity | null> {
+  async findOne(id: string, viewerId?: string): Promise<(ProjectEntity & ProjectWithDisputeInfo) | null> {
     const project = await this.projectRepository.findOne({
       where: { id },
-      relations: ['contracts'],
+      relations: ['contracts', 'staff', 'client', 'broker', 'freelancer'],
     });
     if (!project) {
       return null;
     }
 
     if (Array.isArray(project.contracts)) {
-      project.contracts = [...project.contracts].sort((a: ContractEntity, b: ContractEntity) => {
+      const contracts = project.contracts as ContractEntity[];
+      project.contracts = [...contracts].sort((a: ContractEntity, b: ContractEntity) => {
         const aActivated = a.activatedAt ? new Date(a.activatedAt).getTime() : 0;
         const bActivated = b.activatedAt ? new Date(b.activatedAt).getTime() : 0;
         if (aActivated !== bActivated) {
@@ -536,6 +1242,51 @@ export class ProjectsService {
       });
     }
 
-    return project;
+    const normalizedProject = this.sanitizeProjectStaffRelation(project);
+    const activeDisputeStatuses = [
+      DisputeStatus.OPEN,
+      DisputeStatus.TRIAGE_PENDING,
+      DisputeStatus.PREVIEW,
+      DisputeStatus.PENDING_REVIEW,
+      DisputeStatus.INFO_REQUESTED,
+      DisputeStatus.IN_MEDIATION,
+      DisputeStatus.APPEALED,
+    ];
+    const activeDisputeCount = await this.disputeRepository.count({
+      where: {
+        projectId: id,
+        status: In(activeDisputeStatuses),
+      },
+    });
+
+    const reviews = await this.reviewRepository.find({
+      where: { projectId: id },
+      select: ['projectId', 'reviewerId', 'targetUserId'],
+    });
+    const reviewPairSet = new Set(
+      reviews.map(
+        (review) => `${review.projectId}:${review.reviewerId}:${review.targetUserId}`,
+      ),
+    );
+    const reviewState = this.buildReviewState(
+      normalizedProject as ProjectEntity & {
+        client?: UserEntity | null;
+        broker?: UserEntity | null;
+        freelancer?: UserEntity | null;
+      },
+      viewerId || null,
+      reviewPairSet,
+    );
+
+    return {
+      ...normalizedProject,
+      hasActiveDispute: activeDisputeCount > 0,
+      activeDisputeCount,
+      client: this.mapProjectParticipant(normalizedProject.client),
+      broker: this.mapProjectParticipant(normalizedProject.broker),
+      freelancer: this.mapProjectParticipant(normalizedProject.freelancer),
+      reviewSummary: reviewState.reviewSummary,
+      pendingReviewTargets: reviewState.pendingReviewTargets,
+    };
   }
 }

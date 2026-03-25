@@ -8,6 +8,8 @@ import {
 } from '../../database/entities/project-request.entity';
 import { ProjectSpecEntity, ProjectSpecStatus } from '../../database/entities/project-spec.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
+import { SkillEntity } from '../../database/entities/skill.entity';
+import { UserSkillEntity, SkillPriority, SkillVerificationStatus } from '../../database/entities/user-skill.entity';
 import * as bcrypt from 'bcryptjs';
 
 @Injectable()
@@ -21,6 +23,10 @@ export class SeedingService {
     private readonly specRepository: Repository<ProjectSpecEntity>,
     @InjectRepository(MilestoneEntity)
     private readonly milestoneRepository: Repository<MilestoneEntity>,
+    @InjectRepository(SkillEntity)
+    private readonly skillRepository: Repository<SkillEntity>,
+    @InjectRepository(UserSkillEntity)
+    private readonly userSkillRepository: Repository<UserSkillEntity>,
   ) {}
 
   async seedC05() {
@@ -29,6 +35,32 @@ export class SeedingService {
       // 1. Ensure Users Exist
       const broker = await this.ensureUser('broker@test.com', 'Broker Test', UserRole.BROKER);
       const client = await this.ensureUser('client@test.com', 'Client Test', UserRole.CLIENT);
+      const freelancer = await this.ensureUser('freelancer@test.com', 'Freelancer Test', UserRole.FREELANCER);
+
+      // Add skills to freelancer if they don't have any
+      const existingSkills = await this.userSkillRepository.count({ where: { userId: freelancer.id } });
+      if (existingSkills === 0) {
+        console.log('Adding skills to test freelancer...');
+        const skillsToAdd = ['reactjs', 'nodejs'];
+        const foundSkills = await this.skillRepository.find({
+          where: skillsToAdd.map(slug => ({ slug }))
+        });
+
+        const userSkills = foundSkills.map(skill => {
+          return this.userSkillRepository.create({
+            userId: freelancer.id,
+            skillId: skill.id,
+            priority: SkillPriority.PRIMARY,
+            verificationStatus: SkillVerificationStatus.PROJECT_VERIFIED,
+            completedProjectsCount: 5,
+            yearsOfExperience: 3,
+          });
+        });
+
+        if (userSkills.length > 0) {
+          await this.userSkillRepository.save(userSkills);
+        }
+      }
 
       // 2. Create Pending Request
       const pendingTitle = 'E-commerce Website Redesign';

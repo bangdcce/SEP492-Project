@@ -1,17 +1,12 @@
-// Calendar module exports
-// Provides a clean API for the workspace calendar functionality
-
 export { CalendarToolbar } from "./CalendarToolbar";
 export { CalendarEventPopover } from "./CalendarEventPopover";
 export {
+  CALENDAR_STATUS_META,
   localizer,
-  EVENT_STYLES,
-  getEventType,
-  getEventStyle,
   getEventInlineStyles,
+  sortCalendarEvents,
   tasksToCalendarEvents,
-  type CalendarViewType,
-  type EventType,
   type CalendarEvent,
-  type EventStyleConfig,
+  type CalendarStatusTone,
+  type CalendarViewType,
 } from "./CalendarConfig";

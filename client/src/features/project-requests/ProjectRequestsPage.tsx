@@ -6,17 +6,19 @@ import { Loader2, Search } from 'lucide-react';
 import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
 import { STORAGE_KEYS } from '@/constants';
 import { getStoredJson } from '@/shared/utils/storage';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
-import { Input } from '@/shared/components/ui/Input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Input } from '@/shared/components/ui/input';
 import { Badge } from '@/shared/components/ui/badge';
+import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
+import toast from 'react-hot-toast';
 
 export const ProjectRequestsPage: React.FC = () => {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [assigningId, setAssigningId] = useState<string | null>(null);
   const [user, setUser] = useState<any>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
+  const [upgradeModalData, setUpgradeModalData] = useState<any>(null);
   const { checkKycStatus } = useKYCStatus();
 
   useEffect(() => {
@@ -24,7 +26,7 @@ export const ProjectRequestsPage: React.FC = () => {
     
     // Check KYC status
     checkKycStatus().then(setKycStatus);
-  }, []);
+  }, [checkKycStatus]);
 
   const myProjects = requests.filter(r => 
       // 1. Assigned directly
@@ -67,31 +69,19 @@ export const ProjectRequestsPage: React.FC = () => {
     fetchRequests();
   }, []);
 
-  const handleAssign = async (requestId: string) => {
-    if (!confirm('Are you sure you want to assign this request to yourself?')) return;
-    
-    try {
-      setAssigningId(requestId);
-      await projectRequestsApi.assignBroker(requestId);
-      // Refresh list after successful assignment
-      await fetchRequests();
-      alert('Request assigned successfully!');
-    } catch (error: any) {
-      console.error('Failed to assign request:', error);
-      alert(error.response?.data?.message || 'Failed to assign request');
-    } finally {
-      setAssigningId(null);
-    }
-  };
-
   const handleApply = async (requestId: string, coverLetter: string) => {
      try {
         await projectRequestsApi.applyToRequest(requestId, coverLetter);
-        alert("Application submitted successfully!");
+        toast.success("Application submitted successfully!");
         fetchRequests();
      } catch (error: any) {
         console.error(error);
-        alert(error.response?.data?.message || "Failed to apply");
+        const quotaErr = parseQuotaError(error);
+        if (quotaErr) {
+          setUpgradeModalData(quotaErr);
+        } else {
+          toast.error(error.response?.data?.message || "Failed to apply");
+        }
      }
   };
 
@@ -120,7 +110,7 @@ export const ProjectRequestsPage: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Broker Marketplace</h1>
           <p className="text-muted-foreground">
-            Review open client requests, then assign or apply with your proposal.
+            Review open client requests, open the details, and apply with your proposal.
           </p>
         </div>
       </div>
@@ -169,12 +159,15 @@ export const ProjectRequestsPage: React.FC = () => {
       <div className="rounded-md bg-white p-4 shadow-sm">
         <ProjectRequestsTable 
             requests={filteredMarketRequests}
-            onAssign={handleAssign}
             onApply={handleApply}
-            assigningId={assigningId}
             currentUserId={user?.id}
         />
       </div>
+      <UpgradeModal
+        isOpen={!!upgradeModalData}
+        onClose={() => setUpgradeModalData(null)}
+        quotaInfo={upgradeModalData}
+      />
     </div>
   );
 };

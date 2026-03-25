@@ -116,6 +116,11 @@ const ProfilePage = lazy(() => import("@/pages/ProfilePage"));
 const KYCPage = lazy(() => import("@/pages/KYCPage"));
 const KYCStatusPage = lazy(() => import("@/pages/KYCStatusPage"));
 
+// ========== SUBSCRIPTION PAGE ==========
+const SubscriptionPage = lazy(() =>
+  import("@/features/subscriptions/SubscriptionPage"),
+);
+
 // ========== STAFF PAGES ==========
 const StaffLayout = lazy(() =>
   import("@/features/staff/components/layout/StaffLayout").then((m) => ({
@@ -125,6 +130,11 @@ const StaffLayout = lazy(() =>
 const StaffDashboardPage = lazy(() =>
   import("@/features/staff/pages/StaffDashboardPage").then((m) => ({
     default: m.StaffDashboardPage,
+  })),
+);
+const StaffProjectsPage = lazy(() =>
+  import("@/features/staff/pages/StaffProjectsPage").then((m) => ({
+    default: m.StaffProjectsPage,
   })),
 );
 const StaffQueuePage = lazy(() =>
@@ -389,6 +399,18 @@ function App() {
           }
         />
 
+        {/* Freelancer Subscription */}
+        <Route
+          path="/freelancer/subscription"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <SubscriptionPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+
         {/* ========== CLIENT ROUTES - /client/* ========== */}
         <Route
           path={ROUTES.CLIENT_DASHBOARD}
@@ -537,6 +559,18 @@ function App() {
             <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <PartnerProfilePage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+
+        {/* Client Subscription */}
+        <Route
+          path="/client/subscription"
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <SubscriptionPage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -818,9 +852,23 @@ function App() {
             </RoleGuard>
           }
         />
+
+        {/* Broker Subscription */}
+        <Route
+          path="/broker/subscription"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <SubscriptionPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+
         {/* ========== STAFF ROUTES - /staff/* ========== */}
         <Route path="/staff" element={<StaffLayout />}>
           <Route path="dashboard" element={<StaffDashboardPage />} />
+          <Route path="projects" element={<StaffProjectsPage />} />
           <Route path="queue" element={<StaffQueuePage />} />
           <Route path="caseload" element={<StaffCaseloadPage />} />
           <Route path="calendar" element={<StaffCalendarPage />} />
@@ -830,6 +878,17 @@ function App() {
           <Route path="profile" element={<ProfilePage />} />
           {/* Fallback */}
           <Route index element={<Navigate to="dashboard" replace />} />
+        </Route>
+
+        <Route
+          path={ROUTES.STAFF_WORKSPACE}
+          element={
+            <RoleGuard allowedRoles={["STAFF", "ADMIN"]}>
+              <StaffLayout />
+            </RoleGuard>
+          }
+        >
+          <Route index element={<ProjectWorkspacePage />} />
         </Route>
 
         {/* ========== REDIRECTS ========== */}

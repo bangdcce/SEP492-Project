@@ -7,6 +7,15 @@ import type {
   TaskLink,
   TaskSubmission,
   TaskStatusUpdateResult,
+  PendingProjectInvite,
+  ActiveSupervisedProject,
+  ProjectStaffInviteStatus,
+  StaffRecommendation,
+  StaffSummary,
+  ProjectRecentActivity,
+  WorkspaceChatHistoryQuery,
+  WorkspaceChatHistoryResponse,
+  WorkspaceChatMutationResponse,
 } from "./types";
 
 // ============================================
@@ -19,6 +28,14 @@ interface BoardWithMilestones {
   milestones: Milestone[];
 }
 
+const toIsoDateString = (value?: string | null) => {
+  if (value === null) return null;
+  if (!value) return undefined;
+  return /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00.000Z`).toISOString()
+    : value;
+};
+
 export interface WorkspaceProject {
   id: string;
   title?: string;
@@ -29,11 +46,103 @@ export interface WorkspaceProject {
   brokerId: string;
   clientId: string;
   freelancerId?: string | null;
+  staffId?: string | null;
+  staffInviteStatus?: ProjectStaffInviteStatus | null;
+  client?: WorkspaceProjectParticipant | null;
+  broker?: WorkspaceProjectParticipant | null;
+  freelancer?: WorkspaceProjectParticipant | null;
+  staff?: WorkspaceProjectParticipant | null;
   currency?: string;
+}
+
+export interface WorkspaceProjectParticipant {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+  role?: string | null;
 }
 
 export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {
   return apiClient.get<WorkspaceProject>(`/projects/${projectId}`);
+};
+
+export const fetchWorkspaceChatMessages = async (
+  projectId: string,
+  query: WorkspaceChatHistoryQuery = {},
+): Promise<WorkspaceChatHistoryResponse> => {
+  const searchParams = new URLSearchParams();
+
+  if (typeof query.limit === "number") {
+    searchParams.set("limit", String(query.limit));
+  }
+  if (typeof query.offset === "number") {
+    searchParams.set("offset", String(query.offset));
+  }
+  if (typeof query.query === "string" && query.query.trim().length > 0) {
+    searchParams.set("query", query.query.trim());
+  }
+
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return apiClient.get<WorkspaceChatHistoryResponse>(
+    `/workspace-chat/projects/${projectId}/messages${suffix}`,
+  );
+};
+
+export const toggleWorkspaceChatPin = async (
+  projectId: string,
+  messageId: string,
+  isPinned: boolean,
+): Promise<WorkspaceChatMutationResponse> => {
+  return apiClient.patch<WorkspaceChatMutationResponse>(
+    `/workspace-chat/projects/${projectId}/messages/${messageId}/pin`,
+    { isPinned },
+  );
+};
+
+export const editWorkspaceChatMessage = async (
+  projectId: string,
+  messageId: string,
+  content: string,
+): Promise<WorkspaceChatMutationResponse> => {
+  return apiClient.patch<WorkspaceChatMutationResponse>(
+    `/workspace-chat/projects/${projectId}/messages/${messageId}`,
+    { content },
+  );
+};
+
+export const deleteWorkspaceChatMessage = async (
+  projectId: string,
+  messageId: string,
+): Promise<WorkspaceChatMutationResponse> => {
+  return apiClient.delete<WorkspaceChatMutationResponse>(
+    `/workspace-chat/projects/${projectId}/messages/${messageId}`,
+  );
+};
+
+export const fetchStaffCandidates = async (): Promise<StaffSummary[]> => {
+  return apiClient.get<StaffSummary[]>("/projects/staff-candidates");
+};
+
+export const inviteProjectStaff = async (
+  projectId: string,
+  staffId: string,
+): Promise<WorkspaceProject> => {
+  return apiClient.post<WorkspaceProject>(`/projects/${projectId}/invite-staff`, { staffId });
+};
+
+export const fetchPendingProjectInvites = async (): Promise<PendingProjectInvite[]> => {
+  return apiClient.get<PendingProjectInvite[]>("/projects/pending-invites");
+};
+
+export const getActiveSupervisedProjects = async (): Promise<ActiveSupervisedProject[]> => {
+  return apiClient.get<ActiveSupervisedProject[]>("/projects/staff/active");
+};
+
+export const respondToProjectStaffInvite = async (
+  projectId: string,
+  status: ProjectStaffInviteStatus,
+): Promise<WorkspaceProject> => {
+  return apiClient.post<WorkspaceProject>(`/projects/${projectId}/staff-response`, { status });
 };
 
 export const fetchBoard = async (projectId: string): Promise<KanbanBoard> => {
@@ -70,6 +179,14 @@ export const updateTaskStatus = async (
 export const fetchTaskHistory = async (taskId: string): Promise<import("./types").TaskHistory[]> => {
   const result = await apiClient.get<import("./types").TaskHistory[]>(`/tasks/${taskId}/history`);
   return result;
+};
+
+export const fetchProjectRecentActivity = async (
+  projectId: string,
+): Promise<ProjectRecentActivity[]> => {
+  return apiClient.get<ProjectRecentActivity[]>(
+    `/tasks/project/${projectId}/recent-activity`,
+  );
 };
 
 export const fetchTaskComments = async (taskId: string): Promise<import("./types").TaskComment[]> => {
@@ -135,7 +252,7 @@ export const createTaskSubmission = async (
 
 /**
  * Review a task submission (Approve or Request Changes)
- * Only CLIENT users can call this endpoint
+ * Only CLIENT or STAFF users can call this endpoint
  * 
  * @param taskId - Task ID
  * @param submissionId - Submission ID to review
@@ -171,28 +288,6 @@ export const reviewSubmission = async (
   return result;
 };
 
-/**
- * Submit task with proof of work
- * Marks task as DONE with evidence (required for dispute resolution)
- */
-export const submitTask = async (
-  taskId: string,
-  payload: { submissionNote?: string; proofLink: string }
-): Promise<TaskStatusUpdateResult> => {
-  console.log("[API] Submitting task with proof:", { taskId, proofLink: payload.proofLink });
-
-  const result = await apiClient.post<TaskStatusUpdateResult>(`/tasks/${taskId}/submit`, payload);
-
-  console.log("[API] Task submitted:", result);
-  console.log("[API] Milestone progress after submission:", {
-    milestoneId: result.milestoneId,
-    progress: result.milestoneProgress,
-    completed: `${result.completedTasks}/${result.totalTasks}`,
-  });
-
-  return result;
-};
-
 // Update General Task Details
 export const updateTask = async (
   taskId: string,
@@ -200,7 +295,15 @@ export const updateTask = async (
 ): Promise<Task> => {
   console.log("[API] Updating task details:", { taskId, payload });
 
-  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, payload);
+  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, {
+    ...payload,
+    ...(Object.prototype.hasOwnProperty.call(payload, "startDate")
+      ? { startDate: toIsoDateString(payload.startDate ?? null) }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "dueDate")
+      ? { dueDate: toIsoDateString(payload.dueDate ?? null) }
+      : {}),
+  });
 
   console.log("[API] Task updated:", result);
   return result;
@@ -217,7 +320,11 @@ export const createTask = async (payload: {
 }): Promise<Task> => {
   console.log("[API] Creating task:", payload);
 
-  const result = await apiClient.post<Task>("/tasks", payload);
+  const result = await apiClient.post<Task>("/tasks", {
+    ...payload,
+    startDate: toIsoDateString(payload.startDate),
+    dueDate: toIsoDateString(payload.dueDate),
+  });
 
   console.log("[API] Task created:", result);
   return result;
@@ -245,12 +352,19 @@ export const createMilestone = async (payload: {
   startDate?: string;
   dueDate?: string;
   description?: string;
+  deliverableType?: Milestone["deliverableType"];
+  retentionAmount?: number;
+  acceptanceCriteria?: string[];
 }): Promise<Milestone> => {
   console.log("[API] Creating milestone:", payload);
   const { projectId, ...body } = payload;
   const result = await apiClient.post<Milestone>(
     `/projects/${projectId}/milestones`,
-    body
+    {
+      ...body,
+      startDate: toIsoDateString(body.startDate),
+      dueDate: toIsoDateString(body.dueDate),
+    }
   );
 
   console.log("[API] Milestone created:", result);
@@ -259,15 +373,43 @@ export const createMilestone = async (payload: {
 
 export const updateMilestone = async (
   milestoneId: string,
-  payload: Partial<Pick<Milestone, "title" | "description" | "amount" | "startDate" | "dueDate" | "sortOrder">>
+  payload: Partial<
+    Pick<
+      Milestone,
+      | "title"
+      | "description"
+      | "amount"
+      | "startDate"
+      | "dueDate"
+      | "sortOrder"
+      | "deliverableType"
+      | "retentionAmount"
+      | "acceptanceCriteria"
+    >
+  >
 ): Promise<Milestone> => {
-  return apiClient.patch<Milestone>(`/projects/milestones/${milestoneId}`, payload);
+  return apiClient.patch<Milestone>(`/projects/milestones/${milestoneId}`, {
+    ...payload,
+    startDate: toIsoDateString(payload.startDate),
+    dueDate: toIsoDateString(payload.dueDate),
+  });
 };
 
 export const deleteMilestone = async (
   milestoneId: string
 ): Promise<{ success: boolean }> => {
   return apiClient.delete<{ success: boolean }>(`/projects/milestones/${milestoneId}`);
+};
+
+export const requestMilestoneReview = async (milestoneId: string): Promise<Milestone> => {
+  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/request-review`);
+};
+
+export const reviewMilestoneAsStaff = async (
+  milestoneId: string,
+  payload: { recommendation: StaffRecommendation; note: string },
+): Promise<Milestone> => {
+  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/staff-review`, payload);
 };
 
 /**
@@ -299,4 +441,3 @@ export const approveMilestone = async (
   console.log("[API] Milestone approved:", result);
   return result;
 };
-

@@ -28,7 +28,7 @@ import { UserEntity, UserRole } from '../../../database/entities/user.entity';
 import { HearingStatus } from '../../../database/entities/dispute-hearing.entity';
 
 // Service
-import { HearingService } from '../services/hearing.service';
+import { HearingLifecycleFilter, HearingService } from '../services/hearing.service';
 import { DisputeSchemaReadinessFilter } from '../filters/dispute-schema-readiness.filter';
 
 // DTOs
@@ -55,6 +55,19 @@ import {
 @ApiBearerAuth()
 export class HearingController {
   constructor(private readonly hearingService: HearingService) {}
+
+  private parseLifecycleFilter(raw?: string): HearingLifecycleFilter {
+    if (!raw) {
+      return 'all';
+    }
+
+    const normalized = raw.trim().toLowerCase();
+    if (normalized === 'active' || normalized === 'archived' || normalized === 'all') {
+      return normalized;
+    }
+
+    throw new BadRequestException('Invalid lifecycle filter');
+  }
 
   // ===========================================================================
   // SCHEDULE HEARING
@@ -101,9 +114,14 @@ export class HearingController {
   @ApiParam({ name: 'disputeId', type: 'string', format: 'uuid' })
   async listHearingsForDispute(
     @Param('disputeId', ParseUUIDPipe) disputeId: string,
+    @Query('lifecycle') lifecycleRaw: string | undefined,
     @GetUser() user: UserEntity,
   ) {
-    const data = await this.hearingService.getHearingsForDispute(disputeId, user);
+    const data = await this.hearingService.getHearingsForDispute(
+      disputeId,
+      user,
+      this.parseLifecycleFilter(lifecycleRaw),
+    );
     return { success: true, data };
   }
 
@@ -122,6 +140,7 @@ export class HearingController {
     @Query('status') statusRaw?: string,
     @Query('from') fromRaw?: string,
     @Query('to') toRaw?: string,
+    @Query('lifecycle') lifecycleRaw?: string,
   ) {
     const statuses = statusRaw
       ? statusRaw
@@ -148,6 +167,7 @@ export class HearingController {
       statuses: statuses.length > 0 ? (statuses as HearingStatus[]) : undefined,
       from,
       to,
+      lifecycle: this.parseLifecycleFilter(lifecycleRaw),
     });
 
     return { success: true, data };
