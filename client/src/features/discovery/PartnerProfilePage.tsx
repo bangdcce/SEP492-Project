@@ -27,6 +27,7 @@ export const PartnerProfilePage = () => {
     if (error || !user) return <div className="text-center py-10 text-destructive">Failed to load profile</div>;
 
     const isBroker = user.role === UserRole.BROKER;
+    const canInviteDirectly = isBroker;
 
     return (
         <div className="container mx-auto p-6 max-w-5xl space-y-6">
@@ -86,10 +87,16 @@ export const PartnerProfilePage = () => {
                         </div>
                     </div>
 
-                    <div className="flex justify-end mt-6">
-                         <Button size="lg" onClick={() => setIsInviteModalOpen(true)}>
-                            Invite to Project
-                         </Button>
+                    <div className="mt-6 flex justify-end">
+                         {canInviteDirectly ? (
+                            <Button size="lg" onClick={() => setIsInviteModalOpen(true)}>
+                                Invite to Project
+                            </Button>
+                         ) : (
+                            <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                                Freelancer invitations are now broker-led. Ask your assigned broker to recommend this freelancer on the request.
+                            </div>
+                         )}
                     </div>
                 </CardContent>
             </Card>
@@ -155,13 +162,15 @@ export const PartnerProfilePage = () => {
                  </div>
             </div>
 
-            <InviteModal 
-                isOpen={isInviteModalOpen} 
-                onClose={() => setIsInviteModalOpen(false)} 
-                partnerId={user.id}
-                partnerName={user.fullName}
-                partnerRole={user.role as "BROKER" | "FREELANCER"}
-            />
+            {canInviteDirectly ? (
+                <InviteModal 
+                    isOpen={isInviteModalOpen} 
+                    onClose={() => setIsInviteModalOpen(false)} 
+                    partnerId={user.id}
+                    partnerName={user.fullName}
+                    partnerRole={user.role as "BROKER" | "FREELANCER"}
+                />
+            ) : null}
         </div>
     );
 };

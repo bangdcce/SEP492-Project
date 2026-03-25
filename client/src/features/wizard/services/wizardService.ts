@@ -78,7 +78,9 @@ export const wizardService = {
     return await apiClient.post(`/project-requests/${id}/publish`, {});
   },
 
-
+  getDrafts: async () => {
+    return await apiClient.get("/project-requests/drafts/mine");
+  },
 
   getMatches: async (requestId: string) => {
     return await apiClient.get(`/project-requests/${requestId}/matches`);
@@ -94,6 +96,13 @@ export const wizardService = {
 
   inviteBroker: async (requestId: string, brokerId: string) => {
     return await apiClient.post(`/project-requests/${requestId}/invite/broker`, { brokerId });
+  },
+
+  inviteFreelancer: async (requestId: string, freelancerId: string, message?: string) => {
+    return await apiClient.post(`/project-requests/${requestId}/invite/freelancer`, {
+      freelancerId,
+      message,
+    });
   },
 
   applyToRequest: async (requestId: string, coverLetter: string) => {
@@ -116,6 +125,18 @@ export const wizardService = {
 
   approveSpecs: async (requestId: string) => {
     return await apiClient.post(`/project-requests/${requestId}/approve-specs`, {});
+  },
+
+  approveFreelancerInvite: async (requestId: string, proposalId: string) => {
+    return await apiClient.post(`/project-requests/${requestId}/approve-freelancer-invite`, {
+      proposalId,
+    });
+  },
+
+  rejectFreelancerInvite: async (requestId: string, proposalId: string) => {
+    return await apiClient.post(`/project-requests/${requestId}/reject-freelancer-invite`, {
+      proposalId,
+    });
   },
 
   convertToProject: async (requestId: string) => {

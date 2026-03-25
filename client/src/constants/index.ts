@@ -34,7 +34,6 @@ export const ROUTES = {
   BROKER_DASHBOARD: "/broker/dashboard",
   BROKER_PROJECTS: "/broker/projects",
   BROKER_WORKSPACE: "/broker/workspace/:projectId",
-  BROKER_FREELANCERS: "/broker/freelancers",
   BROKER_PROFILE: "/broker/profile",
   BROKER_MARKETPLACE: "/broker/marketplace",
   BROKER_KYC_STATUS: "/broker/kyc-status",

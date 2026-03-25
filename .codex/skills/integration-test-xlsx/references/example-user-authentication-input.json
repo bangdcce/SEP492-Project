@@ -1,0 +1,187 @@
+{
+  "project": {
+    "projectName": "PetFriends",
+    "projectCode": "PF",
+    "documentCode": "PF_Auth_Function_Test_v1.1",
+    "creator": "SonNT",
+    "reviewerApprover": "Test Lead",
+    "issueDate": "23/03/2026",
+    "version": "v1.1",
+    "defaultTester": "SonNT",
+    "environment": [
+      "1. Server: https://petfriends.example.test",
+      "2. Database: PostgreSQL",
+      "3. Web Browser: Chrome"
+    ],
+    "notes": "Feature-based workbook example. One feature sheet can contain multiple functions and multiple use cases.",
+    "changeLog": [
+      {
+        "effectiveDate": "23/03/2026",
+        "version": "v1.1",
+        "changeItem": "User Authentication",
+        "changeType": "M",
+        "description": "Reworked sample to group test cases by feature and function instead of by use case.",
+        "reference": "Authentication feature specification"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "AUTH",
+      "name": "User Authentication",
+      "testRequirement": "Validate register, login, and password recovery behavior across the authentication feature.",
+      "referenceDocument": [
+        "Authentication specification",
+        "UI flow reference"
+      ],
+      "statistics": {
+        "passed": 4,
+        "failed": 1,
+        "untested": 1,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Register",
+          "description": "Guest creates a new account.",
+          "preCondition": "Account does not already exist.",
+          "relatedUseCases": [
+            "UC-01",
+            "UC-02"
+          ],
+          "actor": "Guest",
+          "done": true
+        },
+        {
+          "name": "Login",
+          "description": "Existing user signs in and starts an authenticated session.",
+          "preCondition": "Account exists and email is verified.",
+          "relatedUseCases": [
+            "UC-03",
+            "UC-04"
+          ],
+          "actor": "User",
+          "done": true
+        },
+        {
+          "name": "Recover Password",
+          "description": "User resets a forgotten password.",
+          "preCondition": "Email already exists in the system.",
+          "relatedUseCases": [
+            "UC-05"
+          ],
+          "actor": "User",
+          "done": true
+        }
+      ],
+      "sections": [
+        {
+          "title": "Register",
+          "testCases": [
+            {
+              "id": "[AUTH-REG-01]",
+              "description": "Register successfully with valid information.",
+              "procedure": "1. Open the sign-up page.\\n2. Enter valid email, phone, and password.\\n3. Submit the form.",
+              "expectedResults": "1. Account is created.\\n2. OTP or verification step is triggered.",
+              "actualResults": "Registration completed and verification flow started correctly.",
+              "dependencies": "Email and phone number are not used by another account.",
+              "useCaseRefs": [
+                "UC-01"
+              ],
+              "result": "Pass",
+              "testDate": "23/03/2026",
+              "tester": "SonNT",
+              "note": ""
+            },
+            {
+              "id": "[AUTH-REG-02]",
+              "description": "Reject registration when required fields are empty.",
+              "procedure": "1. Open the sign-up page.\\n2. Leave required fields blank.\\n3. Submit the form.",
+              "expectedResults": "1. Submission is blocked.\\n2. Validation messages are displayed.",
+              "actualResults": "Validation blocked submission, but the email error wording needs review.",
+              "dependencies": "Sign-up page is reachable.",
+              "useCaseRefs": [
+                "UC-01",
+                "UC-02"
+              ],
+              "result": "Fail",
+              "testDate": "23/03/2026",
+              "tester": "SonNT",
+              "note": "Investigate validation message wording."
+            }
+          ]
+        },
+        {
+          "title": "Login",
+          "testCases": [
+            {
+              "id": "[AUTH-LOGIN-01]",
+              "description": "Display login form controls correctly.",
+              "procedure": "1. Open the login page.\\n2. Observe the form fields and buttons.",
+              "expectedResults": "1. Email field is visible.\\n2. Password field is visible.\\n3. Login button is enabled.",
+              "actualResults": "The login page loaded and the expected controls were visible.",
+              "dependencies": "Application is reachable from the browser.",
+              "useCaseRefs": [
+                "UC-03"
+              ],
+              "result": "Pass",
+              "testDate": "23/03/2026",
+              "tester": "SonNT",
+              "note": ""
+            },
+            {
+              "id": "[AUTH-LOGIN-02]",
+              "description": "Login successfully with valid credentials.",
+              "procedure": "1. Open the login page.\\n2. Enter valid credentials.\\n3. Click Login.",
+              "expectedResults": "1. Success message is shown.\\n2. User reaches the dashboard.",
+              "actualResults": "Login completed and the user was redirected to the dashboard.",
+              "dependencies": "User account exists and is active.",
+              "useCaseRefs": [
+                "UC-03"
+              ],
+              "result": "Pass",
+              "testDate": "23/03/2026",
+              "tester": "SonNT",
+              "note": ""
+            },
+            {
+              "id": "[AUTH-LOGIN-03]",
+              "description": "Keep session when remember-me is enabled.",
+              "procedure": "1. Open the login page.\\n2. Enter valid credentials.\\n3. Enable remember me.\\n4. Login and reopen the browser.",
+              "expectedResults": "1. Session remains active across the configured persistence window.",
+              "actualResults": "",
+              "dependencies": "User account exists and browser settings allow cookies.",
+              "useCaseRefs": [
+                "UC-04"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Planned for later execution."
+            }
+          ]
+        },
+        {
+          "title": "Recover Password",
+          "testCases": [
+            {
+              "id": "[AUTH-RECOVER-01]",
+              "description": "Reset password successfully with a valid OTP.",
+              "procedure": "1. Open forgot-password page.\\n2. Enter a registered email.\\n3. Receive OTP.\\n4. Verify OTP and set a new password.",
+              "expectedResults": "1. Password is updated successfully.\\n2. User can return to the login page.",
+              "actualResults": "Password reset completed and the user could log in with the new password.",
+              "dependencies": "Email exists and OTP delivery works.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Pass",
+              "testDate": "23/03/2026",
+              "tester": "SonNT",
+              "note": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

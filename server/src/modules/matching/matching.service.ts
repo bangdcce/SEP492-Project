@@ -32,16 +32,11 @@ export class MatchingService {
     private readonly configService: ConfigService,
   ) {}
 
-  async findMatches(
-    input: MatchingInput,
-    options: MatchingOptions,
-  ): Promise<ClassifiedResult[]> {
+  async findMatches(input: MatchingInput, options: MatchingOptions): Promise<ClassifiedResult[]> {
     const aiEnabled =
-      options.enableAi ??
-      this.configService.get<string>('MATCHING_AI_ENABLED') === 'true';
+      options.enableAi ?? this.configService.get<string>('MATCHING_AI_ENABLED') === 'true';
     const topN =
-      options.topN ??
-      parseInt(this.configService.get<string>('MATCHING_AI_TOP_N') || '10', 10);
+      options.topN ?? parseInt(this.configService.get<string>('MATCHING_AI_TOP_N') || '10', 10);
 
     this.logger.log(
       `Finding matches for request ${input.requestId} | role=${options.role} | ai=${aiEnabled} | topN=${topN}`,
@@ -64,19 +59,25 @@ export class MatchingService {
     this.logger.log(`Tag scorer: scored ${tagged.length} candidates.`);
 
     // Step 3: AI Ranker (optional)
-    // Send MORE candidates to AI than we'll return — AI can re-rank candidates
-    // that had low tag overlap but great bios/experience.
+    // Keep the AI window wider than the final response so domain/alias matches
+    // are not discarded too early by deterministic scoring alone.
+    const rankedCandidates = [...tagged].sort(
+      (a, b) =>
+        b.tagOverlapScore - a.tagOverlapScore ||
+        b.completedProjects - a.completedProjects ||
+        b.trustScore - a.trustScore,
+    );
     const aiWindowSize = Math.max(topN * 2, 10);
-    const topCandidates = tagged
-      .sort((a, b) => b.tagOverlapScore - a.tagOverlapScore)
-      .slice(0, Math.min(aiWindowSize, tagged.length));
-
-    this.logger.log(
-      `AI window: evaluating ${topCandidates.length} candidates (will return top ${topN})`,
+    const topCandidates = rankedCandidates.slice(
+      0,
+      Math.min(aiWindowSize, rankedCandidates.length),
     );
 
     let ranked;
     if (aiEnabled) {
+      this.logger.log(
+        `AI window: evaluating ${topCandidates.length} candidates (will return top ${topN})`,
+      );
       const aiInput: AiRankerInput = {
         specDescription: input.specDescription,
         requiredTechStack: input.requiredTechStack,
@@ -86,7 +87,7 @@ export class MatchingService {
       ranked = await this.aiRanker.rank(aiInput, topCandidates);
       this.logger.log(`AI ranker: ranked ${ranked.length} candidates.`);
     } else {
-      ranked = topCandidates.map((c) => ({
+      ranked = rankedCandidates.map((c) => ({
         ...c,
         aiRelevanceScore: null as number | null,
         reasoning: 'AI analysis was not enabled for this search.',
@@ -97,7 +98,7 @@ export class MatchingService {
     const classified = this.classifier.classify(ranked, aiEnabled);
     const finalResults = classified.slice(0, topN);
     this.logger.log(
-      `Classifier: ${classified.length} classified → returning top ${finalResults.length}. Top score: ${finalResults[0]?.matchScore}`,
+      `Classifier: ${classified.length} classified -> returning top ${finalResults.length}. Top score: ${finalResults[0]?.matchScore}`,
     );
 
     return finalResults;
