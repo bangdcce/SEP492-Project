@@ -25,19 +25,36 @@ export class MatchingController {
     private readonly freelancerProposalRepo: Repository<ProjectRequestProposalEntity>,
   ) {}
 
-  private parseRequestedTags(rawTechPreferences?: string | null): string[] {
-    if (!rawTechPreferences) {
-      return [];
-    }
-
+  private parseRequestedTags(...rawValues: Array<string | null | undefined>): string[] {
     return [
       ...new Set(
-        rawTechPreferences
-          .split(/[,;\n]+/)
+        rawValues
+          .flatMap((value) => (value ? value.split(/[,;\n]+/) : []))
           .map((value) => value.trim())
           .filter((value) => value.length > 0),
       ),
     ];
+  }
+
+  private extractRequestTerms(request: ProjectRequestEntity, role: 'BROKER' | 'FREELANCER'): string[] {
+    const answerTerms = (request.answers || []).flatMap((answer: any) => {
+      const questionCode = String(answer?.question?.code || '').trim().toUpperCase();
+      
+      // Freelancers match on technical features, not business domains
+      if (role === 'FREELANCER') {
+        if (!['FEATURES'].includes(questionCode)) {
+          return [];
+        }
+      } else {
+        if (!['INDUSTRY', 'PRODUCT_TYPE', 'FEATURES'].includes(questionCode)) {
+          return [];
+        }
+      }
+
+      return this.parseRequestedTags(answer?.valueText, answer?.option?.label, answer?.option?.value);
+    });
+
+    return this.parseRequestedTags(request.techPreferences, ...answerTerms);
   }
 
   @Get(':requestId')
@@ -54,6 +71,7 @@ export class MatchingController {
 
     const request = await this.requestRepo.findOne({
       where: { id: requestId },
+      relations: ['answers', 'answers.question', 'answers.option'],
     });
 
     if (!request) {
@@ -80,7 +98,7 @@ export class MatchingController {
     const input: MatchingInput = {
       requestId: request.id,
       specDescription: request.description || '',
-      requiredTechStack: this.parseRequestedTags(request.techPreferences),
+      requiredTechStack: this.extractRequestTerms(request, role),
       budgetRange: request.budgetRange,
       estimatedDuration: request.intendedTimeline,
       excludeUserIds,

@@ -26,6 +26,7 @@ import { MatchingService } from '../matching/matching.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { QuotaService } from '../subscriptions/quota.service';
 import { ProjectRequestsService } from './project-requests.service';
+import { ProjectSpecStatus, SpecPhase } from '../../database/entities/project-spec.entity';
 
 const createRepoMock = () => ({
   count: jest.fn(),
@@ -79,6 +80,13 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
   let quotaService: { checkQuota: jest.Mock; incrementUsage: jest.Mock };
   let notificationsService: { createMany: jest.Mock };
   let contractsService: { initializeContract: jest.Mock };
+  let projectHistoryQueryBuilder: {
+    select: jest.Mock;
+    where: jest.Mock;
+    andWhere: jest.Mock;
+    orderBy: jest.Mock;
+    getMany: jest.Mock;
+  };
 
   beforeEach(async () => {
     requestRepo = createRepoMock();
@@ -105,6 +113,14 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
     contractsService = {
       initializeContract: jest.fn().mockResolvedValue(undefined),
     };
+    projectHistoryQueryBuilder = {
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      orderBy: jest.fn().mockReturnThis(),
+      getMany: jest.fn().mockResolvedValue([]),
+    };
+    projectRepo.createQueryBuilder.mockReturnValue(projectHistoryQueryBuilder);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -479,6 +495,352 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
 
       expect(requestRepo.save).not.toHaveBeenCalled();
       expect(brokerProposalRepo.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('respondToInvitation - broker', () => {
+    it('assigns the invited broker and advances the request to broker assigned when they accept', async () => {
+      const request = makeRequest({
+        status: RequestStatus.PRIVATE_DRAFT,
+        brokerId: null,
+      });
+      const proposal = {
+        id: 'invite-1',
+        requestId: 'req-1',
+        brokerId: 'broker-1',
+        status: ProposalStatus.INVITED,
+        request,
+      };
+      const competingProposal = {
+        id: 'invite-2',
+        requestId: 'req-1',
+        brokerId: 'broker-2',
+        status: ProposalStatus.INVITED,
+      };
+
+      brokerProposalRepo.findOne.mockResolvedValue(proposal);
+      brokerProposalRepo.find.mockResolvedValue([proposal, competingProposal]);
+      brokerProposalRepo.save.mockImplementation(async (value) => value);
+      requestRepo.save.mockImplementation(async (value) => value);
+
+      const result = await service.respondToInvitation(
+        'invite-1',
+        'broker-1',
+        UserRole.BROKER,
+        'ACCEPTED',
+      );
+
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          brokerId: 'broker-1',
+          status: RequestStatus.BROKER_ASSIGNED,
+        }),
+      );
+      expect(brokerProposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'invite-2',
+          status: ProposalStatus.REJECTED,
+        }),
+      );
+      expect(result).toEqual(
+        expect.objectContaining({
+          id: 'invite-1',
+          status: ProposalStatus.ACCEPTED,
+        }),
+      );
+    });
+
+    it('rejects accepting an invitation when another broker is already assigned', async () => {
+      brokerProposalRepo.findOne.mockResolvedValue({
+        id: 'invite-1',
+        requestId: 'req-1',
+        brokerId: 'broker-1',
+        status: ProposalStatus.INVITED,
+        request: makeRequest({
+          status: RequestStatus.BROKER_ASSIGNED,
+          brokerId: 'broker-2',
+        }),
+      });
+
+      await expect(
+        service.respondToInvitation('invite-1', 'broker-1', UserRole.BROKER, 'ACCEPTED'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(requestRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('freelancer invite approval gate', () => {
+    const approvedClientSpec = {
+      id: 'client-spec-1',
+      title: 'Client Spec',
+      status: ProjectSpecStatus.CLIENT_APPROVED,
+      specPhase: SpecPhase.CLIENT_SPEC,
+      createdAt: new Date('2026-03-19T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-19T00:00:00.000Z'),
+    };
+
+    it('creates a pending-client-approval freelancer proposal and records the broker id', async () => {
+      const request = makeRequest({
+        status: RequestStatus.SPEC_APPROVED,
+        brokerId: 'broker-1',
+        specs: [approvedClientSpec as any],
+      });
+      const createdProposal = {
+        id: 'fp-1',
+        requestId: 'req-1',
+        freelancerId: 'freelancer-1',
+        brokerId: 'broker-1',
+        coverLetter: 'Strong frontend portfolio.',
+        status: 'PENDING_CLIENT_APPROVAL',
+      };
+
+      requestRepo.findOne.mockResolvedValue(request);
+      freelancerProposalRepo.findOne.mockResolvedValue(null);
+      freelancerProposalRepo.create.mockReturnValue(createdProposal);
+      freelancerProposalRepo.save.mockResolvedValue(createdProposal);
+
+      const result = await service.inviteFreelancer(
+        'req-1',
+        'freelancer-1',
+        'Strong frontend portfolio.',
+        { id: 'broker-1', role: UserRole.BROKER } as UserEntity,
+      );
+
+      expect(freelancerProposalRepo.create).toHaveBeenCalledWith({
+        requestId: 'req-1',
+        freelancerId: 'freelancer-1',
+        brokerId: 'broker-1',
+        status: 'PENDING_CLIENT_APPROVAL',
+        coverLetter: 'Strong frontend portfolio.',
+      });
+      expect(notificationsService.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            userId: 'client-1',
+            title: 'Broker recommended a freelancer',
+            relatedId: 'req-1',
+          }),
+        ]),
+      );
+      expect(result).toEqual(createdProposal);
+    });
+
+    it('approves a freelancer recommendation and makes it visible to the freelancer', async () => {
+      const request = makeRequest({
+        status: RequestStatus.SPEC_APPROVED,
+        brokerId: 'broker-1',
+      });
+      const proposal = {
+        id: 'fp-approve',
+        requestId: 'req-1',
+        freelancerId: 'freelancer-1',
+        brokerId: 'broker-1',
+        status: 'PENDING_CLIENT_APPROVAL',
+      };
+
+      requestRepo.findOne.mockResolvedValue(request);
+      freelancerProposalRepo.findOne.mockResolvedValue(proposal);
+      freelancerProposalRepo.save.mockImplementation(async (value) => value);
+
+      const result = await service.approveFreelancerInvite('req-1', 'fp-approve', 'client-1');
+
+      expect(freelancerProposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'fp-approve',
+          status: 'INVITED',
+        }),
+      );
+      expect(notificationsService.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            userId: 'freelancer-1',
+            title: 'You were invited to a project',
+          }),
+          expect.objectContaining({
+            userId: 'broker-1',
+            title: 'Client approved your freelancer recommendation',
+          }),
+        ]),
+      );
+      expect(result).toEqual(expect.objectContaining({ status: 'INVITED' }));
+    });
+
+    it('rejects freelancer recommendation approval from a non-owner client', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({ status: RequestStatus.SPEC_APPROVED, brokerId: 'broker-1' }),
+      );
+
+      await expect(
+        service.approveFreelancerInvite('req-1', 'fp-approve', 'client-2'),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(freelancerProposalRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('rejects approving a freelancer recommendation from a non-pending status', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({ status: RequestStatus.SPEC_APPROVED, brokerId: 'broker-1' }),
+      );
+      freelancerProposalRepo.findOne.mockResolvedValue({
+        id: 'fp-approve',
+        requestId: 'req-1',
+        freelancerId: 'freelancer-1',
+        brokerId: 'broker-1',
+        status: 'INVITED',
+      });
+
+      await expect(
+        service.approveFreelancerInvite('req-1', 'fp-approve', 'client-1'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(freelancerProposalRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects a freelancer recommendation and notifies the broker', async () => {
+      const request = makeRequest({
+        status: RequestStatus.SPEC_APPROVED,
+        brokerId: 'broker-1',
+      });
+      const proposal = {
+        id: 'fp-reject',
+        requestId: 'req-1',
+        freelancerId: 'freelancer-1',
+        brokerId: 'broker-1',
+        status: 'PENDING_CLIENT_APPROVAL',
+      };
+
+      requestRepo.findOne.mockResolvedValue(request);
+      freelancerProposalRepo.findOne.mockResolvedValue(proposal);
+      freelancerProposalRepo.save.mockImplementation(async (value) => value);
+
+      const result = await service.rejectFreelancerInvite('req-1', 'fp-reject', 'client-1');
+
+      expect(freelancerProposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'fp-reject',
+          status: 'REJECTED',
+        }),
+      );
+      expect(notificationsService.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            userId: 'broker-1',
+            title: 'Client rejected your freelancer recommendation',
+          }),
+        ]),
+      );
+      expect(result).toEqual(expect.objectContaining({ status: 'REJECTED' }));
+    });
+
+    it('rejects freelancer recommendation rejection from a non-owner client', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({ status: RequestStatus.SPEC_APPROVED, brokerId: 'broker-1' }),
+      );
+
+      await expect(
+        service.rejectFreelancerInvite('req-1', 'fp-reject', 'client-2'),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(freelancerProposalRepo.findOne).not.toHaveBeenCalled();
+    });
+
+    it('does not let freelancers respond before the client approves the recommendation', async () => {
+      const request = makeRequest({
+        status: RequestStatus.SPEC_APPROVED,
+        brokerId: 'broker-1',
+      });
+
+      freelancerProposalRepo.findOne.mockResolvedValue({
+        id: 'fp-pending-review',
+        requestId: 'req-1',
+        freelancerId: 'freelancer-1',
+        status: 'PENDING_CLIENT_APPROVAL',
+        request,
+      });
+
+      await expect(
+        service.respondToInvitation(
+          'fp-pending-review',
+          'freelancer-1',
+          UserRole.FREELANCER,
+          'ACCEPTED',
+        ),
+      ).rejects.toThrow('Cannot respond to invitation with status: PENDING_CLIENT_APPROVAL');
+
+      expect(freelancerProposalRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('broker marketplace access', () => {
+    const brokerUser = { id: 'broker-1', role: UserRole.BROKER } as UserEntity;
+
+    it('shows marketplace detail to a broker but masks client contact and hides other broker applications', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          status: RequestStatus.PUBLIC_DRAFT,
+          client: {
+            id: 'client-1',
+            fullName: 'Client Owner',
+            email: 'client@example.com',
+            phoneNumber: '0123456789',
+          } as any,
+          brokerProposals: [
+            {
+              id: 'proposal-me',
+              brokerId: 'broker-1',
+              status: ProposalStatus.PENDING,
+              coverLetter: 'I can help.',
+              broker: {
+                id: 'broker-1',
+                fullName: 'Broker Me',
+                email: 'me@example.com',
+              },
+            },
+            {
+              id: 'proposal-other',
+              brokerId: 'broker-2',
+              status: ProposalStatus.PENDING,
+              coverLetter: 'Pick me instead.',
+              broker: {
+                id: 'broker-2',
+                fullName: 'Broker Other',
+                email: 'other@example.com',
+              },
+            },
+          ] as any,
+        }),
+      );
+
+      const result = await service.findOne('req-1', brokerUser);
+
+      expect(result.client?.email).toBe('********');
+      expect((result.client as any)?.phoneNumber).toBe('********');
+      expect(result.viewerPermissions?.canApplyAsBroker).toBe(true);
+      expect(result.viewerPermissions?.canViewSpecs).toBe(false);
+      expect(result.brokerApplicationSummary?.total).toBe(1);
+      expect(result.brokerApplicationSummary?.items).toEqual([
+        expect.objectContaining({ brokerId: 'broker-1' }),
+      ]);
+    });
+
+    it('blocks a broker from viewing a request assigned to another broker', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          status: RequestStatus.BROKER_ASSIGNED,
+          brokerId: 'broker-2',
+        }),
+      );
+
+      await expect(service.findOne('req-1', brokerUser)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('assignBroker', () => {
+    it('rejects broker self-assignment and requires client selection instead', async () => {
+      await expect(service.assignBroker('req-1', 'broker-1')).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 

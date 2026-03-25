@@ -5320,7 +5320,7 @@ export class HearingService implements OnModuleInit {
 
     for (const hearing of dueHearings) {
       const event = await this.calendarRepository.findOne({
-        where: { referenceType: 'DisputeHearing', referenceId: hearing.id },
+        where: { referenceType: 'DisputeHearing', referenceId: String(hearing.id) },
         select: ['id', 'status'],
       });
 
@@ -5381,7 +5381,7 @@ export class HearingService implements OnModuleInit {
       .innerJoin(
         CalendarEventEntity,
         'event',
-        "event.referenceType = 'DisputeHearing' AND event.referenceId = hearing.id",
+        "event.referenceType = 'DisputeHearing' AND event.referenceId = hearing.id::text",
       )
       .where('hearing.status = :hearingStatus', { hearingStatus: HearingStatus.SCHEDULED })
       .andWhere('event.status = :eventStatus', { eventStatus: EventStatus.PENDING_CONFIRMATION })
@@ -5402,7 +5402,7 @@ export class HearingService implements OnModuleInit {
       const event = await this.calendarRepository.findOne({
         where: {
           referenceType: 'DisputeHearing',
-          referenceId: hearing.id,
+          referenceId: String(hearing.id),
           status: EventStatus.PENDING_CONFIRMATION,
         },
         select: ['id', 'status', 'metadata'],

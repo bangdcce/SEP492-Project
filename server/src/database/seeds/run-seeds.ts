@@ -22,6 +22,14 @@ async function runSeeds() {
     await AppDataSource.query(wizardSql);
     console.log('✅ Wizard seeds completed');
 
+    const userSkillsSql = fs.readFileSync(join(__dirname, 'seed-user-skills.sql'), 'utf8');
+    await AppDataSource.query(userSkillsSql);
+    console.log('✅ User skills seeds completed');
+
+    const brokerSkillsSql = fs.readFileSync(join(__dirname, 'add-broker-skills.sql'), 'utf8');
+    await AppDataSource.query(brokerSkillsSql);
+    console.log('✅ Broker skills seeds completed');
+
     console.log('\n✅ All seeds completed successfully!');
   } catch (error) {
     console.error('❌ Seeding failed:', error);

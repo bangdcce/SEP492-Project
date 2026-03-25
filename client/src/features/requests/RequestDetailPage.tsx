@@ -37,7 +37,6 @@ import { UserRole } from "@/shared/types/user.types";
 import { CandidateProfileModal } from "./components/CandidateProfileModal";
 import { ScoreExplanationModal } from "./components/ScoreExplanationModal";
 import { RequestBrokerMarketPanel } from "./components/RequestBrokerMarketPanel";
-import { RequestFreelancerMarketPanel } from "./components/RequestFreelancerMarketPanel";
 import { RequestContractHandoffPanel } from "./components/RequestContractHandoffPanel";
 import type { ProjectSpec } from "@/features/project-specs/types";
 import { ProjectSpecStatus, SpecPhase } from "@/features/project-specs/types";
@@ -98,6 +97,7 @@ export default function RequestDetailPage() {
   // Hire Broker Warning State
   const [showHireBrokerWarning, setShowHireBrokerWarning] = useState(false);
   const [pendingHireBrokerId, setPendingHireBrokerId] = useState<string | null>(null);
+  const [reviewingFreelancerProposalId, setReviewingFreelancerProposalId] = useState<string | null>(null);
 
   // Invite Modal State
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
@@ -323,6 +323,34 @@ export default function RequestDetailPage() {
     setIsProfileModalOpen(true);
   };
 
+  const handleApproveFreelancerInvite = async (proposalId: string) => {
+    if (!id) return;
+    try {
+      setReviewingFreelancerProposalId(proposalId);
+      await wizardService.approveFreelancerInvite(id, proposalId);
+      toast.success("Freelancer recommendation approved");
+      void fetchData(id);
+    } catch (error) {
+      toast.error(getApiErrorDetails(error, "Failed to approve freelancer recommendation.").message);
+    } finally {
+      setReviewingFreelancerProposalId(null);
+    }
+  };
+
+  const handleRejectFreelancerInvite = async (proposalId: string) => {
+    if (!id) return;
+    try {
+      setReviewingFreelancerProposalId(proposalId);
+      await wizardService.rejectFreelancerInvite(id, proposalId);
+      toast.success("Freelancer recommendation rejected");
+      void fetchData(id);
+    } catch (error) {
+      toast.error(getApiErrorDetails(error, "Failed to reject freelancer recommendation.").message);
+    } finally {
+      setReviewingFreelancerProposalId(null);
+    }
+  };
+
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -350,6 +378,10 @@ export default function RequestDetailPage() {
     (proposal) => String(proposal?.status || '').toUpperCase() !== 'PENDING',
   );
   const brokerSlotSummary = request?.brokerApplicationSummary?.slots || null;
+  const pendingFreelancerRecommendations =
+    request?.freelancerSelectionSummary?.items?.filter(
+      (proposal) => String(proposal?.status || "").toUpperCase() === "PENDING_CLIENT_APPROVAL",
+    ) || [];
   const formatSpecStatus = (status: string) => status.replace(/_/g, " ");
   const getSpecStatusColor = (status: string) => {
     switch (status) {
@@ -371,6 +403,11 @@ export default function RequestDetailPage() {
   const fullSpecActionLabel =
     fullSpec?.status === ProjectSpecStatus.FINAL_REVIEW ? "Review & Sign Final Spec" : "View Final Spec";
   const canDeleteRequest = !request.brokerId && [
+    RequestStatus.DRAFT,
+    RequestStatus.PUBLIC_DRAFT,
+    RequestStatus.PRIVATE_DRAFT,
+  ].includes(request.status as any);
+  const canEditRequest = !request.brokerId && [
     RequestStatus.DRAFT,
     RequestStatus.PUBLIC_DRAFT,
     RequestStatus.PRIVATE_DRAFT,
@@ -550,6 +587,15 @@ export default function RequestDetailPage() {
         </div>
         
         <div className="flex gap-2">
+            {canEditRequest && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate(`/client/wizard?draftId=${request.id}`)}
+              >
+                <FileText className="w-4 h-4 mr-2" /> Edit Request
+              </Button>
+            )}
             {canDeleteRequest && (
               <Button
                 variant="destructive"
@@ -573,16 +619,6 @@ export default function RequestDetailPage() {
                 onClick={() => navigate(`/client/workspace/${linkedContract!.projectId}`)}
               >
                 Open Workspace
-              </Button>
-            )}
-            {!request.brokerId && (
-              <Button
-                variant="outline"
-                className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
-                onClick={handleDeleteRequest}
-                disabled={isDeleting}
-              >
-                {isDeleting ? "Deleting..." : "Delete Request"}
               </Button>
             )}
         </div>
@@ -745,22 +781,130 @@ export default function RequestDetailPage() {
 
             {/* PHASE 3: HIRE FREELANCER  EAI Matching Engine */}
             <TabsContent value="phase3">
-              <RequestFreelancerMarketPanel
-                currentPhase={currentPhase}
-                hasAcceptedFreelancer={hasAcceptedFreelancer}
-                selectedFreelancerProposal={selectedFreelancerProposal}
-                freelancerMatchesLoading={freelancerMatchesLoading}
-                freelancerMatches={freelancerMatches}
-                onPhaseAdvance={() => setActiveTab("phase4")}
-                onQuickMatch={() => id && fetchFreelancerMatches(id, false)}
-                onAiMatch={() => id && fetchFreelancerMatches(id, true)}
-                onOpenScoreExplanation={() => setIsScoreExplanationOpen(true)}
-                onSearchMarketplace={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}
-                onOpenProfile={handleOpenCandidateProfile}
-                onInviteFreelancer={(freelancerId, freelancerName) =>
-                  handleOpenInviteModal(freelancerId, freelancerName, "FREELANCER")
-                }
-              />
+              <Card>
+                <CardHeader>
+                  <h2 className="text-xl font-semibold">Freelancer Recommendations</h2>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {currentPhase < 3 ? (
+                    <div className="rounded-lg border-2 border-dashed bg-muted/20 py-12 text-center">
+                      <p className="text-muted-foreground">
+                        Client Spec approval unlocks broker-led freelancer recommendations.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-4">
+                        <h3 className="font-semibold text-indigo-900">Phase 3 Goal: Review broker recommendations</h3>
+                        <p className="mt-1 text-sm text-indigo-700">
+                          Your broker recommends freelancers first. Approving a recommendation sends the invite to that freelancer. Rejecting it keeps the request private until a better candidate is proposed.
+                        </p>
+                      </div>
+
+                      {hasAcceptedFreelancer && selectedFreelancerProposal ? (
+                        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <h4 className="font-semibold text-green-900">Freelancer selected</h4>
+                              <p className="text-sm text-green-700">
+                                {selectedFreelancerProposal.freelancer?.fullName || "A freelancer"} accepted the invite and is now the signer for final spec review.
+                              </p>
+                            </div>
+                            <Button size="sm" onClick={() => setActiveTab("phase4")}>
+                              Continue to Final Spec
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {pendingFreelancerRecommendations.length === 0 ? (
+                        <div className="rounded-lg border-2 border-dashed bg-muted/10 py-10 text-center">
+                          <p className="font-medium">No pending recommendations right now</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Your assigned broker will recommend freelancers here after reviewing matches.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">
+                              {pendingFreelancerRecommendations.length} recommendation{pendingFreelancerRecommendations.length > 1 ? "s" : ""} awaiting your decision
+                            </p>
+                            {request.viewerPermissions?.canApproveFreelancerInvite ? (
+                              <Badge variant="outline">Client approval required</Badge>
+                            ) : null}
+                          </div>
+
+                          {pendingFreelancerRecommendations.map((proposal) => {
+                            const freelancerName = proposal.freelancer?.fullName || "Unknown freelancer";
+                            const brokerName =
+                              proposal.broker?.fullName ||
+                              request.broker?.fullName ||
+                              "Assigned broker";
+                            const isReviewing = reviewingFreelancerProposalId === proposal.id;
+
+                            return (
+                              <div key={proposal.id} className="rounded-xl border bg-background p-4 shadow-sm">
+                                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                  <div className="space-y-3">
+                                    <div>
+                                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                                        <h4 className="text-lg font-semibold">{freelancerName}</h4>
+                                        <Badge variant="outline">
+                                          {String(proposal.status || "").replace(/_/g, " ")}
+                                        </Badge>
+                                      </div>
+                                      <p className="text-sm text-muted-foreground">
+                                        Recommended by {brokerName}
+                                      </p>
+                                    </div>
+
+                                    <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                                      <p>
+                                        Trust Score: {Number(proposal.freelancer?.currentTrustScore || 0).toFixed(1)}
+                                      </p>
+                                      <p>
+                                        Successful Projects: {proposal.freelancer?.totalProjectsFinished || 0}
+                                      </p>
+                                    </div>
+
+                                    {proposal.coverLetter ? (
+                                      <div className="rounded-lg border bg-muted/30 p-3">
+                                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                          Broker note
+                                        </p>
+                                        <p className="text-sm leading-relaxed text-foreground">
+                                          {proposal.coverLetter}
+                                        </p>
+                                      </div>
+                                    ) : null}
+                                  </div>
+
+                                  <div className="flex flex-col gap-2 md:w-44">
+                                    <Button
+                                      disabled={isReviewing}
+                                      onClick={() => handleApproveFreelancerInvite(proposal.id)}
+                                    >
+                                      {isReviewing ? "Updating..." : "Approve"}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      disabled={isReviewing}
+                                      onClick={() => handleRejectFreelancerInvite(proposal.id)}
+                                    >
+                                      Reject
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {/* PHASE 4: FINAL SPEC SIGN-OFF */}
@@ -901,7 +1045,7 @@ export default function RequestDetailPage() {
                                 <Users className="w-5 h-5 text-indigo-600" /> Project Team
                             </h2>
                             <Button variant="outline" size="sm" onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>
-                                <UserPlus className="w-4 h-4 mr-2" /> Add Member
+                                <UserPlus className="w-4 h-4 mr-2" /> Browse Freelancer Profiles
                             </Button>
                         </div>
                     </CardHeader>

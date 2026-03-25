@@ -292,14 +292,40 @@ export class ProjectRequestsController {
   }
 
   @Post(':id/invite/freelancer')
+  @Roles(UserRole.BROKER, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Invite a freelancer to a project request (Phase 3)' })
   @ApiResponse({ status: 201, description: 'Invitation sent' })
   async inviteFreelancer(
     @Param('id') id: string,
+    @GetUser() user: UserEntity,
     @Body('freelancerId') freelancerId: string,
     @Body('message') message?: string,
   ) {
-    return this.projectRequestsService.inviteFreelancer(id, freelancerId, message);
+    return this.projectRequestsService.inviteFreelancer(id, freelancerId, message, user);
+  }
+
+  @Post(':id/approve-freelancer-invite')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Client approves a broker freelancer recommendation' })
+  @ApiResponse({ status: 200, description: 'Freelancer recommendation approved' })
+  async approveFreelancerInvite(
+    @Param('id') id: string,
+    @GetUser('id') clientId: string,
+    @Body('proposalId') proposalId: string,
+  ) {
+    return this.projectRequestsService.approveFreelancerInvite(id, proposalId, clientId);
+  }
+
+  @Post(':id/reject-freelancer-invite')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Client rejects a broker freelancer recommendation' })
+  @ApiResponse({ status: 200, description: 'Freelancer recommendation rejected' })
+  async rejectFreelancerInvite(
+    @Param('id') id: string,
+    @GetUser('id') clientId: string,
+    @Body('proposalId') proposalId: string,
+  ) {
+    return this.projectRequestsService.rejectFreelancerInvite(id, proposalId, clientId);
   }
 
   @Post(':id/apply')

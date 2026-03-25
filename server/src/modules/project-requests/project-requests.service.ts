@@ -31,6 +31,7 @@ import { ContractsService } from '../contracts/contracts.service';
 const BROKER_APPLICATION_CAP = 10;
 const BROKER_APPLICATION_WINDOW_HOURS = 72;
 const ACTIVE_BROKER_APPLICATION_STATUSES = [ProposalStatus.PENDING, ProposalStatus.INVITED] as const;
+const FREELANCER_PENDING_CLIENT_APPROVAL = 'PENDING_CLIENT_APPROVAL' as const;
 
 type BrokerHistorySummary = {
   projectId: string;
@@ -326,6 +327,14 @@ export class ProjectRequestsService {
             ['INVITED', 'PENDING', 'ACCEPTED'].includes(String(proposal.status || '').toUpperCase()),
         ),
       );
+    const hasPendingFreelancerApprovals = Boolean(
+      request.proposals?.some(
+        (proposal) =>
+          String(proposal.status || '').toUpperCase() === FREELANCER_PENDING_CLIENT_APPROVAL,
+      ),
+    );
+    const phaseNumber = flowSnapshot?.phaseNumber ?? 0;
+    const isReadOnly = Boolean(flowSnapshot?.readOnly);
 
     return {
       canViewRequest: Boolean(user),
@@ -336,19 +345,27 @@ export class ProjectRequestsService {
       canReleaseBrokerSlot: (isClient || isInternal) && !request.brokerId && !flowSnapshot?.readOnly,
       canApplyAsBroker:
         role === UserRole.BROKER &&
+        request.status === RequestStatus.PUBLIC_DRAFT &&
         !request.brokerId &&
-        ![RequestStatus.CONVERTED_TO_PROJECT, RequestStatus.CONTRACT_PENDING].includes(request.status),
+        ![RequestStatus.CONVERTED_TO_PROJECT, RequestStatus.CONTRACT_PENDING].includes(
+          request.status,
+        ),
       canViewContract: Boolean(linkedContract),
       canOpenLinkedProject: Boolean(linkedProject),
       canInviteFreelancer:
         (isAssignedBroker || isInternal) &&
         Boolean(flowSnapshot?.clientSpecStatus === ProjectSpecStatus.CLIENT_APPROVED) &&
         !flowSnapshot?.freelancerSelected &&
-        !flowSnapshot?.readOnly,
+        !isReadOnly,
+      canApproveFreelancerInvite:
+        isClient &&
+        !isReadOnly &&
+        phaseNumber >= 3 &&
+        hasPendingFreelancerApprovals,
       canRespondAsFreelancer:
         isFreelancerViewer &&
-        !flowSnapshot?.readOnly &&
-        flowSnapshot?.phaseNumber >= 3,
+        !isReadOnly &&
+        phaseNumber >= 3,
       canInitializeContract:
         (isAssignedBroker || isInternal) &&
         flowSnapshot?.fullSpecStatus === ProjectSpecStatus.ALL_SIGNED &&
@@ -412,6 +429,8 @@ export class ProjectRequestsService {
   ) {
     const items = (request.proposals || []).map((proposal) => ({
       id: proposal.id,
+      freelancerId: proposal.freelancerId,
+      brokerId: proposal.brokerId ?? null,
       status: proposal.status,
       coverLetter: proposal.coverLetter ?? null,
       createdAt: proposal.createdAt ?? null,
@@ -433,6 +452,18 @@ export class ProjectRequestsService {
               })) ?? [],
           }
         : null,
+      broker: proposal.broker
+        ? {
+            id: proposal.broker.id,
+            fullName: proposal.broker.fullName,
+            email: proposal.broker.email,
+            handle: this.toUserHandle(proposal.broker),
+            currentTrustScore: proposal.broker.currentTrustScore ?? 0,
+            totalProjectsFinished: proposal.broker.totalProjectsFinished ?? 0,
+            totalDisputesLost: proposal.broker.totalDisputesLost ?? 0,
+            recentProjects: [],
+          }
+        : null,
     }));
 
     const selectedEntry =
@@ -443,6 +474,10 @@ export class ProjectRequestsService {
     return {
       total: items.length,
       invited: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'INVITED').length,
+      pendingClientApproval: items.filter(
+        (proposal) =>
+          String(proposal.status || '').toUpperCase() === FREELANCER_PENDING_CLIENT_APPROVAL,
+      ).length,
       pending: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'PENDING').length,
       accepted: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'ACCEPTED').length,
       rejected: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'REJECTED').length,
@@ -580,6 +615,7 @@ export class ProjectRequestsService {
 
     const brokerApplications = (request.brokerProposals || []).map((proposal) => ({
       id: proposal.id,
+      brokerId: proposal.brokerId,
       status: proposal.status,
       coverLetter: proposal.coverLetter ?? null,
       createdAt: proposal.createdAt ?? null,
@@ -604,11 +640,6 @@ export class ProjectRequestsService {
     }));
 
     const brokerApplicationSlots = await this.getBrokerApplicationCapSummary(request.id);
-    const brokerSelectionSummary = this.buildBrokerSelectionSummary({
-      request,
-      brokerApplications,
-      slots: brokerApplicationSlots,
-    });
     const freelancerSelectionSummary = this.buildFreelancerSelectionSummary(
       request,
       freelancerHistoryById,
@@ -642,6 +673,17 @@ export class ProjectRequestsService {
       linkedProject,
       linkedContract,
       flowSnapshot,
+    });
+    const isBrokerViewer = user?.role === UserRole.BROKER;
+    const isAssignedBrokerViewer = isBrokerViewer && request.brokerId === user?.id;
+    const visibleBrokerApplications =
+      isBrokerViewer && !isAssignedBrokerViewer
+        ? brokerApplications.filter((proposal) => proposal.brokerId === user?.id)
+        : brokerApplications;
+    const brokerSelectionSummary = this.buildBrokerSelectionSummary({
+      request,
+      brokerApplications: visibleBrokerApplications,
+      slots: brokerApplicationSlots,
     });
     const marketVisibility = this.buildMarketVisibility({
       request,
@@ -711,13 +753,21 @@ export class ProjectRequestsService {
           }
         : null,
       brokerApplicationSummary: {
-        total: brokerApplications.length,
-        invited: brokerApplications.filter((proposal) => proposal.status === ProposalStatus.INVITED).length,
-        pending: brokerApplications.filter((proposal) => proposal.status === ProposalStatus.PENDING).length,
-        accepted: brokerApplications.filter((proposal) => proposal.status === ProposalStatus.ACCEPTED).length,
-        rejected: brokerApplications.filter((proposal) => proposal.status === ProposalStatus.REJECTED).length,
+        total: visibleBrokerApplications.length,
+        invited: visibleBrokerApplications.filter(
+          (proposal) => proposal.status === ProposalStatus.INVITED,
+        ).length,
+        pending: visibleBrokerApplications.filter(
+          (proposal) => proposal.status === ProposalStatus.PENDING,
+        ).length,
+        accepted: visibleBrokerApplications.filter(
+          (proposal) => proposal.status === ProposalStatus.ACCEPTED,
+        ).length,
+        rejected: visibleBrokerApplications.filter(
+          (proposal) => proposal.status === ProposalStatus.REJECTED,
+        ).length,
         assignedBrokerId: request.brokerId ?? null,
-        items: brokerApplications,
+        items: visibleBrokerApplications,
         slots: brokerApplicationSlots,
       },
       flowSnapshot,
@@ -742,6 +792,7 @@ export class ProjectRequestsService {
         'brokerProposals',
         'brokerProposals.broker',
         'proposals',
+        'proposals.broker',
         'proposals.freelancer',
         'specs',
         'specs.milestones',
@@ -972,16 +1023,37 @@ export class ProjectRequestsService {
       }
 
       if (user.role === UserRole.BROKER) {
-        // If request is ASSIGNED to someone else, broker cannot view it
-        // Except maybe if they are an admin, but Role is BROKER so they are not admin
-        if (request.status === RequestStatus.PROCESSING && request.brokerId && request.brokerId !== user.id) {
-          throw new ForbiddenException('Forbidden: Request is assigned to another broker');
+        const isAssignedBroker = request.brokerId === user.id;
+        const hasActiveProposalAccess = Boolean(
+          request.brokerProposals?.some(
+            (proposal) =>
+              proposal.brokerId === user.id &&
+              [ProposalStatus.INVITED, ProposalStatus.PENDING, ProposalStatus.ACCEPTED].includes(
+                proposal.status as ProposalStatus,
+              ),
+          ),
+        );
+        const isOpenMarketplaceRequest =
+          !request.brokerId &&
+          [RequestStatus.PUBLIC_DRAFT, RequestStatus.PENDING].includes(request.status);
+        const isPrivateInviteRequest =
+          !request.brokerId &&
+          request.status === RequestStatus.PRIVATE_DRAFT &&
+          hasActiveProposalAccess;
+
+        if (!isAssignedBroker && !isOpenMarketplaceRequest && !isPrivateInviteRequest) {
+          throw new ForbiddenException(
+            'Forbidden: You can only view open marketplace requests, your invitations, or requests assigned to you',
+          );
         }
 
-        // If PENDING (unassigned), mask client data
-        if (request.status === RequestStatus.PENDING && request.client) {
+        // Marketplace viewers can review the request, but contact details stay hidden until assigned.
+        if (!isAssignedBroker && request.client) {
           request.client.email = '********';
-          request.client.phoneNumber = '********';
+          if ('phoneNumber' in request.client) {
+            (request.client as UserEntity & { phoneNumber?: string | null }).phoneNumber =
+              '********';
+          }
         }
       }
 
@@ -1086,8 +1158,33 @@ export class ProjectRequestsService {
     return savedProposal;
   }
 
-  async inviteFreelancer(requestId: string, freelancerId: string, message?: string) {
+  async inviteFreelancer(
+    requestId: string,
+    freelancerId: string,
+    message: string | undefined,
+    actor: Pick<UserEntity, 'id' | 'role'>,
+  ) {
     const request = await this.findOneEntity(requestId);
+    const isAssignedBroker = actor.role === UserRole.BROKER && request.brokerId === actor.id;
+    const isInternal = actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF;
+    if (!isAssignedBroker && !isInternal) {
+      throw new ForbiddenException(
+        'Only the assigned broker or internal staff can recommend freelancers.',
+      );
+    }
+
+    const specs = (request.specs || []) as Array<
+      Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
+    >;
+    const clientSpec = this.pickLatestSpecByPhase(specs, SpecPhase.CLIENT_SPEC);
+    const canRecommendFreelancer =
+      clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED &&
+      !this.resolveSelectedFreelancerProposal(request);
+    if (!canRecommendFreelancer) {
+      throw new BadRequestException(
+        'Freelancer recommendations are only available after the client approves the client spec.',
+      );
+    }
 
     const existing = await this.freelancerProposalRepo.findOne({
       where: { requestId, freelancerId },
@@ -1102,19 +1199,104 @@ export class ProjectRequestsService {
     const proposal = this.freelancerProposalRepo.create({
       requestId,
       freelancerId,
-      status: 'INVITED',
+      brokerId: request.brokerId ?? (isAssignedBroker ? actor.id : null),
+      status: FREELANCER_PENDING_CLIENT_APPROVAL,
       coverLetter: message,
     });
     const savedProposal = await this.freelancerProposalRepo.save(proposal);
     await this.notifyUsers([
       {
-        userId: freelancerId,
-        title: 'New freelancer invitation',
-        body: `You were invited to participate in "${request.title}".`,
+        userId: request.clientId,
+        title: 'Broker recommended a freelancer',
+        body: `A freelancer recommendation is pending your review for "${request.title}".`,
         relatedType: 'ProjectRequest',
         relatedId: requestId,
       },
     ]);
+    return savedProposal;
+  }
+
+  async approveFreelancerInvite(requestId: string, proposalId: string, clientId: string) {
+    const request = await this.findOneEntity(requestId);
+
+    if (request.clientId !== clientId) {
+      throw new ForbiddenException(
+        'Forbidden: You can only approve freelancer recommendations for your own requests',
+      );
+    }
+
+    const proposal = await this.freelancerProposalRepo.findOne({
+      where: { id: proposalId, requestId },
+      relations: ['freelancer'],
+    });
+    if (!proposal) {
+      throw new NotFoundException('Freelancer proposal not found.');
+    }
+
+    if (String(proposal.status || '').toUpperCase() !== FREELANCER_PENDING_CLIENT_APPROVAL) {
+      throw new BadRequestException(
+        `Proposal status ${proposal.status} cannot be approved by the client.`,
+      );
+    }
+
+    proposal.status = 'INVITED';
+    const savedProposal = await this.freelancerProposalRepo.save(proposal);
+
+    await this.notifyUsers([
+      {
+        userId: proposal.freelancerId,
+        title: 'You were invited to a project',
+        body: `You were invited to participate in "${request.title}".`,
+        relatedType: 'ProjectRequest',
+        relatedId: requestId,
+      },
+      {
+        userId: proposal.brokerId ?? request.brokerId,
+        title: 'Client approved your freelancer recommendation',
+        body: `Your freelancer recommendation was approved for "${request.title}".`,
+        relatedType: 'ProjectRequest',
+        relatedId: requestId,
+      },
+    ]);
+
+    return savedProposal;
+  }
+
+  async rejectFreelancerInvite(requestId: string, proposalId: string, clientId: string) {
+    const request = await this.findOneEntity(requestId);
+
+    if (request.clientId !== clientId) {
+      throw new ForbiddenException(
+        'Forbidden: You can only reject freelancer recommendations for your own requests',
+      );
+    }
+
+    const proposal = await this.freelancerProposalRepo.findOne({
+      where: { id: proposalId, requestId },
+    });
+    if (!proposal) {
+      throw new NotFoundException('Freelancer proposal not found.');
+    }
+
+    if (String(proposal.status || '').toUpperCase() !== FREELANCER_PENDING_CLIENT_APPROVAL) {
+      throw new BadRequestException(
+        `Proposal status ${proposal.status} cannot be rejected by the client.`,
+      );
+    }
+
+    proposal.status = 'REJECTED';
+    const savedProposal = await this.freelancerProposalRepo.save(proposal);
+
+    await this.notifyUsers([
+      {
+        userId: proposal.brokerId ?? request.brokerId,
+        title: 'Client rejected your freelancer recommendation',
+        body: `Your freelancer recommendation was rejected for "${request.title}".`,
+        relatedType: 'ProjectRequest',
+        relatedId: requestId,
+      },
+    ]);
+
     return savedProposal;
   }
 
@@ -1197,57 +1379,13 @@ export class ProjectRequestsService {
   // --- Broker Self-Assignment (C02) ---
 
   async assignBroker(requestId: string, brokerId: string, req?: RequestContext) {
-    const request = await this.findOneEntity(requestId);
+    void requestId;
+    void brokerId;
+    void req;
 
-    // Only allow assignment if request is PENDING (waiting for broker)
-    if (request.status !== RequestStatus.PENDING) {
-      throw new Error(
-        `Cannot assign broker. Request status is ${request.status}, expected PENDING`,
-      );
-    }
-
-    // Check if already has a broker
-    if (request.brokerId) {
-      throw new Error('Request already has a broker assigned');
-    }
-
-    // Assign broker and change status to PROCESSING
-    request.brokerId = brokerId;
-    request.status = RequestStatus.PROCESSING;
-
-    const savedRequest = await this.requestRepo.save(request);
-
-    // Audit Log
-    try {
-      await this.auditLogsService.logUpdate(
-        'ProjectRequest',
-        requestId,
-        { brokerId: null, status: RequestStatus.PENDING },
-        { brokerId, status: RequestStatus.PROCESSING },
-        req,
-      );
-    } catch (error) {
-      console.error('Audit log failed', error);
-    }
-
-    await this.notifyUsers([
-      {
-        userId: request.clientId,
-        title: 'Broker assigned',
-        body: `A broker is now assigned to "${request.title}". Specification work can begin.`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-      {
-        userId: brokerId,
-        title: 'You were assigned to a request',
-        body: `You are now the assigned broker for "${request.title}".`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-    ]);
-
-    return this.findOne(requestId);
+    throw new ForbiddenException(
+      'Brokers cannot assign marketplace requests to themselves. Apply to the request and wait for the client to select you.',
+    );
   }
 
   // --- Phase 2: Hire Broker ---
@@ -1658,27 +1796,45 @@ export class ProjectRequestsService {
         throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
       }
 
-      proposal.status = status === 'ACCEPTED' ? ProposalStatus.ACCEPTED : ProposalStatus.REJECTED;
-
-      // If ACCEPTED, logic might differ (e.g. they join discussion vs becomes the sole broker).
-      // For now, if they ACCEPT an invite, they become a CANDIDATE (PENDING) or if the invite was explicit, maybe they just join?
-      // Usually "Invite" means "Please Apply". If they accept, they become PENDING application?
-      // OR if it's a direct private invite, maybe they become ACCEPTED immediately if the client pre-approved?
-      // Let's assume: Client Invited -> Broker Accepts -> Broker becomes "PENDING" (Applied) or "ACCEPTED" (Hired).
-      // For safety, let's say they become PENDING (Applied) so Client can confirm?
-      // OR if it was "Private Invite", maybe the Client already wants them.
-      // Let's stick to: Invite -> Accept = PROPOSAL SUBMITTED (PENDING).
-      // Wait, if it's "Private Project", the Client picked them. So Accept = Hired?
-      // Let's go with: Accept = PENDING (Candidate). Client must finalizing "Hiring".
-
-      // actually, if status is ACCEPTED here, we map it to ProposalStatus.PENDING?
-      // "Accepting an invitation" usually means "I am interested, here is my bid" or just "I join".
-      // Let's map "ACCEPTED" response to ProposalStatus.PENDING (Applied).
       if (status === 'ACCEPTED') {
-        // Keep as ACCEPTED to indicate "Ready to Hire"
+        const request = proposal.request;
+        if (!request) {
+          throw new Error('Request not found for this invitation');
+        }
+
+        if (request.brokerId && request.brokerId !== userId) {
+          throw new BadRequestException('Another broker has already been assigned to this request.');
+        }
+
         proposal.status = ProposalStatus.ACCEPTED;
+        request.brokerId = userId;
+
+        if (
+          request.status === RequestStatus.PUBLIC_DRAFT ||
+          request.status === RequestStatus.PRIVATE_DRAFT ||
+          request.status === RequestStatus.PENDING_SPECS
+        ) {
+          request.status = RequestStatus.BROKER_ASSIGNED;
+        }
+
+        await this.requestRepo.save(request);
+
+        const competingProposals = await this.brokerProposalRepo.find({
+          where: {
+            requestId: proposal.requestId,
+            status: In([ProposalStatus.INVITED, ProposalStatus.PENDING, ProposalStatus.ACCEPTED]),
+          },
+        });
+
+        for (const competingProposal of competingProposals) {
+          if (competingProposal.id === proposal.id) {
+            continue;
+          }
+          competingProposal.status = ProposalStatus.REJECTED;
+          await this.brokerProposalRepo.save(competingProposal);
+        }
       } else {
-        proposal.status = ProposalStatus.REJECTED; // Declined the invite
+        proposal.status = ProposalStatus.REJECTED;
       }
 
       const savedProposal = await this.brokerProposalRepo.save(proposal);

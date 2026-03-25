@@ -18,12 +18,6 @@ export const projectRequestsApi = {
     return apiClient.get<FreelancerRequestAccessItem[]>('/project-requests/freelancer/requests/my');
   },
 
-  assignBroker: (id: string) => {
-    return apiClient.patch<ProjectRequest>(
-      `/project-requests/${id}/assign`
-    );
-  },
-
   applyToRequest: (id: string, coverLetter: string) => {
     return apiClient.post(
       `/project-requests/${id}/apply`,

@@ -89,10 +89,12 @@ export interface BrokerApplicationItem {
 export interface FreelancerProposalItem {
   id: string;
   freelancerId?: string;
+  brokerId?: string | null;
   status: string;
   coverLetter?: string | null;
   createdAt?: string | null;
   freelancer?: RequestPartySummary | null;
+  broker?: RequestPartySummary | null;
 }
 
 export interface RequestFlowSnapshot {
@@ -194,6 +196,7 @@ export interface ProjectRequest {
   freelancerSelectionSummary?: {
     total: number;
     invited: number;
+    pendingClientApproval?: number;
     pending: number;
     accepted: number;
     rejected: number;
@@ -247,6 +250,7 @@ export interface ProjectRequest {
     canViewContract: boolean;
     canOpenLinkedProject: boolean;
     canInviteFreelancer?: boolean;
+    canApproveFreelancerInvite?: boolean;
     canRespondAsFreelancer?: boolean;
     canInitializeContract?: boolean;
   };
