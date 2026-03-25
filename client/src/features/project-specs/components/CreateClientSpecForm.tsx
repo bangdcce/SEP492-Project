@@ -203,7 +203,9 @@ export function CreateClientSpecForm({
       <Card>
         <CardHeader>
           <CardTitle>Template Starter</CardTitle>
-          <CardDescription>Choose one of 3 starter templates to pre-fill common requirements.</CardDescription>
+          <CardDescription>
+            Choose one of {CLIENT_SPEC_TEMPLATES.length} starter templates to pre-fill common requirements.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <Select
