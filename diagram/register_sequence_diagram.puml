@@ -1,0 +1,207 @@
+@startuml Register_Sequence_Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor Black
+skinparam shadowing false
+
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #DDDDDD
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+    ActorBackgroundColor White
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+    GroupHeaderBackgroundColor White
+    GroupBodyBackgroundColor White
+    GroupBorderColor Black
+}
+
+title User Registration Sequence Diagram
+
+actor "User" as Actor
+boundary "SignUpPage" as Page
+participant "AuthController" as Controller
+participant "AuthService" as Service
+participant "CaptchaService" as Captcha
+participant "EmailVerificationService" as EmailVerify
+participant "EmailService" as EmailSvc
+participant "AuditLogsService" as AuditLogs
+database "Database" as DB
+
+Actor -> Page : 1. Access Sign Up Page
+activate Actor
+activate Page
+
+Page -> Page : 2. Render registration form
+activate Page
+deactivate Page
+
+Page --> Actor : 3. Display form (role, email, password, name, phone, legal consent)
+
+Actor -> Page : 4. Select role (CLIENT/BROKER/FREELANCER)
+Page -> Page : 5. Conditionally show skill/domain fields
+activate Page
+deactivate Page
+
+alt [Role = BROKER or FREELANCER]
+    Page --> Actor : 6. Display domain & skill selection
+    Actor -> Page : 7. Select domains and skills
+end
+
+Actor -> Page : 8. Fill form and accept terms
+Actor -> Page : 9. Complete CAPTCHA
+Actor -> Page : 10. Click "Sign Up"
+
+Page -> Page : 11. Validate email, password, and phone number\nConfirm required consents are checked
+activate Page
+deactivate Page
+
+alt [Form Invalid]
+    Page --> Actor : 12. Show validation errors
+else [Form Valid]
+
+    Page -> Page : 13. Show loading indicator
+    activate Page
+    deactivate Page
+
+    Page -> Controller : 14. Send sign-up request
+    activate Controller
+
+    Controller -> Controller : 15. Collect request metadata (IP, device)
+    activate Controller
+    deactivate Controller
+
+    Controller -> Controller : 16. Validate request data
+    activate Controller
+    deactivate Controller
+
+    alt [Invalid Input]
+        Controller --> Page : 17. Return validation error
+        Page --> Actor : 18. Show error message
+    else [Input Valid]
+
+        Controller -> Captcha : 19. Verify CAPTCHA
+        activate Captcha
+        Captcha --> Controller : 20. Return verification result
+        deactivate Captcha
+
+        alt [CAPTCHA Failed]
+            Controller --> Page : 21. Return CAPTCHA error
+            Page --> Actor : 22. Show "Invalid CAPTCHA"
+        else [CAPTCHA Passed]
+
+            Controller -> Service : 23. Create a new account
+            activate Service
+
+            Service -> DB : 24. Check whether the email is already used
+            activate DB
+            DB --> Service : 25. Return existing user or null
+            deactivate DB
+
+            alt [Email Already Exists]
+                Service --> Controller : 26. Throw ConflictException
+                Controller --> Page : 27. Return conflict error
+                Page --> Actor : 28. Show "Email already in use"
+            else [Email Available]
+
+                Service -> Service : 29. Confirm Terms and Privacy are accepted
+                activate Service
+                deactivate Service
+
+                alt [Legal Consent Not Accepted]
+                    Service --> Controller : 30. Throw ConflictException
+                    Controller --> Page : 31. Return consent error
+                    Page --> Actor : 32. Show "Must accept Terms and Privacy"
+                else [Legal Consent Accepted]
+
+                    Service -> Service : 33. Hash the password
+                    activate Service
+                    Service --> Service : 34. Generate password hash
+                    deactivate Service
+
+                    Service -> DB : 35. Create the user account
+                    activate DB
+                    Service -> DB : 36. Save the user account
+                    DB --> Service : 37. Return created user
+                    deactivate DB
+
+                    alt [Role = BROKER or FREELANCER]
+                        Service -> DB : 38. Save selected skills
+                        activate DB
+                        DB --> Service : 39. Return saved skills
+                        deactivate DB
+                    end
+
+                    Service -> DB : 40. Create a profile
+                    activate DB
+                    Service -> DB : 41. Save the profile
+                    DB --> Service : 42. Return created profile
+                    deactivate DB
+
+                    Service -> DB : 43. Create a wallet
+                    activate DB
+                    Service -> DB : 44. Save the wallet
+                    DB --> Service : 45. Return created wallet
+                    deactivate DB
+
+                    Service -> EmailVerify : 46. Send verification email
+                    activate EmailVerify
+                    EmailVerify -> EmailVerify : 47. Generate verification token
+                    activate EmailVerify
+                    deactivate EmailVerify
+                    EmailVerify -> EmailSvc : 48. Send the email
+                    activate EmailSvc
+                    EmailSvc --> EmailVerify : 49. Return email sent confirmation
+                    deactivate EmailSvc
+                    EmailVerify --> Service : 50. Return verification sent
+                    deactivate EmailVerify
+
+                    Service -> AuditLogs : 51. Record registration activity
+                    activate AuditLogs
+                    AuditLogs -> DB : 52. Save audit log entry
+                    activate DB
+                    DB --> AuditLogs : 53. Return audit log entry
+                    deactivate DB
+                    AuditLogs --> Service : 54. Return log confirmation
+                    deactivate AuditLogs
+
+                    Service -> Service : 55. Prepare response data
+                    activate Service
+                    Service --> Service : 56. Build user summary
+                    deactivate Service
+
+                    Service --> Controller : 57. Return registration response
+                    deactivate Service
+
+                    Controller --> Page : 58. Return success with user data
+                    deactivate Controller
+
+                    Page -> Page : 59. Hide loading and show success message
+                    activate Page
+                    deactivate Page
+
+                    Page --> Actor : 60. Show success message\n"Check your email for verification"
+
+                    Page -> Page : 61. Redirect to email verification page
+                    activate Page
+                    deactivate Page
+
+                    Page --> Actor : 62. Navigate to email verification
+
+                end
+            end
+        end
+    end
+end
+
+deactivate Page
+deactivate Actor
+
+@enduml

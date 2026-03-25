@@ -1,0 +1,80 @@
+@startuml View_List_User_Account_Class_Diagram
+title View List User Accounts - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class ApiClient {
+    + get(url: string): Promise<any>
+}
+
+class AdminUsersPage {
+    - loading: boolean
+    - page: number
+    - totalPages: number
+    - filters: any
+
+    + fetchUsers(): Promise<void>
+    + setFilters(filters: any): void
+}
+
+class JwtAuthGuard {
+    + canActivate(context: any): boolean
+}
+
+class RolesGuard {
+    + canActivate(context: any): boolean
+}
+
+class UsersController {
+    - usersService: UsersService
+    + getUsers(filters: any): any
+}
+
+class UsersService {
+    - userRepo: Repository
+    + getUsers(filters: any): any
+}
+
+class Repository {
+    + createQueryBuilder(alias: string): any
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    + isBanned: boolean
+    + createdAt: Date
+}
+
+enum UserRole {
+    ADMIN
+    STAFF
+    BROKER
+    CLIENT
+    FREELANCER
+}
+
+AdminUsersPage ..> ApiClient
+ApiClient ..> UsersController
+UsersController ..> JwtAuthGuard
+UsersController ..> RolesGuard
+UsersController --> UsersService
+UsersService --> Repository
+UsersService ..> UserEntity
+UserEntity -- UserRole
+
+@enduml

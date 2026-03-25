@@ -185,7 +185,7 @@ function App() {
     const bootstrap = async () => {
       try {
         const { isAuthenticated } = await apiClient.bootstrapSession();
-        
+
         // Only start proactive refresh if authenticated and session is stable
         // Wait a bit to ensure cookies are fully set after login
         if (isAuthenticated) {
@@ -593,27 +593,27 @@ function App() {
             </RoleGuard>
           }
         />
-       <Route
-  path="/admin/wizard-questions"
-  element={
-    <RoleGuard allowedRoles={["ADMIN"]}>
-      <AdminDashboardLayout>
-        <AdminWizardQuestionsPage />
-      </AdminDashboardLayout>
-    </RoleGuard>
-  }
-/>
+        <Route
+          path="/admin/wizard-questions"
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminWizardQuestionsPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
 
-<Route
-  path="/admin/leave"
-  element={
-    <RoleGuard allowedRoles={["ADMIN"]}>
-      <AdminDashboardLayout>
-        <AdminLeaveManagementPage />
-      </AdminDashboardLayout>
-    </RoleGuard>
-  }
-/>
+        <Route
+          path="/admin/leave"
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminLeaveManagementPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
         <Route
           path="/admin/specs"
           element={
@@ -730,19 +730,19 @@ function App() {
           path="/broker/invitations"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
-               <BrokerDashboardLayout>
-                  <MyInvitationsPage />
-               </BrokerDashboardLayout>
+              <BrokerDashboardLayout>
+                <MyInvitationsPage />
+              </BrokerDashboardLayout>
             </RoleGuard>
           }
         />
-         <Route
+        <Route
           path="/broker/invitations/:id"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
-               <BrokerDashboardLayout>
-                  <InvitationDetailsPage />
-               </BrokerDashboardLayout>
+              <BrokerDashboardLayout>
+                <InvitationDetailsPage />
+              </BrokerDashboardLayout>
             </RoleGuard>
           }
         />

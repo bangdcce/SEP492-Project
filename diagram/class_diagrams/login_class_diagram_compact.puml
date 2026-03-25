@@ -1,0 +1,238 @@
+@startuml Login_Class_Diagram
+title User Login - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+' ======================
+' Client-side
+' ======================
+class SignInPage {
+    - formData: { email: string; password: string; rememberMe: boolean }
+    - errors: Record<string, string>
+    - showPassword: boolean
+    - loading: boolean
+    - navigate: any
+    --
+    + validateEmail(email: string): boolean
+    + handleSubmit(e: any): Promise<void>
+    + handleChange(field: string, value: string | boolean): void
+}
+
+class AuthApi {
+    --
+    + signIn(data: SignInRequest): Promise<{ message: string; data: SecureLoginResponseDto }>
+}
+
+class SignInRequest {
+    + email: string
+    + password: string
+    --
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - lastLoginTime: number
+    --
+    - isPublicAuthEndpoint(url?: string): boolean
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    - setupInterceptors()
+    - isRefreshEndpoint(url?: string): boolean
+    - refreshAccessTokenSingleFlight(): Promise<void>
+    - getAuthErrorCode(error: unknown): string | null
+    - shouldAttemptSessionReconcile(error: unknown): boolean
+    - reconcileSessionSingleFlight(): Promise<void>
+    - handleAuthFailure(suppressRedirect: boolean = false)
+    + bootstrapSession(): Promise<
+    ...
+}
+
+' ======================
+' Server-side
+' ======================
+class AuthController {
+    - cookiePolicy: AuthCookiePolicy
+    - authService: AuthService
+    --
+    + login(loginDto: LoginDto, req: Request, response: Response): Promise<{ message: string; data: SecureLoginResponseDto }>
+    + verifyEmail(@Query('token')
+    + resendVerification(@Body('email')
+    + getProfile(@Req()
+    + getSession(@Req()
+    + forgotPassword(@Body(ValidationPipe)
+    + verifyOtp(@Body(ValidationPipe)
+    + resetPassword(@Body(ValidationPipe)
+    + checkObligations(@Req()
+    + googleAuth(@Req()
+}
+
+class AuthCookiePolicy {
+    + accessToken: CookieOptions
+    + refreshToken: CookieOptions
+    + clear: CookieOptions
+    --
+}
+
+class LoginDto {
+    + email: string
+    + password: string
+    --
+}
+
+class SecureLoginResponseDto {
+    + user: AuthResponseDto
+    + accessToken: string
+    --
+}
+
+class AuthResponseDto {
+    + id: string
+    + email: string
+    + role: string
+    + fullName: string
+    + phoneNumber: string | null
+    + timeZone: string
+    + isVerified: boolean
+    + isEmailVerified: boolean
+    + currentTrustScore: number
+    + badge: BadgeType
+    ...
+    --
+}
+
+class AuthService {
+    - userRepository: Repository
+    - authSessionRepository: Repository
+    - jwtService: JwtService
+    - auditLogsService: AuditLogsService
+    --
+    + login(loginDto: LoginDto, userAgent?: string, ipAddress?: string): Promise<LoginResponseDto>
+    - createAuthSession(userId: string, refreshToken: string, userAgent?: string, ipAddress?: string): Promise<void>
+    - cleanupExpiredSessions(userId: string): Promise<void>
+    - mapToAuthResponse(user: UserEntity): AuthResponseDto
+    + logout(userId: string, refreshToken?: string): Promise<LogoutResponseDto>
+    + validateUser(userId: string): Promise<UserEntity | null>
+    + refreshToken(oldRefreshToken: string): Promise<
+    + forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto>
+    + verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<VerifyOtpResponseDto>
+    + resetPassword(resetPasswordDto: ResetPasswordDto): Promise<ResetPasswordResponseDto>
+}
+
+class LoginResponseDto {
+    + user: AuthResponseDto
+    + accessToken: string
+    + refreshToken: string
+    --
+}
+
+class JwtService {
+    --
+    + sign(payload: JwtPayload): string
+}
+
+class JwtPayload {
+    + sub: string
+    + email: string
+    + role: string
+    --
+}
+
+class AuditLogsService {
+    --
+    + logLogin(actorId: string, metadata: Record<string, unknown>, req?: any): Promise<any>
+    + logView(entityType: string, entityId: string, req?: RequestContext, actorId?: string)
+    + logRegistration(actorId: string, metadata: Record<string, unknown>)
+    + logLogout(actorId: string, req?: RequestContext)
+    + log(payload: AuditLogPayload)
+    + findAll(queryDto: GetAuditLogsDto)
+    - determineRiskLevel(action: string): RiskLevel
+    - extractActorId(req?: RequestContext): string
+    - extractIp(req?: RequestContext): string
+    - isSuspiciousUserAgent(ua: string): boolean
+    ...
+}
+
+class Repository {
+    --
+    + findOne(options: any): Promise<any>
+    + find(options: any): Promise<any[]>
+    + create(data: any): any
+    + save(entity: any): Promise<any>
+    + update(criteria: any, partial: any): Promise<any>
+    + delete(criteria: any): Promise<any>
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + passwordHash: string
+    + role: UserRole
+    + emailVerifiedAt: Date
+    + profile: any
+    + fullName: string
+    + phoneNumber: string
+    + timeZone: string
+    + isVerified: boolean
+    ...
+    --
+    + badge(): BadgeType
+    + warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE'
+}
+
+enum UserRole {
+    ADMIN
+    STAFF
+    BROKER
+    CLIENT
+    FREELANCER
+}
+
+class AuthSessionEntity {
+    + id: string
+    + userId: string
+    + refreshTokenHash: string
+    + userAgent: string
+    + ipAddress: string
+    + expiresAt: Date
+    + isRevoked: boolean
+    + revokedAt: Date
+    + lastUsedAt: Date
+    + refreshTokenFingerprint: string
+    ...
+    --
+}
+
+' ======================
+' Relationships
+' ======================
+SignInPage ..> AuthApi : dependency
+AuthApi ..> ApiClient : dependency
+ApiClient ..> AuthController : dependency
+
+AuthController --> AuthService
+AuthController ..> LoginDto
+AuthController ..> SecureLoginResponseDto
+AuthController ..> AuthCookiePolicy
+
+AuthService --> Repository
+AuthService --> JwtService
+AuthService --> AuditLogsService
+AuthService ..> LoginDto
+AuthService ..> LoginResponseDto
+AuthService ..> UserEntity
+AuthService ..> AuthSessionEntity
+AuthService ..> JwtPayload
+
+UserEntity -- UserRole
+@enduml

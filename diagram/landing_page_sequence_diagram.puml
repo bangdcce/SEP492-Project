@@ -1,0 +1,94 @@
+@startuml Landing_Page_Sequence_Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor Black
+skinparam shadowing false
+
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    LifeLineBackgroundColor White
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #DDDDDD
+    ParticipantFontColor Black
+    ActorBorderColor Black
+    ActorBackgroundColor White
+    ActorFontColor Black
+    GroupHeaderFontColor Black
+    GroupHeaderBackgroundColor White
+    GroupBodyBackgroundColor White
+    GroupBorderColor Black
+}
+
+title View Public Landing Page Sequence Diagram
+
+actor "Visitor" as Actor
+boundary "LandingPage" as Page
+participant "ReactRouter" as Router
+
+Actor -> Router : 1. Visit landing page
+activate Actor
+
+Router -> Page : 2. Open Landing Page UI
+activate Page
+
+Page -> Page : 3. Render navigation bar
+activate Page
+deactivate Page
+
+Page -> Page : 4. Render hero section and primary actions
+activate Page
+deactivate Page
+
+Page -> Page : 5. Render features section
+activate Page
+deactivate Page
+
+Page -> Page : 6. Render role-based section
+activate Page
+deactivate Page
+
+Page -> Page : 7. Render "How it works" section
+activate Page
+deactivate Page
+
+Page -> Page : 8. Render footer
+activate Page
+deactivate Page
+
+Page --> Actor : 9. Landing page is fully displayed
+
+== User Interaction ==
+
+alt [Click "Sign Up" / "Get Started"]
+    Actor -> Page : 10. Click "Get Started"
+    Page -> Page : 11. Prepare to navigate to Sign Up
+    activate Page
+    deactivate Page
+    Page -> Router : 12. Navigate to Sign Up page
+    Router --> Actor : 13. Sign Up page opens
+else [Click "Sign In"]
+    Actor -> Page : 14. Click "Sign In"
+    Page -> Page : 15. Prepare to navigate to Sign In
+    activate Page
+    deactivate Page
+    Page -> Router : 16. Navigate to Sign In page
+    Router --> Actor : 17. Sign In page opens
+else [Browse Features]
+    Actor -> Page : 18. Scroll the page
+    Page -> Page : 19. Show content sections
+    activate Page
+    deactivate Page
+    Page --> Actor : 20. Content is displayed
+else [Click Navigation Link]
+    Actor -> Page : 21. Click a navigation link
+    Page -> Page : 22. Scroll to the target section
+    activate Page
+    deactivate Page
+    Page --> Actor : 23. Target section is shown
+end
+
+deactivate Page
+deactivate Actor
+
+@enduml

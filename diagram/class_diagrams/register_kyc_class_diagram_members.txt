@@ -1,0 +1,324 @@
+REGISTER KYC CLASS DIAGRAM — MEMBERS TEXT (for Draw.io copy/paste)
+
+KYCFormData
++ fullName: string
++ dateOfBirth: string
++ idNumber: string
++ address: string
++ idCardFront: File | null
++ idCardBack: File | null
++ selfiePhoto: File | null
+
+KYCPreviewState
++ idCardFront: string
++ idCardBack: string
++ selfiePhoto: string
+
+KYCPage
+- navigate: any
+
+- currentStep: number
+- setCurrentStep: any
+- submissionStatus: 'idle' | 'processing' | 'approved' | 'rejected'
+- setSubmissionStatus: any
+- rejectionReason: string
+- setRejectionReason: any
+- formData: KYCFormData
+- setFormData: any
+- previews: KYCPreviewState
+- setPreviews: any
+- errors: Record<string, string>
+- setErrors: any
+- loading: boolean
+- setLoading: any
+- baseUrl: string
+
+- steps: { number: number; title: string; icon: any }[]
+
++ handleFileChange(field: 'idCardFront' | 'idCardBack' | 'selfiePhoto', file: File | null): void
++ handleDragOver(e: any): void
++ handleDrop(e: any, field: 'idCardFront' | 'idCardBack' | 'selfiePhoto'): void
++ validateStep1(): boolean
++ validateStep2(): boolean
++ validateStep3(): boolean
++ handleNext(): void
++ handleBack(): void
++ handleSubmit(): Promise<void>
++ checkKycStatus(): Promise<void>
++ handleBackToDashboard(): void
++ handleRetry(): void
++ renderUploadBox(field: 'idCardFront' | 'idCardBack' | 'selfiePhoto', label: string, icon: any): any
+
+StorageUtil
++ getStoredItem(key: string): string | null
++ setStoredItem(key: string, value: string, remember: boolean): void
++ setStoredItemAuto(key: string, value: string): void
++ removeStoredItem(key: string): void
++ getStoredJson<T>(key: string): T | null
++ setStoredJson(key: string, value: any, remember: boolean): void
++ setStoredJsonAuto(key: string, value: any): void
+
+SubmitKycDto
++ fullNameOnDocument: string
++ documentNumber: string
++ documentType: DocumentType
++ dateOfBirth: string
++ documentExpiryDate?: string
++ address?: string
+
+RejectKycDto
++ rejectionReason: string
+
+JwtAuthGuard
++ canActivate(context: any): boolean | Promise<boolean> | any
+
+RolesGuard
+- reflector: any
++ canActivate(context: any): boolean | Promise<boolean>
+
+KycMultipartFiles
++ idCardFront?: MulterFile[]
++ idCardBack?: MulterFile[]
++ selfie?: MulterFile[]
+
+KycFiles
++ idCardFront: MulterFile
++ idCardBack: MulterFile
++ selfie: MulterFile
+
+MulterFile
++ fieldname: string
++ originalname: string
++ encoding: string
++ mimetype: string
++ size: number
++ destination: string
++ filename: string
++ path: string
++ buffer: Buffer
+
+KycController
+- kycService: KycService
+
++ KycController(kycService: KycService)
++ submitKyc(userId: string, dto: SubmitKycDto, files: KycMultipartFiles): Promise<any>
++ getMyKyc(userId: string): Promise<any>
++ getAllKyc(status?: string, page?: number, limit?: number): Promise<any>
++ getKycById(id: string): Promise<any>
++ getKycByIdWithWatermark(id: string, user: any, req: any, reason?: string, reasonDetails?: string): Promise<any>
++ approveKyc(id: string, adminId: string): Promise<any>
++ rejectKyc(id: string, dto: RejectKycDto, adminId: string): Promise<any>
+
+FptAiVerificationResult
++ success: boolean
++ confidence: number
++ decision: 'AUTO_APPROVED' | 'PENDING_REVIEW' | 'AUTO_REJECTED'
++ extractedData?: { fullName?: string; idNumber?: string; dateOfBirth?: string; address?: string; issueDate?: string; expiryDate?: string }
++ faceMatch?: { matched: boolean; similarity: number }
++ issues?: string[]
++ rawResponse?: any
+
+FptAiService
+- logger: any
+- apiUrl: string
+- apiKey: string
+
++ verifyKyc(idCardFront: Buffer, idCardBack: Buffer, selfie: Buffer): Promise<FptAiVerificationResult>
+
+- ocrIdCard(imageBuffer: Buffer, side: 'front' | 'back'): Promise<any>
+- compareFaces(selfie: Buffer, idCardFront: Buffer): Promise<any>
+- calculateConfidenceOcrOnly(frontOcr: any, backOcr: any): number
+- calculateConfidence(frontOcr: any, backOcr: any, faceMatch: any): number
+- makeDecision(confidence: number): 'AUTO_APPROVED' | 'PENDING_REVIEW' | 'AUTO_REJECTED'
+- extractData(frontOcr: any, backOcr: any): any
+- detectIssuesOcrOnly(frontOcr: any, backOcr: any): string[]
+- normalizeOcrData(ocr: any): Record<string, any>
+- mapKeyValueArray(items: any[]): Record<string, any>
+- normalizeKey(value: string): string
+- getOcrField(data: any, keys: string[]): string | undefined
+- getOcrConfidence(data: any): number | null
+- estimateConfidence(frontData: any, backData: any): number
+- detectIssues(frontOcr: any, backOcr: any, faceMatch: any): string[]
+- mockVerification(): FptAiVerificationResult
+WatermarkOptions
++ reviewerEmail: string
++ reviewerRole: 'ADMIN' | 'STAFF'
++ ipAddress: string
++ sessionId: string
++ timestamp: Date
++ kycId: string
+
+SupabaseStorageUtil
++ uploadEncryptedFile(fileBuffer: Buffer, userId: string, fileType: string, mimeType: string): Promise<string>
++ downloadEncryptedFile(storagePath: string): Promise<Buffer>
++ downloadWithWatermark(storagePath: string, watermarkOptions: WatermarkOptions): Promise<Buffer>
++ getSignedUrl(storagePath: string, expiresIn?: number): Promise<string>
++ deleteFile(storagePath: string): Promise<void>
++ listUserFiles(userId: string): Promise<string[]>
+
+EncryptionUtil
+- ALGORITHM: string
+- IV_LENGTH: number
+- AUTH_TAG_LENGTH: number
+- SALT_LENGTH: number
+- getEncryptionKey(): Buffer
+
++ encryptFile(buffer: Buffer): Buffer
++ decryptFile(encryptedBuffer: Buffer): Buffer
++ generateEncryptionKey(): string
++ hashDocumentNumber(documentNumber: string): string
+
+DataValidationResult
++ matchScore: number
++ criticalMismatch: boolean
++ issues: string[]
+
+KycService
+- kycRepo: Repository
+- userRepo: Repository
+- auditLogRepo: Repository
+- fptAiService: FptAiService
+
++ KycService(kycRepo: Repository, userRepo: Repository, auditLogRepo: Repository, fptAiService: FptAiService)
++ submitKyc(userId: string, dto: SubmitKycDto, files: KycFiles): Promise<any>
++ getMyKyc(userId: string): Promise<any>
++ getAllKyc(status?: KycStatus, page?: number, limit?: number): Promise<any>
++ getKycByIdWithWatermark(id: string, reviewerId: string, reviewerEmail: string, reviewerRole: 'ADMIN' | 'STAFF', ipAddress: string, sessionId: string, userAgent: string, reason?: string, reasonDetails?: string): Promise<any>
++ getKycById(id: string): Promise<any>
++ approveKyc(id: string, adminId: string): Promise<any>
++ rejectKyc(id: string, adminId: string, dto: RejectKycDto): Promise<any>
++ hasVerifiedKyc(userId: string): Promise<boolean>
+
+- normalizeString(str: string | undefined | null): string
+- levenshteinDistance(str1: string, str2: string): number
+- calculateSimilarity(str1: string, str2: string): number
+- normalizeDateString(dateStr: string | undefined | null): string
+- validateDataMatch(dto: SubmitKycDto, extractedData: any): DataValidationResult
+
+Repository
++ findOne(options: any): Promise<any>
++ create(data: any): any
++ save(entity: any): Promise<any>
++ update(id: string, partial: any): Promise<any>
++ createQueryBuilder(alias: string): any
+
+KycVerificationEntity
++ id: string
++ userId: string
++ fullNameOnDocument: string
++ documentNumber: string
++ documentType: DocumentType
++ dateOfBirth: Date | null
++ documentExpiryDate: Date | null
++ documentFrontUrl: string
++ documentBackUrl: string
++ selfieUrl: string
++ status: KycStatus
++ rejectionReason: string
++ reviewedBy: string
++ reviewedAt: Date
++ createdAt: Date
++ updatedAt: Date
++ user: any
++ reviewer: any
+
+AuditLogEntity
++ id: string
++ actorId: string
++ action: string
++ entityType: string
++ entityId: string
++ ipAddress: string
++ userAgent: string
++ beforeData: Record<string, any>
++ afterData: Record<string, any>
++ createdAt: Date
++ actor: UserEntity
+
+UserEntity
++ id: string
++ email: string
++ passwordHash: string
++ fullName: string
++ role: UserRole
++ phoneNumber: string
++ timeZone: string
++ isVerified: boolean
+
++ totalProjectsFinished: number
++ totalProjectsCancelled: number
++ totalDisputesLost: number
++ totalLateProjects: number
++ currentTrustScore: number
+
++ resetPasswordOtp: string
++ resetPasswordOtpExpires: Date
+
++ emailVerificationToken: string
++ emailVerificationExpires: Date
++ emailVerifiedAt: Date
+
++ termsAcceptedAt: Date
++ privacyAcceptedAt: Date
+
++ registrationIp: string
++ registrationUserAgent: string
+
++ isBanned: boolean
++ banReason: string
++ bannedAt: Date
++ bannedBy: string
+
++ status: UserStatus
++ deletedAt: Date
++ deletedReason: string
++ createdAt: Date
++ updatedAt: Date
+
++ profile: any
++ socialAccounts: any[]
++ authSessions: any[]
++ userTokens: any[]
++ savedFreelancers: any[]
++ clientRequests: any[]
++ brokerRequests: any[]
++ freelancerProposals: any[]
++ brokerProposals: any[]
++ clientProjects: any[]
++ brokerProjects: any[]
++ freelancerProjects: any[]
++ flags: any[]
++ userSkills: any[]
+
++ badge(): BadgeType
++ stats(): any
++ warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE'
+
+KycStatus (enum)
+PENDING
+APPROVED
+REJECTED
+EXPIRED
+
+DocumentType (enum)
+CCCD
+PASSPORT
+DRIVER_LICENSE
+
+UserRole (enum)
+ADMIN
+STAFF
+BROKER
+CLIENT
+FREELANCER
+
+UserStatus (enum)
+ACTIVE
+DELETED
+
+BadgeType (enum)
+NEW
+VERIFIED
+TRUSTED
+WARNING
+NORMAL
