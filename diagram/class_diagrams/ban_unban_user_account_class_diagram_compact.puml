@@ -102,13 +102,6 @@ class UserEntity {
     + warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE'
 }
 
-enum UserRole {
-    ADMIN
-    STAFF
-    BROKER
-    CLIENT
-    FREELANCER
-}
 
 AdminUsersPage ..> WebClient
 WebClient ..> UsersController

@@ -112,12 +112,6 @@ class KycVerificationEntity {
     --
 }
 
-enum KycStatus {
-    PENDING
-    APPROVED
-    REJECTED
-    EXPIRED
-}
 
 class SupabaseStorageUtil {
     --

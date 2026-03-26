@@ -94,12 +94,6 @@ class KycVerificationEntity {
     --
 }
 
-enum KycStatus {
-    PENDING
-    APPROVED
-    REJECTED
-    EXPIRED
-}
 
 AdminKYCPage ..> ApiClient
 ApiClient ..> KycController

@@ -156,13 +156,6 @@ class ProfileEntity {
     --
 }
 
-enum UserRole {
-    ADMIN
-    STAFF
-    BROKER
-    CLIENT
-    FREELANCER
-}
 
 class KycVerificationEntity {
     + id: string
@@ -178,12 +171,6 @@ class KycVerificationEntity {
     --
 }
 
-enum KycStatus {
-    PENDING
-    APPROVED
-    REJECTED
-    EXPIRED
-}
 
 class AuditLogEntity {
     + id: string
@@ -194,8 +181,8 @@ class AuditLogEntity {
     + ipAddress: string
     + userAgent: string
     + createdAt: Date
-    + beforeData: Record<string, any>
-    + afterData: Record<string, any>
+    + requestId: string | null
+    + sessionId: string | null
     ...
     --
 }

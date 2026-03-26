@@ -130,7 +130,7 @@ class AuditLogEntity {
     + userAgent: string
     + afterData: any
     + createdAt: Date
-    + beforeData: Record<string, any>
+    + requestId: string | null
     ...
     --
 }
@@ -149,12 +149,6 @@ class KycVerificationEntity {
     --
 }
 
-enum KycStatus {
-    PENDING
-    APPROVED
-    REJECTED
-    EXPIRED
-}
 
 AdminKYCPage ..> KYCVerificationModal
 AdminKYCPage ..> ApiClient

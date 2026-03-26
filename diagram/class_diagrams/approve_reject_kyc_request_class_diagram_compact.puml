@@ -95,12 +95,6 @@ class KycService {
     - normalizeDateString(dateStr: string | undefined | null): string
 }
 
-enum KycStatus {
-    PENDING
-    APPROVED
-    REJECTED
-    EXPIRED
-}
 
 class KycVerificationEntity {
     + id: string
