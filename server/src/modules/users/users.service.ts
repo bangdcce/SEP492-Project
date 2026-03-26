@@ -1,8 +1,17 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Like, In } from 'typeorm';
-import { UserEntity } from '../../database/entities/user.entity';
+import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { KycVerificationEntity } from '../../database/entities/kyc-verification.entity';
+import { ProfileEntity } from '../../database/entities/profile.entity';
+import { UserSkillEntity } from '../../database/entities/user-skill.entity';
+import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
+import {
+  ProjectRequestCommercialFeature,
+  ProjectRequestEntity,
+  RequestStatus,
+} from '../../database/entities/project-request.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import {
   BanUserDto,
   UnbanUserDto,
@@ -19,7 +28,111 @@ export class UsersService {
     private userRepo: Repository<UserEntity>,
     @InjectRepository(KycVerificationEntity)
     private kycRepo: Repository<KycVerificationEntity>,
+    @InjectRepository(ProfileEntity)
+    private profileRepo: Repository<ProfileEntity>,
+    @InjectRepository(UserSkillEntity)
+    private userSkillRepo: Repository<UserSkillEntity>,
+    @InjectRepository(ProjectEntity)
+    private projectRepo: Repository<ProjectEntity>,
+    @InjectRepository(ProjectRequestEntity)
+    private projectRequestRepo: Repository<ProjectRequestEntity>,
+    @InjectRepository(ProjectRequestProposalEntity)
+    private projectRequestProposalRepo: Repository<ProjectRequestProposalEntity>,
   ) {}
+
+  private parseSkillFilter(input?: string | string[]): string[] {
+    const values = Array.isArray(input) ? input : `${input || ''}`.split(',');
+    return Array.from(
+      new Set(
+        values
+          .map((value) => value.trim().toLowerCase())
+          .filter(Boolean),
+      ),
+    );
+  }
+
+  private buildRequestMatchText(request: ProjectRequestEntity): string {
+    const agreedFeatures =
+      request.commercialBaseline?.agreedClientFeatures ??
+      request.commercialBaseline?.clientFeatures ??
+      [];
+    const featureText = (agreedFeatures || [])
+      .map((feature) => `${feature?.title || ''} ${feature?.description || ''}`)
+      .join(' ');
+
+    return [
+      request.title,
+      request.description,
+      request.techPreferences,
+      request.requestScopeBaseline?.productTypeLabel,
+      request.requestScopeBaseline?.productTypeCode,
+      request.requestScopeBaseline?.projectGoalSummary,
+      featureText,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+  }
+
+  private getCommercialFeatures(request: ProjectRequestEntity): ProjectRequestCommercialFeature[] {
+    return (
+      request.commercialBaseline?.agreedClientFeatures ??
+      request.commercialBaseline?.clientFeatures ??
+      []
+    );
+  }
+
+  private computeProfileCompleteness(input: {
+    user: UserEntity;
+    profile: ProfileEntity | null;
+    skillNames: string[];
+  }) {
+    const checklist = [
+      { label: 'Phone number', done: Boolean(input.user.phoneNumber?.trim()) },
+      { label: 'Verified email', done: Boolean(input.user.isVerified) },
+      { label: 'Avatar', done: Boolean(input.profile?.avatarUrl?.trim()) },
+      { label: 'Professional bio', done: Boolean(input.profile?.bio?.trim()) },
+      { label: 'Skills', done: input.skillNames.length > 0 },
+      {
+        label: 'Portfolio or CV',
+        done: Boolean(
+          (input.profile?.portfolioLinks?.length ?? 0) > 0 || input.profile?.cvUrl?.trim(),
+        ),
+      },
+      { label: 'LinkedIn', done: Boolean(input.profile?.linkedinUrl?.trim()) },
+    ];
+
+    const completed = checklist.filter((item) => item.done).length;
+    const percentage = Math.round((completed / checklist.length) * 100);
+
+    return {
+      percentage,
+      isComplete: completed === checklist.length,
+      missingFields: checklist.filter((item) => !item.done).map((item) => item.label),
+    };
+  }
+
+  private async getFreelancerSkillNames(
+    userId: string,
+    profile: ProfileEntity | null,
+  ): Promise<string[]> {
+    const userSkills = await this.userSkillRepo.find({
+      where: { userId },
+      relations: ['skill'],
+      order: { completedProjectsCount: 'DESC', updatedAt: 'DESC' },
+    });
+
+    return Array.from(
+      new Set(
+        [
+          ...(profile?.skills ?? []),
+          ...userSkills.map((userSkill) => userSkill.skill?.name).filter(Boolean),
+        ]
+          .map((value) => `${value}`.trim())
+          .filter(Boolean),
+      ),
+    );
+  }
 
   /**
    * Get all users with filters (Admin only)
@@ -215,6 +328,214 @@ export class UsersService {
         acc[item.role] = parseInt(item.count);
         return acc;
       }, {}),
+    };
+  }
+
+  async getFreelancerDashboard(
+    currentUser: UserEntity,
+    filters: { search?: string; skills?: string | string[] },
+  ) {
+    if (currentUser.role !== UserRole.FREELANCER) {
+      throw new ForbiddenException('Freelancer dashboard is only available for freelancer accounts.');
+    }
+
+    const user = await this.userRepo.findOne({
+      where: { id: currentUser.id },
+      relations: ['profile'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const profile =
+      (user.profile as ProfileEntity | null | undefined) ??
+      (await this.profileRepo.findOne({ where: { userId: user.id } }));
+    const skillNames = await this.getFreelancerSkillNames(user.id, profile ?? null);
+    const normalizedSearch = `${filters.search || ''}`.trim().toLowerCase();
+    const skillFilter = this.parseSkillFilter(filters.skills);
+
+    const activeProjectStatuses = [
+      ProjectStatus.INITIALIZING,
+      ProjectStatus.PLANNING,
+      ProjectStatus.IN_PROGRESS,
+      ProjectStatus.TESTING,
+      ProjectStatus.DISPUTED,
+    ];
+    const completedProjectStatuses = [ProjectStatus.COMPLETED, ProjectStatus.PAID];
+
+    const [
+      activeProjectsCount,
+      completedProjectsCount,
+      activeProjects,
+      pendingInvitations,
+      completedBudgetRaw,
+      currentMonthBudgetRaw,
+      recentRequests,
+    ] = await Promise.all([
+      this.projectRepo.count({
+        where: { freelancerId: user.id, status: In(activeProjectStatuses) },
+      }),
+      this.projectRepo.count({
+        where: { freelancerId: user.id, status: In(completedProjectStatuses) },
+      }),
+      this.projectRepo.find({
+        where: { freelancerId: user.id, status: In(activeProjectStatuses) },
+        relations: ['client', 'broker'],
+        order: { updatedAt: 'DESC' },
+        take: 10,
+      }),
+      this.projectRequestProposalRepo.find({
+        where: { freelancerId: user.id, status: In(['INVITED', 'PENDING']) },
+        relations: ['request', 'request.client', 'request.broker'],
+        order: { createdAt: 'DESC' },
+        take: 20,
+      }),
+      this.projectRepo
+        .createQueryBuilder('project')
+        .select('COALESCE(SUM(project.totalBudget), 0)', 'total')
+        .where('project.freelancerId = :userId', { userId: user.id })
+        .andWhere('project.status IN (:...statuses)', { statuses: completedProjectStatuses })
+        .getRawOne(),
+      this.projectRepo
+        .createQueryBuilder('project')
+        .select('COALESCE(SUM(project.totalBudget), 0)', 'total')
+        .where('project.freelancerId = :userId', { userId: user.id })
+        .andWhere('project.status IN (:...statuses)', { statuses: completedProjectStatuses })
+        .andWhere("DATE_TRUNC('month', project.updatedAt) = DATE_TRUNC('month', CURRENT_DATE)")
+        .getRawOne(),
+      this.projectRequestRepo.find({
+        where: { status: In([RequestStatus.SPEC_APPROVED, RequestStatus.HIRING]) },
+        relations: ['client', 'broker', 'proposals'],
+        order: { createdAt: 'DESC' },
+        take: 60,
+      }),
+    ]);
+
+    const recommendedJobs = recentRequests
+      .filter((request) => {
+        const hasAcceptedFreelancer = (request.proposals || []).some(
+          (proposal) => `${proposal.status || ''}`.trim().toUpperCase() === 'ACCEPTED',
+        );
+        if (hasAcceptedFreelancer) {
+          return false;
+        }
+
+        const ownProposal = (request.proposals || []).find(
+          (proposal) => proposal.freelancerId === user.id,
+        );
+        if (ownProposal) {
+          return false;
+        }
+
+        const haystack = this.buildRequestMatchText(request);
+        const matchesSearch = !normalizedSearch || haystack.includes(normalizedSearch);
+        const matchesSkills =
+          skillFilter.length === 0 || skillFilter.some((skill) => haystack.includes(skill));
+
+        return matchesSearch && matchesSkills;
+      })
+      .map((request) => {
+        const haystack = this.buildRequestMatchText(request);
+        const matchedSkills = skillNames.filter((skill) =>
+          haystack.includes(skill.toLowerCase()),
+        );
+        const features = this.getCommercialFeatures(request);
+        const agreedBudget =
+          request.commercialBaseline?.agreedBudget ?? request.commercialBaseline?.estimatedBudget;
+
+        return {
+          id: request.id,
+          title: request.title,
+          description: request.description,
+          productType:
+            request.requestScopeBaseline?.productTypeLabel ??
+            request.requestScopeBaseline?.productTypeCode ??
+            null,
+          projectGoalSummary: request.requestScopeBaseline?.projectGoalSummary ?? null,
+          requestedDeadline:
+            request.requestScopeBaseline?.requestedDeadline ?? request.requestedDeadline ?? null,
+          budgetAmount: agreedBudget ?? null,
+          budgetLabel: request.budgetRange ?? null,
+          featureCount: features.length,
+          matchedSkills: matchedSkills.slice(0, 6),
+          matchingScore: matchedSkills.length,
+          createdAt: request.createdAt,
+          client: request.client
+            ? {
+                id: request.client.id,
+                fullName: request.client.fullName,
+                currentTrustScore: Number(request.client.currentTrustScore ?? 0),
+                totalProjectsFinished: Number(request.client.totalProjectsFinished ?? 0),
+              }
+            : null,
+        };
+      })
+      .sort((left, right) => {
+        if (right.matchingScore !== left.matchingScore) {
+          return right.matchingScore - left.matchingScore;
+        }
+        return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
+      })
+      .slice(0, 20);
+
+    return {
+      filters: {
+        search: normalizedSearch || null,
+        skills: skillFilter,
+        availableSkills: skillNames,
+      },
+      stats: {
+        activeProjects: activeProjectsCount,
+        completedProjects: completedProjectsCount,
+        pendingInvitations: pendingInvitations.length,
+        totalEarnings: Number(completedBudgetRaw?.total ?? 0),
+        currentMonthEarnings: Number(currentMonthBudgetRaw?.total ?? 0),
+      },
+      profileCompleteness: this.computeProfileCompleteness({
+        user,
+        profile: profile ?? null,
+        skillNames,
+      }),
+      activeProjects: activeProjects.map((project) => ({
+        id: project.id,
+        title: project.title,
+        status: project.status,
+        totalBudget: Number(project.totalBudget ?? 0),
+        currency: project.currency ?? 'USD',
+        updatedAt: project.updatedAt,
+        client: project.client
+          ? {
+              id: project.client.id,
+              fullName: project.client.fullName,
+            }
+          : null,
+        broker: project.broker
+          ? {
+              id: project.broker.id,
+              fullName: project.broker.fullName,
+            }
+          : null,
+      })),
+      pendingInvitations: pendingInvitations.map((proposal) => ({
+        id: proposal.id,
+        status: proposal.status,
+        createdAt: proposal.createdAt,
+        request: proposal.request
+          ? {
+              id: proposal.request.id,
+              title: proposal.request.title,
+              requestedDeadline:
+                proposal.request.requestScopeBaseline?.requestedDeadline ??
+                proposal.request.requestedDeadline ??
+                null,
+              budgetLabel: proposal.request.budgetRange ?? null,
+              clientName: proposal.request.client?.fullName ?? null,
+              brokerName: proposal.request.broker?.fullName ?? null,
+            }
+          : null,
+      })),
+      recommendedJobs,
     };
   }
 }

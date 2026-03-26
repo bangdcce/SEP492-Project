@@ -5,6 +5,10 @@ export interface WizardOption {
   value: string;
   label: string;
   sortOrder: number;
+  recommendedProductTypes?: string[];
+  group?: "COMMON" | "SPECIALIZED";
+  templateTags?: string[];
+  isSuggestedDefault?: boolean;
 }
 
 export interface WizardQuestion {
@@ -21,6 +25,7 @@ export interface WizardQuestion {
 export interface ProjectRequestAttachment {
   filename: string;
   url: string;
+  storagePath?: string | null;
   mimetype?: string | null;
   size?: number | null;
   category?: "requirements" | "attachment";
@@ -30,6 +35,7 @@ export interface CreateProjectRequestDto {
   title: string;
   description: string;
   budgetRange?: string;
+  requestedDeadline?: string;
   intendedTimeline?: string;
   techPreferences?: string;
   status?: string;
@@ -153,8 +159,15 @@ export const wizardService = {
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
 
-  getBrokerMatchesQuick: async (requestId: string) => {
-    return await apiClient.get(`/matching/${requestId}?role=BROKER&enableAi=false`);
+  getBrokerMatchesQuick: async (
+    requestId: string,
+    options?: { topN?: number },
+  ) => {
+    const params = new URLSearchParams();
+    params.set("role", "BROKER");
+    params.set("enableAi", "false");
+    if (options?.topN !== undefined) params.set("topN", String(options.topN));
+    return await apiClient.get(`/matching/${requestId}?${params.toString()}`);
   },
 
   getFreelancerMatches: async (
@@ -169,8 +182,15 @@ export const wizardService = {
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
 
-  getFreelancerMatchesQuick: async (requestId: string) => {
-    return await apiClient.get(`/matching/${requestId}?role=FREELANCER&enableAi=false`);
+  getFreelancerMatchesQuick: async (
+    requestId: string,
+    options?: { topN?: number },
+  ) => {
+    const params = new URLSearchParams();
+    params.set("role", "FREELANCER");
+    params.set("enableAi", "false");
+    if (options?.topN !== undefined) params.set("topN", String(options.topN));
+    return await apiClient.get(`/matching/${requestId}?${params.toString()}`);
   },
 
   // ========== ADMIN METHODS ==========

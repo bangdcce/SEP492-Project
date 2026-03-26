@@ -79,6 +79,9 @@ export class MilestoneEntity {
   @Column({ type: 'jsonb', nullable: true })
   acceptanceCriteria: string[];
 
+  @Column({ type: 'jsonb', nullable: true })
+  approvedClientFeatureIds: string[] | null;
+
   @Column({ nullable: true })
   projectSpecId: string;
 

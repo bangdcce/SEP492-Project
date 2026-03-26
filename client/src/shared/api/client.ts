@@ -299,7 +299,14 @@ class ApiClient {
         }
         return { isAuthenticated: true, user: sessionUser };
       }
-    } catch {
+    } catch (error) {
+      const axiosError = error as AxiosError;
+      const status = axiosError?.response?.status;
+
+      if (!status || status >= 500) {
+        return { isAuthenticated: Boolean(cachedUser), user: cachedUser ?? null };
+      }
+
       // Session is invalid; fall through to clear stale storage.
     }
 

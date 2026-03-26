@@ -6,6 +6,94 @@ import { WizardOptionEntity } from '../../database/entities/wizard-option.entity
 import { UpdateWizardQuestionDto } from './dto/update-wizard-question.dto';
 import { CreateWizardQuestionDto } from './dto/create-wizard-question.dto';
 
+type WizardOptionMetadata = {
+  recommendedProductTypes?: string[];
+  group?: 'COMMON' | 'SPECIALIZED';
+  templateTags?: string[];
+  isSuggestedDefault?: boolean;
+};
+
+const normalizeWizardValue = (value?: string | null) =>
+  String(value || '')
+    .trim()
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toUpperCase();
+
+const FEATURE_OPTION_METADATA: Record<string, WizardOptionMetadata> = {
+  AUTH: {
+    recommendedProductTypes: ['ECOMMERCE', 'WEB_APP', 'MOBILE_APP', 'SYSTEM'],
+    group: 'COMMON',
+    templateTags: ['account', 'login'],
+    isSuggestedDefault: true,
+  },
+  PRODUCT_CATALOG: {
+    recommendedProductTypes: ['ECOMMERCE'],
+    group: 'SPECIALIZED',
+    templateTags: ['catalog', 'commerce'],
+    isSuggestedDefault: true,
+  },
+  CART_PAYMENT: {
+    recommendedProductTypes: ['ECOMMERCE'],
+    group: 'SPECIALIZED',
+    templateTags: ['checkout', 'commerce'],
+    isSuggestedDefault: true,
+  },
+  BOOKING: {
+    recommendedProductTypes: ['CORP_WEBSITE', 'WEB_APP', 'MOBILE_APP'],
+    group: 'SPECIALIZED',
+    templateTags: ['booking', 'service'],
+  },
+  CHAT: {
+    recommendedProductTypes: ['WEB_APP', 'MOBILE_APP', 'ECOMMERCE'],
+    group: 'SPECIALIZED',
+    templateTags: ['communication'],
+  },
+  MAPS: {
+    recommendedProductTypes: ['CORP_WEBSITE', 'WEB_APP', 'MOBILE_APP'],
+    group: 'SPECIALIZED',
+    templateTags: ['location'],
+  },
+  BLOG_NEWS: {
+    recommendedProductTypes: ['LANDING_PAGE', 'CORP_WEBSITE'],
+    group: 'SPECIALIZED',
+    templateTags: ['content', 'seo'],
+  },
+  ADMIN_DASHBOARD: {
+    recommendedProductTypes: ['ECOMMERCE', 'WEB_APP', 'SYSTEM'],
+    group: 'COMMON',
+    templateTags: ['operations', 'reporting'],
+    isSuggestedDefault: true,
+  },
+  REPORTING: {
+    recommendedProductTypes: ['WEB_APP', 'SYSTEM', 'ECOMMERCE'],
+    group: 'COMMON',
+    templateTags: ['analytics'],
+  },
+  NOTIFICATIONS: {
+    recommendedProductTypes: ['WEB_APP', 'MOBILE_APP', 'ECOMMERCE', 'SYSTEM'],
+    group: 'COMMON',
+    templateTags: ['communication'],
+  },
+  MULTI_LANG: {
+    recommendedProductTypes: ['LANDING_PAGE', 'CORP_WEBSITE', 'ECOMMERCE'],
+    group: 'SPECIALIZED',
+    templateTags: ['content', 'localization'],
+  },
+};
+
+const PRODUCT_TYPE_OPTION_METADATA: Record<string, WizardOptionMetadata> = {
+  LANDING_PAGE: { templateTags: ['LANDING_PAGE_STARTER'], isSuggestedDefault: true },
+  CORP_WEBSITE: { templateTags: ['LANDING_PAGE_STARTER'] },
+  ECOMMERCE: { templateTags: ['ECOMMERCE_STANDARD'], isSuggestedDefault: true },
+  E_COMMERCE: { templateTags: ['ECOMMERCE_STANDARD'], isSuggestedDefault: true },
+  WEB_APP: { templateTags: ['SAAS_PORTAL'], isSuggestedDefault: true },
+  SAAS: { templateTags: ['SAAS_PORTAL'], isSuggestedDefault: true },
+  MARKETPLACE: { templateTags: ['SERVICE_MARKETPLACE'] },
+  MOBILE_APP: { templateTags: ['SERVICE_MARKETPLACE'] },
+  SYSTEM: { templateTags: ['SAAS_PORTAL'] },
+};
+
 @Injectable()
 export class WizardService {
   constructor(
@@ -28,7 +116,30 @@ export class WizardService {
       },
     });
 
-    return questions;
+    return questions.map((question) => ({
+      ...question,
+      options: (question.options || []).map((option) => ({
+        ...option,
+        ...this.getOptionMetadata(question.code, option),
+      })),
+    }));
+  }
+
+  private getOptionMetadata(
+    questionCode: string,
+    option: Pick<WizardOptionEntity, 'value' | 'label'>,
+  ): WizardOptionMetadata {
+    const normalizedValue = normalizeWizardValue(option.value || option.label);
+
+    if (questionCode === 'FEATURES') {
+      return FEATURE_OPTION_METADATA[normalizedValue] || { group: 'SPECIALIZED' };
+    }
+
+    if (questionCode === 'PRODUCT_TYPE') {
+      return PRODUCT_TYPE_OPTION_METADATA[normalizedValue] || {};
+    }
+
+    return {};
   }
 
   // ===== ADMIN METHODS =====

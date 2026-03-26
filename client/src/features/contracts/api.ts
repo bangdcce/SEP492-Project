@@ -78,6 +78,24 @@ export const contractsApi = {
     return apiClient.post(`/contracts/activate/${id}`, {});
   },
 
+  createSignatureSession: (
+    id: string,
+    provider?: string,
+  ): Promise<{
+    contractId: string;
+    provider: string;
+    sessionId: string | null;
+    status: string;
+    callbackPath: string;
+    contentHash?: string | null;
+    verifiedAt?: string | null;
+    certificateSerial?: string | null;
+  }> => {
+    return apiClient.post(`/contracts/${id}/signature-sessions`, {
+      provider,
+    });
+  },
+
   downloadPdf: async (id: string): Promise<ArrayBuffer> => {
     return apiClient.get<ArrayBuffer>(`/contracts/${id}/pdf`, {
       responseType: "arraybuffer",

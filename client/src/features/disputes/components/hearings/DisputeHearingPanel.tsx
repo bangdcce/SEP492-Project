@@ -50,6 +50,7 @@ import {
   getSchedulingErrorMessage,
   HEARING_RESCHEDULE_FREEZE_HOURS,
 } from "@/features/hearings/utils/schedulingFeedback";
+import { normalizeExternalMeetingLink } from "@/features/hearings/utils/externalMeetingLink";
 
 interface DisputeHearingPanelProps {
   disputeId: string;
@@ -252,6 +253,9 @@ export const DisputeHearingPanel = ({
 
   const renderHearingCard = (hearing: DisputeHearingSummary) => {
     const durationMinutes = hearing.estimatedDurationMinutes ?? 60;
+    const externalMeetingHref = normalizeExternalMeetingLink(
+      hearing.externalMeetingLink,
+    );
     const canStart =
       canModerate && hearing.status === "SCHEDULED" && hearing.isActionable !== false;
     const canEnd = canModerate && hearing.status === "IN_PROGRESS";
@@ -322,9 +326,9 @@ export const DisputeHearingPanel = ({
               </div>
             ) : null}
 
-            {hearing.externalMeetingLink ? (
+            {externalMeetingHref ? (
               <a
-                href={hearing.externalMeetingLink}
+                href={externalMeetingHref}
                 target="_blank"
                 rel="noreferrer"
                 className="text-xs text-teal-600 hover:text-teal-700 font-medium"
@@ -413,7 +417,11 @@ export const DisputeHearingPanel = ({
     setRescheduleDuration(hearing.estimatedDurationMinutes ?? 60);
     setRescheduleAgenda(hearing.agenda ?? "");
     setRescheduleDocs(hearing.requiredDocuments?.join(", ") ?? "");
-    setRescheduleMeetingLink(hearing.externalMeetingLink ?? "");
+    setRescheduleMeetingLink(
+      normalizeExternalMeetingLink(hearing.externalMeetingLink) ??
+        hearing.externalMeetingLink ??
+        "",
+    );
     setRescheduleEmergency(false);
     setRescheduleConfirmed(false);
     setRescheduleOpen(true);
@@ -839,10 +847,10 @@ export const DisputeHearingPanel = ({
                 value={meetingLink}
                 onChange={(event) => setMeetingLink(event.target.value)}
                 className="w-full border border-gray-200 rounded-lg p-2 text-sm"
-                placeholder="https://meet.google.com/... or https://zoom.us/..."
+                placeholder="https://meet.google.com/... or abc-defg-hij"
               />
               <p className="mt-1 text-[11px] text-slate-500">
-                Optional. This is a manual external link, not an integrated provider room.
+                Optional. Paste a full URL or a Google Meet code like abc-defg-hij.
               </p>
             </div>
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -934,10 +942,10 @@ export const DisputeHearingPanel = ({
                 value={rescheduleMeetingLink}
                 onChange={(event) => setRescheduleMeetingLink(event.target.value)}
                 className="w-full border border-gray-200 rounded-lg p-2 text-sm"
-                placeholder="https://meet.google.com/... or https://zoom.us/..."
+                placeholder="https://meet.google.com/... or abc-defg-hij"
               />
               <p className="mt-1 text-[11px] text-slate-500">
-                Optional. Enter a full URL for any manual external room.
+                Optional. Enter a full URL or a Google Meet code like abc-defg-hij.
               </p>
             </div>
             <label className="flex items-center gap-2 text-sm text-gray-600">

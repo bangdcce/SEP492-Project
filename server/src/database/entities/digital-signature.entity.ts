@@ -29,6 +29,24 @@ export class DigitalSignatureEntity {
   @Column({ type: 'varchar', length: 32, nullable: true })
   signerRole: string | null;
 
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  provider: string | null;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  providerSessionId: string | null;
+
+  @Column({ type: 'varchar', length: 32, nullable: true })
+  legalStatus: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  certificateSerial: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  verifiedAt: Date | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  providerPayload: Record<string, unknown> | null;
+
   @Column({ type: 'varchar', nullable: true })
   ipAddress: string;
 

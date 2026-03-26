@@ -128,7 +128,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
           navigate("/admin/dashboard");
           return;
         }
-        navigate(`${roleBasePath}/hearings?disputeId=${item.relatedId}`);
+        navigate(`${roleBasePath}/disputes/${item.relatedId}`);
         return;
       }
 

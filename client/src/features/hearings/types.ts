@@ -1,5 +1,6 @@
 import type {
   DisputeEvidence,
+  DisputeFollowUpAction,
   DisputeMessage,
 } from "@/features/disputes/types/dispute.types";
 
@@ -104,8 +105,12 @@ export interface DisputeHearingSummary {
   status: HearingStatus;
   lifecycle?: HearingLifecycle;
   scheduledAt: string;
+  scheduledEndAt?: string | null;
+  graceEndsAt?: string | null;
+  pauseAutoCloseAt?: string | null;
   startedAt?: string | null;
   endedAt?: string | null;
+  closureReason?: string | null;
   agenda?: string | null;
   requiredDocuments?: string[] | null;
   externalMeetingLink?: string | null;
@@ -384,6 +389,8 @@ export type HearingTimelineEventType =
   | "HEARING_PAUSED"
   | "HEARING_RESUMED"
   | "HEARING_ENDED"
+  | "HEARING_TIME_WARNING"
+  | "HEARING_FOLLOW_UP_SCHEDULED"
   | "PARTICIPANT_JOINED"
   | "PARTICIPANT_LEFT"
   | "STATEMENT_SUBMITTED"
@@ -522,7 +529,7 @@ export interface EndHearingInput {
   hearingId: string;
   summary: string;
   findings: string;
-  pendingActions?: string[];
+  pendingActions?: Array<string | DisputeFollowUpAction>;
   forceEnd?: boolean;
   noShowNote?: string;
 }
@@ -602,6 +609,8 @@ export interface VerdictSummary {
 
 export interface AppealInput {
   reason: string;
+  disclaimerAccepted: boolean;
+  disclaimerVersion?: string;
 }
 
 export interface VerdictReadiness {
@@ -642,7 +651,7 @@ export interface HearingVerdictInput {
   closeHearing: {
     summary: string;
     findings: string;
-    pendingActions?: string[];
+    pendingActions?: Array<string | DisputeFollowUpAction>;
     forceEnd?: boolean;
     noShowNote?: string;
   };

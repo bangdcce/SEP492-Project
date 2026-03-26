@@ -1,8 +1,13 @@
-import { useMemo, useState } from "react";
-import { AlertTriangle, Loader2, Scale } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { AlertTriangle, Loader2, Scale, Search } from "lucide-react";
 import { MoneySplitSlider } from "../shared/MoneySplitSlider";
 import { DisputeResult } from "../../../staff/types/staff.types";
-import { resolveDispute, resolveDisputeAppeal } from "../../api";
+import {
+  getDisputeRuleCatalog,
+  resolveDispute,
+  resolveDisputeAppeal,
+  type DisputeRuleCatalogItem,
+} from "../../api";
 import { toast } from "sonner";
 
 const FAULT_TYPES = [
@@ -28,6 +33,7 @@ const FAULTY_PARTIES = [
 interface VerdictWizardProps {
   disputeId: string;
   disputedAmount?: number;
+  disputeCategory?: string | null;
   mode?: "initial" | "appeal";
   existingVerdictId?: string;
   appealContext?: string;
@@ -50,6 +56,7 @@ const VERDICT_GATE_LABELS: Record<string, string> = {
 export const VerdictWizard = ({
   disputeId,
   disputedAmount,
+  disputeCategory,
   mode = "initial",
   existingVerdictId,
   appealContext,
@@ -58,7 +65,10 @@ export const VerdictWizard = ({
   const [verdict, setVerdict] = useState<DisputeResult | null>(null);
   const [faultType, setFaultType] = useState<string>("");
   const [faultyParty, setFaultyParty] = useState<string>("");
-  const [violatedPolicies, setViolatedPolicies] = useState<string>("");
+  const [policyCatalog, setPolicyCatalog] = useState<DisputeRuleCatalogItem[]>([]);
+  const [policySearch, setPolicySearch] = useState("");
+  const [selectedPolicies, setSelectedPolicies] = useState<string[]>([]);
+  const [evidenceBasis, setEvidenceBasis] = useState("");
   const [factualFindings, setFactualFindings] = useState<string>("");
   const [legalAnalysis, setLegalAnalysis] = useState<string>("");
   const [conclusion, setConclusion] = useState<string>("");
@@ -66,30 +76,81 @@ export const VerdictWizard = ({
   const [overrideReason, setOverrideReason] = useState<string>("");
   const [splitRatioClient, setSplitRatioClient] = useState<number>(50);
   const [submitting, setSubmitting] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(false);
   const [verdictGateError, setVerdictGateError] =
     useState<VerdictGateErrorPayload | null>(null);
 
   const totalAmount = useMemo(() => disputedAmount ?? 0, [disputedAmount]);
   const isAppealMode = mode === "appeal";
 
-  const computedAmounts = useMemo(() => {
-    if (verdict === DisputeResult.WIN_CLIENT) {
-      return { amountToClient: totalAmount, amountToFreelancer: 0 };
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCatalog = async () => {
+      try {
+        setCatalogLoading(true);
+        const rules = await getDisputeRuleCatalog({
+          faultType: faultType || undefined,
+          disputeCategory: disputeCategory || undefined,
+          result: verdict || undefined,
+        });
+        if (!cancelled) {
+          setPolicyCatalog(rules);
+          setSelectedPolicies((previous) =>
+            previous.filter((code) => rules.some((rule) => rule.code === code)),
+          );
+        }
+      } catch (error) {
+        console.error("Failed to load dispute rule catalog:", error);
+        if (!cancelled) {
+          toast.error("Could not load dispute policy catalog.");
+        }
+      } finally {
+        if (!cancelled) {
+          setCatalogLoading(false);
+        }
+      }
+    };
+
+    void loadCatalog();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [disputeCategory, faultType, verdict]);
+
+  const filteredPolicies = useMemo(() => {
+    const query = policySearch.trim().toLowerCase();
+    if (!query) {
+      return policyCatalog.slice(0, 8);
     }
-    if (verdict === DisputeResult.WIN_FREELANCER) {
-      return { amountToClient: 0, amountToFreelancer: totalAmount };
+    return policyCatalog
+      .filter((item) =>
+        [item.code, item.title, item.summary].some((value) =>
+          value.toLowerCase().includes(query),
+        ),
+      )
+      .slice(0, 8);
+  }, [policyCatalog, policySearch]);
+
+  const togglePolicy = (code: string) => {
+    setSelectedPolicies((prev) =>
+      prev.includes(code)
+        ? prev.filter((item) => item !== code)
+        : [...prev, code],
+    );
+  };
+
+  const handleFaultTypeChange = (value: string) => {
+    setFaultType(value);
+    if (value === "MUTUAL_FAULT") {
+      setFaultyParty("both");
+      setVerdict(DisputeResult.SPLIT);
+    } else if (value === "NO_FAULT") {
+      setFaultyParty("none");
+      setVerdict(DisputeResult.SPLIT);
     }
-    if (verdict === DisputeResult.SPLIT) {
-      const amountToClient = Number(
-        ((totalAmount * splitRatioClient) / 100).toFixed(2),
-      );
-      return {
-        amountToClient,
-        amountToFreelancer: Number((totalAmount - amountToClient).toFixed(2)),
-      };
-    }
-    return { amountToClient: 0, amountToFreelancer: 0 };
-  }, [splitRatioClient, totalAmount, verdict]);
+  };
 
   const handleSubmit = async () => {
     if (!verdict) {
@@ -98,6 +159,14 @@ export const VerdictWizard = ({
     }
     if (!faultType || !faultyParty) {
       toast.error("Fault type and faulty party are required.");
+      return;
+    }
+    if (selectedPolicies.length === 0) {
+      toast.error("Select at least one violated policy from the catalog.");
+      return;
+    }
+    if (!evidenceBasis.trim()) {
+      toast.error("Evidence basis is required.");
       return;
     }
     if (!factualFindings.trim() || !legalAnalysis.trim() || !conclusion.trim()) {
@@ -117,11 +186,6 @@ export const VerdictWizard = ({
       return;
     }
 
-    const policies = violatedPolicies
-      .split(",")
-      .map((item) => item.trim())
-      .filter(Boolean);
-
     try {
       setSubmitting(true);
       setVerdictGateError(null);
@@ -133,13 +197,14 @@ export const VerdictWizard = ({
           faultType,
           faultyParty,
           reasoning: {
-            violatedPolicies: policies,
+            violatedPolicies: selectedPolicies,
             factualFindings: factualFindings.trim(),
             legalAnalysis: legalAnalysis.trim(),
             conclusion: conclusion.trim(),
+            evidenceReferences: [evidenceBasis.trim()],
           },
-          amountToFreelancer: computedAmounts.amountToFreelancer,
-          amountToClient: computedAmounts.amountToClient,
+          splitRatioClient:
+            verdict === DisputeResult.SPLIT ? splitRatioClient : undefined,
           overridesVerdictId: existingVerdictId!,
           overrideReason: overrideReason.trim(),
         });
@@ -151,10 +216,11 @@ export const VerdictWizard = ({
           faultType,
           faultyParty,
           reasoning: {
-            violatedPolicies: policies,
+            violatedPolicies: selectedPolicies,
             factualFindings: factualFindings.trim(),
             legalAnalysis: legalAnalysis.trim(),
             conclusion: conclusion.trim(),
+            evidenceReferences: [evidenceBasis.trim()],
           },
           splitRatioClient:
             verdict === DisputeResult.SPLIT ? splitRatioClient : undefined,
@@ -246,7 +312,7 @@ export const VerdictWizard = ({
           }`}
         >
           <div className="font-bold">Refund Client</div>
-          <div className="mt-1 text-xs opacity-80">100% to Client</div>
+          <div className="mt-1 text-xs opacity-80">Derived from escrow</div>
         </button>
 
         <button
@@ -258,19 +324,19 @@ export const VerdictWizard = ({
           }`}
         >
           <div className="font-bold">Pay Freelancer</div>
-          <div className="mt-1 text-xs opacity-80">100% to Freelancer</div>
+          <div className="mt-1 text-xs opacity-80">Derived from escrow</div>
         </button>
 
         <button
           onClick={() => setVerdict(DisputeResult.SPLIT)}
           className={`rounded-xl border-2 p-4 text-center transition-all ${
             verdict === DisputeResult.SPLIT
-              ? "border-purple-600 bg-purple-600 text-white"
-              : "border-gray-200 text-gray-600 hover:border-purple-300"
+              ? "border-amber-600 bg-amber-600 text-white"
+              : "border-gray-200 text-gray-600 hover:border-amber-300"
           }`}
         >
           <div className="font-bold">Split Verdict</div>
-          <div className="mt-1 text-xs opacity-80">Custom %</div>
+          <div className="mt-1 text-xs opacity-80">1-99% to client</div>
         </button>
       </div>
 
@@ -293,7 +359,7 @@ export const VerdictWizard = ({
           </label>
           <select
             value={faultType}
-            onChange={(event) => setFaultType(event.target.value)}
+            onChange={(event) => handleFaultTypeChange(event.target.value)}
             className="block w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-teal-500 focus:ring-teal-500"
           >
             <option value="">Select a fault type</option>
@@ -324,15 +390,60 @@ export const VerdictWizard = ({
       </div>
 
       <div className="space-y-4">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-slate-400" />
+            <h4 className="text-sm font-semibold text-slate-900">
+              Violated Policies
+            </h4>
+          </div>
+          <input
+            value={policySearch}
+            onChange={(event) => setPolicySearch(event.target.value)}
+            placeholder="Search policy by code, title, or summary"
+            className="mt-3 block w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-teal-500 focus:ring-teal-500"
+          />
+          <div className="mt-3 grid gap-2">
+            {catalogLoading ? (
+              <div className="text-sm text-slate-500">Loading policy catalog...</div>
+            ) : (
+              filteredPolicies.map((policy) => {
+                const selected = selectedPolicies.includes(policy.code);
+                return (
+                  <button
+                    key={policy.code}
+                    type="button"
+                    onClick={() => togglePolicy(policy.code)}
+                    className={`rounded-xl border p-3 text-left ${
+                      selected
+                        ? "border-teal-300 bg-teal-50"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      {policy.code}
+                    </div>
+                    <div className="mt-1 text-sm font-semibold text-slate-900">
+                      {policy.title}
+                    </div>
+                    <p className="mt-1 text-sm text-slate-600">{policy.summary}</p>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+
         <div>
           <label className="mb-1 block text-sm font-medium text-slate-900">
-            Violated Policies (comma-separated)
+            Evidence Basis / References
           </label>
-          <input
-            value={violatedPolicies}
-            onChange={(event) => setViolatedPolicies(event.target.value)}
-            placeholder="CODE-1.1, CODE-2.3"
-            className="block w-full rounded-lg border border-gray-300 p-2 shadow-sm focus:border-teal-500 focus:ring-teal-500"
+          <textarea
+            rows={2}
+            value={evidenceBasis}
+            onChange={(event) => setEvidenceBasis(event.target.value)}
+            className="block w-full rounded-lg border border-gray-300 p-3 shadow-sm placeholder-gray-400 focus:border-teal-500 focus:ring-teal-500"
+            placeholder="State the evidence basis, testimony, or platform logs relied on."
           />
         </div>
         <div>
@@ -424,30 +535,18 @@ export const VerdictWizard = ({
         </div>
       ) : null}
 
-      {!existingVerdictId && isAppealMode ? (
-        <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>
-              Original verdict reference is missing. Appeal resolution is disabled until
-              the Tier 1 verdict can be loaded.
-            </span>
-          </div>
-        </div>
-      ) : null}
-
-      <div className="mt-6 flex justify-end border-t border-gray-100 pt-6">
+      <div className="mt-8 flex justify-end">
         <button
-          disabled={!verdict || submitting || (isAppealMode && !existingVerdictId)}
-          onClick={handleSubmit}
-          className="flex items-center gap-2 rounded-lg bg-slate-900 px-6 py-2 font-medium text-white hover:bg-slate-800 disabled:opacity-50"
+          onClick={() => void handleSubmit()}
+          disabled={submitting}
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 px-5 py-2.5 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-60"
         >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-          {submitting
-            ? "Submitting..."
-            : isAppealMode
-              ? "Submit Appeal Verdict"
-              : "Submit Verdict"}
+          {submitting ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            <AlertTriangle className="h-4 w-4" />
+          )}
+          {isAppealMode ? "Submit Appeal Verdict" : "Submit Verdict"}
         </button>
       </div>
     </div>

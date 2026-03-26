@@ -7,6 +7,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   CalendarDays,
   LayoutDashboard,
+  Scale,
   ScrollText,
   Shield,
   UserCheck,
@@ -50,6 +51,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: CalendarDays,
     path: "/admin/leave",
     description: "Review leave requests and staff quotas",
+    section: "management",
+  },
+  {
+    id: "dispute-appeals",
+    label: "Appeal Queue",
+    icon: Scale,
+    path: "/admin/disputes/appeals",
+    description: "Review and route dispute appeals",
     section: "management",
   },
   {

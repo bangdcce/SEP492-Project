@@ -46,6 +46,7 @@ describe('DisputesService', () => {
 
   let disputeRepo: any;
   let hearingRepo: any;
+  let hearingParticipantRepo: any;
   let disputePartyRepo: any;
   let disputeScheduleProposalRepo: any;
   let disputeInternalMembershipRepo: any;
@@ -141,6 +142,7 @@ describe('DisputesService', () => {
 
     disputeRepo = module.get(getRepositoryToken(DisputeEntity));
     hearingRepo = module.get(getRepositoryToken(DisputeHearingEntity));
+    hearingParticipantRepo = module.get(getRepositoryToken(HearingParticipantEntity));
     disputePartyRepo = module.get(getRepositoryToken(DisputePartyEntity));
     disputeScheduleProposalRepo = module.get(getRepositoryToken(DisputeScheduleProposalEntity));
     disputeInternalMembershipRepo = module.get(
@@ -160,6 +162,13 @@ describe('DisputesService', () => {
     disputeInternalMembershipRepo.find.mockResolvedValue([]);
     userRepo.find.mockResolvedValue([]);
     hearingRepo.find.mockResolvedValue([]);
+    hearingParticipantRepo.createQueryBuilder.mockReturnValue({
+      innerJoin: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      getOne: jest.fn().mockResolvedValue(null),
+    });
   });
 
   it('should be defined', () => {
@@ -659,9 +668,18 @@ describe('DisputesService', () => {
       const result = await service.submitAppeal('raiser-1', 'd-1', {
         reason: 'A'.repeat(220),
         additionalEvidence: ['extra-proof'],
+        disclaimerAccepted: true,
+        disclaimerVersion: '2026-03-dispute-fairness-v1',
       });
 
-      expect(verdictService.appealVerdict).toHaveBeenCalledWith('d-1', 'raiser-1', 'A'.repeat(220));
+      expect(verdictService.appealVerdict).toHaveBeenCalledWith(
+        'd-1',
+        'raiser-1',
+        'A'.repeat(220),
+        expect.objectContaining({
+          termsVersion: '2026-03-dispute-fairness-v1',
+        }),
+      );
       expect(disputeRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
           evidence: ['existing-proof', 'extra-proof'],

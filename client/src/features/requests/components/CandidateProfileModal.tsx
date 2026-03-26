@@ -11,6 +11,7 @@ import {
 import { Star, Sparkles, CheckCircle2, ShieldCheck, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { RequestMatchCandidate } from "../types";
+import { extractCandidateReasoning } from "../matchReasoning";
 
 interface CandidateProfileModalProps {
   isOpen: boolean;
@@ -140,6 +141,7 @@ export function CandidateProfileModal({
   const labelData = classificationLabel ? labelConfig[classificationLabel] || labelConfig.NORMAL : labelConfig.NORMAL;
   
   const targetId = userId || candidateId;
+  const candidateReasoning = extractCandidateReasoning(reasoning, [userId, candidateId]);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -217,25 +219,14 @@ export function CandidateProfileModal({
             </div>
 
             {/* AI Reasoning */}
-            {reasoning && (
+            {candidateReasoning && (
                 <div className="bg-muted/30 p-4 rounded-xl border border-muted/50">
                     <div className="flex items-center gap-2 mb-2 text-primary font-semibold">
                       <Sparkles className="w-4 h-4" /> 
                       AI Recommendation
                     </div>
                     <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
-                      {(() => {
-                        let text = reasoning;
-                        try {
-                          if (typeof reasoning === 'string' && reasoning.trim().startsWith('[')) {
-                            const arr = JSON.parse(reasoning);
-                            const found = arr.find((item: any) => item.id === targetId);
-                            if (found && found.reasoning) text = found.reasoning;
-                            else text = '';
-                          }
-                        } catch(e) {}
-                        return text;
-                      })()}
+                      {candidateReasoning}
                     </p>
                 </div>
             )}

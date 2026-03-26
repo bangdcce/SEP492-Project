@@ -100,7 +100,7 @@ export type {
 // CONSTANTS & CONFIGURATION
 // =============================================================================
 
-const ASSIGNMENT_CONFIG = {
+export const ASSIGNMENT_CONFIG = {
   // Scoring weights (must sum to 100)
   WORKLOAD_WEIGHT: 40,
   PERFORMANCE_WEIGHT: 40,

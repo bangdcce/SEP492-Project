@@ -232,7 +232,14 @@ export class DisputeHearingEntity {
   findings: string; // Nh盻ｯng phﾃ｡t hi盻㌻ quan tr盻肱g
 
   @Column({ type: 'jsonb', nullable: true })
-  pendingActions: string[];
+  pendingActions: Array<{
+    code: string;
+    label: string;
+    ownerRole: string;
+    dueAt?: string | null;
+    urgent: boolean;
+    note?: string | null;
+  }>;
 
   @Column({
     type: 'varchar',

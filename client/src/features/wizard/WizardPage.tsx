@@ -24,6 +24,11 @@ import { ROUTES } from "@/constants";
 import { ArrowLeft, ArrowRight, Check, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/shared/api/client";
+import {
+  getTodayDateInputValue,
+  isPastDateInputValue,
+} from "./utils/timelineDate";
+import { normalizeProductTypeCode } from "@/shared/utils/productType";
 
 const TOTAL_STEPS = 5;
 
@@ -75,8 +80,39 @@ export default function WizardPage() {
     });
   }, []);
 
+  useEffect(() => {
+    const featureQuestion = questions.find((question) => question.code === "FEATURES");
+    const normalizedProductType = normalizeProductTypeCode(productType);
+
+    if (!featureQuestion || !normalizedProductType || features.length === 0) {
+      return;
+    }
+
+    const allowedValues = new Set(
+      featureQuestion.options
+        .filter((option) => {
+          const recommendedProductTypes = option.recommendedProductTypes || [];
+          return (
+            option.group === "COMMON" ||
+            recommendedProductTypes.length === 0 ||
+            recommendedProductTypes.includes(normalizedProductType)
+          );
+        })
+        .map((option) => option.value),
+    );
+
+    setFeatures((previous) => {
+      const next = previous.filter((value) => allowedValues.has(value));
+      return next.length === previous.length ? previous : next;
+    });
+  }, [features.length, productType, questions]);
+
   const progress = (currentStep / TOTAL_STEPS) * 100;
   const canPublish = kycStatus === "APPROVED";
+  const minimumTimelineDate = getTodayDateInputValue();
+  const timelineError = timeline && isPastDateInputValue(timeline, minimumTimelineDate)
+    ? "Expected completion date cannot be earlier than today."
+    : null;
 
   const getQuestion = (code: string) => questions.find((question) => question.code === code);
 
@@ -87,14 +123,14 @@ export default function WizardPage() {
     const featuresQuestion = getQuestion("FEATURES");
 
     if (productTypeQuestion && productType) {
-      answers.push({ questionId: productTypeQuestion.id, valueText: productType });
+      answers.push({ questionId: String(productTypeQuestion.id), valueText: productType });
     }
     if (industryQuestion && industry) {
-      answers.push({ questionId: industryQuestion.id, valueText: industry });
+      answers.push({ questionId: String(industryQuestion.id), valueText: industry });
     }
     if (featuresQuestion && features.length > 0) {
       features.forEach((feature) => {
-        answers.push({ questionId: featuresQuestion.id, valueText: feature });
+        answers.push({ questionId: String(featuresQuestion.id), valueText: feature });
       });
     }
 
@@ -102,6 +138,7 @@ export default function WizardPage() {
       title: title.trim() || "New Project Request",
       description: description.trim() || "Project description",
       budgetRange: budget || undefined,
+      requestedDeadline: timeline || undefined,
       intendedTimeline: timeline || undefined,
       status:
         mode === "marketplace"
@@ -114,6 +151,11 @@ export default function WizardPage() {
   };
 
   const handleNext = () => {
+    if (currentStep === 3 && timelineError) {
+      toast.error(timelineError);
+      return;
+    }
+
     if (currentStep < TOTAL_STEPS) setCurrentStep((previous) => previous + 1);
   };
 
@@ -127,6 +169,11 @@ export default function WizardPage() {
 
       if (!canPublish) {
         toast.error("KYC approval is required before posting or inviting.");
+        return;
+      }
+
+      if (timelineError) {
+        toast.error(timelineError);
         return;
       }
 
@@ -228,11 +275,13 @@ export default function WizardPage() {
               setBudget={setBudget}
               timeline={timeline}
               setTimeline={setTimeline}
+              timelineError={timelineError}
             />
           )}
           {currentStep === 4 && getQuestion("FEATURES") && (
             <StepB4
               question={getQuestion("FEATURES")!}
+              productType={productType}
               selectedValues={features}
               onChange={setFeatures}
             />
@@ -258,7 +307,11 @@ export default function WizardPage() {
             <Button
               onClick={handleNext}
               className="w-32"
-              disabled={(currentStep === 1 && !productType) || (currentStep === 2 && !industry)}
+              disabled={
+                (currentStep === 1 && !productType) ||
+                (currentStep === 2 && !industry) ||
+                (currentStep === 3 && Boolean(timelineError))
+              }
             >
               Next <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
@@ -266,14 +319,14 @@ export default function WizardPage() {
             <div className="flex flex-wrap gap-3">
               <Button
                 onClick={() => void handleSubmit("marketplace")}
-                disabled={submitting || !title || !description || !canPublish}
+                disabled={submitting || !title || !description || !canPublish || Boolean(timelineError)}
                 className="w-40 bg-teal-600 hover:bg-teal-700"
               >
                 Post to Market
               </Button>
               <Button
                 onClick={() => void handleSubmit("invite")}
-                disabled={submitting || !title || !description || !canPublish}
+                disabled={submitting || !title || !description || !canPublish || Boolean(timelineError)}
                 className="w-48 bg-slate-900 hover:bg-slate-800"
               >
                 <Check className="mr-2 h-4 w-4" />

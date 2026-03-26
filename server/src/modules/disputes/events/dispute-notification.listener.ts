@@ -13,6 +13,7 @@ import {
 } from 'src/database/entities';
 import { DISPUTE_EVENTS } from './dispute.events';
 import { DisputeGateway } from '../gateways/dispute.gateway';
+import { DisputeEscalationRequestKind } from '../dto/request-escalation.dto';
 
 @Injectable()
 export class DisputeNotificationListener {
@@ -33,6 +34,56 @@ export class DisputeNotificationListener {
     private readonly hearingParticipantRepo: Repository<HearingParticipantEntity>,
     private readonly disputeGateway: DisputeGateway,
   ) {}
+
+  private async getDisputeAudience(disputeId: string): Promise<{
+    dispute: Pick<
+      DisputeEntity,
+      'id' | 'projectId' | 'raisedById' | 'defendantId' | 'assignedStaffId' | 'escalatedToAdminId'
+    > | null;
+    userIds: string[];
+  }> {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: disputeId },
+      select: [
+        'id',
+        'projectId',
+        'raisedById',
+        'defendantId',
+        'assignedStaffId',
+        'escalatedToAdminId',
+      ],
+    });
+
+    if (!dispute) {
+      return {
+        dispute: null,
+        userIds: [],
+      };
+    }
+
+    const project = await this.projectRepo.findOne({
+      where: { id: dispute.projectId },
+      select: ['id', 'clientId', 'freelancerId', 'brokerId'],
+    });
+
+    const userIds = new Set<string>();
+    [
+      dispute.raisedById,
+      dispute.defendantId,
+      dispute.assignedStaffId,
+      dispute.escalatedToAdminId,
+      project?.clientId,
+      project?.freelancerId,
+      project?.brokerId,
+    ]
+      .filter(Boolean)
+      .forEach((id) => userIds.add(id as string));
+
+    return {
+      dispute,
+      userIds: Array.from(userIds),
+    };
+  }
 
   @OnEvent(DISPUTE_EVENTS.REJECTED)
   async handleDisputeRejected(payload: {
@@ -64,6 +115,26 @@ export class DisputeNotificationListener {
       body,
       'Dispute',
       dispute.id,
+    );
+  }
+
+  @OnEvent(DISPUTE_EVENTS.CREATED)
+  async handleDisputeCreated(payload: { disputeId?: string }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const audience = await this.getDisputeAudience(payload.disputeId);
+    if (!audience.dispute) {
+      return;
+    }
+
+    await this.createNotifications(
+      audience.userIds,
+      'Dispute opened',
+      'A dispute case was created and is now in triage.',
+      'Dispute',
+      audience.dispute.id,
     );
   }
 
@@ -239,6 +310,37 @@ export class DisputeNotificationListener {
     );
   }
 
+  @OnEvent('verdict.issued')
+  async handleVerdictIssued(payload: {
+    disputeId?: string;
+    verdictId?: string;
+    appealDeadline?: Date;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const audience = await this.getDisputeAudience(payload.disputeId);
+    if (!audience.dispute) {
+      return;
+    }
+
+    const bodyParts = [
+      'A verdict has been issued for this dispute.',
+      payload.appealDeadline
+        ? `Appeal deadline: ${new Date(payload.appealDeadline).toISOString()}`
+        : null,
+    ].filter(Boolean);
+
+    await this.createNotifications(
+      audience.userIds,
+      'Dispute verdict issued',
+      bodyParts.join(' | '),
+      'Dispute',
+      audience.dispute.id,
+    );
+  }
+
   @OnEvent(DISPUTE_EVENTS.REJECTION_APPEALED)
   async handleRejectionAppealed(payload: {
     disputeId?: string;
@@ -295,6 +397,214 @@ export class DisputeNotificationListener {
       'Dispute',
       dispute.id,
     );
+  }
+
+  @OnEvent(DISPUTE_EVENTS.APPEAL_SUBMITTED)
+  async handleAppealSubmitted(payload: {
+    disputeId?: string;
+    userId?: string;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const audience = await this.getDisputeAudience(payload.disputeId);
+    if (!audience.dispute) {
+      return;
+    }
+
+    await this.createNotifications(
+      audience.userIds.filter((userId) => userId !== payload.userId),
+      'Appeal submitted',
+      'A formal appeal was filed and the dispute is now in appeal review.',
+      'Dispute',
+      audience.dispute.id,
+    );
+  }
+
+  @OnEvent(DISPUTE_EVENTS.APPEAL_RESOLVED)
+  async handleAppealResolved(payload: {
+    disputeId?: string;
+  }): Promise<void> {
+    if (!payload?.disputeId) {
+      return;
+    }
+
+    const audience = await this.getDisputeAudience(payload.disputeId);
+    if (!audience.dispute) {
+      return;
+    }
+
+    await this.createNotifications(
+      audience.userIds,
+      'Appeal resolved',
+      'The appeal review is complete and the dispute record has been updated.',
+      'Dispute',
+      audience.dispute.id,
+    );
+  }
+
+  @OnEvent(DISPUTE_EVENTS.REASSIGNED)
+  async handleDisputeReassigned(payload: {
+    disputeId?: string;
+    assignmentType?: string;
+    previousOwnerId?: string | null;
+    nextOwnerId?: string | null;
+  }): Promise<void> {
+    if (
+      !payload?.disputeId ||
+      payload.assignmentType !== 'APPEAL_OWNER' ||
+      !payload.nextOwnerId
+    ) {
+      return;
+    }
+
+    const recipients = [payload.nextOwnerId];
+    const body =
+      payload.previousOwnerId && payload.previousOwnerId !== payload.nextOwnerId
+        ? 'An appeal case was reassigned to you and now needs admin review.'
+        : 'A new appeal case was assigned to you for review.';
+
+    await this.createNotifications(
+      recipients,
+      'Appeal case assigned',
+      body,
+      'Dispute',
+      payload.disputeId,
+    );
+
+    if (
+      payload.previousOwnerId &&
+      payload.previousOwnerId !== payload.nextOwnerId
+    ) {
+      await this.createNotifications(
+        [payload.previousOwnerId],
+        'Appeal case reassigned',
+        'This appeal case was reassigned to another admin.',
+        'Dispute',
+        payload.disputeId,
+      );
+    }
+  }
+
+  @OnEvent(DISPUTE_EVENTS.NOTE_ADDED)
+  async handleReviewRequestAdded(payload: {
+    disputeId?: string;
+    actorId?: string;
+    noteType?: string;
+    reason?: string;
+    reviewerIds?: string[];
+    recommendation?: string;
+  }): Promise<void> {
+    if (!payload?.disputeId || !payload.noteType) {
+      return;
+    }
+
+    const audience = await this.getDisputeAudience(payload.disputeId);
+    if (!audience.dispute) {
+      return;
+    }
+
+    if (payload.noteType === 'REVIEW_REQUEST') {
+      await this.createNotifications(
+        audience.userIds.filter((userId) => userId !== payload.actorId),
+        'Review request added',
+        payload.reason?.trim()
+          ? `A linked participant requested additional review: ${payload.reason.trim()}`
+          : 'A linked participant requested additional review on this dispute.',
+        'Dispute',
+        audience.dispute.id,
+      );
+      return;
+    }
+
+    if (
+      payload.noteType === `${DisputeEscalationRequestKind.SUPPORT_ESCALATION}_REQUEST`
+    ) {
+      const recipients = [
+        audience.dispute.assignedStaffId,
+        audience.dispute.escalatedToAdminId,
+        ...(await this.getAdminIds()),
+      ].filter((value): value is string => Boolean(value) && value !== payload.actorId);
+      await this.createNotifications(
+        recipients,
+        'Support escalation requested',
+        payload.reason?.trim()
+          ? `Additional dispute support was requested: ${payload.reason.trim()}`
+          : 'Additional dispute support was requested on this case.',
+        'Dispute',
+        audience.dispute.id,
+      );
+      return;
+    }
+
+    if (
+      payload.noteType === `${DisputeEscalationRequestKind.ADMIN_OVERSIGHT}_REQUEST`
+    ) {
+      const recipients = [
+        ...(await this.getAdminIds()),
+        audience.dispute.assignedStaffId,
+      ].filter((value): value is string => Boolean(value) && value !== payload.actorId);
+      await this.createNotifications(
+        recipients,
+        'Admin oversight requested',
+        payload.reason?.trim()
+          ? `A participant requested admin oversight: ${payload.reason.trim()}`
+          : 'A participant requested admin oversight on this dispute.',
+        'Dispute',
+        audience.dispute.id,
+      );
+      return;
+    }
+
+    if (
+      payload.noteType === `${DisputeEscalationRequestKind.NEUTRAL_PANEL}_REQUEST`
+    ) {
+      const recipients = [
+        ...(await this.getAdminIds()),
+        audience.dispute.assignedStaffId,
+      ].filter((value): value is string => Boolean(value) && value !== payload.actorId);
+      await this.createNotifications(
+        recipients,
+        'Neutral panel requested',
+        payload.reason?.trim()
+          ? `A participant requested a neutral panel review: ${payload.reason.trim()}`
+          : 'A participant requested a neutral panel review on this dispute.',
+        'Dispute',
+        audience.dispute.id,
+      );
+      return;
+    }
+
+    if (payload.noteType === 'NEUTRAL_PANEL_ASSIGNED') {
+      await this.createNotifications(
+        payload.reviewerIds || [],
+        'Neutral panel assignment',
+        'You were added to a neutral advisory panel for this dispute. Review the redacted dossier and submit your recommendation.',
+        'Dispute',
+        audience.dispute.id,
+      );
+      await this.createNotifications(
+        audience.userIds.filter((userId) => userId !== payload.actorId),
+        'Neutral panel formed',
+        'A neutral advisory panel has been formed to assist with this dispute review.',
+        'Dispute',
+        audience.dispute.id,
+      );
+      return;
+    }
+
+    if (payload.noteType === 'PANEL_RECOMMENDATION') {
+      await this.createNotifications(
+        audience.userIds.filter((userId) => userId !== payload.actorId),
+        'Neutral panel recommendation submitted',
+        payload.recommendation
+          ? `A neutral panel recommendation is available: ${payload.recommendation}.`
+          : 'A neutral panel recommendation was submitted for this dispute.',
+        'Dispute',
+        audience.dispute.id,
+      );
+    }
   }
 
   @OnEvent('staff.dismissal_rate_high')

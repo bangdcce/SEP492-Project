@@ -4,7 +4,12 @@ import { ContractsService } from './contracts.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserEntity } from '../../database/entities/user.entity';
-import { InitializeContractDto, SignContractDto, UpdateContractDraftDto } from './dto';
+import {
+  CreateSignatureSessionDto,
+  InitializeContractDto,
+  SignContractDto,
+  UpdateContractDraftDto,
+} from './dto';
 
 @Controller('contracts')
 @UseGuards(JwtAuthGuard)
@@ -56,6 +61,15 @@ export class ContractsController {
   @Post(':id/send')
   async sendDraft(@GetUser() user: UserEntity, @Param('id') id: string) {
     return this.contractsService.sendDraft(user, id);
+  }
+
+  @Post(':id/signature-sessions')
+  async createSignatureSession(
+    @GetUser() user: UserEntity,
+    @Param('id') id: string,
+    @Body() dto: CreateSignatureSessionDto,
+  ) {
+    return this.contractsService.createSignatureSession(user, id, dto);
   }
 
   @Post(':id/discard')
