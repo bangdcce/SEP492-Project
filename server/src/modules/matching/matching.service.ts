@@ -35,8 +35,19 @@ export class MatchingService {
   async findMatches(input: MatchingInput, options: MatchingOptions): Promise<ClassifiedResult[]> {
     const aiEnabled =
       options.enableAi ?? this.configService.get<string>('MATCHING_AI_ENABLED') === 'true';
-    const topN =
-      options.topN ?? parseInt(this.configService.get<string>('MATCHING_AI_TOP_N') || '10', 10);
+    const configuredAiTopN = parseInt(
+      this.configService.get<string>('MATCHING_AI_TOP_N') || '10',
+      10,
+    );
+    const configuredQuickTopN = parseInt(
+      this.configService.get<string>('MATCHING_QUICK_TOP_N') || '20',
+      10,
+    );
+    const topN = Math.max(
+      1,
+      options.topN ??
+        (aiEnabled ? configuredAiTopN || 10 : configuredQuickTopN || 20),
+    );
 
     this.logger.log(
       `Finding matches for request ${input.requestId} | role=${options.role} | ai=${aiEnabled} | topN=${topN}`,

@@ -17,7 +17,6 @@ export function StepB1({ question, value, onChange }: StepB1Props) {
         {question.helpText && <p className="text-muted-foreground mt-2">{question.helpText}</p>}
       </div>
 
-<<<<<<< HEAD
       <div className="max-h-80 overflow-y-auto pr-1">
         <RadioGroup
           value={value}
@@ -26,10 +25,10 @@ export function StepB1({ question, value, onChange }: StepB1Props) {
         >
           {question.options.map((option) => (
             <div key={option.id}>
-              <RadioGroupItem value={option.value} id={option.id} className="peer sr-only" />
+              <RadioGroupItem value={option.value} id={String(option.id)} className="peer sr-only" />
               <Label
-                htmlFor={option.id}
-                className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-6 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer transition-all h-full min-h-24"
+                htmlFor={String(option.id)}
+                className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-6 text-center hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer transition-all h-full min-h-24"
               >
                 <span className="font-semibold text-lg">{option.label}</span>
               </Label>
@@ -37,21 +36,6 @@ export function StepB1({ question, value, onChange }: StepB1Props) {
           ))}
         </RadioGroup>
       </div>
-=======
-      <RadioGroup value={value} onValueChange={onChange} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {question.options.map((option) => (
-          <div key={option.id}>
-            <RadioGroupItem value={option.value} id={option.id} className="peer sr-only" />
-            <Label
-              htmlFor={option.id}
-              className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-6 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer transition-all h-full text-center"
-            >
-              <span className="font-semibold text-lg">{option.label}</span>
-            </Label>
-          </div>
-        ))}
-      </RadioGroup>
->>>>>>> 3eca5bb09073420777bd57554aad5b47b12f97ce
     </div>
   );
 }

@@ -8,7 +8,11 @@ import {
   OneToMany,
   UpdateDateColumn,
 } from 'typeorm';
-import { ProjectRequestEntity } from './project-request.entity';
+import {
+  ProjectRequestCommercialBaseline,
+  ProjectRequestEntity,
+  ProjectRequestScopeBaseline,
+} from './project-request.entity';
 import type { MilestoneEntity } from './milestone.entity';
 
 export enum SpecPhase {
@@ -39,6 +43,7 @@ export interface SpecFeature {
   complexity: 'LOW' | 'MEDIUM' | 'HIGH';
   acceptanceCriteria: string[]; // Each must be > 10 chars
   inputOutputSpec?: string; // Optional JSON for API input/output
+  approvedClientFeatureIds?: string[] | null;
 }
 
 export interface ClientFeature {
@@ -51,6 +56,60 @@ export interface ClientFeature {
 export interface ReferenceLink {
   label: string;
   url: string;
+}
+
+export interface SpecSubmissionSnapshot {
+  phase: SpecPhase;
+  title: string;
+  description: string;
+  totalBudget: number;
+  projectCategory?: string | null;
+  estimatedTimeline?: string | null;
+  clientFeatures?: ClientFeature[] | null;
+  features?: SpecFeature[] | null;
+  techStack?: string | null;
+  referenceLinks?: ReferenceLink[] | null;
+  milestones?: Array<{
+    title: string;
+    description: string;
+    amount: number;
+    deliverableType: string;
+    retentionAmount: number;
+    startDate?: string | null;
+    dueDate?: string | null;
+    sortOrder?: number | null;
+    acceptanceCriteria?: string[] | null;
+    approvedClientFeatureIds?: string[] | null;
+  }> | null;
+}
+
+export interface SpecFieldDiffEntry {
+  field: string;
+  label: string;
+  previous: unknown;
+  next: unknown;
+}
+
+export interface SpecRejectionHistoryEntry {
+  phase: SpecPhase;
+  reason: string;
+  rejectedByUserId?: string | null;
+  rejectedAt: string;
+}
+
+export interface ProjectSpecRequestContext {
+  originalRequest: {
+    title?: string | null;
+    description?: string | null;
+    budgetRange?: string | null;
+    requestedDeadline?: string | null;
+    productTypeLabel?: string | null;
+    projectGoalSummary?: string | null;
+  };
+  approvedCommercialBaseline: Pick<
+    ProjectRequestCommercialBaseline,
+    'source' | 'agreedBudget' | 'agreedDeliveryDeadline' | 'agreedClientFeatures'
+  > | null;
 }
 
 @Entity('project_specs')
@@ -114,6 +173,21 @@ export class ProjectSpecEntity {
   @Column({ type: 'jsonb', nullable: true })
   richContentJson: Record<string, unknown> | null;
 
+  @Column({ type: 'int', default: 0 })
+  submissionVersion: number;
+
+  @Column({ type: 'jsonb', nullable: true })
+  lastSubmittedSnapshot: SpecSubmissionSnapshot | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  lastSubmittedDiff: SpecFieldDiffEntry[] | null;
+
+  @Column({ type: 'text', nullable: true })
+  changeSummary: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  rejectionHistory: SpecRejectionHistoryEntry[] | null;
+
   @Column({
     type: 'enum',
     enum: ProjectSpecStatus,
@@ -162,4 +236,6 @@ export class ProjectSpecEntity {
 
   @OneToMany('ProjectSpecSignatureEntity', 'spec')
   signatures: any[];
+
+  requestContext?: ProjectSpecRequestContext | null;
 }

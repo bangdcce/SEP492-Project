@@ -3,27 +3,30 @@ import { Link, useSearchParams } from "react-router-dom";
 import { Search, Star, ShieldCheck } from "lucide-react";
 import { Button, Input, Badge, Card, CardContent, Avatar, AvatarImage, AvatarFallback, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/shared/components/ui";
 import { discoveryApi } from "./api";
+import { buildTrustProfilePath } from "@/features/trust-profile/routes";
 import type { UserSearchFilters } from "./api";
 import { UserRole } from "../../shared/types/user.types";
 import { useDebounce } from "../../shared/hooks/useDebounce";
+
+const resolveRoleFromParam = (value: string | null) => {
+  if (value === UserRole.BROKER || value === UserRole.FREELANCER) {
+    return value;
+  }
+
+  return "ALL";
+};
 
 export const DiscoveryPage = () => {
   console.log("DiscoveryPage rendering");
   const [searchParams] = useSearchParams();
   const paramRole = searchParams.get("role");
-  // const initialRole = (paramRole === UserRole.BROKER || paramRole === UserRole.FREELANCER) ? paramRole : "ALL"; 
-  // Initial state isn't enough for nav updates.
 
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 500);
-  const [role, setRole] = useState<UserRole | "ALL">("ALL");
+  const [role, setRole] = useState<UserRole | "ALL">(() => resolveRoleFromParam(paramRole));
 
   useEffect(() => {
-     if (paramRole === UserRole.BROKER || paramRole === UserRole.FREELANCER) {
-         setRole(paramRole);
-     } else {
-         setRole("ALL");
-     }
+      setRole(resolveRoleFromParam(paramRole));
   }, [paramRole]);
 
   const [data, setData] = useState<{ data: any[] } | null>(null);
@@ -31,6 +34,8 @@ export const DiscoveryPage = () => {
   const [error, setError] = useState<any>(null);
 
   useEffect(() => {
+    let isCancelled = false;
+
     const fetchData = async () => {
       setIsLoading(true);
       setError(null);
@@ -38,16 +43,27 @@ export const DiscoveryPage = () => {
         const filters: UserSearchFilters = {
             search: debouncedSearch,
             role: role === "ALL" ? undefined : role,
+            limit: 50,
         };
         const result = await discoveryApi.searchUsers(filters);
-        setData(result);
+        if (!isCancelled) {
+          setData(result);
+        }
       } catch (err) {
-        setError(err);
+        if (!isCancelled) {
+          setError(err);
+        }
       } finally {
-        setIsLoading(false);
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
       }
     };
     fetchData();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [debouncedSearch, role]);
 
   return (
@@ -112,6 +128,7 @@ export const DiscoveryPage = () => {
 
 function UserCard({ user }: { user: any }) {
     const isBroker = user.role === UserRole.BROKER;
+    const profilePath = buildTrustProfilePath(user.id, { role: UserRole.CLIENT });
     return (
         <Card className="hover:shadow-md transition-shadow cursor-pointer group relative overflow-hidden">
              {/* Color Banner */}
@@ -126,7 +143,7 @@ function UserCard({ user }: { user: any }) {
                         </Avatar>
                         <div>
                             <h3 className="font-semibold text-lg hover:underline group-hover:text-primary transition-colors">
-                                <Link to={`/client/discovery/profile/${user.id}`}>
+                                <Link to={profilePath}>
                                     {user.fullName}
                                 </Link>
                             </h3>
@@ -168,7 +185,7 @@ function UserCard({ user }: { user: any }) {
                 </div>
 
                 <Button className="w-full" asChild>
-                    <Link to={`/client/discovery/profile/${user.id}`}>View Profile</Link>
+                    <Link to={profilePath}>View Profile</Link>
                 </Button>
              </CardContent>
         </Card>

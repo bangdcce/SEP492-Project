@@ -88,6 +88,7 @@ describe('HearingVerdictOrchestratorService', () => {
           provide: VerdictService,
           useValue: {
             issueVerdict: jest.fn(),
+            resolveVerdictAmounts: jest.fn(),
           },
         },
         {
@@ -150,6 +151,91 @@ describe('HearingVerdictOrchestratorService', () => {
         },
       ],
     });
+    verdictService.resolveVerdictAmounts.mockImplementation(
+      ({
+        result,
+        splitRatioClient,
+        amountToClient,
+        amountToFreelancer,
+        escrowFundedAmount,
+        fixedPlatformFee,
+      }: {
+        result: DisputeResult;
+        splitRatioClient?: number;
+        amountToClient?: number;
+        amountToFreelancer?: number;
+        escrowFundedAmount: number;
+        fixedPlatformFee: number;
+      }) => {
+        const remaining = escrowFundedAmount - fixedPlatformFee;
+        if (remaining < 0) {
+          throw new BadRequestException("Platform fee exceeds funded amount");
+        }
+
+        if (result === DisputeResult.WIN_CLIENT) {
+          return {
+            valid: true,
+            amountToClient: remaining,
+            amountToFreelancer: 0,
+            breakdown: {
+              amountToClient: remaining,
+              amountToFreelancer: 0,
+              platformFee: fixedPlatformFee,
+              total: escrowFundedAmount,
+            },
+          };
+        }
+
+        if (result === DisputeResult.WIN_FREELANCER) {
+          return {
+            valid: true,
+            amountToClient: 0,
+            amountToFreelancer: remaining,
+            breakdown: {
+              amountToClient: 0,
+              amountToFreelancer: remaining,
+              platformFee: fixedPlatformFee,
+              total: escrowFundedAmount,
+            },
+          };
+        }
+
+        if (amountToClient != null && amountToFreelancer != null) {
+          return {
+            valid: true,
+            amountToClient,
+            amountToFreelancer,
+            breakdown: {
+              amountToClient,
+              amountToFreelancer,
+              platformFee: fixedPlatformFee,
+              total: escrowFundedAmount,
+            },
+          };
+        }
+
+        if (splitRatioClient == null || splitRatioClient <= 0 || splitRatioClient >= 100) {
+          throw new BadRequestException(
+            "splitRatioClient must be between 1 and 99 for SPLIT verdict",
+          );
+        }
+
+        const computedClient = Number((remaining * (splitRatioClient / 100)).toFixed(2));
+        const computedFreelancer = Number((remaining - computedClient).toFixed(2));
+
+        return {
+          valid: true,
+          amountToClient: computedClient,
+          amountToFreelancer: computedFreelancer,
+          breakdown: {
+            amountToClient: computedClient,
+            amountToFreelancer: computedFreelancer,
+            platformFee: fixedPlatformFee,
+            total: escrowFundedAmount,
+          },
+        };
+      },
+    );
     hearingService.endHearing.mockResolvedValue({
       hearing: {
         id: 'hearing-1',
@@ -298,36 +384,22 @@ describe('HearingVerdictOrchestratorService', () => {
     );
   });
 
-  it('supports the lower split boundary when splitRatioClient is 0', async () => {
+  it('rejects splitRatioClient of 0 because SPLIT must stay within 1..99', async () => {
     const dto = baseDto();
     dto.verdict.splitRatioClient = 0;
 
-    await service.issueHearingVerdict('hearing-1', 'staff-1', UserRole.STAFF, dto);
-
-    expect(verdictService.issueVerdict).toHaveBeenCalledWith(
-      expect.objectContaining({
-        amountToClient: 0,
-        amountToFreelancer: 100,
-      }),
-      'staff-1',
-      UserRole.STAFF,
-    );
+    await expect(
+      service.issueHearingVerdict('hearing-1', 'staff-1', UserRole.STAFF, dto),
+    ).rejects.toThrow('splitRatioClient must be between 1 and 99 for SPLIT verdict');
   });
 
-  it('supports the upper split boundary when splitRatioClient is 100', async () => {
+  it('rejects splitRatioClient of 100 because 100/0 must use a win verdict', async () => {
     const dto = baseDto();
     dto.verdict.splitRatioClient = 100;
 
-    await service.issueHearingVerdict('hearing-1', 'staff-1', UserRole.STAFF, dto);
-
-    expect(verdictService.issueVerdict).toHaveBeenCalledWith(
-      expect.objectContaining({
-        amountToClient: 100,
-        amountToFreelancer: 0,
-      }),
-      'staff-1',
-      UserRole.STAFF,
-    );
+    await expect(
+      service.issueHearingVerdict('hearing-1', 'staff-1', UserRole.STAFF, dto),
+    ).rejects.toThrow('splitRatioClient must be between 1 and 99 for SPLIT verdict');
   });
 
   it('rejects verdict issuance when the escrow record for the hearing milestone is missing', async () => {

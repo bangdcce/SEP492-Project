@@ -4,3 +4,4 @@
  */
 
 export { TrustProfileSection } from "./TrustProfileSection";
+export { ProjectHistorySection } from "./ProjectHistorySection";

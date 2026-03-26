@@ -22,6 +22,10 @@ import type { CreateDisputeDto } from "../../types/dispute.dto";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { resolveRoleBasePath } from "@/features/hearings/utils/hearingRouting";
+import {
+  DISPUTE_DISCLAIMER_COPY,
+  DISPUTE_DISCLAIMER_VERSION,
+} from "../../constants/disputeLegal";
 
 interface CreateDisputeWizardProps {
   onClose: () => void;
@@ -82,6 +86,7 @@ export const CreateDisputeWizard = ({
   const [loadingParentDisputes, setLoadingParentDisputes] = useState(false);
   const [addToExistingCase, setAddToExistingCase] = useState(false);
   const [selectedParentDisputeId, setSelectedParentDisputeId] = useState("");
+  const [disclaimerAccepted, setDisclaimerAccepted] = useState(false);
 
   const normalizedStatus = useMemo(
     () => milestoneStatus?.toUpperCase() ?? "UNKNOWN",
@@ -243,6 +248,7 @@ export const CreateDisputeWizard = ({
     setFiles([]);
     setAddToExistingCase(false);
     setSelectedParentDisputeId("");
+    setDisclaimerAccepted(false);
   }, []);
 
   const getErrorMessage = (error: unknown) => {
@@ -299,6 +305,10 @@ export const CreateDisputeWizard = ({
       toast.error("Missing project or milestone context.");
       return;
     }
+    if (!disclaimerAccepted) {
+      toast.error("You must acknowledge the dispute ADR disclaimer before submitting.");
+      return;
+    }
 
     const evidenceLabels =
       files.length > 0
@@ -316,6 +326,8 @@ export const CreateDisputeWizard = ({
         addToExistingCase && selectedParentDisputeId
           ? selectedParentDisputeId
           : undefined,
+      disclaimerAccepted: true,
+      disclaimerVersion: DISPUTE_DISCLAIMER_VERSION,
     };
 
     try {
@@ -648,6 +660,18 @@ export const CreateDisputeWizard = ({
             </div>
           </div>
 
+          <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+            <input
+              type="checkbox"
+              checked={disclaimerAccepted}
+              onChange={(event) => setDisclaimerAccepted(event.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              I understand that {DISPUTE_DISCLAIMER_COPY}
+            </span>
+          </label>
+
           <div className="flex justify-between pt-2">
             <button
               onClick={() => setStep(2)}
@@ -657,7 +681,7 @@ export const CreateDisputeWizard = ({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !disclaimerAccepted}
               className="flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 shadow-md transition-colors disabled:opacity-70"
             >
               {isSubmitting ? "Submitting..." : "Confirm Dispute"}

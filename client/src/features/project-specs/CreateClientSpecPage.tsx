@@ -11,22 +11,15 @@ import { projectSpecsApi } from './api';
 import type { CreateClientSpecDTO, ProjectSpec } from './types';
 import { SpecPhase } from './types';
 import { CreateClientSpecForm } from './components/CreateClientSpecForm';
-import { CLIENT_SPEC_TEMPLATES } from './templates';
-
-const PRODUCT_TYPE_TEMPLATE_BY_CODE: Partial<Record<string, string>> = {
-  LANDING_PAGE: 'LANDING_PAGE_STARTER',
-  ECOMMERCE: 'ECOMMERCE_STANDARD',
-  WEB_APP: 'SAAS_PORTAL',
-};
-
-const PRODUCT_TYPE_LABELS: Record<string, string> = {
-  LANDING_PAGE: 'Landing Page',
-  CORP_WEBSITE: 'Corporate Website',
-  ECOMMERCE: 'E-commerce Website',
-  MOBILE_APP: 'Mobile App',
-  WEB_APP: 'Web App / SaaS Platform',
-  SYSTEM: 'Internal Management System',
-};
+import {
+  CLIENT_SPEC_TEMPLATES,
+  getDefaultClientSpecTemplateCode,
+} from './templates';
+import { RequestAttachmentGallery } from '@/features/requests/components/RequestAttachmentGallery';
+import {
+  getProductTypeLabel,
+  normalizeProductTypeCode,
+} from '@/shared/utils/productType';
 
 const FEATURE_LABELS: Record<string, string> = {
   AUTH: 'Authentication',
@@ -61,6 +54,52 @@ const getFeatureLabel = (value?: string | null) => {
   return FEATURE_LABELS[normalizedValue] || toTitleLabel(value);
 };
 
+const parseBudgetRange = (value?: string | null): { min?: number; max?: number } | null => {
+  const raw = String(value || '').trim();
+  if (!raw) return null;
+
+  const matches = raw.match(/\d[\d,.]*/g) || [];
+  const numbers = matches
+    .map((segment) => Number(segment.replace(/[^\d.]/g, '')))
+    .filter((number) => Number.isFinite(number) && number > 0);
+
+  if (numbers.length === 0) {
+    return null;
+  }
+
+  if (raw.includes('+')) {
+    return { min: numbers[0] };
+  }
+
+  if (numbers.length === 1) {
+    return { min: numbers[0], max: numbers[0] };
+  }
+
+  return {
+    min: Math.min(...numbers),
+    max: Math.max(...numbers),
+  };
+};
+
+const deriveSeedBudget = (request: ProjectRequest | null): number | undefined => {
+  const approvedBudget =
+    request?.commercialBaseline?.agreedBudget ?? request?.commercialBaseline?.estimatedBudget;
+  if (typeof approvedBudget === 'number' && Number.isFinite(approvedBudget) && approvedBudget > 0) {
+    return approvedBudget;
+  }
+
+  const parsedRange = parseBudgetRange(request?.budgetRange);
+  if (!parsedRange) {
+    return undefined;
+  }
+
+  if (parsedRange.min != null && parsedRange.max != null) {
+    return Math.round((parsedRange.min + parsedRange.max) / 2);
+  }
+
+  return parsedRange.min;
+};
+
 const buildRequestSeedValues = (
   request: ProjectRequest | null,
   requestId?: string,
@@ -69,11 +108,19 @@ const buildRequestSeedValues = (
     return null;
   }
 
+  const scopeBaseline = request.requestScopeBaseline;
   const answers = request.answers || [];
   const productTypeAnswer = answers.find((answer) => answer.question?.code === 'PRODUCT_TYPE');
-  const productTypeCode = normalizeWizardCode(productTypeAnswer?.valueText || productTypeAnswer?.option?.label);
+  const productTypeCode =
+    normalizeProductTypeCode(productTypeAnswer?.valueText || productTypeAnswer?.option?.label) ||
+    normalizeProductTypeCode(scopeBaseline?.productTypeCode || scopeBaseline?.productTypeLabel);
+  const productTypeLabel =
+    scopeBaseline?.productTypeLabel ||
+    (productTypeCode ? getProductTypeLabel(productTypeCode) : '') ||
+    productTypeAnswer?.option?.label ||
+    toTitleLabel(productTypeAnswer?.valueText);
   const matchedTemplate = CLIENT_SPEC_TEMPLATES.find(
-    (template) => template.code === PRODUCT_TYPE_TEMPLATE_BY_CODE[productTypeCode],
+    (template) => template.code === getDefaultClientSpecTemplateCode(productTypeCode),
   );
 
   const derivedFeatures = answers
@@ -90,19 +137,32 @@ const buildRequestSeedValues = (
     requestId,
     title: request.title || '',
     description: request.description || '',
-    estimatedBudget: 0,
-    estimatedTimeline: matchedTemplate?.estimatedTimeline || request.intendedTimeline || '',
-    projectCategory:
-      matchedTemplate?.projectCategory ||
-      PRODUCT_TYPE_LABELS[productTypeCode] ||
-      productTypeAnswer?.option?.label ||
-      productTypeAnswer?.valueText ||
+    estimatedBudget: deriveSeedBudget(request),
+    estimatedTimeline:
+      request.commercialBaseline?.agreedDeliveryDeadline ||
+      scopeBaseline?.requestedDeadline ||
+      request.requestedDeadline ||
+      request.intendedTimeline ||
       '',
+    agreedDeliveryDeadline:
+      request.commercialBaseline?.agreedDeliveryDeadline ||
+      scopeBaseline?.requestedDeadline ||
+      request.requestedDeadline ||
+      undefined,
+    projectCategory: productTypeLabel || '',
     templateCode: matchedTemplate?.code,
     clientFeatures:
-      matchedTemplate?.clientFeatures ||
+      request.commercialBaseline?.agreedClientFeatures?.length
+        ? request.commercialBaseline.agreedClientFeatures.map((feature) => ({
+            id: feature.id || undefined,
+            title: feature.title,
+            description: feature.description,
+            priority: feature.priority || 'SHOULD_HAVE',
+          }))
+        : matchedTemplate?.clientFeatures ||
       (derivedFeatures.length > 0 ? derivedFeatures : undefined),
     referenceLinks: [],
+    changeSummary: '',
   };
 };
 
@@ -133,6 +193,9 @@ export default function CreateClientSpecPage() {
         setRequest(requestData);
         const clientSpec = specs.find((spec) => spec.specPhase === SpecPhase.CLIENT_SPEC) || null;
         setExistingClientSpec(clientSpec);
+        setIsEditingExisting(
+          clientSpec?.status === 'DRAFT' || clientSpec?.status === 'REJECTED',
+        );
       } catch (fetchError) {
         console.error(fetchError);
         setError('Could not load request details.');
@@ -215,21 +278,35 @@ export default function CreateClientSpecPage() {
       : null;
 
   const formInitialValues = isEditingExisting && editableExistingSpec
-    ? {
+      ? {
         requestId: id!,
         title: editableExistingSpec.title,
         description: editableExistingSpec.description,
-        estimatedBudget: Number(editableExistingSpec.totalBudget || 0),
+        estimatedBudget:
+          Number(editableExistingSpec.totalBudget || 0) > 0
+            ? Number(editableExistingSpec.totalBudget || 0)
+            : requestSeedValues?.estimatedBudget,
         estimatedTimeline: editableExistingSpec.estimatedTimeline || '',
-        projectCategory: editableExistingSpec.projectCategory || undefined,
+        agreedDeliveryDeadline: editableExistingSpec.estimatedTimeline || '',
+        projectCategory:
+          requestSeedValues?.projectCategory ||
+          request?.requestScopeBaseline?.productTypeLabel ||
+          editableExistingSpec.projectCategory ||
+          undefined,
         clientFeatures: (editableExistingSpec.clientFeatures || []).map((feature) => ({
+          id: feature.id || undefined,
           title: feature.title,
           description: feature.description,
           priority: feature.priority,
         })),
         referenceLinks: editableExistingSpec.referenceLinks || [],
+        changeSummary: editableExistingSpec.changeSummary || '',
       }
     : requestSeedValues;
+  const originalRequestContext = request.originalRequestContext || request;
+  const requestScopeBaseline = request.requestScopeBaseline;
+  const lockedProductType =
+    requestScopeBaseline?.productTypeLabel || requestSeedValues?.projectCategory || 'Not set';
 
   return (
     <div className="container mx-auto max-w-5xl space-y-6 py-8">
@@ -243,6 +320,56 @@ export default function CreateClientSpecPage() {
           <p className="text-sm text-muted-foreground">Request: {request.title}</p>
         </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Locked Request Context</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4 text-sm">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Original brief</p>
+            <p className="mt-2 font-medium text-slate-950">
+              {requestScopeBaseline?.requestTitle || originalRequestContext.title || request.title}
+            </p>
+            <p className="mt-2 whitespace-pre-wrap text-slate-600">
+              {requestScopeBaseline?.requestDescription || originalRequestContext.description || request.description}
+            </p>
+          </div>
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="rounded-xl border bg-slate-50/70 p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Budget range</p>
+              <p className="mt-1 font-medium">{originalRequestContext.budgetRange || 'Not set'}</p>
+            </div>
+            <div className="rounded-xl border bg-slate-50/70 p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Requested Deadline</p>
+              <p className="mt-1 font-medium">
+                {requestScopeBaseline?.requestedDeadline || originalRequestContext.requestedDeadline || originalRequestContext.intendedTimeline || 'Not set'}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-slate-50/70 p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Project Goal</p>
+              <p className="mt-1 font-medium">
+                {requestScopeBaseline?.projectGoalSummary || originalRequestContext.techPreferences || 'Not set'}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-slate-50/70 p-3">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Product type</p>
+              <p className="mt-1 font-medium">{lockedProductType}</p>
+            </div>
+          </div>
+          <RequestAttachmentGallery
+            attachments={originalRequestContext.attachments}
+            emptyLabel="No request attachments were provided."
+          />
+        </CardContent>
+      </Card>
+
+      {existingClientSpec?.status === 'REJECTED' && existingClientSpec.rejectionReason && (
+        <Alert>
+          <AlertTitle>Client requested a revision</AlertTitle>
+          <AlertDescription>{existingClientSpec.rejectionReason}</AlertDescription>
+        </Alert>
+      )}
 
       {existingClientSpec && !createdSpec && !isEditingExisting && (
         <Alert>
@@ -302,6 +429,12 @@ export default function CreateClientSpecPage() {
           initialValues={formInitialValues}
           submitLabel={isEditingExisting ? 'Update Client Spec' : 'Create Client Spec'}
           requestBudgetRange={request.budgetRange}
+          requestedDeadline={
+            request.requestScopeBaseline?.requestedDeadline ?? request.requestedDeadline ?? null
+          }
+          requestCreatedAt={request.createdAt}
+          lockedProjectCategory={lockedProductType}
+          requireChangeSummary={Boolean(isEditingExisting && existingClientSpec?.status === 'REJECTED')}
         />
       )}
 

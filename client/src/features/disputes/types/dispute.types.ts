@@ -26,6 +26,15 @@ export interface DisputeProjectSummary {
   freelancerId?: string;
 }
 
+export interface DisputeFollowUpAction {
+  code: string;
+  label: string;
+  ownerRole: string;
+  dueAt?: string | null;
+  urgent: boolean;
+  note?: string | null;
+}
+
 export type DisputeCaseStage =
   | "FILED"
   | "TRIAGE"
@@ -44,6 +53,30 @@ export type DisputeAppealState =
   | "RESOLVED"
   | "EXPIRED";
 
+export type DisputeAppealTrackKind = "NONE" | "VERDICT" | "REJECTION";
+
+export type DisputeAppealTrackState =
+  | "NONE"
+  | "AVAILABLE"
+  | "FILED"
+  | "RESOLVED"
+  | "EXPIRED";
+
+export interface DisputeAppealTrack {
+  kind: DisputeAppealTrackKind;
+  state: DisputeAppealTrackState;
+  filedAt?: string | null;
+  deadline?: string | null;
+  assignedAdminId?: string | null;
+  assignedAdmin?: DisputeUserSummary | null;
+  canSubmit?: boolean;
+  canResolve?: boolean;
+  requiresHearing?: boolean;
+  resolution?: string | null;
+  resolvedAt?: string | null;
+  isSlaBreached?: boolean;
+}
+
 export type DisputeAllowedAction =
   | "VIEW_CASE"
   | "VIEW_DOCKET"
@@ -55,7 +88,14 @@ export type DisputeAllowedAction =
   | "UPLOAD_EVIDENCE"
   | "SEND_STATEMENT"
   | "SUBMIT_APPEAL"
+  | "SUBMIT_REJECTION_APPEAL"
+  | "SUBMIT_IMPACT_REVIEW"
+  | "REQUEST_SUPPORT_ESCALATION"
+  | "REQUEST_ADMIN_OVERSIGHT"
+  | "REQUEST_NEUTRAL_PANEL"
   | "RESOLVE_APPEAL"
+  | "RESOLVE_REJECTION_APPEAL"
+  | "MANAGE_APPEAL_QUEUE"
   | "MANAGE_HEARING"
   | "VIEW_COMPLEXITY";
 
@@ -122,8 +162,13 @@ export interface DisputeSummary {
   appealResolvedAt?: string | null;
   appealResolvedById?: string | null;
   appealResolution?: string | null;
+  dismissalHoldUntil?: string | null;
   rejectionAppealReason?: string | null;
   rejectionAppealedAt?: string | null;
+  rejectionAppealResolution?: string | null;
+  rejectionAppealResolvedAt?: string | null;
+  escalatedAt?: string | null;
+  escalatedToAdminId?: string | null;
   createdAt: string;
   updatedAt: string;
   isOverdue?: boolean;
@@ -140,6 +185,7 @@ export interface DisputeSummary {
   allowedActions?: DisputeAllowedAction[];
   appealState?: DisputeAppealState;
   canAppealVerdict?: boolean;
+  appealTrack?: DisputeAppealTrack;
   activeHearingId?: string | null;
   hearingDocket?: DisputeHearingDocketEntry[];
   latestHearing?: DisputeHearingDocketEntry | null;
@@ -197,6 +243,7 @@ export interface DisputeFilters {
   asRaiser?: boolean;
   asDefendant?: boolean;
   asInvolved?: boolean;
+  escalatedToAdminId?: string;
 }
 
 export interface DisputeActivity {
@@ -250,9 +297,30 @@ export interface InternalMember {
   role: UserRole | string;
   fullName?: string;
   email?: string;
-  source: "ASSIGNED_STAFF" | "ESCALATED_ADMIN" | "SUPPORT_INVITED" | "ADMIN_DEFAULT";
+  source:
+    | "ASSIGNED_STAFF"
+    | "ESCALATED_ADMIN"
+    | "SUPPORT_INVITED"
+    | "ADMIN_DEFAULT"
+    | "NEUTRAL_PANEL";
   grantedBy?: string | null;
   createdAt?: string;
+}
+
+export interface AppealOwnerSummary {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+  pendingAppeals: number;
+}
+
+export interface NeutralPanelCandidate {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+  role: UserRole;
+  currentTrustScore: number;
+  isVerified: boolean;
 }
 
 export interface LegacyArchiveMessage extends DisputeMessage {

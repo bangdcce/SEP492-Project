@@ -65,6 +65,14 @@ export enum ContractStatus {
   ARCHIVED = 'ARCHIVED',
 }
 
+export enum ContractLegalSignatureStatus {
+  NOT_STARTED = 'NOT_STARTED',
+  PENDING_PROVIDER = 'PENDING_PROVIDER',
+  SESSION_CREATED = 'SESSION_CREATED',
+  VERIFIED = 'VERIFIED',
+  FAILED = 'FAILED',
+}
+
 @Index('UQ_contracts_sourceSpecId_active', ['sourceSpecId'], {
   unique: true,
   where: `"sourceSpecId" IS NOT NULL AND "status" <> 'ARCHIVED'`,
@@ -94,6 +102,25 @@ export class ContractEntity {
 
   @Column({ type: 'varchar', default: ContractStatus.DRAFT })
   status: ContractStatus;
+
+  @Column({
+    type: 'varchar',
+    length: 32,
+    default: ContractLegalSignatureStatus.NOT_STARTED,
+  })
+  legalSignatureStatus: ContractLegalSignatureStatus;
+
+  @Column({ type: 'varchar', length: 120, nullable: true })
+  provider: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  verifiedAt: Date | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  certificateSerial: string | null;
+
+  @Column({ type: 'jsonb', nullable: true })
+  legalSignatureEvidence: Record<string, unknown> | null;
 
   @Column({ type: 'timestamp', nullable: true })
   activatedAt: Date | null;

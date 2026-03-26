@@ -7,12 +7,10 @@ import { Button } from "../shared/components/custom/Button";
 import { PasswordStrength } from '../shared/components/auth/PasswordStrength';
 import { CaptchaInput } from '../shared/components/auth/CaptchaInput';
 import { AuthLayout } from '../shared/components/layouts/AuthLayout';
-import { Eye, EyeOff, ArrowLeft, ArrowRight, Store, Briefcase, Laptop, X } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, ArrowRight, Store, Briefcase, Laptop } from 'lucide-react';
 import { toast } from 'sonner';
 import { ROUTES } from '@/constants';
 import { signUp, getSkillDomains, getSkills, type SkillDomain, type Skill } from '@/features/auth';
-import TermsOfService from '@/components/legal/TermsOfService';
-import PrivacyPolicy from '@/components/legal/PrivacyPolicy';
 
 interface SignUpPageProps {
   onNavigateToSignIn?: () => void;
@@ -44,8 +42,6 @@ export function SignUpPage({
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showTermsModal, setShowTermsModal] = useState(false);
-  const [showPrivacyModal, setShowPrivacyModal] = useState(false);
 
   // State for domains and skills from API
   const [availableDomains, setAvailableDomains] = useState<SkillDomain[]>([]);
@@ -1050,29 +1046,27 @@ export function SignUpPage({
                     style={{ color: "var(--auth-text)", fontSize: "0.875rem" }}
                   >
                     I accept the{" "}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setShowTermsModal(true);
-                      }}
+                    <a
+                      href={ROUTES.LEGAL_TERMS}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="hover:underline font-medium"
                       style={{ color: "#14b8a6" }}
                     >
                       Terms of Service
-                    </button>
+                    </a>
                     {" and "}
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.preventDefault();
-                        setShowPrivacyModal(true);
-                      }}
+                    <a
+                      href={ROUTES.LEGAL_PRIVACY}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="hover:underline font-medium"
                       style={{ color: "#14b8a6" }}
                     >
                       Privacy Policy
-                    </button>
+                    </a>
                   </span>
                 </label>
                 {(errors.acceptTerms || errors.acceptPrivacy) && (
@@ -1396,48 +1390,6 @@ export function SignUpPage({
           )}
         </AnimatePresence>
       </form>
-
-      {/* Terms of Service Modal */}
-      {showTermsModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          onClick={() => setShowTermsModal(false)}
-        >
-          <div
-            className="bg-white rounded-lg max-w-4xl max-h-[90vh] overflow-y-auto relative"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowTermsModal(false)}
-              className="sticky top-4 right-4 float-right bg-gray-100 hover:bg-gray-200 rounded-full p-2 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <TermsOfService />
-          </div>
-        </div>
-      )}
-
-      {/* Privacy Policy Modal */}
-      {showPrivacyModal && (
-        <div
-          className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-          onClick={() => setShowPrivacyModal(false)}
-        >
-          <div
-            className="bg-white rounded-lg max-w-4xl max-h-[90vh] overflow-y-auto relative"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              onClick={() => setShowPrivacyModal(false)}
-              className="sticky top-4 right-4 float-right bg-gray-100 hover:bg-gray-200 rounded-full p-2 transition-colors"
-            >
-              <X className="w-5 h-5" />
-            </button>
-            <PrivacyPolicy />
-          </div>
-        </div>
-      )}
     </AuthLayout>
   );
 }

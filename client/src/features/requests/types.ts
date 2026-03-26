@@ -26,9 +26,58 @@ export type RequestStatus = (typeof RequestStatus)[keyof typeof RequestStatus];
 export interface ProjectRequestAttachment {
   filename: string;
   url: string;
+  storagePath?: string | null;
   mimetype?: string | null;
   size?: number | null;
   category?: "requirements" | "attachment";
+}
+
+export interface ProjectRequestCommercialFeature {
+  id?: string | null;
+  title: string;
+  description: string;
+  priority?: "MUST_HAVE" | "SHOULD_HAVE" | "NICE_TO_HAVE" | null;
+}
+
+export interface ProjectRequestScopeBaseline {
+  productTypeCode?: string | null;
+  productTypeLabel?: string | null;
+  projectGoalSummary?: string | null;
+  requestedDeadline?: string | null;
+  requestTitle: string;
+  requestDescription: string;
+}
+
+export interface ProjectRequestCommercialBaseline {
+  source: "REQUEST" | "CLIENT_SPEC" | "COMMERCIAL_CHANGE";
+  budgetRange?: string | null;
+  estimatedBudget?: number | null;
+  estimatedTimeline?: string | null;
+  clientFeatures?: ProjectRequestCommercialFeature[] | null;
+  agreedBudget?: number | null;
+  agreedDeliveryDeadline?: string | null;
+  agreedClientFeatures?: ProjectRequestCommercialFeature[] | null;
+  sourceSpecId?: string | null;
+  sourceChangeRequestId?: string | null;
+  approvedAt?: string | null;
+}
+
+export interface ProjectRequestCommercialChangeRequest {
+  id: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  reason: string;
+  requestedByBrokerId: string;
+  requestedAt: string;
+  respondedAt?: string | null;
+  respondedByClientId?: string | null;
+  responseNote?: string | null;
+  currentBudget?: number | null;
+  proposedBudget?: number | null;
+  currentTimeline?: string | null;
+  proposedTimeline?: string | null;
+  currentClientFeatures?: ProjectRequestCommercialFeature[] | null;
+  proposedClientFeatures?: ProjectRequestCommercialFeature[] | null;
+  parentSpecId?: string | null;
 }
 
 export interface RequestPartySummary {
@@ -126,9 +175,22 @@ export interface ProjectRequest {
   clientId: string;
   brokerId?: string | null;
   budgetRange?: string | null;
+  requestedDeadline?: string | null;
   intendedTimeline?: string | null;
   techPreferences?: string | null;
   attachments?: ProjectRequestAttachment[] | null;
+  originalRequestContext?: {
+    title: string;
+    description: string;
+    budgetRange?: string | null;
+    requestedDeadline?: string | null;
+    intendedTimeline?: string | null;
+    techPreferences?: string | null;
+    attachments?: ProjectRequestAttachment[] | null;
+  };
+  requestScopeBaseline?: ProjectRequestScopeBaseline | null;
+  commercialBaseline?: ProjectRequestCommercialBaseline | null;
+  activeCommercialChangeRequest?: ProjectRequestCommercialChangeRequest | null;
   wizardProgressStep?: number | null;
   answers?: Array<{
     id?: string;

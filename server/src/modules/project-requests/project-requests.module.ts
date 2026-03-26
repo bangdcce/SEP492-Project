@@ -10,6 +10,7 @@ import { MatchingModule } from '../matching/matching.module';
 import { SubscriptionsModule } from '../subscriptions/subscriptions.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { ContractsModule } from '../contracts/contracts.module';
+import { RequestChatModule } from '../request-chat/request-chat.module';
 
 import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
@@ -32,6 +33,7 @@ import { ContractEntity } from '../../database/entities/contract.entity';
     SubscriptionsModule,
     NotificationsModule,
     ContractsModule,
+    RequestChatModule,
   ],
   controllers: [ProjectRequestsController],
   providers: [ProjectRequestsService],

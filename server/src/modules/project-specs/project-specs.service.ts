@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, IsNull, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
@@ -14,11 +15,18 @@ import {
   SpecPhase,
   SpecFeature,
   ClientFeature,
+  ProjectSpecRequestContext,
+  SpecFieldDiffEntry,
+  SpecRejectionHistoryEntry,
+  SpecSubmissionSnapshot,
 } from '../../database/entities/project-spec.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
 import { ProjectSpecSignatureEntity } from '../../database/entities/project-spec-signature.entity';
 import {
   ProjectRequestEntity,
+  ProjectRequestCommercialBaseline,
+  ProjectRequestCommercialFeature,
+  ProjectRequestScopeBaseline,
   RequestStatus,
 } from '../../database/entities/project-request.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
@@ -28,8 +36,9 @@ import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { CreateClientSpecDto } from './dto/create-client-spec.dto';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import sanitizeHtml from 'sanitize-html';
+import { RequestChatService } from '../request-chat/request-chat.service';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GOVERNANCE CONSTANTS (from spec_project_governance.md)
@@ -87,6 +96,8 @@ export class ProjectSpecsService {
     private readonly auditLogsService: AuditLogsService,
     private readonly dataSource: DataSource,
     private readonly notificationsService: NotificationsService,
+    private readonly requestChatService: RequestChatService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -151,16 +162,31 @@ export class ProjectSpecsService {
 
   private validateMilestoneStructure(
     milestones: CreateProjectSpecDto['milestones'],
+    options?: {
+      approvedDeadlineKey?: string | null;
+    },
   ): void {
     const seenSortOrders = new Set<number>();
+    const todayKey = this.getTodayDateKey();
+    const sortedMilestones = [...milestones].sort(
+      (left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0),
+    );
+    let previousDueDateKey: string | null = null;
 
-    milestones.forEach((milestone, index) => {
+    sortedMilestones.forEach((milestone, index) => {
       const amount = new Decimal(milestone.amount);
       const retentionAmount = new Decimal(milestone.retentionAmount ?? 0);
+      const retentionCap = amount.times(0.1);
 
       if (retentionAmount.greaterThan(amount)) {
         throw new BadRequestException(
           `Milestone ${index + 1} retention amount cannot exceed the milestone amount.`,
+        );
+      }
+
+      if (retentionAmount.greaterThan(retentionCap)) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} retention amount cannot exceed 10% of the milestone amount.`,
         );
       }
 
@@ -178,44 +204,221 @@ export class ProjectSpecsService {
       }
       seenSortOrders.add(sortOrder);
 
-      if (milestone.startDate && milestone.dueDate) {
-        const startDate = new Date(milestone.startDate);
-        const dueDate = new Date(milestone.dueDate);
-
-        if (
-          Number.isNaN(startDate.getTime()) ||
-          Number.isNaN(dueDate.getTime())
-        ) {
-          throw new BadRequestException(
-            `Milestone ${index + 1} has an invalid start or due date.`,
-          );
-        }
-
-        if (dueDate.getTime() < startDate.getTime()) {
-          throw new BadRequestException(
-            `Milestone ${index + 1} due date must be on or after the start date.`,
-          );
-        }
+      if (!milestone.startDate) {
+        throw new BadRequestException(`Milestone ${index + 1} start date is required.`);
       }
+
+      if (!milestone.dueDate) {
+        throw new BadRequestException(`Milestone ${index + 1} due date is required.`);
+      }
+
+      const startDateKey = this.normalizeDateOnlyInput(
+        milestone.startDate,
+        `Milestone ${index + 1} start date`,
+      );
+      const dueDateKey = this.normalizeDateOnlyInput(
+        milestone.dueDate,
+        `Milestone ${index + 1} due date`,
+      );
+
+      if (startDateKey < todayKey) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} start date cannot be in the past.`,
+        );
+      }
+
+      const minimumDueDateKey = startDateKey > todayKey ? startDateKey : todayKey;
+      if (dueDateKey < minimumDueDateKey) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} due date must be on or after ${minimumDueDateKey}.`,
+        );
+      }
+
+      const startDate = new Date(`${startDateKey}T00:00:00.000Z`);
+      const dueDate = new Date(`${dueDateKey}T00:00:00.000Z`);
+
+      if (Number.isNaN(startDate.getTime()) || Number.isNaN(dueDate.getTime())) {
+        throw new BadRequestException(`Milestone ${index + 1} has an invalid start or due date.`);
+      }
+
+      if (dueDate.getTime() < startDate.getTime()) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} due date must be on or after the start date.`,
+        );
+      }
+
+      if (previousDueDateKey && startDateKey < previousDueDateKey) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} overlaps the previous milestone. Adjust the schedule to keep milestones sequential.`,
+        );
+      }
+
+      if (options?.approvedDeadlineKey && dueDateKey > options.approvedDeadlineKey) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} due date cannot exceed the approved delivery deadline ${options.approvedDeadlineKey}.`,
+        );
+      }
+
+      if (
+        options?.approvedDeadlineKey &&
+        index === sortedMilestones.length - 1 &&
+        dueDateKey !== options.approvedDeadlineKey
+      ) {
+        throw new BadRequestException(
+          `Final milestone due date must match the approved delivery deadline ${options.approvedDeadlineKey}.`,
+        );
+      }
+
+      previousDueDateKey = dueDateKey;
     });
   }
 
   private validateFullSpecBudgetAgainstParent(
     totalBudget: number,
+    request: ProjectRequestEntity,
     parentSpec: ProjectSpecEntity | null,
   ): void {
-    if (!parentSpec) {
+    const approvedBaseline = this.resolveApprovedCommercialBaseline(request, parentSpec);
+
+    const approvedBudget =
+      approvedBaseline?.agreedBudget ?? approvedBaseline?.estimatedBudget ?? parentSpec?.totalBudget ?? null;
+
+    if (!approvedBudget && !parentSpec) {
       return;
     }
 
     const fullSpecBudget = new Decimal(totalBudget);
-    const approvedClientBudget = new Decimal(parentSpec.totalBudget);
+    const approvedClientBudget = new Decimal(approvedBudget ?? totalBudget);
     const budgetDiff = fullSpecBudget.minus(approvedClientBudget);
 
-    if (budgetDiff.greaterThan(GOVERNANCE_RULES.BUDGET_TOLERANCE)) {
+    if (budgetDiff.abs().greaterThan(GOVERNANCE_RULES.BUDGET_TOLERANCE)) {
       throw new BadRequestException(
-        `Full spec budget cannot exceed approved client spec budget. Full spec: $${fullSpecBudget.toFixed(2)}, ` +
-          `Client approved: $${approvedClientBudget.toFixed(2)}`,
+        `Full spec budget must match the approved commercial baseline. Full spec: $${fullSpecBudget.toFixed(2)}, ` +
+          `Approved baseline: $${approvedClientBudget.toFixed(2)}`,
+      );
+    }
+  }
+
+  private normalizeCommercialBaselineForWorkflow(
+    baseline?: ProjectRequestCommercialBaseline | null,
+  ): ProjectRequestCommercialBaseline | null {
+    if (!baseline) {
+      return null;
+    }
+
+    const agreedBudget =
+      typeof baseline.agreedBudget === 'number' && Number.isFinite(baseline.agreedBudget)
+        ? baseline.agreedBudget
+        : typeof baseline.estimatedBudget === 'number' && Number.isFinite(baseline.estimatedBudget)
+          ? baseline.estimatedBudget
+          : null;
+    const agreedDeliveryDeadline =
+      this.safeNormalizeDateOnlyInput(
+        baseline.agreedDeliveryDeadline ?? baseline.estimatedTimeline ?? null,
+      ) ?? null;
+    const agreedClientFeatures = this.normalizeCommercialFeatures(
+      baseline.agreedClientFeatures ?? baseline.clientFeatures,
+    );
+
+    return {
+      ...baseline,
+      estimatedBudget: agreedBudget,
+      estimatedTimeline: agreedDeliveryDeadline,
+      clientFeatures: agreedClientFeatures,
+      agreedBudget,
+      agreedDeliveryDeadline,
+      agreedClientFeatures,
+    };
+  }
+
+  private resolveApprovedClientFeatures(
+    request: ProjectRequestEntity,
+    parentSpec: ProjectSpecEntity | null,
+  ): ClientFeature[] {
+    const approvedBaseline = this.resolveApprovedCommercialBaseline(request, parentSpec);
+    const baselineFeatures = approvedBaseline?.agreedClientFeatures ?? approvedBaseline?.clientFeatures;
+    if (
+      baselineFeatures?.length &&
+      baselineFeatures.every((feature) => Boolean((feature as ClientFeature).id))
+    ) {
+      return baselineFeatures.map((feature) => ({
+        id: (feature as ClientFeature).id || randomUUID(),
+        title: this.sanitizePlainText(feature.title),
+        description: this.sanitizePlainText(feature.description),
+        priority: (feature.priority || 'SHOULD_HAVE') as ClientFeature['priority'],
+      }));
+    }
+
+    return (parentSpec?.clientFeatures || []).map((feature) => ({
+      id: feature.id,
+      title: this.sanitizePlainText(feature.title),
+      description: this.sanitizePlainText(feature.description),
+      priority: feature.priority,
+    }));
+  }
+
+  private resolveApprovedDeliveryDeadline(
+    request: ProjectRequestEntity,
+    parentSpec: ProjectSpecEntity | null,
+  ): string | null {
+    const approvedBaseline = this.resolveApprovedCommercialBaseline(request, parentSpec);
+    return (
+      this.safeNormalizeDateOnlyInput(
+        approvedBaseline?.agreedDeliveryDeadline ?? approvedBaseline?.estimatedTimeline ?? null,
+      ) ??
+      this.assertRequestScopeBaselineReady(request).requestedDeadline
+    );
+  }
+
+  private validateApprovedFeatureCoverage(
+    features: SpecFeature[],
+    milestones: CreateProjectSpecDto['milestones'],
+    approvedClientFeatures: ClientFeature[],
+  ): void {
+    if (!approvedClientFeatures.length) {
+      return;
+    }
+
+    const approvedFeatureIds = new Set(
+      approvedClientFeatures.map((feature) => feature.id).filter((value): value is string => Boolean(value)),
+    );
+    const coveredFeatureIds = new Set<string>();
+
+    const collectCoverage = (source: string, ids?: string[] | null) => {
+      const normalizedIds = Array.from(
+        new Set(
+          (ids || [])
+            .map((id) => this.sanitizePlainText(id))
+            .filter((value): value is string => Boolean(value)),
+        ),
+      );
+
+      normalizedIds.forEach((id) => {
+        if (!approvedFeatureIds.has(id)) {
+          throw new BadRequestException(
+            `${source} references an approved client feature that does not belong to the approved baseline.`,
+          );
+        }
+        coveredFeatureIds.add(id);
+      });
+    };
+
+    features.forEach((feature, index) => {
+      collectCoverage(`Feature ${index + 1}`, feature.approvedClientFeatureIds);
+    });
+
+    milestones.forEach((milestone, index) => {
+      collectCoverage(`Milestone ${index + 1}`, milestone.approvedClientFeatureIds);
+    });
+
+    const missingCoverage = approvedClientFeatures.filter(
+      (feature) => feature.id && !coveredFeatureIds.has(feature.id),
+    );
+    if (missingCoverage.length > 0) {
+      throw new BadRequestException(
+        `Every approved client feature must be mapped to at least one technical feature or milestone. Missing: ${missingCoverage
+          .map((feature) => feature.title)
+          .join(', ')}`,
       );
     }
   }
@@ -277,6 +480,465 @@ export class ProjectSpecsService {
       );
     }
     return value;
+  }
+
+  private normalizeHttpUrl(value: string): string {
+    const trimmed = this.sanitizePlainText(value);
+    if (!trimmed) {
+      throw new BadRequestException('Reference URL is required');
+    }
+
+    const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+    try {
+      const parsed = new URL(withProtocol);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        throw new BadRequestException('Reference links must use http or https URLs.');
+      }
+      return parsed.toString();
+    } catch {
+      throw new BadRequestException(`Invalid reference URL: ${trimmed}`);
+    }
+  }
+
+  private normalizeReferenceLinks(
+    links: Array<{ label: string; url: string }> | null | undefined,
+  ): Array<{ label: string; url: string }> {
+    if (!links?.length) {
+      return [];
+    }
+
+    return links
+      .map((link) => ({
+        label: this.sanitizePlainText(link.label),
+        url: this.normalizeHttpUrl(link.url),
+      }))
+      .filter((link) => link.label.length > 0 && link.url.length > 0);
+  }
+
+  private humanizeProductTypeValue(value: string): string {
+    return value
+      .trim()
+      .replace(/[_/]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  private normalizeProductTypeComparable(value?: string | null): string | null {
+    const sanitized = this.sanitizePlainText(value);
+    if (!sanitized) {
+      return null;
+    }
+
+    return sanitized
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toUpperCase();
+  }
+
+  private getRequestProductTypeSnapshot(request: Pick<ProjectRequestEntity, 'answers'>): {
+    code: string | null;
+    label: string | null;
+  } {
+    const productTypeAnswer = (request.answers || []).find(
+      (answer) => answer?.question?.code === 'PRODUCT_TYPE',
+    );
+
+    const normalizedCode = this.normalizeProductTypeComparable(
+      productTypeAnswer?.valueText || productTypeAnswer?.option?.label,
+    );
+    const rawLabel = this.sanitizePlainText(
+      productTypeAnswer?.option?.label || productTypeAnswer?.valueText,
+    );
+    const label = rawLabel
+      ? this.humanizeProductTypeValue(rawLabel)
+      : normalizedCode
+        ? this.humanizeProductTypeValue(normalizedCode)
+        : null;
+
+    return {
+      code: normalizedCode,
+      label,
+    };
+  }
+
+  private resolveLockedClientSpecProductType(
+    request: Pick<ProjectRequestEntity, 'answers'>,
+    requestedValue?: string | null,
+  ): string | null {
+    const requestProductType = this.getRequestProductTypeSnapshot(request);
+    const requestedComparable = this.normalizeProductTypeComparable(requestedValue);
+    const allowedComparables = new Set(
+      [requestProductType.code, this.normalizeProductTypeComparable(requestProductType.label)].filter(
+        (value): value is string => Boolean(value),
+      ),
+    );
+
+    if (allowedComparables.size === 0) {
+      return requestedValue ? this.sanitizePlainText(requestedValue) : null;
+    }
+
+    if (requestedComparable && !allowedComparables.has(requestedComparable)) {
+      throw new BadRequestException(
+        'Client spec Product Type must match the original request Product Type.',
+      );
+    }
+
+    return requestProductType.label || requestProductType.code;
+  }
+
+  private normalizePositiveBudget(value: number, label: string): number {
+    const normalized = Number(value);
+    if (!Number.isFinite(normalized) || normalized <= 0) {
+      throw new BadRequestException(`${label} must be greater than 0.`);
+    }
+
+    return normalized;
+  }
+
+  private cloneJson<T>(value: T): T {
+    return JSON.parse(JSON.stringify(value)) as T;
+  }
+
+  private safeNormalizeDateOnlyInput(value?: string | null): string | null {
+    const trimmed = `${value || ''}`.trim();
+    if (!trimmed) {
+      return null;
+    }
+
+    try {
+      return this.normalizeDateOnlyInput(trimmed, 'Date');
+    } catch {
+      return null;
+    }
+  }
+
+  private getTodayDateKey(): string {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = `${now.getMonth() + 1}`.padStart(2, '0');
+    const day = `${now.getDate()}`.padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  private normalizeDateOnlyInput(value: string, label: string): string {
+    const trimmed = `${value || ''}`.trim();
+    const dateOnly = /^(\d{4}-\d{2}-\d{2})/.exec(trimmed)?.[1];
+    if (!dateOnly) {
+      throw new BadRequestException(`${label} must be a valid YYYY-MM-DD date.`);
+    }
+    return dateOnly;
+  }
+
+  private toPersistenceDate(value?: string | null): Date | null {
+    if (!value) {
+      return null;
+    }
+
+    return new Date(`${value}T00:00:00.000Z`);
+  }
+
+  private getDateKeyFromDate(value?: Date | string | null): string | null {
+    if (!value) {
+      return null;
+    }
+
+    const date = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return date.toISOString().slice(0, 10);
+  }
+
+  private resolveRequestScopeBaseline(request: ProjectRequestEntity): ProjectRequestScopeBaseline {
+    const stored = request.requestScopeBaseline || null;
+    const requestProductType = this.getRequestProductTypeSnapshot(request);
+    const legacyCreatedAtKey = this.getDateKeyFromDate(request.createdAt);
+    const requestedDeadline =
+      this.safeNormalizeDateOnlyInput(
+        stored?.requestedDeadline ??
+          request.requestedDeadline ??
+          (/^\d{4}-\d{2}-\d{2}$/.test(`${request.intendedTimeline || ''}`)
+            ? request.intendedTimeline
+            : null) ??
+          legacyCreatedAtKey,
+      ) ?? null;
+
+    return {
+      productTypeCode: requestProductType.code ?? stored?.productTypeCode ?? null,
+      productTypeLabel: requestProductType.label ?? stored?.productTypeLabel ?? null,
+      projectGoalSummary:
+        stored?.projectGoalSummary ??
+        ([this.sanitizePlainText(request.title), this.sanitizePlainText(request.description)]
+          .filter(Boolean)
+          .join(': ') || null),
+      requestedDeadline,
+      requestTitle: this.sanitizePlainText(request.title),
+      requestDescription: this.sanitizePlainText(request.description),
+    };
+  }
+
+  private assertRequestScopeBaselineReady(request: ProjectRequestEntity): ProjectRequestScopeBaseline {
+    const baseline = this.resolveRequestScopeBaseline(request);
+    if (!baseline.requestedDeadline) {
+      throw new BadRequestException(
+        'Legacy request is missing a normalized requested deadline. Update the original request intake before continuing this spec flow.',
+      );
+    }
+
+    return baseline;
+  }
+
+  private resolveClientSpecDeadlineFloor(request: ProjectRequestEntity): string {
+    const todayKey = this.getTodayDateKey();
+    const baseline = this.resolveRequestScopeBaseline(request);
+    const requestAnchor = baseline.requestedDeadline || this.getDateKeyFromDate(request.createdAt);
+
+    if (!requestAnchor) {
+      return todayKey;
+    }
+
+    return requestAnchor > todayKey ? requestAnchor : todayKey;
+  }
+
+  private assertAgreedDeliveryDeadlineFloor(
+    request: ProjectRequestEntity,
+    agreedDeliveryDeadline: string,
+  ): void {
+    const floor = this.resolveClientSpecDeadlineFloor(request);
+    if (agreedDeliveryDeadline < floor) {
+      throw new BadRequestException(
+        `Agreed delivery deadline cannot be earlier than ${floor}.`,
+      );
+    }
+  }
+
+  private buildSpecRequestContext(
+    request: ProjectRequestEntity,
+    spec: Pick<ProjectSpecEntity, 'requestId' | 'request' | 'estimatedTimeline' | 'parentSpec'>,
+  ): ProjectSpecRequestContext {
+    const scopeBaseline = this.resolveRequestScopeBaseline(request);
+    const approvedBaseline =
+      this.resolveApprovedCommercialBaseline(request, spec.parentSpec ?? null) ??
+      this.normalizeCommercialBaselineForWorkflow(request.commercialBaseline);
+
+    return {
+      originalRequest: {
+        title: scopeBaseline.requestTitle || request.title || null,
+        description: scopeBaseline.requestDescription || request.description || null,
+        budgetRange: request.budgetRange || null,
+        requestedDeadline: scopeBaseline.requestedDeadline || null,
+        productTypeLabel: scopeBaseline.productTypeLabel || null,
+        projectGoalSummary: scopeBaseline.projectGoalSummary || null,
+      },
+      approvedCommercialBaseline: approvedBaseline
+        ? {
+            source: approvedBaseline.source || null,
+            agreedBudget: approvedBaseline.agreedBudget ?? approvedBaseline.estimatedBudget ?? null,
+            agreedDeliveryDeadline:
+              approvedBaseline.agreedDeliveryDeadline ??
+              approvedBaseline.estimatedTimeline ??
+              spec.estimatedTimeline ??
+              null,
+            agreedClientFeatures:
+              approvedBaseline.agreedClientFeatures ??
+              approvedBaseline.clientFeatures ??
+              null,
+          }
+        : null,
+    };
+  }
+
+  private attachRequestContext<T extends ProjectSpecEntity | null>(spec: T): T {
+    if (!spec?.request) {
+      return spec;
+    }
+
+    spec.requestContext = this.buildSpecRequestContext(spec.request, spec);
+    return spec;
+  }
+
+  private normalizeCommercialFeatures(
+    features?: ClientFeature[] | null,
+  ): ProjectRequestCommercialFeature[] | null {
+    if (!features?.length) {
+      return null;
+    }
+
+    const normalized = features
+      .map((feature) => ({
+        id: (feature as ClientFeature).id || null,
+        title: this.sanitizePlainText(feature.title),
+        description: this.sanitizePlainText(feature.description),
+        priority: feature.priority,
+      }))
+      .filter((feature) => feature.title.length > 0 && feature.description.length > 0);
+
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private normalizeApprovedClientFeatureIds(ids?: string[] | null): string[] | null {
+    if (!ids?.length) {
+      return null;
+    }
+
+    const normalized = Array.from(
+      new Set(
+        ids
+          .map((id) => this.sanitizePlainText(id))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private buildCommercialBaselineFromClientSpec(spec: ProjectSpecEntity): ProjectRequestCommercialBaseline {
+    const agreedDeliveryDeadline =
+      this.safeNormalizeDateOnlyInput(spec.estimatedTimeline ?? null) ?? null;
+    const approvedClientFeatures = this.normalizeCommercialFeatures(spec.clientFeatures);
+
+    return {
+      source: 'CLIENT_SPEC',
+      budgetRange: spec.request?.budgetRange ?? null,
+      estimatedBudget: typeof spec.totalBudget === 'number' ? Number(spec.totalBudget) : Number(spec.totalBudget || 0),
+      estimatedTimeline: agreedDeliveryDeadline,
+      clientFeatures: approvedClientFeatures,
+      agreedBudget:
+        typeof spec.totalBudget === 'number' ? Number(spec.totalBudget) : Number(spec.totalBudget || 0),
+      agreedDeliveryDeadline,
+      agreedClientFeatures: approvedClientFeatures,
+      sourceSpecId: spec.id,
+      sourceChangeRequestId: null,
+      approvedAt: new Date().toISOString(),
+    };
+  }
+
+  private resolveApprovedCommercialBaseline(
+    request: ProjectRequestEntity,
+    parentSpec: ProjectSpecEntity | null,
+  ): ProjectRequestCommercialBaseline | null {
+    const normalizedRequestBaseline = this.normalizeCommercialBaselineForWorkflow(
+      request.commercialBaseline,
+    );
+    if (normalizedRequestBaseline?.estimatedBudget != null) {
+      return normalizedRequestBaseline;
+    }
+
+    if (parentSpec?.status === ProjectSpecStatus.CLIENT_APPROVED) {
+      return this.normalizeCommercialBaselineForWorkflow(
+        this.buildCommercialBaselineFromClientSpec(parentSpec),
+      );
+    }
+
+    return null;
+  }
+
+  private buildSpecSubmissionSnapshot(spec: ProjectSpecEntity): SpecSubmissionSnapshot {
+    return {
+      phase: spec.specPhase,
+      title: this.sanitizePlainText(spec.title),
+      description: this.sanitizePlainText(spec.description),
+      totalBudget: Number(spec.totalBudget || 0),
+      projectCategory: spec.projectCategory ?? null,
+      estimatedTimeline: spec.estimatedTimeline ?? null,
+      clientFeatures: this.cloneJson(spec.clientFeatures || null),
+      features: this.cloneJson(spec.features || null),
+      techStack: spec.techStack ?? null,
+      referenceLinks: this.cloneJson(spec.referenceLinks || null),
+      milestones: (spec.milestones || [])
+        .slice()
+        .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
+        .map((milestone) => ({
+          title: this.sanitizePlainText(milestone.title),
+          description: this.sanitizePlainText(milestone.description),
+          amount: Number(milestone.amount || 0),
+          deliverableType: milestone.deliverableType,
+          retentionAmount: Number(milestone.retentionAmount || 0),
+          startDate: this.safeNormalizeDateOnlyInput(
+            milestone.startDate ? new Date(milestone.startDate).toISOString().slice(0, 10) : null,
+          ),
+          dueDate: this.safeNormalizeDateOnlyInput(
+            milestone.dueDate ? new Date(milestone.dueDate).toISOString().slice(0, 10) : null,
+          ),
+          sortOrder: milestone.sortOrder ?? null,
+          acceptanceCriteria: this.cloneJson(milestone.acceptanceCriteria || null),
+          approvedClientFeatureIds: this.cloneJson(milestone.approvedClientFeatureIds || null),
+        })),
+    };
+  }
+
+  private buildSpecSubmissionDiff(
+    previousSnapshot: SpecSubmissionSnapshot | null | undefined,
+    currentSnapshot: SpecSubmissionSnapshot,
+  ): SpecFieldDiffEntry[] {
+    const previous = previousSnapshot || null;
+    const fields: Array<{ field: keyof SpecSubmissionSnapshot; label: string }> = [
+      { field: 'title', label: 'Title' },
+      { field: 'description', label: 'Description' },
+      { field: 'totalBudget', label: 'Budget' },
+      { field: 'projectCategory', label: 'Product Type' },
+      { field: 'estimatedTimeline', label: 'Agreed Delivery Deadline' },
+      { field: 'clientFeatures', label: 'Approved Client Features' },
+      { field: 'features', label: 'Technical Features' },
+      { field: 'techStack', label: 'Tech Stack' },
+      { field: 'referenceLinks', label: 'Reference Links' },
+      { field: 'milestones', label: 'Milestones' },
+    ];
+
+    return fields
+      .filter(({ field }) => JSON.stringify(previous?.[field] ?? null) !== JSON.stringify(currentSnapshot[field] ?? null))
+      .map(({ field, label }) => ({
+        field,
+        label,
+        previous: this.cloneJson(previous?.[field] ?? null),
+        next: this.cloneJson(currentSnapshot[field] ?? null),
+      }));
+  }
+
+  private appendRejectionHistory(
+    spec: ProjectSpecEntity,
+    reason: string,
+    rejectedByUserId: string,
+  ): SpecRejectionHistoryEntry[] {
+    const currentHistory = Array.isArray(spec.rejectionHistory) ? spec.rejectionHistory : [];
+    return [
+      ...currentHistory,
+      {
+        phase: spec.specPhase,
+        reason,
+        rejectedByUserId,
+        rejectedAt: new Date().toISOString(),
+      },
+    ];
+  }
+
+  private emitSpecUpdated(
+    spec: Pick<ProjectSpecEntity, 'id' | 'requestId' | 'request'>,
+    userIds: Array<string | null | undefined>,
+  ) {
+    const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
+    uniqueUserIds.forEach((userId) => {
+      this.eventEmitter.emit('spec.updated', {
+        userId,
+        specId: spec.id,
+        requestId: spec.requestId,
+        entityType: 'ProjectSpec',
+        entityId: spec.id,
+      });
+    });
+  }
+
+  private async emitRequestSystemMessage(requestId: string, content: string): Promise<void> {
+    try {
+      await this.requestChatService.createSystemMessage(requestId, content);
+    } catch (error) {
+      this.logger.warn(
+        `Request chat system message failed for ${requestId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async findAcceptedFreelancerId(requestId: string): Promise<string | null> {
@@ -451,7 +1113,7 @@ export class ProjectSpecsService {
       // 1. Validate Project Request
       const projectRequest = await queryRunner.manager.findOne(ProjectRequestEntity, {
         where: { id: dto.requestId },
-        relations: ['broker'],
+        relations: ['broker', 'answers', 'answers.question', 'answers.option'],
       });
 
       if (!projectRequest) {
@@ -466,16 +1128,29 @@ export class ProjectSpecsService {
       const existingSpec = await queryRunner.manager.findOne(ProjectSpecEntity, {
         where: { requestId: dto.requestId, specPhase: SpecPhase.CLIENT_SPEC },
       });
-      if (existingSpec && existingSpec.status !== ProjectSpecStatus.REJECTED) {
+      if (existingSpec) {
         throw new BadRequestException(
-          'A client spec already exists for this request. Edit the existing one or wait for client review.',
+          'A client spec already exists for this request. Edit the existing one and resubmit it.',
         );
       }
 
       const sanitizedTitle = this.sanitizePlainText(dto.title);
       const sanitizedDescription = this.sanitizePlainText(dto.description);
+      const sanitizedTimeline = this.normalizeDateOnlyInput(
+        dto.agreedDeliveryDeadline ?? dto.estimatedTimeline,
+        'Agreed delivery deadline',
+      );
+      this.assertAgreedDeliveryDeadlineFloor(projectRequest, sanitizedTimeline);
+      const normalizedBudget = this.normalizePositiveBudget(
+        dto.estimatedBudget,
+        'Estimated budget',
+      );
+      const lockedProductType = this.resolveLockedClientSpecProductType(
+        projectRequest,
+        dto.projectCategory,
+      );
       const mappedFeatures: ClientFeature[] = dto.clientFeatures.map((feature) => ({
-        id: uuidv4(),
+        id: randomUUID(),
         title: this.sanitizePlainText(feature.title),
         description: this.sanitizePlainText(feature.description),
         priority: feature.priority,
@@ -494,15 +1169,16 @@ export class ProjectSpecsService {
         specPhase: SpecPhase.CLIENT_SPEC,
         title: sanitizedTitle,
         description: sanitizedDescription,
-        totalBudget: dto.estimatedBudget,
-        estimatedTimeline: dto.estimatedTimeline,
-        projectCategory: dto.projectCategory || undefined,
+        totalBudget: normalizedBudget,
+        estimatedTimeline: sanitizedTimeline,
+        projectCategory: lockedProductType,
         clientFeatures: mappedFeatures,
-        referenceLinks: dto.referenceLinks || [],
+        referenceLinks: this.normalizeReferenceLinks(dto.referenceLinks),
         richContentJson: (this.sanitizeStructuredJson(dto.richContentJson) ?? null) as Record<
           string,
           unknown
         > | null,
+        changeSummary: this.sanitizePlainText(dto.changeSummary) || null,
         status: ProjectSpecStatus.DRAFT,
       });
       const savedSpec = await queryRunner.manager.save(newSpec);
@@ -518,7 +1194,8 @@ export class ProjectSpecsService {
         entityId: savedSpec.id,
         newData: {
           phase: SpecPhase.CLIENT_SPEC,
-          estimatedBudget: dto.estimatedBudget,
+          estimatedBudget: normalizedBudget,
+          productType: lockedProductType,
           featureCount: mappedFeatures.length,
           hasWarnings: warnings.length > 0,
         },
@@ -565,10 +1242,31 @@ export class ProjectSpecsService {
       throw new ForbiddenException('Only assigned broker can edit this client spec');
     }
 
+    const requestContext = await this.projectRequestsRepository.findOne({
+      where: { id: spec.requestId },
+      relations: ['answers', 'answers.question', 'answers.option'],
+    });
+    if (!requestContext) {
+      throw new NotFoundException('Project request not found');
+    }
+
     const sanitizedTitle = this.sanitizePlainText(dto.title);
     const sanitizedDescription = this.sanitizePlainText(dto.description);
+    const sanitizedTimeline = this.normalizeDateOnlyInput(
+      dto.agreedDeliveryDeadline ?? dto.estimatedTimeline,
+      'Agreed delivery deadline',
+    );
+    this.assertAgreedDeliveryDeadlineFloor(requestContext, sanitizedTimeline);
+    const normalizedBudget = this.normalizePositiveBudget(
+      dto.estimatedBudget,
+      'Estimated budget',
+    );
+    const lockedProductType = this.resolveLockedClientSpecProductType(
+      requestContext,
+      dto.projectCategory,
+    );
     const mappedFeatures: ClientFeature[] = dto.clientFeatures.map((feature) => ({
-      id: uuidv4(),
+      id: randomUUID(),
       title: this.sanitizePlainText(feature.title),
       description: this.sanitizePlainText(feature.description),
       priority: feature.priority,
@@ -581,15 +1279,16 @@ export class ProjectSpecsService {
 
     spec.title = sanitizedTitle;
     spec.description = sanitizedDescription;
-    spec.totalBudget = dto.estimatedBudget;
-    spec.estimatedTimeline = this.sanitizePlainText(dto.estimatedTimeline);
-    spec.projectCategory = dto.projectCategory ? this.sanitizePlainText(dto.projectCategory) : null;
+    spec.totalBudget = normalizedBudget;
+    spec.estimatedTimeline = sanitizedTimeline;
+    spec.projectCategory = lockedProductType;
     spec.clientFeatures = mappedFeatures;
-    spec.referenceLinks = dto.referenceLinks || [];
+    spec.referenceLinks = this.normalizeReferenceLinks(dto.referenceLinks);
     spec.richContentJson = (this.sanitizeStructuredJson(dto.richContentJson) ?? null) as Record<
       string,
       unknown
     > | null;
+    spec.changeSummary = this.sanitizePlainText(dto.changeSummary) || spec.changeSummary || null;
     // Preserve REJECTED until broker explicitly re-submits for review.
 
     await this.projectSpecsRepository.save(spec);
@@ -601,7 +1300,8 @@ export class ProjectSpecsService {
       entityId: spec.id,
       newData: {
         phase: SpecPhase.CLIENT_SPEC,
-        estimatedBudget: dto.estimatedBudget,
+        estimatedBudget: normalizedBudget,
+        productType: lockedProductType,
         featureCount: mappedFeatures.length,
         hasWarnings: warnings.length > 0,
         currentStatus: spec.status,
@@ -638,12 +1338,33 @@ export class ProjectSpecsService {
       throw new ForbiddenException('Only assigned broker can submit this client spec');
     }
 
+    this.assertRequestScopeBaselineReady(spec.request);
+    if (spec.status === ProjectSpecStatus.REJECTED && !this.sanitizePlainText(spec.changeSummary)) {
+      throw new BadRequestException(
+        'Provide a change summary before resubmitting a rejected client spec.',
+      );
+    }
+
+    const nextSnapshot = this.buildSpecSubmissionSnapshot(spec);
+    const nextDiff = this.buildSpecSubmissionDiff(spec.lastSubmittedSnapshot, nextSnapshot);
+
     spec.status = ProjectSpecStatus.CLIENT_REVIEW;
     spec.rejectionReason = null;
+    spec.submissionVersion = (spec.submissionVersion || 0) + 1;
+    spec.lastSubmittedSnapshot = nextSnapshot;
+    spec.lastSubmittedDiff = nextDiff;
     await this.projectSpecsRepository.save(spec);
 
     spec.request.status = RequestStatus.SPEC_SUBMITTED;
     await this.projectRequestsRepository.save(spec.request);
+
+    await this.notifyUser({
+      userId: spec.request.clientId,
+      title: 'Client Spec ready for review',
+      body: `Broker submitted "${spec.title}" for your review on ${spec.request.title}.`,
+      relatedType: 'ProjectRequest',
+      relatedId: spec.requestId,
+    });
 
     await this.auditLogsService.log({
       actorId: user.id,
@@ -653,6 +1374,13 @@ export class ProjectSpecsService {
       newData: { newStatus: spec.status },
       req,
     });
+
+    await this.emitRequestSystemMessage(
+      spec.requestId,
+      'Broker submitted the client spec for client review.',
+    );
+
+    this.emitSpecUpdated(spec, [spec.request.clientId, spec.request.brokerId]);
 
     return spec;
   }
@@ -696,6 +1424,7 @@ export class ProjectSpecsService {
       spec.clientApprovedAt = new Date();
       if (spec.request) {
         spec.request.status = RequestStatus.SPEC_APPROVED;
+        spec.request.commercialBaseline = this.buildCommercialBaselineFromClientSpec(spec);
         await this.projectRequestsRepository.save(spec.request);
       }
       brokerNotification = {
@@ -703,14 +1432,20 @@ export class ProjectSpecsService {
         body: `Client approved "${spec.title}" for ${requestTitle}.`,
       };
     } else {
-      if (!reason || reason.trim().length < 10) {
+      const sanitizedReason = this.sanitizePlainText(reason);
+      if (sanitizedReason.length < 10) {
         throw new BadRequestException('Rejection reason must be at least 10 characters');
       }
       spec.status = ProjectSpecStatus.REJECTED;
-      spec.rejectionReason = reason;
+      spec.rejectionReason = sanitizedReason;
+      spec.rejectionHistory = this.appendRejectionHistory(spec, sanitizedReason, user.id);
+      if (spec.request) {
+        spec.request.status = RequestStatus.BROKER_ASSIGNED;
+        await this.projectRequestsRepository.save(spec.request);
+      }
       brokerNotification = {
         title: 'Client Spec rejected',
-        body: `Client rejected "${spec.title}". Reason: ${reason.trim().slice(0, 200)}`,
+        body: `Client rejected "${spec.title}". Reason: ${spec.rejectionReason.slice(0, 200)}`,
       };
     }
 
@@ -719,8 +1454,8 @@ export class ProjectSpecsService {
       userId: brokerId,
       title: brokerNotification?.title || 'Client Spec updated',
       body: brokerNotification?.body || `Client updated "${spec.title}".`,
-      relatedType: 'ProjectSpec',
-      relatedId: spec.id,
+      relatedType: 'ProjectRequest',
+      relatedId: spec.requestId,
     });
 
     await this.auditLogsService.log({
@@ -728,9 +1463,18 @@ export class ProjectSpecsService {
       action: action === 'APPROVE' ? 'CLIENT_APPROVE_SPEC' : 'CLIENT_REJECT_SPEC',
       entityType: 'ProjectSpec',
       entityId: specId,
-      newData: { action, reason: reason || null, role: user.role },
+      newData: { action, reason: spec.rejectionReason || null, role: user.role },
       req,
     });
+
+    await this.emitRequestSystemMessage(
+      spec.requestId,
+      action === 'APPROVE'
+        ? 'Client approved the client spec and locked the commercial baseline.'
+        : 'Client rejected the client spec and sent it back for revision.',
+    );
+
+    this.emitSpecUpdated(spec, [spec.request?.clientId, spec.request?.brokerId]);
 
     return spec;
   }
@@ -804,6 +1548,17 @@ export class ProjectSpecsService {
         );
       }
 
+      const approvedBaseline = this.resolveApprovedCommercialBaseline(projectRequest, parentSpec);
+      const requestScopeBaseline = this.assertRequestScopeBaselineReady(projectRequest);
+      const approvedDeliveryDeadline = this.resolveApprovedDeliveryDeadline(
+        projectRequest,
+        parentSpec,
+      );
+      const approvedClientFeatures = this.resolveApprovedClientFeatures(
+        projectRequest,
+        parentSpec,
+      );
+
       // Check no existing non-rejected full spec
       const existingFull = await queryRunner.manager.findOne(ProjectSpecEntity, {
         where: parentSpec
@@ -824,18 +1579,24 @@ export class ProjectSpecsService {
         title: this.sanitizePlainText(f.title),
         description: this.sanitizePlainText(f.description),
         complexity: f.complexity,
-        id: uuidv4(),
+        id: randomUUID(),
         acceptanceCriteria: (f.acceptanceCriteria || []).map((criteria) =>
           this.sanitizePlainText(criteria),
         ),
         inputOutputSpec: f.inputOutputSpec ? this.sanitizePlainText(f.inputOutputSpec) : '',
+        approvedClientFeatureIds: this.normalizeApprovedClientFeatureIds(
+          f.approvedClientFeatureIds,
+        ),
       }));
 
       // 4. GOVERNANCE VALIDATION
-      this.validateMilestoneStructure(milestones);
+      this.validateMilestoneStructure(milestones, {
+        approvedDeadlineKey: approvedDeliveryDeadline,
+      });
       this.validateMilestoneBudget(milestones, totalBudget);
-      this.validateFullSpecBudgetAgainstParent(totalBudget, parentSpec);
+      this.validateFullSpecBudgetAgainstParent(totalBudget, projectRequest, parentSpec);
       this.validateFeatures(mappedFeatures);
+      this.validateApprovedFeatureCoverage(mappedFeatures, milestones, approvedClientFeatures);
 
       // 5. Check banned keywords (non-blocking)
       warnings.push(
@@ -855,15 +1616,24 @@ export class ProjectSpecsService {
         totalBudget,
         features: mappedFeatures,
         techStack: techStack ? this.sanitizePlainText(techStack) : '',
-        referenceLinks: referenceLinks || [],
+        referenceLinks: this.normalizeReferenceLinks(referenceLinks),
         richContentJson: (this.sanitizeStructuredJson(richContentJson) ?? null) as Record<
           string,
           unknown
         > | null,
+        changeSummary: this.sanitizePlainText(createSpecDto.changeSummary) || null,
         status: createSpecDto.status || ProjectSpecStatus.DRAFT,
-        projectCategory: parentSpec?.projectCategory || null,
-        estimatedTimeline: parentSpec?.estimatedTimeline || null,
-        clientFeatures: parentSpec?.clientFeatures || null,
+        projectCategory:
+          requestScopeBaseline.productTypeLabel ??
+          parentSpec?.projectCategory ??
+          null,
+        estimatedTimeline:
+          approvedBaseline?.agreedDeliveryDeadline ??
+          approvedBaseline?.estimatedTimeline ??
+          approvedDeliveryDeadline ??
+          parentSpec?.estimatedTimeline ??
+          null,
+        clientFeatures: approvedClientFeatures,
       });
       const savedSpec = await queryRunner.manager.save(newSpec);
 
@@ -876,9 +1646,18 @@ export class ProjectSpecsService {
           acceptanceCriteria: (m.acceptanceCriteria || []).map((criterion) =>
             this.sanitizePlainText(criterion),
           ),
+          approvedClientFeatureIds: this.normalizeApprovedClientFeatureIds(
+            m.approvedClientFeatureIds,
+          ),
           projectSpecId: savedSpec.id,
           status: MilestoneStatus.PENDING,
           projectId: null,
+          startDate: this.toPersistenceDate(
+            m.startDate ? this.normalizeDateOnlyInput(m.startDate, `Milestone ${index + 1} start date`) : null,
+          ),
+          dueDate: this.toPersistenceDate(
+            m.dueDate ? this.normalizeDateOnlyInput(m.dueDate, `Milestone ${index + 1} due date`) : null,
+          ),
           sortOrder: m.sortOrder ?? index,
         }),
       );
@@ -954,19 +1733,33 @@ export class ProjectSpecsService {
       title: this.sanitizePlainText(feature.title),
       description: this.sanitizePlainText(feature.description),
       complexity: feature.complexity,
-      id: uuidv4(),
+      id: randomUUID(),
       acceptanceCriteria: (feature.acceptanceCriteria || []).map((criteria) =>
         this.sanitizePlainText(criteria),
       ),
       inputOutputSpec: feature.inputOutputSpec
         ? this.sanitizePlainText(feature.inputOutputSpec)
         : '',
+      approvedClientFeatureIds: this.normalizeApprovedClientFeatureIds(
+        feature.approvedClientFeatureIds,
+      ),
     }));
 
-    this.validateMilestoneStructure(dto.milestones);
+    const approvedDeliveryDeadline = this.resolveApprovedDeliveryDeadline(
+      spec.request,
+      spec.parentSpec ?? null,
+    );
+    const approvedClientFeatures = this.resolveApprovedClientFeatures(
+      spec.request,
+      spec.parentSpec ?? null,
+    );
+    this.validateMilestoneStructure(dto.milestones, {
+      approvedDeadlineKey: approvedDeliveryDeadline,
+    });
     this.validateMilestoneBudget(dto.milestones, dto.totalBudget);
-    this.validateFullSpecBudgetAgainstParent(dto.totalBudget, spec.parentSpec ?? null);
+    this.validateFullSpecBudgetAgainstParent(dto.totalBudget, spec.request, spec.parentSpec ?? null);
     this.validateFeatures(mappedFeatures);
+    this.validateApprovedFeatureCoverage(mappedFeatures, dto.milestones, approvedClientFeatures);
 
     const sanitizedDescription = this.sanitizePlainText(dto.description);
     warnings.push(...this.checkBannedKeywords(sanitizedDescription));
@@ -992,12 +1785,25 @@ export class ProjectSpecsService {
       managedSpec.features = mappedFeatures;
       managedSpec.techStack = dto.techStack ? this.sanitizePlainText(dto.techStack) : '';
       if (dto.referenceLinks !== undefined) {
-        managedSpec.referenceLinks = dto.referenceLinks;
+        managedSpec.referenceLinks = this.normalizeReferenceLinks(dto.referenceLinks);
       }
       if (dto.richContentJson !== undefined) {
         managedSpec.richContentJson = (this.sanitizeStructuredJson(dto.richContentJson) ??
           null) as Record<string, unknown> | null;
       }
+      const approvedBaseline = this.resolveApprovedCommercialBaseline(spec.request, spec.parentSpec ?? null);
+      managedSpec.estimatedTimeline =
+        approvedBaseline?.agreedDeliveryDeadline ??
+        approvedBaseline?.estimatedTimeline ??
+        approvedDeliveryDeadline ??
+        managedSpec.estimatedTimeline ??
+        null;
+      managedSpec.clientFeatures = approvedClientFeatures;
+      managedSpec.projectCategory =
+        this.resolveRequestScopeBaseline(spec.request).productTypeLabel ??
+        managedSpec.projectCategory ??
+        null;
+      managedSpec.changeSummary = this.sanitizePlainText(dto.changeSummary) || managedSpec.changeSummary || null;
       // Preserve current status (DRAFT/REJECTED) until broker explicitly submits for final review.
 
       await queryRunner.manager.save(managedSpec);
@@ -1012,9 +1818,22 @@ export class ProjectSpecsService {
           acceptanceCriteria: (milestone.acceptanceCriteria || []).map((criterion) =>
             this.sanitizePlainText(criterion),
           ),
+          approvedClientFeatureIds: this.normalizeApprovedClientFeatureIds(
+            milestone.approvedClientFeatureIds,
+          ),
           projectSpecId: specId,
           projectId: null,
           status: MilestoneStatus.PENDING,
+          startDate: this.toPersistenceDate(
+            milestone.startDate
+              ? this.normalizeDateOnlyInput(milestone.startDate, `Milestone ${index + 1} start date`)
+              : null,
+          ),
+          dueDate: this.toPersistenceDate(
+            milestone.dueDate
+              ? this.normalizeDateOnlyInput(milestone.dueDate, `Milestone ${index + 1} due date`)
+              : null,
+          ),
           sortOrder: milestone.sortOrder ?? index,
         }),
       );
@@ -1073,6 +1892,18 @@ export class ProjectSpecsService {
     if (!spec.request || spec.request.brokerId !== user.id) {
       throw new ForbiddenException('Only assigned broker can submit this full spec');
     }
+    if (spec.request.activeCommercialChangeRequest?.status === 'PENDING') {
+      throw new BadRequestException(
+        'Resolve the pending commercial change request before submitting the final spec for review.',
+      );
+    }
+
+    this.assertRequestScopeBaselineReady(spec.request);
+    if (spec.status === ProjectSpecStatus.REJECTED && !this.sanitizePlainText(spec.changeSummary)) {
+      throw new BadRequestException(
+        'Provide a change summary before resubmitting a rejected final spec.',
+      );
+    }
 
     const acceptedFreelancerId = await this.findAcceptedFreelancerId(spec.requestId);
     if (!acceptedFreelancerId) {
@@ -1081,9 +1912,58 @@ export class ProjectSpecsService {
       );
     }
 
+    const approvedDeliveryDeadline = this.resolveApprovedDeliveryDeadline(
+      spec.request,
+      spec.parentSpec ?? null,
+    );
+    const approvedClientFeatures = this.resolveApprovedClientFeatures(
+      spec.request,
+      spec.parentSpec ?? null,
+    );
+    const currentMilestones = (spec.milestones || []).map((milestone) => ({
+      title: milestone.title,
+      description: milestone.description,
+      amount: Number(milestone.amount || 0),
+      deliverableType: milestone.deliverableType,
+      retentionAmount: Number(milestone.retentionAmount || 0),
+      acceptanceCriteria: milestone.acceptanceCriteria || [],
+      startDate: milestone.startDate ? new Date(milestone.startDate).toISOString().slice(0, 10) : undefined,
+      dueDate: milestone.dueDate ? new Date(milestone.dueDate).toISOString().slice(0, 10) : undefined,
+      sortOrder: milestone.sortOrder ?? undefined,
+      approvedClientFeatureIds: milestone.approvedClientFeatureIds || undefined,
+    }));
+    this.validateMilestoneStructure(currentMilestones, {
+      approvedDeadlineKey: approvedDeliveryDeadline,
+    });
+    this.validateMilestoneBudget(currentMilestones, Number(spec.totalBudget || 0));
+    this.validateFullSpecBudgetAgainstParent(Number(spec.totalBudget || 0), spec.request, spec.parentSpec ?? null);
+    this.validateFeatures(spec.features || []);
+    this.validateApprovedFeatureCoverage(spec.features || [], currentMilestones, approvedClientFeatures);
+
+    const nextSnapshot = this.buildSpecSubmissionSnapshot(spec);
+    const nextDiff = this.buildSpecSubmissionDiff(spec.lastSubmittedSnapshot, nextSnapshot);
+
     spec.status = ProjectSpecStatus.FINAL_REVIEW;
     spec.rejectionReason = null;
+    spec.submissionVersion = (spec.submissionVersion || 0) + 1;
+    spec.lastSubmittedSnapshot = nextSnapshot;
+    spec.lastSubmittedDiff = nextDiff;
     await this.projectSpecsRepository.save(spec);
+
+    await this.notifyUser({
+      userId: spec.request.clientId,
+      title: 'Final Spec ready for review',
+      body: `Broker submitted "${spec.title}" for final review and signing.`,
+      relatedType: 'ProjectRequest',
+      relatedId: spec.requestId,
+    });
+    await this.notifyUser({
+      userId: acceptedFreelancerId,
+      title: 'Final Spec ready for review',
+      body: `Final spec "${spec.title}" is ready for your review and signature.`,
+      relatedType: 'ProjectRequest',
+      relatedId: spec.requestId,
+    });
 
     await this.auditLogsService.log({
       actorId: user.id,
@@ -1093,6 +1973,13 @@ export class ProjectSpecsService {
       newData: { newStatus: spec.status },
       req,
     });
+
+    await this.emitRequestSystemMessage(
+      spec.requestId,
+      'Broker submitted the final spec for multi-party review.',
+    );
+
+    this.emitSpecUpdated(spec, [spec.request.clientId, spec.request.brokerId, acceptedFreelancerId]);
 
     return spec;
   }
@@ -1168,6 +2055,28 @@ export class ProjectSpecsService {
       );
     }
 
+    const pendingSignerIds = reconciled.requiredSignerIds.filter((signerId) => signerId !== user.id);
+    await this.notificationsService.createMany(
+      pendingSignerIds.map((signerId) => ({
+        userId: signerId,
+        title: reconciled.allRequiredSigned ? 'Final Spec fully signed' : 'Final Spec signing updated',
+        body: reconciled.allRequiredSigned
+          ? `All required parties signed "${spec.title}". Contract handoff can begin.`
+          : `${user.role} signed "${spec.title}". ${reconciled.signatures.length}/${reconciled.requiredSignerIds.length} signatures are complete.`,
+        relatedType: 'ProjectRequest',
+        relatedId: spec.requestId,
+      })),
+    );
+
+    await this.emitRequestSystemMessage(
+      spec.requestId,
+      reconciled.allRequiredSigned
+        ? 'All required parties signed the final spec. Contract handoff can begin.'
+        : `${user.role} signed the final spec.`,
+    );
+
+    this.emitSpecUpdated(spec, reconciled.requiredSignerIds);
+
     return this.findOne(specId);
   }
 
@@ -1216,6 +2125,11 @@ export class ProjectSpecsService {
 
       managedSpec.status = ProjectSpecStatus.REJECTED;
       managedSpec.rejectionReason = sanitizedReason;
+      managedSpec.rejectionHistory = this.appendRejectionHistory(
+        managedSpec,
+        sanitizedReason,
+        user.id,
+      );
       await queryRunner.manager.save(managedSpec);
 
       await queryRunner.manager.delete(ProjectSpecSignatureEntity, { specId });
@@ -1234,8 +2148,8 @@ export class ProjectSpecsService {
           userId: signerId,
           title: 'Full Spec changes requested',
           body: `${user.role} requested changes for "${spec.title}" on ${requestTitle}. Reason: ${sanitizedReason.slice(0, 200)}`,
-          relatedType: 'ProjectSpec',
-          relatedId: spec.id,
+          relatedType: 'ProjectRequest',
+          relatedId: spec.requestId,
         });
       }
 
@@ -1253,6 +2167,13 @@ export class ProjectSpecsService {
         },
         req,
       });
+
+      await this.emitRequestSystemMessage(
+        spec.requestId,
+        `${user.role} requested changes on the final spec.`,
+      );
+
+      this.emitSpecUpdated(spec, requiredSignerIds);
 
       return this.findOne(specId);
     } catch (err) {
@@ -1403,7 +2324,7 @@ export class ProjectSpecsService {
       ],
     });
     if (!spec) throw new NotFoundException(`Project Spec with ID ${id} not found`);
-    return spec;
+    return this.attachRequestContext(spec);
   }
 
   async findOneForUser(user: UserEntity, id: string): Promise<ProjectSpecEntity> {
@@ -1427,11 +2348,12 @@ export class ProjectSpecsService {
    * Get all specs for a request (client spec + full spec)
    */
   async findSpecsByRequestId(requestId: string): Promise<ProjectSpecEntity[]> {
-    return this.projectSpecsRepository.find({
+    const specs = await this.projectSpecsRepository.find({
       where: { requestId },
       relations: ['milestones', 'parentSpec', 'request', 'request.proposals'],
       order: { createdAt: 'ASC' },
     });
+    return specs.map((spec) => this.attachRequestContext(spec));
   }
 
   async findSpecsByRequestIdForUser(
@@ -1449,10 +2371,11 @@ export class ProjectSpecsService {
    * Get client spec for a request
    */
   async findClientSpec(requestId: string): Promise<ProjectSpecEntity | null> {
-    return this.projectSpecsRepository.findOne({
+    const spec = await this.projectSpecsRepository.findOne({
       where: { requestId, specPhase: SpecPhase.CLIENT_SPEC },
       relations: ['milestones', 'request', 'request.client', 'request.broker', 'request.proposals'],
     });
+    return this.attachRequestContext(spec);
   }
 
   async findClientSpecForUser(user: UserEntity, requestId: string): Promise<ProjectSpecEntity | null> {
@@ -1468,7 +2391,7 @@ export class ProjectSpecsService {
    * Get full spec linked to a client spec
    */
   async findFullSpec(parentSpecId: string): Promise<ProjectSpecEntity | null> {
-    return this.projectSpecsRepository.findOne({
+    const spec = await this.projectSpecsRepository.findOne({
       where: { parentSpecId, specPhase: SpecPhase.FULL_SPEC },
       relations: [
         'milestones',
@@ -1479,6 +2402,7 @@ export class ProjectSpecsService {
         'request.proposals',
       ],
     });
+    return this.attachRequestContext(spec);
   }
 
   async findFullSpecForUser(user: UserEntity, parentSpecId: string): Promise<ProjectSpecEntity | null> {

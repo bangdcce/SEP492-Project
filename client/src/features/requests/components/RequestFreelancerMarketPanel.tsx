@@ -104,11 +104,11 @@ export function RequestFreelancerMarketPanel({
                   </Button>
                 </h4>
                 <p className="text-sm text-muted-foreground">
-                  AI-matched candidates or search the marketplace for a {UserRole.FREELANCER.toLowerCase()}.
+                  Review ranked freelancers here without leaving the current client request.
                 </p>
               </div>
               <Button variant="outline" onClick={onSearchMarketplace}>
-                Search Marketplace
+                Browse More Freelancers
               </Button>
             </div>
 
@@ -184,21 +184,37 @@ export function RequestFreelancerMarketPanel({
                                 ))}
                               </div>
                             ) : null}
-                            {match.reasoning ? (
-                              {(() => {
-                                let text = match.reasoning;
-                                try {
-                                  if (typeof match.reasoning === 'string' && match.reasoning.trim().startsWith('[')) {
-                                    const arr = JSON.parse(match.reasoning);
-                                    const mId = match.userId || match.candidateId || match.id;
-                                    const found = arr.find((item: any) => item.id === mId);
-                                    if (found && found.reasoning) text = found.reasoning;
-                                    else text = '';
+                            {match.reasoning
+                              ? (() => {
+                                  let text = match.reasoning;
+                                  try {
+                                    if (
+                                      typeof match.reasoning === "string" &&
+                                      match.reasoning.trim().startsWith("[")
+                                    ) {
+                                      const arr = JSON.parse(match.reasoning);
+                                      const matchUserId =
+                                        match.userId || match.candidateId || match.id;
+                                      const found = arr.find(
+                                        (item: any) => item.id === matchUserId,
+                                      );
+                                      if (found && found.reasoning) {
+                                        text = found.reasoning;
+                                      } else {
+                                        text = "";
+                                      }
+                                    }
+                                  } catch {
+                                    text = match.reasoning;
                                   }
-                                } catch(e) {}
-                                return text ? <p className="line-clamp-2 text-xs italic text-muted-foreground">{text}</p> : null;
-                              })()}
-                            ) : null}
+
+                                  return text ? (
+                                    <p className="line-clamp-2 text-xs italic text-muted-foreground">
+                                      {text}
+                                    </p>
+                                  ) : null;
+                                })()
+                              : null}
                           </div>
                         </div>
                         <div className="flex shrink-0 gap-2">

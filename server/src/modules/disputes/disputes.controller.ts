@@ -30,9 +30,14 @@ import { AddNoteDto } from './dto/add-note.dto';
 import { DefendantResponseDto } from './dto/defendant-response.dto';
 import { AppealDto } from './dto/appeal.dto';
 import { AppealRejectionDto } from './dto/appeal-rejection.dto';
+import { ReviewRequestDto } from './dto/review-request.dto';
 import { RequestDisputeInfoDto } from './dto/request-info.dto';
 import { ResolveRejectionAppealDto } from './dto/resolve-rejection-appeal.dto';
 import { AppealVerdictDto } from './dto/verdict.dto';
+import { AssignAppealOwnerDto } from './dto/assign-appeal-owner.dto';
+import { AssignNeutralPanelDto } from './dto/assign-neutral-panel.dto';
+import { RequestEscalationDto } from './dto/request-escalation.dto';
+import { SubmitNeutralPanelRecommendationDto } from './dto/submit-neutral-panel-recommendation.dto';
 import { TriageDisputeDto } from './dto/triage-dispute.dto';
 import { AdminUpdateDisputeDto } from './dto/admin-update-dispute.dto';
 import { DisputeFilterDto, DisputeSortBy } from './dto/dispute-filter.dto';
@@ -192,8 +197,22 @@ export class DisputesController {
 
   @UseGuards(JwtAuthGuard)
   @Get('rules/catalog')
-  async getDisputeRuleCatalog() {
-    return await this.disputesService.getRuleCatalog();
+  async getDisputeRuleCatalog(
+    @Query('faultType') faultType?: string,
+    @Query('disputeCategory') disputeCategory?: string,
+    @Query('result') result?: string,
+  ) {
+    return await this.disputesService.getRuleCatalog({
+      faultType: faultType as any,
+      disputeCategory: disputeCategory as any,
+      result: result as any,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('actions/catalog')
+  async getDisputeActionCatalog() {
+    return await this.disputesService.getActionCatalog();
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -226,6 +245,13 @@ export class DisputesController {
     @GetUser() user: UserEntity,
   ) {
     return await this.disputesService.getQueuePreview(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get('admin/appeal-owners')
+  async getAppealOwners() {
+    return await this.disputesService.getAppealOwners();
   }
 
   @UseGuards(JwtAuthGuard)
@@ -510,6 +536,16 @@ export class DisputesController {
     return await this.disputesService.addNote(user.id, user.role, id, dto);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/review-request')
+  async submitReviewRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReviewRequestDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.submitReviewRequest(user.id, user.role, id, dto);
+  }
+
   /**
    * Xóa ghi chú
    * DELETE /disputes/:id/notes/:noteId
@@ -549,8 +585,17 @@ export class DisputesController {
    */
   @UseGuards(JwtAuthGuard)
   @Get(':id/verdict')
-  async getVerdict(@Param('id', ParseUUIDPipe) id: string) {
-    return await this.disputesService.getVerdict(id);
+  async getVerdict(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.getVerdict(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/public-record')
+  async getPublicRecord(@Param('id', ParseUUIDPipe) id: string) {
+    return await this.disputesService.getPublicRecord(id);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -655,6 +700,63 @@ export class DisputesController {
       id,
       dto.decision,
       dto.resolution,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Patch(':id/appeal/owner')
+  async assignAppealOwner(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignAppealOwnerDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.assignAppealOwner(user.id, id, dto.adminId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/escalation-request')
+  async submitEscalationRequest(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RequestEscalationDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.submitEscalationRequest(user.id, user.role, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Get(':id/panel-candidates')
+  async getNeutralPanelCandidates(
+    @Param('id', ParseUUIDPipe) id: string,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.getNeutralPanelCandidates(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @Post(':id/panel/assign')
+  async assignNeutralPanel(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignNeutralPanelDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.assignNeutralPanel(user.id, id, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/panel/recommendation')
+  async submitNeutralPanelRecommendation(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SubmitNeutralPanelRecommendationDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.submitNeutralPanelRecommendation(
+      user.id,
+      user.role,
+      id,
+      dto,
     );
   }
 

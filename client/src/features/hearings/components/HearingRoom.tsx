@@ -344,11 +344,15 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   }, [verdict?.appealDeadline]);
 
   const handleAppealSubmit = useCallback(
-    async (input: { reason: string }) => {
+    async (input: {
+      reason: string;
+      disclaimerAccepted: boolean;
+      disclaimerVersion?: string;
+    }) => {
       if (!hearing?.disputeId) return;
       setAppealLoading(true);
       try {
-        await submitAppeal(hearing.disputeId, { reason: input.reason });
+        await submitAppeal(hearing.disputeId, input);
         toast.success("Appeal submitted successfully");
         setAppealDialogOpen(false);
         await Promise.all([fetchVerdict(), refreshWorkspace(true)]);
@@ -553,6 +557,31 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         browser: true,
       });
       void fetchVerdict();
+      void refreshWorkspace(true);
+    },
+    onHearingTimeWarning: (payload) => {
+      const body =
+        typeof payload?.minutesRemaining === "number"
+          ? `About ${payload.minutesRemaining} minute(s) remain before the current session is closed.`
+          : "The hearing is close to its current time limit.";
+      notify({
+        type: "warning",
+        title: "Hearing Time Warning",
+        body,
+        browser: true,
+      });
+    },
+    onHearingFollowUpScheduled: (payload) => {
+      notify({
+        type: "start",
+        title: payload?.manualRequired
+          ? "Follow-up Requires Scheduling"
+          : "Follow-up Hearing Scheduled",
+        body: payload?.manualRequired
+          ? payload?.reason || "Staff must schedule the next hearing manually."
+          : "A new hearing session has been scheduled for this dispute.",
+        browser: true,
+      });
       void refreshWorkspace(true);
     },
     onHearingExtended: (payload) => {
@@ -1272,6 +1301,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               <InHearingVerdictPanel
                 hearingId={hearing.id}
                 disputedAmount={workspace?.dossier?.dispute?.disputedAmount}
+                disputeCategory={workspace?.dossier?.dispute?.category}
                 onVerdictIssued={() => {
                   void fetchVerdict();
                   void refreshWorkspace(true);

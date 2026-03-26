@@ -360,7 +360,7 @@ describe('HearingService', () => {
           };
         });
 
-      const referenceAt = new Date('2026-03-03T12:00:00.000Z');
+      const referenceAt = new Date('2026-03-03T10:05:00.000Z');
       const result = await service.autoStartDueHearings(referenceAt);
 
       expect(result.referenceAt).toBe(referenceAt.toISOString());
@@ -484,13 +484,16 @@ describe('HearingService', () => {
     it('returns only actionable hearings for active lifecycle', async () => {
       jest.spyOn(service as any, 'ensureDisputeAccessForHearings').mockResolvedValue(undefined);
       jest.spyOn(service as any, 'loadConfirmationSummaryByHearingIds').mockResolvedValue(new Map());
+      const upcomingActiveAt = new Date(Date.now() + 60 * 60 * 1000);
+      const appealFutureAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+
       hearingRepo.find.mockResolvedValue([
         {
           id: 'h-active',
           disputeId: 'd-1',
           status: HearingStatus.SCHEDULED,
           tier: HearingTier.TIER_1,
-          scheduledAt: new Date('2026-03-03T10:00:00.000Z'),
+          scheduledAt: upcomingActiveAt,
           participants: [],
           dispute: { id: 'd-1', status: DisputeStatus.IN_MEDIATION },
         },
@@ -508,7 +511,7 @@ describe('HearingService', () => {
           disputeId: 'd-1',
           status: HearingStatus.SCHEDULED,
           tier: HearingTier.TIER_1,
-          scheduledAt: new Date('2026-03-04T10:00:00.000Z'),
+          scheduledAt: appealFutureAt,
           participants: [],
           dispute: { id: 'd-1', status: DisputeStatus.APPEALED },
         },
@@ -527,10 +530,10 @@ describe('HearingService', () => {
 
   describe('manual meeting link validation', () => {
     it('rejects invalid external meeting links in schedule dto', async () => {
-      const dto = Object.assign(new ScheduleHearingDto(), {
+      const dto = plainToInstance(ScheduleHearingDto, {
         disputeId: '7f4fb56b-f167-4b40-a4ee-2842f0d6a6d1',
         scheduledAt: '2026-03-20T10:00:00.000Z',
-        externalMeetingLink: 'not-a-url',
+        externalMeetingLink: 'https://meet.google.com/demo-hearing',
       });
 
       const errors = await validate(dto);
@@ -538,17 +541,104 @@ describe('HearingService', () => {
       expect(errors.some((item) => item.property === 'externalMeetingLink')).toBe(true);
     });
 
-    it('accepts and trims valid external meeting links', async () => {
-      const dto = plainToInstance(RescheduleHearingDto, {
-        hearingId: '7f4fb56b-f167-4b40-a4ee-2842f0d6a6d1',
+    it('accepts raw Google Meet room codes in schedule dto', async () => {
+      const dto = plainToInstance(ScheduleHearingDto, {
+        disputeId: '7f4fb56b-f167-4b40-a4ee-2842f0d6a6d1',
         scheduledAt: '2026-03-20T10:00:00.000Z',
-        externalMeetingLink: '  https://meet.example.com/room-123  ',
+        externalMeetingLink: '  abc-defg-hij  ',
       });
 
       const errors = await validate(dto);
 
       expect(errors).toHaveLength(0);
-      expect(dto.externalMeetingLink).toBe('https://meet.example.com/room-123');
+      expect(dto.externalMeetingLink).toBe('https://meet.google.com/abc-defg-hij');
+    });
+
+    it('accepts scheme-less meeting links in reschedule dto', async () => {
+      const dto = plainToInstance(RescheduleHearingDto, {
+        hearingId: '7f4fb56b-f167-4b40-a4ee-2842f0d6a6d1',
+        scheduledAt: '2026-03-20T10:00:00.000Z',
+        externalMeetingLink: '  meet.google.com/abc-defg-hij  ',
+      });
+
+      const errors = await validate(dto);
+
+      expect(errors).toHaveLength(0);
+      expect(dto.externalMeetingLink).toBe('https://meet.google.com/abc-defg-hij');
+    });
+
+    it('normalizes external meeting links inside the service layer', () => {
+      expect((service as any).normalizeMeetingLink('abc-defg-hij')).toBe(
+        'https://meet.google.com/abc-defg-hij',
+      );
+      expect(
+        (service as any).normalizeMeetingLink('meet.google.com/abc-defg-hij'),
+      ).toBe('https://meet.google.com/abc-defg-hij');
+    });
+
+    it('rejects malformed external meeting links inside the service layer', () => {
+      expect(() => (service as any).normalizeMeetingLink('not-a-url')).toThrow(
+        BadRequestException,
+      );
+      expect(() =>
+        (service as any).normalizeMeetingLink('https://meet.google.com/demo-hearing'),
+      ).toThrow(BadRequestException);
+    });
+  });
+
+  describe('hearing timeout automation', () => {
+    it('auto-closes only hearings that exceeded the grace window', async () => {
+      hearingRepo.find.mockResolvedValue([
+        {
+          id: 'h-overdue',
+          disputeId: 'd-1',
+          status: HearingStatus.IN_PROGRESS,
+          scheduledAt: new Date('2026-03-03T10:00:00.000Z'),
+          startedAt: new Date('2026-03-03T10:00:00.000Z'),
+          estimatedDurationMinutes: 60,
+          pausedAt: null,
+          accumulatedPauseSeconds: 0,
+          participants: [],
+          dispute: { id: 'd-1', status: DisputeStatus.IN_MEDIATION },
+        },
+        {
+          id: 'h-not-due',
+          disputeId: 'd-2',
+          status: HearingStatus.IN_PROGRESS,
+          scheduledAt: new Date('2026-03-03T11:00:00.000Z'),
+          startedAt: new Date('2026-03-03T11:00:00.000Z'),
+          estimatedDurationMinutes: 60,
+          pausedAt: null,
+          accumulatedPauseSeconds: 0,
+          participants: [],
+          dispute: { id: 'd-2', status: DisputeStatus.IN_MEDIATION },
+        },
+      ]);
+
+      const finalizeSpy = jest
+        .spyOn(service as any, 'finalizeHearingEnd')
+        .mockResolvedValue({
+          hearing: { id: 'h-overdue' },
+          cancelledQuestions: [],
+          absentParticipants: [],
+        });
+
+      const result = await service.autoCloseOverdueHearings(
+        new Date('2026-03-03T11:16:00.000Z'),
+      );
+
+      expect(result.checked).toBe(1);
+      expect(result.closed).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(finalizeSpy).toHaveBeenCalledTimes(1);
+      expect(finalizeSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'h-overdue' }),
+        expect.objectContaining({
+          endedByType: 'SYSTEM',
+          closureReason: 'TIME_LIMIT_REACHED',
+          skipActionableCheck: true,
+        }),
+      );
     });
   });
 

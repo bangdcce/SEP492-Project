@@ -5,6 +5,7 @@ import { Button, Card, CardContent, CardHeader, CardTitle, Badge, Separator, Ske
 import { ArrowLeft, Calendar, DollarSign, Monitor, Check, X, AlertTriangle } from "lucide-react";
 import { useToast } from "@/shared/hooks/use-toast";
 import { useKYCStatus } from "@/shared/components/custom/KYCBlocker";
+import { buildTrustProfilePath } from "@/features/trust-profile/routes";
 
 export const InvitationDetailsPage = () => {
     const { id } = useParams<{ id: string }>(); // Invitation ID
@@ -199,14 +200,31 @@ export const InvitationDetailsPage = () => {
 
                     <Card>
                         <CardContent className="p-6">
-                            <div className="flex items-center gap-4">
-                                <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl">
-                                    {request.client?.fullName.substring(0,1)}
+                            <div className="space-y-4">
+                                <div className="flex items-center gap-4">
+                                    <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xl">
+                                        {request.client?.fullName.substring(0,1)}
+                                    </div>
+                                    <div>
+                                        <p className="text-sm text-muted-foreground">Client</p>
+                                        <p className="font-semibold">{request.client?.fullName}</p>
+                                    </div>
                                 </div>
-                                <div>
-                                    <p className="text-sm text-muted-foreground">Client</p>
-                                    <p className="font-semibold">{request.client?.fullName}</p>
-                                </div>
+                                {request.client?.id && (
+                                    <Button
+                                        variant="outline"
+                                        className="w-full"
+                                        onClick={() =>
+                                            navigate(
+                                                buildTrustProfilePath(request.client.id, {
+                                                    pathname: location.pathname,
+                                                }),
+                                            )
+                                        }
+                                    >
+                                        View Trust Profile
+                                    </Button>
+                                )}
                             </div>
                         </CardContent>
                     </Card>

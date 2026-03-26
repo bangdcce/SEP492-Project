@@ -153,6 +153,18 @@ describe('AdminDashboardService', () => {
         .mockReturnValueOnce(createLogsQb(adminLogs)),
     };
 
+    const disputeRepository = {
+      count: jest.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(4),
+    };
+
+    const hearingRepository = {
+      count: jest.fn().mockResolvedValue(1),
+    };
+
+    const notificationRepository = {
+      count: jest.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(2),
+    };
+
     const performanceRepository = {
       find: jest.fn().mockResolvedValue([
         {
@@ -207,6 +219,9 @@ describe('AdminDashboardService', () => {
       projectRepository as never,
       escrowRepository as never,
       auditLogRepository as never,
+      disputeRepository as never,
+      hearingRepository as never,
+      notificationRepository as never,
       performanceRepository as never,
       workloadRepository as never,
     );
@@ -277,6 +292,25 @@ describe('AdminDashboardService', () => {
         pendingCases: 4,
       }),
     ]);
+    expect(result.criticalAlerts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source: 'DISPUTE_SLA',
+        }),
+        expect.objectContaining({
+          source: 'FOLLOW_UP_SCHEDULING',
+        }),
+      ]),
+    );
+    expect(result.riskMethodology).toEqual(
+      expect.objectContaining({
+        scoringWeights: expect.objectContaining({
+          workload: 40,
+          performance: 40,
+          fairness: 20,
+        }),
+      }),
+    );
 
     expect(result.series.reduce((sum, point) => sum + point.revenue, 0)).toBe(75);
     expect(result.series.reduce((sum, point) => sum + point.newUsers, 0)).toBe(2);

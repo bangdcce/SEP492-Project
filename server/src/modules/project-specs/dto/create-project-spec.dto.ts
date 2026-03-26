@@ -12,9 +12,9 @@ import {
   Min,
   MinLength,
   ValidateNested,
-  IsUrl,
   IsDateString,
   IsInt,
+  Matches,
 } from 'class-validator';
 import { DeliverableType } from '../../../database/entities/milestone.entity';
 import { ProjectSpecStatus } from '../../../database/entities/project-spec.entity';
@@ -39,6 +39,11 @@ export class CreateSpecFeatureDto {
   @IsOptional()
   @IsString()
   inputOutputSpec?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  approvedClientFeatureIds?: string[];
 }
 
 export class ReferenceLinkDto {
@@ -46,7 +51,9 @@ export class ReferenceLinkDto {
   @IsNotEmpty()
   label: string;
 
-  @IsUrl()
+  @Matches(/^(https?:\/\/)?[\w.-]+\.[a-z]{2,}.*$/i, {
+    message: 'Reference links must be a valid http/https URL or bare domain.',
+  })
   url: string;
 }
 
@@ -90,6 +97,11 @@ export class CreateMilestoneDto {
   @IsOptional()
   @IsDateString()
   dueDate?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID(undefined, { each: true })
+  approvedClientFeatureIds?: string[];
 }
 
 export class CreateProjectSpecDto {
@@ -145,4 +157,8 @@ export class CreateProjectSpecDto {
   @IsOptional()
   @IsEnum(ProjectSpecStatus)
   status?: ProjectSpecStatus; // Explicitly allow status setting
+
+  @IsOptional()
+  @IsString()
+  changeSummary?: string;
 }

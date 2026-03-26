@@ -43,13 +43,14 @@ import {
   AlertTitle,
 } from "@/shared/components/ui/alert";
 import { Badge } from "@/shared/components/ui/badge";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
   SpecNarrativeEditor,
   narrativeHasContent,
 } from "@/shared/components/rich-text/SpecNarrative";
 
 import { DeliverableType } from "../types";
-import type { CreateProjectSpecDTO } from "../types";
+import type { ClientFeatureDTO, CreateProjectSpecDTO } from "../types";
 
 // 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 // CONSTANTS & HELPERS
@@ -83,6 +84,81 @@ const checkKeywords = (text: string): string[] => {
   return BANNED_KEYWORDS.filter((k) => lower.includes(k));
 };
 
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const HTTP_URL_PATTERN = /^https?:\/\/[\w.-]+\.[a-z]{2,}.*$/i;
+
+const toLocalDateKey = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getTodayDateKey = () => toLocalDateKey(new Date());
+
+const normalizeDateOnly = (value?: string | null): string | undefined => {
+  const trimmed = value?.trim();
+  if (!trimmed) return undefined;
+  if (DATE_ONLY_PATTERN.test(trimmed)) {
+    return trimmed;
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    return undefined;
+  }
+
+  return toLocalDateKey(parsed);
+};
+
+const parseDateOnly = (value?: string | null): Date | null => {
+  const normalized = normalizeDateOnly(value);
+  if (!normalized) return null;
+  const parsed = new Date(`${normalized}T00:00:00`);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const laterDateKey = (left?: string | null, right?: string | null): string => {
+  const leftDate = parseDateOnly(left);
+  const rightDate = parseDateOnly(right);
+
+  if (!leftDate && !rightDate) {
+    return getTodayDateKey();
+  }
+  if (!leftDate) {
+    return normalizeDateOnly(right) || getTodayDateKey();
+  }
+  if (!rightDate) {
+    return normalizeDateOnly(left) || getTodayDateKey();
+  }
+
+  return leftDate.getTime() >= rightDate.getTime()
+    ? normalizeDateOnly(left) || getTodayDateKey()
+    : normalizeDateOnly(right) || getTodayDateKey();
+};
+
+const normalizeReferenceUrl = (value?: string): string => {
+  const trimmed = value?.trim();
+  if (!trimmed) return "";
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  if (/^[\w.-]+\.[a-z]{2,}.*$/i.test(trimmed)) {
+    return `https://${trimmed}`;
+  }
+  return trimmed;
+};
+
+const referenceLinkSchema = z.object({
+  label: z.string().min(1, "Link label is required"),
+  url: z
+    .string()
+    .transform((value) => normalizeReferenceUrl(value))
+    .refine((value) => HTTP_URL_PATTERN.test(value), {
+      message: "Use a valid http(s) URL",
+    }),
+});
+
 const optionalDateSchema = z.preprocess(
   (value) => (value === "" ? undefined : value),
   z.string().optional(),
@@ -95,6 +171,7 @@ const milestoneSchema = z
     amount: z.coerce.number().min(0, "Amount must be positive"),
     deliverableType: z.nativeEnum(DeliverableType),
     retentionAmount: z.coerce.number().min(0).default(0),
+    approvedClientFeatureIds: z.array(z.string()).default([]),
     acceptanceCriteria: z
       .array(
         z.object({
@@ -110,6 +187,10 @@ const milestoneSchema = z
     ),
   })
   .superRefine((milestone, ctx) => {
+    const today = parseDateOnly(getTodayDateKey());
+    const startDate = parseDateOnly(milestone.startDate);
+    const dueDate = parseDateOnly(milestone.dueDate);
+
     if (milestone.retentionAmount > milestone.amount) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -118,18 +199,47 @@ const milestoneSchema = z
       });
     }
 
-    if (milestone.startDate && milestone.dueDate) {
-      const startDate = new Date(milestone.startDate);
-      const dueDate = new Date(milestone.dueDate);
-      if (
-        !Number.isNaN(startDate.getTime()) &&
-        !Number.isNaN(dueDate.getTime()) &&
-        dueDate.getTime() < startDate.getTime()
-      ) {
+    if (milestone.retentionAmount > milestone.amount * 0.1) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["retentionAmount"],
+        message: "Retention cannot exceed 10% of the milestone amount",
+      });
+    }
+
+    if (milestone.startDate && !startDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["startDate"],
+        message: "Start date is invalid",
+      });
+    }
+
+    if (milestone.dueDate && !dueDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["dueDate"],
+        message: "Due date is invalid",
+      });
+    }
+
+    if (today && startDate && startDate.getTime() < today.getTime()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["startDate"],
+        message: "Start date cannot be in the past",
+      });
+    }
+
+    if (today && dueDate) {
+      const minDueDate = startDate && startDate.getTime() > today.getTime()
+        ? startDate
+        : today;
+      if (dueDate.getTime() < minDueDate.getTime()) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: ["dueDate"],
-          message: "Due date must be on or after the start date",
+          message: "Due date must be on or after today and the start date",
         });
       }
     }
@@ -142,18 +252,7 @@ const toDateInputValue = (value?: string | null): string => {
 };
 
 const normalizeDatePayload = (value?: string): string | undefined => {
-  const trimmed = value?.trim();
-  if (!trimmed) return undefined;
-  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) {
-    return trimmed;
-  }
-
-  const parsed = new Date(trimmed);
-  if (Number.isNaN(parsed.getTime())) {
-    return undefined;
-  }
-
-  return parsed.toISOString();
+  return normalizeDateOnly(value);
 };
 
 // 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
@@ -167,14 +266,17 @@ const formSchema = z
       .string()
       .min(10, "Description must be at least 10 characters"),
     techStack: z.string().min(1, "Tech stack is required"),
+    referenceLinks: z.array(referenceLinkSchema).optional(),
 
     // Validation: Features
     features: z
       .array(
         z.object({
+          id: z.string().optional(),
           title: z.string().min(1, "Feature title is required"),
           description: z.string().min(1, "Description is required"),
           complexity: z.enum(["LOW", "MEDIUM", "HIGH"]),
+          approvedClientFeatureIds: z.array(z.string()).default([]),
           acceptanceCriteria: z
             .array(
               z.object({
@@ -188,6 +290,7 @@ const formSchema = z
 
     // Validation: Milestones
     milestones: z.array(milestoneSchema).min(1, "At least one milestone is required"),
+    changeSummary: z.string().optional(),
   })
   .refine(
     (data) => {
@@ -251,11 +354,18 @@ interface CreateProjectSpecFormProps {
   requestId: string;
   projectRequest?: any; // Avoiding full type import to prevent circular deps or complex imports, or better use the type if available
   onSubmit: (data: CreateProjectSpecDTO) => void;
+  onCancel?: () => void;
   isSubmitting?: boolean;
   isPhasedFlow?: boolean;
   initialValues?: Partial<CreateProjectSpecDTO> | null;
   submitLabel?: string;
   approvedBudgetCap?: number | null;
+  approvedClientFeatures?: ClientFeatureDTO[];
+  approvedDeliveryDeadline?: string | null;
+  requestedDeadline?: string | null;
+  projectGoalSummary?: string | null;
+  lockedProjectCategory?: string | null;
+  requireChangeSummary?: boolean;
 }
 
 const sumMilestones = (
@@ -269,15 +379,35 @@ const sumMilestones = (
     return acc + (Number.isFinite(val) ? val : 0);
   }, 0);
 
+const sortedScheduleMilestones = (
+  milestones: Array<{
+    startDate?: string;
+    dueDate?: string;
+    amount?: number;
+    retentionAmount?: number;
+  }>,
+) =>
+  milestones.map((milestone, index) => ({
+    ...milestone,
+    index,
+  }));
+
 export function CreateProjectSpecForm({
   requestId,
   projectRequest,
   onSubmit,
+  onCancel,
   isSubmitting,
   isPhasedFlow = false,
   initialValues = null,
   submitLabel,
   approvedBudgetCap = null,
+  approvedClientFeatures = [],
+  approvedDeliveryDeadline = null,
+  requestedDeadline = null,
+  projectGoalSummary = null,
+  lockedProjectCategory = null,
+  requireChangeSummary = false,
 }: CreateProjectSpecFormProps) {
   const [warnings, setWarnings] = useState<string[]>([]);
   const [richContentJson, setRichContentJson] = useState<
@@ -299,6 +429,7 @@ export function CreateProjectSpecForm({
       title: "",
       description: "",
       techStack: "",
+      referenceLinks: [],
       features: [],
       milestones: [
         {
@@ -310,8 +441,10 @@ export function CreateProjectSpecForm({
           acceptanceCriteria: [],
           startDate: "",
           dueDate: "",
+          approvedClientFeatureIds: [],
         },
       ],
+      changeSummary: "",
     },
     mode: "onChange",
   });
@@ -334,15 +467,102 @@ export function CreateProjectSpecForm({
     name: "features",
   });
 
+  const {
+    fields: referenceLinkFields,
+    append: appendReferenceLink,
+    remove: removeReferenceLink,
+  } = useFieldArray({
+    control: form.control,
+    name: "referenceLinks",
+  });
+
   // Real-time Warning Check
   const watchedMilestones = form.watch("milestones");
   const watchedDescription = form.watch("description");
   const watchedFeatures = form.watch("features");
+  const watchedReferenceLinks = form.watch("referenceLinks");
+  const watchedChangeSummary = form.watch("changeSummary");
   const calculatedBudget = sumMilestones(watchedMilestones);
   const budgetCap =
     typeof approvedBudgetCap === "number" ? approvedBudgetCap : null;
-  const isOverApprovedBudget =
-    budgetCap !== null && calculatedBudget - budgetCap > 0.01;
+  const isApprovedBudgetMismatch =
+    budgetCap !== null && Math.abs(calculatedBudget - budgetCap) > 0.01;
+  const todayDateKey = getTodayDateKey();
+  const normalizedApprovedDeadline =
+    normalizeDateOnly(approvedDeliveryDeadline) || null;
+  const approvedFeatureOptions = approvedClientFeatures.filter(
+    (feature): feature is ClientFeatureDTO & { id: string } =>
+      Boolean(feature.id && feature.title),
+  );
+  const coveredApprovedFeatureIds = new Set<string>();
+  watchedFeatures?.forEach((feature) => {
+    (feature?.approvedClientFeatureIds || []).forEach((featureId) => {
+      if (featureId) {
+        coveredApprovedFeatureIds.add(featureId);
+      }
+    });
+  });
+  watchedMilestones?.forEach((milestone) => {
+    (milestone?.approvedClientFeatureIds || []).forEach((featureId) => {
+      if (featureId) {
+        coveredApprovedFeatureIds.add(featureId);
+      }
+    });
+  });
+  const uncoveredApprovedFeatures = approvedFeatureOptions.filter(
+    (feature) => !coveredApprovedFeatureIds.has(feature.id),
+  );
+  const lastMilestoneIndex = Math.max((watchedMilestones?.length || 1) - 1, 0);
+  const allocatedPercent =
+    budgetCap && budgetCap > 0 ? (calculatedBudget / budgetCap) * 100 : null;
+  const remainingBudget =
+    budgetCap !== null ? Number((budgetCap - calculatedBudget).toFixed(2)) : null;
+  const remainingPercent =
+    budgetCap && budgetCap > 0 && remainingBudget !== null
+      ? Number(((remainingBudget / budgetCap) * 100).toFixed(2))
+      : null;
+
+  const getMilestonePercent = (amount?: unknown) => {
+    const numericAmount =
+      typeof amount === "string" ? parseFloat(amount) : Number(amount || 0);
+    if (!Number.isFinite(numericAmount)) {
+      return 0;
+    }
+    if (budgetCap && budgetCap > 0) {
+      return (numericAmount / budgetCap) * 100;
+    }
+    if (calculatedBudget > 0) {
+      return (numericAmount / calculatedBudget) * 100;
+    }
+    return 0;
+  };
+
+  const updateMilestonePercent = (index: number, nextPercentValue: string) => {
+    if (budgetCap === null || budgetCap <= 0) {
+      return;
+    }
+
+    if (nextPercentValue.trim() === "") {
+      form.setValue(`milestones.${index}.amount`, 0, {
+        shouldDirty: true,
+        shouldTouch: true,
+        shouldValidate: true,
+      });
+      return;
+    }
+
+    const numericPercent = Number(nextPercentValue);
+    if (!Number.isFinite(numericPercent) || numericPercent < 0) {
+      return;
+    }
+
+    const nextAmount = Number(((budgetCap * numericPercent) / 100).toFixed(2));
+    form.setValue(`milestones.${index}.amount`, nextAmount, {
+      shouldDirty: true,
+      shouldTouch: true,
+      shouldValidate: true,
+    });
+  };
 
   useEffect(() => {
     const newWarnings: string[] = [];
@@ -376,9 +596,11 @@ export function CreateProjectSpecForm({
     const mappedFeatures =
       initialValues.features && initialValues.features.length > 0
         ? initialValues.features.map((feature) => ({
+            id: feature.id || undefined,
             title: feature.title || "",
             description: feature.description || "",
             complexity: feature.complexity || "MEDIUM",
+            approvedClientFeatureIds: feature.approvedClientFeatureIds || [],
             acceptanceCriteria:
               feature.acceptanceCriteria &&
               feature.acceptanceCriteria.length > 0
@@ -405,6 +627,8 @@ export function CreateProjectSpecForm({
                     value: criteria || "",
                   }))
                 : [],
+              approvedClientFeatureIds:
+                milestone.approvedClientFeatureIds || [],
               startDate: toDateInputValue(milestone.startDate),
               dueDate: toDateInputValue(milestone.dueDate),
               duration:
@@ -425,6 +649,7 @@ export function CreateProjectSpecForm({
               acceptanceCriteria: [],
               startDate: "",
               dueDate: "",
+              approvedClientFeatureIds: [],
             },
           ];
 
@@ -432,8 +657,10 @@ export function CreateProjectSpecForm({
       title: initialValues.title || "",
       description: initialValues.description || "",
       techStack: initialValues.techStack || "",
+      referenceLinks: initialValues.referenceLinks || [],
       features: mappedFeatures,
       milestones: mappedMilestones,
+      changeSummary: initialValues.changeSummary || "",
     });
     setRichContentJson(initialValues.richContentJson || null);
   }, [form, initialValues]);
@@ -459,8 +686,15 @@ export function CreateProjectSpecForm({
       form.setFocus("techStack");
       return;
     }
+    if (errors.changeSummary) {
+      form.setFocus("changeSummary");
+      return;
+    }
 
     const featureErrors = Array.isArray(errors.features) ? errors.features : [];
+    const referenceLinkErrors = Array.isArray(errors.referenceLinks)
+      ? errors.referenceLinks
+      : [];
     for (let index = 0; index < featureErrors.length; index += 1) {
       const featureError = featureErrors[index];
       if (featureError?.title) {
@@ -481,6 +715,18 @@ export function CreateProjectSpecForm({
         form.setFocus(
           `features.${index}.acceptanceCriteria.${criteriaIndex}.value`,
         );
+        return;
+      }
+    }
+
+    for (let index = 0; index < referenceLinkErrors.length; index += 1) {
+      const linkError = referenceLinkErrors[index];
+      if (linkError?.label) {
+        form.setFocus(`referenceLinks.${index}.label`);
+        return;
+      }
+      if (linkError?.url) {
+        form.setFocus(`referenceLinks.${index}.url`);
         return;
       }
     }
@@ -538,12 +784,15 @@ export function CreateProjectSpecForm({
     status: "DRAFT" | "PENDING_APPROVAL" = "DRAFT",
   ) => {
     const milestoneBudget = sumMilestones(values.milestones);
-    form.clearErrors("root");
+    form.clearErrors();
 
-    if (budgetCap !== null && milestoneBudget - budgetCap > 0.01) {
+    if (
+      budgetCap !== null &&
+      Math.abs(milestoneBudget - budgetCap) > 0.01
+    ) {
       form.setError("root", {
         type: "manual",
-        message: `Milestone total cannot exceed approved client budget of $${budgetCap.toLocaleString(
+        message: `Milestone total must match the approved commercial budget of $${budgetCap.toLocaleString(
           undefined,
           {
             maximumFractionDigits: 2,
@@ -555,23 +804,119 @@ export function CreateProjectSpecForm({
       return;
     }
 
+    if (requireChangeSummary && !values.changeSummary?.trim()) {
+      form.setError("changeSummary", {
+        type: "manual",
+        message: "Summarize what changed before resubmitting this revision.",
+      });
+      form.setFocus("changeSummary");
+      return;
+    }
+
+    let previousDueDateKey: string | null = null;
+    for (const milestone of sortedScheduleMilestones(values.milestones)) {
+      const amount = Number(milestone.amount || 0);
+      const retentionAmount = Number(milestone.retentionAmount || 0);
+      const startDateKey = normalizeDateOnly(milestone.startDate);
+      const dueDateKey = normalizeDateOnly(milestone.dueDate);
+
+      if (retentionAmount > amount * 0.1 + 0.0001) {
+        form.setError(`milestones.${milestone.index}.retentionAmount`, {
+          type: "manual",
+          message: "Retention cannot exceed 10% of the milestone amount.",
+        });
+        form.setFocus(`milestones.${milestone.index}.retentionAmount`);
+        return;
+      }
+
+      if (!startDateKey) {
+        form.setError(`milestones.${milestone.index}.startDate`, {
+          type: "manual",
+          message: "Start date is required.",
+        });
+        form.setFocus(`milestones.${milestone.index}.startDate`);
+        return;
+      }
+
+      if (!dueDateKey) {
+        form.setError(`milestones.${milestone.index}.dueDate`, {
+          type: "manual",
+          message: "Due date is required.",
+        });
+        form.setFocus(`milestones.${milestone.index}.dueDate`);
+        return;
+      }
+
+      if (previousDueDateKey && startDateKey < previousDueDateKey) {
+        form.setError(`milestones.${milestone.index}.startDate`, {
+          type: "manual",
+          message:
+            "Milestones must stay sequential. This start date overlaps the previous milestone.",
+        });
+        form.setFocus(`milestones.${milestone.index}.startDate`);
+        return;
+      }
+
+      if (normalizedApprovedDeadline && dueDateKey > normalizedApprovedDeadline) {
+        form.setError(`milestones.${milestone.index}.dueDate`, {
+          type: "manual",
+          message: `Due date cannot exceed the approved delivery deadline ${normalizedApprovedDeadline}.`,
+        });
+        form.setFocus(`milestones.${milestone.index}.dueDate`);
+        return;
+      }
+
+      previousDueDateKey = dueDateKey;
+    }
+
+    if (normalizedApprovedDeadline) {
+      const finalMilestone = values.milestones[values.milestones.length - 1];
+      const finalMilestoneDueDate = normalizeDateOnly(finalMilestone?.dueDate);
+      if (finalMilestoneDueDate !== normalizedApprovedDeadline) {
+        form.setError(`milestones.${values.milestones.length - 1}.dueDate`, {
+          type: "manual",
+          message: `The final milestone must finish exactly on ${normalizedApprovedDeadline}.`,
+        });
+        form.setFocus(`milestones.${values.milestones.length - 1}.dueDate`);
+        return;
+      }
+    }
+
+    if (approvedFeatureOptions.length > 0 && uncoveredApprovedFeatures.length > 0) {
+      form.setError("root", {
+        type: "manual",
+        message: `Map every approved client-facing feature into the technical scope. Missing coverage: ${uncoveredApprovedFeatures
+          .map((feature) => feature.title)
+          .join(", ")}.`,
+      });
+      return;
+    }
+
     // Transform data to match DTO
     const payload: CreateProjectSpecDTO = {
       requestId,
       status: status as any, // Cast to enum
-      title: values.title,
-      description: values.description,
+      title: values.title.trim(),
+      description: values.description.trim(),
       totalBudget: milestoneBudget,
-      techStack: values.techStack,
+      techStack: values.techStack.trim(),
+      referenceLinks: values.referenceLinks?.length
+        ? values.referenceLinks.map((link) => ({
+            label: link.label.trim(),
+            url: normalizeReferenceUrl(link.url),
+          }))
+        : undefined,
       features: values.features?.map((f) => ({
-        title: f.title,
-        description: f.description,
+        id: f.id,
+        title: f.title.trim(),
+        description: f.description.trim(),
         complexity: f.complexity,
         acceptanceCriteria: f.acceptanceCriteria.map((ac) => ac.value.trim()),
+        approvedClientFeatureIds: (f.approvedClientFeatureIds || []).filter(Boolean),
       })),
       milestones: values.milestones.map((m, index) => ({
-        title: m.title,
-        description: m.description,
+        title: m.title.trim(),
+        description: m.description.trim(),
         amount: m.amount,
         duration: m.duration,
         deliverableType: m.deliverableType,
@@ -582,10 +927,12 @@ export function CreateProjectSpecForm({
         startDate: normalizeDatePayload(m.startDate),
         dueDate: normalizeDatePayload(m.dueDate),
         sortOrder: index + 1,
+        approvedClientFeatureIds: (m.approvedClientFeatureIds || []).filter(Boolean),
       })),
       richContentJson: narrativeHasContent(richContentJson)
         ? richContentJson || undefined
         : undefined,
+      changeSummary: values.changeSummary?.trim() || undefined,
     };
 
     onSubmit(payload);
@@ -628,6 +975,106 @@ export function CreateProjectSpecForm({
               </ul>
             </AlertDescription>
           </Alert>
+        )}
+
+        <Card className="border-slate-200 bg-slate-50/70">
+          <CardHeader>
+            <CardTitle className="text-base">Locked Baseline</CardTitle>
+            <CardDescription>
+              These request terms are fixed from the client request and approved
+              client spec. The full spec must implement them, not rewrite them.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {normalizedApprovedDeadline ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                The final milestone must land exactly on the approved delivery deadline {normalizedApprovedDeadline}.
+              </div>
+            ) : null}
+            <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Product Type
+              </p>
+              <p className="mt-2 font-semibold text-slate-950">
+                {lockedProjectCategory || "Locked upstream"}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Project Goal
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-700">
+                {projectGoalSummary || "Locked upstream"}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-white p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Requested / Agreed Deadline
+              </p>
+              <p className="mt-2 font-semibold text-slate-950">
+                {normalizedApprovedDeadline || requestedDeadline || "Not set"}
+              </p>
+              {requestedDeadline && normalizedApprovedDeadline ? (
+                <p className="mt-1 text-xs text-slate-500">
+                  Request asked for {requestedDeadline}
+                </p>
+              ) : null}
+            </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        {approvedFeatureOptions.length > 0 && (
+          <Card className="border-slate-200">
+            <CardHeader>
+              <CardTitle className="text-base">
+                Approved Client Feature Coverage
+              </CardTitle>
+              <CardDescription>
+                Every approved client-facing feature must be mapped into at
+                least one technical feature or one milestone.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {approvedFeatureOptions.map((feature) => (
+                  <Badge
+                    key={feature.id}
+                    variant="outline"
+                    className={
+                      coveredApprovedFeatureIds.has(feature.id)
+                        ? "border-emerald-200 text-emerald-700"
+                        : "border-amber-200 text-amber-700"
+                    }
+                  >
+                    {coveredApprovedFeatureIds.has(feature.id) ? "Covered" : "Missing"}:{" "}
+                    {feature.title}
+                  </Badge>
+                ))}
+              </div>
+              {uncoveredApprovedFeatures.length > 0 ? (
+                <Alert>
+                  <AlertTitle>Coverage still missing</AlertTitle>
+                  <AlertDescription>
+                    Map these approved client-facing features before submit:{" "}
+                    {uncoveredApprovedFeatures
+                      .map((feature) => feature.title)
+                      .join(", ")}
+                    .
+                  </AlertDescription>
+                </Alert>
+              ) : (
+                <Alert>
+                  <AlertTitle>Coverage complete</AlertTitle>
+                  <AlertDescription>
+                    Every approved client-facing feature is mapped into the
+                    technical scope draft.
+                  </AlertDescription>
+                </Alert>
+              )}
+            </CardContent>
+          </Card>
         )}
 
         {/* 1. GENERAL INFO */}
@@ -718,11 +1165,111 @@ export function CreateProjectSpecForm({
           </CardContent>
         </Card>
 
-        {/* 3. FEATURES & CRITERIA */}
         <Card>
           <CardHeader className="flex flex-row items-center justify-between">
             <div>
-              <CardTitle>3. Features & Acceptance Criteria</CardTitle>
+              <CardTitle>3. Reference Links</CardTitle>
+              <CardDescription>
+                Add only working `http/https` links. Bare domains are auto-normalized to `https://`.
+              </CardDescription>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => appendReferenceLink({ label: "", url: "" })}
+            >
+              <Plus className="mr-2 h-4 w-4" />
+              Add Link
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 p-4 text-sm text-slate-600">
+              Examples: Figma file, Google Drive/Docs brief, GitHub/GitLab repo, Notion doc, staging/demo URL.
+            </div>
+            {referenceLinkFields.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                No reference links added yet.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {referenceLinkFields.map((field, index) => (
+                  <div
+                    key={field.id}
+                    className="grid gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-[1fr_2fr_auto]"
+                  >
+                    <FormField
+                      control={form.control}
+                      name={`referenceLinks.${index}.label`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Label</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Figma wireframe" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name={`referenceLinks.${index}.url`}
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>URL</FormLabel>
+                          <FormControl>
+                            <Input
+                              placeholder="figma.com/file/..."
+                              {...field}
+                              onBlur={(event) => {
+                                field.onBlur();
+                                const normalized = normalizeReferenceUrl(event.target.value);
+                                if (normalized && normalized !== event.target.value) {
+                                  form.setValue(
+                                    `referenceLinks.${index}.url`,
+                                    normalized,
+                                    { shouldDirty: true, shouldTouch: true, shouldValidate: true },
+                                  );
+                                }
+                              }}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Allowed schemes: `http://` or `https://`
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <div className="flex items-end">
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={() => removeReferenceLink(index)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {watchedReferenceLinks?.length ? (
+              <div className="flex flex-wrap gap-2">
+                {watchedReferenceLinks.map((link, index) => (
+                  <Badge key={`${link.label || "link"}-${index}`} variant="outline">
+                    {link.label || `Link ${index + 1}`}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        {/* 4. FEATURES & CRITERIA */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle>4. Features & Acceptance Criteria</CardTitle>
               <CardDescription>
                 Define functional requirements in detail.
               </CardDescription>
@@ -731,9 +1278,11 @@ export function CreateProjectSpecForm({
               type="button"
               onClick={() =>
                 appendFeature({
+                  id: undefined,
                   title: "",
                   description: "",
                   complexity: "MEDIUM",
+                  approvedClientFeatureIds: [],
                   acceptanceCriteria: [{ value: "" }],
                 })
               }
@@ -818,6 +1367,14 @@ export function CreateProjectSpecForm({
                       )}
                     />
 
+                    <ApprovedFeatureCoverageSelector
+                      control={form.control}
+                      name={`features.${index}.approvedClientFeatureIds`}
+                      approvedClientFeatures={approvedFeatureOptions}
+                      label="Mapped approved client-facing features"
+                      description="Tie this technical feature back to the approved client-facing requirements it implements."
+                    />
+
                     {/* Acceptance Criteria Sub-List */}
                     <AcceptanceCriteriaList
                       nestIndex={index}
@@ -845,10 +1402,10 @@ export function CreateProjectSpecForm({
           </CardContent>
         </Card>
 
-        {/* 4. BUDGET & MILESTONES */}
+        {/* 5. BUDGET & MILESTONES */}
         <Card>
           <CardHeader>
-            <CardTitle>4. Budget & Milestones</CardTitle>
+            <CardTitle>5. Budget & Milestones</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             <div className="rounded-lg border bg-muted/40 p-4">
@@ -868,7 +1425,7 @@ export function CreateProjectSpecForm({
                   </p>
                   {budgetCap !== null && (
                     <p className="text-xs text-muted-foreground">
-                      Approved client budget cap: $
+                      Approved commercial budget baseline: $
                       {budgetCap.toLocaleString(undefined, {
                         maximumFractionDigits: 2,
                       })}
@@ -884,19 +1441,19 @@ export function CreateProjectSpecForm({
               </div>
             </div>
 
-            {isOverApprovedBudget && (
+            {isApprovedBudgetMismatch && (
               <Alert variant="destructive">
-                <AlertTitle>Budget exceeds approved cap</AlertTitle>
+                <AlertTitle>Budget does not match approved baseline</AlertTitle>
                 <AlertDescription>
                   Milestone total is $
                   {budget.toLocaleString(undefined, {
                     maximumFractionDigits: 2,
                   })}
-                  , which exceeds the approved client budget of $
+                  , but the approved commercial budget is $
                   {budgetCap?.toLocaleString(undefined, {
                     maximumFractionDigits: 2,
                   })}
-                  .
+                  . Adjust milestone amounts until the totals match exactly.
                 </AlertDescription>
               </Alert>
             )}
@@ -940,31 +1497,61 @@ export function CreateProjectSpecForm({
                           <FormControl>
                             <Input placeholder="e.g. Phase 1" {...field} />
                           </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name={`milestones.${index}.amount`}
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Amount ($)</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              inputMode="decimal"
-                              onWheel={stopNumberFieldScroll}
-                              onKeyDown={preventArrowStep}
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <FormField
+                        control={form.control}
+                        name={`milestones.${index}.amount`}
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Amount ($)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                inputMode="decimal"
+                                onWheel={stopNumberFieldScroll}
+                                onKeyDown={preventArrowStep}
+                                {...field}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              {budgetCap !== null
+                                ? "This amount is checked against the approved commercial baseline."
+                                : "Budget is calculated from milestone amounts."}
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormItem>
+                        <FormLabel>
+                          {budgetCap !== null ? "% of approved budget" : "% of current total"}
+                        </FormLabel>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.1"
+                            inputMode="decimal"
+                            value={getMilestonePercent(form.watch(`milestones.${index}.amount`)).toFixed(2)}
+                            onChange={(event) => updateMilestonePercent(index, event.target.value)}
+                            onWheel={stopNumberFieldScroll}
+                            onKeyDown={preventArrowStep}
+                            readOnly={budgetCap === null}
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {budgetCap !== null
+                            ? "Edit this field to update the milestone amount from the approved budget baseline."
+                            : "Set an approved budget first to edit percentages directly."}
+                        </FormDescription>
+                      </FormItem>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1029,16 +1616,30 @@ export function CreateProjectSpecForm({
                               min="0"
                               step="0.01"
                               inputMode="decimal"
+                              max={Number(
+                                ((Number(form.watch(`milestones.${index}.amount`) || 0) * 0.1)).toFixed(2),
+                              )}
                               onWheel={stopNumberFieldScroll}
                               onKeyDown={preventArrowStep}
                               {...field}
                             />
                           </FormControl>
+                          <FormDescription>
+                            Cap: 10% of this milestone amount.
+                          </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
                   </div>
+
+                  <ApprovedFeatureCoverageSelector
+                    control={form.control}
+                    name={`milestones.${index}.approvedClientFeatureIds`}
+                    approvedClientFeatures={approvedFeatureOptions}
+                    label="Approved client-facing features delivered in this milestone"
+                    description="Map milestone output to the approved client-facing features it fulfills."
+                  />
 
                   <div className="rounded-lg border border-dashed bg-muted/20 p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">
@@ -1061,8 +1662,14 @@ export function CreateProjectSpecForm({
                           <FormItem>
                             <FormLabel>Start date</FormLabel>
                             <FormControl>
-                              <Input type="date" {...field} value={field.value || ""} />
+                              <Input
+                                type="date"
+                                min={todayDateKey}
+                                {...field}
+                                value={field.value || ""}
+                              />
                             </FormControl>
+                            <FormDescription>Cannot be earlier than today.</FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -1074,8 +1681,26 @@ export function CreateProjectSpecForm({
                           <FormItem>
                             <FormLabel>Due date</FormLabel>
                             <FormControl>
-                              <Input type="date" {...field} value={field.value || ""} />
+                              <Input
+                                type="date"
+                                min={laterDateKey(
+                                  todayDateKey,
+                                  form.watch(`milestones.${index}.startDate`),
+                                )}
+                                max={normalizedApprovedDeadline || undefined}
+                                {...field}
+                                value={field.value || ""}
+                              />
                             </FormControl>
+                            <FormDescription>
+                              {index === lastMilestoneIndex && normalizedApprovedDeadline
+                                ? `This final milestone must end exactly on ${normalizedApprovedDeadline}.`
+                                : `Must be on or after today and the selected start date${
+                                    normalizedApprovedDeadline
+                                      ? `, and on or before ${normalizedApprovedDeadline}.`
+                                      : "."
+                                  }`}
+                            </FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -1121,6 +1746,7 @@ export function CreateProjectSpecForm({
                   acceptanceCriteria: [],
                   startDate: "",
                   dueDate: "",
+                  approvedClientFeatureIds: [],
                 })
               }
             >
@@ -1128,16 +1754,34 @@ export function CreateProjectSpecForm({
             </Button>
 
             {/* Budget Check Footer */}
-            <div
-              className={`p-4 rounded-md border text-sm flex justify-between items-center bg-muted`}
-            >
-              <span>
-                Total Budget (Calculated): <strong>${budget}</strong>
-              </span>
-              <span>
-                Milestone Sum: <strong>${milestoneSum}</strong>
-              </span>
+            <div className="grid gap-3 rounded-xl border bg-muted p-4 text-sm md:grid-cols-3">
+              <div>
+                <span className="text-muted-foreground">Total Budget (Calculated)</span>
+                <p className="font-semibold">${budget.toFixed(2)}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">Milestone Sum</span>
+                <p className="font-semibold">${milestoneSum.toFixed(2)}</p>
+              </div>
+              <div>
+                <span className="text-muted-foreground">
+                  {budgetCap !== null ? "Variance vs approved budget" : "Milestone share"}
+                </span>
+                <p className="font-semibold">
+                  {budgetCap !== null && remainingBudget !== null && remainingPercent !== null
+                    ? `${remainingPercent.toFixed(2)}% / $${remainingBudget.toFixed(2)}`
+                    : `${watchedMilestones.length} milestone${watchedMilestones.length === 1 ? "" : "s"}`}
+                </p>
+              </div>
             </div>
+            {budgetCap !== null && allocatedPercent !== null ? (
+              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                Allocated {allocatedPercent.toFixed(2)}% of the approved budget baseline.
+                {remainingBudget !== null && Math.abs(remainingBudget) > 0.01
+                  ? " Milestone totals must land exactly on the approved baseline before submission."
+                  : " Budget alignment is complete."}
+              </div>
+            ) : null}
             {form.formState.errors.root?.message && (
               <Alert variant="destructive">
                 <AlertDescription>
@@ -1154,12 +1798,53 @@ export function CreateProjectSpecForm({
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>6. Revision Summary</CardTitle>
+            <CardDescription>
+              Explain what changed in this full spec draft.
+              {requireChangeSummary
+                ? " This is required because the previous revision was rejected."
+                : " This becomes especially important when you resubmit after feedback."}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <FormField
+              control={form.control}
+              name="changeSummary"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Change Summary</FormLabel>
+                  <FormControl>
+                    <Textarea
+                      {...field}
+                      value={field.value || ""}
+                      className="min-h-[120px]"
+                      placeholder="Summarize budget alignment, timeline updates, scope clarifications, and milestone changes."
+                    />
+                  </FormControl>
+                  <FormDescription>
+                    Client and reviewers use this to understand what changed
+                    between revisions.
+                  </FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            {!requireChangeSummary && watchedChangeSummary?.trim() ? (
+              <p className="mt-3 text-sm text-slate-600">
+                Revision note captured for this draft.
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+
         {/* ACTIONS */}
         <div className="flex justify-end gap-4 pb-20">
           <Button
             type="button"
             variant="outline"
-            onClick={() => window.history.back()}
+            onClick={onCancel}
           >
             Cancel
           </Button>
@@ -1168,7 +1853,7 @@ export function CreateProjectSpecForm({
             <Button
               type="button"
               variant="secondary"
-              disabled={isSubmitting || isOverApprovedBudget}
+              disabled={isSubmitting || isApprovedBudgetMismatch}
               onClick={form.handleSubmit(
                 (d) => handleSubmit(d, "DRAFT"),
                 handleInvalidSubmit,
@@ -1180,7 +1865,7 @@ export function CreateProjectSpecForm({
 
           <Button
             type="button"
-            disabled={isSubmitting || isOverApprovedBudget}
+            disabled={isSubmitting || isApprovedBudgetMismatch}
             size="lg"
             className="bg-green-600 hover:bg-green-700"
             onClick={form.handleSubmit(
@@ -1205,6 +1890,82 @@ export function CreateProjectSpecForm({
 // 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 // SUB-COMPONENT: Acceptance Criteria List
 // 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
+
+function ApprovedFeatureCoverageSelector({
+  control,
+  name,
+  approvedClientFeatures,
+  label,
+  description,
+}: {
+  control: any;
+  name: string;
+  approvedClientFeatures: Array<ClientFeatureDTO & { id: string }>;
+  label: string;
+  description: string;
+}) {
+  if (approvedClientFeatures.length === 0) {
+    return null;
+  }
+
+  return (
+    <FormField
+      control={control}
+      name={name}
+      render={({ field }) => {
+        const selectedValues = Array.isArray(field.value) ? field.value : [];
+
+        const toggleValue = (featureId: string, checked: boolean) => {
+          const nextValues = checked
+            ? Array.from(new Set([...selectedValues, featureId]))
+            : selectedValues.filter((value: string) => value !== featureId);
+          field.onChange(nextValues);
+        };
+
+        return (
+          <FormItem className="space-y-3 rounded-xl border border-slate-200 bg-slate-50/60 p-4">
+            <div className="space-y-1">
+              <FormLabel>{label}</FormLabel>
+              <FormDescription>{description}</FormDescription>
+            </div>
+            <div className="grid gap-2 md:grid-cols-2">
+              {approvedClientFeatures.map((feature) => {
+                const isChecked = selectedValues.includes(feature.id);
+
+                return (
+                  <label
+                    key={feature.id}
+                    className={`flex cursor-pointer items-start gap-3 rounded-xl border px-3 py-3 transition ${
+                      isChecked
+                        ? "border-emerald-200 bg-emerald-50"
+                        : "border-slate-200 bg-white hover:border-slate-300"
+                    }`}
+                  >
+                    <Checkbox
+                      checked={isChecked}
+                      onCheckedChange={(checked) =>
+                        toggleValue(feature.id, Boolean(checked))
+                      }
+                    />
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium text-slate-900">
+                        {feature.title}
+                      </p>
+                      <p className="text-xs leading-5 text-slate-600">
+                        {feature.description}
+                      </p>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+            <FormMessage />
+          </FormItem>
+        );
+      }}
+    />
+  );
+}
 
 function AcceptanceCriteriaList({
   nestIndex,
