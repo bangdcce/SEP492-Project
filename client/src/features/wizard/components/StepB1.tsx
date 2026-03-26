@@ -3,8 +3,6 @@ import type { WizardQuestion } from "../services/wizardService";
 import { Label } from "@/shared/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/shared/components/ui/radio-group";
 
-import { FileText, Globe, ShoppingCart, Smartphone, Laptop, Settings } from "lucide-react";
-
 interface StepB1Props {
   question: WizardQuestion;
   value: string;
@@ -19,27 +17,25 @@ export function StepB1({ question, value, onChange }: StepB1Props) {
         {question.helpText && <p className="text-muted-foreground mt-2">{question.helpText}</p>}
       </div>
 
-      <RadioGroup value={value} onValueChange={onChange} className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {question.options.map((option) => (
-          <div key={option.id}>
-            <RadioGroupItem value={option.value} id={option.id} className="peer sr-only" />
-            <Label
-              htmlFor={option.id}
-              className="flex flex-col items-center justify-between rounded-md border-2 border-muted bg-popover p-4 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary [&:has([data-state=checked])]:border-primary cursor-pointer transition-all h-full"
-            >
-              <div className="mb-2 text-primary">
-                {option.value === 'LANDING_PAGE' && <FileText className="w-8 h-8" />}
-                {option.value === 'CORP_WEBSITE' && <Globe className="w-8 h-8" />}
-                {option.value === 'ECOMMERCE' && <ShoppingCart className="w-8 h-8" />}
-                {option.value === 'MOBILE_APP' && <Smartphone className="w-8 h-8" />}
-                {option.value === 'WEB_APP' && <Laptop className="w-8 h-8" />}
-                {option.value === 'SYSTEM' && <Settings className="w-8 h-8" />}
-              </div>
-              <span className="font-semibold text-lg">{option.label}</span>
-            </Label>
-          </div>
-        ))}
-      </RadioGroup>
+      <div className="max-h-80 overflow-y-auto pr-1">
+        <RadioGroup
+          value={value}
+          onValueChange={onChange}
+          className="grid grid-cols-1 md:grid-cols-2 gap-4"
+        >
+          {question.options.map((option) => (
+            <div key={option.id}>
+              <RadioGroupItem value={option.value} id={String(option.id)} className="peer sr-only" />
+              <Label
+                htmlFor={String(option.id)}
+                className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-6 text-center hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary cursor-pointer transition-all h-full min-h-24"
+              >
+                <span className="font-semibold text-lg">{option.label}</span>
+              </Label>
+            </div>
+          ))}
+        </RadioGroup>
+      </div>
     </div>
   );
 }

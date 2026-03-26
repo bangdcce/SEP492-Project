@@ -1,6 +1,7 @@
 import { Card, CardContent, Button, Badge } from "@/shared/components/ui";
 import { Link, useLocation } from "react-router-dom";
 import { Calendar, User } from "lucide-react";
+import { buildTrustProfilePath } from "@/features/trust-profile/routes";
 
 interface InvitationCardProps {
   invitation: any; // Type appropriately
@@ -24,6 +25,11 @@ export const InvitationCard = ({
   const invitationStatus = String(invitation?.status || "UNKNOWN").toUpperCase();
   const canRespond = invitationStatus === "INVITED";
   const isAcceptDisabled = !canRespond || Boolean(acceptDisabledReason);
+  const clientProfilePath = invitation.request?.client?.id
+    ? buildTrustProfilePath(invitation.request.client.id, {
+        pathname: location.pathname,
+      })
+    : null;
 
   const getInvitationStatusBadgeClass = (status: string) => {
     switch (status) {
@@ -95,6 +101,11 @@ export const InvitationCard = ({
              >
                 Deny
              </Button>
+             {clientProfilePath && (
+               <Button size="sm" variant="ghost" asChild>
+                 <Link to={clientProfilePath}>View Trust Profile</Link>
+               </Button>
+             )}
              {!canRespond && (
                <span className="text-xs text-muted-foreground text-right">
                  Read-only

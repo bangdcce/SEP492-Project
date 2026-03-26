@@ -4,41 +4,26 @@ import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
 import { Loader2, Search } from 'lucide-react';
 import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
-import { STORAGE_KEYS } from '@/constants';
-import { getStoredJson } from '@/shared/utils/storage';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
-import { Input } from '@/shared/components/ui/Input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Input } from '@/shared/components/ui/input';
 import { Badge } from '@/shared/components/ui/badge';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/shared/components/ui/alert-dialog';
 import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
 import toast from 'react-hot-toast';
+import { useCurrentUser } from '@/shared/hooks/useCurrentUser';
 
 export const ProjectRequestsPage: React.FC = () => {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [assigningId, setAssigningId] = useState<string | null>(null);
-  const [assignConfirmId, setAssignConfirmId] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [upgradeModalData, setUpgradeModalData] = useState<any>(null);
   const { checkKycStatus } = useKYCStatus();
+  const user = useCurrentUser<{ id?: string; role?: string }>();
 
   useEffect(() => {
-    setUser(getStoredJson(STORAGE_KEYS.USER));
-    
     // Check KYC status
     checkKycStatus().then(setKycStatus);
-  }, []);
+  }, [checkKycStatus]);
 
   const myProjects = requests.filter(r => 
       // 1. Assigned directly
@@ -81,33 +66,6 @@ export const ProjectRequestsPage: React.FC = () => {
     fetchRequests();
   }, []);
 
-  const handleAssign = async (requestId: string) => {
-    setAssignConfirmId(requestId);
-  };
-
-  const confirmAssign = async () => {
-    if (!assignConfirmId) return;
-
-    try {
-      setAssigningId(assignConfirmId);
-      await projectRequestsApi.assignBroker(assignConfirmId);
-      // Refresh list after successful assignment
-      await fetchRequests();
-      setAssignConfirmId(null);
-      toast.success('Request assigned successfully!');
-    } catch (error: any) {
-      console.error('Failed to assign request:', error);
-      const quotaErr = parseQuotaError(error);
-      if (quotaErr) {
-        setUpgradeModalData(quotaErr);
-      } else {
-        toast.error(error.response?.data?.message || 'Failed to assign request');
-      }
-    } finally {
-      setAssigningId(null);
-    }
-  };
-
   const handleApply = async (requestId: string, coverLetter: string) => {
      try {
         await projectRequestsApi.applyToRequest(requestId, coverLetter);
@@ -149,7 +107,7 @@ export const ProjectRequestsPage: React.FC = () => {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Broker Marketplace</h1>
           <p className="text-muted-foreground">
-            Review open client requests, then assign or apply with your proposal.
+            Review open client requests, open the details, and apply with your proposal.
           </p>
         </div>
       </div>
@@ -198,9 +156,7 @@ export const ProjectRequestsPage: React.FC = () => {
       <div className="rounded-md bg-white p-4 shadow-sm">
         <ProjectRequestsTable 
             requests={filteredMarketRequests}
-            onAssign={handleAssign}
             onApply={handleApply}
-            assigningId={assigningId}
             currentUserId={user?.id}
         />
       </div>
@@ -209,22 +165,6 @@ export const ProjectRequestsPage: React.FC = () => {
         onClose={() => setUpgradeModalData(null)}
         quotaInfo={upgradeModalData}
       />
-      <AlertDialog open={Boolean(assignConfirmId)} onOpenChange={(open) => !open && setAssignConfirmId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Assign this request to yourself?</AlertDialogTitle>
-            <AlertDialogDescription>
-              You will become the active broker responsible for the client spec and downstream handoff flow.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={Boolean(assigningId)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmAssign} disabled={Boolean(assigningId)}>
-              {assigningId ? 'Assigning...' : 'Assign to Me'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 };

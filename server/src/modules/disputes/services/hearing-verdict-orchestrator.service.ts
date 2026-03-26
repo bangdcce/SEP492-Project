@@ -6,7 +6,6 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import Decimal from 'decimal.js';
 import { Repository } from 'typeorm';
 import {
   DisputeEntity,
@@ -91,62 +90,6 @@ export class HearingVerdictOrchestratorService {
   async getVerdictReadiness(hearingId: string, requesterId: string, requesterRole: UserRole) {
     await this.assertReadinessAccess(hearingId, requesterId, requesterRole);
     return await this.verdictReadinessService.evaluateHearingReadiness(hearingId);
-  }
-
-  private computeMoneySplit(args: {
-    result: DisputeResult;
-    splitRatioClient?: number;
-    amountToClient?: number;
-    amountToFreelancer?: number;
-    fundedAmount: number;
-    platformFee: number;
-  }): { amountToClient: number; amountToFreelancer: number } {
-    const providedClient = args.amountToClient;
-    const providedFreelancer = args.amountToFreelancer;
-
-    if (providedClient != null && providedFreelancer != null) {
-      return {
-        amountToClient: providedClient,
-        amountToFreelancer: providedFreelancer,
-      };
-    }
-
-    const remaining = new Decimal(args.fundedAmount || 0).minus(args.platformFee || 0);
-    if (remaining.lessThan(0)) {
-      throw new BadRequestException('Platform fee exceeds funded amount');
-    }
-
-    if (args.result === DisputeResult.WIN_CLIENT) {
-      return {
-        amountToClient: remaining.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
-        amountToFreelancer: 0,
-      };
-    }
-
-    if (args.result === DisputeResult.WIN_FREELANCER) {
-      return {
-        amountToClient: 0,
-        amountToFreelancer: remaining.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber(),
-      };
-    }
-
-    if (args.splitRatioClient == null) {
-      throw new BadRequestException(
-        'amountToFreelancer/amountToClient or splitRatioClient is required',
-      );
-    }
-
-    const clientRatio = new Decimal(args.splitRatioClient).dividedBy(100);
-    const amountToClient = remaining
-      .times(clientRatio)
-      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-      .toNumber();
-    const amountToFreelancer = remaining
-      .minus(amountToClient)
-      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-      .toNumber();
-
-    return { amountToClient, amountToFreelancer };
   }
 
   async issueHearingVerdict(
@@ -236,13 +179,13 @@ export class HearingVerdictOrchestratorService {
       escrow.fundedAmount && escrow.fundedAmount > 0 ? escrow.fundedAmount : escrow.totalAmount;
     const platformFee = escrow.platformFee || 0;
 
-    const split = this.computeMoneySplit({
+    const split = this.verdictService.resolveVerdictAmounts({
       result,
       splitRatioClient: dto.verdict.splitRatioClient,
       amountToClient: dto.verdict.amountToClient,
       amountToFreelancer: dto.verdict.amountToFreelancer,
-      fundedAmount,
-      platformFee,
+      escrowFundedAmount: fundedAmount,
+      fixedPlatformFee: platformFee,
     });
 
     const verdictResult = await this.verdictService.issueVerdict(

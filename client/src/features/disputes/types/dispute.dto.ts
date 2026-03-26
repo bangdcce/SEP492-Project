@@ -10,6 +10,8 @@ export interface CreateDisputeDto {
   parentDisputeId?: string;
   evidenceFiles?: File[]; // For upload (client-side only)
   disputedAmount?: number; // Optional override, usually defaults to escrow funded
+  disclaimerAccepted: boolean;
+  disclaimerVersion?: string;
 }
 
 export interface DisputeEvidenceDto {

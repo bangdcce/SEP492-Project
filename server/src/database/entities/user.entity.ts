@@ -189,6 +189,9 @@ export class UserEntity {
   @OneToMany('UserSkillEntity', 'user')
   userSkills: any[];
 
+  @OneToMany('UserSkillDomainEntity', 'user')
+  userSkillDomains: any[];
+
   // --- E05: LOGIC HUY HIỆU (VIRTUAL PROPERTY) ---
   // @Expose: Báo cho NestJS biết là "Hãy trả field này về cho Frontend dù nó không có trong DB"
   @Expose()

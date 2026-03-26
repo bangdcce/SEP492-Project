@@ -1,195 +1,142 @@
+const LAST_UPDATED = "March 22, 2026";
+
+const SECTION_TITLE =
+  "mb-3 text-2xl font-semibold tracking-tight text-slate-950";
+const PARAGRAPH = "text-sm leading-7 text-slate-600 sm:text-base";
+const LIST = "ml-5 list-disc space-y-2 text-sm leading-7 text-slate-600 sm:text-base";
+
 export default function TermsOfService() {
   return (
-    <div className="max-w-4xl mx-auto p-8 bg-white">
-      <h1 className="text-3xl font-bold text-gray-900 mb-6">Terms of Service</h1>
-      <p className="text-sm text-gray-500 mb-8">
-        Last updated: {new Date().toLocaleDateString('en-US')}
-      </p>
-
-      <div className="space-y-6">
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">1. Introduction</h2>
-          <p className="text-gray-700 leading-relaxed">
-            Welcome to <strong>InterDev Platform</strong> ("Platform", "We", "Our"). 
-            By accessing and using this platform, you agree to comply with these Terms of Service ("Terms"). 
-            Please read carefully before using.
-          </p>
-          <p className="text-gray-700 leading-relaxed mt-2">
-            If you do not agree with any part of these terms, please do not use our service.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">2. Eligible Users</h2>
-          <p className="text-gray-700 leading-relaxed">
-            InterDev Platform provides connection services between:
-          </p>
-          <ul className="list-disc list-inside text-gray-700 ml-4 mt-2 space-y-1">
-            <li><strong>Clients</strong>: Individuals or organizations seeking to hire freelancers/brokers</li>
-            <li><strong>Freelancers</strong>: Independent professionals providing specialized services</li>
-            <li><strong>Brokers</strong>: Intermediaries connecting clients with suitable freelancers</li>
-          </ul>
-          <p className="text-gray-700 leading-relaxed mt-2">
-            You must be at least 18 years old and have full legal capacity under Vietnamese law to use the service.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">3. Account & Security</h2>
-          <div className="space-y-2 text-gray-700">
-            <p className="font-semibold">3.1. Account Registration</p>
-            <ul className="list-disc list-inside ml-4">
-              <li>You commit to providing accurate, complete, and up-to-date information</li>
-              <li>Registration email must be valid and regularly used (temporary emails not accepted)</li>
-              <li>Password must be at least 8 characters with uppercase, lowercase, numbers, and special characters</li>
-              <li>You are responsible for securing your login credentials</li>
-            </ul>
-
-            <p className="font-semibold mt-3">3.2. Identity Verification (KYC)</p>
-            <p className="ml-4">
-              To enhance trust and protect the community, we require identity verification through:
-            </p>
-            <ul className="list-disc list-inside ml-8">
-              <li>National ID/Citizen ID</li>
-              <li>Selfie photo for face verification</li>
-              <li>Contact information (phone number, email)</li>
-            </ul>
-            <p className="ml-4 mt-2 text-sm italic text-gray-600">
-              Note: All KYC information is encrypted and securely stored. Only authorized admin/staff can view 
-              (with security watermark to prevent information leakage).
-            </p>
-
-            <p className="font-semibold mt-3">3.3. Security Responsibility</p>
-            <ul className="list-disc list-inside ml-4">
-              <li>Do not share your account with others</li>
-              <li>Notify us immediately if you detect unusual activity</li>
-              <li>Log out after each session, especially on shared devices</li>
-            </ul>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">4. User Rights & Obligations</h2>
-          <div className="space-y-2 text-gray-700">
-            <p className="font-semibold">4.1. You ARE ALLOWED to:</p>
-            <ul className="list-disc list-inside ml-4 space-y-1">
-              <li>Post job listings/search for work matching your expertise</li>
-              <li>Contact and communicate with other members on the platform</li>
-              <li>Rate and provide feedback on service quality after project completion</li>
-              <li>Request support from management team when encountering issues</li>
-            </ul>
-
-            <p className="font-semibold mt-3">4.2. You ARE NOT ALLOWED to:</p>
-            <ul className="list-disc list-inside ml-4 space-y-1">
-              <li>Provide false information or impersonate identity</li>
-              <li>Spam, advertise unrelated content, or violate laws</li>
-              <li>Use the platform for illegal purposes (money laundering, fraud, etc.)</li>
-              <li>Infringe on others' intellectual property rights</li>
-              <li>Attack, intrude systems, or exploit security vulnerabilities</li>
-              <li>Screenshot or copy others' KYC information (serious violation)</li>
-            </ul>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">5. Payment & Service Fees</h2>
-          <p className="text-gray-700 leading-relaxed">
-            InterDev charges service fees on each successful transaction. Details:
-          </p>
-          <ul className="list-disc list-inside text-gray-700 ml-4 mt-2 space-y-1">
-            <li>Platform fee: 5-10% of project value (depending on contract type)</li>
-            <li>Brokers earn commission from successfully connected projects</li>
-            <li>Payments processed through licensed third-party payment gateways</li>
-          </ul>
-          <p className="text-gray-700 mt-2 italic text-sm">
-            Detailed fee schedule and refund policy will be published separately and updated periodically.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">6. Intellectual Property</h2>
-          <p className="text-gray-700 leading-relaxed">
-            All content on InterDev Platform (logo, interface, source code, design) is owned by us or 
-            licensed partners. Unauthorized copying, distribution, or use is strictly prohibited.
-          </p>
-          <p className="text-gray-700 mt-2">
-            Users retain ownership of content they create (profile, portfolio, reviews), but grant 
-            InterDev a non-exclusive license to operate the platform.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">7. Limitation of Liability</h2>
-          <p className="text-gray-700 leading-relaxed">
-            InterDev is a connection platform and does not directly provide freelance services. We are not responsible for:
-          </p>
-          <ul className="list-disc list-inside text-gray-700 ml-4 mt-2 space-y-1">
-            <li>Work quality between freelancer and client</li>
-            <li>Legal disputes arising from private contracts</li>
-            <li>Indirect damages (loss of income, reputation) due to technical issues</li>
-          </ul>
-          <p className="text-gray-700 mt-2">
-            However, we commit to mediation support through our <strong>Dispute Management System</strong> 
-            to protect user rights.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">8. Account Termination</h2>
-          <p className="text-gray-700 leading-relaxed">
-            We reserve the right to suspend or delete accounts if:
-          </p>
-          <ul className="list-disc list-inside text-gray-700 ml-4 mt-2 space-y-1">
-            <li>Violating Terms of Service or Privacy Policy</li>
-            <li>Engaging in fraud, scam, or spam activities</li>
-            <li>Accumulating too many warnings from Trust Score system</li>
-            <li>Losing serious disputes (≥ 3 times)</li>
-          </ul>
-          <p className="text-gray-700 mt-2">
-            You may delete your account anytime, but deleted data cannot be recovered.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">9. Terms Modification</h2>
-          <p className="text-gray-700 leading-relaxed">
-            We reserve the right to update these Terms at any time. Important changes will be notified 
-            via email or platform notification at least 7 days before taking effect.
-          </p>
-          <p className="text-gray-700 mt-2">
-            Your continued use of the service after changes take effect constitutes acceptance of the new terms.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">10. Governing Law & Dispute Resolution</h2>
-          <p className="text-gray-700 leading-relaxed">
-            These Terms are governed by the laws of the Socialist Republic of Vietnam.
-          </p>
-          <p className="text-gray-700 mt-2">
-            All disputes shall be resolved through negotiation. If unsuccessful, they will be submitted to 
-            the competent People's Court in Ho Chi Minh City.
-          </p>
-        </section>
-
-        <section>
-          <h2 className="text-2xl font-semibold text-gray-900 mb-3">11. Contact</h2>
-          <p className="text-gray-700 leading-relaxed">
-            If you have any questions about these Terms of Service, please contact:
-          </p>
-          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mt-3">
-            <p className="text-gray-700"><strong>Email:</strong> legal@interdev.vn</p>
-            <p className="text-gray-700"><strong>Hotline:</strong> 1900-xxxx-xx</p>
-            <p className="text-gray-700"><strong>Address:</strong> [Office address in Vietnam]</p>
-          </div>
-        </section>
-
-        <div className="mt-8 pt-6 border-t border-gray-200">
-          <p className="text-center text-gray-500 text-sm">
-            © {new Date().getFullYear()} InterDev Platform. All rights reserved.
-          </p>
-        </div>
+    <div className="space-y-10">
+      <div className="border-b border-slate-200 pb-6">
+        <p className="text-sm font-medium uppercase tracking-[0.18em] text-teal-600">
+          Last updated
+        </p>
+        <p className="mt-2 text-base text-slate-600">{LAST_UPDATED}</p>
       </div>
+
+      <section>
+        <h2 className={SECTION_TITLE}>1. Platform Scope</h2>
+        <p className={PARAGRAPH}>
+          InterDev is a workflow platform for clients, brokers, freelancers,
+          staff, and admins. The platform covers account creation, trust
+          signals, request intake, specification review, project coordination,
+          and dispute operations. Using the platform means you agree to these
+          terms and to the connected privacy rules published with them.
+        </p>
+      </section>
+
+      <section>
+        <h2 className={SECTION_TITLE}>2. Eligibility and Account Use</h2>
+        <ul className={LIST}>
+          <li>You must provide accurate registration details.</li>
+          <li>You are responsible for securing your login credentials.</li>
+          <li>
+            You must not share access, impersonate another user, or submit
+            misleading professional or trust information.
+          </li>
+          <li>
+            The platform may restrict or suspend access when account activity
+            conflicts with trust, moderation, or legal requirements.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 className={SECTION_TITLE}>3. Verification and Trust Signals</h2>
+        <p className={PARAGRAPH}>
+          InterDev uses identity verification, trust scores, reviews, and
+          project history to support safer decision-making. These signals are
+          part of platform governance, not a guarantee of outcome. Access to
+          some trust profile data depends on role relationships and active
+          workflow context.
+        </p>
+      </section>
+
+      <section>
+        <h2 className={SECTION_TITLE}>4. Request, Spec, and Project Workflow</h2>
+        <p className={PARAGRAPH}>
+          Clients may start with guided intake. Brokers may then formalize the
+          request into a stronger project spec. Freelancers may join through
+          invitations or proposals depending on the current state. A request
+          does not become an active delivery project until the relevant review
+          and contract steps are completed.
+        </p>
+      </section>
+
+      <section>
+        <h2 className={SECTION_TITLE}>5. Content and Conduct Rules</h2>
+        <ul className={LIST}>
+          <li>Do not upload unlawful, abusive, deceptive, or stolen content.</li>
+          <li>
+            Do not manipulate reviews, trust signals, or workflow records.
+          </li>
+          <li>
+            Do not misuse dispute channels, hearing spaces, or external meeting
+            links.
+          </li>
+          <li>
+            Do not attempt to bypass platform controls that protect audit,
+            moderation, or privacy-sensitive flows.
+          </li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 className={SECTION_TITLE}>6. Disputes and Hearings</h2>
+        <p className={PARAGRAPH}>
+          When a dispute is raised, the platform may collect evidence, record
+          communication, and schedule hearing-related actions. External meeting
+          links, hearing records, and internal moderation controls are part of
+          the operational dispute process. Parties must act honestly and in
+          good faith throughout that process.
+        </p>
+      </section>
+
+      <section>
+        <h2 className={SECTION_TITLE}>7. Suspension and Enforcement</h2>
+        <p className={PARAGRAPH}>
+          InterDev may suspend, limit, or terminate access where required for
+          safety, legal compliance, fraud prevention, moderation, or platform
+          integrity. Internal staff and admins may use audit and moderation
+          tools to review system activity when necessary.
+        </p>
+      </section>
+
+      <section>
+        <h2 className={SECTION_TITLE}>8. Intellectual Property</h2>
+        <p className={PARAGRAPH}>
+          Platform branding, interface assets, and system workflows remain the
+          property of InterDev or its licensors. You retain ownership of the
+          content you upload, but grant the platform the limited rights needed
+          to store, display, review, and process that content within the
+          service.
+        </p>
+      </section>
+
+      <section>
+        <h2 className={SECTION_TITLE}>9. Liability and Service Boundaries</h2>
+        <p className={PARAGRAPH}>
+          InterDev provides workflow infrastructure and trust tooling. The
+          platform does not guarantee project success, uninterrupted service, or
+          a specific commercial outcome between parties. Each user remains
+          responsible for the decisions they make inside the workflow.
+        </p>
+      </section>
+
+      <section>
+        <h2 className={SECTION_TITLE}>10. Contact</h2>
+        <p className={PARAGRAPH}>
+          Questions about these terms can be sent to{" "}
+          <a
+            href="mailto:legal@interdev.vn"
+            className="font-medium text-teal-700 hover:text-teal-800"
+          >
+            legal@interdev.vn
+          </a>
+          .
+        </p>
+      </section>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import Decimal from 'decimal.js';
 
 import {
   DisputeEntity,
+  DisputeCategory,
   DisputeEvidenceEntity,
   DisputeHearingEntity,
   DisputePhase,
@@ -44,6 +45,7 @@ import { DisputeStateMachine, determineLoser } from '../dispute-state-machine';
 import { StaffAssignmentService } from './staff-assignment.service';
 import { VerdictReadinessService } from './verdict-readiness.service';
 import type { MoneyDistribution } from '../interfaces/resolution.interface';
+import { DISPUTE_RULE_CATALOG } from '../dispute-docket';
 
 export interface VerdictReasoningValidationResult {
   valid: boolean;
@@ -61,9 +63,153 @@ export interface MoneyDistributionValidationResult {
   };
 }
 
-type PenaltySeverity = 'LOW' | 'MEDIUM' | 'HIGH';
+export interface VerdictDistributionResolutionArgs {
+  result: DisputeResult;
+  splitRatioClient?: number | null;
+  amountToFreelancer?: number | null;
+  amountToClient?: number | null;
+  escrowFundedAmount: number;
+  fixedPlatformFee: number;
+}
 
-const POLICY_FORMAT = /^[A-Z0-9]+-\d+(?:\.\d+)*:\s.+/;
+type PenaltySeverity = 'LOW' | 'MEDIUM' | 'HIGH';
+const CANONICAL_POLICY_CODES = new Set(DISPUTE_RULE_CATALOG.map((item) => item.code));
+const POLICY_BY_CODE = new Map(DISPUTE_RULE_CATALOG.map((item) => [item.code, item]));
+
+type PolicyCategory = (typeof DISPUTE_RULE_CATALOG)[number]['category'];
+
+const FAULT_TYPE_ALLOWED_POLICY_CATEGORIES: Record<FaultType, ReadonlyArray<PolicyCategory>> = {
+  [FaultType.NON_DELIVERY]: [
+    'CONTRACT_PERFORMANCE',
+    'DEADLINE_DELAY',
+    'COOPERATION_DUTY',
+    'PAYMENT_ESCROW',
+  ],
+  [FaultType.QUALITY_MISMATCH]: [
+    'DELIVERY_QUALITY',
+    'CONTRACT_PERFORMANCE',
+    'SCOPE_CHANGE',
+    'COOPERATION_DUTY',
+  ],
+  [FaultType.DEADLINE_MISSED]: [
+    'DEADLINE_DELAY',
+    'CONTRACT_PERFORMANCE',
+    'COOPERATION_DUTY',
+    'SCOPE_CHANGE',
+  ],
+  [FaultType.GHOSTING]: ['COOPERATION_DUTY', 'CONTRACT_PERFORMANCE', 'HEARING_CONDUCT'],
+  [FaultType.SCOPE_CHANGE_CONFLICT]: [
+    'SCOPE_CHANGE',
+    'CONTRACT_PERFORMANCE',
+    'COOPERATION_DUTY',
+    'DEADLINE_DELAY',
+  ],
+  [FaultType.PAYMENT_ISSUE]: [
+    'PAYMENT_ESCROW',
+    'CONTRACT_PERFORMANCE',
+    'EVIDENCE_INTEGRITY',
+    'COOPERATION_DUTY',
+  ],
+  [FaultType.FRAUD]: [
+    'FRAUD_MISREPRESENTATION',
+    'EVIDENCE_INTEGRITY',
+    'PAYMENT_ESCROW',
+    'CONTRACT_PERFORMANCE',
+  ],
+  [FaultType.MUTUAL_FAULT]: [
+    'CONTRACT_PERFORMANCE',
+    'DELIVERY_QUALITY',
+    'DEADLINE_DELAY',
+    'PAYMENT_ESCROW',
+    'SCOPE_CHANGE',
+    'COOPERATION_DUTY',
+    'EVIDENCE_INTEGRITY',
+  ],
+  [FaultType.NO_FAULT]: ['CONTRACT_PERFORMANCE', 'EVIDENCE_INTEGRITY'],
+  [FaultType.OTHER]: [
+    'CONTRACT_PERFORMANCE',
+    'DELIVERY_QUALITY',
+    'DEADLINE_DELAY',
+    'PAYMENT_ESCROW',
+    'SCOPE_CHANGE',
+    'COOPERATION_DUTY',
+    'FRAUD_MISREPRESENTATION',
+    'EVIDENCE_INTEGRITY',
+    'HEARING_CONDUCT',
+  ],
+};
+
+const DISPUTE_CATEGORY_ALLOWED_POLICY_CATEGORIES: Record<
+  DisputeCategory,
+  ReadonlyArray<PolicyCategory>
+> = {
+  [DisputeCategory.QUALITY]: [
+    'DELIVERY_QUALITY',
+    'CONTRACT_PERFORMANCE',
+    'SCOPE_CHANGE',
+    'COOPERATION_DUTY',
+    'EVIDENCE_INTEGRITY',
+  ],
+  [DisputeCategory.DEADLINE]: [
+    'DEADLINE_DELAY',
+    'CONTRACT_PERFORMANCE',
+    'COOPERATION_DUTY',
+    'SCOPE_CHANGE',
+    'EVIDENCE_INTEGRITY',
+  ],
+  [DisputeCategory.PAYMENT]: [
+    'PAYMENT_ESCROW',
+    'CONTRACT_PERFORMANCE',
+    'EVIDENCE_INTEGRITY',
+    'COOPERATION_DUTY',
+  ],
+  [DisputeCategory.COMMUNICATION]: [
+    'COOPERATION_DUTY',
+    'CONTRACT_PERFORMANCE',
+    'EVIDENCE_INTEGRITY',
+    'HEARING_CONDUCT',
+  ],
+  [DisputeCategory.SCOPE_CHANGE]: [
+    'SCOPE_CHANGE',
+    'CONTRACT_PERFORMANCE',
+    'COOPERATION_DUTY',
+    'DEADLINE_DELAY',
+    'EVIDENCE_INTEGRITY',
+  ],
+  [DisputeCategory.FRAUD]: [
+    'FRAUD_MISREPRESENTATION',
+    'EVIDENCE_INTEGRITY',
+    'PAYMENT_ESCROW',
+    'CONTRACT_PERFORMANCE',
+  ],
+  [DisputeCategory.CONTRACT]: [
+    'CONTRACT_PERFORMANCE',
+    'DELIVERY_QUALITY',
+    'DEADLINE_DELAY',
+    'PAYMENT_ESCROW',
+    'SCOPE_CHANGE',
+    'COOPERATION_DUTY',
+    'EVIDENCE_INTEGRITY',
+  ],
+  [DisputeCategory.OTHER]: [
+    'CONTRACT_PERFORMANCE',
+    'DELIVERY_QUALITY',
+    'DEADLINE_DELAY',
+    'PAYMENT_ESCROW',
+    'SCOPE_CHANGE',
+    'COOPERATION_DUTY',
+    'FRAUD_MISREPRESENTATION',
+    'EVIDENCE_INTEGRITY',
+    'HEARING_CONDUCT',
+  ],
+};
+
+const SPLIT_ALLOWED_POLICY_CATEGORIES = new Set<PolicyCategory>([
+  'CONTRACT_PERFORMANCE',
+  'SCOPE_CHANGE',
+  'COOPERATION_DUTY',
+  'PAYMENT_ESCROW',
+]);
 
 const TRUST_SCORE_PENALTY_RULES: Record<
   FaultType,
@@ -128,6 +274,12 @@ export interface LegalSignatureContext {
   deviceFingerprint?: string;
 }
 
+interface VerdictReasoningValidationContext {
+  result?: DisputeResult | null;
+  faultType?: FaultType | null;
+  disputeCategory?: DisputeCategory | null;
+}
+
 @Injectable()
 export class VerdictService {
   private readonly logger = new Logger(VerdictService.name);
@@ -163,6 +315,124 @@ export class VerdictService {
       order: { issuedAt: 'DESC' },
     });
     return verdict ?? null;
+  }
+
+  private async pickAppealAdminId(
+    manager: QueryRunner['manager'],
+    currentOwnerId?: string | null,
+  ): Promise<string | null> {
+    const admins = await manager.find(UserEntity, {
+      where: {
+        role: UserRole.ADMIN,
+        isBanned: false,
+      },
+      select: ['id', 'createdAt'],
+      order: { createdAt: 'ASC' },
+    });
+
+    if (!admins.length) {
+      return null;
+    }
+
+    if (currentOwnerId && admins.some((admin) => admin.id === currentOwnerId)) {
+      return currentOwnerId;
+    }
+
+    const openAppealCounts = await manager
+      .createQueryBuilder(DisputeEntity, 'dispute')
+      .select('dispute.escalatedToAdminId', 'adminId')
+      .addSelect('COUNT(*)', 'openAppeals')
+      .where('dispute.escalatedToAdminId IS NOT NULL')
+      .andWhere('dispute.status IN (:...statuses)', {
+        statuses: [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED],
+      })
+      .groupBy('dispute.escalatedToAdminId')
+      .getRawMany<{ adminId?: string | null; openAppeals?: string }>();
+
+    const openAppealCountByAdminId = new Map<string, number>();
+    openAppealCounts.forEach((row) => {
+      if (row.adminId) {
+        openAppealCountByAdminId.set(row.adminId, Number(row.openAppeals) || 0);
+      }
+    });
+
+    admins.sort((left, right) => {
+      const loadDelta =
+        (openAppealCountByAdminId.get(left.id) || 0) - (openAppealCountByAdminId.get(right.id) || 0);
+      if (loadDelta !== 0) {
+        return loadDelta;
+      }
+      return left.createdAt.getTime() - right.createdAt.getTime();
+    });
+
+    return admins[0]?.id || null;
+  }
+
+  private validateFaultMatrix(
+    result: DisputeResult,
+    faultType: FaultType,
+    faultyParty: string,
+  ): string[] {
+    const errors: string[] = [];
+    const normalizedParty = faultyParty?.trim().toLowerCase();
+
+    if (faultType === FaultType.MUTUAL_FAULT) {
+      if (normalizedParty !== 'both') {
+        errors.push('MUTUAL_FAULT requires faultyParty=both');
+      }
+      if (result !== DisputeResult.SPLIT) {
+        errors.push('MUTUAL_FAULT requires result=SPLIT');
+      }
+    }
+
+    if (faultType === FaultType.NO_FAULT) {
+      if (normalizedParty !== 'none') {
+        errors.push('NO_FAULT requires faultyParty=none');
+      }
+      if (result !== DisputeResult.SPLIT) {
+        errors.push('NO_FAULT requires result=SPLIT');
+      }
+    }
+
+    if (
+      ![FaultType.MUTUAL_FAULT, FaultType.NO_FAULT].includes(faultType) &&
+      ['both', 'none'].includes(normalizedParty)
+    ) {
+      errors.push(`${faultType} cannot use faultyParty=${normalizedParty}`);
+    }
+
+    if (
+      [DisputeResult.WIN_CLIENT, DisputeResult.WIN_FREELANCER].includes(result) &&
+      ['both', 'none'].includes(normalizedParty)
+    ) {
+      errors.push(`${result} cannot use faultyParty=${normalizedParty}`);
+    }
+
+    return errors;
+  }
+
+  private hasEvidenceBasis(reasoning: VerdictReasoningDto): boolean {
+    if ((reasoning.supportingEvidenceIds?.length ?? 0) > 0) {
+      return true;
+    }
+
+    if ((reasoning.evidenceReferences?.length ?? 0) > 0) {
+      return true;
+    }
+
+    const combined = [
+      reasoning.factualFindings,
+      reasoning.legalAnalysis,
+      reasoning.conclusion,
+      reasoning.analysis,
+    ]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase();
+
+    return ['testimony', 'hearing statement', 'platform log', 'platform logs'].some((token) =>
+      combined.includes(token),
+    );
   }
 
   private determineTransferRecipients(
@@ -803,6 +1073,7 @@ export class VerdictService {
   async validateVerdictReasoning(
     disputeId: string,
     reasoning: VerdictReasoningDto,
+    context?: VerdictReasoningValidationContext,
   ): Promise<VerdictReasoningValidationResult> {
     const errors: string[] = [];
 
@@ -814,10 +1085,23 @@ export class VerdictService {
     if (violatedPolicies.length === 0) {
       errors.push('violatedPolicies must contain at least one item');
     } else {
+      const allowedCategories = this.resolveAllowedPolicyCategories(context);
       violatedPolicies.forEach((policy, index) => {
         const trimmed = policy?.trim() || '';
-        if (!POLICY_FORMAT.test(trimmed)) {
-          errors.push(`violatedPolicies[${index}] must match "CODE-X.Y: Description"`);
+        if (!trimmed) {
+          errors.push(`violatedPolicies[${index}] is required`);
+          return;
+        }
+        if (!CANONICAL_POLICY_CODES.has(trimmed)) {
+          errors.push(`violatedPolicies[${index}] must be a canonical policy code from the rule catalog`);
+          return;
+        }
+
+        const policyMeta = POLICY_BY_CODE.get(trimmed);
+        if (policyMeta && allowedCategories && !allowedCategories.has(policyMeta.category)) {
+          errors.push(
+            `violatedPolicies[${index}] is not compatible with the current dispute category, fault type, or verdict result`,
+          );
         }
       });
     }
@@ -832,6 +1116,12 @@ export class VerdictService {
 
     if ((reasoning.conclusion || '').trim().length < 50) {
       errors.push('conclusion must be at least 50 characters');
+    }
+
+    if (!this.hasEvidenceBasis(reasoning)) {
+      errors.push(
+        'Provide supportingEvidenceIds/evidenceReferences or state clearly that the verdict relies on testimony or platform logs',
+      );
     }
 
     if (reasoning.supportingEvidenceIds && reasoning.supportingEvidenceIds.length > 0) {
@@ -851,6 +1141,34 @@ export class VerdictService {
     }
 
     return { valid: errors.length === 0, errors };
+  }
+
+  private resolveAllowedPolicyCategories(
+    context?: VerdictReasoningValidationContext,
+  ): Set<PolicyCategory> | null {
+    const categorySets: Set<PolicyCategory>[] = [];
+
+    if (context?.faultType) {
+      categorySets.push(new Set(FAULT_TYPE_ALLOWED_POLICY_CATEGORIES[context.faultType]));
+    }
+
+    if (context?.disputeCategory) {
+      categorySets.push(
+        new Set(DISPUTE_CATEGORY_ALLOWED_POLICY_CATEGORIES[context.disputeCategory]),
+      );
+    }
+
+    if (context?.result === DisputeResult.SPLIT) {
+      categorySets.push(new Set(SPLIT_ALLOWED_POLICY_CATEGORIES));
+    }
+
+    if (categorySets.length === 0) {
+      return null;
+    }
+
+    return categorySets.reduce((accumulator, current) => {
+      return new Set([...accumulator].filter((item) => current.has(item)));
+    });
   }
 
   validateMoneyDistribution(
@@ -897,6 +1215,83 @@ export class VerdictService {
         platformFee: platformFee.toNumber(),
         total: fundedAmount.toNumber(),
       },
+    };
+  }
+
+  resolveVerdictAmounts(
+    args: VerdictDistributionResolutionArgs,
+  ): MoneyDistributionValidationResult & {
+    valid: true;
+    amountToFreelancer: number;
+    amountToClient: number;
+  } {
+    const fundedAmount = new Decimal(args.escrowFundedAmount || 0).toDecimalPlaces(2);
+    const platformFee = new Decimal(args.fixedPlatformFee || 0).toDecimalPlaces(2);
+
+    if (fundedAmount.lessThanOrEqualTo(0)) {
+      throw new BadRequestException('Escrow funded amount must be greater than 0');
+    }
+
+    if (platformFee.lessThan(0)) {
+      throw new BadRequestException('Platform fee cannot be negative');
+    }
+
+    const remaining = fundedAmount.minus(platformFee);
+    if (remaining.lessThan(0)) {
+      throw new BadRequestException('Platform fee exceeds funded amount');
+    }
+
+    let amountToClient: number;
+    let amountToFreelancer: number;
+
+    if (args.result === DisputeResult.WIN_CLIENT) {
+      amountToClient = remaining.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+      amountToFreelancer = 0;
+    } else if (args.result === DisputeResult.WIN_FREELANCER) {
+      amountToClient = 0;
+      amountToFreelancer = remaining.toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
+    } else if (args.splitRatioClient != null) {
+      if (args.splitRatioClient <= 0 || args.splitRatioClient >= 100) {
+        throw new BadRequestException('splitRatioClient must be between 1 and 99 for SPLIT verdict');
+      }
+
+      amountToClient = remaining
+        .times(new Decimal(args.splitRatioClient).dividedBy(100))
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
+      amountToFreelancer = remaining
+        .minus(amountToClient)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
+    } else if (args.amountToFreelancer != null && args.amountToClient != null) {
+      amountToFreelancer = new Decimal(args.amountToFreelancer)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
+      amountToClient = new Decimal(args.amountToClient)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
+    } else {
+      throw new BadRequestException(
+        'Provide splitRatioClient for SPLIT or explicit amountToClient/amountToFreelancer for legacy callers',
+      );
+    }
+
+    const validation = this.validateMoneyDistribution(
+      amountToFreelancer,
+      amountToClient,
+      fundedAmount.toNumber(),
+      platformFee.toNumber(),
+    );
+
+    if (!validation.valid) {
+      throw new BadRequestException(validation.error);
+    }
+
+    return {
+      valid: true,
+      breakdown: validation.breakdown,
+      amountToFreelancer,
+      amountToClient,
     };
   }
 
@@ -1105,7 +1500,11 @@ export class VerdictService {
         throw new NotFoundException('Project not found');
       }
 
-      const reasoningResult = await this.validateVerdictReasoning(dispute.id, dto.reasoning);
+      const reasoningResult = await this.validateVerdictReasoning(dispute.id, dto.reasoning, {
+        result: dto.result,
+        faultType: dto.faultType,
+        disputeCategory: dispute.category,
+      });
       if (!reasoningResult.valid) {
         throw new BadRequestException({
           message: 'Invalid verdict reasoning',
@@ -1113,24 +1512,31 @@ export class VerdictService {
         });
       }
 
-      const fundedAmount = this.getFundedAmount(escrow);
-      const moneyResult = this.validateMoneyDistribution(
-        dto.amountToFreelancer,
-        dto.amountToClient,
-        fundedAmount,
-        escrow.platformFee,
-      );
-      if (!moneyResult.valid) {
-        throw new BadRequestException(moneyResult.error);
+      const matrixErrors = this.validateFaultMatrix(dto.result, dto.faultType, dto.faultyParty);
+      if (matrixErrors.length > 0) {
+        throw new BadRequestException({
+          message: 'Invalid verdict fault matrix',
+          errors: matrixErrors,
+        });
       }
+
+      const fundedAmount = this.getFundedAmount(escrow);
+      const moneyResult = this.resolveVerdictAmounts({
+        result: dto.result,
+        splitRatioClient: dto.splitRatioClient,
+        amountToFreelancer: dto.amountToFreelancer,
+        amountToClient: dto.amountToClient,
+        escrowFundedAmount: fundedAmount,
+        fixedPlatformFee: escrow.platformFee,
+      });
 
       const penalty = this.calculateTrustScorePenalty(dto.faultType, {
         overridePenalty: dto.trustScorePenalty,
       });
 
       const distribution = this.buildVerdictDistribution(
-        dto.amountToFreelancer,
-        dto.amountToClient,
+        moneyResult.amountToFreelancer,
+        moneyResult.amountToClient,
         escrow,
         dispute,
         project,
@@ -1205,28 +1611,6 @@ export class VerdictService {
           dto.warningMessage,
         );
       }
-
-      await this.createLegalSignature(
-        queryRunner,
-        dispute,
-        dispute.raisedById,
-        dispute.raiserRole,
-        LegalActionType.ACCEPT_VERDICT,
-        'Verdict',
-        savedVerdict.id,
-        signatureContext,
-      );
-
-      await this.createLegalSignature(
-        queryRunner,
-        dispute,
-        dispute.defendantId,
-        dispute.defendantRole,
-        LegalActionType.ACCEPT_VERDICT,
-        'Verdict',
-        savedVerdict.id,
-        signatureContext,
-      );
 
       if (dispute.assignedStaffId) {
         const period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -1322,16 +1706,14 @@ export class VerdictService {
       dispute.appealedAt = now;
       dispute.isAppealed = true;
 
-      if (!dispute.escalatedToAdminId) {
-        const admin = await queryRunner.manager.findOne(UserEntity, {
-          where: { role: UserRole.ADMIN, isBanned: false },
-          order: { createdAt: 'ASC' },
-        });
-        if (admin) {
-          dispute.escalatedToAdminId = admin.id;
-        } else {
-          this.logger.warn(`No admin available for appeal dispute ${dispute.id}`);
-        }
+      const appealOwnerId = await this.pickAppealAdminId(
+        queryRunner.manager,
+        dispute.escalatedToAdminId,
+      );
+      if (appealOwnerId) {
+        dispute.escalatedToAdminId = appealOwnerId;
+      } else if (!dispute.escalatedToAdminId) {
+        this.logger.warn(`No admin available for appeal dispute ${dispute.id}`);
       }
 
       await queryRunner.manager.save(DisputeEntity, dispute);
@@ -1504,6 +1886,14 @@ export class VerdictService {
         throw new BadRequestException('Dispute is not in appeal status');
       }
 
+      if (dispute.escalatedToAdminId && dispute.escalatedToAdminId !== adjudicatorId) {
+        throw new ForbiddenException('Only the assigned appeal admin can resolve this appeal');
+      }
+      if (!dispute.escalatedToAdminId) {
+        dispute.escalatedToAdminId = adjudicatorId;
+        await queryRunner.manager.save(DisputeEntity, dispute);
+      }
+
       const tier1Verdict = await queryRunner.manager.findOne(DisputeVerdictEntity, {
         where: { id: dto.overridesVerdictId, disputeId: dispute.id },
       });
@@ -1535,7 +1925,11 @@ export class VerdictService {
         throw new NotFoundException('Milestone not found');
       }
 
-      const reasoningResult = await this.validateVerdictReasoning(dispute.id, dto.reasoning);
+      const reasoningResult = await this.validateVerdictReasoning(dispute.id, dto.reasoning, {
+        result: dto.result,
+        faultType: dto.faultType,
+        disputeCategory: dispute.category,
+      });
       if (!reasoningResult.valid) {
         throw new BadRequestException({
           message: 'Invalid verdict reasoning',
@@ -1543,24 +1937,31 @@ export class VerdictService {
         });
       }
 
-      const fundedAmount = this.getFundedAmount(escrow);
-      const moneyResult = this.validateMoneyDistribution(
-        dto.amountToFreelancer,
-        dto.amountToClient,
-        fundedAmount,
-        escrow.platformFee,
-      );
-      if (!moneyResult.valid) {
-        throw new BadRequestException(moneyResult.error);
+      const matrixErrors = this.validateFaultMatrix(dto.result, dto.faultType, dto.faultyParty);
+      if (matrixErrors.length > 0) {
+        throw new BadRequestException({
+          message: 'Invalid verdict fault matrix',
+          errors: matrixErrors,
+        });
       }
+
+      const fundedAmount = this.getFundedAmount(escrow);
+      const moneyResult = this.resolveVerdictAmounts({
+        result: dto.result,
+        splitRatioClient: dto.splitRatioClient,
+        amountToFreelancer: dto.amountToFreelancer,
+        amountToClient: dto.amountToClient,
+        escrowFundedAmount: fundedAmount,
+        fixedPlatformFee: escrow.platformFee,
+      });
 
       const penalty = this.calculateTrustScorePenalty(dto.faultType, {
         overridePenalty: dto.trustScorePenalty,
       });
 
       const distribution = this.buildVerdictDistribution(
-        dto.amountToFreelancer,
-        dto.amountToClient,
+        moneyResult.amountToFreelancer,
+        moneyResult.amountToClient,
         escrow,
         dispute,
         project,
@@ -1719,28 +2120,6 @@ export class VerdictService {
           await this.refundAppealFee(queryRunner, appealSignature.signerId, dispute.id);
         }
       }
-
-      await this.createLegalSignature(
-        queryRunner,
-        dispute,
-        dispute.raisedById,
-        dispute.raiserRole,
-        LegalActionType.ACCEPT_VERDICT,
-        'Verdict',
-        savedVerdict.id,
-        signatureContext,
-      );
-
-      await this.createLegalSignature(
-        queryRunner,
-        dispute,
-        dispute.defendantId,
-        dispute.defendantRole,
-        LegalActionType.ACCEPT_VERDICT,
-        'Verdict',
-        savedVerdict.id,
-        signatureContext,
-      );
 
       if (dispute.assignedStaffId) {
         const now = new Date();

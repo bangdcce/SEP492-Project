@@ -11,6 +11,7 @@ import { MatchingService } from './matching.service';
 import { MatchingController } from './matching.controller';
 import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
 import { BrokerProposalEntity } from '../../database/entities/broker-proposal.entity';
+import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { BrokerProposalEntity } from '../../database/entities/broker-proposal.en
       UserEntity,
       ProjectRequestEntity,
       BrokerProposalEntity,
+      ProjectRequestProposalEntity,
     ]),
     ConfigModule,
   ],

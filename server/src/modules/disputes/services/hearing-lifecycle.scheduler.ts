@@ -13,7 +13,7 @@ export class HearingLifecycleScheduler {
   async autoStartDueHearings(): Promise<void> {
     if (
       !isBackgroundTaskEnabled(process.env, 'HEARING_AUTO_START_ENABLED', {
-        enabledByDefaultInDevelopment: false,
+        enabledByDefaultInDevelopment: true,
         enabledByDefaultInProduction: true,
       })
     ) {
@@ -21,8 +21,9 @@ export class HearingLifecycleScheduler {
     }
 
     try {
+      const referenceAt = new Date();
       const confirmationTimeouts =
-        await this.hearingService.autoRescheduleExpiredPendingHearings(new Date());
+        await this.hearingService.autoRescheduleExpiredPendingHearings(referenceAt);
       if (
         confirmationTimeouts.rescheduled > 0 ||
         confirmationTimeouts.flagged > 0 ||
@@ -33,10 +34,31 @@ export class HearingLifecycleScheduler {
         );
       }
 
-      const result = await this.hearingService.autoStartDueHearings(new Date());
+      const result = await this.hearingService.autoStartDueHearings(referenceAt);
       if (result.started > 0 || result.blocked > 0) {
         this.logger.log(
           `Hearing auto-start tick: started=${result.started}, blocked=${result.blocked}, at=${result.referenceAt}`,
+        );
+      }
+
+      const warningResult = await this.hearingService.dispatchActiveHearingTimeWarnings(referenceAt);
+      if (warningResult.warnings > 0) {
+        this.logger.log(
+          `Hearing warning tick: warnings=${warningResult.warnings}, at=${warningResult.referenceAt}`,
+        );
+      }
+
+      const pausedResult = await this.hearingService.autoCloseAbandonedPausedHearings(referenceAt);
+      if (pausedResult.closed > 0 || pausedResult.failed > 0) {
+        this.logger.log(
+          `Hearing paused-timeout tick: checked=${pausedResult.checked}, closed=${pausedResult.closed}, failed=${pausedResult.failed}, at=${pausedResult.referenceAt}`,
+        );
+      }
+
+      const overdueResult = await this.hearingService.autoCloseOverdueHearings(referenceAt);
+      if (overdueResult.closed > 0 || overdueResult.failed > 0) {
+        this.logger.log(
+          `Hearing auto-close tick: checked=${overdueResult.checked}, closed=${overdueResult.closed}, failed=${overdueResult.failed}, at=${overdueResult.referenceAt}`,
         );
       }
     } catch (error) {

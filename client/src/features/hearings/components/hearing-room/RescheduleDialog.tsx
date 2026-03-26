@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/shared/components/ui/dialog";
 import { Textarea } from "@/shared/components/ui/textarea";
-import { Input } from "@/shared/components/ui/Input";
+import { Input } from "@/shared/components/ui/input";
 import { rescheduleHearing } from "@/features/hearings/api";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
 import {
@@ -186,15 +186,15 @@ export const RescheduleDialog = memo(function RescheduleDialog({
               Manual Meeting Link
             </label>
             <Input
-              type="url"
+              type="text"
               value={externalMeetingLink}
               onChange={(event) => setExternalMeetingLink(event.target.value)}
-              placeholder="https://meet.google.com/... or https://zoom.us/..."
+              placeholder="https://meet.google.com/... or abc-defg-hij"
               disabled={submitting}
               className="text-sm"
             />
             <p className="text-[11px] text-slate-500">
-              Optional. Use a full URL if you need a manual external room.
+              Optional. Use a full URL or a Google Meet code like abc-defg-hij.
             </p>
           </div>
 

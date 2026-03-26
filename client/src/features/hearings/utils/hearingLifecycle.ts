@@ -18,8 +18,17 @@ const ACTIVE_EVENT_STATUSES = new Set<EventStatus>([
 ]);
 
 export const resolveHearingLifecycle = (
-  hearing: Pick<DisputeHearingSummary, "lifecycle" | "status">,
+  hearing: Pick<DisputeHearingSummary, "lifecycle" | "status" | "graceEndsAt">,
 ): HearingLifecycle => {
+  if (
+    hearing.status === "SCHEDULED" &&
+    hearing.graceEndsAt &&
+    !Number.isNaN(new Date(hearing.graceEndsAt).getTime()) &&
+    Date.now() >= new Date(hearing.graceEndsAt).getTime()
+  ) {
+    return "ARCHIVED";
+  }
+
   if (hearing.lifecycle) {
     return hearing.lifecycle;
   }

@@ -1,45 +1,47 @@
-import { DataSource } from 'typeorm';
-import { config } from 'dotenv';
-import { join } from 'path';
+import { AppDataSource } from '../data-source';
 import { seedSkillDomains } from './skill-domains.seed';
 import { seedSkills } from './skills.seed';
-
-// Load environment variables
-config({ path: join(__dirname, '../../../.env') });
+import { join } from 'path';
+import * as fs from 'fs';
 
 async function runSeeds() {
-  // Create DataSource
-  const dataSource = new DataSource({
-    type: 'postgres',
-    host: process.env.DB_HOST || 'localhost',
-    port: parseInt(process.env.DB_PORT || '5432'),
-    username: process.env.DB_USERNAME,
-    password: process.env.DB_PASSWORD,
-    database: process.env.DB_DATABASE,
-    entities: [join(__dirname, '../entities/**/*.entity{.ts,.js}')],
-    synchronize: false,
-  });
-
   try {
-    // Initialize connection
-    await dataSource.initialize();
-    console.log('📦 Database connection established');
+    // Initialize connection using official DataSource
+    await AppDataSource.initialize();
+    console.log('📦 Database connection established via AppDataSource');
 
     // Run seeds
     console.log('\n🌱 Starting database seeding...\n');
 
-    await seedSkillDomains(dataSource);
-    await seedSkills(dataSource);
+    await seedSkillDomains(AppDataSource);
+    await seedSkills(AppDataSource);
+
+    // Run SQL seeds
+    console.log('📜 Running SQL seeds...');
+    const wizardSql = fs.readFileSync(join(__dirname, 'wizard-seed.sql'), 'utf8');
+    await AppDataSource.query(wizardSql);
+    console.log('✅ Wizard seeds completed');
+
+    const userSkillsSql = fs.readFileSync(join(__dirname, 'seed-user-skills.sql'), 'utf8');
+    await AppDataSource.query(userSkillsSql);
+    console.log('✅ User skills seeds completed');
+
+    const brokerSkillsSql = fs.readFileSync(join(__dirname, 'add-broker-skills.sql'), 'utf8');
+    await AppDataSource.query(brokerSkillsSql);
+    console.log('✅ Broker skills seeds completed');
 
     console.log('\n✅ All seeds completed successfully!');
   } catch (error) {
     console.error('❌ Seeding failed:', error);
     process.exit(1);
   } finally {
-    await dataSource.destroy();
-    console.log('👋 Database connection closed');
+    if (AppDataSource.isInitialized) {
+      await AppDataSource.destroy();
+      console.log('👋 Database connection closed');
+    }
   }
 }
 
 // Run seeds
 runSeeds();
+

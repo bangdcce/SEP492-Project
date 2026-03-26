@@ -12,9 +12,9 @@ import { CreateProjectSpecForm } from "./components/CreateProjectSpecForm";
 import { projectRequestsApi } from "../project-requests/api";
 import { projectSpecsApi } from "./api";
 import type { ProjectRequest } from "../project-requests/types";
-import type { CreateProjectSpecDTO, ProjectSpec } from "./types";
+import type { ClientFeatureDTO, CreateProjectSpecDTO, ProjectSpec } from "./types";
 import { SpecPhase } from "./types";
-import Spinner from "@/shared/components/ui/Spinner";
+import Spinner from "@/shared/components/ui/spinner";
 import {
   Alert,
   AlertDescription,
@@ -26,7 +26,10 @@ import {
   CardContent,
   CardHeader,
   CardTitle,
-} from "@/shared/components/ui/Card";
+} from "@/shared/components/ui/card";
+import { Input } from "@/shared/components/ui/input";
+import { Textarea } from "@/shared/components/ui/textarea";
+import { RequestAttachmentGallery } from "@/features/requests/components/RequestAttachmentGallery";
 
 const FULL_SPEC_EDITABLE_STATUSES = new Set(["DRAFT", "REJECTED"]);
 
@@ -68,6 +71,31 @@ const pickPreferredFullSpec = (
 const formatSpecStatusLabel = (status?: string | null) =>
   String(status || "NOT_STARTED").replace(/_/g, " ");
 
+const toLocalDateKey = (date: Date) => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, "0");
+  const day = `${date.getDate()}`.padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
+const getDateKeyCandidate = (value?: string | null): string | null => {
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(String(value || "").trim());
+  return match?.[1] || null;
+};
+
+type CommercialDraftFeature = {
+  title: string;
+  description: string;
+  priority: "MUST_HAVE" | "SHOULD_HAVE" | "NICE_TO_HAVE";
+};
+
+type CommercialRequestDraftState = {
+  proposedBudget: string;
+  proposedTimeline: string;
+  reason: string;
+  features: CommercialDraftFeature[];
+};
+
 export default function CreateProjectSpecPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -85,6 +113,13 @@ export default function CreateProjectSpecPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadedExistingSpec, setLoadedExistingSpec] = useState(false);
+  const [commercialRequestDraft, setCommercialRequestDraft] = useState<CommercialRequestDraftState>({
+    proposedBudget: "",
+    proposedTimeline: "",
+    reason: "",
+    features: [{ title: "", description: "", priority: "SHOULD_HAVE" }],
+  });
+  const [isSubmittingCommercialChange, setIsSubmittingCommercialChange] = useState(false);
   const freelancerProposalList =
     (request as any)?.freelancerProposals || (request as any)?.proposals || [];
   const acceptedFreelancerCount = freelancerProposalList.filter(
@@ -117,13 +152,16 @@ export default function CreateProjectSpecPage() {
             description: editableDraftSpec.description,
             totalBudget: Number(editableDraftSpec.totalBudget || 0),
             techStack: editableDraftSpec.techStack || "",
+            referenceLinks: editableDraftSpec.referenceLinks || [],
             richContentJson: editableDraftSpec.richContentJson || undefined,
             features: (editableDraftSpec.features || []).map((feature) => ({
+              id: feature.id || undefined,
               title: feature.title,
               description: feature.description,
               complexity: feature.complexity,
               acceptanceCriteria: feature.acceptanceCriteria || [],
               inputOutputSpec: feature.inputOutputSpec || undefined,
+              approvedClientFeatureIds: feature.approvedClientFeatureIds || [],
             })),
             milestones: [...(editableDraftSpec.milestones || [])]
               .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
@@ -137,7 +175,10 @@ export default function CreateProjectSpecPage() {
                 sortOrder: milestone.sortOrder,
                 startDate: (milestone as any).startDate || undefined,
                 dueDate: (milestone as any).dueDate || undefined,
+                approvedClientFeatureIds:
+                  (milestone as any).approvedClientFeatureIds || [],
               })),
+            changeSummary: editableDraftSpec.changeSummary || "",
           }
         : null,
     [editableDraftSpec, id, isEditingExisting],
@@ -167,8 +208,66 @@ export default function CreateProjectSpecPage() {
       helper: activeSpec
         ? `Current status: ${formatSpecStatusLabel(activeSpec.status)}`
         : "No full spec record exists yet for this request.",
-    },
+      },
   ];
+  const originalRequestContext = request?.originalRequestContext || request;
+  const requestScopeBaseline = request?.requestScopeBaseline || null;
+  const approvedCommercialBaseline = request?.commercialBaseline;
+  const activeCommercialChange = request?.activeCommercialChangeRequest;
+  const approvedBudgetCap =
+    approvedCommercialBaseline?.agreedBudget != null
+      ? Number(approvedCommercialBaseline.agreedBudget)
+      : clientSpec
+        ? Number(clientSpec.totalBudget || 0)
+        : null;
+  const approvedDeliveryDeadline =
+    approvedCommercialBaseline?.agreedDeliveryDeadline ||
+    requestScopeBaseline?.requestedDeadline ||
+    request?.requestedDeadline ||
+    null;
+  const approvedClientFeatures =
+    approvedCommercialBaseline?.agreedClientFeatures?.length
+      ? approvedCommercialBaseline.agreedClientFeatures
+      : clientSpec?.clientFeatures || [];
+  const normalizedApprovedClientFeatures: ClientFeatureDTO[] =
+    approvedClientFeatures.map((feature) => ({
+      id: feature.id || undefined,
+      title: feature.title,
+      description: feature.description,
+      priority: feature.priority || "SHOULD_HAVE",
+    }));
+  const lockedProductType =
+    requestScopeBaseline?.productTypeLabel ||
+    requestScopeBaseline?.productTypeCode ||
+    clientSpec?.projectCategory ||
+    null;
+  const projectGoalSummary = requestScopeBaseline?.projectGoalSummary || null;
+  const requestedDeadline =
+    requestScopeBaseline?.requestedDeadline || request?.requestedDeadline || null;
+  const todayDateKey = toLocalDateKey(new Date());
+  const requestCreatedDateKey = request?.createdAt
+    ? toLocalDateKey(new Date(request.createdAt))
+    : null;
+  const commercialChangeMinimumTimeline = [
+    todayDateKey,
+    getDateKeyCandidate(approvedDeliveryDeadline),
+    getDateKeyCandidate(requestedDeadline),
+    requestCreatedDateKey,
+  ].filter((value): value is string => Boolean(value)).reduce(
+    (latest, candidate) => (candidate > latest ? candidate : latest),
+    todayDateKey,
+  );
+  const commercialChangeTimelineWarning =
+    commercialRequestDraft.proposedTimeline &&
+    approvedDeliveryDeadline &&
+    commercialRequestDraft.proposedTimeline > approvedDeliveryDeadline
+      ? `This extends the current approved delivery deadline from ${approvedDeliveryDeadline} to ${commercialRequestDraft.proposedTimeline}. The client must approve it before the full spec can move forward.`
+      : null;
+  const canDraftCommercialChange =
+    Boolean(clientSpec) &&
+    !isCommerciallyLocked &&
+    (activeSpec == null || ["DRAFT", "REJECTED"].includes(activeSpec.status)) &&
+    activeCommercialChange?.status !== "PENDING";
 
   const formatApiErrorMessage = (value: unknown, fallback: string): string => {
     if (Array.isArray(value)) {
@@ -183,6 +282,24 @@ export default function CreateProjectSpecPage() {
     }
 
     return fallback;
+  };
+
+  const handleCommercialDraftFeatureChange = (
+    index: number,
+    field: "title" | "description" | "priority",
+    value: string,
+  ) => {
+    setCommercialRequestDraft((current) => ({
+      ...current,
+      features: current.features.map((feature, featureIndex) =>
+        featureIndex === index
+          ? {
+              ...feature,
+              [field]: value,
+            }
+          : feature,
+      ),
+    }));
   };
 
   useEffect(() => {
@@ -237,6 +354,35 @@ export default function CreateProjectSpecPage() {
     };
     fetchData();
   }, [id]);
+
+  useEffect(() => {
+    const baseline = request?.commercialBaseline;
+    const baselineFeatures =
+      baseline?.agreedClientFeatures?.length
+        ? baseline.agreedClientFeatures.map((feature) => ({
+            title: feature.title,
+            description: feature.description,
+            priority: feature.priority || "SHOULD_HAVE",
+          }))
+        : clientSpec?.clientFeatures?.length
+          ? clientSpec.clientFeatures.map((feature) => ({
+              title: feature.title,
+              description: feature.description,
+              priority: feature.priority || "SHOULD_HAVE",
+            }))
+          : [{ title: "", description: "", priority: "SHOULD_HAVE" as const }];
+
+    setCommercialRequestDraft((current) => ({
+      proposedBudget:
+        baseline?.agreedBudget != null
+          ? String(baseline.agreedBudget)
+          : current.proposedBudget,
+      proposedTimeline:
+        baseline?.agreedDeliveryDeadline || current.proposedTimeline,
+      reason: current.reason,
+      features: current.reason.trim() ? current.features : baselineFeatures,
+    }));
+  }, [clientSpec?.clientFeatures, request?.commercialBaseline]);
 
   const handleSubmit = async (data: CreateProjectSpecDTO) => {
     if (isCommerciallyLocked) {
@@ -328,6 +474,62 @@ export default function CreateProjectSpecPage() {
       setSubmitError(message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleSubmitCommercialChange = async () => {
+    if (!id || !clientSpec) return;
+
+    const normalizedFeatures = commercialRequestDraft.features
+      .map((feature) => ({
+        title: feature.title.trim(),
+        description: feature.description.trim(),
+        priority: feature.priority,
+      }))
+      .filter((feature) => feature.title && feature.description);
+
+    const payload = {
+      proposedBudget: Number(commercialRequestDraft.proposedBudget),
+      proposedTimeline: commercialRequestDraft.proposedTimeline.trim() || undefined,
+      proposedClientFeatures: normalizedFeatures.length ? normalizedFeatures : undefined,
+      reason: commercialRequestDraft.reason.trim(),
+      parentSpecId: clientSpec.id,
+    };
+
+    if (!Number.isFinite(payload.proposedBudget) || payload.proposedBudget < 0) {
+      setSubmitError("Commercial change budget must be a valid non-negative number.");
+      return;
+    }
+
+    if (!payload.reason || payload.reason.length < 10) {
+      setSubmitError("Commercial change reason must be at least 10 characters.");
+      return;
+    }
+
+    if (
+      payload.proposedTimeline &&
+      payload.proposedTimeline < commercialChangeMinimumTimeline
+    ) {
+      setSubmitError(
+        `Commercial change timeline cannot be earlier than ${commercialChangeMinimumTimeline}. Use this flow only when the delivery date needs to stay the same or move later.`,
+      );
+      return;
+    }
+
+    try {
+      setIsSubmittingCommercialChange(true);
+      setSubmitError(null);
+      const updatedRequest = await projectRequestsApi.createCommercialChangeRequest(id, payload);
+      setRequest(updatedRequest);
+    } catch (err: any) {
+      setSubmitError(
+        formatApiErrorMessage(
+          err?.response?.data?.message,
+          "Failed to submit commercial change request.",
+        ),
+      );
+    } finally {
+      setIsSubmittingCommercialChange(false);
     }
   };
 
@@ -455,6 +657,99 @@ export default function CreateProjectSpecPage() {
         </CardContent>
       </Card>
 
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Locked Request Context</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Original brief</p>
+              <p className="mt-2 font-medium text-slate-950">
+                {requestScopeBaseline?.requestTitle ||
+                  originalRequestContext?.title ||
+                  request.title}
+              </p>
+              <p className="mt-2 whitespace-pre-wrap text-slate-600">
+                {requestScopeBaseline?.requestDescription ||
+                  originalRequestContext?.description ||
+                  request.description}
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-xl border bg-slate-50/70 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Product Type</p>
+                <p className="mt-1 font-medium">{lockedProductType || "Not set"}</p>
+              </div>
+              <div className="rounded-xl border bg-slate-50/70 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Project Goal</p>
+                <p className="mt-1 font-medium">{projectGoalSummary || "Not set"}</p>
+              </div>
+              <div className="rounded-xl border bg-slate-50/70 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Requested Deadline</p>
+                <p className="mt-1 font-medium">{requestedDeadline || "Not set"}</p>
+              </div>
+              <div className="rounded-xl border bg-slate-50/70 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Tech preferences</p>
+                <p className="mt-1 font-medium">{originalRequestContext?.techPreferences || "Not set"}</p>
+              </div>
+            </div>
+            <RequestAttachmentGallery
+              attachments={originalRequestContext?.attachments}
+              emptyLabel="No request attachments were provided."
+            />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Approved Commercial Baseline</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Current source</p>
+              <p className="mt-2 font-semibold text-emerald-950">
+                {approvedCommercialBaseline?.source || "CLIENT_SPEC"}
+              </p>
+              <p className="mt-1 text-emerald-900">
+                Budget, timeline, and client-facing features are frozen from this baseline. The full spec must stay aligned unless the client approves a commercial change request.
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border bg-slate-50/70 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Approved budget</p>
+                <p className="mt-1 font-medium">
+                  {approvedBudgetCap != null
+                    ? `$${approvedBudgetCap.toLocaleString()}`
+                    : "Not locked yet"}
+                </p>
+              </div>
+              <div className="rounded-xl border bg-slate-50/70 p-3">
+                <p className="text-xs uppercase tracking-wide text-slate-500">Agreed Delivery Deadline</p>
+                <p className="mt-1 font-medium">
+                  {approvedDeliveryDeadline || clientSpec?.estimatedTimeline || "Not set"}
+                </p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <p className="text-xs uppercase tracking-wide text-slate-500">Client-facing features</p>
+              {approvedClientFeatures.length ? (
+                <div className="space-y-2">
+                  {approvedClientFeatures.map((feature, index) => (
+                    <div key={`${feature.title}-${index}`} className="rounded-xl border border-slate-200 p-3">
+                      <p className="font-medium text-slate-950">{feature.title}</p>
+                      <p className="mt-1 text-slate-600">{feature.description}</p>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-muted-foreground">No client-facing features locked yet.</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
       {/* Show approved Client Spec summary as context */}
       {clientSpec && (
         <Card className="border-green-200 bg-green-50/30">
@@ -475,7 +770,9 @@ export default function CreateProjectSpecPage() {
             </p>
             <div className="flex gap-4 text-xs text-muted-foreground">
               <span>Budget: ${clientSpec.totalBudget?.toLocaleString()}</span>
-              <span>Timeline: {clientSpec.estimatedTimeline || "—"}</span>
+              <span>
+                Agreed Delivery Deadline: {clientSpec.estimatedTimeline || "Not set"}
+              </span>
               {clientSpec.clientFeatures && (
                 <span>{clientSpec.clientFeatures.length} features</span>
               )}
@@ -554,14 +851,218 @@ export default function CreateProjectSpecPage() {
         </Alert>
       )}
 
+      {activeCommercialChange ? (
+        <Card className="border-amber-200 bg-amber-50/40">
+          <CardHeader>
+            <CardTitle>Commercial Change Request</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4 text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-amber-950">
+                Status: <strong>{activeCommercialChange.status}</strong>
+              </p>
+              <Badge variant="outline" className="bg-white">
+                Requested {new Date(activeCommercialChange.requestedAt).toLocaleString()}
+              </Badge>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border bg-white p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Budget</p>
+                <p className="mt-1">
+                  {activeCommercialChange.currentBudget != null
+                    ? `$${Number(activeCommercialChange.currentBudget).toLocaleString()}`
+                    : "Not set"}
+                  {" -> "}
+                  {activeCommercialChange.proposedBudget != null
+                    ? `$${Number(activeCommercialChange.proposedBudget).toLocaleString()}`
+                    : "No change"}
+                </p>
+              </div>
+              <div className="rounded-xl border bg-white p-3">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">Timeline</p>
+                <p className="mt-1">
+                  {activeCommercialChange.currentTimeline || "Not set"}
+                  {" -> "}
+                  {activeCommercialChange.proposedTimeline || "No change"}
+                </p>
+              </div>
+            </div>
+            <div className="rounded-xl border bg-white p-3">
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">Reason</p>
+              <p className="mt-1 whitespace-pre-wrap text-slate-700">
+                {activeCommercialChange.reason}
+              </p>
+            </div>
+            {activeCommercialChange.proposedClientFeatures?.length ? (
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Proposed client-facing features
+                </p>
+                {activeCommercialChange.proposedClientFeatures.map((feature, index) => (
+                  <div key={`${feature.title}-${index}`} className="rounded-xl border bg-white p-3">
+                    <p className="font-medium text-slate-950">{feature.title}</p>
+                    <p className="mt-1 text-slate-600">{feature.description}</p>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {activeCommercialChange.status === "PENDING" ? (
+              <Alert>
+                <AlertTitle>Waiting for client approval</AlertTitle>
+                <AlertDescription>
+                  You cannot submit another commercial change while this one is pending.
+                </AlertDescription>
+              </Alert>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {canDraftCommercialChange ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Request Client Approval For Commercial Changes</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Use this when budget, timeline, or client-facing features need to move. Do not edit those values directly in the full spec.
+            </p>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-sm font-medium">Proposed budget</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={commercialRequestDraft.proposedBudget}
+                  onChange={(event) =>
+                    setCommercialRequestDraft((current) => ({
+                      ...current,
+                      proposedBudget: event.target.value,
+                    }))
+                  }
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-medium">
+                  Proposed agreed delivery deadline
+                </label>
+                <Input
+                  type="date"
+                  min={commercialChangeMinimumTimeline}
+                  value={commercialRequestDraft.proposedTimeline}
+                  onChange={(event) =>
+                    setCommercialRequestDraft((current) => ({
+                      ...current,
+                      proposedTimeline: event.target.value,
+                    }))
+                  }
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Earliest allowed date for this commercial change: {commercialChangeMinimumTimeline}
+                </p>
+                {commercialChangeTimelineWarning ? (
+                  <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                    {commercialChangeTimelineWarning}
+                  </p>
+                ) : null}
+              </div>
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm font-medium">Proposed client-facing features</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() =>
+                    setCommercialRequestDraft((current) => ({
+                      ...current,
+                      features: [
+                        ...current.features,
+                        { title: "", description: "", priority: "SHOULD_HAVE" },
+                      ],
+                    }))
+                  }
+                >
+                  Add Feature
+                </Button>
+              </div>
+              {commercialRequestDraft.features.map((feature, index) => (
+                <div key={`commercial-feature-${index}`} className="grid gap-3 rounded-xl border p-4 md:grid-cols-[1fr_1fr_auto]">
+                  <Input
+                    value={feature.title}
+                    onChange={(event) =>
+                      handleCommercialDraftFeatureChange(index, "title", event.target.value)
+                    }
+                    placeholder="Feature title"
+                  />
+                  <Input
+                    value={feature.description}
+                    onChange={(event) =>
+                      handleCommercialDraftFeatureChange(index, "description", event.target.value)
+                    }
+                    placeholder="What is changing for the client-facing scope?"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() =>
+                      setCommercialRequestDraft((current) => ({
+                        ...current,
+                        features:
+                          current.features.length === 1
+                            ? current.features
+                            : current.features.filter((_, featureIndex) => featureIndex !== index),
+                      }))
+                    }
+                  >
+                    Remove
+                  </Button>
+                </div>
+              ))}
+            </div>
+            <div>
+              <label className="mb-1 block text-sm font-medium">Reason</label>
+              <Textarea
+                value={commercialRequestDraft.reason}
+                onChange={(event) =>
+                  setCommercialRequestDraft((current) => ({
+                    ...current,
+                    reason: event.target.value,
+                  }))
+                }
+                placeholder="Explain why the approved commercial baseline needs to move."
+                className="min-h-[120px]"
+              />
+            </div>
+            <div className="flex justify-end">
+              <Button
+                type="button"
+                onClick={() => void handleSubmitCommercialChange()}
+                disabled={isSubmittingCommercialChange}
+              >
+                {isSubmittingCommercialChange
+                  ? "Submitting..."
+                  : "Submit Commercial Change Request"}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       {(isEditingExisting || !activeSpec) && !isCommerciallyLocked && (
         <CreateProjectSpecForm
           requestId={id!}
           projectRequest={request}
-          approvedBudgetCap={
-            clientSpec ? Number(clientSpec.totalBudget || 0) : null
-          }
+          approvedBudgetCap={approvedBudgetCap}
+          approvedClientFeatures={normalizedApprovedClientFeatures}
+          approvedDeliveryDeadline={approvedDeliveryDeadline}
+          requestedDeadline={requestedDeadline}
+          projectGoalSummary={projectGoalSummary}
+          lockedProjectCategory={lockedProductType}
+          requireChangeSummary={Boolean(editableDraftSpec?.status === "REJECTED")}
           onSubmit={handleSubmit}
+          onCancel={() => navigate(`/broker/project-requests/${id}`)}
           isSubmitting={isSubmitting}
           isPhasedFlow={Boolean(clientSpec)}
           initialValues={formInitialValues}

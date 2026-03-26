@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { format, formatDistanceToNow } from "date-fns";
 import {
   X,
@@ -32,12 +32,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/shared/components/ui/alert-dialog";
+import { Input } from "@/shared/components/ui/input";
 import { Progress } from "@/shared/components/ui/progress";
 import RichTextEditor from "../editor/RichTextEditor";
 import AttachmentGallery from "./AttachmentGallery";
+import { WorkspaceDatePicker } from "../shared/WorkspaceDatePicker";
 import "highlight.js/styles/github.css";
 import type {
   Task,
+  TaskComment,
+  TaskHistory,
   TaskLink,
   TaskPriority,
   TaskSubmission,
@@ -218,8 +222,8 @@ function EditableText({
 
 // Helper for "All" tab sorting
 type TimelineItem =
-  | { type: "history"; data: import("../../types").TaskHistory; date: Date }
-  | { type: "comment"; date: Date }; // Placeholder for comment type until real comments exist
+  | { type: "history"; data: TaskHistory; date: Date }
+  | { type: "comment"; data: TaskComment; date: Date };
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
@@ -238,9 +242,10 @@ export function TaskDetailModal({
   const [activeTab, setActiveTab] = useState<"all" | "comments" | "history">("all");
 
   // History State
-  const [history, setHistory] = useState<import("../../types").TaskHistory[]>([]);
-  const [comments, setComments] = useState<import("../../types").TaskComment[]>([]);
+  const [history, setHistory] = useState<TaskHistory[]>([]);
+  const [comments, setComments] = useState<TaskComment[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [loadingComments, setLoadingComments] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [isSavingComment, setIsSavingComment] = useState(false);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(5);
@@ -278,6 +283,8 @@ export function TaskDetailModal({
   const [reviewingSubmissionId, setReviewingSubmissionId] = useState<string | null>(null);
   const [reviewNote, setReviewNote] = useState("");
   const [isReviewNotePopoverOpen, setIsReviewNotePopoverOpen] = useState(false);
+  const [isLabelPopoverOpen, setIsLabelPopoverOpen] = useState(false);
+  const [labelDraft, setLabelDraft] = useState("");
   const [approveDialogSubmission, setApproveDialogSubmission] =
     useState<TaskSubmission | null>(null);
 
@@ -290,6 +297,8 @@ export function TaskDetailModal({
   useEffect(() => {
     setTask(initialTask);
     setApproveDialogSubmission(null);
+    setIsLabelPopoverOpen(false);
+    setLabelDraft("");
   }, [initialTask]);
 
   useEffect(() => {
@@ -304,21 +313,27 @@ export function TaskDetailModal({
 
   // Load History & Comments when tab changes
   useEffect(() => {
-    if (task) {
-        if (activeTab === 'history' || activeTab === 'all') {
-            setLoadingHistory(true);
-            fetchTaskHistory(task.id)
-                .then(setHistory)
-                .catch(console.error)
-                .finally(() => setLoadingHistory(false));
-        }
-        if (activeTab === 'comments' || activeTab === 'all') {
-            import("../../api").then(api => {
-                api.fetchTaskComments(task.id)
-                    .then(setComments)
-                    .catch(console.error);
-            });
-        }
+    const taskId = task?.id;
+    if (!taskId) {
+      return;
+    }
+
+    if (activeTab === "history" || activeTab === "all") {
+      setLoadingHistory(true);
+      fetchTaskHistory(taskId)
+        .then(setHistory)
+        .catch(console.error)
+        .finally(() => setLoadingHistory(false));
+    }
+
+    if (activeTab === "comments" || activeTab === "all") {
+      setLoadingComments(true);
+      import("../../api").then((api) => {
+        api.fetchTaskComments(taskId)
+          .then(setComments)
+          .catch(console.error)
+          .finally(() => setLoadingComments(false));
+      });
     }
   }, [activeTab, task?.id]);
 
@@ -355,23 +370,93 @@ export function TaskDetailModal({
   }, [task?.id, task?.submissions]);
 
   // Combine and Sort for "All" Tab
-  const getAllTimelineItems = (): TimelineItem[] => {
-      const historyItems: TimelineItem[] = history.map(h => ({
-          type: 'history', 
-          data: h, 
-          date: normalizeToUTC(h.createdAt)
-      }));
-      
-      const commentItems: TimelineItem[] = comments.map(c => ({
-          type: 'comment', 
-          data: c, 
-          date: normalizeToUTC(c.createdAt)
-      }));
+  const timelineItems = useMemo(() => {
+    const historyItems: TimelineItem[] = history.map((entry) => ({
+      type: "history",
+      data: entry,
+      date: normalizeToUTC(entry.createdAt),
+    }));
 
-      return [...historyItems, ...commentItems].sort((a, b) => b.date.getTime() - a.date.getTime());
-  };
+    const commentItems: TimelineItem[] = comments.map((entry) => ({
+      type: "comment",
+      data: entry,
+      date: normalizeToUTC(entry.createdAt),
+    }));
 
-  const timelineItems = getAllTimelineItems();
+    return [...historyItems, ...commentItems].sort(
+      (first, second) => second.date.getTime() - first.date.getTime(),
+    );
+  }, [comments, history]);
+
+  const _renderHistoryItem = (record: TaskHistory) => (
+    <div key={record.id} className="flex gap-3 text-sm">
+      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+        {record.actor?.avatarUrl ? (
+          <img src={record.actor.avatarUrl} className="w-full h-full rounded-full" />
+        ) : (
+          <User className="w-4 h-4 text-gray-500" />
+        )}
+      </div>
+      <div>
+        <div className="text-gray-900">
+          <span className="font-semibold">{record.actor?.fullName || "System"}</span>
+          <span className="text-gray-500 mx-1">updated</span>
+          <span className="font-medium text-gray-700">{record.fieldChanged}</span>
+        </div>
+        <div className="flex items-center gap-2 text-xs mt-1">
+          {record.oldValue && (
+            <span className="text-red-500 line-through bg-red-50 px-1 rounded">
+              {record.oldValue}
+            </span>
+          )}
+          {record.oldValue && <span className="text-gray-400">→</span>}
+          <span className="text-green-600 bg-green-50 px-1 rounded font-medium">
+            {record.newValue}
+          </span>
+        </div>
+        <p
+          className="text-xs text-gray-400 mt-1"
+          title={normalizeToUTC(record.createdAt).toLocaleString()}
+        >
+          {formatDistanceToNow(normalizeToUTC(record.createdAt), { addSuffix: true })}
+        </p>
+      </div>
+    </div>
+  );
+
+  const renderCommentItem = (comment: TaskComment) => (
+    <div key={comment.id} className="flex gap-3 text-sm group">
+      <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+        {comment.actor?.avatarUrl ? (
+          <img src={comment.actor.avatarUrl} className="w-full h-full rounded-full" />
+        ) : (
+          <User className="w-4 h-4 text-gray-500" />
+        )}
+      </div>
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-gray-900">
+            {comment.actor?.fullName || "System"}
+          </span>
+          <span
+            className="text-xs text-gray-400"
+            title={normalizeToUTC(comment.createdAt).toLocaleString()}
+          >
+            {formatDistanceToNow(normalizeToUTC(comment.createdAt), { addSuffix: true })}
+          </span>
+        </div>
+        <div
+          className={cn(
+            "prose prose-sm max-w-none text-gray-700 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1",
+            "[&_[data-type=taskList]]:pl-2",
+            "[&_[data-type=taskItem]]:flex [&_[data-type=taskItem]]:items-start [&_[data-type=taskItem]]:gap-2",
+            "[&_[data-type=taskItem]_input]:mt-1 [&_[data-type=taskItem]_input]:accent-blue-600",
+          )}
+          dangerouslySetInnerHTML={{ __html: comment.content }}
+        />
+      </div>
+    </div>
+  );
 
   if (!isOpen || !task) return null;
 
@@ -380,7 +465,6 @@ export function TaskDetailModal({
     : null;
 
   const dueDate = task.dueDate ? new Date(task.dueDate) : null;
-  const dueDateInputValue = dueDate ? format(dueDate, "yyyy-MM-dd") : "";
   const dueDateLabel = dueDate ? format(dueDate, "MMM d, yyyy") : "";
   const isDueDateOverdue =
     !!dueDate && dueDate.getTime() < Date.now() && task.status !== "DONE";
@@ -413,10 +497,42 @@ export function TaskDetailModal({
     if (!task) return;
     try {
       const updated = await updateTask(task.id, patch);
-      setTask({ ...task, ...updated });
-      onUpdate?.({ ...task, ...updated }); // Notify parent
+      const nextTask = { ...task, ...updated };
+      setTask(nextTask);
+      onUpdate?.(nextTask); // Notify parent
+      return nextTask;
     } catch (error) {
       console.error("Failed to update task:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update task",
+      );
+      return null;
+    }
+  };
+
+  const handleAddLabel = async () => {
+    if (!task) return;
+
+    const trimmedLabel = labelDraft.trim();
+    if (!trimmedLabel) {
+      return;
+    }
+
+    const existingLabels = new Set(
+      (task.labels || []).map((label) => label.toLowerCase()),
+    );
+    if (existingLabels.has(trimmedLabel.toLowerCase())) {
+      toast.info("This label already exists on the task.");
+      return;
+    }
+
+    const updatedTask = await handleUpdate({
+      labels: [...(task.labels || []), trimmedLabel],
+    });
+
+    if (updatedTask) {
+      setLabelDraft("");
+      setIsLabelPopoverOpen(false);
     }
   };
 
@@ -425,7 +541,7 @@ export function TaskDetailModal({
     if (!allowTaskStatusEditing) return;
 
     if (newStatus === "DONE" && !canTransitionTaskToDone) {
-      toast.warning("Không thể chuyển sang DONE khi chưa có bài nộp được duyệt!");
+      toast.warning("Cannot move to DONE without an approved submission.");
       return;
     }
 
@@ -1424,12 +1540,15 @@ export function TaskDetailModal({
                   {/* ALL TAB (Merged View) */}
                   {activeTab === 'all' && (
                      <div className="space-y-4">
-                         {loadingHistory ? (
+                         {loadingHistory || loadingComments ? (
                              <div className="flex justify-center py-4"><Loader2 className="animate-spin text-gray-400" /></div>
                          ) : timelineItems.length === 0 ? (
                              <p className="text-sm text-gray-500 text-center py-4">No recent activity.</p>
                          ) : (
                              timelineItems.map((item) => {
+                                 if (item.type === "comment") {
+                                     return renderCommentItem(item.data);
+                                 }
                                  if (item.type === 'history') {
                                      const record = item.data;
                                      return (
@@ -1670,60 +1789,93 @@ export function TaskDetailModal({
                                    {label}
                                </span>
                            ))}
-                           <button 
-                                onClick={() => {
-                                    const newLabel = prompt("Enter label:");
-                                    if(newLabel) handleUpdate({ labels: [...(task.labels || []), newLabel] })
-                                }}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
-                            >
-                               <Plus className="w-3 h-3" />
-                               Add
-                           </button>
+                           <Popover open={isLabelPopoverOpen} onOpenChange={setIsLabelPopoverOpen}>
+                               <PopoverTrigger asChild>
+                                   <button
+                                       type="button"
+                                       className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
+                                   >
+                                       <Plus className="w-3 h-3" />
+                                       Add
+                                   </button>
+                               </PopoverTrigger>
+                               <PopoverContent align="start" className="w-72 space-y-3 p-3">
+                                   <div className="space-y-1">
+                                       <p className="text-sm font-semibold text-gray-900">Add label</p>
+                                       <p className="text-xs text-gray-500">
+                                           Create a label for faster task filtering and grouping.
+                                       </p>
+                                   </div>
+                                   <Input
+                                       value={labelDraft}
+                                       onChange={(event) => setLabelDraft(event.target.value)}
+                                       onKeyDown={(event) => {
+                                           if (event.key === "Enter") {
+                                               event.preventDefault();
+                                               void handleAddLabel();
+                                           }
+                                       }}
+                                       placeholder="e.g. frontend"
+                                       autoFocus
+                                   />
+                                   <div className="flex justify-end gap-2">
+                                       <button
+                                           type="button"
+                                           onClick={() => {
+                                               setIsLabelPopoverOpen(false);
+                                               setLabelDraft("");
+                                           }}
+                                           className="rounded-md border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                                       >
+                                           Cancel
+                                       </button>
+                                       <button
+                                           type="button"
+                                           onClick={() => void handleAddLabel()}
+                                           disabled={!labelDraft.trim()}
+                                           className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                                       >
+                                           Add label
+                                       </button>
+                                   </div>
+                               </PopoverContent>
+                           </Popover>
                        </div>
                   </div>
 
-                   {/* Start Date */}
-                   <div className="flex items-center justify-between">
+                  {/* Start Date */}
+                   <div className="space-y-2">
                       <span className="text-sm text-gray-600 font-medium">Start Date</span>
-                      <div className="relative">
-                          {/* Simplistic Date Input for demo */}
-                          <input 
-                             type="date" 
-                             value={task.startDate ? format(new Date(task.startDate), 'yyyy-MM-dd') : ""}
-                             onChange={(e) => handleUpdate({ startDate: e.target.value })}
-                             className="text-xs border-0 p-0 text-slate-600 focus:ring-0 text-right w-24 bg-transparent cursor-pointer"
-                          />
-                      </div>
+                      <WorkspaceDatePicker
+                        value={task.startDate ?? null}
+                        onChange={(value) => void handleUpdate({ startDate: value })}
+                        placeholder="Set start date"
+                      />
                   </div>
 
                   {/* Due Date */}
-                  <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-600 font-medium">Due Date</span>
-                      <div className="relative">
-                          {isDueDateOverdue && dueDate ? (
-                            <div className="relative">
-                              <div className="flex items-center gap-2 rounded-md border border-red-500 px-2 py-1 text-red-600 bg-red-50/40">
-                                <AlertTriangle className="w-4 h-4" />
-                                <span className="text-xs font-semibold">{dueDateLabel}</span>
-                              </div>
-                              <input
-                                type="date"
-                                value={dueDateInputValue}
-                                onChange={(e) => handleUpdate({ dueDate: e.target.value })}
-                                className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-                                aria-label="Due date"
-                              />
-                            </div>
-                          ) : (
-                            <input
-                              type="date"
-                              value={dueDateInputValue}
-                              onChange={(e) => handleUpdate({ dueDate: e.target.value })}
-                              className="text-xs border-0 p-0 text-slate-600 focus:ring-0 text-right w-24 bg-transparent cursor-pointer"
-                            />
-                          )}
+                  <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-gray-600 font-medium">Due Date</span>
+                        {isDueDateOverdue && dueDate ? (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600">
+                            <AlertTriangle className="h-3.5 w-3.5" />
+                            Overdue
+                          </span>
+                        ) : null}
                       </div>
+                      <WorkspaceDatePicker
+                        value={task.dueDate ?? null}
+                        onChange={(value) => void handleUpdate({ dueDate: value })}
+                        placeholder="Set due date"
+                        tone={isDueDateOverdue ? "danger" : "default"}
+                      />
+                      {isDueDateOverdue && dueDate ? (
+                        <p className="flex items-center gap-1 text-[11px] text-red-600">
+                          <AlertTriangle className="h-3.5 w-3.5" />
+                          Due since {dueDateLabel}
+                        </p>
+                      ) : null}
                   </div>
               </div>
               <div className="text-xs text-gray-400 pt-4 flex justify-between">

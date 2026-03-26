@@ -3,19 +3,29 @@ import {
   MessageBody,
   OnGatewayConnection,
   OnGatewayDisconnect,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
   WsException,
 } from '@nestjs/websockets';
 import { HttpException, Logger, UsePipes, ValidationPipe } from '@nestjs/common';
+import { Type } from 'class-transformer';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Server, Socket } from 'socket.io';
-import { IsNotEmpty, IsOptional, IsString, IsUUID } from 'class-validator';
+import {
+  IsArray,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  IsUUID,
+  ValidateNested,
+} from 'class-validator';
 import { UserEntity, UserRole } from 'src/database/entities';
 import { WorkspaceChatService } from './workspace-chat.service';
+import { WorkspaceChatRealtimeBridge } from './workspace-chat.realtime';
 
 const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (value === undefined) return fallback;
@@ -84,12 +94,36 @@ class SendProjectMessageDto {
   projectId: string;
 
   @IsString()
-  @IsNotEmpty()
-  content: string;
+  @IsOptional()
+  content?: string;
+
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => WorkspaceMessageAttachmentDto)
+  @IsOptional()
+  attachments?: WorkspaceMessageAttachmentDto[];
 
   @IsUUID()
   @IsOptional()
   taskId?: string;
+
+  @IsUUID()
+  @IsOptional()
+  replyToId?: string;
+}
+
+class WorkspaceMessageAttachmentDto {
+  @IsString()
+  @IsNotEmpty()
+  url: string;
+
+  @IsString()
+  @IsNotEmpty()
+  name: string;
+
+  @IsString()
+  @IsNotEmpty()
+  type: string;
 }
 
 @WebSocketGateway({
@@ -101,7 +135,9 @@ class SendProjectMessageDto {
   pingInterval: 25000,
   pingTimeout: 30000,
 })
-export class WorkspaceChatGateway implements OnGatewayConnection, OnGatewayDisconnect {
+export class WorkspaceChatGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect
+{
   @WebSocketServer()
   server: Server;
 
@@ -114,10 +150,13 @@ export class WorkspaceChatGateway implements OnGatewayConnection, OnGatewayDisco
     private readonly userRepo: Repository<UserEntity>,
   ) {}
 
+  afterInit(server: Server): void {
+    WorkspaceChatRealtimeBridge.bindServer(server);
+  }
+
   async handleConnection(client: Socket): Promise<void> {
     try {
-      const user = await this.authenticate(client);
-      client.data.user = user;
+      const user = await this.resolveUser(client);
       this.logger.log(`Workspace chat connected: userId=${user.id}, socketId=${client.id}`);
     } catch (error) {
       this.logger.warn(
@@ -141,12 +180,12 @@ export class WorkspaceChatGateway implements OnGatewayConnection, OnGatewayDisco
     @ConnectedSocket() client: Socket,
   ): Promise<{ joined: boolean; room: string }> {
     try {
-      const user = this.getUser(client);
+      const user = await this.resolveUser(client);
       this.logger.log(
         `joinProjectChat received: projectId=${data.projectId}, userId=${user.id}, socketId=${client.id}`,
       );
 
-      await this.workspaceChatService.assertProjectAccess(data.projectId, user.id);
+      await this.workspaceChatService.assertProjectReadAccess(data.projectId, user.id);
 
       const room = this.projectRoom(data.projectId);
       await client.join(room);
@@ -167,7 +206,7 @@ export class WorkspaceChatGateway implements OnGatewayConnection, OnGatewayDisco
     @ConnectedSocket() client: Socket,
   ): Promise<{ success: boolean; messageId: string; projectId: string; createdAt: string }> {
     try {
-      const user = this.getUser(client);
+      const user = await this.resolveUser(client);
       this.logger.log(
         `sendProjectMessage received: projectId=${dto.projectId}, userId=${user.id}, socketId=${client.id}`,
       );
@@ -175,20 +214,17 @@ export class WorkspaceChatGateway implements OnGatewayConnection, OnGatewayDisco
         projectId: dto.projectId,
         senderId: user.id,
         taskId: dto.taskId ?? null,
+        attachmentCount: dto.attachments?.length ?? 0,
       });
 
       const savedMessage = await this.workspaceChatService.saveMessage(
         dto.projectId,
         user.id,
-        dto.content,
+        dto.content ?? '',
+        dto.attachments,
         dto.taskId,
+        dto.replyToId,
       );
-
-      const room = this.projectRoom(dto.projectId);
-      this.logger.log(
-        `Broadcast newProjectMessage: room=${room}, messageId=${savedMessage.id}, senderId=${user.id}`,
-      );
-      this.server.to(room).emit('newProjectMessage', savedMessage);
 
       return {
         success: true,
@@ -225,6 +261,30 @@ export class WorkspaceChatGateway implements OnGatewayConnection, OnGatewayDisco
       role: user.role,
       email: user.email,
     };
+  }
+
+  private async resolveUser(client: Socket): Promise<WsUser> {
+    const existingUser = client.data.user as WsUser | undefined;
+    if (existingUser) {
+      return existingUser;
+    }
+
+    const inFlightAuth = client.data.authPromise as Promise<WsUser> | undefined;
+    if (inFlightAuth) {
+      return inFlightAuth;
+    }
+
+    const authPromise = this.authenticate(client)
+      .then((user) => {
+        client.data.user = user;
+        return user;
+      })
+      .finally(() => {
+        delete client.data.authPromise;
+      });
+
+    client.data.authPromise = authPromise;
+    return authPromise;
   }
 
   private extractToken(client: Socket): string | undefined {
@@ -266,20 +326,12 @@ export class WorkspaceChatGateway implements OnGatewayConnection, OnGatewayDisco
       }
       const name = cookie.slice(0, separatorIndex).trim();
       const value = cookie.slice(separatorIndex + 1).trim();
-      if (name === 'accessToken' && value) {
+      if ((name === 'accessToken' || name === 'access_token') && value) {
         return decodeURIComponent(value);
       }
     }
 
     return undefined;
-  }
-
-  private getUser(client: Socket): WsUser {
-    const user = client.data.user as WsUser | undefined;
-    if (!user) {
-      throw new WsException('Unauthorized socket');
-    }
-    return user;
   }
 
   private projectRoom(projectId: string): string {

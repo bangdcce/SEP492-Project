@@ -14,6 +14,31 @@ export interface UploadResult {
   signedUrl: string;
 }
 
+export const isValidKycStoragePath = (storagePath: string | null | undefined): storagePath is string => {
+  if (typeof storagePath !== 'string') {
+    return false;
+  }
+
+  const normalizedPath = storagePath.trim();
+  if (!normalizedPath) {
+    return false;
+  }
+
+  if (/^[a-z]+:\/\//i.test(normalizedPath)) {
+    return false;
+  }
+
+  if (normalizedPath.startsWith('/') || normalizedPath.includes('\\')) {
+    return false;
+  }
+
+  if (normalizedPath.includes('?') || normalizedPath.includes('#')) {
+    return false;
+  }
+
+  return /^kyc\/[^/]+\/[^?#]+$/i.test(normalizedPath);
+};
+
 /**
  * Upload encrypted file to Supabase Storage
  * @param fileBuffer - File buffer to encrypt and upload
@@ -71,6 +96,10 @@ export const uploadEncryptedFile = async (
  * @returns Decrypted file buffer
  */
 export const downloadEncryptedFile = async (storagePath: string): Promise<Buffer> => {
+  if (!isValidKycStoragePath(storagePath)) {
+    throw new Error(`Invalid KYC storage path: ${storagePath}`);
+  }
+
   try {
     const bucket = getKycBucket();
 
@@ -138,6 +167,15 @@ export const getSignedUrl = async (
     return '';
   }
 
+  if (/^https?:\/\//i.test(storagePath)) {
+    return storagePath;
+  }
+
+  if (!isValidKycStoragePath(storagePath)) {
+    console.warn(`[Supabase] Invalid KYC storage path skipped: ${storagePath}`);
+    return '';
+  }
+
   try {
     const bucket = getKycBucket();
 
@@ -169,6 +207,10 @@ export const getSignedUrl = async (
  * @param storagePath - Path in Supabase storage
  */
 export const deleteFile = async (storagePath: string): Promise<void> => {
+  if (!isValidKycStoragePath(storagePath)) {
+    throw new Error(`Invalid KYC storage path: ${storagePath}`);
+  }
+
   try {
     const bucket = getKycBucket();
 

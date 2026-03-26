@@ -18,13 +18,13 @@ import {
   DialogTrigger,
   DialogDescription,
 } from "@/shared/components/ui";
+import { Textarea } from "@/shared/components/ui/textarea";
 import { wizardService } from "../wizard/services/wizardService";
 import { format } from "date-fns";
-import { ArrowLeft, AlertTriangle, Check, FileText, HelpCircle, UserPlus, Users } from "lucide-react";
+import { ArrowLeft, AlertTriangle, Check, FileText, HelpCircle, Loader2, Trash2, UserPlus, Users } from "lucide-react";
 import { toast } from "sonner";
 import { ROUTES } from "@/constants";
 import { ProjectPhaseStepper } from "./components/ProjectPhaseStepper";
-import { CommentsSection } from "./components/CommentsSection";
 import { RequestDraftAlert } from "./components/RequestDraftAlert";
 import { RequestWorkflowBanner } from "./components/RequestWorkflowBanner";
 import {
@@ -38,8 +38,8 @@ import { UserRole } from "@/shared/types/user.types";
 import { CandidateProfileModal } from "./components/CandidateProfileModal";
 import { ScoreExplanationModal } from "./components/ScoreExplanationModal";
 import { RequestBrokerMarketPanel } from "./components/RequestBrokerMarketPanel";
-import { RequestFreelancerMarketPanel } from "./components/RequestFreelancerMarketPanel";
 import { RequestContractHandoffPanel } from "./components/RequestContractHandoffPanel";
+import { RequestChatPanel } from "@/features/request-chat/RequestChatPanel";
 import type { ProjectSpec } from "@/features/project-specs/types";
 import { ProjectSpecStatus, SpecPhase } from "@/features/project-specs/types";
 import type { ContractSummary } from "@/features/contracts/types";
@@ -52,6 +52,8 @@ import {
   resolveRequestFlowSnapshot,
 } from "./requestFlow";
 import { buildClientNextAction } from "./requestDetailActions";
+import { buildTrustProfilePath } from "@/features/trust-profile/routes";
+import { projectRequestsApi } from "@/features/project-requests/api";
 
 // Helper for safe date formatting
 const safeFormatDate = (dateStr: string | Date | null | undefined, fmt: string) => {
@@ -60,7 +62,7 @@ const safeFormatDate = (dateStr: string | Date | null | undefined, fmt: string) 
         const d = new Date(dateStr);
         if (isNaN(d.getTime())) return "Invalid Date";
         return format(d, fmt);
-    } catch (e) {
+    } catch {
         return "N/A";
     }
 };
@@ -92,9 +94,20 @@ export default function RequestDetailPage() {
   const [activeTab, setActiveTab] = useState("phase1");
   const [showDraftAlert, setShowDraftAlert] = useState(false);
 
+  // Delete Request State
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  // Hire Broker Warning State
+  const [showHireBrokerWarning, setShowHireBrokerWarning] = useState(false);
+  const [pendingHireBrokerId, setPendingHireBrokerId] = useState<string | null>(null);
+  const [reviewingFreelancerProposalId, setReviewingFreelancerProposalId] = useState<string | null>(null);
+
   // Invite Modal State
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteModalData, setInviteModalData] = useState<{ id: string, name: string, role: "BROKER" | "FREELANCER" } | null>(null);
+  const [commercialResponseNote, setCommercialResponseNote] = useState("");
+  const [isRespondingCommercialChange, setIsRespondingCommercialChange] = useState(false);
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
@@ -188,6 +201,33 @@ export default function RequestDetailPage() {
   useEffect(() => {
     if (!id) return;
     const socket = connectSocket();
+    const refetchIfRelevant = (payload: {
+      requestId?: string | null;
+      specId?: string | null;
+      contractId?: string | null;
+      projectId?: string | null;
+    }) => {
+      const linkedProjectId = request?.linkedProjectSummary?.id;
+      const linkedContractId = request?.linkedContractSummary?.id || linkedContract?.id;
+      const knownSpecIds = new Set(
+        [specFlow.clientSpec?.id, specFlow.fullSpec?.id]
+          .concat((request?.specs || []).map((spec) => spec.id))
+          .filter((value): value is string => Boolean(value)),
+      );
+
+      const isRelevant =
+        (payload?.requestId && payload.requestId === id) ||
+        (payload?.projectId && Boolean(linkedProjectId) && payload.projectId === linkedProjectId) ||
+        (payload?.contractId &&
+          Boolean(linkedContractId) &&
+          payload.contractId === linkedContractId) ||
+        (payload?.specId && knownSpecIds.has(payload.specId));
+
+      if (isRelevant) {
+        void fetchData(id);
+      }
+    };
+
     const handleNotificationCreated = (payload: {
       notification?: {
         relatedType?: string | null;
@@ -201,12 +241,17 @@ export default function RequestDetailPage() {
       const relatedId = String(notification?.relatedId || "");
       const linkedProjectId = request?.linkedProjectSummary?.id;
       const linkedContractId = request?.linkedContractSummary?.id;
+      const knownSpecIds = new Set(
+        [specFlow.clientSpec?.id, specFlow.fullSpec?.id]
+          .concat((request?.specs || []).map((spec) => spec.id))
+          .filter((value): value is string => Boolean(value)),
+      );
 
       const isRelevant =
         (relatedType === "ProjectRequest" && relatedId === id) ||
         (relatedType === "Project" && Boolean(linkedProjectId) && relatedId === linkedProjectId) ||
         (relatedType === "Contract" && Boolean(linkedContractId) && relatedId === linkedContractId) ||
-        (relatedType === "ProjectSpec" && id === request?.id);
+        (relatedType === "ProjectSpec" && knownSpecIds.has(relatedId));
 
       if (isRelevant) {
         void fetchData(id);
@@ -214,35 +259,51 @@ export default function RequestDetailPage() {
     };
 
     socket.on("NOTIFICATION_CREATED", handleNotificationCreated);
+    socket.on("REQUEST_UPDATED", refetchIfRelevant);
+    socket.on("SPEC_UPDATED", refetchIfRelevant);
+    socket.on("CONTRACT_UPDATED", refetchIfRelevant);
     return () => {
       socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
+      socket.off("REQUEST_UPDATED", refetchIfRelevant);
+      socket.off("SPEC_UPDATED", refetchIfRelevant);
+      socket.off("CONTRACT_UPDATED", refetchIfRelevant);
     };
-  }, [fetchData, id, request?.id, request?.linkedContractSummary?.id, request?.linkedProjectSummary?.id]);
+  }, [
+    fetchData,
+    id,
+    linkedContract?.id,
+    request?.linkedContractSummary?.id,
+    request?.linkedProjectSummary?.id,
+    request?.specs,
+    specFlow.clientSpec?.id,
+    specFlow.fullSpec?.id,
+  ]);
 
   const handleStatusChange = async (newStatus: RequestStatus) => {
       try {
           setIsUpdatingStatus(true);
-          await wizardService.updateRequest(id!, { status: newStatus });
-          setRequest((prev) => (prev ? { ...prev, status: newStatus } : prev));
+          const updatedRequest = newStatus === RequestStatus.PUBLIC_DRAFT
+            ? await wizardService.publishRequest(id!)
+            : await wizardService.updateRequest(id!, { status: newStatus });
+          setRequest((prev: any) => ({ ...prev, ...(updatedRequest || {}), status: updatedRequest?.status || newStatus }));
           toast.success("Status Updated", {
-              description: `Project is now ${newStatus.replace('_', ' ').toLowerCase()}`
+              description: `Project is now ${(updatedRequest?.status || newStatus).replace('_', ' ').toLowerCase()}`
           });
-      } catch (_error) {
+      } catch {
           toast.error("Failed to update status");
       } finally {
           setIsUpdatingStatus(false);
       }
   };
-
   const handleRevertToDraft = async () => {
       try {
           // explicitly set to PUBLIC_DRAFT
-          await wizardService.updateRequest(id!, { status: RequestStatus.PUBLIC_DRAFT, isDraft: true });
+          await wizardService.updateRequest(id!, { status: RequestStatus.PUBLIC_DRAFT });
           toast.success("Reverted to Draft", {
               description: "Redirecting to wizard for editing...",
           });
           navigate(`/client/wizard?draftId=${id}`);
-      } catch (_error) {
+      } catch {
           toast.error("Failed to revert to draft");
       }
   };
@@ -253,8 +314,36 @@ export default function RequestDetailPage() {
           await wizardService.acceptBroker(request.id, brokerId);
           toast.success("Broker Hired", { description: "You have assigned a broker to this project." });
           void fetchData(request.id);
-      } catch (_error) {
+      } catch {
           toast.error("Failed to hire broker");
+      }
+  };
+
+  const handleHireBrokerClick = (brokerId: string) => {
+      setPendingHireBrokerId(brokerId);
+      setShowHireBrokerWarning(true);
+  };
+
+  const handleConfirmHireBroker = () => {
+      if (pendingHireBrokerId) {
+          handleAcceptBroker(pendingHireBrokerId);
+      }
+      setShowHireBrokerWarning(false);
+      setPendingHireBrokerId(null);
+  };
+
+  const handleDeleteRequest = async () => {
+      try {
+          setIsDeleting(true);
+          await wizardService.deleteRequest(id!);
+          toast.success("Request Deleted", { description: "Your project request has been permanently deleted." });
+          navigate(ROUTES.CLIENT_DASHBOARD);
+      } catch (error: any) {
+          const message = error?.response?.data?.message || "Failed to delete request";
+          toast.error("Delete Failed", { description: message });
+      } finally {
+          setIsDeleting(false);
+          setShowDeleteConfirm(false);
       }
   };
 
@@ -287,6 +376,64 @@ export default function RequestDetailPage() {
     setIsProfileModalOpen(true);
   };
 
+  const handleApproveFreelancerInvite = async (proposalId: string) => {
+    if (!id) return;
+    try {
+      setReviewingFreelancerProposalId(proposalId);
+      await wizardService.approveFreelancerInvite(id, proposalId);
+      toast.success("Freelancer recommendation approved");
+      void fetchData(id);
+    } catch (error) {
+      toast.error(getApiErrorDetails(error, "Failed to approve freelancer recommendation.").message);
+    } finally {
+      setReviewingFreelancerProposalId(null);
+    }
+  };
+
+  const handleRejectFreelancerInvite = async (proposalId: string) => {
+    if (!id) return;
+    try {
+      setReviewingFreelancerProposalId(proposalId);
+      await wizardService.rejectFreelancerInvite(id, proposalId);
+      toast.success("Freelancer recommendation rejected");
+      void fetchData(id);
+    } catch (error) {
+      toast.error(getApiErrorDetails(error, "Failed to reject freelancer recommendation.").message);
+    } finally {
+      setReviewingFreelancerProposalId(null);
+    }
+  };
+
+  const handleRespondCommercialChange = async (action: "APPROVE" | "REJECT") => {
+    if (!id || !request?.activeCommercialChangeRequest?.id) return;
+
+    try {
+      setIsRespondingCommercialChange(true);
+      await projectRequestsApi.respondCommercialChangeRequest(
+        id,
+        request.activeCommercialChangeRequest.id,
+        {
+          action,
+          note: commercialResponseNote.trim() || undefined,
+        },
+      );
+      toast.success(
+        action === "APPROVE"
+          ? "Commercial change approved"
+          : "Commercial change rejected",
+      );
+      setCommercialResponseNote("");
+      void fetchData(id);
+    } catch (error) {
+      toast.error(
+        getApiErrorDetails(error, "Failed to respond to commercial change request.")
+          .message,
+      );
+    } finally {
+      setIsRespondingCommercialChange(false);
+    }
+  };
+
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -303,8 +450,6 @@ export default function RequestDetailPage() {
   const currentPhase = flowSnapshot.phaseNumber;
   const clientSpec = specFlow.clientSpec;
   const fullSpec = specFlow.fullSpec;
-  const freelancerProposalList =
-    request?.freelancerSelectionSummary?.items || request?.freelancerProposals || request?.proposals || [];
   const selectedFreelancerProposal = getSelectedFreelancerProposal(request);
   const hasAcceptedFreelancer = Boolean(selectedFreelancerProposal);
   const brokerApplications =
@@ -316,6 +461,10 @@ export default function RequestDetailPage() {
     (proposal) => String(proposal?.status || '').toUpperCase() !== 'PENDING',
   );
   const brokerSlotSummary = request?.brokerApplicationSummary?.slots || null;
+  const pendingFreelancerRecommendations =
+    request?.freelancerSelectionSummary?.items?.filter(
+      (proposal) => String(proposal?.status || "").toUpperCase() === "PENDING_CLIENT_APPROVAL",
+    ) || [];
   const formatSpecStatus = (status: string) => status.replace(/_/g, " ");
   const getSpecStatusColor = (status: string) => {
     switch (status) {
@@ -336,10 +485,25 @@ export default function RequestDetailPage() {
     clientSpec?.status === ProjectSpecStatus.CLIENT_REVIEW ? "Review Client Spec" : "View Client Spec";
   const fullSpecActionLabel =
     fullSpec?.status === ProjectSpecStatus.FINAL_REVIEW ? "Review & Sign Final Spec" : "View Final Spec";
+  const canDeleteRequest = !request.brokerId && [
+    RequestStatus.DRAFT,
+    RequestStatus.PUBLIC_DRAFT,
+    RequestStatus.PRIVATE_DRAFT,
+  ].includes(request.status as any);
+  const canEditRequest = !request.brokerId && [
+    RequestStatus.DRAFT,
+    RequestStatus.PUBLIC_DRAFT,
+    RequestStatus.PRIVATE_DRAFT,
+  ].includes(request.status as any);
   const canOpenContract = Boolean(linkedContract?.id);
   const contractActivated = isContractActivated(linkedContract);
   const canOpenWorkspace = Boolean(linkedContract?.projectId && contractActivated);
   const assignedBrokerProfileId = request.broker?.id ?? null;
+  const assignedBrokerProfilePath = assignedBrokerProfileId
+    ? buildTrustProfilePath(assignedBrokerProfileId, { role: UserRole.CLIENT })
+    : null;
+  const activeCommercialChange = request.activeCommercialChangeRequest;
+  const canUseRequestChat = Boolean(request.brokerId && currentPhase >= 2);
   const clientNextAction = buildClientNextAction({
     currentPhase,
     clientSpec,
@@ -367,6 +531,62 @@ export default function RequestDetailPage() {
           onCancel={() => setShowDraftAlert(false)}
           onConfirm={handleRevertToDraft}
         />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <Card className="w-full max-w-md p-6 shadow-2xl border-2 border-red-200">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-red-100 rounded-full">
+                <Trash2 className="w-5 h-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-red-900">Delete This Request?</h3>
+            </div>
+            <p className="text-muted-foreground mb-2 text-sm">
+              This action is <strong className="text-red-600">permanent and cannot be undone</strong>.
+            </p>
+            <p className="text-muted-foreground mb-4 text-sm">
+              The request, all associated answers, and any pending broker proposals will be permanently deleted.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)} disabled={isDeleting}>Cancel</Button>
+              <Button variant="destructive" onClick={handleDeleteRequest} disabled={isDeleting}>
+                {isDeleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                Delete Permanently
+              </Button>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Hire Broker Warning Dialog */}
+      {showHireBrokerWarning && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <Card className="w-full max-w-md p-6 shadow-2xl border-2 border-amber-200">
+            <div className="flex items-center gap-3 mb-3">
+              <div className="p-2 bg-amber-100 rounded-full">
+                <AlertTriangle className="w-5 h-5 text-amber-600" />
+              </div>
+              <h3 className="text-lg font-bold text-amber-900">Important: Read Before Hiring</h3>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+              <p className="text-sm text-amber-900 leading-relaxed">
+                Once you hire a broker, you will <strong>no longer be able to delete</strong> this request.
+                If you need to cancel later, you must use the <strong>Dispute</strong> or <strong>Report</strong> system.
+              </p>
+            </div>
+            <p className="text-muted-foreground mb-4 text-xs">
+              This safeguard exists to protect brokers from having their work discarded without proper resolution.
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button variant="outline" onClick={() => { setShowHireBrokerWarning(false); setPendingHireBrokerId(null); }}>Cancel</Button>
+              <Button onClick={handleConfirmHireBroker}>
+                I Understand, Hire Broker
+              </Button>
+            </div>
+          </Card>
+        </div>
       )}
 
       <div className="flex justify-between items-center mb-4">
@@ -455,6 +675,24 @@ export default function RequestDetailPage() {
         </div>
         
         <div className="flex gap-2">
+            {canEditRequest && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => navigate(`/client/wizard?draftId=${request.id}`)}
+              >
+                <FileText className="w-4 h-4 mr-2" /> Edit Request
+              </Button>
+            )}
+            {canDeleteRequest && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash2 className="w-4 h-4 mr-2" /> Delete Request
+              </Button>
+            )}
             {canOpenContract && (
               <Button
                 className="bg-green-600 hover:bg-green-700"
@@ -474,9 +712,8 @@ export default function RequestDetailPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Left Main Content */}
-        <div className="lg:col-span-2 space-y-6">
+      <div className="space-y-6">
+        <div className="space-y-6">
             {/* Top Level Navigation Layer */}
             <div className="flex gap-4 border-b pb-2 mb-4">
                  <button 
@@ -529,14 +766,14 @@ export default function RequestDetailPage() {
                 matches={matches}
                 brokerMatchesLoading={brokerMatchesLoading}
                 onChangeVisibility={handleStatusChange}
-                onAcceptBroker={handleAcceptBroker}
+                onAcceptBroker={handleHireBrokerClick}
                 onReleaseBrokerSlot={handleReleaseBrokerSlot}
                 onInviteBroker={handleInvite}
                 onOpenProfile={handleOpenCandidateProfile}
                 onPhaseAdvance={() => setActiveTab("phase2")}
                 onOpenAssignedBrokerProfile={
-                  assignedBrokerProfileId
-                    ? () => navigate(`/client/discovery/profile/${assignedBrokerProfileId}`)
+                  assignedBrokerProfilePath
+                    ? () => navigate(assignedBrokerProfilePath)
                     : null
                 }
                 onOpenScoreExplanation={() => setIsScoreExplanationOpen(true)}
@@ -610,7 +847,7 @@ export default function RequestDetailPage() {
                                 </div>
 
                                 <div className="mt-4 rounded-md border bg-white p-3 text-sm text-blue-800">
-                                  Next phase after Client Spec approval: select freelancer, then proceed to Phase 4 for Full Spec 3-party sign-off.
+                                  Next phase after Client Spec approval: select a freelancer, then proceed to Phase 4 for full-spec three-party sign-off.
                                 </div>
                            </div>
 
@@ -632,22 +869,130 @@ export default function RequestDetailPage() {
 
             {/* PHASE 3: HIRE FREELANCER  EAI Matching Engine */}
             <TabsContent value="phase3">
-              <RequestFreelancerMarketPanel
-                currentPhase={currentPhase}
-                hasAcceptedFreelancer={hasAcceptedFreelancer}
-                selectedFreelancerProposal={selectedFreelancerProposal}
-                freelancerMatchesLoading={freelancerMatchesLoading}
-                freelancerMatches={freelancerMatches}
-                onPhaseAdvance={() => setActiveTab("phase4")}
-                onQuickMatch={() => id && fetchFreelancerMatches(id, false)}
-                onAiMatch={() => id && fetchFreelancerMatches(id, true)}
-                onOpenScoreExplanation={() => setIsScoreExplanationOpen(true)}
-                onSearchMarketplace={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}
-                onOpenProfile={handleOpenCandidateProfile}
-                onInviteFreelancer={(freelancerId, freelancerName) =>
-                  handleOpenInviteModal(freelancerId, freelancerName, "FREELANCER")
-                }
-              />
+              <Card>
+                <CardHeader>
+                  <h2 className="text-xl font-semibold">Freelancer Recommendations</h2>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {currentPhase < 3 ? (
+                    <div className="rounded-lg border-2 border-dashed bg-muted/20 py-12 text-center">
+                      <p className="text-muted-foreground">
+                        Client Spec approval unlocks broker-led freelancer recommendations.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-4">
+                        <h3 className="font-semibold text-indigo-900">Phase 3 Goal: Review broker recommendations</h3>
+                        <p className="mt-1 text-sm text-indigo-700">
+                          Your broker recommends freelancers first. Approving a recommendation sends the invite to that freelancer. Rejecting it keeps the request private until a better candidate is proposed.
+                        </p>
+                      </div>
+
+                      {hasAcceptedFreelancer && selectedFreelancerProposal ? (
+                        <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <h4 className="font-semibold text-green-900">Freelancer selected</h4>
+                              <p className="text-sm text-green-700">
+                                {selectedFreelancerProposal.freelancer?.fullName || "A freelancer"} accepted the invite and is now the signer for final spec review.
+                              </p>
+                            </div>
+                            <Button size="sm" onClick={() => setActiveTab("phase4")}>
+                              Continue to Final Spec
+                            </Button>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      {pendingFreelancerRecommendations.length === 0 ? (
+                        <div className="rounded-lg border-2 border-dashed bg-muted/10 py-10 text-center">
+                          <p className="font-medium">No pending recommendations right now</p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Your assigned broker will recommend freelancers here after reviewing matches.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">
+                              {pendingFreelancerRecommendations.length} recommendation{pendingFreelancerRecommendations.length > 1 ? "s" : ""} awaiting your decision
+                            </p>
+                            {request.viewerPermissions?.canApproveFreelancerInvite ? (
+                              <Badge variant="outline">Client approval required</Badge>
+                            ) : null}
+                          </div>
+
+                          {pendingFreelancerRecommendations.map((proposal) => {
+                            const freelancerName = proposal.freelancer?.fullName || "Unknown freelancer";
+                            const brokerName =
+                              proposal.broker?.fullName ||
+                              request.broker?.fullName ||
+                              "Assigned broker";
+                            const isReviewing = reviewingFreelancerProposalId === proposal.id;
+
+                            return (
+                              <div key={proposal.id} className="rounded-xl border bg-background p-4 shadow-sm">
+                                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                  <div className="space-y-3">
+                                    <div>
+                                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                                        <h4 className="text-lg font-semibold">{freelancerName}</h4>
+                                        <Badge variant="outline">
+                                          {String(proposal.status || "").replace(/_/g, " ")}
+                                        </Badge>
+                                      </div>
+                                      <p className="text-sm text-muted-foreground">
+                                        Recommended by {brokerName}
+                                      </p>
+                                    </div>
+
+                                    <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
+                                      <p>
+                                        Trust Score: {Number(proposal.freelancer?.currentTrustScore || 0).toFixed(1)}
+                                      </p>
+                                      <p>
+                                        Successful Projects: {proposal.freelancer?.totalProjectsFinished || 0}
+                                      </p>
+                                    </div>
+
+                                    {proposal.coverLetter ? (
+                                      <div className="rounded-lg border bg-muted/30 p-3">
+                                        <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                          Broker note
+                                        </p>
+                                        <p className="text-sm leading-relaxed text-foreground">
+                                          {proposal.coverLetter}
+                                        </p>
+                                      </div>
+                                    ) : null}
+                                  </div>
+
+                                  <div className="flex flex-col gap-2 md:w-44">
+                                    <Button
+                                      disabled={isReviewing}
+                                      onClick={() => handleApproveFreelancerInvite(proposal.id)}
+                                    >
+                                      {isReviewing ? "Updating..." : "Approve"}
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      disabled={isReviewing}
+                                      onClick={() => handleRejectFreelancerInvite(proposal.id)}
+                                    >
+                                      Reject
+                                    </Button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
             </TabsContent>
 
             {/* PHASE 4: FINAL SPEC SIGN-OFF */}
@@ -678,6 +1023,109 @@ export default function RequestDetailPage() {
                                         </Badge>
                                     </div>
                                 </div>
+
+                                {activeCommercialChange ? (
+                                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                      <div>
+                                        <h4 className="font-semibold text-amber-950">
+                                          Commercial change request
+                                        </h4>
+                                        <p className="text-sm text-amber-900">
+                                          Broker cannot change budget, timeline, or client-facing features in the full spec without your approval.
+                                        </p>
+                                      </div>
+                                      <Badge variant="outline" className="bg-white">
+                                        {activeCommercialChange.status}
+                                      </Badge>
+                                    </div>
+
+                                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                      <div className="rounded-lg border bg-white p-3 text-sm">
+                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                          Budget
+                                        </p>
+                                        <p className="mt-1">
+                                          {activeCommercialChange.currentBudget != null
+                                            ? `$${Number(activeCommercialChange.currentBudget).toLocaleString()}`
+                                            : "Not set"}
+                                          {" -> "}
+                                          {activeCommercialChange.proposedBudget != null
+                                            ? `$${Number(activeCommercialChange.proposedBudget).toLocaleString()}`
+                                            : "No change"}
+                                        </p>
+                                      </div>
+                                      <div className="rounded-lg border bg-white p-3 text-sm">
+                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                          Timeline
+                                        </p>
+                                        <p className="mt-1">
+                                          {activeCommercialChange.currentTimeline || "Not set"}
+                                          {" -> "}
+                                          {activeCommercialChange.proposedTimeline || "No change"}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-3 rounded-lg border bg-white p-3 text-sm">
+                                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                        Broker reason
+                                      </p>
+                                      <p className="mt-1 whitespace-pre-wrap text-slate-700">
+                                        {activeCommercialChange.reason}
+                                      </p>
+                                    </div>
+
+                                    {activeCommercialChange.proposedClientFeatures?.length ? (
+                                      <div className="mt-3 rounded-lg border bg-white p-3 text-sm">
+                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                          Proposed client-facing features
+                                        </p>
+                                        <div className="mt-2 space-y-2">
+                                          {activeCommercialChange.proposedClientFeatures.map((feature, index) => (
+                                            <div key={`${feature.title}-${index}`} className="rounded-md border border-slate-200 p-3">
+                                              <p className="font-medium text-slate-900">{feature.title}</p>
+                                              <p className="mt-1 text-slate-600">{feature.description}</p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : null}
+
+                                    {activeCommercialChange.status === "PENDING" ? (
+                                      <div className="mt-4 space-y-3">
+                                        <Textarea
+                                          value={commercialResponseNote}
+                                          onChange={(event) => setCommercialResponseNote(event.target.value)}
+                                          placeholder="Optional note back to the broker"
+                                          className="bg-white"
+                                        />
+                                        <div className="flex flex-wrap gap-3">
+                                          <Button
+                                            disabled={isRespondingCommercialChange}
+                                            onClick={() => void handleRespondCommercialChange("APPROVE")}
+                                          >
+                                            {isRespondingCommercialChange ? "Updating..." : "Approve change"}
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            disabled={isRespondingCommercialChange}
+                                            onClick={() => void handleRespondCommercialChange("REJECT")}
+                                          >
+                                            Reject change
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    ) : activeCommercialChange.respondedAt ? (
+                                      <p className="mt-3 text-sm text-amber-900">
+                                        Responded {safeFormatDate(activeCommercialChange.respondedAt, "MMM d, yyyy")}
+                                        {activeCommercialChange.responseNote
+                                          ? `: ${activeCommercialChange.responseNote}`
+                                          : "."}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ) : null}
 
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div className="rounded-lg border bg-background p-4">
@@ -788,7 +1236,7 @@ export default function RequestDetailPage() {
                                 <Users className="w-5 h-5 text-indigo-600" /> Project Team
                             </h2>
                             <Button variant="outline" size="sm" onClick={() => navigate(`/client/discovery?role=${UserRole.FREELANCER}`)}>
-                                <UserPlus className="w-4 h-4 mr-2" /> Add Member
+                                <UserPlus className="w-4 h-4 mr-2" /> Browse Freelancer Profiles
                             </Button>
                         </div>
                     </CardHeader>
@@ -808,7 +1256,21 @@ export default function RequestDetailPage() {
                                 </div>
                             </div>
                             {request.broker ? (
-                                <Button variant="ghost" size="sm">View Profile</Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    if (request.broker?.id) {
+                                      navigate(
+                                        buildTrustProfilePath(request.broker.id, {
+                                          role: UserRole.CLIENT,
+                                        }),
+                                      );
+                                    }
+                                  }}
+                                >
+                                  View Profile
+                                </Button>
                             ) : (
                                 <Button size="sm" onClick={() => setActiveTab('phase1')}>Find Broker</Button>
                             )}
@@ -940,14 +1402,12 @@ export default function RequestDetailPage() {
               </Card>
             </>
         )}
+
+        {canUseRequestChat ? (
+          <RequestChatPanel requestId={request.id} />
+        ) : null}
         </div>
 
-        {/* Right Sidebar: Comments */}
-        <div className="lg:col-span-1">
-          <div className="sticky top-6">
-            <CommentsSection />
-          </div>
-        </div>
       </div>
 
       {inviteModalData && (

@@ -1,0 +1,156 @@
+@startuml View_Account_Detail_Class_Diagram
+title View Account Detail - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class ApiClient {
+    + get(url: string): Promise<any>
+}
+
+class AdminUsersPage {
+    - selectedUser: any
+    - loading: boolean
+    + openDetail(userId: string): Promise<void>
+}
+
+class JwtAuthGuard {
+    + canActivate(context: any): boolean
+}
+
+class RolesGuard {
+    + canActivate(context: any): boolean
+}
+
+class UsersController {
+    - usersService: UsersService
+    + getUserDetail(userId: string): any
+}
+
+class UsersService {
+    - userRepo: Repository
+    - kycRepo: Repository
+
+    + getUserDetail(userId: string): any
+}
+
+class KycController {
+    - kycService: KycService
+    + getKycByIdWithWatermark(id: string, user: any, req: any, reason: string, reasonDetails: string): any
+}
+
+class KycService {
+    - kycRepo: Repository
+    - auditLogRepo: Repository
+
+    + getKycByIdWithWatermark(id: string, reviewerId: string, reviewerEmail: string, reviewerRole: string, ipAddress: string, sessionId: string, userAgent: string, reason: string, reasonDetails: string): any
+}
+
+class SupabaseStorageUtil {
+    + getSignedUrl(storagePath: string, expiresIn: number): Promise<string>
+    + downloadWithWatermark(storagePath: string, watermarkOptions: WatermarkOptions): Promise<Buffer>
+}
+
+class WatermarkUtil {
+    + addWatermark(imageBuffer: Buffer, options: WatermarkOptions): Promise<Buffer>
+}
+
+class WatermarkOptions {
+    + reviewerEmail: string
+    + reviewerRole: string
+    + ipAddress: string
+    + sessionId: string
+    + timestamp: Date
+    + kycId: string
+}
+
+class Buffer {
+    + length: number
+}
+
+class Repository {
+    + findOne(options: any): Promise<any>
+    + save(entity: any): Promise<any>
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    + isBanned: boolean
+}
+
+class ProfileEntity {
+    + id: string
+    + userId: string
+    + phoneNumber: string
+}
+
+enum UserRole {
+    ADMIN
+    STAFF
+    BROKER
+    CLIENT
+    FREELANCER
+}
+
+class KycVerificationEntity {
+    + id: string
+    + userId: string
+    + status: KycStatus
+    + documentFrontUrl: string
+    + documentBackUrl: string
+    + selfieUrl: string
+}
+
+enum KycStatus {
+    PENDING
+    APPROVED
+    REJECTED
+    EXPIRED
+}
+
+class AuditLogEntity {
+    + id: string
+    + actorId: string
+    + action: string
+    + entityType: string
+    + entityId: string
+    + ipAddress: string
+    + userAgent: string
+    + createdAt: Date
+}
+
+AdminUsersPage ..> ApiClient
+ApiClient ..> UsersController
+UsersController ..> JwtAuthGuard
+UsersController ..> RolesGuard
+UsersController --> UsersService
+UsersService --> Repository
+UsersService ..> UserEntity
+UsersService ..> ProfileEntity
+UsersService ..> KycVerificationEntity
+UsersService ..> SupabaseStorageUtil
+KycController --> KycService
+KycService --> Repository
+KycService ..> SupabaseStorageUtil
+SupabaseStorageUtil ..> WatermarkUtil
+WatermarkUtil ..> WatermarkOptions
+SupabaseStorageUtil ..> Buffer
+KycService ..> AuditLogEntity
+KycVerificationEntity -- KycStatus
+UserEntity -- UserRole
+
+@enduml

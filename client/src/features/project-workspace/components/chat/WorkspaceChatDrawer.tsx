@@ -1,27 +1,84 @@
 ﻿import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from "react";
-import { CheckCircle2, Flag, Send, Sparkles, X, Zap } from "lucide-react";
+import axios from "axios";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Download,
+  FileText,
+  Flag,
+  Loader2,
+  MoreHorizontal,
+  Paperclip,
+  Pencil,
+  Pin,
+  PinOff,
+  Reply,
+  Search,
+  Send,
+  Trash2,
+  Video,
+  X,
+  Zap,
+} from "lucide-react";
 import type { Socket } from "socket.io-client";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 import { STORAGE_KEYS } from "@/constants";
+import { Sheet, SheetContent, SheetTitle } from "@/shared/components/ui/sheet";
+import { Button } from "@/shared/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandList,
+} from "@/shared/components/ui/command";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/components/ui/dropdown-menu";
+import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/shared/components/ui/popover";
 import {
   createTask,
+  deleteWorkspaceChatMessage,
+  editWorkspaceChatMessage,
   fetchBoard,
   fetchMilestones,
   fetchTaskSubmissions,
+  fetchWorkspaceChatMessages,
   reviewSubmission,
+  toggleWorkspaceChatPin,
 } from "../../api";
-import type { Task, TaskSubmission } from "../../types";
-import { apiClient } from "@/shared/api/client";
+import type {
+  Task,
+  TaskSubmission,
+  WorkspaceChatAttachment,
+  WorkspaceChatEditHistoryEntry,
+  WorkspaceChatMentionMember,
+  WorkspaceChatMessage,
+  WorkspaceChatReplySummary,
+} from "../../types";
+import { uploadImageToServer } from "../../utils/file-upload.service";
 import {
   connectNamespacedSocket,
 } from "@/shared/realtime/socket";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
 import { getStoredJson } from "@/shared/utils/storage";
 
 interface WorkspaceChatDrawerProps {
@@ -29,48 +86,88 @@ interface WorkspaceChatDrawerProps {
   onClose?: () => void;
   projectId?: string;
   currentUserId?: string;
+  projectMembers?: WorkspaceChatMentionMember[];
   canReviewTasks?: boolean;
+  canUseTaskCommand?: boolean;
+  taskCommandUnavailableMessage?: string | null;
   defaultMilestoneId?: string | null;
   projectTitle?: string;
   showCommandPopover?: boolean;
   onTaskCreated?: (task: Task) => void;
 }
 
-interface WorkspaceChatSender {
-  id: string;
-  fullName: string;
-  role: string | null;
-}
-
-interface WorkspaceChatMessage {
-  id: string;
-  projectId: string;
-  senderId: string;
-  taskId: string | null;
-  content: string;
-  createdAt: string;
-  updatedAt: string;
-  sender: WorkspaceChatSender | null;
-}
-
-interface WorkspaceChatHistoryResponse {
-  success: boolean;
-  data: WorkspaceChatMessage[];
-  pagination?: {
-    limit: number;
-    offset: number;
-    count: number;
-  };
+interface MentionContextState {
+  startIndex: number;
+  endIndex: number;
+  query: string;
 }
 
 const WORKSPACE_CHAT_NAMESPACE = "/ws/workspace";
 const HISTORY_PAGE_SIZE = 20;
 const TOP_SCROLL_THRESHOLD = 40;
+const TASK_COMMAND_FALLBACK_MESSAGE =
+  "Cannot create tasks via chat for the selected milestone right now.";
+const POLICY_WARNING_MESSAGE =
+  "Warning: Discussing off-platform payments violates Terms of Service and voids Escrow protection.";
+const LEGAL_EXPORT_FOOTER =
+  "This record is securely extracted from InterDev System. Tampering with this document is strictly prohibited and it holds legal reference value for Dispute Hearings.";
+const DELETED_MESSAGE_PLACEHOLDER = "[Tin nhắn đã bị thu hồi]";
+const EDITED_MESSAGE_LABEL = "Đã chỉnh sửa";
+const FALLBACK_RISK_RULES = [
+  { flag: "MOMO", pattern: /\bmomo\b/i },
+  { flag: "ZALO", pattern: /\bzalo\b/i },
+  { flag: "SKYPE", pattern: /\bskype\b/i },
+  { flag: "BANK_TRANSFER", pattern: /\bchuyen khoan\b/i },
+  { flag: "BANK", pattern: /\bbank\b/i },
+  { flag: "NGAN_HANG", pattern: /\bngan hang\b/i },
+  { flag: "OFF_PLATFORM", pattern: /\bngoai luong\b/i },
+] as const;
+const IMAGE_ATTACHMENT_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+const URL_PATTERN = /(https?:\/\/[^\s]+)/gi;
+const MENTION_HIGHLIGHT_CLASSNAME =
+  "rounded bg-blue-50 px-1 font-semibold text-blue-700";
+const OWN_MENTION_HIGHLIGHT_CLASSNAME =
+  "rounded bg-blue-200/80 px-1 font-semibold text-blue-900";
+const SEARCH_HIGHLIGHT_CLASSNAME =
+  "rounded bg-amber-200 px-1 font-semibold text-slate-900";
+const OWN_SEARCH_HIGHLIGHT_CLASSNAME =
+  "rounded bg-amber-200/95 px-1 font-semibold text-slate-900";
+const VIDEO_CALL_MESSAGE_PREFIX = "Khởi tạo phòng họp trực tuyến:";
 
 const getStoredCurrentUserId = (): string | undefined => {
   const user = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
   if (!user?.id) return undefined;
   return user.id;
+};
+
+const normalizeForRiskScan = (content: string): string => {
+  return content.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+};
+
+const normalizeMentionSearchValue = (content: string): string => {
+  return normalizeForRiskScan(content).replace(/\s+/g, " ").trim();
+};
+
+const escapeRegex = (value: string): string =>
+  value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const detectFallbackRiskFlags = (content: string): string[] => {
+  const normalized = normalizeForRiskScan(content);
+  return FALLBACK_RISK_RULES.filter((rule) => rule.pattern.test(normalized)).map(
+    (rule) => rule.flag,
+  );
+};
+
+const getMessageRiskFlags = (message: WorkspaceChatMessage): string[] => {
+  if (Array.isArray(message.riskFlags) && message.riskFlags.length > 0) {
+    return message.riskFlags;
+  }
+
+  return detectFallbackRiskFlags(message.content);
+};
+
+const isSystemMessage = (message: WorkspaceChatMessage): boolean => {
+  return message.messageType === "SYSTEM" || !message.senderId;
 };
 
 const toIsoDate = (value: unknown): string => {
@@ -81,19 +178,378 @@ const toIsoDate = (value: unknown): string => {
   return parsed.toISOString();
 };
 
+const normalizeAttachment = (
+  value: Partial<WorkspaceChatAttachment> | null | undefined,
+): WorkspaceChatAttachment | null => {
+  if (!value?.url || typeof value.url !== "string") {
+    return null;
+  }
+
+  const url = value.url.trim();
+  if (!url) {
+    return null;
+  }
+
+  const name =
+    typeof value.name === "string" && value.name.trim().length > 0
+      ? value.name.trim()
+      : url.split("/").pop()?.split("?")[0] || "attachment";
+  const type =
+    typeof value.type === "string" && value.type.trim().length > 0
+      ? value.type.trim()
+      : "application/octet-stream";
+
+  return { url, name, type };
+};
+
+const normalizeAttachments = (value: unknown): WorkspaceChatAttachment[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((attachment) => normalizeAttachment(attachment as Partial<WorkspaceChatAttachment>))
+    .filter((attachment): attachment is WorkspaceChatAttachment => Boolean(attachment));
+};
+
+const normalizeEditHistory = (value: unknown): WorkspaceChatEditHistoryEntry[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+
+      const candidate = entry as Partial<WorkspaceChatEditHistoryEntry>;
+      if (!candidate.content || !candidate.editedAt) {
+        return null;
+      }
+
+      return {
+        content: candidate.content,
+        editedAt: toIsoDate(candidate.editedAt),
+        editorId:
+          typeof candidate.editorId === "string" ? candidate.editorId : null,
+      };
+    })
+    .filter((entry): entry is WorkspaceChatEditHistoryEntry => Boolean(entry));
+};
+
+const isImageAttachment = (attachment: WorkspaceChatAttachment): boolean => {
+  return (
+    attachment.type.toLowerCase().startsWith("image/") ||
+    IMAGE_ATTACHMENT_PATTERN.test(attachment.name) ||
+    IMAGE_ATTACHMENT_PATTERN.test(attachment.url)
+  );
+};
+
+const getVisibleMessageContent = (message: WorkspaceChatMessage): string => {
+  if (message.isDeleted) {
+    return DELETED_MESSAGE_PLACEHOLDER;
+  }
+
+  return message.content;
+};
+
+const getReplyPreviewText = (
+  message: Pick<WorkspaceChatMessage, "content" | "attachments" | "isDeleted"> |
+    Pick<WorkspaceChatReplySummary, "content" | "attachments" | "isDeleted">,
+): string => {
+  if (message.isDeleted) {
+    return DELETED_MESSAGE_PLACEHOLDER;
+  }
+
+  if (message.content.trim()) {
+    return message.content.trim();
+  }
+
+  if (message.attachments.length > 0) {
+    return `Attachment: ${message.attachments[0].name}`;
+  }
+
+  return "Empty message";
+};
+
+const getMentionContext = (
+  value: string,
+  caretPosition: number | null | undefined,
+): MentionContextState | null => {
+  if (caretPosition == null) {
+    return null;
+  }
+
+  const safeCaret = Math.max(0, Math.min(caretPosition, value.length));
+  const beforeCaret = value.slice(0, safeCaret);
+  const triggerIndex = beforeCaret.lastIndexOf("@");
+
+  if (triggerIndex < 0) {
+    return null;
+  }
+
+  const charBefore = triggerIndex > 0 ? beforeCaret[triggerIndex - 1] : "";
+  if (charBefore && !/\s/.test(charBefore)) {
+    return null;
+  }
+
+  const query = beforeCaret.slice(triggerIndex + 1);
+  if (/\s/.test(query)) {
+    return null;
+  }
+
+  const trailingSlice = value.slice(safeCaret);
+  const boundaryOffset = trailingSlice.search(/\s/);
+
+  return {
+    startIndex: triggerIndex,
+    endIndex: boundaryOffset === -1 ? value.length : safeCaret + boundaryOffset,
+    query,
+  };
+};
+
+const normalizeWorkspaceChatReplySummary = (
+  value: Partial<WorkspaceChatReplySummary> | null | undefined,
+): WorkspaceChatReplySummary | null => {
+  if (!value?.id) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    messageType: value.messageType === "SYSTEM" ? "SYSTEM" : "USER",
+    content: typeof value.content === "string" ? value.content : "",
+    attachments: normalizeAttachments(value.attachments),
+    isDeleted: Boolean(value.isDeleted),
+    createdAt: toIsoDate(value.createdAt),
+    sender: value.sender
+      ? {
+          id: value.sender.id,
+          fullName: value.sender.fullName,
+          role: value.sender.role,
+        }
+      : null,
+  };
+};
+
+const renderHighlightedText = (
+  text: string,
+  searchTerm: string,
+  keyPrefix: string,
+  isOwnMessage: boolean,
+): ReactNode[] => {
+  if (!text) {
+    return [];
+  }
+
+  if (!searchTerm.trim()) {
+    return [text];
+  }
+
+  const escapedSearch = escapeRegex(searchTerm.trim());
+  const searchRegex = new RegExp(`(${escapedSearch})`, "gi");
+  const parts = text.split(searchRegex).filter((segment) => segment.length > 0);
+
+  if (parts.length === 1) {
+    return [text];
+  }
+
+  let partIndex = 0;
+  return parts.map((part) => {
+    const isMatch = part.toLowerCase() === searchTerm.trim().toLowerCase();
+    const node = isMatch ? (
+      <span
+        key={`${keyPrefix}-search-${partIndex}`}
+        className={isOwnMessage ? OWN_SEARCH_HIGHLIGHT_CLASSNAME : SEARCH_HIGHLIGHT_CLASSNAME}
+      >
+        {part}
+      </span>
+    ) : (
+      <span key={`${keyPrefix}-text-${partIndex}`}>{part}</span>
+    );
+    partIndex += 1;
+    return node;
+  });
+};
+
+const renderTextWithLinksAndHighlight = (
+  text: string,
+  searchTerm: string,
+  keyPrefix: string,
+  isOwnMessage: boolean,
+): ReactNode[] => {
+  if (!text) {
+    return [];
+  }
+
+  const segments: ReactNode[] = [];
+  let cursor = 0;
+  let matchIndex = 0;
+
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const url = match[0] ?? "";
+    const matchStart = match.index ?? 0;
+
+    if (cursor < matchStart) {
+      segments.push(
+        ...renderHighlightedText(
+          text.slice(cursor, matchStart),
+          searchTerm,
+          `${keyPrefix}-segment-${matchIndex}`,
+          isOwnMessage,
+        ),
+      );
+    }
+
+    segments.push(
+      <a
+        key={`${keyPrefix}-url-${matchIndex}`}
+        href={url}
+        target="_blank"
+        rel="noreferrer"
+        className={isOwnMessage ? "underline underline-offset-2 text-white" : "text-blue-600 underline underline-offset-2"}
+      >
+        {renderHighlightedText(
+          url,
+          searchTerm,
+          `${keyPrefix}-url-highlight-${matchIndex}`,
+          isOwnMessage,
+        )}
+      </a>,
+    );
+
+    cursor = matchStart + url.length;
+    matchIndex += 1;
+  }
+
+  if (cursor < text.length) {
+    segments.push(
+      ...renderHighlightedText(
+        text.slice(cursor),
+        searchTerm,
+        `${keyPrefix}-tail`,
+        isOwnMessage,
+      ),
+    );
+  }
+
+  return segments.length > 0 ? segments : [text];
+};
+
+const renderMessageContent = (
+  content: string,
+  members: WorkspaceChatMentionMember[],
+  isOwnMessage: boolean,
+  searchTerm = "",
+): ReactNode => {
+  if (!content) {
+    return content;
+  }
+
+  const uniqueNames = Array.from(
+    new Set(
+      members
+        .map((member) => member.fullName.trim())
+        .filter((fullName) => fullName.length > 0),
+    ),
+  ).sort((first, second) => second.length - first.length);
+
+  if (uniqueNames.length === 0) {
+    return renderTextWithLinksAndHighlight(content, searchTerm, "message", isOwnMessage);
+  }
+
+  const mentionPattern = uniqueNames
+    .map((fullName) => escapeRegex(`@${fullName}`))
+    .join("|");
+  const mentionRegex = new RegExp(
+    `(^|\\s)(${mentionPattern})(?=$|[\\s.,!?;:])`,
+    "g",
+  );
+  const segments: ReactNode[] = [];
+  let cursor = 0;
+  let matchCount = 0;
+
+  for (const match of content.matchAll(mentionRegex)) {
+    const leadingWhitespace = match[1] ?? "";
+    const mentionText = match[2] ?? "";
+    const matchStart = match.index ?? 0;
+    const mentionStart = matchStart + leadingWhitespace.length;
+    const mentionEnd = mentionStart + mentionText.length;
+
+    if (!mentionText) {
+      continue;
+    }
+
+    if (cursor < mentionStart) {
+      segments.push(
+        ...renderTextWithLinksAndHighlight(
+          content.slice(cursor, mentionStart),
+          searchTerm,
+          `segment-${matchCount}`,
+          isOwnMessage,
+        ),
+      );
+    }
+
+    segments.push(
+      <span
+        key={`mention-${matchCount}`}
+        className={
+          isOwnMessage
+            ? OWN_MENTION_HIGHLIGHT_CLASSNAME
+            : MENTION_HIGHLIGHT_CLASSNAME
+        }
+      >
+        {mentionText}
+      </span>,
+    );
+
+    cursor = mentionEnd;
+    matchCount += 1;
+  }
+
+  if (matchCount === 0) {
+    return renderTextWithLinksAndHighlight(content, searchTerm, "message", isOwnMessage);
+  }
+
+  if (cursor < content.length) {
+    segments.push(
+      ...renderTextWithLinksAndHighlight(
+        content.slice(cursor),
+        searchTerm,
+        "segment-tail",
+        isOwnMessage,
+      ),
+    );
+  }
+
+  return segments;
+};
+
 const normalizeWorkspaceMessage = (
   value: Partial<WorkspaceChatMessage> | null | undefined,
 ): WorkspaceChatMessage | null => {
-  if (!value?.id || !value.projectId || !value.senderId || !value.content) {
+  if (!value?.id || !value.projectId) {
     return null;
   }
 
   return {
     id: value.id,
     projectId: value.projectId,
-    senderId: value.senderId,
+    senderId: value.senderId ?? null,
     taskId: value.taskId ?? null,
-    content: value.content,
+    replyToId: value.replyToId ?? null,
+    messageType: value.messageType === "SYSTEM" ? "SYSTEM" : "USER",
+    content: typeof value.content === "string" ? value.content : "",
+    attachments: normalizeAttachments(value.attachments),
+    isPinned: Boolean(value.isPinned),
+    isEdited: Boolean(value.isEdited),
+    editHistory: normalizeEditHistory(value.editHistory),
+    isDeleted: Boolean(value.isDeleted),
+    riskFlags: Array.isArray(value.riskFlags)
+      ? value.riskFlags.filter((flag): flag is string => typeof flag === "string")
+      : [],
     createdAt: toIsoDate(value.createdAt),
     updatedAt: toIsoDate(value.updatedAt),
     sender: value.sender
@@ -103,6 +559,7 @@ const normalizeWorkspaceMessage = (
           role: value.sender.role,
         }
       : null,
+    replyTo: normalizeWorkspaceChatReplySummary(value.replyTo),
   };
 };
 
@@ -134,6 +591,26 @@ const formatMessageTime = (isoTimestamp: string): string => {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(isoTimestamp));
+};
+
+const formatLegalTimestamp = (isoTimestamp: string): string => {
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  }).format(new Date(isoTimestamp));
+};
+
+const sanitizeExcelContent = (value: string): string => {
+  return value
+    .replace(/\r\n|\r|\n/g, " | ")
+    .replace(/\t/g, " ")
+    .replace(/\s+\|\s+/g, " | ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 };
 
 const extractSocketError = (payload: unknown): string | null => {
@@ -223,7 +700,10 @@ export function WorkspaceChatDrawer({
   onClose,
   projectId,
   currentUserId,
+  projectMembers = [],
   canReviewTasks = false,
+  canUseTaskCommand = true,
+  taskCommandUnavailableMessage = null,
   defaultMilestoneId = null,
   projectTitle = "Project Workspace Chat",
   showCommandPopover = false,
@@ -231,23 +711,203 @@ export function WorkspaceChatDrawer({
 }: WorkspaceChatDrawerProps) {
   const [messages, setMessages] = useState<WorkspaceChatMessage[]>([]);
   const [inputValue, setInputValue] = useState("");
+  const [pendingAttachments, setPendingAttachments] = useState<WorkspaceChatAttachment[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
   const [isSending, setIsSending] = useState(false);
+  const [isUploadingAttachments, setIsUploadingAttachments] = useState(false);
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null);
+  const [editingValue, setEditingValue] = useState("");
+  const [activeMessageActionId, setActiveMessageActionId] = useState<string | null>(null);
+  const [highlightedMessageId, setHighlightedMessageId] = useState<string | null>(null);
+  const [mentionContext, setMentionContext] = useState<MentionContextState | null>(null);
+  const [isMentionOpen, setIsMentionOpen] = useState(false);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<WorkspaceChatMessage[]>([]);
+  const [isSearchLoading, setIsSearchLoading] = useState(false);
+  const [searchRefreshNonce, setSearchRefreshNonce] = useState(0);
+  const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const joinedProjectIdRef = useRef<string | null>(null);
   const joinInFlightRef = useRef<Promise<void> | null>(null);
   const lastSendAttemptAtRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
 
   const resolvedCurrentUserId = currentUserId ?? getStoredCurrentUserId();
+  const resolvedTaskCommandUnavailableMessage =
+    taskCommandUnavailableMessage || TASK_COMMAND_FALLBACK_MESSAGE;
+  const availableSlashCommands = useMemo(
+    () =>
+      [
+        canUseTaskCommand
+          ? {
+              key: "/task" as const,
+              title: "Create Task",
+              icon: Zap,
+              iconClassName: "text-amber-500",
+            }
+          : null,
+        canReviewTasks
+          ? {
+              key: "/approve" as const,
+              title: "Approve Work",
+              icon: CheckCircle2,
+              iconClassName: "text-emerald-500",
+            }
+          : null,
+      ].filter((command): command is NonNullable<typeof command> => Boolean(command)),
+    [canReviewTasks, canUseTaskCommand],
+  );
 
   const shouldShowCommandPopover =
-    showCommandPopover && inputValue.trimStart().startsWith("/");
+    showCommandPopover &&
+    inputValue.trimStart().startsWith("/") &&
+    availableSlashCommands.length > 0;
+  const filteredMentionMembers = useMemo(() => {
+    if (!mentionContext || inputValue.trimStart().startsWith("/") || projectMembers.length === 0) {
+      return [];
+    }
+
+    const normalizedQuery = normalizeMentionSearchValue(mentionContext.query);
+    if (!normalizedQuery) {
+      return projectMembers;
+    }
+
+    return projectMembers.filter((member) =>
+      normalizeMentionSearchValue(member.fullName).includes(normalizedQuery),
+    );
+  }, [inputValue, mentionContext, projectMembers]);
+  const shouldShowMentionPopover =
+    isMentionOpen &&
+    !shouldShowCommandPopover &&
+    Boolean(mentionContext) &&
+    projectMembers.length > 0;
+  const allKnownMessages = useMemo(
+    () => mergeUniqueMessages(messages, searchResults),
+    [messages, searchResults],
+  );
+  const replyingToMessage = useMemo(
+    () =>
+      replyingToMessageId
+        ? allKnownMessages.find((message) => message.id === replyingToMessageId) ?? null
+        : null,
+    [allKnownMessages, replyingToMessageId],
+  );
+  const normalizedSearchQuery = debouncedSearchQuery.trim();
+  const isSearchActive = normalizedSearchQuery.length > 0;
+  const visibleMessages = isSearchActive ? searchResults : messages;
+  const latestPinnedMessage = useMemo(() => {
+    const pinnedMessages = messages.filter(
+      (message) => message.isPinned && !isSystemMessage(message) && !message.isDeleted,
+    );
+    if (pinnedMessages.length === 0) {
+      return null;
+    }
+
+    return [...pinnedMessages].sort(
+      (first, second) =>
+        new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime(),
+    )[0];
+  }, [messages]);
+  const canSendCurrentMessage =
+    Boolean(projectId) &&
+    !isSending &&
+    !isUploadingAttachments &&
+    (inputValue.trim().length > 0 || pendingAttachments.length > 0);
+
+  const closeMentionPopover = useCallback(() => {
+    setMentionContext(null);
+    setIsMentionOpen(false);
+    setActiveMentionIndex(0);
+  }, []);
+
+  const syncMentionState = useCallback(
+    (nextValue: string, caretPosition: number | null | undefined) => {
+      if (nextValue.trimStart().startsWith("/") || projectMembers.length === 0) {
+        closeMentionPopover();
+        return;
+      }
+
+      const nextMentionContext = getMentionContext(nextValue, caretPosition);
+      if (!nextMentionContext) {
+        closeMentionPopover();
+        return;
+      }
+
+      setMentionContext(nextMentionContext);
+      setIsMentionOpen(true);
+    },
+    [closeMentionPopover, projectMembers.length],
+  );
+
+  const handleSelectMention = useCallback(
+    (member: WorkspaceChatMentionMember) => {
+      const input = inputRef.current;
+      const currentValue = input?.value ?? inputValue;
+      const caretPosition = input?.selectionStart ?? currentValue.length;
+      const currentMentionContext =
+        getMentionContext(currentValue, caretPosition) ?? mentionContext;
+
+      if (!currentMentionContext) {
+        return;
+      }
+
+      const mentionText = `@${member.fullName} `;
+      const nextValue =
+        currentValue.slice(0, currentMentionContext.startIndex) +
+        mentionText +
+        currentValue.slice(currentMentionContext.endIndex);
+      const nextCaretPosition = currentMentionContext.startIndex + mentionText.length;
+
+      setInputValue(nextValue);
+      closeMentionPopover();
+
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.setSelectionRange(nextCaretPosition, nextCaretPosition);
+      });
+    },
+    [closeMentionPopover, inputValue, mentionContext],
+  );
+
+  useEffect(() => {
+    if (!isMentionOpen) {
+      setActiveMentionIndex(0);
+      return;
+    }
+
+    setActiveMentionIndex((currentIndex) => {
+      if (filteredMentionMembers.length === 0) {
+        return 0;
+      }
+
+      return Math.min(currentIndex, filteredMentionMembers.length - 1);
+    });
+  }, [filteredMentionMembers.length, isMentionOpen]);
+
+  useEffect(() => {
+    if (isMentionOpen) {
+      setActiveMentionIndex(0);
+    }
+  }, [isMentionOpen, mentionContext?.query]);
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery);
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [searchQuery]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const container = messagesContainerRef.current;
@@ -287,10 +947,33 @@ export function WorkspaceChatDrawer({
 
   const handleCommandQuickAction = useCallback(
     (command: "/task" | "/approve") => {
+      if (command === "/task" && !canUseTaskCommand) {
+        toast.error(resolvedTaskCommandUnavailableMessage);
+        return;
+      }
+
       setInputValue(`${command} `);
+      closeMentionPopover();
       inputRef.current?.focus();
     },
-    [],
+    [canUseTaskCommand, closeMentionPopover, resolvedTaskCommandUnavailableMessage],
+  );
+
+  const getTaskCommandErrorMessage = useCallback(
+    (error: unknown) => {
+      if (axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        if (status === 400 || status === 403) {
+          return resolvedTaskCommandUnavailableMessage;
+        }
+      }
+
+      return getApiErrorDetails(
+        error,
+        "Failed to create task from command",
+      ).message;
+    },
+    [resolvedTaskCommandUnavailableMessage],
   );
 
   const resolveTaskMilestoneId = useCallback(async (): Promise<string | null> => {
@@ -305,6 +988,45 @@ export function WorkspaceChatDrawer({
     const milestones = await fetchMilestones(projectId);
     return milestones[0]?.id ?? null;
   }, [defaultMilestoneId, projectId]);
+
+  const verifyPersistedTaskFromBoard = useCallback(
+    async (
+      milestoneId: string,
+      createdTask: Task | null | undefined,
+      fallbackTitle: string,
+    ): Promise<Task> => {
+      if (!projectId) {
+        throw new Error("Project context is required to verify the created task.");
+      }
+
+      const board = await fetchBoard(projectId);
+      const boardTasks = Object.values(board).flat();
+      const normalizedMilestoneId = String(milestoneId);
+
+      if (createdTask?.id) {
+        const persistedById = boardTasks.find((task) => task.id === createdTask.id);
+        if (persistedById) {
+          return persistedById;
+        }
+      }
+
+      const normalizedFallbackTitle = fallbackTitle.trim().toLowerCase();
+      const persistedByTitle = boardTasks.filter(
+        (task) =>
+          task.title.trim().toLowerCase() === normalizedFallbackTitle &&
+          String(task.milestoneId ?? "") === normalizedMilestoneId,
+      );
+
+      if (persistedByTitle.length === 1) {
+        return persistedByTitle[0];
+      }
+
+      throw new Error(
+        "Task command did not return a persisted task. Please try again or use Create Task.",
+      );
+    },
+    [projectId],
+  );
 
   const resolveTaskForApproval = useCallback(
     async (taskIdentifier: string): Promise<Task | null> => {
@@ -377,6 +1099,188 @@ export function WorkspaceChatDrawer({
     [],
   );
 
+  const upsertMutatedMessage = useCallback((message: WorkspaceChatMessage) => {
+    setMessages((currentMessages) => mergeUniqueMessages(currentMessages, [message]));
+    setSearchRefreshNonce((currentValue) => currentValue + 1);
+  }, []);
+
+  const clearReplyTarget = useCallback(() => {
+    setReplyingToMessageId(null);
+  }, []);
+
+  const handleReplyToMessage = useCallback((messageId: string) => {
+    setReplyingToMessageId(messageId);
+    inputRef.current?.focus();
+  }, []);
+
+  const scrollToMessage = useCallback((messageId: string) => {
+    const element = messageRefs.current[messageId];
+    if (!element) {
+      return;
+    }
+
+    element.scrollIntoView({ behavior: "smooth", block: "center" });
+    setHighlightedMessageId(messageId);
+    window.setTimeout(() => {
+      setHighlightedMessageId((currentValue) =>
+        currentValue === messageId ? null : currentValue,
+      );
+    }, 1800);
+  }, []);
+
+  const handleAttachmentPickerClick = useCallback(() => {
+    fileInputRef.current?.click();
+  }, []);
+
+  const handleRemovePendingAttachment = useCallback((attachmentUrl: string) => {
+    setPendingAttachments((currentAttachments) =>
+      currentAttachments.filter((attachment) => attachment.url !== attachmentUrl),
+    );
+  }, []);
+
+  const handleAttachmentInputChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const files = Array.from(event.target.files ?? []);
+      if (files.length === 0) {
+        return;
+      }
+
+      setIsUploadingAttachments(true);
+      try {
+        const uploadedAttachments = await Promise.all(
+          files.map(async (file) => {
+            const url = await uploadImageToServer(file);
+            return {
+              url,
+              name: file.name || "attachment",
+              type: file.type || "application/octet-stream",
+            } satisfies WorkspaceChatAttachment;
+          }),
+        );
+
+        setPendingAttachments((currentAttachments) => [
+          ...currentAttachments,
+          ...uploadedAttachments,
+        ]);
+        toast.success(
+          `${uploadedAttachments.length} attachment${
+            uploadedAttachments.length > 1 ? "s" : ""
+          } uploaded.`,
+        );
+      } catch (error) {
+        const message = getApiErrorDetails(error, "Failed to upload attachment").message;
+        console.error("Failed to upload workspace chat attachment", error);
+        toast.error(message);
+      } finally {
+        setIsUploadingAttachments(false);
+        event.target.value = "";
+      }
+    },
+    [],
+  );
+
+  const handleTogglePin = useCallback(
+    async (message: WorkspaceChatMessage) => {
+      if (!projectId) {
+        return;
+      }
+
+      setActiveMessageActionId(message.id);
+      try {
+        const response = await toggleWorkspaceChatPin(projectId, message.id, !message.isPinned);
+        const normalized = normalizeWorkspaceMessage(response.data);
+        if (normalized) {
+          upsertMutatedMessage(normalized);
+        }
+      } catch (error) {
+        const messageText = getApiErrorDetails(error, "Failed to update pin state").message;
+        console.error("Failed to toggle pinned workspace message", error);
+        toast.error(messageText);
+      } finally {
+        setActiveMessageActionId(null);
+      }
+    },
+    [projectId, upsertMutatedMessage],
+  );
+
+  const handleStartEdit = useCallback((message: WorkspaceChatMessage) => {
+    setEditingMessageId(message.id);
+    setEditingValue(message.content);
+  }, []);
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingMessageId(null);
+    setEditingValue("");
+  }, []);
+
+  const handleSaveEdit = useCallback(
+    async (messageId: string) => {
+      if (!projectId) {
+        return;
+      }
+
+      const trimmedContent = editingValue.trim();
+      if (!trimmedContent) {
+        toast.error("Message content cannot be empty.");
+        return;
+      }
+
+      setActiveMessageActionId(messageId);
+      try {
+        const response = await editWorkspaceChatMessage(projectId, messageId, trimmedContent);
+        const normalized = normalizeWorkspaceMessage(response.data);
+        if (normalized) {
+          upsertMutatedMessage(normalized);
+        }
+        handleCancelEdit();
+      } catch (error) {
+        const messageText = getApiErrorDetails(error, "Failed to edit message").message;
+        console.error("Failed to edit workspace message", error);
+        toast.error(messageText);
+      } finally {
+        setActiveMessageActionId(null);
+      }
+    },
+    [editingValue, handleCancelEdit, projectId, upsertMutatedMessage],
+  );
+
+  const handleDeleteMessage = useCallback(
+    async (messageId: string) => {
+      if (!projectId) {
+        return;
+      }
+
+      setActiveMessageActionId(messageId);
+      try {
+        const response = await deleteWorkspaceChatMessage(projectId, messageId);
+        const normalized = normalizeWorkspaceMessage(response.data);
+        if (normalized) {
+          upsertMutatedMessage(normalized);
+        }
+        if (editingMessageId === messageId) {
+          handleCancelEdit();
+        }
+        if (replyingToMessageId === messageId) {
+          clearReplyTarget();
+        }
+      } catch (error) {
+        const messageText = getApiErrorDetails(error, "Failed to delete message").message;
+        console.error("Failed to delete workspace message", error);
+        toast.error(messageText);
+      } finally {
+        setActiveMessageActionId(null);
+      }
+    },
+    [
+      clearReplyTarget,
+      editingMessageId,
+      handleCancelEdit,
+      projectId,
+      replyingToMessageId,
+      upsertMutatedMessage,
+    ],
+  );
+
   const ensureProjectRoomJoin = useCallback(
     (socket: Socket, targetProjectId: string, timeoutMs = 6000): Promise<void> => {
       if (joinedProjectIdRef.current === targetProjectId) {
@@ -439,9 +1343,111 @@ export function WorkspaceChatDrawer({
     [],
   );
 
+  const sendMessagePayload = useCallback(
+    async ({
+      content,
+      attachments = [],
+      replyToId = null,
+      successToast,
+    }: {
+      content: string;
+      attachments?: WorkspaceChatAttachment[];
+      replyToId?: string | null;
+      successToast?: string | null;
+    }) => {
+      if (!projectId) {
+        throw new Error("Missing project context");
+      }
+
+      const socket = connectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
+
+      await waitForSocketConnection(socket, 10000);
+      await ensureProjectRoomJoin(socket, projectId);
+      lastSendAttemptAtRef.current = Date.now();
+
+      await new Promise<void>((resolve, reject) => {
+        const timeoutId = window.setTimeout(() => {
+          reject(new Error("Send message timeout"));
+        }, 6000);
+
+        socket.emit(
+          "sendProjectMessage",
+          {
+            projectId,
+            content,
+            attachments,
+            replyToId: replyToId ?? undefined,
+          },
+          (ack?: unknown) => {
+            window.clearTimeout(timeoutId);
+            const socketError = extractSocketError(ack);
+            if (socketError) {
+              reject(new Error(socketError));
+              return;
+            }
+            resolve();
+          },
+        );
+      });
+
+      if (successToast) {
+        toast.success(successToast);
+      }
+    },
+    [ensureProjectRoomJoin, projectId],
+  );
+
+  const sendQuickVideoCall = useCallback(async () => {
+    if (!projectId || isSending || isUploadingAttachments) {
+      return;
+    }
+
+    const safeProjectId = projectId.replace(/[^a-zA-Z0-9_-]/g, "_");
+    const randomSuffix = Math.random().toString(36).slice(2, 10);
+    const roomId = `Workspace_${safeProjectId}_${randomSuffix}`;
+    const meetingUrl = `https://meet.jit.si/${roomId}`;
+    const messageContent = `${VIDEO_CALL_MESSAGE_PREFIX} ${meetingUrl}`;
+
+    setIsSending(true);
+    try {
+      await sendMessagePayload({
+        content: messageContent,
+        replyToId: replyingToMessageId,
+        successToast: "Video call link sent.",
+      });
+      clearReplyTarget();
+      closeMentionPopover();
+    } catch (error) {
+      const errorMessage =
+        error instanceof Error ? error.message : "Failed to start video call";
+      console.error("Failed to send workspace video call link", error);
+      toast.error(errorMessage);
+    } finally {
+      setIsSending(false);
+    }
+  }, [
+    clearReplyTarget,
+    closeMentionPopover,
+    isSending,
+    isUploadingAttachments,
+    projectId,
+    replyingToMessageId,
+    sendMessagePayload,
+  ]);
+
   const handleSendMessage = useCallback(async () => {
     const trimmedInput = inputValue.trim();
-    if (!trimmedInput || !projectId || isSending) {
+    if (
+      (!trimmedInput && pendingAttachments.length === 0) ||
+      !projectId ||
+      isSending ||
+      isUploadingAttachments
+    ) {
+      return;
+    }
+
+    if (trimmedInput.startsWith("/") && pendingAttachments.length > 0) {
+      toast.error("Slash commands do not support attachments.");
       return;
     }
 
@@ -450,6 +1456,11 @@ export function WorkspaceChatDrawer({
       const taskTitle = taskCommandMatch[1]?.trim();
       if (!taskTitle) {
         toast.error("Please provide a task title after /task");
+        return;
+      }
+
+      if (!canUseTaskCommand) {
+        toast.error(resolvedTaskCommandUnavailableMessage);
         return;
       }
 
@@ -467,20 +1478,19 @@ export function WorkspaceChatDrawer({
           milestoneId,
         });
 
-        onTaskCreated?.(createdTask);
-        setInputValue("");
-        toast.success(`Task created: ${taskTitle}`);
+        const persistedTask = await verifyPersistedTaskFromBoard(
+          milestoneId,
+          createdTask,
+          taskTitle,
+        );
 
-        const socket = connectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
-        await waitForSocketConnection(socket, 10000);
-        await ensureProjectRoomJoin(socket, projectId);
-        socket.emit("sendProjectMessage", {
-          projectId,
-          content: `Created a new task: ${taskTitle}`,
-        });
+        onTaskCreated?.(persistedTask);
+        setInputValue("");
+        clearReplyTarget();
+        closeMentionPopover();
+        toast.success(`Task created: ${persistedTask.title}`);
       } catch (error) {
-        const errorMessage =
-          error instanceof Error ? error.message : "Failed to create task from command";
+        const errorMessage = getTaskCommandErrorMessage(error);
         console.error("Failed to execute /task command", error);
         toast.error(errorMessage);
       } finally {
@@ -525,15 +1535,9 @@ export function WorkspaceChatDrawer({
 
         onTaskCreated?.(approvedTask);
         setInputValue("");
+        clearReplyTarget();
+        closeMentionPopover();
         toast.success("Task approved successfully!");
-
-        const socket = connectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
-        await waitForSocketConnection(socket, 10000);
-        await ensureProjectRoomJoin(socket, projectId);
-        socket.emit("sendProjectMessage", {
-          projectId,
-          content: `I have just approved the task: ${approvedTask.title}. Great work!`,
-        });
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Failed to approve task from command";
@@ -559,28 +1563,22 @@ export function WorkspaceChatDrawer({
     if (trimmedInput.startsWith("/")) {
       triggerSlashCommand(trimmedInput);
       setInputValue("");
+      closeMentionPopover();
       return;
     }
-
-    const socket = connectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
 
     setIsSending(true);
 
     try {
-      await waitForSocketConnection(socket, 10000);
-      await ensureProjectRoomJoin(socket, projectId);
-      lastSendAttemptAtRef.current = Date.now();
-
-      console.log("Sending message:", trimmedInput, {
-        projectId,
-        socketId: socket.id,
-      });
-      socket.emit("sendProjectMessage", {
-        projectId,
+      await sendMessagePayload({
         content: trimmedInput,
+        attachments: pendingAttachments,
+        replyToId: replyingToMessageId,
       });
-
       setInputValue("");
+      setPendingAttachments([]);
+      clearReplyTarget();
+      closeMentionPopover();
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : "Failed to send message";
@@ -590,17 +1588,26 @@ export function WorkspaceChatDrawer({
       setIsSending(false);
     }
   }, [
-    canReviewTasks,
-    ensureProjectRoomJoin,
-    inputValue,
-    isSending,
-    onTaskCreated,
-    projectId,
-    resolveLatestPendingSubmission,
-    resolveTaskForApproval,
-    resolveTaskMilestoneId,
-    triggerSlashCommand,
-  ]);
+      canReviewTasks,
+      canUseTaskCommand,
+      clearReplyTarget,
+      closeMentionPopover,
+      getTaskCommandErrorMessage,
+      inputValue,
+      isSending,
+      isUploadingAttachments,
+      onTaskCreated,
+      pendingAttachments,
+      projectId,
+      replyingToMessageId,
+      resolvedTaskCommandUnavailableMessage,
+      resolveLatestPendingSubmission,
+      resolveTaskForApproval,
+      resolveTaskMilestoneId,
+      sendMessagePayload,
+      verifyPersistedTaskFromBoard,
+      triggerSlashCommand,
+    ]);
 
   const handleComposerSubmit = useCallback(
     (event: FormEvent<HTMLFormElement>) => {
@@ -610,8 +1617,68 @@ export function WorkspaceChatDrawer({
     [handleSendMessage],
   );
 
+  const handleInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.value;
+      setInputValue(nextValue);
+      syncMentionState(nextValue, event.target.selectionStart);
+    },
+    [syncMentionState],
+  );
+
+  const handleInputSelectionChange = useCallback(() => {
+    const input = inputRef.current;
+    if (!input) {
+      return;
+    }
+
+    syncMentionState(input.value, input.selectionStart);
+  }, [syncMentionState]);
+
   const handleInputKeyDown = useCallback(
     (event: KeyboardEvent<HTMLInputElement>) => {
+      if (isMentionOpen && mentionContext) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          if (filteredMentionMembers.length > 0) {
+            setActiveMentionIndex((currentIndex) =>
+              (currentIndex + 1) % filteredMentionMembers.length,
+            );
+          }
+          return;
+        }
+
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          if (filteredMentionMembers.length > 0) {
+            setActiveMentionIndex((currentIndex) =>
+              currentIndex <= 0
+                ? filteredMentionMembers.length - 1
+                : currentIndex - 1,
+            );
+          }
+          return;
+        }
+
+        if ((event.key === "Enter" || event.key === "Tab") && filteredMentionMembers.length > 0) {
+          event.preventDefault();
+          const selectedMember =
+            filteredMentionMembers[
+              Math.min(activeMentionIndex, filteredMentionMembers.length - 1)
+            ];
+          if (selectedMember) {
+            handleSelectMention(selectedMember);
+          }
+          return;
+        }
+
+        if (event.key === "Escape") {
+          event.preventDefault();
+          closeMentionPopover();
+          return;
+        }
+      }
+
       if (event.key !== "Enter" || event.shiftKey) {
         return;
       }
@@ -623,13 +1690,97 @@ export function WorkspaceChatDrawer({
       event.preventDefault();
       void handleSendMessage();
     },
-    [handleSendMessage],
+    [
+      activeMentionIndex,
+      closeMentionPopover,
+      filteredMentionMembers,
+      handleSelectMention,
+      handleSendMessage,
+      isMentionOpen,
+      mentionContext,
+    ],
   );
+
+  const handleExportChat = useCallback(() => {
+    if (!projectId) {
+      toast.error("Missing project context. Unable to export chat.");
+      return;
+    }
+
+    if (messages.length === 0) {
+      toast.error("There are no chat records to export yet.");
+      return;
+    }
+
+    const exportedAt = new Date();
+    const dataRows = messages.map((message) => {
+      const messageType = isSystemMessage(message) ? "System" : "User";
+      const senderLabel = isSystemMessage(message)
+        ? "System"
+        : message.sender?.fullName?.trim() ||
+          (message.senderId ? `User ${message.senderId.slice(0, 8)}` : "Unknown User");
+      const riskFlags = getMessageRiskFlags(message);
+      const attachmentSummary =
+        message.attachments.length > 0
+          ? ` | Attachments: ${message.attachments
+              .map((attachment) => attachment.name)
+              .join("; ")}`
+          : "";
+      const contentBase = getVisibleMessageContent(message);
+      const content =
+        riskFlags.length === 0 || message.isDeleted
+          ? `${contentBase}${attachmentSummary}`
+          : `${contentBase}${attachmentSummary} | Warning: ${POLICY_WARNING_MESSAGE} Matched flags: ${riskFlags.join(", ")}.`;
+
+      return [
+        formatLegalTimestamp(message.createdAt),
+        senderLabel,
+        messageType,
+        sanitizeExcelContent(content),
+      ];
+    });
+
+    const worksheetRows = [
+      ["Metadata", "Value", "", ""],
+      ["Project", projectTitle, "", ""],
+      ["Project ID", projectId, "", ""],
+      ["Exported At", formatLegalTimestamp(exportedAt.toISOString()), "", ""],
+      ["", "", "", ""],
+      ["Timestamp", "Sender", "Type", "Content"],
+      ...dataRows,
+      ["", "", "", ""],
+      ["Legal Footer", LEGAL_EXPORT_FOOTER, "", ""],
+    ];
+
+    const safeProjectLabel = (projectTitle || projectId)
+      .replace(/[^a-z0-9]+/gi, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 48) || "Project";
+    const safeTimestamp = exportedAt.toISOString().replace(/[:.]/g, "-");
+    const worksheet = XLSX.utils.aoa_to_sheet(worksheetRows);
+    worksheet["!cols"] = [
+      { wch: 20 },
+      { wch: 24 },
+      { wch: 14 },
+      { wch: 100 },
+    ];
+    worksheet["!autofilter"] = {
+      ref: "A6:D6",
+    };
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Chat Record");
+    XLSX.writeFile(workbook, `Project_${safeProjectLabel}_${safeTimestamp}_ChatRecord.xlsx`, {
+      compression: true,
+    });
+    toast.success("Chat record exported as Excel.");
+  }, [messages, projectId, projectTitle]);
 
   const loadOlderMessages = useCallback(async () => {
     if (
       !isOpen ||
       !projectId ||
+      normalizedSearchQuery.length > 0 ||
       !hasMore ||
       isHistoryLoading ||
       isLoadingMoreRef.current
@@ -645,9 +1796,10 @@ export function WorkspaceChatDrawer({
     setIsLoadingMore(true);
 
     try {
-      const response = await apiClient.get<WorkspaceChatHistoryResponse>(
-        `/workspace-chat/projects/${projectId}/messages?limit=${HISTORY_PAGE_SIZE}&offset=${offset}`,
-      );
+      const response = await fetchWorkspaceChatMessages(projectId, {
+        limit: HISTORY_PAGE_SIZE,
+        offset,
+      });
 
       const receivedCount = Array.isArray(response.data) ? response.data.length : 0;
       const normalized = (response.data || [])
@@ -677,7 +1829,7 @@ export function WorkspaceChatDrawer({
       isLoadingMoreRef.current = false;
       setIsLoadingMore(false);
     }
-  }, [hasMore, isHistoryLoading, isOpen, offset, projectId]);
+  }, [hasMore, isHistoryLoading, isOpen, normalizedSearchQuery.length, offset, projectId]);
 
   const handleMessagesScroll = useCallback(() => {
     const container = messagesContainerRef.current;
@@ -705,9 +1857,10 @@ export function WorkspaceChatDrawer({
 
     const loadInitialHistory = async () => {
       try {
-        const response = await apiClient.get<WorkspaceChatHistoryResponse>(
-          `/workspace-chat/projects/${projectId}/messages?limit=${HISTORY_PAGE_SIZE}&offset=0`,
-        );
+        const response = await fetchWorkspaceChatMessages(projectId, {
+          limit: HISTORY_PAGE_SIZE,
+          offset: 0,
+        });
 
         if (cancelled) {
           return;
@@ -745,6 +1898,54 @@ export function WorkspaceChatDrawer({
       cancelled = true;
     };
   }, [isOpen, projectId, scrollToBottom]);
+
+  useEffect(() => {
+    if (!isOpen || !projectId || normalizedSearchQuery.length === 0) {
+      setSearchResults([]);
+      setIsSearchLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    setIsSearchLoading(true);
+
+    const loadSearchResults = async () => {
+      try {
+        const response = await fetchWorkspaceChatMessages(projectId, {
+          limit: 50,
+          offset: 0,
+          query: normalizedSearchQuery,
+        });
+
+        if (cancelled) {
+          return;
+        }
+
+        const normalized = (response.data || [])
+          .map((message) => normalizeWorkspaceMessage(message))
+          .filter((message): message is WorkspaceChatMessage => Boolean(message));
+
+        setSearchResults(sortMessagesAsc(normalized));
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        console.error("Failed to search workspace chat messages", error);
+        toast.error("Failed to search messages");
+      } finally {
+        if (!cancelled) {
+          setIsSearchLoading(false);
+        }
+      }
+    };
+
+    void loadSearchResults();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, normalizedSearchQuery, projectId, searchRefreshNonce]);
 
   useEffect(() => {
     if (!isOpen || !projectId) {
@@ -791,6 +1992,7 @@ export function WorkspaceChatDrawer({
       setMessages((currentMessages) =>
         mergeUniqueMessages(currentMessages, [normalizedMessage]),
       );
+      setSearchRefreshNonce((currentValue) => currentValue + 1);
 
       if (shouldAutoScroll) {
         window.requestAnimationFrame(() => {
@@ -882,175 +2084,666 @@ export function WorkspaceChatDrawer({
     inputRef.current?.focus();
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      setEditingMessageId(null);
+      setEditingValue("");
+      setPendingAttachments([]);
+      setHighlightedMessageId(null);
+      setReplyingToMessageId(null);
+      setSearchQuery("");
+      setDebouncedSearchQuery("");
+      setSearchResults([]);
+      closeMentionPopover();
+    }
+  }, [closeMentionPopover, isOpen]);
+
+  useEffect(() => {
+    setEditingMessageId(null);
+    setEditingValue("");
+    setPendingAttachments([]);
+    setHighlightedMessageId(null);
+    setReplyingToMessageId(null);
+    setSearchQuery("");
+    setDebouncedSearchQuery("");
+    setSearchResults([]);
+    closeMentionPopover();
+  }, [closeMentionPopover, projectId]);
+
   return (
-    <aside
-      className={`fixed right-0 top-0 z-50 flex h-screen w-96 max-w-[100vw] flex-col border-l border-slate-200 bg-white shadow-2xl transition-transform duration-300 ease-out ${
-        isOpen ? "translate-x-0" : "translate-x-full"
-      }`}
-      aria-hidden={!isOpen}
+    <Sheet
+      modal={false}
+      open={isOpen}
+      onOpenChange={(open) => {
+        if (!open) {
+          onClose?.();
+        }
+      }}
     >
-      <header className="border-b border-slate-200 px-4 py-4">
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-slate-900">{projectTitle}</p>
-            <div className="mt-1 flex items-center gap-2 text-xs text-slate-500">
-              <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+      <SheetContent
+        side="right"
+        showOverlay={false}
+        className="h-screen w-96 max-w-[100vw] gap-0 border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[24rem]"
+      >
+        <header className="border-b border-slate-200 px-3 py-3 pr-12">
+          <div className="mb-2">
+            <SheetTitle className="text-sm font-semibold text-slate-900">
+              {projectTitle}
+            </SheetTitle>
+            <div className="mt-0.5 flex items-center gap-1.5 text-[11px] text-slate-500">
+              <span className="h-2 w-2 rounded-full bg-emerald-500" />
               <span>Online</span>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close chat drawer"
-            className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
 
-        <button
-          type="button"
-          className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100"
-        >
-          <Sparkles className="h-4 w-4" />
-          <span>AI Summary</span>
-        </button>
-      </header>
-
-      <div
-        ref={messagesContainerRef}
-        onScroll={handleMessagesScroll}
-        className="flex-1 space-y-4 overflow-y-auto bg-slate-50/80 px-4 py-4"
-      >
-        {isLoadingMore && (
-          <p className="text-center text-xs text-slate-400">Loading older messages...</p>
-        )}
-        {!projectId ? (
-          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
-            Missing project context. Unable to load chat.
-          </div>
-        ) : isHistoryLoading ? (
-          <p className="text-sm text-slate-500">Loading messages...</p>
-        ) : messages.length === 0 ? (
-          <p className="text-sm text-slate-500">No messages yet. Start the conversation.</p>
-        ) : (
-          messages.map((message) => {
-            const isMe =
-              Boolean(resolvedCurrentUserId) &&
-              message.senderId === resolvedCurrentUserId;
-
-            const senderLabel = isMe
-              ? "You"
-              : message.sender?.fullName || `User ${message.senderId.slice(0, 6)}`;
-
-            return (
-              <div
-                key={message.id}
-                className={`group relative flex ${
-                  isMe ? "justify-end" : "justify-start"
-                }`}
-              >
-                <div className={`max-w-[85%] ${isMe ? "items-end" : "items-start"}`}>
-                  <p
-                    className={`mb-1 text-[11px] font-medium ${
-                      isMe ? "text-right text-slate-500" : "text-slate-500"
-                    }`}
-                  >
-                    {senderLabel}
-                  </p>
-                  <div
-                    className={`rounded-2xl px-3 py-2 text-sm leading-relaxed ${
-                      isMe
-                        ? "rounded-tr-md bg-blue-600 text-white"
-                        : "rounded-tl-md bg-white text-slate-800 shadow-sm ring-1 ring-slate-200"
-                    }`}
-                  >
-                    {message.content}
-                  </div>
-                  <p
-                    className={`mt-1 text-[10px] ${
-                      isMe ? "text-right text-slate-400" : "text-slate-400"
-                    }`}
-                  >
-                    {formatMessageTime(message.createdAt)}
-                  </p>
-                </div>
-
-                <div
-                  className={`pointer-events-none absolute top-6 opacity-0 transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100 ${
-                    isMe ? "-left-10" : "-right-10"
-                  }`}
-                >
+          <div className="space-y-1">
+            <div className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1">
+              <div className="relative flex-1">
+                <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Search messages"
+                  className="h-8 w-full rounded-lg border border-transparent bg-white pl-8 pr-8 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500"
+                />
+                {searchQuery.trim().length > 0 && (
                   <button
                     type="button"
-                    aria-label="Mark as evidence"
                     onClick={() => {
-                      console.log("Mark as evidence clicked", {
-                        messageId: message.id,
-                        projectId: message.projectId,
-                      });
-                      toast.info("Evidence flag action triggered");
+                      setSearchQuery("");
+                      setDebouncedSearchQuery("");
+                      setSearchResults([]);
                     }}
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-200 bg-white text-rose-500 shadow-sm transition-colors hover:bg-rose-50"
+                    className="absolute right-1 top-1/2 inline-flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-blue-600"
+                    aria-label="Clear chat search"
                   >
-                    <Flag className="h-4 w-4" />
+                    <X className="h-3.5 w-3.5" />
                   </button>
-                </div>
+                )}
               </div>
-            );
-          })
-        )}
-      </div>
-
-      <footer className="border-t border-slate-200 bg-white p-4">
-        <div className="relative">
-          {shouldShowCommandPopover && (
-            <div className="absolute -top-28 left-0 right-0 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
               <button
                 type="button"
-                onClick={() => handleCommandQuickAction("/task")}
-                className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100"
+                onClick={handleExportChat}
+                disabled={!projectId || messages.length === 0}
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-gray-500 transition-colors hover:bg-gray-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label="Export record"
+                title="Export record"
               >
-                <Zap className="h-4 w-4 text-amber-500" />
-                <span className="font-medium">/task</span>
-                <span className="text-xs text-slate-500">Create Task</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleCommandQuickAction("/approve")}
-                className="mt-1 flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100"
-              >
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                <span className="font-medium">/approve</span>
-                <span className="text-xs text-slate-500">Approve Work</span>
+                <Download className="h-4 w-4" />
+                <span className="sr-only">Export record</span>
               </button>
             </div>
-          )}
 
-          <form onSubmit={handleComposerSubmit} className="flex items-center gap-2">
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputValue}
-              onChange={(event) => setInputValue(event.target.value)}
-              onKeyDown={handleInputKeyDown}
-              disabled={!projectId || isSending}
-              className="h-11 flex-1 rounded-xl border border-slate-300 px-3 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-500 disabled:cursor-not-allowed disabled:bg-slate-100"
-              placeholder="Type message or '/' for commands"
-            />
-            <button
-              type="submit"
-              disabled={!projectId || isSending || inputValue.trim().length === 0}
-              className="inline-flex h-11 shrink-0 items-center gap-1 rounded-xl bg-blue-600 px-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-              aria-label="Send message"
-            >
-              <Send className="h-4 w-4" />
-              <span>Send</span>
-            </button>
-          </form>
+            {latestPinnedMessage && (
+              <button
+                type="button"
+                onClick={() => scrollToMessage(latestPinnedMessage.id)}
+                className="flex w-full items-center gap-2 rounded-md border border-orange-100 bg-orange-50 px-2 py-1 text-left text-xs text-orange-700 transition-colors hover:bg-orange-100/70"
+              >
+                <Pin className="h-3.5 w-3.5 shrink-0" />
+                <span className="line-clamp-1 flex-1">
+                  {(latestPinnedMessage.sender?.fullName || "Unknown User")}:{" "}
+                  {getVisibleMessageContent(latestPinnedMessage) ||
+                    latestPinnedMessage.attachments[0]?.name ||
+                    "Attachment"}
+                </span>
+              </button>
+            )}
+          </div>
+        </header>
+
+        <div
+          ref={messagesContainerRef}
+          onScroll={handleMessagesScroll}
+          className="flex-1 space-y-6 overflow-y-auto bg-white px-5 py-5"
+        >
+          {isLoadingMore && !isSearchActive && (
+            <p className="text-center text-xs text-slate-400">Loading older messages...</p>
+          )}
+          {!projectId ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-700">
+              Missing project context. Unable to load chat.
+            </div>
+          ) : isHistoryLoading && !isSearchActive ? (
+            <p className="text-sm text-slate-500">Loading messages...</p>
+          ) : isSearchLoading ? (
+            <p className="text-sm text-slate-500">Searching messages...</p>
+          ) : visibleMessages.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              {isSearchActive
+                ? "No messages matched your search."
+                : "No messages yet. Start the conversation."}
+            </p>
+          ) : (
+            visibleMessages.map((message) => {
+              const systemMessage = isSystemMessage(message);
+              const riskFlags = getMessageRiskFlags(message);
+              const isRiskFlagged = !message.isDeleted && riskFlags.length > 0;
+              const isMe =
+                Boolean(resolvedCurrentUserId) &&
+                message.senderId === resolvedCurrentUserId;
+              const isEditing = editingMessageId === message.id;
+              const isBusy = activeMessageActionId === message.id;
+              const replyPreview = !message.isDeleted ? message.replyTo : null;
+
+              if (systemMessage) {
+                return (
+                  <div
+                    key={message.id}
+                    ref={(node) => {
+                      messageRefs.current[message.id] = node;
+                    }}
+                    className="flex justify-center py-1"
+                  >
+                    <div className="max-w-[85%] text-center">
+                      <p className="text-xs font-normal text-gray-400">
+                        {renderMessageContent(
+                          message.content,
+                          projectMembers,
+                          false,
+                          normalizedSearchQuery,
+                        )}
+                      </p>
+                      <div className="mt-1 flex items-center justify-center gap-1.5 text-[10px] text-gray-400">
+                        <span>{formatMessageTime(message.createdAt)}</span>
+                        {!message.isDeleted && (
+                          <button
+                            type="button"
+                            onClick={() => handleReplyToMessage(message.id)}
+                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:text-blue-600"
+                          >
+                            <Reply className="h-3 w-3" />
+                            <span>Reply</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              const senderLabel = isMe
+                ? "You"
+                : message.sender?.fullName ||
+                  (message.senderId ? `User ${message.senderId.slice(0, 6)}` : "Unknown User");
+              const bubbleClassName = message.isDeleted
+                ? "rounded-2xl border border-rose-100 bg-white text-rose-700"
+                : isMe
+                  ? isRiskFlagged
+                    ? "rounded-2xl rounded-tr-md border border-rose-100 bg-rose-50 text-rose-900"
+                    : "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
+                  : isRiskFlagged
+                    ? "rounded-2xl rounded-tl-md border border-rose-100 bg-rose-50 text-rose-900"
+                    : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
+              const editingShellClassName = isMe
+                ? "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
+                : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
+              const warningClassName = isMe ? "justify-end text-right text-rose-700" : "text-rose-700";
+              const actionTriggerClassName = message.isDeleted
+                ? "text-rose-400 hover:text-rose-600"
+                : "text-gray-400 hover:text-blue-600";
+
+              return (
+                <div
+                  key={message.id}
+                  ref={(node) => {
+                    messageRefs.current[message.id] = node;
+                  }}
+                  className={`group relative flex ${
+                    isMe ? "justify-end" : "justify-start"
+                  } ${highlightedMessageId === message.id ? "rounded-2xl ring-2 ring-amber-300/80 ring-offset-2 ring-offset-slate-50" : ""}`}
+                >
+                  <div className={`max-w-[85%] ${isMe ? "items-end" : "items-start"}`}>
+                    <p
+                      className={`mb-1 text-[11px] font-medium ${
+                        isMe ? "text-right text-slate-500" : "text-slate-500"
+                      }`}
+                    >
+                      {senderLabel}
+                    </p>
+                    <div
+                        className={
+                          isEditing
+                            ? "text-sm leading-relaxed"
+                            : `relative rounded-2xl px-5 py-3 pr-12 text-sm leading-relaxed ${
+                                message.isDeleted ? "" : ""
+                              } ${bubbleClassName}`
+                        }
+                      >
+                      {isEditing ? (
+                        <div
+                          className={`space-y-3 rounded-2xl px-4 py-4 ${editingShellClassName}`}
+                        >
+                          <p
+                            className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                              isMe ? "text-blue-100/90" : "text-slate-500"
+                            }`}
+                          >
+                            Editing message
+                          </p>
+                          <textarea
+                            value={editingValue}
+                            onChange={(event) => setEditingValue(event.target.value)}
+                            rows={3}
+                            autoFocus
+                            disabled={isBusy}
+                            className={`min-h-[104px] w-full resize-none rounded-2xl border px-4 py-3 text-sm leading-relaxed outline-none transition-colors ${
+                              isMe
+                                ? "border-white/20 bg-white/10 text-white placeholder:text-blue-100/80 focus:border-white/50 focus:bg-white/15"
+                                : "border-slate-300 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-500"
+                            }`}
+                          />
+                          <div className="flex justify-end gap-2 pt-1">
+                            <Button
+                              type="button"
+                              variant={isMe ? "secondary" : "outline"}
+                              size="sm"
+                              onClick={handleCancelEdit}
+                              disabled={isBusy}
+                              className={isMe ? "bg-white/15 text-white hover:bg-white/20" : undefined}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={() => void handleSaveEdit(message.id)}
+                              disabled={isBusy || editingValue.trim().length === 0}
+                              className={
+                                isMe
+                                  ? "bg-white text-blue-700 hover:bg-blue-50"
+                                  : undefined
+                              }
+                            >
+                              {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                              <span>{isBusy ? "Saving..." : "Save"}</span>
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          <div
+                            className={`absolute -top-3 -right-2 z-10 flex items-center gap-0.5 rounded-md border border-gray-200 bg-white p-0.5 shadow-sm transition-opacity duration-150 ${
+                              message.isDeleted
+                                ? "opacity-100"
+                                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                            }`}
+                          >
+                            {!message.isDeleted && (
+                              <button
+                                type="button"
+                                onClick={() => handleReplyToMessage(message.id)}
+                                disabled={isBusy}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label="Reply to message"
+                              >
+                                <Reply className="h-4 w-4" />
+                              </button>
+                            )}
+                            {isMe && !message.isDeleted && (
+                              <button
+                                type="button"
+                                onClick={() => handleStartEdit(message)}
+                                disabled={isBusy}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label="Edit message"
+                              >
+                                <Pencil className="h-4 w-4" />
+                              </button>
+                            )}
+                            {isMe && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  void handleDeleteMessage(message.id);
+                                }}
+                                disabled={isBusy || message.isDeleted}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                aria-label="Delete message"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            )}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  type="button"
+                                  aria-label="More message actions"
+                                  className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${actionTriggerClassName}`}
+                                >
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-48">
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    console.log("Mark as evidence clicked", {
+                                      messageId: message.id,
+                                      projectId: message.projectId,
+                                    });
+                                    toast.info("Evidence flag action triggered");
+                                  }}
+                                  disabled={message.isDeleted}
+                                >
+                                    <Flag className="h-4 w-4" />
+                                    <span>Mark as evidence</span>
+                                  </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    void handleTogglePin(message);
+                                  }}
+                                  disabled={isBusy || message.isDeleted}
+                                >
+                                  {message.isPinned ? (
+                                    <PinOff className="h-4 w-4" />
+                                  ) : (
+                                    <Pin className="h-4 w-4" />
+                                    )}
+                                    <span>{message.isPinned ? "Unpin" : "Pin"}</span>
+                                  </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
+
+                          {message.isDeleted ? (
+                            <p className="text-gray-500">{DELETED_MESSAGE_PLACEHOLDER}</p>
+                          ) : (
+                            <>
+                              {replyPreview && (
+                                <button
+                                  type="button"
+                                  onClick={() => scrollToMessage(replyPreview.id)}
+                                    className={`w-full rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
+                                      isMe
+                                        ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
+                                        : "border-gray-100 bg-white text-gray-600 hover:bg-gray-50"
+                                    }`}
+                                >
+                                  <p className="font-semibold">
+                                    {replyPreview.sender?.fullName || "Unknown User"}
+                                  </p>
+                                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words opacity-90">
+                                    {getReplyPreviewText(replyPreview)}
+                                  </p>
+                                </button>
+                              )}
+                              {message.content ? (
+                                <p className="whitespace-pre-wrap break-words">
+                                  {renderMessageContent(
+                                    message.content,
+                                    projectMembers,
+                                    isMe,
+                                    normalizedSearchQuery,
+                                  )}
+                                </p>
+                              ) : null}
+                            </>
+                          )}
+
+                          {!message.isDeleted && message.attachments.length > 0 && (
+                            <div className="grid gap-2">
+                              {message.attachments.map((attachment) =>
+                                isImageAttachment(attachment) ? (
+                                  <a
+                                    key={`${message.id}-${attachment.url}`}
+                                    href={attachment.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="block overflow-hidden rounded-xl border border-gray-100 bg-white"
+                                  >
+                                    <img
+                                      src={attachment.url}
+                                      alt={attachment.name}
+                                      className="max-h-56 w-full object-cover"
+                                      loading="lazy"
+                                    />
+                                  </a>
+                                ) : (
+                                  <a
+                                    key={`${message.id}-${attachment.url}`}
+                                    href={attachment.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                      className={`flex items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
+                                        isMe
+                                          ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
+                                          : "border-gray-100 bg-white text-gray-700 hover:bg-gray-50"
+                                      }`}
+                                  >
+                                    <FileText className="h-4 w-4 shrink-0" />
+                                    <span className="truncate text-sm">{attachment.name}</span>
+                                  </a>
+                                ),
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                    {isRiskFlagged && (
+                      <p
+                        className={`mt-2 flex items-start gap-1 text-[11px] leading-relaxed ${warningClassName}`}
+                      >
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>{POLICY_WARNING_MESSAGE}</span>
+                      </p>
+                    )}
+                    <p
+                      className={`${isRiskFlagged ? "mt-2" : "mt-1"} text-[10px] ${
+                        isMe ? "text-right text-slate-400" : "text-slate-400"
+                      }`}
+                    >
+                      {formatMessageTime(message.createdAt)}
+                      {message.isEdited && !message.isDeleted ? ` · ${EDITED_MESSAGE_LABEL}` : ""}
+                      {message.isPinned ? " · Pinned" : ""}
+                    </p>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
-      </footer>
-    </aside>
+
+        <footer className="border-t border-slate-200 bg-white p-4">
+          <div className="relative">
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              className="hidden"
+              onChange={(event) => {
+                void handleAttachmentInputChange(event);
+              }}
+            />
+            {shouldShowCommandPopover && (
+              <div className="absolute -top-28 left-0 right-0 rounded-xl border border-slate-200 bg-white p-2 shadow-lg">
+                {availableSlashCommands.map((command, index) => {
+                  const Icon = command.icon;
+
+                  return (
+                    <button
+                      key={command.key}
+                      type="button"
+                      onClick={() => handleCommandQuickAction(command.key)}
+                      className={`flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-100 ${
+                        index > 0 ? "mt-1" : ""
+                      }`}
+                    >
+                      <Icon className={`h-4 w-4 ${command.iconClassName}`} />
+                      <span className="font-medium">{command.key}</span>
+                      <span className="text-xs text-slate-500">{command.title}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {pendingAttachments.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {pendingAttachments.map((attachment) => (
+                  <div
+                    key={attachment.url}
+                    className="inline-flex max-w-full items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1 text-xs text-slate-600"
+                  >
+                    {isImageAttachment(attachment) ? (
+                      <span className="font-medium text-slate-700">Image</span>
+                    ) : (
+                      <FileText className="h-3.5 w-3.5 shrink-0" />
+                    )}
+                    <span className="max-w-[12rem] truncate">{attachment.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemovePendingAttachment(attachment.url)}
+                      className="inline-flex h-5 w-5 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-600"
+                      aria-label={`Remove ${attachment.name}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {replyingToMessage && (
+              <div className="mb-3 flex items-start justify-between gap-3 rounded-2xl border border-gray-200 bg-white px-3 py-2">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-500">
+                    Replying to {replyingToMessage.sender?.fullName || "Unknown User"}
+                  </p>
+                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words text-xs text-slate-700">
+                    {getReplyPreviewText(replyingToMessage)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearReplyTarget}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-200 hover:text-slate-700"
+                  aria-label="Cancel reply"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+
+            <Popover
+              open={shouldShowMentionPopover}
+              onOpenChange={(open) => {
+                if (!open) {
+                  closeMentionPopover();
+                }
+              }}
+            >
+              <PopoverAnchor asChild>
+                <div className="absolute bottom-11 left-14 h-0 w-0" aria-hidden="true" />
+              </PopoverAnchor>
+              <PopoverContent
+                align="start"
+                side="top"
+                sideOffset={8}
+                onOpenAutoFocus={(event) => event.preventDefault()}
+                onCloseAutoFocus={(event) => event.preventDefault()}
+                className="w-[22rem] border border-gray-200 bg-white p-0 text-slate-900 shadow-lg"
+              >
+                <Command className="rounded-xl bg-white text-slate-900">
+                  <CommandList className="max-h-64">
+                    <CommandEmpty className="py-4 text-sm text-slate-500">
+                      No matching member.
+                    </CommandEmpty>
+                    <CommandGroup
+                      heading="Mention project member"
+                      className="text-slate-900 [&_[cmdk-group-heading]]:text-slate-500"
+                    >
+                      {filteredMentionMembers.map((member, index) => (
+                        <CommandItem
+                          key={member.id}
+                          value={`${member.fullName}-${member.id}`}
+                          onMouseDown={(event) => event.preventDefault()}
+                          onSelect={() => handleSelectMention(member)}
+                          className={
+                            index === activeMentionIndex
+                              ? "border border-blue-100 bg-blue-50 text-slate-900"
+                              : "text-slate-800 data-[selected=true]:border data-[selected=true]:border-blue-100 data-[selected=true]:bg-blue-50 data-[selected=true]:text-slate-900"
+                          }
+                        >
+                          <div className="flex min-w-0 flex-1 flex-col">
+                            <span className="truncate font-medium">
+                              {member.fullName}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              {member.role.charAt(0) + member.role.slice(1).toLowerCase()}
+                            </span>
+                          </div>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  </CommandList>
+                </Command>
+              </PopoverContent>
+            </Popover>
+
+            <form
+              onSubmit={handleComposerSubmit}
+              className="flex items-center gap-1 rounded-xl border border-gray-200 bg-white p-1 transition-all focus-within:border-transparent focus-within:ring-2 focus-within:ring-blue-500"
+            >
+              <button
+                type="button"
+                onClick={handleAttachmentPickerClick}
+                disabled={!projectId || isSending || isUploadingAttachments}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:text-gray-300"
+                aria-label="Attach files"
+              >
+                {isUploadingAttachments ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Paperclip className="h-5 w-5" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void sendQuickVideoCall();
+                }}
+                disabled={!projectId || isSending || isUploadingAttachments}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:text-gray-300"
+                aria-label="Start video call"
+              >
+                {isSending && !inputValue.trim() && pendingAttachments.length === 0 ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Video className="h-5 w-5" />
+                )}
+              </button>
+              <input
+                ref={inputRef}
+                type="text"
+                value={inputValue}
+                onChange={handleInputChange}
+                onClick={handleInputSelectionChange}
+                onKeyDown={handleInputKeyDown}
+                onSelect={handleInputSelectionChange}
+                disabled={!projectId || isSending || isUploadingAttachments}
+                className="h-9 flex-1 rounded-md border-0 bg-transparent px-2 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:outline-none focus:ring-0 disabled:cursor-not-allowed disabled:bg-gray-50"
+                placeholder="Type message, use @mention, attach files, or '/' for commands"
+              />
+              <button
+                type="submit"
+                disabled={!canSendCurrentMessage}
+                className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                aria-label="Send message"
+              >
+                {isSending ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <Send className="h-5 w-5" />
+                )}
+                <span className="sr-only">Send</span>
+              </button>
+            </form>
+          </div>
+        </footer>
+      </SheetContent>
+    </Sheet>
   );
 }
 

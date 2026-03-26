@@ -1,4 +1,4 @@
-import { Input } from "@/shared/components/ui/Input";
+import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import {
   Select,
@@ -7,12 +7,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
+import { getTodayDateInputValue } from "../utils/timelineDate";
 
 interface StepB3Props {
   budget: string;
   setBudget: (val: string) => void;
   timeline: string;
   setTimeline: (val: string) => void;
+  timelineError?: string | null;
 }
 
 export function StepB3({
@@ -20,7 +22,10 @@ export function StepB3({
   setBudget,
   timeline,
   setTimeline,
+  timelineError,
 }: StepB3Props) {
+  const minimumTimelineDate = getTodayDateInputValue();
+
   return (
     <div className="space-y-6 max-w-md mx-auto">
       <div className="text-center mb-8">
@@ -54,8 +59,13 @@ export function StepB3({
             type="date"
             value={timeline}
             onChange={(e) => setTimeline(e.target.value)}
-            className="w-full block"
+            min={minimumTimelineDate}
+            aria-invalid={Boolean(timelineError)}
+            className={`w-full block ${timelineError ? "border-rose-300 focus-visible:ring-rose-400" : ""}`}
           />
+          <p className={`text-xs ${timelineError ? "text-rose-600" : "text-slate-500"}`}>
+            {timelineError || "Choose today or a future date. Past dates are not allowed."}
+          </p>
         </div>
       </div>
     </div>

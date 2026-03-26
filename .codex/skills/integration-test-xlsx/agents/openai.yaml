@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integration Test XLSX"
+  short_description: "Build strict feature/function test-case workbooks"
+  default_prompt: "Use $integration-test-xlsx to turn this feature and function-level test-case specification into a strict no-round Excel test-case workbook that matches the repo template, grouping sheets by feature and sections by function."

@@ -1,45 +1,32 @@
 
 import React, { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { ProjectRequestsTable } from './components/ProjectRequestsTable';
 import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
 import { Loader2, Search } from 'lucide-react';
 import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
-import { STORAGE_KEYS } from '@/constants';
-import { getStoredJson } from '@/shared/utils/storage';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
-import { Input } from '@/shared/components/ui/Input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
+import { Input } from '@/shared/components/ui/input';
 import { Badge } from '@/shared/components/ui/badge';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/shared/components/ui/alert-dialog';
 import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
 import toast from 'react-hot-toast';
+import { useCurrentUser } from '@/shared/hooks/useCurrentUser';
 
 export const BrokerProjectsPage: React.FC = () => {
+  const location = useLocation();
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [assigningId, setAssigningId] = useState<string | null>(null);
-  const [assignConfirmId, setAssignConfirmId] = useState<string | null>(null);
-  const [user, setUser] = useState<any>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [upgradeModalData, setUpgradeModalData] = useState<any>(null);
   const { checkKycStatus } = useKYCStatus();
+  const user = useCurrentUser<{ id?: string; role?: string }>();
 
   useEffect(() => {
-    setUser(getStoredJson(STORAGE_KEYS.USER));
-    
     // Check KYC status
     checkKycStatus().then(setKycStatus);
-  }, []);
+  }, [checkKycStatus]);
 
   const fetchRequests = async () => {
     try {
@@ -55,7 +42,7 @@ export const BrokerProjectsPage: React.FC = () => {
 
   useEffect(() => {
     fetchRequests();
-  }, []);
+  }, [location.key]);
 
   // Filter for My Projects (Assigned OR Accepted Proposal)
   const myProjects = requests.filter(r => 
@@ -85,32 +72,6 @@ export const BrokerProjectsPage: React.FC = () => {
   const contractPendingCount = filteredProjects.filter(
     (request) => request.status === 'CONTRACT_PENDING',
   ).length;
-
-  const handleAssign = async (requestId: string) => {
-    setAssignConfirmId(requestId);
-  };
-
-  const confirmAssign = async () => {
-    if (!assignConfirmId) return;
-
-    try {
-      setAssigningId(assignConfirmId);
-      await projectRequestsApi.assignBroker(assignConfirmId);
-      await fetchRequests();
-      setAssignConfirmId(null);
-      toast.success('Request assigned successfully!');
-    } catch (error: any) {
-      console.error('Failed to assign request:', error);
-      const quotaErr = parseQuotaError(error);
-      if (quotaErr) {
-        setUpgradeModalData(quotaErr);
-      } else {
-        toast.error(error.response?.data?.message || 'Failed to assign request');
-      }
-    } finally {
-      setAssigningId(null);
-    }
-  };
 
   const handleApply = async (requestId: string, coverLetter: string) => {
      // Re-implement apply if they can re-apply or apply to others here? Unlikely but good to have signature match.
@@ -208,9 +169,7 @@ export const BrokerProjectsPage: React.FC = () => {
          ) : (
             <ProjectRequestsTable 
                 requests={filteredProjects} 
-                onAssign={handleAssign}
                 onApply={handleApply}
-                assigningId={assigningId}
                 currentUserId={user?.id}
             />
          )}
@@ -220,22 +179,6 @@ export const BrokerProjectsPage: React.FC = () => {
         onClose={() => setUpgradeModalData(null)}
         quotaInfo={upgradeModalData}
       />
-      <AlertDialog open={Boolean(assignConfirmId)} onOpenChange={(open) => !open && setAssignConfirmId(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Take broker ownership for this request?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This hands the request workflow to your broker account and refreshes the queue state for everyone else.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={Boolean(assigningId)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmAssign} disabled={Boolean(assigningId)}>
-              {assigningId ? 'Assigning...' : 'Assign to Me'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 };

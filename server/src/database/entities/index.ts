@@ -7,7 +7,14 @@ export { AuthSessionEntity } from './auth-session.entity';
 export { UserTokenEntity, UserTokenType, UserTokenStatus } from './user-token.entity';
 
 // Project Request Entities
-export { ProjectRequestEntity, RequestStatus } from './project-request.entity';
+export {
+  ProjectRequestEntity,
+  RequestStatus,
+  type ProjectRequestAttachmentMetadata,
+  type ProjectRequestCommercialBaseline,
+  type ProjectRequestCommercialChangeRequest,
+  type ProjectRequestCommercialFeature,
+} from './project-request.entity';
 export { WizardQuestionEntity } from './wizard-question.entity';
 export { WizardOptionEntity } from './wizard-option.entity';
 export { ProjectRequestAnswerEntity } from './project-request-answer.entity';
@@ -20,7 +27,13 @@ export { ProjectEntity, ProjectStatus, PricingModel } from './project.entity';
 export { ProjectCategoryEntity } from './project-category.entity';
 export { MilestoneEntity, MilestoneStatus } from './milestone.entity';
 export { TaskEntity, TaskStatus } from './task.entity';
-export { WorkspaceMessageEntity } from './workspace-message.entity';
+export {
+  WorkspaceMessageEntity,
+  WorkspaceMessageType,
+  type WorkspaceMessageAttachment,
+  type WorkspaceMessageEditHistoryEntry,
+} from './workspace-message.entity';
+export { RequestMessageEntity, RequestMessageType } from './request-message.entity';
 export { ContractEntity } from './contract.entity';
 export { DigitalSignatureEntity } from './digital-signature.entity';
 export { DocumentEntity, DocType } from './document.entity';
@@ -92,6 +105,7 @@ export {
   SkillVerificationStatus,
   StaffExpertiseEntity,
 } from './user-skill.entity';
+export { UserSkillDomainEntity } from './user-skill-domain.entity';
 export {
   DisputeSkillRequirementEntity,
   DisputeSkillSource,

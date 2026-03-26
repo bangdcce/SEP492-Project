@@ -1,0 +1,4 @@
+interface:
+  display_name: "Test Cases & Traceability"
+  short_description: "Trace use cases, test all relevant units, and create XLSX matrices"
+  default_prompt: "Use $test-case-documentation-and-unit-test-handling to trace this use case through the codebase, scan all relevant methods and functions, generate deep unit tests for the in-scope logic, produce the traceability matrices, and create the XLSX workbook output."

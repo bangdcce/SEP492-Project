@@ -1,7 +1,8 @@
+import { useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ShieldX, ArrowRight, Clock, AlertTriangle } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/Card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
 import { ROUTES } from '@/constants';
 
 interface KYCBlockerProps {
@@ -114,7 +115,7 @@ export function KYCBlocker({ kycStatus, role, action }: KYCBlockerProps) {
 export function useKYCStatus() {
   const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
-  const checkKycStatus = async (): Promise<string> => {
+  const checkKycStatus = useCallback(async (): Promise<string> => {
     try {
       const response = await fetch(`${baseUrl}/kyc/me`, {
         credentials: 'include',
@@ -132,7 +133,7 @@ export function useKYCStatus() {
       console.error('Error checking KYC status:', error);
       return 'NOT_STARTED';
     }
-  };
+  }, [baseUrl]);
 
   return { checkKycStatus };
 }

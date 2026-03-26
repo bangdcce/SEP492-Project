@@ -92,8 +92,8 @@ export const buildClientNextAction = (
   if (currentPhase === 3) {
     if (!hasAcceptedFreelancer) {
       return {
-        title: "Select freelancer signer",
-        description: "Invite and accept one freelancer before Final Spec sign-off.",
+        title: "Review broker freelancer recommendations",
+        description: "Approve one broker-recommended freelancer before Final Spec sign-off.",
         ctaLabel: "Go to Phase 3",
         onClick: () => onSetPhase(3),
       };

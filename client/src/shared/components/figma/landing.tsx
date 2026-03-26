@@ -15,6 +15,7 @@ import {
   Menu,
   X,
 } from 'lucide-react';
+import { SiteFooter } from "@/shared/components/layouts/site/SiteFooter";
 
 interface LandingPageProps {
   onNavigateToSignIn: () => void;
@@ -458,54 +459,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-slate-900 text-white py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-7xl mx-auto">
-          <div className="grid md:grid-cols-4 ">
-            <div className="flex flex-col ">
-              <img
-                src="/assets/logo/Logo.png"
-                alt="ConnectHub Logo"
-                className="h-50 w-[300px] object-contain -mt-16"
-              />
-              <p className="text-slate-400 m-0 -mt-15 ml-8">
-                Connecting businesses, brokers, and freel6ncers for successful projects.
-              </p>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4">Platform</h4>
-              <ul className="space-y-2 text-slate-400">
-                <li><a href="#features" className="hover:text-white transition-colors">Features</a></li>
-                <li><a href="#roles" className="hover:text-white transition-colors">For You</a></li>
-                <li><a href="#how-it-works" className="hover:text-white transition-colors">How It Works</a></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4">Company</h4>
-              <ul className="space-y-2 text-slate-400">
-                <li><a href="#" className="hover:text-white transition-colors">About Us</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Careers</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Contact</a></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="font-semibold mb-4">Legal</h4>
-              <ul className="space-y-2 text-slate-400">
-                <li><a href="#" className="hover:text-white transition-colors">Privacy Policy</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Terms of Service</a></li>
-                <li><a href="#" className="hover:text-white transition-colors">Cookie Policy</a></li>
-              </ul>
-            </div>
-          </div>
-
-          <div className="border-t border-slate-800 mt-12 pt-8 text-center text-slate-400">
-            <p>&copy; 2026 InterDev. All rights reserved.</p>
-          </div>
-        </div>
-      </footer>
+      <SiteFooter tone="dark" />
     </div>
   );
 };

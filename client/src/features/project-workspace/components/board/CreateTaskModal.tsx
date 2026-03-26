@@ -1,4 +1,5 @@
 import { Layers, CalendarDays, X } from "lucide-react";
+import { WorkspaceDatePicker } from "../shared/WorkspaceDatePicker";
 
 export type SpecFeatureOption = {
   id: string;
@@ -163,26 +164,28 @@ export function CreateTaskModal({
                 <CalendarDays className="h-4 w-4 text-gray-500" />
                 Start Date
               </label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => onChangeStartDate(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                disabled={isSubmitting}
-              />
+              <div className="mt-1">
+                <WorkspaceDatePicker
+                  value={startDate || null}
+                  onChange={(value) => onChangeStartDate(value ?? "")}
+                  placeholder="Set start date"
+                  disabled={isSubmitting}
+                />
+              </div>
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
                 <CalendarDays className="h-4 w-4 text-gray-500" />
                 Due Date
               </label>
-              <input
-                type="date"
-                value={dueDate}
-                onChange={(e) => onChangeDueDate(e.target.value)}
-                className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                disabled={isSubmitting}
-              />
+              <div className="mt-1">
+                <WorkspaceDatePicker
+                  value={dueDate || null}
+                  onChange={(value) => onChangeDueDate(value ?? "")}
+                  placeholder="Set due date"
+                  disabled={isSubmitting}
+                />
+              </div>
             </div>
           </div>
 

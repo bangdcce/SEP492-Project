@@ -12,6 +12,10 @@ import type {
   ProjectStaffInviteStatus,
   StaffRecommendation,
   StaffSummary,
+  ProjectRecentActivity,
+  WorkspaceChatHistoryQuery,
+  WorkspaceChatHistoryResponse,
+  WorkspaceChatMutationResponse,
 } from "./types";
 
 // ============================================
@@ -24,7 +28,8 @@ interface BoardWithMilestones {
   milestones: Milestone[];
 }
 
-const toIsoDateString = (value?: string) => {
+const toIsoDateString = (value?: string | null) => {
+  if (value === null) return null;
   if (!value) return undefined;
   return /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? new Date(`${value}T00:00:00.000Z`).toISOString()
@@ -43,12 +48,75 @@ export interface WorkspaceProject {
   freelancerId?: string | null;
   staffId?: string | null;
   staffInviteStatus?: ProjectStaffInviteStatus | null;
-  staff?: StaffSummary | null;
+  client?: WorkspaceProjectParticipant | null;
+  broker?: WorkspaceProjectParticipant | null;
+  freelancer?: WorkspaceProjectParticipant | null;
+  staff?: WorkspaceProjectParticipant | null;
   currency?: string;
+}
+
+export interface WorkspaceProjectParticipant {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+  role?: string | null;
 }
 
 export const fetchProject = async (projectId: string): Promise<WorkspaceProject> => {
   return apiClient.get<WorkspaceProject>(`/projects/${projectId}`);
+};
+
+export const fetchWorkspaceChatMessages = async (
+  projectId: string,
+  query: WorkspaceChatHistoryQuery = {},
+): Promise<WorkspaceChatHistoryResponse> => {
+  const searchParams = new URLSearchParams();
+
+  if (typeof query.limit === "number") {
+    searchParams.set("limit", String(query.limit));
+  }
+  if (typeof query.offset === "number") {
+    searchParams.set("offset", String(query.offset));
+  }
+  if (typeof query.query === "string" && query.query.trim().length > 0) {
+    searchParams.set("query", query.query.trim());
+  }
+
+  const suffix = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return apiClient.get<WorkspaceChatHistoryResponse>(
+    `/workspace-chat/projects/${projectId}/messages${suffix}`,
+  );
+};
+
+export const toggleWorkspaceChatPin = async (
+  projectId: string,
+  messageId: string,
+  isPinned: boolean,
+): Promise<WorkspaceChatMutationResponse> => {
+  return apiClient.patch<WorkspaceChatMutationResponse>(
+    `/workspace-chat/projects/${projectId}/messages/${messageId}/pin`,
+    { isPinned },
+  );
+};
+
+export const editWorkspaceChatMessage = async (
+  projectId: string,
+  messageId: string,
+  content: string,
+): Promise<WorkspaceChatMutationResponse> => {
+  return apiClient.patch<WorkspaceChatMutationResponse>(
+    `/workspace-chat/projects/${projectId}/messages/${messageId}`,
+    { content },
+  );
+};
+
+export const deleteWorkspaceChatMessage = async (
+  projectId: string,
+  messageId: string,
+): Promise<WorkspaceChatMutationResponse> => {
+  return apiClient.delete<WorkspaceChatMutationResponse>(
+    `/workspace-chat/projects/${projectId}/messages/${messageId}`,
+  );
 };
 
 export const fetchStaffCandidates = async (): Promise<StaffSummary[]> => {
@@ -111,6 +179,14 @@ export const updateTaskStatus = async (
 export const fetchTaskHistory = async (taskId: string): Promise<import("./types").TaskHistory[]> => {
   const result = await apiClient.get<import("./types").TaskHistory[]>(`/tasks/${taskId}/history`);
   return result;
+};
+
+export const fetchProjectRecentActivity = async (
+  projectId: string,
+): Promise<ProjectRecentActivity[]> => {
+  return apiClient.get<ProjectRecentActivity[]>(
+    `/tasks/project/${projectId}/recent-activity`,
+  );
 };
 
 export const fetchTaskComments = async (taskId: string): Promise<import("./types").TaskComment[]> => {
@@ -219,7 +295,15 @@ export const updateTask = async (
 ): Promise<Task> => {
   console.log("[API] Updating task details:", { taskId, payload });
 
-  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, payload);
+  const result = await apiClient.patch<Task>(`/tasks/${taskId}`, {
+    ...payload,
+    ...(Object.prototype.hasOwnProperty.call(payload, "startDate")
+      ? { startDate: toIsoDateString(payload.startDate ?? null) }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(payload, "dueDate")
+      ? { dueDate: toIsoDateString(payload.dueDate ?? null) }
+      : {}),
+  });
 
   console.log("[API] Task updated:", result);
   return result;
@@ -236,7 +320,11 @@ export const createTask = async (payload: {
 }): Promise<Task> => {
   console.log("[API] Creating task:", payload);
 
-  const result = await apiClient.post<Task>("/tasks", payload);
+  const result = await apiClient.post<Task>("/tasks", {
+    ...payload,
+    startDate: toIsoDateString(payload.startDate),
+    dueDate: toIsoDateString(payload.dueDate),
+  });
 
   console.log("[API] Task created:", result);
   return result;

@@ -53,6 +53,10 @@ export const useNotifications = (limit: number = 10) => {
       try {
         const data = await getNotifications({ page: 1, limit });
         setNotifications(data.items ?? []);
+      } catch (error) {
+        if (!options?.silent) {
+          console.warn("Failed to refresh notifications", error);
+        }
       } finally {
         if (!options?.silent) {
           setLoading(false);

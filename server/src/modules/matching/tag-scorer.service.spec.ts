@@ -1,6 +1,19 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { HardFilterResult } from './hard-filter.service';
 import { TagScorerService } from './tag-scorer.service';
-import { EligibleCandidate } from './interfaces/match.interfaces';
+
+const createCandidate = (overrides: Partial<HardFilterResult> = {}): HardFilterResult => ({
+  candidateId: 'candidate-1',
+  fullName: 'Candidate',
+  skills: [],
+  rawProfileSkills: [],
+  domains: [],
+  bio: '',
+  trustScore: 4,
+  completedProjects: 0,
+  candidateProfile: {},
+  ...overrides,
+});
 
 describe('TagScorerService', () => {
   let service: TagScorerService;
@@ -17,119 +30,125 @@ describe('TagScorerService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('scoreAll', () => {
-    it('should calculate 0 score if requiredTechStack is empty', () => {
-      const candidates: EligibleCandidate[] = [
-        {
-          userId: '1',
-          fullName: 'Test User',
-          bio: '',
-          rawProfileSkills: [],
+  it('returns zero overlap when no request tags are provided', () => {
+    const scored = service.scoreAll([], [createCandidate()]);
+
+    expect(scored[0].tagOverlapScore).toBe(0);
+    expect(scored[0].matchedSkills).toEqual([]);
+  });
+
+  it('matches aliases and returns the canonical skill label', () => {
+    const scored = service.scoreAll(
+      ['React'],
+      [
+        createCandidate({
           skills: [
             {
-              skillName: 'React',
-              skillSlug: 'react',
-              aliases: [],
-              category: 'FRONTEND',
-              priority: 'PRIMARY',
-              proficiencyLevel: 8,
-              yearsOfExperience: 5,
+              name: 'ReactJS',
+              slug: 'reactjs',
+              aliases: ['React', 'React.js'],
+              domainId: null,
+              domainName: 'Web Development',
+              domainSlug: 'web-development',
+              isPrimary: true,
+              yearsExp: 4,
+              completedProjectsCount: 3,
+              lastUsedAt: new Date('2025-12-01T00:00:00.000Z'),
               verificationStatus: 'PROJECT_VERIFIED',
-              isMatch: false,
             },
           ],
-          trustScore: 4.5,
-          kycStatus: 'VERIFIED',
-          activeProjectCount: 0,
-          disputesLost: 0,
-          totalProjectsFinished: 10,
+        }),
+      ],
+    );
+
+    expect(scored[0].tagOverlapScore).toBeGreaterThan(80);
+    expect(scored[0].matchedSkills).toContain('ReactJS');
+  });
+
+  it('matches a domain tag against a related structured skill', () => {
+    const scored = service.scoreAll(
+      ['FinTech'],
+      [
+        createCandidate({
+          skills: [
+            {
+              name: 'Banking',
+              slug: 'banking',
+              aliases: [],
+              domainId: 'domain-fintech',
+              domainName: 'FinTech',
+              domainSlug: 'fintech',
+              isPrimary: true,
+              yearsExp: 5,
+              completedProjectsCount: 4,
+              lastUsedAt: new Date('2026-01-15T00:00:00.000Z'),
+              verificationStatus: 'PROJECT_VERIFIED',
+            },
+          ],
+        }),
+      ],
+    );
+
+    expect(scored[0].tagOverlapScore).toBeGreaterThanOrEqual(75);
+    expect(scored[0].matchedSkills).toContain('Banking (FinTech)');
+  });
+
+  it('uses raw profile tags as a fallback when structured skills are missing', () => {
+    const scored = service.scoreAll(
+      ['PostgreSQL', 'AWS'],
+      [
+        createCandidate({
+          rawProfileSkills: ['PostgreSQL DB', 'AWS CloudServices', 'Docker'],
+        }),
+      ],
+    );
+
+    expect(scored[0].tagOverlapScore).toBeGreaterThan(40);
+    expect(scored[0].matchedSkills).toContain('PostgreSQL DB');
+    expect(scored[0].matchedSkills).toContain('AWS CloudServices');
+  });
+
+  it('boosts candidates with stronger history signals for the same domain match', () => {
+    const recentExperienced = createCandidate({
+      candidateId: 'recent',
+      skills: [
+        {
+          name: 'Banking',
+          slug: 'banking',
+          aliases: [],
+          domainId: 'domain-fintech',
+          domainName: 'FinTech',
+          domainSlug: 'fintech',
+          isPrimary: true,
+          yearsExp: 6,
+          completedProjectsCount: 5,
+          lastUsedAt: new Date('2026-01-15T00:00:00.000Z'),
+          verificationStatus: 'PROJECT_VERIFIED',
         },
-      ];
-
-      const scored = service.scoreAll([], candidates);
-      expect(scored[0].tagOverlapScore).toBe(0);
-      expect(scored[0].matchedSkills.length).toBe(0);
+      ],
+    });
+    const staleLightweight = createCandidate({
+      candidateId: 'stale',
+      skills: [
+        {
+          name: 'Banking',
+          slug: 'banking',
+          aliases: [],
+          domainId: 'domain-fintech',
+          domainName: 'FinTech',
+          domainSlug: 'fintech',
+          isPrimary: false,
+          yearsExp: 1,
+          completedProjectsCount: 0,
+          lastUsedAt: new Date('2022-01-15T00:00:00.000Z'),
+          verificationStatus: 'SELF_DECLARED',
+        },
+      ],
     });
 
-    it('should correctly calculate max possible points and score based on matching skills', () => {
-      // Max points per skill = 24. Required skills = 2. Max possible points = 48.
-      const requiredTechStack = ['React', 'NestJS'];
+    const scored = service.scoreAll(['FinTech'], [recentExperienced, staleLightweight]);
 
-      const perfectCandidate: EligibleCandidate = {
-        userId: '1',
-        fullName: 'Perfect User',
-        bio: '',
-        rawProfileSkills: [],
-        skills: [
-          {
-            skillName: 'React',
-            skillSlug: 'react',
-            aliases: [],
-            category: 'FRONTEND',
-            priority: 'PRIMARY', // +5
-            proficiencyLevel: 10, // +2
-            yearsOfExperience: 4, // +2
-            verificationStatus: 'PROJECT_VERIFIED', // +3
-            // Base score for match: 10
-            // Total for React: 10 + 5 + 2 + 2 + 3 = 22
-            isMatch: false,
-          },
-          {
-            skillName: 'NestJS',
-            skillSlug: 'nestjs',
-            aliases: [],
-            category: 'BACKEND',
-            priority: 'PRIMARY', // +5
-            proficiencyLevel: 8, // +2
-            yearsOfExperience: 3, // +2
-            verificationStatus: 'PORTFOLIO_LINKED', // +2
-            // Base score for match: 10
-            // Total for NestJS: 10 + 5 + 2 + 2 + 2 = 21
-            isMatch: false,
-          },
-        ],
-        trustScore: 5.0,
-        kycStatus: 'VERIFIED',
-        activeProjectCount: 0,
-        disputesLost: 0,
-        totalProjectsFinished: 10,
-      };
-
-      const candidates = [perfectCandidate];
-      const scored = service.scoreAll(requiredTechStack, candidates);
-
-      // (22 + 21) / 48 * 100 = 43 / 48 * 100 = 89.58%
-      expect(scored[0].tagOverlapScore).toBeCloseTo(89.58, 2);
-      expect(scored[0].matchedSkills).toContain('React');
-      expect(scored[0].matchedSkills).toContain('NestJS');
-    });
-
-    it('should fallback to rawProfileSkills if UserSkillEntity skills are empty', () => {
-      const requiredTechStack = ['PostgreSQL', 'AWS'];
-
-      const fallbackCandidate: EligibleCandidate = {
-        userId: '2',
-        fullName: 'New User',
-        bio: '',
-        rawProfileSkills: ['PostgreSQL DB', 'AWS CloudServices', 'Docker'],
-        skills: [], // No structured skills yet
-        trustScore: 3.0,
-        kycStatus: 'UNVERIFIED',
-        activeProjectCount: 0,
-        disputesLost: 0,
-        totalProjectsFinished: 0,
-      };
-
-      // Max possible points for 2 skills = 48 (24 * 2)
-      // Base match points = 10 per skill. Total points = 20.
-      // Score = 20 / 48 * 100 = 41.67%
-      const scored = service.scoreAll(requiredTechStack, [fallbackCandidate]);
-
-      expect(scored[0].tagOverlapScore).toBeCloseTo(41.67, 2);
-      expect(scored[0].matchedSkills.length).toBe(2);
-      // It should extract the original raw strings
-      expect(scored[0].matchedSkills).toContain('PostgreSQL DB');
-      expect(scored[0].matchedSkills).toContain('AWS CloudServices');
-    });
+    expect(scored[0].candidateId).toBe('recent');
+    expect(scored[0].tagOverlapScore).toBeGreaterThan(scored[1].tagOverlapScore);
   });
 });

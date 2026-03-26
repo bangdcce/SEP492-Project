@@ -30,7 +30,7 @@ import {
   Unlink,
 } from "lucide-react";
 
-import { Button } from "@/shared/components/ui/Button";
+import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/utils/utils";
 
 export type NarrativeDocument = Record<string, unknown>;

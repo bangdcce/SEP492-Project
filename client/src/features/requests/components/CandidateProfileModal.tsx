@@ -11,14 +11,21 @@ import {
 import { Star, Sparkles, CheckCircle2, ShieldCheck, ExternalLink } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import type { RequestMatchCandidate } from "../types";
+import { extractCandidateReasoning } from "../matchReasoning";
 
 interface CandidateProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   candidate: RequestMatchCandidate | null;
+  profileBasePath?: string | null;
 }
 
-export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateProfileModalProps) {
+export function CandidateProfileModal({
+  isOpen,
+  onClose,
+  candidate,
+  profileBasePath = "/client",
+}: CandidateProfileModalProps) {
   const navigate = useNavigate();
   if (!candidate) return null;
 
@@ -36,6 +43,94 @@ export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateP
     candidateProfile
   } = candidate;
 
+  const toNumericScore = (value: number | string | null | undefined) => {
+    const parsed =
+      typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const totalScoreValue = toNumericScore(matchScore);
+  const techScoreValue = toNumericScore(tagOverlapScore);
+  const trustScoreValue = toNumericScore(normalizedTrust);
+  const aiScoreValue =
+    aiRelevanceScore !== null && aiRelevanceScore !== undefined
+      ? toNumericScore(aiRelevanceScore)
+      : null;
+  const usesAiScoring = aiScoreValue !== null;
+
+  const scoreBreakdown = usesAiScoring
+    ? [
+        {
+          label: "AI relevance",
+          raw: aiScoreValue,
+          weightLabel: "50%",
+          contribution: Math.round(aiScoreValue * 0.5 * 10) / 10,
+          summary:
+            aiScoreValue >= 80
+              ? "AI sees a strong contextual fit with the project description."
+              : aiScoreValue >= 50
+                ? "AI sees some fit, but not a highly confident one."
+                : "AI found weak contextual alignment with the project description.",
+        },
+        {
+          label: "Tech match",
+          raw: techScoreValue,
+          weightLabel: "30%",
+          contribution: Math.round(techScoreValue * 0.3 * 10) / 10,
+          summary:
+            techScoreValue === 0
+              ? "No required tech, domain, or profile signals were detected, so this contributes 0."
+              : matchedSkills?.length
+                ? `Matched signals: ${matchedSkills.join(", ")}.`
+                : "Structured skill and profile overlap contributed to the technical score.",
+        },
+        {
+          label: "Trust & XP",
+          raw: trustScoreValue,
+          weightLabel: "20%",
+          contribution: Math.round(trustScoreValue * 0.2 * 10) / 10,
+          summary:
+            trustScoreValue >= 80
+              ? "Strong trust score and completion history lifted the result."
+              : trustScoreValue >= 50
+                ? "Trust and experience helped, but were not enough to dominate the score."
+                : "Trust and experience added only a limited boost.",
+        },
+      ]
+    : [
+        {
+          label: "Tech match",
+          raw: techScoreValue,
+          weightLabel: "70%",
+          contribution: Math.round(techScoreValue * 0.7 * 10) / 10,
+          summary:
+            techScoreValue === 0
+              ? "No required tech, domain, or profile signals were detected, so tech contributes 0."
+              : matchedSkills?.length
+                ? `Matched signals: ${matchedSkills.join(", ")}.`
+                : "Structured skill and profile overlap drove the technical score.",
+        },
+        {
+          label: "Trust & XP",
+          raw: trustScoreValue,
+          weightLabel: "30%",
+          contribution: Math.round(trustScoreValue * 0.3 * 10) / 10,
+          summary:
+            trustScoreValue >= 80
+              ? "Strong trust score and experience kept the candidate competitive."
+              : trustScoreValue >= 50
+                ? "Trust and experience provided a moderate lift."
+                : "Trust and experience added only a small lift.",
+        },
+      ];
+
+  const formulaText = usesAiScoring
+    ? `${aiScoreValue} x 50% + ${techScoreValue} x 30% + ${trustScoreValue} x 20% = ${totalScoreValue}`
+    : `${techScoreValue} x 70% + ${trustScoreValue} x 30% = ${totalScoreValue}`;
+  const headlineExplanation = usesAiScoring
+    ? "This score uses AI relevance, tech match, and trust weighting."
+    : "This score came from Quick Match, so only tech match and trust were used.";
+
   const labelConfig: Record<string, { color: string; icon: string; text: string }> = {
     PERFECT_MATCH: { color: "bg-emerald-100 text-emerald-800 border-emerald-300", icon: "🟢", text: "Perfect Match" },
     POTENTIAL: { color: "bg-amber-100 text-amber-800 border-amber-300", icon: "🟡", text: "Potential Fit" },
@@ -46,6 +141,7 @@ export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateP
   const labelData = classificationLabel ? labelConfig[classificationLabel] || labelConfig.NORMAL : labelConfig.NORMAL;
   
   const targetId = userId || candidateId;
+  const candidateReasoning = extractCandidateReasoning(reasoning, [userId, candidateId]);
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -95,15 +191,42 @@ export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateP
                </div>
             </div>
 
+            <div className="rounded-xl border bg-slate-50/80 p-4">
+              <div className="mb-3">
+                <h4 className="text-sm font-semibold uppercase text-slate-700">Score Breakdown</h4>
+                <p className="mt-1 text-sm text-slate-600">{headlineExplanation}</p>
+                <p className="mt-2 rounded-md border bg-white px-3 py-2 font-mono text-sm text-slate-900">
+                  {formulaText}
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                {scoreBreakdown.map((item) => (
+                  <div key={item.label} className="rounded-lg border bg-white p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-slate-900">{item.label}</p>
+                        <p className="text-xs text-slate-500">
+                          Raw: {item.raw} • Weight: {item.weightLabel}
+                        </p>
+                      </div>
+                      <Badge variant="outline">+{item.contribution} pts</Badge>
+                    </div>
+                    <p className="mt-2 text-sm text-slate-600">{item.summary}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
             {/* AI Reasoning */}
-            {reasoning && (
+            {candidateReasoning && (
                 <div className="bg-muted/30 p-4 rounded-xl border border-muted/50">
                     <div className="flex items-center gap-2 mb-2 text-primary font-semibold">
                       <Sparkles className="w-4 h-4" /> 
                       AI Recommendation
                     </div>
                     <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
-                      {reasoning}
+                      {candidateReasoning}
                     </p>
                 </div>
             )}
@@ -132,11 +255,17 @@ export function CandidateProfileModal({ isOpen, onClose, candidate }: CandidateP
           </div>
         </ScrollArea>
         <div className="p-4 border-t bg-muted/10 flex justify-end">
-          {targetId && (
-            <Button onClick={() => { onClose(); navigate(`/client/discovery/profile/${targetId}`); }} className="shadow-sm">
+          {targetId && profileBasePath ? (
+            <Button
+              onClick={() => {
+                onClose();
+                navigate(`${profileBasePath}/discovery/profile/${targetId}`);
+              }}
+              className="shadow-sm"
+            >
               <ExternalLink className="w-4 h-4 mr-2" /> View Full Profile
             </Button>
-          )}
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>

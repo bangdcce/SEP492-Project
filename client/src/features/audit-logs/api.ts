@@ -1,23 +1,31 @@
 import { apiClient } from "@/shared/api/client";
-import type { AuditLogEntry } from "./types";
+import type {
+  AuditEventCategory,
+  AuditLogEntry,
+  AuditLogSeriesPoint,
+  AuditLogSummary,
+  AuditLogTimelineResponse,
+  AuditSource,
+  RiskLevel,
+} from "./types";
 
-/**
- * API Query Parameters - khớp với GetAuditLogsDto trên server
- */
 export interface GetAuditLogsParams {
   page?: number;
   limit?: number;
-  userId?: number;
+  userId?: string;
+  requestId?: string;
+  sessionId?: string;
   entityType?: string;
   action?: string;
   dateFrom?: string;
   dateTo?: string;
-  riskLevel?: string;
+  riskLevel?: RiskLevel;
+  source?: AuditSource;
+  eventCategory?: AuditEventCategory;
+  statusCode?: number;
+  errorOnly?: boolean;
 }
 
-/**
- * API Response structure từ server
- */
 export interface AuditLogsResponse {
   data: AuditLogEntry[];
   meta: {
@@ -26,37 +34,29 @@ export interface AuditLogsResponse {
     limit: number;
     totalPages: number;
   };
+  summary: AuditLogSummary;
+  series: AuditLogSeriesPoint[];
 }
 
-/**
- * Audit Logs API Endpoints
- */
 const ENDPOINTS = {
   AUDIT_LOGS: "/audit-logs",
 };
 
-/**
- * Audit Logs API Service
- */
 export const auditLogsApi = {
-  /**
-   * Lấy danh sách audit logs với phân trang và filters
-   */
   getAll: (params?: GetAuditLogsParams) =>
     apiClient.get<AuditLogsResponse>(ENDPOINTS.AUDIT_LOGS, { params }),
 
-  /**
-   * Lấy một audit log theo ID
-   */
-  getById: (id: string) =>
-    apiClient.get<AuditLogEntry>(`${ENDPOINTS.AUDIT_LOGS}/${id}`),
+  getById: (id: string) => apiClient.get<AuditLogEntry>(`${ENDPOINTS.AUDIT_LOGS}/${id}`),
 
-  /**
-   * Export audit logs (nếu server có endpoint này)
-   */
-  export: (params?: GetAuditLogsParams) =>
-    apiClient.get<Blob>(`${ENDPOINTS.AUDIT_LOGS}/export`, {
-      params,
-      responseType: "blob" as any,
+  getTimeline: (id: string) =>
+    apiClient.get<AuditLogTimelineResponse>(`${ENDPOINTS.AUDIT_LOGS}/${id}/timeline`),
+
+  export: async (format: "csv" | "xlsx", params?: GetAuditLogsParams) =>
+    await apiClient.getResponse<Blob>(`${ENDPOINTS.AUDIT_LOGS}/export`, {
+      params: {
+        ...params,
+        format,
+      },
+      responseType: "blob",
     }),
 };

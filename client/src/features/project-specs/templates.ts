@@ -1,21 +1,50 @@
 import type { ClientFeatureDTO } from './types';
+import type { CanonicalProductType } from '@/shared/utils/productType';
+import { normalizeProductTypeCode } from '@/shared/utils/productType';
 
 export interface ClientSpecTemplate {
   code: string;
   name: string;
   description: string;
-  projectCategory: string;
-  estimatedTimeline: string;
+  projectCategory: CanonicalProductType;
+  compatibleProductTypes: CanonicalProductType[];
+  suggestedTimelineLabel: string;
   clientFeatures: ClientFeatureDTO[];
 }
 
 export const CLIENT_SPEC_TEMPLATES: ClientSpecTemplate[] = [
   {
+    code: 'LANDING_PAGE_STARTER',
+    name: 'Landing Page Starter',
+    description: 'Lean conversion-focused scope for a one-page product or campaign launch.',
+    projectCategory: 'LANDING_PAGE',
+    compatibleProductTypes: ['LANDING_PAGE', 'CORP_WEBSITE'],
+    suggestedTimelineLabel: '2-4 weeks',
+    clientFeatures: [
+      {
+        title: 'Hero Section',
+        description: 'Present the core value proposition with a clear headline, supporting copy, and visual focus.',
+        priority: 'MUST_HAVE',
+      },
+      {
+        title: 'Lead Capture Form',
+        description: 'Collect visitor inquiries or sign-ups with a short form and clear call to action.',
+        priority: 'MUST_HAVE',
+      },
+      {
+        title: 'Trust & Conversion Blocks',
+        description: 'Show testimonials, partner logos, FAQs, or other proof points to improve conversion.',
+        priority: 'SHOULD_HAVE',
+      },
+    ],
+  },
+  {
     code: 'ECOMMERCE_STANDARD',
     name: 'E-commerce Standard',
     description: 'Baseline flow for catalog, cart, checkout, and admin product management.',
-    projectCategory: 'E_COMMERCE',
-    estimatedTimeline: '10-14 weeks',
+    projectCategory: 'ECOMMERCE',
+    compatibleProductTypes: ['ECOMMERCE'],
+    suggestedTimelineLabel: '10-14 weeks',
     clientFeatures: [
       {
         title: 'Product Catalog',
@@ -38,8 +67,9 @@ export const CLIENT_SPEC_TEMPLATES: ClientSpecTemplate[] = [
     code: 'SAAS_PORTAL',
     name: 'SaaS Portal',
     description: 'Typical SaaS dashboard with account management and subscription flows.',
-    projectCategory: 'SAAS',
-    estimatedTimeline: '8-12 weeks',
+    projectCategory: 'WEB_APP',
+    compatibleProductTypes: ['WEB_APP', 'SYSTEM'],
+    suggestedTimelineLabel: '8-12 weeks',
     clientFeatures: [
       {
         title: 'Workspace Dashboard',
@@ -62,8 +92,9 @@ export const CLIENT_SPEC_TEMPLATES: ClientSpecTemplate[] = [
     code: 'SERVICE_MARKETPLACE',
     name: 'Service Marketplace',
     description: 'Marketplace flow with profile pages, discovery, and booking workflow.',
-    projectCategory: 'MARKETPLACE',
-    estimatedTimeline: '12-16 weeks',
+    projectCategory: 'WEB_APP',
+    compatibleProductTypes: ['WEB_APP', 'MOBILE_APP'],
+    suggestedTimelineLabel: '12-16 weeks',
     clientFeatures: [
       {
         title: 'Provider Discovery',
@@ -83,3 +114,27 @@ export const CLIENT_SPEC_TEMPLATES: ClientSpecTemplate[] = [
     ],
   },
 ];
+
+export const getCompatibleClientSpecTemplates = (productType?: string | null) => {
+  const normalized = normalizeProductTypeCode(productType);
+  if (!normalized) {
+    return CLIENT_SPEC_TEMPLATES;
+  }
+
+  return CLIENT_SPEC_TEMPLATES.filter((template) =>
+    template.compatibleProductTypes.includes(normalized),
+  );
+};
+
+export const getDefaultClientSpecTemplateCode = (productType?: string | null) => {
+  const normalized = normalizeProductTypeCode(productType);
+  if (!normalized) {
+    return undefined;
+  }
+
+  return (
+    getCompatibleClientSpecTemplates(normalized).find(
+      (template) => template.projectCategory === normalized,
+    )?.code || getCompatibleClientSpecTemplates(normalized)[0]?.code
+  );
+};

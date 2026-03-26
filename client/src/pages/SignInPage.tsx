@@ -36,6 +36,27 @@ export function SignInPage({
     return emailRegex.test(email);
   };
 
+  const resolvePostLoginRoute = (role?: string) => {
+    const userRole = role?.toUpperCase();
+
+    if (userRole === "ADMIN") {
+      return ROUTES.ADMIN_DASHBOARD;
+    }
+    if (userRole === "CLIENT") {
+      return ROUTES.CLIENT_DASHBOARD;
+    }
+    if (userRole === "FREELANCER") {
+      return ROUTES.FREELANCER_DASHBOARD;
+    }
+    if (userRole === "BROKER") {
+      return ROUTES.BROKER_DASHBOARD;
+    }
+    if (userRole === "STAFF") {
+      return "/staff/dashboard";
+    }
+    return ROUTES.CLIENT_DASHBOARD;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
@@ -90,22 +111,14 @@ export function SignInPage({
       if (onSignInSuccess) {
         onSignInSuccess();
       } else {
-        // Role-based redirect
-        const userRole = loginData.user?.role?.toUpperCase();
+        const targetRoute = resolvePostLoginRoute(loginData.user?.role);
 
-        if (userRole === "ADMIN") {
-          navigate(ROUTES.ADMIN_DASHBOARD);
-        } else if (userRole === "CLIENT") {
-          navigate(ROUTES.CLIENT_DASHBOARD);
-        } else if (userRole === "FREELANCER") {
-          navigate(ROUTES.FREELANCER_DASHBOARD);
-        } else if (userRole === "BROKER") {
-          navigate(ROUTES.BROKER_DASHBOARD);
-        } else if (userRole === "STAFF") {
-          navigate("/staff/dashboard");
+        // Force a full navigation after cookie-based login so the app bootstraps
+        // from a clean authenticated state and avoids race conditions with guards.
+        if (typeof window !== "undefined") {
+          window.location.assign(targetRoute);
         } else {
-          // Default fallback to client dashboard
-          navigate(ROUTES.CLIENT_DASHBOARD);
+          navigate(targetRoute);
         }
       }
     } catch (error: any) {

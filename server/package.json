@@ -13,6 +13,7 @@
     "smoke:runtime": "node scripts/smoke-runtime-modules.js",
     "generate:keys": "node scripts/generate-keys.js",
     "generate:ssl": "ts-node src/scripts/generate-ssl.ts",
+    "attachments:migrate-to-supabase": "node ./node_modules/ts-node/dist/bin.js src/scripts/migrate-request-attachments-to-supabase.ts",
     "build": "nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",

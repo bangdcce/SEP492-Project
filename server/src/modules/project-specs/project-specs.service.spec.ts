@@ -19,6 +19,8 @@ import { DeliverableType } from '../../database/entities/milestone.entity';
 import { ProjectSpecSignatureEntity } from '../../database/entities/project-spec-signature.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { NotificationEntity } from '../../database/entities/notification.entity';
+import { NotificationsService } from '../notifications/notifications.service';
+import { RequestChatService } from '../request-chat/request-chat.service';
 
 describe('ProjectSpecsService', () => {
   let service: ProjectSpecsService;
@@ -45,8 +47,17 @@ describe('ProjectSpecsService', () => {
     create: jest.fn((data) => data),
     save: jest.fn(),
   };
+  const mockNotificationsService = {
+    create: jest.fn().mockResolvedValue(undefined),
+    createMany: jest.fn().mockResolvedValue(undefined),
+  };
   const mockAuditLogsService = {
     log: jest.fn(),
+  };
+  const mockRequestChatService = {
+    createSystemMessage: jest.fn().mockResolvedValue(undefined),
+    assertRequestReadAccess: jest.fn().mockResolvedValue(undefined),
+    assertRequestWriteAccess: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockUser: UserEntity = {
@@ -92,6 +103,8 @@ describe('ProjectSpecsService', () => {
         { provide: getRepositoryToken(NotificationEntity), useValue: mockNotificationsRepo },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: NotificationsService, useValue: mockNotificationsService },
+        { provide: RequestChatService, useValue: mockRequestChatService },
       ],
     }).compile();
 
@@ -334,7 +347,7 @@ describe('ProjectSpecsService', () => {
         .mockResolvedValueOnce(null);
 
       await expect(service.createFullSpec(mockUser, fullSpecDto, {})).rejects.toThrow(
-        /cannot exceed approved client spec budget/i,
+        /must match the approved commercial baseline/i,
       );
     });
 
@@ -357,7 +370,7 @@ describe('ProjectSpecsService', () => {
 
       await expect(
         service.updateFullSpec(mockUser, 'full-spec-uuid', fullSpecDto, {}),
-      ).rejects.toThrow(/cannot exceed approved client spec budget/i);
+      ).rejects.toThrow(/must match the approved commercial baseline/i);
     });
 
     it('rejects updateFullSpec when the full spec is locked by a contract draft', async () => {
@@ -475,7 +488,7 @@ describe('ProjectSpecsService', () => {
           },
           {},
         ),
-      ).rejects.toThrow(/due date must be on or after the start date/i);
+      ).rejects.toThrow(/due date must be on or after/i);
     });
   });
 
