@@ -1,0 +1,211 @@
+@startuml Delete_Account_Sequence_Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor Black
+skinparam shadowing false
+
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #DDDDDD
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+    ActorBackgroundColor White
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+    GroupHeaderBackgroundColor White
+    GroupBodyBackgroundColor White
+    GroupBorderColor Black
+}
+
+title Delete Account Sequence Diagram
+
+actor "User" as Actor
+boundary "ProfilePage" as Page
+participant "DeleteAccountModal" as Modal
+participant "AuthController" as Controller
+participant "AuthService" as Service
+database "Database" as DB
+
+Actor -> Page : 1. Access profile page
+activate Actor
+activate Page
+
+Page --> Actor : 2. Display profile with account options
+
+Actor -> Page : 3. Click "Delete Account" button
+Page -> Modal : 4. Open the delete account dialog
+activate Modal
+
+Modal -> Modal : 5. Reset state\n(step, password, obligations)
+activate Modal
+deactivate Modal
+
+Modal -> Controller : 6. Check whether deletion is allowed
+activate Controller
+
+Controller -> Service : 7. Check active projects and wallet balance
+activate Service
+
+Service -> DB : 8. Count active projects
+activate DB
+DB --> Service : 9. Return active project count
+deactivate DB
+
+Service -> DB : 10. Get wallet balance
+activate DB
+DB --> Service : 11. Return wallet data
+deactivate DB
+
+Service -> Service : 12. Decide whether there are outstanding obligations
+activate Service
+deactivate Service
+
+Service --> Controller : 13. Return obligations data
+deactivate Service
+
+Controller --> Modal : 14. Return obligation summary\n{ hasObligations, activeProjects, walletBalance }
+deactivate Controller
+
+Modal -> Modal : 15. Show obligations summary and warning
+activate Modal
+deactivate Modal
+
+Modal --> Actor : 16. Display Step 1: Review obligations
+
+== Step 1: Review Obligations ==
+
+alt [Has Active Projects or Balance]
+    Actor -> Modal : 17. Click "Proceed"
+    Modal -> Modal : 18. Block deletion while obligations exist
+    activate Modal
+    deactivate Modal
+    Modal --> Actor : 19. Show error toast\n"Complete projects and withdraw balance first"
+else [No Obligations]
+    Actor -> Modal : 20. Click "Proceed"
+    Modal -> Modal : 21. Move to confirmation step
+    activate Modal
+    deactivate Modal
+    Modal --> Actor : 22. Display Step 2: Confirm deletion
+
+    == Step 2: Password Confirmation ==
+
+    Actor -> Modal : 23. Enter password
+    Modal -> Modal : 24. Store the entered password
+    activate Modal
+    deactivate Modal
+
+    Actor -> Modal : 25. Click "Delete Account"
+    
+    Modal -> Modal : 26. Validate password not empty
+    activate Modal
+    deactivate Modal
+
+    alt [Password Empty]
+        Modal --> Actor : 27. Show "Please enter your password"
+    else [Password Provided]
+        Modal -> Modal : 28. Show loading indicator
+        activate Modal
+        deactivate Modal
+
+        Modal -> Controller : 29. Send delete account request
+        activate Controller
+
+        Controller -> Controller : 30. Validate request data
+        activate Controller
+        deactivate Controller
+
+        Controller -> Service : 31. Process account deletion
+        activate Service
+
+        Service -> DB : 32. Load the user account
+        activate DB
+        DB --> Service : 33. Return user data
+        deactivate DB
+
+        Service -> Service : 34. Verify the password
+        activate Service
+        Service --> Service : 35. Verify password match
+        deactivate Service
+
+        alt [Password Invalid]
+            Service --> Controller : 36. Reject deletion: incorrect password
+            Controller --> Modal : 37. Return authentication error
+            Modal -> Modal : 38. Hide loading indicator
+            activate Modal
+            deactivate Modal
+            Modal --> Actor : 39. Show "Incorrect password"
+        else [Password Valid]
+
+            Service -> DB : 40. Re-check active projects
+            activate DB
+            DB --> Service : 41. Return project count
+            deactivate DB
+
+            Service -> DB : 42. Re-check wallet balance
+            activate DB
+            DB --> Service : 43. Return wallet balance
+            deactivate DB
+
+            alt [Still Has Obligations]
+                Service --> Controller : 44. Reject deletion: outstanding obligations
+                Controller --> Modal : 45. Return obligation error
+                Modal -> Modal : 46. Hide loading indicator
+                activate Modal
+                deactivate Modal
+                Modal --> Actor : 47. Show "Cannot delete while having obligations"
+            else [No Obligations]
+
+                Service -> DB : 48. Delete active sessions (sign out)
+                activate DB
+                DB --> Service : 49. Return deleted sessions
+                deactivate DB
+
+                Service -> DB : 50. Delete the user profile
+                activate DB
+                DB --> Service : 51. Return deleted profile
+                deactivate DB
+
+                Service -> DB : 52. Mark the account as deleted
+                activate DB
+                DB --> Service : 53. Return update confirmation
+                deactivate DB
+
+                Service --> Controller : 54. Return success message
+                deactivate Service
+
+                Controller -> Controller : 55. Clear auth cookies
+                activate Controller
+                deactivate Controller
+
+                Controller --> Modal : 56. Return deletion success
+                deactivate Controller
+
+                Modal -> Modal : 57. Clear local user data
+                activate Modal
+                deactivate Modal
+
+                Modal -> Modal : 58. Show success message
+                activate Modal
+                deactivate Modal
+
+                Modal -> Page : 59. navigate(ROUTES.LANDING, { replace: true })
+                activate Page
+                Page --> Actor : 60. Redirect to landing page
+                deactivate Page
+
+            end
+        end
+    end
+end
+
+deactivate Modal
+deactivate Page
+deactivate Actor
+
+@enduml

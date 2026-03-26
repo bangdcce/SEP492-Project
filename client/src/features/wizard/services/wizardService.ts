@@ -1,19 +1,20 @@
 import { apiClient } from "@/shared/api/client";
 
 export interface WizardOption {
-  id: string;
+  id: number;
   value: string;
   label: string;
   sortOrder: number;
 }
 
 export interface WizardQuestion {
-  id: string;
+  id: number;
   code: string;
   label: string;
   helpText?: string;
   inputType: "SELECT" | "CHECKBOX" | "TEXT" | "RADIO";
   sortOrder: number;
+  isActive?: boolean;
   options: WizardOption[];
 }
 
@@ -170,5 +171,32 @@ export const wizardService = {
 
   getFreelancerMatchesQuick: async (requestId: string) => {
     return await apiClient.get(`/matching/${requestId}?role=FREELANCER&enableAi=false`);
+  },
+
+  // ========== ADMIN METHODS ==========
+
+  // View all wizard questions (includes inactive)
+  getAllQuestionsForAdmin: async (): Promise<WizardQuestion[]> => {
+    return await apiClient.get<WizardQuestion[]>("/admin/wizard/questions");
+  },
+
+  // Create new wizard question
+  createWizardQuestion: async (data: Partial<WizardQuestion>) => {
+    return await apiClient.post("/admin/wizard/questions", data);
+  },
+
+  // View detail of a specific wizard question
+  getQuestionDetailForAdmin: async (id: number): Promise<WizardQuestion> => {
+    return await apiClient.get<WizardQuestion>(`/admin/wizard/questions/${id}`);
+  },
+
+  // Update wizard question
+  updateWizardQuestion: async (id: number, data: Partial<WizardQuestion>) => {
+    return await apiClient.put(`/admin/wizard/questions/${id}`, data);
+  },
+
+  // Delete wizard question
+  deleteWizardQuestion: async (id: number) => {
+    return await apiClient.delete(`/admin/wizard/questions/${id}`);
   },
 };

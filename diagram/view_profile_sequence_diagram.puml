@@ -1,0 +1,132 @@
+@startuml View_Profile_Sequence_Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor Black
+skinparam shadowing false
+
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #DDDDDD
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+    ActorBackgroundColor White
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+    GroupHeaderBackgroundColor White
+    GroupBodyBackgroundColor White
+    GroupBorderColor Black
+}
+
+title View Profile Sequence Diagram
+
+actor "User" as Actor
+boundary "ProfilePage" as Page
+participant "apiClient" as API
+participant "AuthController" as Controller
+participant "JwtAuthGuard" as Guard
+participant "AuthService" as Service
+database "Database" as DB
+
+Actor -> Page : 1. Access profile page
+activate Actor
+activate Page
+
+Page -> Page : 2. Load profile when the page opens
+activate Page
+deactivate Page
+
+Page -> API : 3. Request profile
+activate API
+
+API -> Controller : 4. Request profile data
+activate Controller
+
+Controller -> Guard : 5. Verify the session token
+activate Guard
+
+Guard -> Guard : 6. Read token from cookies
+activate Guard
+deactivate Guard
+
+Guard -> Guard : 7. Validate the token
+activate Guard
+deactivate Guard
+
+alt [Not Authenticated]
+    Guard --> Controller : 8. Reject request: not signed in
+    Controller --> API : 9. Return authentication error
+    API --> Page : 10. Return error response
+    Page --> Actor : 11. Redirect to sign in page
+else [Token Valid]
+    Guard -> Guard : 12. Attach user info to the request
+    activate Guard
+    deactivate Guard
+    
+    Guard --> Controller : 13. Allow request
+    deactivate Guard
+
+    Controller -> Service : 14. Fetch user profile
+    activate Service
+
+    Service -> DB : 15. Load user and profile from database
+    activate DB
+    DB --> Service : 16. Return user with profile data
+    deactivate DB
+
+    Service --> Controller : 17. Return user entity with profile
+    deactivate Service
+
+    Controller -> Controller : 18. Prepare profile response data
+    activate Controller
+    deactivate Controller
+
+    Controller --> API : 19. Return profile response
+    deactivate Controller
+
+    API --> Page : 20. Return profile data
+    deactivate API
+
+    Page -> Page : 21. Update the screen with profile data
+    activate Page
+    deactivate Page
+
+    Page -> Page : 22. Sync updated user data to local storage
+    activate Page
+    deactivate Page
+
+    Page -> Page : 23. Hide loading indicator
+    activate Page
+    deactivate Page
+
+    Page --> Actor : 24. Display profile information\n(Avatar/Initials, Full Name, Email,\nPhone Number, Role Badge, Verification Status)
+
+    == Profile Display ==
+
+    Page --> Actor : 25. Show Trust Score Card\n(Badge, Current Score, Score History)
+
+    Page --> Actor : 26. Show Statistics\n(Finished Projects, Disputes Lost, Trust Score)
+
+    alt [Role is FREELANCER or BROKER]
+        Page --> Actor : 27. Display Skills section\n(List of skills)
+    end
+
+    alt [Has LinkedIn URL]
+        Page --> Actor : 28. Display LinkedIn link\nwith external link icon
+    end
+
+    alt [Has CV URL]
+        Page --> Actor : 29. Display CV section\nwith download/view option
+    end
+
+end
+
+deactivate Page
+deactivate Actor
+
+@enduml

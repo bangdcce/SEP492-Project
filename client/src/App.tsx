@@ -89,6 +89,7 @@ const ContractListPage = lazy(
 );
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
+const AdminWizardQuestionsPage = lazy(() => import("@/pages/AdminWizardQuestionsPage"));
 const AdminLeaveManagementPage = lazy(
   () => import("@/pages/AdminLeaveManagementPage"),
 );
@@ -194,7 +195,7 @@ function App() {
     const bootstrap = async () => {
       try {
         const { isAuthenticated } = await apiClient.bootstrapSession();
-        
+
         // Only start proactive refresh if authenticated and session is stable
         // Wait a bit to ensure cookies are fully set after login
         if (isAuthenticated) {
@@ -627,6 +628,17 @@ function App() {
           }
         />
         <Route
+          path="/admin/wizard-questions"
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminWizardQuestionsPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+
+        <Route
           path="/admin/leave"
           element={
             <RoleGuard allowedRoles={["ADMIN"]}>
@@ -752,19 +764,19 @@ function App() {
           path="/broker/invitations"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
-               <BrokerDashboardLayout>
-                  <MyInvitationsPage />
-               </BrokerDashboardLayout>
+              <BrokerDashboardLayout>
+                <MyInvitationsPage />
+              </BrokerDashboardLayout>
             </RoleGuard>
           }
         />
-         <Route
+        <Route
           path="/broker/invitations/:id"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
-               <BrokerDashboardLayout>
-                  <InvitationDetailsPage />
-               </BrokerDashboardLayout>
+              <BrokerDashboardLayout>
+                <InvitationDetailsPage />
+              </BrokerDashboardLayout>
             </RoleGuard>
           }
         />

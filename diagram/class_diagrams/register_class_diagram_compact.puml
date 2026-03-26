@@ -1,0 +1,241 @@
+@startuml Register_Class_Diagram
+title User Registration - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class RegisterDto {
+    + role: UserRole
+    + email: string
+    + password: string
+    + fullName: string
+    + phoneNumber: string
+    + acceptedTerms: boolean
+    + acceptedPrivacy: boolean
+    + skills: string[]
+    + domains: string[]
+    + captchaToken: string
+    --
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    --
+    + postJson(url: string, body: any, withCredentials: boolean): Promise<any>
+    - setupInterceptors()
+    - isRefreshEndpoint(url?: string): boolean
+    - isPublicAuthEndpoint(url?: string): boolean
+    - refreshAccessTokenSingleFlight(): Promise<void>
+    - getAuthErrorCode(error: unknown): string | null
+    - shouldAttemptSessionReconcile(error: unknown): boolean
+    - reconcileSessionSingleFlight(): Promise<void>
+    - handleAuthFailure(suppressRedirect: boolean = false)
+    + bootstrapSession(): Promise<
+    ...
+}
+
+class SignUpPage {
+    - loading: boolean
+    --
+    + validate(dto: RegisterDto): boolean
+    + submit(dto: RegisterDto): Promise<void>
+}
+
+class AuthController {
+    - authService: AuthService
+    - captchaService: CaptchaService
+    - cookiePolicy: AuthCookiePolicy
+    --
+    + signUp(dto: RegisterDto, req: any): any
+    + verifyEmail(@Query('token')
+    + resendVerification(@Body('email')
+    + getProfile(@Req()
+    + getSession(@Req()
+    + forgotPassword(@Body(ValidationPipe)
+    + verifyOtp(@Body(ValidationPipe)
+    + resetPassword(@Body(ValidationPipe)
+    + checkObligations(@Req()
+    + googleAuth(@Req()
+}
+
+class AuthService {
+    - userRepo: Repository
+    - profileRepo: Repository
+    - walletRepo: Repository
+    - userSkillRepo: Repository
+    - emailVerificationService: EmailVerificationService
+    - auditLogsService: AuditLogsService
+    --
+    + register(dto: RegisterDto, meta: any): any
+    + logout(userId: string, refreshToken?: string): Promise<LogoutResponseDto>
+    + validateUser(userId: string): Promise<UserEntity | null>
+    + refreshToken(oldRefreshToken: string): Promise<
+    - cleanupExpiredSessions(userId: string): Promise<void>
+    + forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto>
+    + verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<VerifyOtpResponseDto>
+    + resetPassword(resetPasswordDto: ResetPasswordDto): Promise<ResetPasswordResponseDto>
+    + findUserWithProfile(userId: string): Promise<UserEntity | null>
+    - mapToAuthResponse(user: UserEntity): AuthResponseDto
+}
+
+class CaptchaService {
+    --
+    + verify(token: string): boolean
+    + verifyRecaptcha(token: string): Promise<boolean>
+}
+
+class EmailVerificationService {
+    - emailService: EmailService
+    - transporter: nodemailer.Transporter
+    --
+    + sendVerificationEmail(userId: string, email: string): void
+    + verifyEmail(token: string): Promise<
+    + resendVerificationEmail(email: string): Promise<
+    + isEmailVerified(userId: string): Promise<boolean>
+}
+
+class EmailService {
+    - transporter: nodemailer.Transporter
+    --
+    + send(to: string, subject: string, html: string): void
+    - initializeTransporter()
+    + generateOTP(): string
+    + sendOTP(email: string, otp: string): Promise<void>
+    - getOTPEmailTemplate(otp: string, appName: string): string
+    + maskEmail(email: string): string
+}
+
+class AuditLogsService {
+    --
+    + recordRegistration(userId: string, meta: any): void
+    + logView(entityType: string, entityId: string, req?: RequestContext, actorId?: string)
+    + logLogin(actorId: string, metadata: Record<string, unknown>, req?: RequestContext)
+    + logRegistration(actorId: string, metadata: Record<string, unknown>)
+    + logLogout(actorId: string, req?: RequestContext)
+    + log(payload: AuditLogPayload)
+    + findAll(queryDto: GetAuditLogsDto)
+    - determineRiskLevel(action: string): RiskLevel
+    - extractActorId(req?: RequestContext): string
+    - extractIp(req?: RequestContext): string
+    ...
+}
+
+class Repository {
+    --
+    + findOne(options: any): Promise<any>
+    + create(data: any): any
+    + save(entity: any): Promise<any>
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + passwordHash: string
+    + role: UserRole
+    + createdAt: Date
+    + fullName: string
+    + phoneNumber: string
+    + timeZone: string
+    + isVerified: boolean
+    + resetPasswordOtp: string
+    ...
+    --
+    + badge(): BadgeType
+    + warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE'
+}
+
+class ProfileEntity {
+    + id: string
+    + userId: string
+    + fullName: string
+    + phoneNumber: string
+    + avatarUrl: string
+    + bio: string
+    + companyName: string
+    + skills: string[]
+    + linkedinUrl: string
+    + cvUrl: string
+    --
+}
+
+class WalletEntity {
+    + id: string
+    + userId: string
+    + balance: number
+    + totalDeposited: number
+    + totalWithdrawn: number
+    + currency: string
+    + status: WalletStatus
+    + createdAt: Date
+    + updatedAt: Date
+    + user: any
+    --
+}
+
+class UserSkillEntity {
+    + id: string
+    + userId: string
+    + skillId: string
+    + priority: SkillPriority
+    + verificationStatus: SkillVerificationStatus
+    + portfolioUrl: string | null
+    + completedProjectsCount: number
+    + lastUsedAt: Date | null
+    + proficiencyLevel: number | null
+    + yearsOfExperience: number | null
+    ...
+    --
+}
+
+enum UserRole {
+    ADMIN
+    STAFF
+    BROKER
+    CLIENT
+    FREELANCER
+}
+
+class AuditLogEntity {
+    + id: string
+    + actorId: string
+    + action: string
+    + createdAt: Date
+    + entityType: string
+    + entityId: string
+    + ipAddress: string
+    + userAgent: string
+    + beforeData: Record<string, any>
+    + afterData: Record<string, any>
+    ...
+    --
+}
+
+SignUpPage ..> ApiClient
+ApiClient ..> AuthController
+AuthController --> CaptchaService
+AuthController --> AuthService
+AuthController ..> RegisterDto
+AuthService --> Repository
+AuthService --> EmailVerificationService
+AuthService --> AuditLogsService
+AuthService ..> UserEntity
+AuthService ..> ProfileEntity
+AuthService ..> WalletEntity
+AuthService ..> UserSkillEntity
+EmailVerificationService --> EmailService
+AuditLogsService ..> AuditLogEntity
+UserEntity -- UserRole
+RegisterDto -- UserRole
+
+@enduml

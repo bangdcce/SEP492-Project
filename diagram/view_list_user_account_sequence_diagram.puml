@@ -1,0 +1,117 @@
+@startuml View_List_User_Account_Sequence_Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor Black
+skinparam shadowing false
+
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #DDDDDD
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+    ActorBackgroundColor White
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+    GroupHeaderBackgroundColor White
+    GroupBodyBackgroundColor White
+    GroupBorderColor Black
+}
+
+title View List User Account Sequence Diagram
+
+actor "Admin" as Admin
+boundary "AdminUsersPage" as Page
+participant "apiClient" as API
+participant "UsersController" as Controller
+participant "JwtAuthGuard" as JWTGuard
+participant "RolesGuard" as RoleGuard
+participant "UsersService" as Service
+database "Database" as DB
+
+Admin -> Page : 1. Access Admin Users page
+activate Admin
+activate Page
+
+activate Page
+Page -> Page : 2. Load users list and summary\n(when the page opens or filters change)
+
+Page -> Page : 3. Show loading indicator
+deactivate Page
+
+Page -> API : 4. Request user list with filters
+(role, search, isBanned, page, limit)
+activate API
+
+API -> Controller : 5. Request user list with filters
+activate Controller
+
+Controller -> JWTGuard : 6. Verify JWT token
+activate JWTGuard
+JWTGuard --> Controller : 7. Return authenticated user
+deactivate JWTGuard
+
+Controller -> RoleGuard : 8. Check role (ADMIN or STAFF)
+activate RoleGuard
+RoleGuard --> Controller : 9. Authorize
+deactivate RoleGuard
+
+Controller -> Service : 10. Get users matching the selected filters
+activate Service
+
+activate Service
+Service -> Service : 11. Prepare a search query
+
+Service -> Service : 12. Apply filters\n(role, search text, and banned status)
+
+Service -> Service : 13. Apply pagination\n(page size and offset)
+
+Service -> Service : 14. Sort by newest accounts first
+deactivate Service
+
+Service -> DB : 15. Fetch users and total count
+activate DB
+DB --> Service : 16. Return [users, total]
+deactivate DB
+
+activate Service
+Service -> Service : 17. Package results with paging info\n(users, total, page, total pages)
+deactivate Service
+
+Service --> Controller : 18. Return paginated user list
+deactivate Service
+
+Controller --> API : 19. Return success response with data
+deactivate Controller
+
+API --> Page : 20. Return user list
+deactivate API
+
+activate Page
+Page -> Page : 21. Update the page with results
+deactivate Page
+
+Page --> Admin : 22. Display users table\n(Name, Email, Role, Status, Actions)
+
+alt [Change Filters]
+    Admin -> Page : 23. Change filter/search/page
+    
+    activate Page
+    Page -> Page : 24. Update filter state
+    
+    Page -> Page : 25. Trigger data reload
+    deactivate Page
+    
+    Page --> Admin : 26. Display updated user list
+end
+
+deactivate Page
+
+deactivate Admin
+
+@enduml
