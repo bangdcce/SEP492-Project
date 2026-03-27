@@ -499,6 +499,7 @@ describe('EscrowReleaseService', () => {
       refundId: 'REFUND-1',
       status: 'COMPLETED',
       captureId: 'CAPTURE-1',
+      alreadyRefunded: false,
     });
     walletRepository.save.mockImplementation((wallet: WalletEntity) => wallet);
     transactionRepository.save.mockImplementation((transaction: Partial<TransactionEntity>) => ({

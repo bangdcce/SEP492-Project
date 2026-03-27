@@ -30,6 +30,29 @@ interface PayPalOrderResponse {
 interface PayPalRefundResponse {
   id?: string;
   status?: string;
+  seller_payable_breakdown?: {
+    total_refunded_amount?: {
+      value?: string;
+      currency_code?: string;
+    };
+  };
+}
+
+interface PayPalCaptureDetailsResponse {
+  id?: string;
+  status?: string;
+  seller_receivable_breakdown?: {
+    total_refunded_amount?: {
+      value?: string;
+      currency_code?: string;
+    };
+  };
+  seller_payable_breakdown?: {
+    total_refunded_amount?: {
+      value?: string;
+      currency_code?: string;
+    };
+  };
 }
 
 export interface CreatePayPalMilestoneOrderInput {
@@ -52,9 +75,10 @@ export interface RefundPayPalCaptureInput {
 }
 
 export interface PayPalCaptureRefundView {
-  refundId: string;
+  refundId: string | null;
   status: string;
   captureId: string;
+  alreadyRefunded: boolean;
 }
 
 @Injectable()
@@ -201,6 +225,32 @@ export class PayPalCheckoutService {
 
     if (!response.ok) {
       const errorBody = await response.text();
+      if (response.status === 400 && this.isDuplicateRequestIdError(errorBody)) {
+        const captureDetails = await this.getCaptureDetails(input.captureId, accessToken);
+        const refundedAmount = captureDetails.refundedAmount
+          ? new Decimal(captureDetails.refundedAmount)
+          : new Decimal(0);
+        const requestedAmount = new Decimal(amountValue);
+        if (
+          captureDetails.status === 'REFUNDED'
+          || (
+            captureDetails.status === 'PARTIALLY_REFUNDED'
+            && refundedAmount.greaterThanOrEqualTo(requestedAmount)
+          )
+        ) {
+          return {
+            refundId: null,
+            status: captureDetails.status,
+            captureId: input.captureId,
+            alreadyRefunded: true,
+          };
+        }
+
+        throw new BadRequestException(
+          `PayPal already received a refund request for capture ${input.captureId}. Refresh the project state before retrying.`,
+        );
+      }
+
       throw new ServiceUnavailableException(
         `Unable to refund PayPal capture ${input.captureId} (${response.status}): ${errorBody.slice(0, 500)}`,
       );
@@ -217,7 +267,48 @@ export class PayPalCheckoutService {
       refundId: payload.id,
       status: payload.status ?? 'COMPLETED',
       captureId: input.captureId,
+      alreadyRefunded: false,
     };
+  }
+
+  private async getCaptureDetails(
+    captureId: string,
+    accessToken: string,
+  ): Promise<{ status: string; refundedAmount: string | null }> {
+    const response = await fetch(`${this.getBaseUrl()}/v2/payments/captures/${captureId}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: 'application/json',
+      },
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new ServiceUnavailableException(
+        `Unable to inspect PayPal capture ${captureId} (${response.status}): ${errorBody.slice(0, 500)}`,
+      );
+    }
+
+    const payload = (await response.json()) as PayPalCaptureDetailsResponse;
+    const refundedAmount =
+      payload.seller_receivable_breakdown?.total_refunded_amount?.value
+      ?? payload.seller_payable_breakdown?.total_refunded_amount?.value
+      ?? null;
+
+    return {
+      status: payload.status ?? 'UNKNOWN',
+      refundedAmount,
+    };
+  }
+
+  private isDuplicateRequestIdError(errorBody: string): boolean {
+    try {
+      const payload = JSON.parse(errorBody) as { name?: string; message?: string };
+      return payload.name === 'DUPLICATE_REQUEST_ID';
+    } catch {
+      return errorBody.includes('DUPLICATE_REQUEST_ID');
+    }
   }
 
   private async findUserPayPalMethod(
