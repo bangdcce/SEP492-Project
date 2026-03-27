@@ -1,0 +1,189 @@
+@startuml Login_Sequence_Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor Black
+skinparam shadowing false
+
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #DDDDDD
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+    ActorBackgroundColor White
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+    GroupHeaderBackgroundColor White
+    GroupBodyBackgroundColor White
+    GroupBorderColor Black
+}
+
+title User Login Sequence Diagram
+
+actor "User" as Actor
+boundary "SignInPage" as Page
+participant "AuthController" as Controller
+participant "AuthService" as Service
+participant "JwtService" as JwtService
+participant "EmailVerificationService" as EmailVerify
+participant "AuditLogsService" as AuditLogs
+database "Database" as DB
+
+Actor -> Page : 1. Access Sign In Page
+activate Actor
+activate Page
+
+Page -> Page : 2. Render form components
+activate Page
+deactivate Page
+
+Page --> Actor : 3. Display Login Form (email, password inputs)
+
+Actor -> Page : 4. Enter email & password\nClick "Sign In"
+Page -> Page : 5. Validate email and password
+activate Page
+deactivate Page
+
+alt [Form Invalid]
+    Page --> Actor : 6. Show validation errors
+else [Form Valid]
+
+    Page -> Page : 7. Show loading indicator
+    activate Page
+    deactivate Page
+
+    Page -> Controller : 8. Send sign-in request
+    activate Controller
+
+    Controller -> Controller : 9. Collect request metadata (IP, device)
+    activate Controller
+    deactivate Controller
+
+    Controller -> Controller : 10. Validate request data
+    activate Controller
+    deactivate Controller
+
+    alt [Invalid Input]
+        Controller --> Page : 11. Return validation error
+        Page --> Actor : 12. Show Error Message
+    else [Input Valid]
+
+        Controller -> Service : 13. Sign in with credentials
+        activate Service
+
+        Service -> DB : 13. Look up user by email
+        activate DB
+        DB --> Service : 14. Return user data or null
+        deactivate DB
+
+        alt [User Not Found]
+            Service --> Controller : 15. Reject sign-in: account not found
+            Controller --> Page : 16. Return authentication error
+            Page --> Actor : 17. Show "Invalid email or password"
+        else [User Found]
+
+            Service -> Service : 18. Check password
+            activate Service
+            Service --> Service : 19. Verify password match
+            deactivate Service
+
+            alt [Password Invalid]
+                Service --> Controller : 20. Reject sign-in: wrong password
+                Controller --> Page : 21. Return authentication error
+                Page --> Actor : 22. Show "Invalid email or password"
+            else [Password Valid]
+
+                Service -> Service : 23. Check whether the email is verified
+                activate Service
+                deactivate Service
+
+                alt [Email Not Verified]
+                    Service --> Controller : 24. Reject sign-in: email not verified
+                    Controller --> Page : 25. Return email verification error
+                    Page -> Page : 26. Show error toast
+                    activate Page
+                    deactivate Page
+                    Page --> Actor : 27. Redirect to Verify Email Page
+                else [Email Verified]
+
+                    Service -> JwtService : 28. Create access token
+                    activate JwtService
+                    JwtService --> Service : 29. Return access token
+                    deactivate JwtService
+
+                    Service -> Service : 30. Generate refresh token
+                    activate Service
+                    Service --> Service : 31. Prepare refresh token
+                    deactivate Service
+
+                    Service -> Service : 32. Hash refresh token
+                    activate Service
+                    Service --> Service : 33. Finish refresh token hashing
+                    deactivate Service
+
+                    Service -> DB : 34. Save refresh token session
+                    activate DB
+                    DB --> Service : 35. Return saved session
+                    deactivate DB
+
+                    Service -> DB : 36. Update last login time
+                    activate DB
+                    DB --> Service : 37. Return update confirmation
+                    deactivate DB
+
+                    Service -> AuditLogs : 38. Record login activity
+                    activate AuditLogs
+                    AuditLogs -> DB : 39. Save audit log entry
+                    activate DB
+                    DB --> AuditLogs : 40. Return audit log entry
+                    deactivate DB
+                    AuditLogs --> Service : 41. Return log confirmation
+                    deactivate AuditLogs
+
+                    Service -> Service : 42. Prepare response data
+                    activate Service
+                    Service --> Service : 43. Build user summary (profile, stats, badge)
+                    deactivate Service
+
+                    Service --> Controller : 44. Return login response with tokens
+                    deactivate Service
+
+                    Controller -> Controller : 45. Set secure auth cookies
+                    activate Controller
+                    Controller --> Controller : 46. Finish setting cookies
+                    deactivate Controller
+
+                    Controller --> Page : 47. Return success response with user data
+                    deactivate Controller
+
+                    Page -> Page : 48. Remember the user (if selected)
+                    activate Page
+                    deactivate Page
+
+                    Page -> Page : 49. Notify the app that the user signed in
+                    activate Page
+                    deactivate Page
+
+                    Page -> Page : 50. Hide loading and show success message
+                    activate Page
+                    deactivate Page
+
+                    ref over Page, Actor : Role-Based Redirect\n(ADMIN → Admin Dashboard)\n(CLIENT → Client Dashboard)\n(FREELANCER → Freelancer Dashboard)\n(BROKER → Broker Dashboard)\n(STAFF → Staff Dashboard)
+
+                    Page --> Actor : 51. Redirect to the right dashboard
+
+                end
+            end
+        end
+    end
+end
+
+deactivate Page
+deactivate Actor
+
+@enduml

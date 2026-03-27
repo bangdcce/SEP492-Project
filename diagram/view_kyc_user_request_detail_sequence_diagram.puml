@@ -1,0 +1,217 @@
+@startuml View_KYC_User_Request_Detail_Sequence_Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor Black
+skinparam shadowing false
+
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #DDDDDD
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+    ActorBackgroundColor White
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+    GroupHeaderBackgroundColor White
+    GroupBodyBackgroundColor White
+    GroupBorderColor Black
+}
+
+title View KYC User Request Detail Sequence Diagram
+
+actor "Admin" as Admin
+boundary "AdminKYCPage" as Page
+participant "KYCVerificationModal" as Modal
+participant "apiClient" as API
+participant "KycController" as Controller
+participant "JwtAuthGuard" as JWTGuard
+participant "RolesGuard" as RoleGuard
+participant "KycService" as Service
+database "Database" as DB
+participant "SupabaseStorage" as Storage
+participant "WatermarkUtil" as Watermark
+
+Admin -> Page : 1. Click "Review" button on KYC row
+activate Admin
+activate Page
+
+Page -> Page : 2. Open review flow for the selected request
+activate Page
+deactivate Page
+
+Page -> Page : 3. Store the selected request\nand show the modal
+activate Page
+deactivate Page
+
+Page -> Modal : 4. Open modal
+activate Modal
+
+Modal --> Admin : 5. Display basic KYC info\n(Loading watermarked documents...)
+
+Page -> API : 6. Request KYC details\n(with watermarked images)
+activate API
+
+API -> Controller : 7. Request KYC detail with watermark
+activate Controller
+
+Controller -> JWTGuard : 8. Check sign-in session
+activate JWTGuard
+
+JWTGuard -> JWTGuard : 9. Read access token from cookies
+activate JWTGuard
+deactivate JWTGuard
+
+JWTGuard -> JWTGuard : 10. Validate the access token
+activate JWTGuard
+deactivate JWTGuard
+
+alt [Token Invalid]
+    JWTGuard --> Controller : 11. Reject request: not signed in
+    Controller --> API : 12. Return authentication error
+    API --> Page : 13. Return error response
+    Page --> Admin : 14. Show error toast: "Failed to load KYC images"
+else [Token Valid]
+    JWTGuard -> JWTGuard : 15. Attach signed-in user info\nto the request
+    activate JWTGuard
+    deactivate JWTGuard
+    
+    JWTGuard --> Controller : 16. Return true
+    deactivate JWTGuard
+
+    Controller -> RoleGuard : 17. Check admin permissions
+    activate RoleGuard
+
+    RoleGuard -> RoleGuard : 18. Check user role\n(Must be ADMIN or STAFF)
+    activate RoleGuard
+    deactivate RoleGuard
+
+    alt [Role Not Authorized]
+        RoleGuard --> Controller : 19. Reject request: access denied
+        Controller --> API : 20. Return forbidden error
+        API --> Page : 21. Return error response
+        Page --> Admin : 22. Show error toast: "Access denied"
+    else [Role Authorized]
+        RoleGuard --> Controller : 23. Return true
+        deactivate RoleGuard
+
+        Controller -> Controller : 24. Collect request context\n(IP address, browser, request ID)
+        activate Controller
+        deactivate Controller
+
+        Controller -> Service : 25. Load KYC request and create\nwatermarked images for review
+        activate Service
+
+        Service -> DB : 26. Load KYC request and user info\nfrom the database
+        activate DB
+        DB --> Service : 27. Return KYC with user data
+        deactivate DB
+
+        alt [KYC Not Found]
+            Service --> Controller : 28. Reject request: KYC not found
+            Controller --> API : 29. Return not found error
+            API --> Page : 30. Return error response
+            Page --> Admin : 31. Show error toast: "KYC not found"
+        else [KYC Found]
+            Service -> Service : 32. Create a unique watermark id\nand timestamp
+            activate Service
+            deactivate Service
+
+            Service -> DB : 33. Create an audit log entry\nfor viewing watermarked documents
+            activate DB
+            deactivate DB
+
+            Service -> DB : 34. Save the audit log entry
+            activate DB
+            DB --> Service : 35. Return saved audit log
+            deactivate DB
+
+            Service -> Service : 36. Prepare watermark details\n(reviewer, IP, timestamp, KYC id)
+            activate Service
+            deactivate Service
+
+            Service -> Storage : 37. Download + watermark\nthe front image
+            activate Storage
+
+            Storage -> Storage : 38. Download the image
+            activate Storage
+            deactivate Storage
+
+            Storage -> Watermark : 39. Apply watermark overlay\n(reviewer info + watermark id)
+            activate Watermark
+            Watermark --> Storage : 40. Return watermarked buffer
+            deactivate Watermark
+
+            Storage --> Service : 41. Return front document buffer
+            deactivate Storage
+
+            Service -> Storage : 42. Download + watermark\nthe back image
+            activate Storage
+
+            Storage -> Storage : 43. Download the image
+            activate Storage
+            deactivate Storage
+
+            Storage -> Watermark : 44. Apply watermark overlay
+            activate Watermark
+            Watermark --> Storage : 45. Return watermarked buffer
+            deactivate Watermark
+
+            Storage --> Service : 46. Return back document buffer
+            deactivate Storage
+
+            Service -> Storage : 47. Download + watermark\nthe selfie image
+            activate Storage
+
+            Storage -> Storage : 48. Download the image
+            activate Storage
+            deactivate Storage
+
+            Storage -> Watermark : 49. Apply watermark overlay
+            activate Watermark
+            Watermark --> Storage : 50. Return watermarked buffer
+            deactivate Watermark
+
+            Storage --> Service : 51. Return selfie buffer
+            deactivate Storage
+
+            Service -> Service : 52. Encode images for display\n(safe to show in the browser)
+            activate Service
+            deactivate Service
+
+            Service -> Service : 53. Prepare response with watermark info\n(id, reviewer, timestamp, warning)
+            activate Service
+            deactivate Service
+
+            Service --> Controller : 54. Return KYC with watermarked images
+            deactivate Service
+
+            Controller --> API : 55. Return success response
+            deactivate Controller
+
+            API --> Page : 56. Return watermarked KYC data
+            deactivate API
+
+            Page -> Page : 57. Store the returned KYC details
+            activate Page
+            deactivate Page
+
+            Page -> Modal : 58. Update modal with watermarked images
+            activate Modal
+            deactivate Modal
+
+            Modal --> Admin : 59. Display full KYC details\n(Watermarked Documents: Front, Back, Selfie,\nUser Info: Full Name, Document Number, Type,\nDate of Birth, Status, Rejection Reason,\nSubmission Date, Reviewer Info,\nWatermark Warning)
+        end
+    end
+end
+
+deactivate Modal
+deactivate Page
+deactivate Admin
+
+@enduml

@@ -18,6 +18,7 @@ import { RequestStatus } from "../requests/types";
 
 export function ClientDashboard() {
   const navigate = useNavigate();
+  const [allRequests, setAllRequests] = useState<any[]>([]);
   const [recentRequests, setRecentRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -28,6 +29,7 @@ export function ClientDashboard() {
   const fetchRecent = async () => {
     try {
       const data = await wizardService.getRequests();
+      setAllRequests(data);
       setRecentRequests(data.slice(0, 5));
     } catch (error) {
       console.error("Failed to fetch dashboard data", error);
@@ -62,6 +64,23 @@ export function ClientDashboard() {
   const attentionItems = recentRequests.filter(
     (r) => r.status === RequestStatus.PENDING || r.status === RequestStatus.PENDING_SPECS || r.status === "WAITING_FOR_REVIEW"
   );
+  const activeRequestStatuses = new Set([
+    RequestStatus.PENDING,
+    RequestStatus.PENDING_SPECS,
+    RequestStatus.BROKER_ASSIGNED,
+    RequestStatus.SPEC_SUBMITTED,
+    RequestStatus.SPEC_APPROVED,
+    RequestStatus.CONTRACT_PENDING,
+    RequestStatus.HIRING,
+    RequestStatus.CONVERTED_TO_PROJECT,
+    RequestStatus.IN_PROGRESS,
+    RequestStatus.PROCESSING,
+    RequestStatus.APPROVED,
+  ]);
+  const activeProjectsCount = allRequests.filter((request) =>
+    activeRequestStatuses.has(request.status),
+  ).length;
+  const totalRequestsCount = allRequests.length;
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
@@ -223,15 +242,13 @@ export function ClientDashboard() {
                 <span className="text-sm text-muted-foreground">
                   Active Projects
                 </span>
-                <span className="font-bold">
-                    {recentRequests.filter(r => !r.status.includes('DRAFT')).length}
-                </span>
+                <span className="font-bold">{activeProjectsCount}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-sm text-muted-foreground">
                   Total Requests
                 </span>
-                <span className="font-bold">{recentRequests.length}</span>
+                <span className="font-bold">{totalRequestsCount}</span>
               </div>
             </CardContent>
           </Card>

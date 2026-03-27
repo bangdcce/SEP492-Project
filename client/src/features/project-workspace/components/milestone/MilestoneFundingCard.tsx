@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { ROUTES } from "@/constants";
 import { formatCurrency, formatDate } from "@/shared/utils/formatters";
-import { Button } from "@/shared/components/ui/Button";
+import { Button } from "@/shared/components/ui/button";
 import { Badge } from "@/shared/components/ui/badge";
 import { toast } from "sonner";
 import { fundMilestone, getPaymentMethods } from "@/features/payments/api";

@@ -111,4 +111,31 @@ export interface AdminDashboardOverview {
       overloadedCount: number;
     };
   };
+  criticalAlerts: Array<{
+    severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | "SEVERE";
+    source: string;
+    title: string;
+    summary: string;
+    metricValue: number;
+    thresholdLabel: string;
+    actionUrl: string;
+    reason: string;
+  }>;
+  riskMethodology: {
+    generatedAt: string;
+    scoringWeights: {
+      workload: number;
+      performance: number;
+      fairness: number;
+    };
+    thresholds: Record<string, number>;
+    activeSignals: Array<{
+      severity: "LOW" | "MEDIUM" | "HIGH" | "CRITICAL" | "SEVERE";
+      source: string;
+      title: string;
+      metricValue: number;
+      thresholdLabel: string;
+      whyRanked: string;
+    }>;
+  };
 }

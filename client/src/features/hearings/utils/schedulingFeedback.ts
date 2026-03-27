@@ -23,10 +23,13 @@ export const getSchedulingErrorMessage = (
   }
 
   if (
-    normalized.includes("externalmeetinglink must be a valid absolute url") ||
-    normalized.includes("valid absolute url")
+    normalized.includes(
+      "externalmeetinglink must be a valid url or supported google meet code",
+    ) ||
+    normalized.includes("invalid external meeting link") ||
+    normalized.includes("google meet code")
   ) {
-    return "Manual meeting link must be a full URL, for example https://meet.google.com/... .";
+    return "Manual meeting link must be a full URL. If you use Google Meet, it must use a real code like abc-defg-hij.";
   }
 
   if (normalized.includes("hearing schedule conflicts detected")) {

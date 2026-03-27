@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -26,6 +27,7 @@ import { ProjectRequestProposalEntity } from '../../database/entities/project-re
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
 import { ContractArchiveStorageService } from './contract-archive.storage';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('ContractsService', () => {
   let service: ContractsService;
@@ -41,6 +43,11 @@ describe('ContractsService', () => {
   const mockProjectRequestsRepo = {};
   const mockProjectRequestProposalsRepo = { find: jest.fn() };
   const mockAuditLogsService = { log: jest.fn() };
+  const mockNotificationsService = {
+    create: jest.fn().mockResolvedValue(undefined),
+    createMany: jest.fn().mockResolvedValue(undefined),
+  };
+  const mockEventEmitter = { emit: jest.fn() };
   const mockContractArchiveStorage = {
     persistPdfArtifact: jest.fn(),
     downloadPdfArtifact: jest.fn(),
@@ -163,8 +170,10 @@ describe('ContractsService', () => {
           useValue: mockProjectRequestProposalsRepo,
         },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: ContractArchiveStorageService, useValue: mockContractArchiveStorage },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: EventEmitter2, useValue: mockEventEmitter },
       ],
     }).compile();
 
@@ -270,6 +279,34 @@ describe('ContractsService', () => {
           return { id: 'project-uuid', ...entity };
         }
         return args[1];
+      });
+      mockContractsRepo.findOne.mockResolvedValue({
+        id: 'contract-uuid',
+        projectId: 'project-uuid',
+        sourceSpecId: spec.id,
+        title: spec.title,
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project: {
+          ...buildProject({
+            client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+            broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+            freelancer: {
+              id: 'freelancer-uuid',
+              fullName: 'Freelancer',
+              email: 'freelancer@example.com',
+            } as any,
+            request: { specs: [spec] } as any,
+          }),
+        },
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(buildProject(), {
+          scopeNarrativeRichContent: spec.richContentJson,
+          scopeNarrativePlainText: 'Delivery assumptions\nBroker provides staging access.',
+        }),
+        termsContent: 'Detailed Scope Notes\nBroker provides staging access.',
+        signatures: [],
+        contentHash: null,
       });
 
       const result = await service.initializeProjectAndContract(brokerUser, spec.id);
@@ -706,6 +743,7 @@ describe('ContractsService', () => {
         projectId: project.id,
         sourceSpecId: 'spec-uuid',
         status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
         activatedAt: null,
         project,
         milestoneSnapshot: snapshot,
@@ -786,6 +824,7 @@ describe('ContractsService', () => {
         projectId: project.id,
         sourceSpecId: 'spec-uuid',
         status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
         activatedAt: null,
         project,
         milestoneSnapshot: buildSnapshot(),

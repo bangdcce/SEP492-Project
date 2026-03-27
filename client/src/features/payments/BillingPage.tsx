@@ -15,17 +15,17 @@ import {
 import { STORAGE_KEYS } from "@/constants";
 import { formatCurrency, formatRelativeTime } from "@/shared/utils/formatters";
 import { toast } from "sonner";
-import { Button } from "@/shared/components/ui/Button";
+import { Button } from "@/shared/components/ui/button";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from "@/shared/components/ui/Card";
-import Spinner from "@/shared/components/ui/Spinner";
+} from "@/shared/components/ui/card";
+import Spinner from "@/shared/components/ui/spinner";
 import { Badge } from "@/shared/components/ui/badge";
-import { Input } from "@/shared/components/ui/Input";
+import { Input } from "@/shared/components/ui/input";
 import { getStoredJson } from "@/shared/utils/storage";
 import {
   createPaymentMethod,

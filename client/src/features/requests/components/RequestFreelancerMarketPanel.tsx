@@ -7,6 +7,7 @@ type RequestFreelancerMarketPanelProps = {
   currentPhase: number;
   hasAcceptedFreelancer: boolean;
   selectedFreelancerProposal: FreelancerProposalItem | null;
+  recommendedFreelancers: FreelancerProposalItem[];
   freelancerMatchesLoading: boolean;
   freelancerMatches: RequestMatchCandidate[];
   onPhaseAdvance: () => void;
@@ -22,6 +23,7 @@ export function RequestFreelancerMarketPanel({
   currentPhase,
   hasAcceptedFreelancer,
   selectedFreelancerProposal,
+  recommendedFreelancers,
   freelancerMatchesLoading,
   freelancerMatches,
   onPhaseAdvance,
@@ -32,6 +34,17 @@ export function RequestFreelancerMarketPanel({
   onOpenProfile,
   onInviteFreelancer,
 }: RequestFreelancerMarketPanelProps) {
+  const statusTone = (status?: string | null) => {
+    const normalized = String(status || "").toUpperCase();
+    if (normalized === "ACCEPTED") return "bg-emerald-100 text-emerald-800 border-emerald-200";
+    if (normalized === "INVITED") return "bg-blue-100 text-blue-800 border-blue-200";
+    if (normalized === "PENDING_CLIENT_APPROVAL") {
+      return "bg-amber-100 text-amber-800 border-amber-200";
+    }
+    if (normalized === "REJECTED") return "bg-rose-100 text-rose-800 border-rose-200";
+    return "bg-slate-100 text-slate-700 border-slate-200";
+  };
+
   return (
     <Card>
       <CardHeader>
@@ -91,11 +104,11 @@ export function RequestFreelancerMarketPanel({
                   </Button>
                 </h4>
                 <p className="text-sm text-muted-foreground">
-                  AI-matched candidates or search the marketplace for a {UserRole.FREELANCER.toLowerCase()}.
+                  Review ranked freelancers here without leaving the current client request.
                 </p>
               </div>
               <Button variant="outline" onClick={onSearchMarketplace}>
-                Search Marketplace
+                Browse More Freelancers
               </Button>
             </div>
 
@@ -171,9 +184,37 @@ export function RequestFreelancerMarketPanel({
                                 ))}
                               </div>
                             ) : null}
-                            {match.reasoning ? (
-                              <p className="line-clamp-2 text-xs italic text-muted-foreground">{match.reasoning}</p>
-                            ) : null}
+                            {match.reasoning
+                              ? (() => {
+                                  let text = match.reasoning;
+                                  try {
+                                    if (
+                                      typeof match.reasoning === "string" &&
+                                      match.reasoning.trim().startsWith("[")
+                                    ) {
+                                      const arr = JSON.parse(match.reasoning);
+                                      const matchUserId =
+                                        match.userId || match.candidateId || match.id;
+                                      const found = arr.find(
+                                        (item: any) => item.id === matchUserId,
+                                      );
+                                      if (found && found.reasoning) {
+                                        text = found.reasoning;
+                                      } else {
+                                        text = "";
+                                      }
+                                    }
+                                  } catch {
+                                    text = match.reasoning;
+                                  }
+
+                                  return text ? (
+                                    <p className="line-clamp-2 text-xs italic text-muted-foreground">
+                                      {text}
+                                    </p>
+                                  ) : null;
+                                })()
+                              : null}
                           </div>
                         </div>
                         <div className="flex shrink-0 gap-2">
@@ -194,6 +235,58 @@ export function RequestFreelancerMarketPanel({
                 })}
               </div>
             )}
+
+            <div className="space-y-4 rounded-xl border border-dashed bg-muted/10 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-semibold">Freelancers You&apos;ve Recommended</h4>
+                  <p className="text-sm text-muted-foreground">
+                    Track which recommendations are waiting on client review, already invited, or selected.
+                  </p>
+                </div>
+              </div>
+
+              {recommendedFreelancers.length === 0 ? (
+                <div className="rounded-lg border-2 border-dashed bg-background py-8 text-center">
+                  <p className="font-medium">No recommendations sent yet</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Invite a ranked freelancer above to start the client approval step.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {recommendedFreelancers.map((proposal) => (
+                    <div key={proposal.id} className="rounded-lg border bg-background p-3">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-medium">
+                              {proposal.freelancer?.fullName || "Unknown freelancer"}
+                            </p>
+                            <Badge variant="outline" className={statusTone(proposal.status)}>
+                              {String(proposal.status || "UNKNOWN").replace(/_/g, " ")}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            Trust Score: {Number(proposal.freelancer?.currentTrustScore || 0).toFixed(1)}
+                          </p>
+                          {proposal.coverLetter ? (
+                            <p className="mt-2 text-sm text-muted-foreground">
+                              Note: {proposal.coverLetter}
+                            </p>
+                          ) : null}
+                        </div>
+                        {proposal.status === "ACCEPTED" ? (
+                          <Button size="sm" onClick={onPhaseAdvance}>
+                            Continue to Final Spec
+                          </Button>
+                        ) : null}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </CardContent>

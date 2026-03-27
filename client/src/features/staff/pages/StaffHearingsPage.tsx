@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
-import { Calendar, Clock, Video } from "lucide-react";
+import { AlertTriangle, Calendar, Clock, Video } from "lucide-react";
 import { toast } from "sonner";
 import { getMyHearings } from "@/features/hearings/api";
 import type { DisputeHearingSummary } from "@/features/hearings/types";
@@ -11,6 +11,9 @@ import {
   getApiErrorDetails,
   isSchemaNotReadyErrorCode,
 } from "@/shared/utils/apiError";
+import { normalizeExternalMeetingLink } from "@/features/hearings/utils/externalMeetingLink";
+import { resolveHearingLifecycle } from "@/features/hearings/utils/hearingLifecycle";
+import { useStaffDashboardRealtime } from "@/features/staff/hooks/useStaffDashboardRealtime";
 
 export const StaffHearingsPage = () => {
   const [hearings, setHearings] = useState<DisputeHearingSummary[]>([]);
@@ -31,7 +34,7 @@ export const StaffHearingsPage = () => {
     try {
       setLoading(true);
       const data = await getMyHearings({
-        status: ["IN_PROGRESS", "SCHEDULED"],
+        lifecycle: "all",
       });
       setHearings(data ?? []);
       setSchemaErrorMessage(null);
@@ -60,20 +63,49 @@ export const StaffHearingsPage = () => {
     loadHearings();
   }, [loadHearings]);
 
+  useStaffDashboardRealtime({
+    onHearingEnded: loadHearings,
+    onHearingScheduled: loadHearings,
+    onHearingFollowUpScheduled: loadHearings,
+    onVerdictIssued: loadHearings,
+  });
+
   const liveHearings = useMemo(
-    () => hearings.filter((hearing) => hearing.status === "IN_PROGRESS"),
+    () =>
+      hearings.filter(
+        (hearing) =>
+          resolveHearingLifecycle(hearing) !== "ARCHIVED" &&
+          (hearing.status === "IN_PROGRESS" || hearing.status === "PAUSED"),
+      ),
     [hearings],
   );
   const upcomingHearings = useMemo(
-    () => hearings.filter((hearing) => hearing.status === "SCHEDULED"),
+    () =>
+      hearings.filter(
+        (hearing) =>
+          resolveHearingLifecycle(hearing) !== "ARCHIVED" &&
+          hearing.status === "SCHEDULED",
+      ),
+    [hearings],
+  );
+  const staleHearings = useMemo(
+    () =>
+      hearings.filter(
+        (hearing) =>
+          hearing.status === "SCHEDULED" &&
+          resolveHearingLifecycle(hearing) === "ARCHIVED",
+      ),
     [hearings],
   );
 
   const formatSchedule = (hearing: DisputeHearingSummary) => {
     const start = new Date(hearing.scheduledAt);
     if (Number.isNaN(start.getTime())) return "Invalid schedule";
-    const duration = hearing.estimatedDurationMinutes ?? 60;
-    const end = new Date(start.getTime() + duration * 60 * 1000);
+    const end = hearing.scheduledEndAt
+      ? new Date(hearing.scheduledEndAt)
+      : new Date(
+          start.getTime() + (hearing.estimatedDurationMinutes ?? 60) * 60 * 1000,
+        );
     return `${format(start, "MMM d, yyyy h:mm a")} - ${format(end, "h:mm a")}`;
   };
 
@@ -87,6 +119,9 @@ export const StaffHearingsPage = () => {
 
   const renderHearingCard = (hearing: DisputeHearingSummary) => {
     const shortDisputeId = hearing.disputeId?.slice(0, 8) || "N/A";
+    const externalMeetingHref = normalizeExternalMeetingLink(
+      hearing.externalMeetingLink,
+    );
     const isModerator = Boolean(
       currentUserId && hearing.moderatorId === currentUserId,
     );
@@ -131,6 +166,8 @@ export const StaffHearingsPage = () => {
               className={`px-2 py-0.5 rounded-full text-xs border ${
                 hearing.status === "IN_PROGRESS"
                   ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                  : hearing.status === "PAUSED"
+                    ? "bg-amber-50 text-amber-700 border-amber-200"
                   : "bg-blue-50 text-blue-700 border-blue-200"
               }`}
             >
@@ -149,9 +186,9 @@ export const StaffHearingsPage = () => {
               >
                 Open dispute
               </button>
-              {hearing.externalMeetingLink ? (
+              {externalMeetingHref ? (
                 <a
-                  href={hearing.externalMeetingLink}
+                  href={externalMeetingHref}
                   target="_blank"
                   rel="noreferrer"
                   className="px-3 py-1.5 text-xs rounded-md bg-teal-600 text-white hover:bg-teal-700 inline-flex items-center gap-1"
@@ -199,7 +236,7 @@ export const StaffHearingsPage = () => {
         {loading ? (
           <p className="text-sm text-gray-500">Loading hearings...</p>
         ) : liveHearings.length === 0 ? (
-          <p className="text-sm text-gray-500">No hearings in progress.</p>
+          <p className="text-sm text-gray-500">No live or paused hearings.</p>
         ) : (
           <div className="grid gap-3">{liveHearings.map(renderHearingCard)}</div>
         )}
@@ -216,6 +253,22 @@ export const StaffHearingsPage = () => {
           <p className="text-sm text-gray-500">No upcoming hearings scheduled.</p>
         ) : (
           <div className="grid gap-3">{upcomingHearings.map(renderHearingCard)}</div>
+        )}
+      </div>
+
+      <div className="space-y-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+          <AlertTriangle className="w-4 h-4 text-amber-600" />
+          Needs follow-up
+        </div>
+        {loading ? (
+          <p className="text-sm text-gray-500">Loading hearings...</p>
+        ) : staleHearings.length === 0 ? (
+          <p className="text-sm text-gray-500">
+            No stale hearings are waiting for manual review.
+          </p>
+        ) : (
+          <div className="grid gap-3">{staleHearings.map(renderHearingCard)}</div>
         )}
       </div>
     </div>

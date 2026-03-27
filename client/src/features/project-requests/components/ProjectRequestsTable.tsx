@@ -18,17 +18,13 @@ import { ProposalModal } from './ProposalModal';
 
 interface ProjectRequestsTableProps {
   requests: ProjectRequest[];
-  onAssign: (id: string) => void;
   onApply?: (id: string, coverLetter: string) => void;
-  assigningId: string | null;
   currentUserId?: string;
 }
 
 export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
   requests,
-  onAssign,
   onApply,
-  assigningId,
   currentUserId,
 }) => {
   const [proposalModalOpen, setProposalModalOpen] = React.useState(false);
@@ -130,16 +126,6 @@ export const ProjectRequestsTable: React.FC<ProjectRequestsTableProps> = ({
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex flex-wrap justify-end gap-2">
-                  {request.status === RequestStatus.PENDING && (
-                    <Button
-                      onClick={() => onAssign(request.id)}
-                      disabled={assigningId === request.id}
-                      className="h-8 px-3 text-xs"
-                    >
-                      {assigningId === request.id ? 'Assigning...' : 'Assign'}
-                    </Button>
-                  )}
-
                   {request.status === RequestStatus.PUBLIC_DRAFT &&
                     onApply &&
                     (() => {

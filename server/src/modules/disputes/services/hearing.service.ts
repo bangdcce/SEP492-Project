@@ -20,6 +20,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In, MoreThan, LessThan, Between, DataSource, Brackets } from 'typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { normalizeContractPdfUrl } from '../../../common/utils/contract-pdf-url.util';
+import { normalizeExternalMeetingLink } from '../../../common/utils/external-meeting-link.util';
 
 // Entities
 import {
@@ -84,6 +85,11 @@ import { EmailService } from '../../auth/email.service';
 import { HearingPresenceService } from './hearing-presence.service';
 import { EvidenceService } from './evidence.service';
 import { buildHearingDocket, isDisputeClosedStatus } from '../dispute-docket';
+import {
+  buildDefaultFollowUpAction,
+  normalizeDisputeFollowUpActionInput,
+  type NormalizedDisputeFollowUpAction,
+} from '../dispute-follow-up';
 import { CalendarService } from '../../calendar/calendar.service';
 import {
   ScheduleHearingDto,
@@ -218,6 +224,22 @@ export interface HearingEvidenceAttachPermissionResult {
 
 export type HearingLifecycleFilter = 'active' | 'archived' | 'all';
 export type HearingLifecycle = 'ACTIVE' | 'ARCHIVED';
+type HearingEndedByType = 'USER' | 'SYSTEM';
+type HearingClosureReason =
+  | 'MANUAL_CLOSE'
+  | 'TIME_LIMIT_REACHED'
+  | 'PAUSE_ABANDONED'
+  | 'SCHEDULED_EXPIRED';
+type HearingTimeWarningType =
+  | 'SCHEDULE_END_WARNING'
+  | 'GRACE_PERIOD_WARNING'
+  | 'PAUSE_AUTO_CLOSE_WARNING';
+
+interface HearingTimebox {
+  scheduledEndAt: Date;
+  graceEndsAt: Date;
+  pauseAutoCloseAt: Date | null;
+}
 
 // =============================================================================
 // CONSTANTS
@@ -245,6 +267,12 @@ const HEARING_CONFIG = {
 
   // Speaker control grace period
   SPEAKER_GRACE_PERIOD_MS: 5000,
+
+  // Auto-close lifecycle
+  AUTO_CLOSE_WARNING_MINUTES: 15,
+  AUTO_CLOSE_FINAL_WARNING_MINUTES: 5,
+  AUTO_CLOSE_GRACE_MINUTES: 15,
+  PAUSE_AUTO_CLOSE_MINUTES: 30,
 } as const;
 
 const HEARING_REMINDER_WINDOWS = [
@@ -269,6 +297,25 @@ const HEARING_PHASE_SEQUENCE: DisputePhase[] = [
   DisputePhase.CROSS_EXAMINATION,
   DisputePhase.INTERROGATION,
   DisputePhase.DELIBERATION,
+];
+const AUTO_CLOSE_SUMMARY_PREFIX = 'System auto-close:';
+const TIME_LIMIT_REACHED_SUMMARY = `${AUTO_CLOSE_SUMMARY_PREFIX} The hearing reached its scheduled duration and grace period without a manual close or verdict.`;
+const PAUSE_ABANDONED_SUMMARY = `${AUTO_CLOSE_SUMMARY_PREFIX} The hearing remained paused beyond the allowed timeout and was closed as abandoned.`;
+const SCHEDULED_EXPIRED_SUMMARY = `${AUTO_CLOSE_SUMMARY_PREFIX} The hearing passed its scheduled start and grace window without being started, so it was closed for follow-up review.`;
+const FOLLOW_UP_FINDINGS =
+  'No verdict was issued during this session. The dispute remains open for a follow-up hearing.';
+const SCHEDULED_EXPIRED_FINDINGS =
+  'The scheduled hearing did not start before the grace window elapsed. Review attendance, confirmations, and reschedule if the dispute still requires a live session.';
+const PENDING_CONFIRMATION_TIMEOUT_SUMMARY = `${AUTO_CLOSE_SUMMARY_PREFIX} Required confirmations did not arrive before the hearing window, so the session was canceled and flagged for manual review.`;
+const PENDING_CONFIRMATION_TIMEOUT_FINDINGS =
+  'The hearing remained blocked in confirmation handling and now requires manual staff/admin review before another slot is scheduled.';
+const DEFAULT_FOLLOW_UP_PENDING_ACTIONS: NormalizedDisputeFollowUpAction[] = [
+  buildDefaultFollowUpAction('REQUEST_MORE_EVIDENCE', {
+    note: 'Review the hearing record and pending evidence before the next session.',
+  }),
+  buildDefaultFollowUpAction('SCHEDULE_FOLLOW_UP_HEARING', {
+    note: 'Continue the dispute in the next scheduled hearing unless a verdict is issued earlier.',
+  }),
 ];
 
 // =============================================================================
@@ -363,8 +410,224 @@ export class HearingService implements OnModuleInit {
   }
 
   private normalizeMeetingLink(value?: string | null): string | undefined {
-    const normalized = value?.trim();
-    return normalized ? normalized : undefined;
+    const trimmed = value?.trim();
+    if (!trimmed) {
+      return undefined;
+    }
+
+    const normalized = normalizeExternalMeetingLink(trimmed);
+    if (!normalized) {
+      throw new BadRequestException({
+        code: 'INVALID_EXTERNAL_MEETING_LINK',
+        message:
+          'External meeting link must be a valid URL. Google Meet links must use a code like abc-defg-hij.',
+      });
+    }
+
+    return normalized;
+  }
+
+  private getTimeboxAnchor(
+    hearing: Pick<DisputeHearingEntity, 'scheduledAt' | 'startedAt'>,
+  ): Date {
+    return hearing.startedAt || hearing.scheduledAt;
+  }
+
+  private buildHearingTimebox(
+    hearing: Pick<
+      DisputeHearingEntity,
+      | 'scheduledAt'
+      | 'startedAt'
+      | 'estimatedDurationMinutes'
+      | 'status'
+      | 'pausedAt'
+      | 'accumulatedPauseSeconds'
+    >,
+  ): HearingTimebox {
+    const anchor = this.getTimeboxAnchor(hearing);
+    const durationMinutes = Math.max(hearing.estimatedDurationMinutes || 60, 1);
+    const effectivePauseSeconds = this.getTotalPauseSeconds(hearing);
+    const scheduledEndAt = new Date(
+      anchor.getTime() + durationMinutes * 60_000 + effectivePauseSeconds * 1000,
+    );
+    const graceEndsAt = new Date(
+      scheduledEndAt.getTime() + HEARING_CONFIG.AUTO_CLOSE_GRACE_MINUTES * 60_000,
+    );
+    const pauseAutoCloseAt =
+      hearing.status === HearingStatus.PAUSED && hearing.pausedAt
+        ? new Date(hearing.pausedAt.getTime() + HEARING_CONFIG.PAUSE_AUTO_CLOSE_MINUTES * 60_000)
+        : null;
+
+    return {
+      scheduledEndAt,
+      graceEndsAt,
+      pauseAutoCloseAt,
+    };
+  }
+
+  private deriveClosureReason(
+    hearing: Pick<DisputeHearingEntity, 'summary' | 'status'>,
+  ): HearingClosureReason | null {
+    if (
+      ![HearingStatus.COMPLETED, HearingStatus.CANCELED].includes(hearing.status) ||
+      !hearing.summary
+    ) {
+      return null;
+    }
+
+    if (hearing.summary === TIME_LIMIT_REACHED_SUMMARY) {
+      return 'TIME_LIMIT_REACHED';
+    }
+
+    if (hearing.summary === PAUSE_ABANDONED_SUMMARY) {
+      return 'PAUSE_ABANDONED';
+    }
+
+    if (hearing.summary === SCHEDULED_EXPIRED_SUMMARY) {
+      return 'SCHEDULED_EXPIRED';
+    }
+
+    return null;
+  }
+
+  private buildSystemClosureMinutes(
+    reason: Exclude<HearingClosureReason, 'MANUAL_CLOSE'>,
+  ): Pick<EndHearingDto, 'summary' | 'findings' | 'pendingActions' | 'forceEnd' | 'noShowNote'> {
+    return {
+      summary:
+        reason === 'PAUSE_ABANDONED'
+          ? PAUSE_ABANDONED_SUMMARY
+          : reason === 'SCHEDULED_EXPIRED'
+            ? SCHEDULED_EXPIRED_SUMMARY
+            : TIME_LIMIT_REACHED_SUMMARY,
+      findings: reason === 'SCHEDULED_EXPIRED' ? SCHEDULED_EXPIRED_FINDINGS : FOLLOW_UP_FINDINGS,
+      pendingActions: DEFAULT_FOLLOW_UP_PENDING_ACTIONS,
+      forceEnd: true,
+      noShowNote: undefined,
+    };
+  }
+
+  private isScheduledHearingStale(
+    hearing: Pick<
+      DisputeHearingEntity,
+      | 'status'
+      | 'scheduledAt'
+      | 'startedAt'
+      | 'estimatedDurationMinutes'
+      | 'pausedAt'
+      | 'accumulatedPauseSeconds'
+    >,
+    referenceAt: Date = new Date(),
+  ): boolean {
+    if (hearing.status !== HearingStatus.SCHEDULED) {
+      return false;
+    }
+
+    const timebox = this.buildHearingTimebox(hearing);
+    return referenceAt.getTime() >= timebox.graceEndsAt.getTime();
+  }
+
+  private buildWarningCopy(
+    warningType: HearingTimeWarningType,
+    hearing: Pick<DisputeHearingEntity, 'hearingNumber'>,
+    minutesRemaining: number,
+  ): { title: string; body: string } {
+    const hearingLabel = `Hearing #${hearing.hearingNumber || 1}`;
+
+    switch (warningType) {
+      case 'GRACE_PERIOD_WARNING':
+        return {
+          title: 'Hearing auto-close warning',
+          body: `${hearingLabel} will auto-close in about ${minutesRemaining} minutes unless it is ended, extended, or resolved with a verdict.`,
+        };
+      case 'PAUSE_AUTO_CLOSE_WARNING':
+        return {
+          title: 'Paused hearing auto-close warning',
+          body: `${hearingLabel} has been paused too long and will auto-close in about ${minutesRemaining} minutes unless it is resumed.`,
+        };
+      default:
+        return {
+          title: 'Hearing ending soon',
+          body: `${hearingLabel} is close to its scheduled end and should be wrapped up within about ${minutesRemaining} minutes.`,
+        };
+    }
+  }
+
+  private async createNotificationOnce(input: {
+    userId: string;
+    title: string;
+    body: string;
+    relatedType?: string;
+    relatedId?: string;
+  }): Promise<NotificationEntity | null> {
+    const existing = await this.notificationRepository.findOne({
+      where: {
+        userId: input.userId,
+        title: input.title,
+        relatedType: input.relatedType,
+        relatedId: input.relatedId,
+      },
+      select: ['id'],
+    });
+
+    if (existing) {
+      return null;
+    }
+
+    const notification = await this.notificationRepository.save(
+      this.notificationRepository.create({
+        userId: input.userId,
+        title: input.title,
+        body: input.body,
+        relatedType: input.relatedType,
+        relatedId: input.relatedId,
+      }),
+    );
+    this.eventEmitter.emit('notification.created', { notification });
+    return notification;
+  }
+
+  private async emitTimeWarningIfNeeded(
+    hearing: Pick<DisputeHearingEntity, 'id' | 'disputeId' | 'hearingNumber'>,
+    warningType: HearingTimeWarningType,
+    minutesRemaining: number,
+    participantIds: string[],
+    timebox: HearingTimebox,
+  ): Promise<boolean> {
+    if (participantIds.length === 0) {
+      return false;
+    }
+
+    const { title, body } = this.buildWarningCopy(warningType, hearing, minutesRemaining);
+    let delivered = false;
+
+    for (const userId of participantIds) {
+      const notification = await this.createNotificationOnce({
+        userId,
+        title,
+        body,
+        relatedType: 'DisputeHearing',
+        relatedId: hearing.id,
+      });
+      if (notification) {
+        delivered = true;
+      }
+    }
+
+    if (delivered) {
+      this.eventEmitter.emit('hearing.timeWarning', {
+        hearingId: hearing.id,
+        disputeId: hearing.disputeId,
+        warningType,
+        minutesRemaining,
+        participantIds,
+        scheduledEndAt: timebox.scheduledEndAt,
+        graceEndsAt: timebox.graceEndsAt,
+        pauseAutoCloseAt: timebox.pauseAutoCloseAt,
+      });
+    }
+
+    return delivered;
   }
 
   private async buildDocketForDispute(disputeId: string, disputeStatus?: DisputeStatus | null) {
@@ -429,7 +692,16 @@ export class HearingService implements OnModuleInit {
   }
 
   private resolveHearingLifecycle(
-    hearing: Pick<DisputeHearingEntity, 'status' | 'tier'> & {
+    hearing: Pick<
+      DisputeHearingEntity,
+      | 'status'
+      | 'tier'
+      | 'scheduledAt'
+      | 'startedAt'
+      | 'estimatedDurationMinutes'
+      | 'pausedAt'
+      | 'accumulatedPauseSeconds'
+    > & {
       dispute?: Pick<DisputeEntity, 'status'> | null;
     },
   ): HearingLifecycle {
@@ -441,12 +713,27 @@ export class HearingService implements OnModuleInit {
       return 'ARCHIVED';
     }
 
+    if (this.isScheduledHearingStale(hearing)) {
+      return 'ARCHIVED';
+    }
+
     return ACTIVE_HEARING_STATUSES.has(hearing.status) ? 'ACTIVE' : 'ARCHIVED';
   }
 
-  private applyLifecycleFilter<T extends Pick<DisputeHearingEntity, 'status' | 'tier'> & {
-    dispute?: Pick<DisputeEntity, 'status'> | null;
-  }>(
+  private applyLifecycleFilter<
+    T extends Pick<
+      DisputeHearingEntity,
+      | 'status'
+      | 'tier'
+      | 'scheduledAt'
+      | 'startedAt'
+      | 'estimatedDurationMinutes'
+      | 'pausedAt'
+      | 'accumulatedPauseSeconds'
+    > & {
+      dispute?: Pick<DisputeEntity, 'status'> | null;
+    },
+  >(
     hearings: T[],
     lifecycle: HearingLifecycleFilter = 'all',
   ): T[] {
@@ -459,6 +746,75 @@ export class HearingService implements OnModuleInit {
       return lifecycle === 'active'
         ? hearingLifecycle === 'ACTIVE'
         : hearingLifecycle === 'ARCHIVED';
+    });
+  }
+
+  private async expireScheduledHearing(
+    hearing: Pick<
+      DisputeHearingEntity,
+      | 'id'
+      | 'disputeId'
+      | 'status'
+      | 'scheduledAt'
+      | 'startedAt'
+      | 'estimatedDurationMinutes'
+      | 'moderatorId'
+      | 'pausedAt'
+      | 'pausedById'
+      | 'pauseReason'
+      | 'accumulatedPauseSeconds'
+      | 'speakerRoleBeforePause'
+      | 'isEvidenceIntakeOpen'
+      | 'tier'
+    >,
+    referenceAt: Date,
+    blockedReason: string,
+  ): Promise<void> {
+    const closureMinutes = this.buildSystemClosureMinutes('SCHEDULED_EXPIRED');
+    const calendarEvent = await this.calendarRepository.findOne({
+      where: { referenceType: 'DisputeHearing', referenceId: hearing.id },
+      select: ['id', 'metadata'],
+    });
+
+    if (calendarEvent) {
+      await this.calendarRepository.update(calendarEvent.id, {
+        status: EventStatus.CANCELLED,
+        metadata: {
+          ...(calendarEvent.metadata || {}),
+          autoExpiredAt: referenceAt.toISOString(),
+          autoExpiredReason: blockedReason,
+        },
+      });
+    }
+
+    await this.hearingRepository.update(hearing.id, {
+      status: HearingStatus.CANCELED,
+      endedAt: referenceAt,
+      isChatRoomActive: false,
+      currentSpeakerRole: SpeakerRole.MUTED_ALL,
+      isEvidenceIntakeOpen: false,
+      evidenceIntakeClosedAt: hearing.isEvidenceIntakeOpen ? referenceAt : null,
+      accumulatedPauseSeconds: this.getTotalPauseSeconds(hearing),
+      pausedAt: null,
+      pausedById: null,
+      pauseReason: null,
+      speakerRoleBeforePause: null,
+      summary: closureMinutes.summary,
+      findings: closureMinutes.findings,
+      pendingActions: closureMinutes.pendingActions,
+      noShowNote:
+        'System-generated note: the hearing expired before it could be started. ' +
+        `Blocked reason: ${blockedReason}.`,
+    });
+
+    this.eventEmitter.emit('hearing.ended', {
+      hearingId: hearing.id,
+      disputeId: hearing.disputeId,
+      endedById: null,
+      endedByType: 'SYSTEM',
+      closureReason: 'SCHEDULED_EXPIRED',
+      cancelledQuestions: [],
+      absentParticipants: [],
     });
   }
 
@@ -1082,11 +1438,45 @@ export class HearingService implements OnModuleInit {
   }
 
   private async markPendingConfirmationForManualReview(
+    hearing: Pick<
+      DisputeHearingEntity,
+      | 'id'
+      | 'status'
+      | 'scheduledAt'
+      | 'startedAt'
+      | 'estimatedDurationMinutes'
+      | 'pausedAt'
+      | 'pausedById'
+      | 'pauseReason'
+      | 'accumulatedPauseSeconds'
+      | 'speakerRoleBeforePause'
+      | 'isEvidenceIntakeOpen'
+      | 'tier'
+    >,
     event: Pick<CalendarEventEntity, 'id' | 'metadata'>,
     reason: string,
     referenceAt: Date,
   ): Promise<void> {
+    await this.hearingRepository.update(hearing.id, {
+      status: HearingStatus.CANCELED,
+      endedAt: referenceAt,
+      isChatRoomActive: false,
+      currentSpeakerRole: SpeakerRole.MUTED_ALL,
+      isEvidenceIntakeOpen: false,
+      evidenceIntakeClosedAt: hearing.isEvidenceIntakeOpen ? referenceAt : null,
+      accumulatedPauseSeconds: this.getTotalPauseSeconds(hearing),
+      pausedAt: null,
+      pausedById: null,
+      pauseReason: null,
+      speakerRoleBeforePause: null,
+      summary: PENDING_CONFIRMATION_TIMEOUT_SUMMARY,
+      findings: PENDING_CONFIRMATION_TIMEOUT_FINDINGS,
+      pendingActions: DEFAULT_FOLLOW_UP_PENDING_ACTIONS,
+      noShowNote: `System-generated note: ${reason}`,
+    });
+
     await this.calendarRepository.update(event.id, {
+      status: EventStatus.CANCELLED,
       metadata: {
         ...(event.metadata || {}),
         manualNoShowReviewRequired: true,
@@ -1831,6 +2221,8 @@ export class HearingService implements OnModuleInit {
   ) {
     const participantConfirmationSummary = confirmationSummaryByHearingId?.get(hearing.id);
     const lifecycle = this.resolveHearingLifecycle(hearing);
+    const timebox = this.buildHearingTimebox(hearing);
+    const closureReason = this.deriveClosureReason(hearing);
     return {
       id: hearing.id,
       disputeId: hearing.disputeId,
@@ -1859,6 +2251,10 @@ export class HearingService implements OnModuleInit {
       accumulatedPauseSeconds: this.getTotalPauseSeconds(hearing),
       speakerRoleBeforePause: hearing.speakerRoleBeforePause,
       estimatedDurationMinutes: hearing.estimatedDurationMinutes,
+      scheduledEndAt: timebox.scheduledEndAt,
+      graceEndsAt: timebox.graceEndsAt,
+      pauseAutoCloseAt: timebox.pauseAutoCloseAt,
+      closureReason,
       rescheduleCount: hearing.rescheduleCount,
       previousHearingId: hearing.previousHearingId,
       lastRescheduledAt: hearing.lastRescheduledAt,
@@ -4570,49 +4966,70 @@ export class HearingService implements OnModuleInit {
   // COMPOSE FUNCTION: endHearing()
   // ===========================================================================
 
-  async endHearing(
-    dto: EndHearingDto,
-    endedById: string,
+  private async finalizeHearingEnd(
+    hearing: DisputeHearingEntity,
+    input: {
+      endedById?: string | null;
+      endedByType: HearingEndedByType;
+      closureReason: HearingClosureReason;
+      summary: string;
+      findings: string;
+      pendingActions?: unknown[] | null;
+      forceEnd?: boolean;
+      noShowNote?: string | null;
+      skipActionableCheck?: boolean;
+    },
   ): Promise<{
     hearing: DisputeHearingEntity;
     cancelledQuestions: string[];
     absentParticipants: string[];
   }> {
-    const hearing = await this.hearingRepository.findOne({
-      where: { id: dto.hearingId },
-      relations: ['participants', 'dispute'],
-    });
-
-    if (!hearing) {
-      throw new NotFoundException(`Hearing ${dto.hearingId} not found`);
+    if (!input.skipActionableCheck) {
+      await this.assertHearingIsActionable(hearing);
     }
-
-    await this.assertHearingIsActionable(hearing);
 
     if (![HearingStatus.IN_PROGRESS, HearingStatus.PAUSED].includes(hearing.status)) {
       throw new BadRequestException(`Hearing is ${hearing.status}, cannot end`);
     }
 
-    const user = await this.userRepository.findOne({
-      where: { id: endedById },
-      select: ['id', 'role'],
-    });
+    const summary = input.summary?.trim();
+    const findings = input.findings?.trim();
+    let noShowNote = input.noShowNote?.trim() || null;
+    const pendingActions = normalizeDisputeFollowUpActionInput(input.pendingActions ?? []);
 
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    if (endedById !== hearing.moderatorId && user.role !== UserRole.ADMIN) {
-      throw new ForbiddenException('Only the assigned moderator or admin can end the hearing');
-    }
-
-    const summary = dto.summary?.trim();
-    const findings = dto.findings?.trim();
-    const noShowNote = dto.noShowNote?.trim();
     if (!summary || !findings) {
       throw new BadRequestException({
         code: 'HEARING_MINUTES_REQUIRED',
         message: 'Both summary and findings are required before ending a hearing.',
+      });
+    }
+
+    const participants = await this.participantRepository.find({
+      where: { hearingId: hearing.id },
+    });
+
+    const absentRequiredParticipants = participants
+      .filter((participant) => participant.isRequired && !participant.joinedAt)
+      .map((participant) => ({
+        participantId: participant.id,
+        userId: participant.userId,
+        role: participant.role,
+      }));
+
+    if (
+      absentRequiredParticipants.length > 0 &&
+      input.endedByType === 'SYSTEM' &&
+      !noShowNote
+    ) {
+      noShowNote =
+        'System-generated note: one or more required participants were absent when the hearing was automatically closed.';
+    }
+
+    if (absentRequiredParticipants.length > 0 && !noShowNote) {
+      throw new BadRequestException({
+        code: 'NO_SHOW_NOTE_REQUIRED',
+        message: 'A no-show note is required when one or more required participants are absent.',
+        absentRequiredParticipants,
       });
     }
 
@@ -4623,7 +5040,7 @@ export class HearingService implements OnModuleInit {
       },
     });
 
-    if (pendingQuestions.length > 0 && !dto.forceEnd) {
+    if (pendingQuestions.length > 0 && !input.forceEnd) {
       throw new BadRequestException({
         message:
           'There are unanswered questions. Confirm end to cancel them without penalizing users.',
@@ -4643,15 +5060,11 @@ export class HearingService implements OnModuleInit {
       for (const question of pendingQuestions) {
         question.status = HearingQuestionStatus.CANCELLED_BY_MODERATOR;
         question.cancelledAt = now;
-        question.cancelledById = endedById;
+        question.cancelledById = input.endedById || null;
         await this.questionRepository.save(question);
         cancelledQuestions.push(question.id);
       }
     }
-
-    const participants = await this.participantRepository.find({
-      where: { hearingId: hearing.id },
-    });
 
     for (const participant of participants) {
       if (participant.isOnline) {
@@ -4662,22 +5075,6 @@ export class HearingService implements OnModuleInit {
     const refreshedParticipants = await this.participantRepository.find({
       where: { hearingId: hearing.id },
     });
-
-    const absentRequiredParticipants = refreshedParticipants
-      .filter((participant) => participant.isRequired && !participant.joinedAt)
-      .map((participant) => ({
-        participantId: participant.id,
-        userId: participant.userId,
-        role: participant.role,
-      }));
-
-    if (absentRequiredParticipants.length > 0 && !noShowNote) {
-      throw new BadRequestException({
-        code: 'NO_SHOW_NOTE_REQUIRED',
-        message: 'A no-show note is required when one or more required participants are absent.',
-        absentRequiredParticipants,
-      });
-    }
 
     const absentParticipants: string[] = [];
     const latenessBaseline = hearing.startedAt || hearing.scheduledAt;
@@ -4693,7 +5090,7 @@ export class HearingService implements OnModuleInit {
 
       for (const eventParticipant of eventParticipants) {
         const hearingParticipant = refreshedParticipants.find(
-          (p) => p.userId === eventParticipant.userId,
+          (participant) => participant.userId === eventParticipant.userId,
         );
 
         if (!hearingParticipant) {
@@ -4730,19 +5127,23 @@ export class HearingService implements OnModuleInit {
       endedAt: now,
       isChatRoomActive: false,
       currentSpeakerRole: SpeakerRole.MUTED_ALL,
+      accumulatedPauseSeconds: this.getTotalPauseSeconds(hearing),
       pausedAt: null,
       pausedById: null,
       pauseReason: null,
       speakerRoleBeforePause: null,
       summary,
       findings,
-      pendingActions: dto.pendingActions,
-      noShowNote: noShowNote || null,
+      pendingActions: pendingActions.length > 0 ? pendingActions : null,
+      noShowNote,
     });
 
     this.eventEmitter.emit('hearing.ended', {
       hearingId: hearing.id,
-      endedById,
+      disputeId: hearing.disputeId,
+      endedById: input.endedById || null,
+      endedByType: input.endedByType,
+      closureReason: input.closureReason,
       cancelledQuestions,
       absentParticipants,
     });
@@ -4756,6 +5157,48 @@ export class HearingService implements OnModuleInit {
       cancelledQuestions,
       absentParticipants,
     };
+  }
+
+  async endHearing(
+    dto: EndHearingDto,
+    endedById: string,
+  ): Promise<{
+    hearing: DisputeHearingEntity;
+    cancelledQuestions: string[];
+    absentParticipants: string[];
+  }> {
+    const hearing = await this.hearingRepository.findOne({
+      where: { id: dto.hearingId },
+      relations: ['participants', 'dispute'],
+    });
+
+    if (!hearing) {
+      throw new NotFoundException(`Hearing ${dto.hearingId} not found`);
+    }
+
+    const user = await this.userRepository.findOne({
+      where: { id: endedById },
+      select: ['id', 'role'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (endedById !== hearing.moderatorId && user.role !== UserRole.ADMIN) {
+      throw new ForbiddenException('Only the assigned moderator or admin can end the hearing');
+    }
+
+    return await this.finalizeHearingEnd(hearing, {
+      endedById,
+      endedByType: 'USER',
+      closureReason: 'MANUAL_CLOSE',
+      summary: dto.summary,
+      findings: dto.findings,
+      pendingActions: dto.pendingActions,
+      forceEnd: dto.forceEnd,
+      noShowNote: dto.noShowNote,
+    });
   }
 
   // ===========================================================================
@@ -5319,12 +5762,16 @@ export class HearingService implements OnModuleInit {
     let blocked = 0;
 
     for (const hearing of dueHearings) {
+      const stale = this.isScheduledHearingStale(hearing, referenceAt);
       const event = await this.calendarRepository.findOne({
-        where: { referenceType: 'DisputeHearing', referenceId: hearing.id },
+        where: { referenceType: 'DisputeHearing', referenceId: String(hearing.id) },
         select: ['id', 'status'],
       });
 
       if (!event) {
+        if (stale) {
+          await this.expireScheduledHearing(hearing, referenceAt, 'EVENT_NOT_FOUND');
+        }
         blocked += 1;
         this.logger.warn(
           `hearing_auto_start_blocked hearingId=${hearing.id} reason=EVENT_NOT_FOUND`,
@@ -5338,6 +5785,19 @@ export class HearingService implements OnModuleInit {
           await this.calendarRepository.update(event.id, { status: EventStatus.SCHEDULED });
           event.status = EventStatus.SCHEDULED;
         }
+      }
+
+      if (stale) {
+        await this.expireScheduledHearing(
+          hearing,
+          referenceAt,
+          `AUTO_START_WINDOW_ELAPSED_EVENT_${event.status}`,
+        );
+        blocked += 1;
+        this.logger.warn(
+          `hearing_auto_start_expired hearingId=${hearing.id} reason=AUTO_START_WINDOW_ELAPSED_EVENT_${event.status}`,
+        );
+        continue;
       }
 
       if (event.status !== EventStatus.SCHEDULED) {
@@ -5368,6 +5828,210 @@ export class HearingService implements OnModuleInit {
     };
   }
 
+  async dispatchActiveHearingTimeWarnings(referenceAt: Date = new Date()): Promise<{
+    referenceAt: string;
+    warnings: number;
+  }> {
+    const hearings = await this.hearingRepository.find({
+      where: {
+        status: In([HearingStatus.IN_PROGRESS, HearingStatus.PAUSED]),
+      },
+      select: [
+        'id',
+        'disputeId',
+        'hearingNumber',
+        'moderatorId',
+        'status',
+        'scheduledAt',
+        'startedAt',
+        'estimatedDurationMinutes',
+        'pausedAt',
+        'accumulatedPauseSeconds',
+      ],
+      take: 100,
+      order: { scheduledAt: 'ASC' },
+    });
+
+    let warnings = 0;
+
+    for (const hearing of hearings) {
+      const participants = await this.participantRepository.find({
+        where: { hearingId: hearing.id },
+        select: ['userId'],
+      });
+      const participantIds = Array.from(
+        new Set(
+          participants
+            .map((participant) => participant.userId)
+            .concat(hearing.moderatorId ? [hearing.moderatorId] : [])
+            .filter(Boolean),
+        ),
+      );
+      const timebox = this.buildHearingTimebox(hearing);
+
+      if (hearing.status === HearingStatus.IN_PROGRESS) {
+        const scheduledEndMs = timebox.scheduledEndAt.getTime() - referenceAt.getTime();
+        if (
+          scheduledEndMs > 0 &&
+          scheduledEndMs <= HEARING_CONFIG.AUTO_CLOSE_WARNING_MINUTES * 60_000 &&
+          (await this.emitTimeWarningIfNeeded(
+            hearing,
+            'SCHEDULE_END_WARNING',
+            Math.max(1, Math.ceil(scheduledEndMs / 60_000)),
+            participantIds,
+            timebox,
+          ))
+        ) {
+          warnings += 1;
+        }
+
+        const graceMs = timebox.graceEndsAt.getTime() - referenceAt.getTime();
+        if (
+          referenceAt.getTime() >= timebox.scheduledEndAt.getTime() &&
+          graceMs > 0 &&
+          graceMs <= HEARING_CONFIG.AUTO_CLOSE_FINAL_WARNING_MINUTES * 60_000 &&
+          (await this.emitTimeWarningIfNeeded(
+            hearing,
+            'GRACE_PERIOD_WARNING',
+            Math.max(1, Math.ceil(graceMs / 60_000)),
+            participantIds,
+            timebox,
+          ))
+        ) {
+          warnings += 1;
+        }
+      }
+
+      if (hearing.status === HearingStatus.PAUSED && timebox.pauseAutoCloseAt) {
+        const pauseMs = timebox.pauseAutoCloseAt.getTime() - referenceAt.getTime();
+        if (
+          pauseMs > 0 &&
+          pauseMs <= HEARING_CONFIG.AUTO_CLOSE_FINAL_WARNING_MINUTES * 60_000 &&
+          (await this.emitTimeWarningIfNeeded(
+            hearing,
+            'PAUSE_AUTO_CLOSE_WARNING',
+            Math.max(1, Math.ceil(pauseMs / 60_000)),
+            participantIds,
+            timebox,
+          ))
+        ) {
+          warnings += 1;
+        }
+      }
+    }
+
+    return {
+      referenceAt: referenceAt.toISOString(),
+      warnings,
+    };
+  }
+
+  async autoCloseOverdueHearings(referenceAt: Date = new Date()): Promise<{
+    referenceAt: string;
+    checked: number;
+    closed: number;
+    failed: number;
+  }> {
+    const hearings = await this.hearingRepository.find({
+      where: {
+        status: HearingStatus.IN_PROGRESS,
+      },
+      relations: ['participants', 'dispute'],
+      take: 100,
+      order: { scheduledAt: 'ASC' },
+    });
+
+    let checked = 0;
+    let closed = 0;
+    let failed = 0;
+
+    for (const hearing of hearings) {
+      const timebox = this.buildHearingTimebox(hearing);
+      if (referenceAt.getTime() < timebox.graceEndsAt.getTime()) {
+        continue;
+      }
+
+      checked += 1;
+      try {
+        await this.finalizeHearingEnd(hearing, {
+          endedById: null,
+          endedByType: 'SYSTEM',
+          closureReason: 'TIME_LIMIT_REACHED',
+          skipActionableCheck: true,
+          ...this.buildSystemClosureMinutes('TIME_LIMIT_REACHED'),
+        });
+        closed += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(
+          `hearing_auto_close_failed hearingId=${hearing.id} reason=${
+            error instanceof Error ? error.message : 'UNKNOWN'
+          }`,
+        );
+      }
+    }
+
+    return {
+      referenceAt: referenceAt.toISOString(),
+      checked,
+      closed,
+      failed,
+    };
+  }
+
+  async autoCloseAbandonedPausedHearings(referenceAt: Date = new Date()): Promise<{
+    referenceAt: string;
+    checked: number;
+    closed: number;
+    failed: number;
+  }> {
+    const hearings = await this.hearingRepository.find({
+      where: {
+        status: HearingStatus.PAUSED,
+      },
+      relations: ['participants', 'dispute'],
+      take: 100,
+      order: { pausedAt: 'ASC' },
+    });
+
+    let checked = 0;
+    let closed = 0;
+    let failed = 0;
+
+    for (const hearing of hearings) {
+      const timebox = this.buildHearingTimebox(hearing);
+      if (!timebox.pauseAutoCloseAt || referenceAt.getTime() < timebox.pauseAutoCloseAt.getTime()) {
+        continue;
+      }
+
+      checked += 1;
+      try {
+        await this.finalizeHearingEnd(hearing, {
+          endedById: null,
+          endedByType: 'SYSTEM',
+          closureReason: 'PAUSE_ABANDONED',
+          skipActionableCheck: true,
+          ...this.buildSystemClosureMinutes('PAUSE_ABANDONED'),
+        });
+        closed += 1;
+      } catch (error) {
+        failed += 1;
+        this.logger.warn(
+          `hearing_pause_auto_close_failed hearingId=${hearing.id} reason=${
+            error instanceof Error ? error.message : 'UNKNOWN'
+          }`,
+        );
+      }
+    }
+
+    return {
+      referenceAt: referenceAt.toISOString(),
+      checked,
+      closed,
+      failed,
+    };
+  }
+
   async autoRescheduleExpiredPendingHearings(referenceAt: Date = new Date()): Promise<{
     referenceAt: string;
     checked: number;
@@ -5381,7 +6045,7 @@ export class HearingService implements OnModuleInit {
       .innerJoin(
         CalendarEventEntity,
         'event',
-        "event.referenceType = 'DisputeHearing' AND event.referenceId = hearing.id",
+        "event.referenceType = 'DisputeHearing' AND event.referenceId = hearing.id::text",
       )
       .where('hearing.status = :hearingStatus', { hearingStatus: HearingStatus.SCHEDULED })
       .andWhere('event.status = :eventStatus', { eventStatus: EventStatus.PENDING_CONFIRMATION })
@@ -5402,7 +6066,7 @@ export class HearingService implements OnModuleInit {
       const event = await this.calendarRepository.findOne({
         where: {
           referenceType: 'DisputeHearing',
-          referenceId: hearing.id,
+          referenceId: String(hearing.id),
           status: EventStatus.PENDING_CONFIRMATION,
         },
         select: ['id', 'status', 'metadata'],
@@ -5438,6 +6102,7 @@ export class HearingService implements OnModuleInit {
 
       if (hearing.rescheduleCount >= HEARING_CONFIG.MAX_RESCHEDULES) {
         await this.markPendingConfirmationForManualReview(
+          hearing,
           event,
           'Primary-side confirmation was not received before the 12-hour deadline.',
           referenceAt,
@@ -5449,6 +6114,7 @@ export class HearingService implements OnModuleInit {
       const nextSlot = await this.findNextAutoRescheduleSlot(hearing, referenceAt);
       if (!nextSlot) {
         await this.markPendingConfirmationForManualReview(
+          hearing,
           event,
           'Auto-reschedule could not find a feasible next slot after the confirmation deadline.',
           referenceAt,
@@ -5481,6 +6147,7 @@ export class HearingService implements OnModuleInit {
           }`,
         );
         await this.markPendingConfirmationForManualReview(
+          hearing,
           event,
           'Auto-reschedule failed after the confirmation deadline and now requires staff/admin review.',
           referenceAt,

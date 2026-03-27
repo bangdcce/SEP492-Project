@@ -12,12 +12,16 @@ export interface TrustStats {
 export interface User {
   id: string;
   fullName: string;
-  avatarUrl: string;
+  avatarUrl?: string | null;
   isVerified: boolean;
   isEmailVerified?: boolean;
   currentTrustScore: number | string;
   badge: BadgeType;
   stats: TrustStats;
+  role?: string;
+  bio?: string;
+  skills?: string[];
+  createdAt?: string;
 }
 // Reviewer Information (Nested in Review)
 export interface ReviewerInfo {
@@ -42,6 +46,34 @@ export interface ProjectInfo {
   endDate?: string;
   status?: "PENDING" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
   category?: string;
+}
+
+export interface ProjectHistoryItem {
+  projectId: string;
+  title: string;
+  status: string;
+  totalBudget: number;
+  completedAt: string;
+  targetRoleInProject: string;
+  viewerRoleInProject?: string | null;
+  client?: {
+    id: string;
+    fullName: string;
+  } | null;
+  broker?: {
+    id: string;
+    fullName: string;
+  } | null;
+  freelancer?: {
+    id: string;
+    fullName: string;
+  } | null;
+}
+
+export interface TrustProfileResponse {
+  user: User;
+  reviews: Review[];
+  projectHistory: ProjectHistoryItem[];
 }
 // Review Entity
 export interface Review {

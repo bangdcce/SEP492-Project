@@ -25,6 +25,11 @@ import {
   ApiResponse,
   ApiTags,
 } from '@nestjs/swagger';
+import type { Request } from 'express';
+import {
+  getProjectRequestSignedUrl,
+  uploadProjectRequestFile,
+} from '../../common/utils/supabase-object-storage.util';
 
 // Define MulterFile interface manually to avoid namespace issues
 interface MulterFile {
@@ -53,6 +58,10 @@ import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserRole, UserEntity } from '../../database/entities/user.entity';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
 import { CreateProjectRequestDto, UpdateProjectRequestDto } from './dto/create-project-request.dto';
+import {
+  CreateCommercialChangeRequestDto,
+  RespondCommercialChangeRequestDto,
+} from './dto/commercial-change-request.dto';
 
 const REQUEST_ATTACHMENT_WHITELIST = {
   mimeTypes: new Set([
@@ -92,6 +101,32 @@ const REQUEST_ATTACHMENT_WHITELIST = {
 @ApiBearerAuth()
 export class ProjectRequestsController {
   constructor(private readonly projectRequestsService: ProjectRequestsService) {}
+
+  private async persistRequestUpload(
+    file: MulterFile,
+    category: 'requirements' | 'attachment',
+    ownerId: string,
+  ) {
+    if (!file?.buffer?.length) {
+      throw new BadRequestException(`Missing uploaded file for ${category}`);
+    }
+
+    const storagePath = await uploadProjectRequestFile(
+      file.buffer,
+      ownerId,
+      file.originalname,
+      file.mimetype,
+    );
+
+    return {
+      filename: file.originalname,
+      storagePath,
+      url: await getProjectRequestSignedUrl(storagePath),
+      mimetype: file.mimetype,
+      size: file.size,
+      category,
+    };
+  }
 
   private assertFilesAllowed(files: MulterFile[] = []) {
     for (const file of files) {
@@ -235,7 +270,7 @@ export class ProjectRequestsController {
   @UseInterceptors(
     FileFieldsInterceptor([
       { name: 'requirements', maxCount: 1 },
-      { name: 'attachments', maxCount: 5 },
+      { name: 'attachments', maxCount: 10 },
     ]),
   )
   @ApiConsumes('multipart/form-data')
@@ -257,26 +292,54 @@ export class ProjectRequestsController {
       },
     },
   })
-  uploadFile(@UploadedFiles() files: UploadedFilesMap) {
+  async uploadFile(@UploadedFiles() files: UploadedFilesMap, @GetUser('id') userId: string) {
     this.assertFilesAllowed([...(files.requirements || []), ...(files.attachments || [])]);
-    // In a real app, upload to S3/Firebase and return URL.
-    // Here we just return a mock URL or the filename.
+
     return {
-      requirements: files.requirements?.map((file) => ({
-        filename: file.originalname,
-        url: `/uploads/${file.originalname}`,
-        mimetype: file.mimetype,
-        size: file.size,
-        category: 'requirements',
-      })),
-      attachments: files.attachments?.map((file) => ({
-        filename: file.originalname,
-        url: `/uploads/${file.originalname}`,
-        mimetype: file.mimetype,
-        size: file.size,
-        category: 'attachment',
-      })),
+      requirements: await Promise.all(
+        (files.requirements || []).map((file) =>
+          this.persistRequestUpload(file, 'requirements', userId),
+        ),
+      ),
+      attachments: await Promise.all(
+        (files.attachments || []).map((file) =>
+          this.persistRequestUpload(file, 'attachment', userId),
+        ),
+      ),
     };
+  }
+
+  @Post(':id/commercial-change-requests')
+  @Roles(UserRole.BROKER, UserRole.ADMIN, UserRole.STAFF)
+  @ApiOperation({ summary: 'Broker proposes a commercial change request for an approved client spec baseline' })
+  async createCommercialChangeRequest(
+    @Param('id') id: string,
+    @GetUser() user: UserEntity,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    body: CreateCommercialChangeRequestDto,
+    @Req() req: RequestContext,
+  ) {
+    return this.projectRequestsService.createCommercialChangeRequest(id, user, body, req);
+  }
+
+  @Post(':id/commercial-change-requests/:changeRequestId/respond')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Client approves or rejects a commercial change request' })
+  async respondCommercialChangeRequest(
+    @Param('id') id: string,
+    @Param('changeRequestId') changeRequestId: string,
+    @GetUser() user: UserEntity,
+    @Body(new ValidationPipe({ whitelist: true, transform: true }))
+    body: RespondCommercialChangeRequestDto,
+    @Req() req: RequestContext,
+  ) {
+    return this.projectRequestsService.respondCommercialChangeRequest(
+      id,
+      changeRequestId,
+      user,
+      body,
+      req,
+    );
   }
 
   @Post(':id/invite/broker')
@@ -292,14 +355,40 @@ export class ProjectRequestsController {
   }
 
   @Post(':id/invite/freelancer')
+  @Roles(UserRole.BROKER, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Invite a freelancer to a project request (Phase 3)' })
   @ApiResponse({ status: 201, description: 'Invitation sent' })
   async inviteFreelancer(
     @Param('id') id: string,
+    @GetUser() user: UserEntity,
     @Body('freelancerId') freelancerId: string,
     @Body('message') message?: string,
   ) {
-    return this.projectRequestsService.inviteFreelancer(id, freelancerId, message);
+    return this.projectRequestsService.inviteFreelancer(id, freelancerId, message, user);
+  }
+
+  @Post(':id/approve-freelancer-invite')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Client approves a broker freelancer recommendation' })
+  @ApiResponse({ status: 200, description: 'Freelancer recommendation approved' })
+  async approveFreelancerInvite(
+    @Param('id') id: string,
+    @GetUser('id') clientId: string,
+    @Body('proposalId') proposalId: string,
+  ) {
+    return this.projectRequestsService.approveFreelancerInvite(id, proposalId, clientId);
+  }
+
+  @Post(':id/reject-freelancer-invite')
+  @Roles(UserRole.CLIENT)
+  @ApiOperation({ summary: 'Client rejects a broker freelancer recommendation' })
+  @ApiResponse({ status: 200, description: 'Freelancer recommendation rejected' })
+  async rejectFreelancerInvite(
+    @Param('id') id: string,
+    @GetUser('id') clientId: string,
+    @Body('proposalId') proposalId: string,
+  ) {
+    return this.projectRequestsService.rejectFreelancerInvite(id, proposalId, clientId);
   }
 
   @Post(':id/apply')

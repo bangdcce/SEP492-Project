@@ -1,17 +1,37 @@
-import { Test, TestingModule } from '@nestjs/testing';
 import { DisputesController } from './disputes.controller';
 import { DisputesService } from './disputes.service';
+import { HearingVerdictOrchestratorService } from './services/hearing-verdict-orchestrator.service';
 
 describe('DisputesController', () => {
   let controller: DisputesController;
+  const disputesServiceMock = new Proxy(
+    {},
+    {
+      get: (_target, property) => {
+        if (!(property in _target)) {
+          (_target as Record<string, unknown>)[property as string] = jest.fn();
+        }
+        return (_target as Record<string, unknown>)[property as string];
+      },
+    },
+  );
+  const hearingVerdictOrchestratorMock = new Proxy(
+    {},
+    {
+      get: (_target, property) => {
+        if (!(property in _target)) {
+          (_target as Record<string, unknown>)[property as string] = jest.fn();
+        }
+        return (_target as Record<string, unknown>)[property as string];
+      },
+    },
+  );
 
   beforeEach(async () => {
-    const module: TestingModule = await Test.createTestingModule({
-      controllers: [DisputesController],
-      providers: [DisputesService],
-    }).compile();
-
-    controller = module.get<DisputesController>(DisputesController);
+    controller = new DisputesController(
+      disputesServiceMock as unknown as DisputesService,
+      hearingVerdictOrchestratorMock as unknown as HearingVerdictOrchestratorService,
+    );
   });
 
   it('should be defined', () => {

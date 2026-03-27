@@ -14,6 +14,23 @@ export interface AiRankedResult extends TagScoreResult {
   reasoning: string;
 }
 
+type ParsedAiItem = {
+  id?: unknown;
+  candidateId?: unknown;
+  userId?: unknown;
+  score?: unknown;
+  reasoning?: unknown;
+};
+
+const STRUCTURED_COLLECTION_KEYS = [
+  'results',
+  'rankings',
+  'candidates',
+  'matches',
+  'items',
+  'data',
+] as const;
+
 @Injectable()
 export class AiRankerService {
   private readonly logger = new Logger(AiRankerService.name);
@@ -24,10 +41,7 @@ export class AiRankerService {
    * Rank all candidates in a SINGLE batched LLM call
    * instead of one call per candidate (saves rate-limited API quota).
    */
-  async rank(
-    input: AiRankerInput,
-    candidates: TagScoreResult[],
-  ): Promise<AiRankedResult[]> {
+  async rank(input: AiRankerInput, candidates: TagScoreResult[]): Promise<AiRankedResult[]> {
     if (candidates.length === 0) return [];
 
     try {
@@ -59,22 +73,27 @@ export class AiRankerService {
    * Build a SINGLE prompt that evaluates ALL candidates at once.
    * This reduces N API calls to just 1.
    */
-  private buildBatchPrompt(
-    input: AiRankerInput,
-    candidates: TagScoreResult[],
-  ): string {
+  private buildBatchPrompt(input: AiRankerInput, candidates: TagScoreResult[]): string {
     const candidateBlocks = candidates
       .map((c, idx) => {
         const skillsList = c.skills
           .map(
             (s) =>
-              `${s.name} (${s.isPrimary ? 'primary' : 'secondary'}, ${s.yearsExp}y exp)`,
+              `${s.name}${
+                s.domainName ? ` [domain: ${s.domainName}]` : ''
+              } (${s.isPrimary ? 'primary' : 'secondary'}, ${s.yearsExp}y exp, ${
+                s.completedProjectsCount
+              } skill-projects${s.lastUsedAt ? `, last used ${new Date(s.lastUsedAt).getFullYear()}` : ''})`,
           )
           .join(', ');
+        const domainList = c.domains.map((domain) => domain.name).join(', ');
+        const profileTags = c.rawProfileSkills.join(', ');
 
         return `CANDIDATE ${idx + 1} (id: "${c.candidateId}"):
 - Name: ${c.fullName}
 - Bio: ${c.bio || 'No bio provided'}
+- Domains: ${domainList || 'No domains listed'}
+- Profile Tags: ${profileTags || 'No profile tags listed'}
 - Skills: ${skillsList || 'No skills listed'}
 - Trust Score: ${c.trustScore}/5
 - Completed Projects: ${c.completedProjects}
@@ -105,28 +124,32 @@ Respond ONLY with a valid JSON array (no markdown, no code fences). Each element
   /**
    * Parse the batched response and map back to candidates.
    */
-  private parseBatchResponse(
-    content: string,
-    candidates: TagScoreResult[],
-  ): AiRankedResult[] {
+  private parseBatchResponse(content: string, candidates: TagScoreResult[]): AiRankedResult[] {
     try {
-      let cleaned = content.trim();
-      if (cleaned.startsWith('```')) {
-        cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '');
-      }
-
-      const parsed: Array<{ id: string; score: number; reasoning: string }> =
-        JSON.parse(cleaned);
+      const cleaned = this.normalizeStructuredContent(content);
+      const parsed = this.extractStructuredItems(JSON.parse(cleaned));
 
       // Build a map of id -> AI result
       const aiMap = new Map<string, { score: number; reasoning: string }>();
       for (const item of parsed) {
-        aiMap.set(item.id, {
-          score:
-            typeof item.score === 'number'
-              ? Math.min(100, Math.max(0, Math.round(item.score)))
-              : 0,
-          reasoning: item.reasoning || 'No reasoning provided.',
+        const itemId = String(item.id ?? item.candidateId ?? item.userId ?? '').trim();
+        if (!itemId) {
+          continue;
+        }
+
+        aiMap.set(itemId, {
+          score: (() => {
+            const parsedScore =
+              typeof item.score === 'number' ? item.score : Number(item.score);
+
+            return Number.isFinite(parsedScore)
+              ? Math.min(100, Math.max(0, Math.round(parsedScore)))
+              : 0;
+          })(),
+          reasoning:
+            typeof item.reasoning === 'string' && item.reasoning.trim().length > 0
+              ? item.reasoning.trim()
+              : 'No reasoning provided.',
         });
       }
 
@@ -140,12 +163,70 @@ Respond ONLY with a valid JSON array (no markdown, no code fences). Each element
       });
     } catch (err) {
       this.logger.warn('Failed to parse batch AI response', err);
-      // Fallback: treat entire content as a single reasoning
       return candidates.map((c) => ({
         ...c,
         aiRelevanceScore: null,
-        reasoning: content?.substring(0, 200) || 'AI analysis failed to parse.',
+        reasoning: 'AI analysis unavailable.',
       }));
     }
+  }
+
+  private normalizeStructuredContent(content: string): string {
+    let cleaned = content.trim();
+    if (cleaned.startsWith('```')) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+    }
+
+    if (cleaned.startsWith('[') || cleaned.startsWith('{')) {
+      return cleaned;
+    }
+
+    const firstArrayIndex = cleaned.indexOf('[');
+    const firstObjectIndex = cleaned.indexOf('{');
+    const firstIndexCandidates = [firstArrayIndex, firstObjectIndex].filter(
+      (value) => value >= 0,
+    );
+
+    if (firstIndexCandidates.length === 0) {
+      return cleaned;
+    }
+
+    const startIndex = Math.min(...firstIndexCandidates);
+    const candidatePayload = cleaned.slice(startIndex).trim();
+
+    if (candidatePayload.startsWith('[')) {
+      const lastArrayIndex = candidatePayload.lastIndexOf(']');
+      if (lastArrayIndex >= 0) {
+        return candidatePayload.slice(0, lastArrayIndex + 1);
+      }
+    }
+
+    if (candidatePayload.startsWith('{')) {
+      const lastObjectIndex = candidatePayload.lastIndexOf('}');
+      if (lastObjectIndex >= 0) {
+        return candidatePayload.slice(0, lastObjectIndex + 1);
+      }
+    }
+
+    return candidatePayload;
+  }
+
+  private extractStructuredItems(payload: unknown): ParsedAiItem[] {
+    if (Array.isArray(payload)) {
+      return payload as ParsedAiItem[];
+    }
+
+    if (!payload || typeof payload !== 'object') {
+      return [];
+    }
+
+    for (const key of STRUCTURED_COLLECTION_KEYS) {
+      const items = (payload as Record<string, unknown>)[key];
+      if (Array.isArray(items)) {
+        return items as ParsedAiItem[];
+      }
+    }
+
+    return [payload as ParsedAiItem];
   }
 }

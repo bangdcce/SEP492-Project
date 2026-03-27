@@ -8,7 +8,6 @@ import {
   LayoutGrid,
   FileSearch,
   Briefcase,
-  Users,
   User,
   FileSignature,
   Video,
@@ -77,14 +76,6 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: Video,
     path: "/broker/hearings",
     description: "Meetings, confirmations, and dispute hearings",
-    section: "workspace",
-  },
-  {
-    id: "freelancers",
-    label: "My Freelancers",
-    icon: Users,
-    path: "/broker/freelancers",
-    description: "Assigned freelancers",
     section: "workspace",
   },
   {

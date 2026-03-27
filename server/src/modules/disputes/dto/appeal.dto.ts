@@ -1,4 +1,12 @@
-import { IsNotEmpty, IsString, IsArray, IsOptional, MaxLength, MinLength } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 /**
  * DTO đềEgửi khiếu nại lại (Appeal) sau khi dispute đã được resolve
@@ -17,6 +25,15 @@ export class AppealDto {
   @IsArray()
   @IsString({ each: true })
   additionalEvidence?: string[];
+
+  @IsBoolean()
+  @IsNotEmpty()
+  disclaimerAccepted: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  disclaimerVersion?: string;
 }
 
 /**

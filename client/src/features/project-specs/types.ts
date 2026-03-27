@@ -40,6 +40,7 @@ export enum DeliverableType {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface ClientFeatureDTO {
+  id?: string | null;
   title: string;
   description: string;
   priority: 'MUST_HAVE' | 'SHOULD_HAVE' | 'NICE_TO_HAVE';
@@ -50,12 +51,14 @@ export interface CreateClientSpecDTO {
   title: string;
   description: string;
   estimatedBudget: number;
-  estimatedTimeline: string;
+  estimatedTimeline?: string;
+  agreedDeliveryDeadline?: string;
   projectCategory?: string;
   clientFeatures: ClientFeatureDTO[];
   referenceLinks?: ReferenceLinkDTO[];
   richContentJson?: Record<string, unknown>;
   templateCode?: string;
+  changeSummary?: string;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -63,11 +66,13 @@ export interface CreateClientSpecDTO {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export interface SpecFeatureDTO {
+  id?: string;
   title: string;
   description: string;
   complexity: 'LOW' | 'MEDIUM' | 'HIGH';
   acceptanceCriteria: string[];
   inputOutputSpec?: string;
+  approvedClientFeatureIds?: string[] | null;
 }
 
 export interface ReferenceLinkDTO {
@@ -86,6 +91,7 @@ export interface CreateMilestoneDTO {
   startDate?: string;
   dueDate?: string;
   sortOrder?: number;
+  approvedClientFeatureIds?: string[] | null;
 }
 
 export interface CreateProjectSpecDTO {
@@ -101,6 +107,63 @@ export interface CreateProjectSpecDTO {
   richContentJson?: Record<string, unknown>;
   templateCode?: string;
   status?: ProjectSpecStatus;
+  changeSummary?: string;
+}
+
+export interface SpecSubmissionSnapshot {
+  phase: SpecPhase;
+  title: string;
+  description: string;
+  totalBudget: number;
+  projectCategory?: string | null;
+  estimatedTimeline?: string | null;
+  clientFeatures?: ClientFeatureDTO[] | null;
+  features?: SpecFeatureDTO[] | null;
+  techStack?: string | null;
+  referenceLinks?: ReferenceLinkDTO[] | null;
+  milestones?: Array<{
+    title: string;
+    description: string;
+    amount: number;
+    deliverableType: string;
+    retentionAmount: number;
+    startDate?: string | null;
+    dueDate?: string | null;
+    sortOrder?: number | null;
+    acceptanceCriteria?: string[] | null;
+    approvedClientFeatureIds?: string[] | null;
+  }> | null;
+}
+
+export interface SpecFieldDiffEntry {
+  field: string;
+  label: string;
+  previous: unknown;
+  next: unknown;
+}
+
+export interface SpecRejectionHistoryEntry {
+  phase: SpecPhase;
+  reason: string;
+  rejectedByUserId?: string | null;
+  rejectedAt: string;
+}
+
+export interface ProjectSpecRequestContext {
+  originalRequest: {
+    title?: string | null;
+    description?: string | null;
+    budgetRange?: string | null;
+    requestedDeadline?: string | null;
+    productTypeLabel?: string | null;
+    projectGoalSummary?: string | null;
+  };
+  approvedCommercialBaseline: {
+    source?: string | null;
+    agreedBudget?: number | null;
+    agreedDeliveryDeadline?: string | null;
+    agreedClientFeatures?: ClientFeatureDTO[] | null;
+  } | null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -116,6 +179,23 @@ export interface ProjectSpec {
     id: string;
     title: string;
     description?: string;
+    budgetRange?: string | null;
+    requestedDeadline?: string | null;
+    intendedTimeline?: string | null;
+    requestScopeBaseline?: {
+      productTypeCode?: string | null;
+      productTypeLabel?: string | null;
+      projectGoalSummary?: string | null;
+      requestedDeadline?: string | null;
+      requestTitle?: string | null;
+      requestDescription?: string | null;
+    } | null;
+    commercialBaseline?: {
+      source?: string | null;
+      agreedBudget?: number | null;
+      agreedDeliveryDeadline?: string | null;
+      agreedClientFeatures?: ClientFeatureDTO[] | null;
+    } | null;
     clientId?: string;
     brokerId?: string;
     freelancerId?: string | null;
@@ -123,6 +203,7 @@ export interface ProjectSpec {
     broker?: { id: string; fullName: string; email: string };
   };
   parentSpec?: ProjectSpec | null;
+  requestContext?: ProjectSpecRequestContext | null;
   title: string;
   description: string;
   totalBudget: number;
@@ -130,6 +211,11 @@ export interface ProjectSpec {
   rejectionReason?: string | null;
   lockedByContractId?: string | null;
   lockedAt?: string | null;
+  submissionVersion?: number;
+  lastSubmittedSnapshot?: SpecSubmissionSnapshot | null;
+  lastSubmittedDiff?: SpecFieldDiffEntry[] | null;
+  changeSummary?: string | null;
+  rejectionHistory?: SpecRejectionHistoryEntry[] | null;
   createdAt: string;
   updatedAt?: string;
   clientApprovedAt?: string | null;
@@ -163,5 +249,6 @@ export interface ProjectSpec {
     duration?: number;
     startDate?: string;
     dueDate?: string;
+    approvedClientFeatureIds?: string[] | null;
   }[];
 }

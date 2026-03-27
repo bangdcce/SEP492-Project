@@ -4,10 +4,14 @@ import { StaffCalendarView } from "../../calendar/components/grid/StaffCalendarV
 import { RescheduleNegotiator } from "../../calendar/components/negotiation/RescheduleNegotiator";
 import { getEvents } from "../../calendar/api";
 import { EventStatus, EventType, type CalendarEvent } from "../../calendar/types";
+import { normalizeExternalMeetingLink } from "../../hearings/utils/externalMeetingLink";
 
 export const StaffCalendarPage = () => {
   const [nextHearing, setNextHearing] = useState<CalendarEvent | null>(null);
   const [loadingNext, setLoadingNext] = useState(false);
+  const nextHearingLink = normalizeExternalMeetingLink(
+    nextHearing?.externalMeetingLink,
+  );
 
   useEffect(() => {
     const loadNextHearing = async () => {
@@ -96,9 +100,9 @@ export const StaffCalendarPage = () => {
                     </p>
                   </div>
                 </div>
-                {nextHearing.externalMeetingLink ? (
+                {nextHearingLink ? (
                   <a
-                    href={nextHearing.externalMeetingLink}
+                    href={nextHearingLink}
                     target="_blank"
                     rel="noreferrer"
                     className="w-full mt-3 inline-flex justify-center bg-teal-600 hover:bg-teal-700 text-white text-xs font-medium py-2 rounded-lg transition-colors"

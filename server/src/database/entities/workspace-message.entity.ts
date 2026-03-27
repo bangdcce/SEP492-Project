@@ -17,6 +17,7 @@ export enum WorkspaceMessageType {
 
 export interface WorkspaceMessageAttachment {
   url: string;
+  storagePath?: string | null;
   name: string;
   type: string;
 }

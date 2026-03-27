@@ -28,8 +28,8 @@ import type { ProjectRequest } from "../project-requests/types";
 import { RequestStatus } from "../project-requests/types";
 import { fetchProjectsByUser } from "@/features/project-list/api";
 import type { Project } from "@/features/project-list/types";
-import { ROUTES, STORAGE_KEYS } from "@/constants";
-import { getStoredJson } from "@/shared/utils/storage";
+import { ROUTES } from "@/constants";
+import { useCurrentUser } from "@/shared/hooks/useCurrentUser";
 
 const WORKSPACE_LIVE_STATUSES = new Set([
   "INITIALIZING",
@@ -73,7 +73,7 @@ export function BrokerDashboard() {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const currentUser = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
+  const currentUser = useCurrentUser<{ id?: string; role?: string }>();
 
   useEffect(() => {
     const loadData = async () => {

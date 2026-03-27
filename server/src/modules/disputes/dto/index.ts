@@ -11,8 +11,13 @@ export * from './dispute-filter.dto';
 export * from './cancel-dispute.dto';
 export * from './auto-schedule-tuning.dto';
 export * from './provide-dispute-info.dto';
+export * from './review-request.dto';
+export * from './assign-appeal-owner.dto';
+export * from './assign-neutral-panel.dto';
+export * from './request-escalation.dto';
 export * from './schedule-proposal.dto';
 export * from './schedule-worklist.dto';
+export * from './submit-neutral-panel-recommendation.dto';
 
 // New DTOs
 export * from './evidence.dto';

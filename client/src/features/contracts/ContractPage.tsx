@@ -24,6 +24,16 @@ import {
 } from "@/shared/components/ui/alert";
 import { Badge } from "@/shared/components/ui/badge";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/components/ui/alert-dialog";
+import {
   Card,
   CardContent,
   CardDescription,
@@ -34,6 +44,8 @@ import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Label } from "@/shared/components/ui/label";
 import Spinner from "@/shared/components/ui/spinner";
 import { STORAGE_KEYS } from "@/constants";
+import { useToast } from "@/shared/hooks/use-toast";
+import { connectSocket } from "@/shared/realtime/socket";
 import { getStoredJson } from "@/shared/utils/storage";
 import { contractsApi } from "./api";
 import type { Contract, ContractMilestoneSnapshotItem } from "./types";
@@ -304,16 +316,20 @@ const AgreementText = ({ termsContent }: { termsContent: string }) => {
 
 export default function ContractPage() {
   const { id } = useParams<{ id: string }>();
+  const { toast } = useToast();
   const [contract, setContract] = useState<Contract | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isAgreementChecked, setIsAgreementChecked] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
+  const [isCreatingSignatureSession, setIsCreatingSignatureSession] =
+    useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isPreparingPdfPreview, setIsPreparingPdfPreview] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [showFullAgreement, setShowFullAgreement] = useState(false);
+  const [showDiscardDialog, setShowDiscardDialog] = useState(false);
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
   const [pdfPreviewContractId, setPdfPreviewContractId] = useState<string | null>(
     null,
@@ -377,13 +393,47 @@ export default function ContractPage() {
     resetPdfPreview();
     contractsApi
       .getContract(id)
-      .then(setContract)
+      .then((loadedContract) => {
+        setContract(loadedContract);
+        setError("");
+      })
       .catch((err) => {
         console.error(err);
         setError("Failed to load contract.");
       })
       .finally(() => setIsLoading(false));
   }, [id]);
+
+  useEffect(() => {
+    if (!id) {
+      return;
+    }
+
+    const socket = connectSocket();
+    if (!socket) {
+      return;
+    }
+
+    const handleContractUpdated = (payload?: {
+      contractId?: string;
+      projectId?: string;
+    }) => {
+      if (
+        payload?.contractId === id ||
+        (contract?.projectId && payload?.projectId === contract.projectId)
+      ) {
+        void reloadContract(id);
+      }
+    };
+
+    socket.on("CONTRACT_UPDATED", handleContractUpdated);
+    socket.on("NOTIFICATION_CREATED", handleContractUpdated);
+
+    return () => {
+      socket.off("CONTRACT_UPDATED", handleContractUpdated);
+      socket.off("NOTIFICATION_CREATED", handleContractUpdated);
+    };
+  }, [contract?.projectId, id]);
 
   useEffect(() => {
     return () => {
@@ -476,6 +526,13 @@ export default function ContractPage() {
       (isDraft || isSent),
   );
   const canActivateContract = Boolean(
+    contract &&
+      currentUserIsParty &&
+      isSigned &&
+      !isActivated &&
+      contract.legalSignatureStatus === "VERIFIED",
+  );
+  const canCreateSignatureSession = Boolean(
     contract && currentUserIsParty && isSigned && !isActivated,
   );
   const canOpenWorkspace = Boolean(isActivated && contract?.projectId);
@@ -503,8 +560,11 @@ export default function ContractPage() {
     if (isActivated) {
       return "Activated. Runtime milestones and escrows now follow this frozen agreement.";
     }
+    if (isSigned && contract?.legalSignatureStatus === "VERIFIED") {
+      return "All required parties signed and the legal signature provider verified this contract. One contract party can now activate it.";
+    }
     if (isSigned) {
-      return "All required parties have signed. One contract party can now activate the agreement.";
+      return "All required parties have signed. Legal provider verification must complete before activation.";
     }
     if (isSent) {
       return missingSignerIds.length > 0
@@ -516,6 +576,21 @@ export default function ContractPage() {
     }
     return "Review the frozen agreement, its audit hashes, and the signature trail.";
   }, [isActivated, isDraft, isSent, isSigned, missingSignerIds, resolveSignerName]);
+
+  const legalSignatureStatusCopy = useMemo(() => {
+    switch (contract?.legalSignatureStatus) {
+      case "VERIFIED":
+        return "Provider verification complete. This contract now has provider evidence and can be activated.";
+      case "SESSION_CREATED":
+        return "A provider session exists. Wait for provider verification webhook before activation.";
+      case "PENDING_PROVIDER":
+        return "Provider verification is pending.";
+      case "FAILED":
+        return "Provider verification failed. Start a new session or inspect provider evidence.";
+      default:
+        return "Internal audit signatures are recorded, but legal provider verification has not started yet.";
+    }
+  }, [contract?.legalSignatureStatus]);
 
   const lifecycleSteps = useMemo(
     () => [
@@ -623,13 +698,6 @@ export default function ContractPage() {
 
   const handleDiscardContract = async () => {
     if (!contract) return;
-    if (
-      !window.confirm(
-        "Discard this unsigned contract and unlock the source spec?",
-      )
-    ) {
-      return;
-    }
 
     try {
       setIsDiscarding(true);
@@ -637,7 +705,11 @@ export default function ContractPage() {
       await contractsApi.discardDraft(contract.id);
       const archived = await reloadContract(contract.id);
       setContract(archived);
-      alert("Contract discarded. The source spec has been unlocked.");
+      setShowDiscardDialog(false);
+      toast({
+        title: "Contract discarded",
+        description: "The frozen contract was archived and the source spec was unlocked.",
+      });
     } catch (err: any) {
       console.error(err);
       setError(
@@ -658,7 +730,10 @@ export default function ContractPage() {
       await contractsApi.signContract(contract.id, contract.contentHash);
       await reloadContract(contract.id);
       setIsAgreementChecked(false);
-      alert("Contract signed successfully.");
+      toast({
+        title: "Contract signed",
+        description: "Your audit signature has been recorded for this frozen contract.",
+      });
     } catch (err: any) {
       console.error(err);
       setError(
@@ -678,11 +753,14 @@ export default function ContractPage() {
       setError("");
       const result = await contractsApi.activateContract(contract.id);
       await reloadContract(contract.id);
-      alert(
-        result.alreadyActivated
-          ? "Contract was already activated."
-          : "Contract activated and project milestones initialized.",
-      );
+      toast({
+        title: result.alreadyActivated
+          ? "Contract already activated"
+          : "Contract activated",
+        description: result.alreadyActivated
+          ? "This contract was already active."
+          : "Project milestones and escrows were initialized from the frozen contract.",
+      });
     } catch (err: any) {
       console.error(err);
       setError(
@@ -691,6 +769,31 @@ export default function ContractPage() {
       );
     } finally {
       setIsActivating(false);
+    }
+  };
+
+  const handleCreateSignatureSession = async () => {
+    if (!contract) return;
+
+    try {
+      setIsCreatingSignatureSession(true);
+      setError("");
+      const session = await contractsApi.createSignatureSession(contract.id);
+      await reloadContract(contract.id);
+      toast({
+        title: "Legal signature session created",
+        description: session?.sessionId
+          ? `Provider session ${session.sessionId} is now waiting for verification.`
+          : "Provider verification session is now waiting for verification.",
+      });
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.response?.data?.message ||
+          "Failed to create legal signature session. Please try again.",
+      );
+    } finally {
+      setIsCreatingSignatureSession(false);
     }
   };
 
@@ -780,7 +883,7 @@ export default function ContractPage() {
               {canDiscardBeforeSign && (
                 <Button
                   variant="outline"
-                  onClick={handleDiscardContract}
+                  onClick={() => setShowDiscardDialog(true)}
                   disabled={isDiscarding}
                   className="border-amber-200 text-amber-700 hover:bg-amber-50"
                 >
@@ -1285,6 +1388,62 @@ export default function ContractPage() {
                 </div>
               </div>
 
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                      Legal signature provider
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-slate-950">
+                      {contract.provider || "Not started"}
+                    </p>
+                  </div>
+                  <Badge
+                    variant="outline"
+                    className={
+                      contract.legalSignatureStatus === "VERIFIED"
+                        ? "border-emerald-200 text-emerald-700"
+                        : contract.legalSignatureStatus === "FAILED"
+                          ? "border-rose-200 text-rose-700"
+                          : "border-amber-200 text-amber-700"
+                    }
+                  >
+                    {contract.legalSignatureStatus || "NOT_STARTED"}
+                  </Badge>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-slate-600">
+                  {legalSignatureStatusCopy}
+                </p>
+                <div className="mt-4 grid gap-3 md:grid-cols-2">
+                  <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                    <span className="font-medium text-slate-900">Verified at:</span>{" "}
+                    {formatDateTime(contract.verifiedAt)}
+                  </div>
+                  <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                    <span className="font-medium text-slate-900">Certificate serial:</span>{" "}
+                    {contract.certificateSerial || "Not available"}
+                  </div>
+                </div>
+                {canCreateSignatureSession && (
+                  <div className="mt-4 flex justify-end">
+                    <Button
+                      variant="outline"
+                      onClick={handleCreateSignatureSession}
+                      disabled={
+                        isCreatingSignatureSession ||
+                        contract.legalSignatureStatus === "VERIFIED"
+                      }
+                    >
+                      {isCreatingSignatureSession
+                        ? "Creating session..."
+                        : contract.legalSignatureStatus === "VERIFIED"
+                          ? "Provider Verified"
+                          : "Start Legal Signature Session"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+
               {sortedSignatures.length > 0 && (
                 <div className="space-y-3">
                   {sortedSignatures.map((signature) => (
@@ -1404,6 +1563,18 @@ export default function ContractPage() {
                 </Alert>
               )}
 
+              {isSigned && !canActivateContract && contract.legalSignatureStatus !== "VERIFIED" && (
+                <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                  <Lock className="h-4 w-4 text-amber-700" />
+                  <AlertTitle>Activation blocked pending provider verification</AlertTitle>
+                  <AlertDescription>
+                    All parties signed the frozen contract, but activation stays
+                    locked until the legal signature provider marks the contract
+                    as verified.
+                  </AlertDescription>
+                </Alert>
+              )}
+
               {isActivated && (
                 <Alert className="border-emerald-200 bg-emerald-50 text-emerald-900">
                   <CheckCircle className="h-4 w-4 text-emerald-700" />
@@ -1472,6 +1643,30 @@ export default function ContractPage() {
           </Card>
         </div>
       </div>
+
+      <AlertDialog open={showDiscardDialog} onOpenChange={setShowDiscardDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Discard unsigned contract?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This archives the current frozen contract and unlocks the source
+              spec so the broker can revise it again.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isDiscarding}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDiscardContract();
+              }}
+              disabled={isDiscarding}
+            >
+              {isDiscarding ? "Discarding..." : "Discard Contract"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

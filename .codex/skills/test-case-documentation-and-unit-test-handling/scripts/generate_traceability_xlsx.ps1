@@ -75,9 +75,10 @@ function New-RowXml {
   )
 
   $cells = New-Object System.Collections.Generic.List[string]
+  $valueCount = Get-ItemCount -Value $Values
   for ($column = 1; $column -le $MaxColumns; $column++) {
     $value = ''
-    if ($column -le $Values.Count -and $null -ne $Values[$column - 1]) {
+    if ($column -le $valueCount -and $null -ne $Values[$column - 1]) {
       $value = [string]$Values[$column - 1]
     }
 
@@ -110,6 +111,24 @@ function ConvertTo-RowArray {
   return $result.ToArray()
 }
 
+function Get-ItemCount {
+  param([object]$Value)
+
+  if ($null -eq $Value) {
+    return 0
+  }
+
+  if ($Value -is [System.Array]) {
+    return $Value.Length
+  }
+
+  if ($Value -is [System.Collections.ICollection]) {
+    return $Value.Count
+  }
+
+  return @($Value).Length
+}
+
 function Get-DefaultColumnWidths {
   param(
     [object[][]]$Rows,
@@ -120,7 +139,8 @@ function Get-DefaultColumnWidths {
   for ($column = 0; $column -lt $MaxColumns; $column++) {
     $maxLength = 10
     foreach ($row in $Rows) {
-      if ($column -lt $row.Count -and $null -ne $row[$column]) {
+      $rowCount = Get-ItemCount -Value $row
+      if ($column -lt $rowCount -and $null -ne $row[$column]) {
         $length = ([string]$row[$column]).Length
         if ($length -gt $maxLength) {
           $maxLength = $length
@@ -189,8 +209,9 @@ if ($rows.Count -eq 0) {
 
 $maxColumns = 1
 foreach ($row in $rows) {
-  if ($row.Count -gt $maxColumns) {
-    $maxColumns = $row.Count
+  $rowCount = Get-ItemCount -Value $row
+  if ($rowCount -gt $maxColumns) {
+    $maxColumns = $rowCount
   }
 }
 
@@ -200,7 +221,7 @@ if ($payload -isnot [System.Array] -and ($payload.PSObject.Properties.Name -cont
     $columnWidths += [string]$width
   }
 }
-if ($columnWidths.Count -lt $maxColumns) {
+if ((Get-ItemCount -Value $columnWidths) -lt $maxColumns) {
   $columnWidths = Get-DefaultColumnWidths -Rows $rows.ToArray() -MaxColumns $maxColumns
 }
 

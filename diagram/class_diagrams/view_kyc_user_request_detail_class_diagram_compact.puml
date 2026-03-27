@@ -1,0 +1,159 @@
+@startuml View_KYC_User_Request_Detail_Class_Diagram
+title View KYC User Request Detail (Watermarked) - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class ApiClient {
+    - client: AxiosInstance
+    --
+    + get(url: string): Promise<any>
+    - setupInterceptors()
+    - isRefreshEndpoint(url?: string): boolean
+    - isPublicAuthEndpoint(url?: string): boolean
+    - refreshAccessTokenSingleFlight(): Promise<void>
+    - getAuthErrorCode(error: unknown): string | null
+    - shouldAttemptSessionReconcile(error: unknown): boolean
+    - reconcileSessionSingleFlight(): Promise<void>
+    - handleAuthFailure(suppressRedirect: boolean = false)
+    + bootstrapSession(): Promise<
+    ...
+}
+
+class AdminKYCPage {
+    - selectedKyc: any
+    - showModal: boolean
+    --
+    + openReview(kycId: string): Promise<void>
+}
+
+class KYCVerificationModal {
+    - selectedImage: string
+    --
+    + show(kyc: any): void
+    + setWatermarkedImages(front: string, back: string, selfie: string): void
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean
+}
+
+class RolesGuard {
+    --
+    + canActivate(context: any): boolean
+}
+
+class KycController {
+    - kycService: KycService
+    --
+    + getKycByIdWithWatermark(id: string,\n user: any,\n req: any,\n reason: string,\n reasonDetails: string): any
+    + getMyKyc(@GetUser('id')
+    + getKycById(@Param('id', ParseUUIDPipe)
+    + approveKyc(@Param('id', ParseUUIDPipe)
+}
+
+class KycService {
+    - kycRepo: Repository
+    - auditLogRepo: Repository
+    --
+    + getKycByIdWithWatermark(id: string,\n reviewerId: string, reviewerEmail: string, reviewerRole: string,\n ipAddress: string, sessionId: string, userAgent: string,\n reason: string, reasonDetails: string): any
+    + getMyKyc(userId: string)
+    + getAllKyc(status?: KycStatus, page = 1, limit = 20)
+    + getKycById(id: string)
+    + approveKyc(id: string, adminId: string)
+    + rejectKyc(id: string, adminId: string, dto: RejectKycDto)
+    + hasVerifiedKyc(userId: string): Promise<boolean>
+    - normalizeString(str: string | undefined | null): string
+    - levenshteinDistance(str1: string, str2: string): number
+    - calculateSimilarity(str1: string, str2: string): number
+}
+
+class SupabaseStorageUtil {
+    --
+    + downloadWithWatermark(storagePath: string, watermarkOptions: WatermarkOptions): Promise<Buffer>
+}
+
+class WatermarkOptions {
+    + reviewerEmail: string
+    + reviewerRole: string
+    + ipAddress: string
+    + sessionId: string
+    + timestamp: Date
+    + kycId: string
+    --
+}
+
+class Buffer {
+    + length: number
+    --
+}
+
+class Repository {
+    --
+    + findOne(options: any): Promise<any>
+    + save(entity: any): Promise<any>
+}
+
+class KycVerificationEntity {
+    + id: string
+    + userId: string
+    + status: KycStatus
+    + documentFrontUrl: string
+    + documentBackUrl: string
+    + selfieUrl: string
+    + documentType: DocumentType
+    + dateOfBirth: Date | null
+    + reviewedAt: Date
+    + createdAt: Date
+    --
+}
+
+enum KycStatus {
+    PENDING
+    APPROVED
+    REJECTED
+    EXPIRED
+}
+
+class AuditLogEntity {
+    + id: string
+    + actorId: string
+    + action: string
+    + entityType: string
+    + entityId: string
+    + ipAddress: string
+    + userAgent: string
+    + createdAt: Date
+    + beforeData: Record<string, any>
+    + afterData: Record<string, any>
+    ...
+    --
+}
+
+AdminKYCPage ..> KYCVerificationModal
+AdminKYCPage ..> ApiClient
+ApiClient ..> KycController
+KycController ..> JwtAuthGuard
+KycController ..> RolesGuard
+KycController --> KycService
+KycService --> Repository
+KycService ..> SupabaseStorageUtil
+SupabaseStorageUtil ..> Buffer
+SupabaseStorageUtil ..> WatermarkOptions
+KycService ..> KycVerificationEntity
+KycService ..> AuditLogEntity
+KycVerificationEntity -- KycStatus
+
+@enduml

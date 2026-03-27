@@ -41,7 +41,7 @@ export interface ChangedField {
 }
 
 interface AuditLogPayload {
-  actorId: string;
+  actorId: string | null;
   action: string;
   entityType: string;
   entityId: string;
@@ -127,10 +127,10 @@ export class AuditLogsService {
     entityId: string,
     newData: Record<string, unknown>,
     req?: RequestContext,
-    actorId?: string,
+    actorId?: string | null,
   ) {
     return this.log({
-      actorId: actorId || this.extractActorId(req),
+      actorId: actorId ?? this.extractActorId(req),
       action: 'CREATE',
       entityType,
       entityId,
@@ -148,10 +148,10 @@ export class AuditLogsService {
     oldData: Record<string, unknown>,
     newData: Record<string, unknown>,
     req?: RequestContext,
-    actorId?: string,
+    actorId?: string | null,
   ) {
     return this.log({
-      actorId: actorId || this.extractActorId(req),
+      actorId: actorId ?? this.extractActorId(req),
       action: 'UPDATE',
       entityType,
       entityId,
@@ -169,10 +169,10 @@ export class AuditLogsService {
     entityId: string,
     deletedData: Record<string, unknown>,
     req?: RequestContext,
-    actorId?: string,
+    actorId?: string | null,
   ) {
     return this.log({
-      actorId: actorId || this.extractActorId(req),
+      actorId: actorId ?? this.extractActorId(req),
       action: 'DELETE',
       entityType,
       entityId,
@@ -184,9 +184,14 @@ export class AuditLogsService {
     });
   }
 
-  async logView(entityType: string, entityId: string, req?: RequestContext, actorId?: string) {
+  async logView(
+    entityType: string,
+    entityId: string,
+    req?: RequestContext,
+    actorId?: string | null,
+  ) {
     return this.log({
-      actorId: actorId || this.extractActorId(req),
+      actorId: actorId ?? this.extractActorId(req),
       action: 'VIEW',
       entityType,
       entityId,
@@ -247,10 +252,10 @@ export class AuditLogsService {
     entityId: string,
     data?: Record<string, unknown>,
     req?: RequestContext,
-    actorId?: string,
+    actorId?: string | null,
   ) {
     return this.log({
-      actorId: actorId || this.extractActorId(req),
+      actorId: actorId ?? this.extractActorId(req),
       action: action.toUpperCase(),
       entityType,
       entityId,
@@ -279,7 +284,7 @@ export class AuditLogsService {
     await Promise.all(
       events.map((event) =>
         this.log({
-          actorId: actorId || this.extractActorId(req),
+          actorId: actorId ?? this.extractActorId(req),
           action: 'BREADCRUMB',
           entityType: 'UI',
           entityId: event.route || this.extractRoute(req) || 'unknown-route',
@@ -344,8 +349,18 @@ export class AuditLogsService {
       };
       const changedFields = this.buildChangedFields(payload.oldData, payload.newData);
       const afterData = this.buildAfterData(payload.newData, securityAnalysis);
+      const metadataActorType = payload.metadata?.['actorType'];
+      const actorType =
+        typeof metadataActorType === 'string'
+          ? metadataActorType
+          : payload.actorId
+            ? 'USER'
+            : payload.req
+              ? 'ANONYMOUS'
+              : 'SYSTEM';
       const metadata = {
         ...(payload.metadata || {}),
+        actorType,
         securityAnalysis,
       };
 
@@ -377,7 +392,7 @@ export class AuditLogsService {
 
       if (finalRiskLevel === 'HIGH' || securityFlags.length > 0) {
         this.logger.warn(
-          `[AUDIT] HIGH RISK actor=${payload.actorId} action=${action} entity=${payload.entityType}#${payload.entityId} requestId=${logEntry.requestId || 'n/a'} flags=${securityFlags.join(',')}`,
+          `[AUDIT] HIGH RISK actor=${this.describeActor(payload.actorId, payload.req)} action=${action} entity=${payload.entityType}#${payload.entityId} requestId=${logEntry.requestId || 'n/a'} flags=${securityFlags.join(',')}`,
         );
       }
 
@@ -575,9 +590,9 @@ export class AuditLogsService {
     };
   }
 
-  extractActorId(req?: RequestContext): string {
-    if (!req) return 'system';
-    return req.user?.id || req.user?.sub || req.user?.userId || 'anonymous';
+  extractActorId(req?: RequestContext): string | null {
+    if (!req) return null;
+    return req.user?.id || req.user?.sub || req.user?.userId || null;
   }
 
   private buildFilteredQuery(queryDto: Partial<GetAuditLogsDto>): SelectQueryBuilder<AuditLogEntity> {
@@ -1094,13 +1109,18 @@ export class AuditLogsService {
     const afterData = entity.afterData as Record<string, unknown> | undefined;
     const securityAnalysis = afterData?._security_analysis as SecurityAnalysis | undefined;
     const riskLevel: RiskLevel = securityAnalysis?.riskLevel || 'NORMAL';
+    const actorType = String(entity.metadata?.actorType || '').toUpperCase();
+    const fallbackActor =
+      actorType === 'SYSTEM'
+        ? { name: 'System', email: 'system@local' }
+        : { name: 'Anonymous', email: 'anonymous@local' };
 
     return {
       id: entity.id,
       actor: {
         id: entity.actor?.id,
-        name: entity.actor?.fullName || 'Unknown User',
-        email: entity.actor?.email || 'unknown@example.com',
+        name: entity.actor?.fullName || fallbackActor.name,
+        email: entity.actor?.email || fallbackActor.email,
         role: entity.actor?.role,
         avatar: undefined,
       },
@@ -1134,5 +1154,12 @@ export class AuditLogsService {
         entityId: entity.entityId,
       },
     };
+  }
+
+  private describeActor(actorId: string | null, req?: RequestContext): string {
+    if (actorId) {
+      return actorId;
+    }
+    return req ? 'anonymous' : 'system';
   }
 }

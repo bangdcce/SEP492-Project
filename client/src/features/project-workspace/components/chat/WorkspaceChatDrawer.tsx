@@ -35,7 +35,7 @@ import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { STORAGE_KEYS } from "@/constants";
 import { Sheet, SheetContent, SheetTitle } from "@/shared/components/ui/sheet";
-import { Button } from "@/shared/components/ui/Button";
+import { Button } from "@/shared/components/ui/button";
 import {
   Command,
   CommandEmpty,
@@ -69,6 +69,7 @@ import type {
   Task,
   TaskSubmission,
   WorkspaceChatAttachment,
+  WorkspaceChatEditHistoryEntry,
   WorkspaceChatMentionMember,
   WorkspaceChatMessage,
   WorkspaceChatReplySummary,

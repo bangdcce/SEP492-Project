@@ -7,11 +7,13 @@ import type { LucideIcon } from "lucide-react";
 import {
   CalendarDays,
   LayoutDashboard,
+  Scale,
   ScrollText,
   Shield,
   UserCheck,
   Users,
   User,
+  HelpCircle,
 } from "lucide-react";
 
 export interface AdminSidebarMenuItem {
@@ -52,6 +54,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     section: "management",
   },
   {
+    id: "dispute-appeals",
+    label: "Appeal Queue",
+    icon: Scale,
+    path: "/admin/disputes/appeals",
+    description: "Review and route dispute appeals",
+    section: "management",
+  },
+  {
     id: "review-moderation",
     label: "Review Moderation",
     icon: Shield,
@@ -81,6 +91,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: Users,
     path: "/admin/users",
     description: "Manage users, ban/unban",
+    section: "management",
+  },
+  {
+    id: "wizard-questions",
+    label: "Wizard Questions",
+    icon: HelpCircle,
+    path: "/admin/wizard-questions",
+    description: "Manage wizard questions",
     section: "management",
   },
   // Account

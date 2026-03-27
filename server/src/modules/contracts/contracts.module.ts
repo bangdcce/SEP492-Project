@@ -12,6 +12,8 @@ import { ProjectRequestEntity } from '../../database/entities/project-request.en
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { ContractArchiveStorageService } from './contract-archive.storage';
+import { NotificationsModule } from '../notifications/notifications.module';
+import { SignatureProvidersController } from './signature-providers.controller';
 
 @Module({
   imports: [
@@ -26,8 +28,9 @@ import { ContractArchiveStorageService } from './contract-archive.storage';
       ProjectRequestProposalEntity,
     ]),
     AuditLogsModule,
+    NotificationsModule,
   ],
-  controllers: [ContractsController],
+  controllers: [ContractsController, SignatureProvidersController],
   providers: [ContractsService, ContractArchiveStorageService],
   exports: [ContractsService],
 })

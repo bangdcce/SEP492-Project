@@ -1,0 +1,222 @@
+@startuml Edit_Profile_Sequence_Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor Black
+skinparam shadowing false
+
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #DDDDDD
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+    ActorBackgroundColor White
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+    GroupHeaderBackgroundColor White
+    GroupBodyBackgroundColor White
+    GroupBorderColor Black
+}
+
+title Edit Profile Sequence Diagram
+
+actor "User" as Actor
+boundary "ProfilePage" as Page
+participant "apiClient" as API
+participant "AuthController" as Controller
+participant "JwtAuthGuard" as Guard
+participant "ValidationPipe" as Validator
+participant "AuthService" as Service
+database "Database" as DB
+
+Actor -> Page : 1. Click "Edit Profile" button
+activate Actor
+activate Page
+
+Page -> Page : 2. Enter edit mode
+activate Page
+deactivate Page
+
+Page --> Actor : 3. Display edit mode\n(Enable form fields for editing)
+
+alt [Edit Text Fields]
+    Actor -> Page : 4. Edit fullName, phoneNumber, or bio
+    Page -> Page : 5. Update form values
+    activate Page
+    deactivate Page
+else [Upload Avatar]
+    Actor -> Page : 6. Select avatar image file
+    Page -> Page : 7. Validate file type (must be image)
+    activate Page
+    deactivate Page
+    
+    alt [Invalid File Type]
+        Page --> Actor : 8. Show error: "Please select an image file"
+    else [Valid Image]
+        Page -> Page : 9. Validate file size (max 5MB)
+        activate Page
+        deactivate Page
+        
+        alt [File Too Large]
+            Page --> Actor : 10. Show error: "Image size must not exceed 5MB"
+        else [Valid Size]
+            Page -> Page : 11. Read the image and prepare a preview
+            activate Page
+            deactivate Page
+            Page --> Actor : 12. Display avatar preview
+        end
+    end
+end
+
+Actor -> Page : 13. Click "Save" button
+
+Page -> Page : 14. Start saving
+activate Page
+deactivate Page
+
+alt [Avatar File Exceeds 100KB Base64]
+    Page --> Actor : 15. Show warning: "Large avatar size detected"
+end
+
+Page -> API : 16. Send profile update request
+activate API
+
+API -> Controller : 17. Send update request
+activate Controller
+
+Controller -> Guard : 18. Verify the session token
+activate Guard
+
+Guard -> Guard : 19. Read token from cookies
+activate Guard
+deactivate Guard
+
+Guard -> Guard : 20. Validate the token
+activate Guard
+deactivate Guard
+
+alt [Not Authenticated]
+    Guard --> Controller : 21. Reject request: not signed in
+    Controller --> API : 22. Return authentication error
+    API --> Page : 23. Return error response
+    Page -> Page : 24. Hide saving indicator
+    activate Page
+    deactivate Page
+    Page --> Actor : 25. Show error toast\nRedirect to sign in
+else [Token Valid]
+    Guard -> Guard : 26. Attach user info to the request
+    activate Guard
+    deactivate Guard
+    
+    Guard --> Controller : 27. Allow request
+    deactivate Guard
+
+    Controller -> Validator : 28. Validate update data
+    activate Validator
+
+    Validator -> Validator : 29. Check field rules (name, phone, bio)
+    activate Validator
+    deactivate Validator
+
+    alt [Invalid Input]
+        Validator --> Controller : 30. Reject request: invalid update data
+        Controller --> API : 31. Return validation errors
+        API --> Page : 32. Return error response
+        Page -> Page : 33. Hide saving indicator
+        activate Page
+        deactivate Page
+        Page --> Actor : 34. Show error toast with details
+    else [Input Valid]
+        Validator --> Controller : 35. Return validated data
+        deactivate Validator
+
+        Controller -> Service : 36. Update the profile
+        activate Service
+
+        Service -> Service : 37. Prepare user updates
+        activate Service
+        deactivate Service
+
+        alt [Has User Data to Update]
+            Service -> DB : 38. Save user updates
+            activate DB
+            DB --> Service : 39. Return update confirmation
+            deactivate DB
+        end
+
+        Service -> DB : 40. Load existing profile
+        activate DB
+        DB --> Service : 41. Return profile or null
+        deactivate DB
+
+        alt [Profile Not Found]
+            Service -> Service : 42. Prepare a new profile
+            activate Service
+            deactivate Service
+            
+            Service -> DB : 43. Save the new profile
+            activate DB
+            DB --> Service : 44. Return saved profile
+            deactivate DB
+        else [Profile Exists]
+            Service -> Service : 45. Prepare profile updates
+            activate Service
+            deactivate Service
+            
+            alt [Has Profile Data to Update]
+                Service -> DB : 46. Save profile updates
+                activate DB
+                DB --> Service : 47. Return update confirmation
+                deactivate DB
+            end
+        end
+
+        Service -> Service : 48. Fetch the updated profile
+        activate Service
+        deactivate Service
+
+        Service -> DB : 49. Load updated user and profile
+        activate DB
+        DB --> Service : 50. Return user with profile
+        deactivate DB
+
+        Service -> Service : 51. Prepare response data
+        activate Service
+        deactivate Service
+
+        Service --> Controller : 52. Return updated profile data
+        deactivate Service
+
+        Controller --> API : 53. Return success response
+        deactivate Controller
+
+        API --> Page : 54. Return updated profile data
+        deactivate API
+
+        Page -> Page : 55. Finish saving and exit edit mode
+        activate Page
+        deactivate Page
+
+        Page --> Actor : 56. Show success toast:\n"Profile updated successfully"
+
+        Page -> Page : 57. Reload profile from the server
+        activate Page
+        deactivate Page
+
+        Page -> Page : 58. Sync updated user data to local storage
+        activate Page
+        deactivate Page
+
+        Page --> Actor : 59. Display updated profile in view mode
+    end
+end
+
+deactivate Page
+deactivate Actor
+
+@enduml
