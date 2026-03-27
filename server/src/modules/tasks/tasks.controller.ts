@@ -173,7 +173,7 @@ export class TasksController {
   /**
    * Review a task submission (Approve or Request Changes)
    * 
-   * SECURITY: Only CLIENT or STAFF users can review submissions
+   * SECURITY: Only CLIENT or BROKER users can review submissions
    * Freelancers cannot review their own work
    * 
    * @param id - Task ID
@@ -190,7 +190,7 @@ export class TasksController {
   ): Promise<SubmissionReviewResult> {
     const currentUser = req.user;
 
-    // Security Check: Only CLIENT or STAFF can review submissions
+    // Security Check: Only CLIENT or BROKER can review submissions
     if (!currentUser) {
       throw new ForbiddenException('Authentication required');
     }
@@ -199,12 +199,12 @@ export class TasksController {
     const canReview =
       userRole === 'CLIENT' ||
       userRole === UserRole.CLIENT ||
-      userRole === 'STAFF' ||
-      userRole === UserRole.STAFF;
+      userRole === 'BROKER' ||
+      userRole === UserRole.BROKER;
 
     if (!canReview) {
       throw new ForbiddenException(
-        'Only Clients or Staff can review submissions. Freelancers cannot review their own work.',
+        'Only Clients or Brokers can review submissions. Freelancers cannot review their own work.',
       );
     }
 

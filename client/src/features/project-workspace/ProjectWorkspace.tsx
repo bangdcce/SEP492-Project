@@ -10,29 +10,14 @@ import {
   MessageSquare,
   PlusCircle,
   WalletCards,
-  Loader2,
   ShieldCheck,
-  UserPlus,
 } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
-import {
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/components/ui";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { toast } from "sonner";
+import { completeStripeMilestoneFunding } from "@/features/payments/api";
 import {
   fetchBoard,
   updateTaskStatus,
@@ -41,10 +26,8 @@ import {
   createMilestone,
   approveMilestone,
   fetchProject,
-  fetchStaffCandidates,
-  inviteProjectStaff,
   requestMilestoneReview,
-  reviewMilestoneAsStaff,
+  reviewMilestoneAsBroker,
   type WorkspaceProject,
 } from "./api";
 import type {
@@ -52,7 +35,6 @@ import type {
   KanbanColumnKey,
   Milestone,
   ProjectTaskRealtimeEvent,
-  StaffSummary,
   Task,
 } from "./types";
 import { KanbanColumn } from "./components/board/KanbanColumn";
@@ -119,6 +101,23 @@ const TASK_CREATION_LOCK_MESSAGE =
 const normalizeMilestoneKey = (value?: string | null) =>
   value == null ? null : String(value);
 
+const formatMilestoneRuntimeStatus = (status?: string | null) => {
+  switch (status?.toUpperCase()) {
+    case "PENDING_STAFF_REVIEW":
+      return "Broker review";
+    case "PENDING_CLIENT_APPROVAL":
+      return "Waiting for client approval";
+    case "PAID":
+      return "Paid & released";
+    case "REVISIONS_REQUIRED":
+      return "Revisions required";
+    case "IN_PROGRESS":
+      return "In progress";
+    default:
+      return status ?? "PENDING";
+  }
+};
+
 type ProjectWorkspaceMember = {
   id: string;
   name: string;
@@ -141,12 +140,6 @@ export function ProjectWorkspace() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isStaffInviteDialogOpen, setIsStaffInviteDialogOpen] = useState(false);
-  const [staffCandidates, setStaffCandidates] = useState<StaffSummary[]>([]);
-  const [selectedStaffId, setSelectedStaffId] = useState("");
-  const [isLoadingStaffCandidates, setIsLoadingStaffCandidates] =
-    useState(false);
-  const [isInvitingStaff, setIsInvitingStaff] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -170,12 +163,6 @@ export function ProjectWorkspace() {
   ] = useState("");
   const [isMilestoneSubmitting, setIsMilestoneSubmitting] = useState(false);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
-  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
-    searchParams.get("milestone"),
-  );
-  const [viewMode, setViewMode] = useState<WorkspaceViewMode>(
-    parseWorkspaceViewMode(searchParams.get("view")),
-  );
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [disputeMilestone, setDisputeMilestone] = useState<Milestone | null>(
     null,
@@ -183,6 +170,7 @@ export function ProjectWorkspace() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const isChatOpenRef = useRef(false);
+  const processedStripeSessionIdsRef = useRef<Set<string>>(new Set());
 
   // Filter State
   const [searchQuery, setSearchQuery] = useState("");
@@ -196,6 +184,75 @@ export function ProjectWorkspace() {
   const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
 
   const { projectId } = useParams();
+
+  const viewMode = useMemo<WorkspaceViewMode>(
+    () => parseWorkspaceViewMode(searchParams.get("view")),
+    [searchParams],
+  );
+  const requestedMilestoneId = useMemo(
+    () => normalizeMilestoneKey(searchParams.get("milestone")),
+    [searchParams],
+  );
+  const selectedMilestoneId = useMemo(() => {
+    if (milestones.length === 0) {
+      return null;
+    }
+
+    const requestedMilestoneExists = Boolean(
+      requestedMilestoneId &&
+        milestones.some(
+          (milestone) => normalizeMilestoneKey(milestone.id) === requestedMilestoneId,
+        ),
+    );
+
+    if (requestedMilestoneId && requestedMilestoneExists) {
+      return requestedMilestoneId;
+    }
+
+    return milestones[0]?.id ?? null;
+  }, [milestones, requestedMilestoneId]);
+
+  const updateWorkspaceSearchParams = useCallback(
+    ({
+      nextViewMode,
+      nextMilestoneId,
+    }: {
+      nextViewMode?: WorkspaceViewMode;
+      nextMilestoneId?: string | null;
+    }) => {
+      const resolvedViewMode = nextViewMode ?? viewMode;
+      const resolvedMilestoneId =
+        nextMilestoneId === undefined ? selectedMilestoneId : nextMilestoneId;
+      const nextSearchParams = new URLSearchParams(searchParams);
+
+      nextSearchParams.set("view", resolvedViewMode);
+
+      if (resolvedMilestoneId) {
+        nextSearchParams.set("milestone", resolvedMilestoneId);
+      } else {
+        nextSearchParams.delete("milestone");
+      }
+
+      if (nextSearchParams.toString() !== searchParams.toString()) {
+        setSearchParams(nextSearchParams, { replace: true });
+      }
+    },
+    [searchParams, selectedMilestoneId, setSearchParams, viewMode],
+  );
+
+  const setSelectedMilestoneId = useCallback(
+    (id: string | null) => {
+      updateWorkspaceSearchParams({ nextMilestoneId: id });
+    },
+    [updateWorkspaceSearchParams],
+  );
+
+  const setViewMode = useCallback(
+    (nextViewMode: WorkspaceViewMode) => {
+      updateWorkspaceSearchParams({ nextViewMode });
+    },
+    [updateWorkspaceSearchParams],
+  );
 
   // Get current user for role-based UI restrictions
   const [currentUser, setCurrentUser] = useState<{
@@ -272,21 +329,13 @@ export function ProjectWorkspace() {
 
   const currentRole = currentUser?.role?.toUpperCase();
   const billingRole = normalizeSupportedBillingRole(currentRole);
-  const isClient = currentRole === "CLIENT";
   const isBroker = currentRole === "BROKER";
   const isFreelancer = currentRole === "FREELANCER";
-  const isStaff = currentRole === "STAFF";
   const isAssignedBroker = Boolean(
     isBroker && currentUser?.id && project?.brokerId === currentUser.id,
   );
-  const isAssignedStaff = Boolean(
-    isStaff &&
-    currentUser?.id &&
-    project?.staffId === currentUser.id &&
-    project?.staffInviteStatus === "ACCEPTED",
-  );
 
-  // Clients, staff reviewers, and disputed projects are read-only for task mutations.
+  // Clients, internal reviewers, and disputed projects are read-only for task mutations.
   const isReadOnly = useMemo(() => {
     return (
       currentRole === "CLIENT" || currentRole === "STAFF" || isProjectDisputed
@@ -297,25 +346,21 @@ export function ProjectWorkspace() {
     return currentRole === "CLIENT" && !isProjectDisputed;
   }, [currentRole, isProjectDisputed]);
 
-  const canInviteStaff = useMemo(() => {
-    return isClient && !project?.staffId && !isProjectDisputed;
-  }, [isClient, isProjectDisputed, project?.staffId]);
-
-  const hasAcceptedStaff = Boolean(
-    project?.staffId && project?.staffInviteStatus === "ACCEPTED",
+  const hasBrokerReviewStep = Boolean(
+    project?.brokerId && project?.brokerId !== project?.clientId,
   );
 
   const canReviewTaskSubmissions = useMemo(() => {
-    return currentRole === "CLIENT" || isAssignedStaff;
-  }, [currentRole, isAssignedStaff]);
+    return currentRole === "CLIENT" || isAssignedBroker;
+  }, [currentRole, isAssignedBroker]);
 
-  const assignedStaffLabel = useMemo(() => {
-    if (!project?.staffId) {
+  const assignedBrokerLabel = useMemo(() => {
+    if (!project?.brokerId) {
       return null;
     }
 
-    return project.staff?.fullName || `Staff (${project.staffId.slice(0, 6)})`;
-  }, [project?.staff?.fullName, project?.staffId]);
+    return project.broker?.fullName || `Broker (${project.brokerId.slice(0, 6)})`;
+  }, [project?.broker?.fullName, project?.brokerId]);
 
   const isMilestoneStructureLocked = useMemo(() => {
     return Boolean(
@@ -544,84 +589,11 @@ export function ProjectWorkspace() {
   }, [projectId]);
 
   useEffect(() => {
-    if (milestones.length === 0) {
-      if (selectedMilestoneId !== null) {
-        setSelectedMilestoneId(null);
-      }
-      return;
-    }
-
-    const selectedMilestoneExists = Boolean(
-      selectedMilestoneId &&
-        milestones.some((milestone) => milestone.id === selectedMilestoneId),
-    );
-
-    if (!selectedMilestoneExists) {
-      setSelectedMilestoneId(milestones[0]?.id ?? null);
-    }
-  }, [milestones, selectedMilestoneId]);
-
-  useEffect(() => {
     if (loading) {
       return;
     }
-
-    const nextSearchParams = new URLSearchParams(searchParams);
-    nextSearchParams.set("view", viewMode);
-
-    if (selectedMilestoneId) {
-      nextSearchParams.set("milestone", selectedMilestoneId);
-    } else {
-      nextSearchParams.delete("milestone");
-    }
-
-    if (nextSearchParams.toString() !== searchParams.toString()) {
-      setSearchParams(nextSearchParams, { replace: true });
-    }
-  }, [loading, searchParams, selectedMilestoneId, setSearchParams, viewMode]);
-
-  useEffect(() => {
-    if (!isStaffInviteDialogOpen || !isClient) {
-      return;
-    }
-
-    let isCancelled = false;
-    setIsLoadingStaffCandidates(true);
-    setSelectedStaffId("");
-
-    fetchStaffCandidates()
-      .then((staffList) => {
-        if (isCancelled) {
-          return;
-        }
-
-        setStaffCandidates(staffList);
-        if (staffList.length > 0) {
-          setSelectedStaffId(staffList[0].id);
-        }
-      })
-      .catch((err: unknown) => {
-        if (isCancelled) {
-          return;
-        }
-
-        const errorMessage =
-          err instanceof Error
-            ? err.message
-            : "Failed to load staff candidates";
-        setError(errorMessage);
-        toast.error(errorMessage);
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setIsLoadingStaffCandidates(false);
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [isClient, isStaffInviteDialogOpen]);
+    updateWorkspaceSearchParams({});
+  }, [loading, updateWorkspaceSearchParams]);
 
   const columns = useMemo<
     { key: KanbanColumnKey; title: string; description: string }[]
@@ -828,6 +800,7 @@ export function ProjectWorkspace() {
       ? tasksByMilestone[selectedMilestoneKey]
       : [];
   const activeProgress = calculateProgress(activeTasks);
+  const activeMilestoneStatus = activeMilestone?.status?.toUpperCase() ?? null;
   const canCreateTasksForSelectedMilestone = useMemo(() => {
     if (isReadOnly || !activeMilestone) {
       return false;
@@ -1268,7 +1241,7 @@ export function ProjectWorkspace() {
     }
   };
 
-  const handleFundingSuccess = (result: MilestoneFundingResult) => {
+  const handleFundingSuccess = useCallback((result: MilestoneFundingResult) => {
     const now = new Date().toISOString();
 
     setMilestones((prev) =>
@@ -1303,7 +1276,73 @@ export function ProjectWorkspace() {
           : milestone,
       ),
     );
-  };
+  }, []);
+
+  useEffect(() => {
+    const stripeCheckoutState = searchParams.get("stripeCheckout");
+    const stripeSessionId = searchParams.get("stripeSessionId");
+    const stripePaymentMethodId = searchParams.get("stripePaymentMethodId");
+
+    const clearStripeCheckoutParams = () => {
+      const nextSearchParams = new URLSearchParams(searchParams);
+      nextSearchParams.delete("stripeCheckout");
+      nextSearchParams.delete("stripeSessionId");
+      nextSearchParams.delete("stripePaymentMethodId");
+      setSearchParams(nextSearchParams, { replace: true });
+    };
+
+    if (stripeCheckoutState === "cancel") {
+      toast.message("Stripe checkout was cancelled.");
+      clearStripeCheckoutParams();
+      return;
+    }
+
+    if (
+      stripeCheckoutState !== "success" ||
+      !requestedMilestoneId ||
+      !stripeSessionId ||
+      !stripePaymentMethodId
+    ) {
+      return;
+    }
+
+    if (processedStripeSessionIdsRef.current.has(stripeSessionId)) {
+      return;
+    }
+
+    processedStripeSessionIdsRef.current.add(stripeSessionId);
+    let active = true;
+
+    const syncStripeCheckout = async () => {
+      try {
+        const result = await completeStripeMilestoneFunding(requestedMilestoneId, {
+          paymentMethodId: stripePaymentMethodId,
+          sessionId: stripeSessionId,
+        });
+        if (!active) return;
+        handleFundingSuccess(result);
+        toast.success("Card payment completed and escrow funded");
+      } catch (error: unknown) {
+        if (!active) return;
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Stripe Checkout completed, but the app could not sync the escrow state.";
+        setError(message);
+        toast.error(message);
+      } finally {
+        if (active) {
+          clearStripeCheckoutParams();
+        }
+      }
+    };
+
+    void syncStripeCheckout();
+
+    return () => {
+      active = false;
+    };
+  }, [handleFundingSuccess, requestedMilestoneId, searchParams, setSearchParams]);
 
   const handleRequestMilestoneReview = async (milestoneId: string) => {
     if (isProjectDisputed) {
@@ -1320,7 +1359,11 @@ export function ProjectWorkspace() {
             : milestone,
         ),
       );
-      toast.success("Milestone review request sent.");
+      toast.success(
+        updatedMilestone.status === "PENDING_STAFF_REVIEW"
+          ? "Milestone sent to broker review."
+          : "Milestone sent to client approval.",
+      );
     } catch (err: unknown) {
       const errorMessage =
         err instanceof Error
@@ -1331,7 +1374,7 @@ export function ProjectWorkspace() {
     }
   };
 
-  const handleStaffReviewMilestone = async (
+  const handleBrokerReviewMilestone = async (
     milestoneId: string,
     payload: { recommendation: "ACCEPT" | "REJECT"; note: string },
   ) => {
@@ -1341,7 +1384,7 @@ export function ProjectWorkspace() {
 
     try {
       setError(null);
-      const updatedMilestone = await reviewMilestoneAsStaff(
+      const updatedMilestone = await reviewMilestoneAsBroker(
         milestoneId,
         payload,
       );
@@ -1362,37 +1405,6 @@ export function ProjectWorkspace() {
         err instanceof Error ? err.message : "Failed to review milestone";
       setError(errorMessage);
       throw err;
-    }
-  };
-
-  const handleInviteStaff = async () => {
-    if (!projectId) {
-      setError("No project selected. Please choose a project from the list.");
-      return;
-    }
-
-    if (!selectedStaffId) {
-      setError("Please select a staff reviewer.");
-      return;
-    }
-
-    try {
-      setIsInvitingStaff(true);
-      setError(null);
-      const updatedProject = await inviteProjectStaff(
-        projectId,
-        selectedStaffId,
-      );
-      setProject(updatedProject);
-      setIsStaffInviteDialogOpen(false);
-      toast.success("Staff invite sent.");
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to invite staff";
-      setError(errorMessage);
-      toast.error(errorMessage);
-    } finally {
-      setIsInvitingStaff(false);
     }
   };
 
@@ -1598,28 +1610,19 @@ export function ProjectWorkspace() {
             Project ID:{" "}
             <span className="font-mono text-sky-600">{projectId || "N/A"}</span>
           </p>
-          {project?.staffInviteStatus === "PENDING" && (
+          {activeMilestoneStatus === "PENDING_STAFF_REVIEW" && assignedBrokerLabel && (
             <p className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-              Dang cho Staff xac nhan...
+              Waiting for broker review · {assignedBrokerLabel}
             </p>
           )}
-          {project?.staffInviteStatus === "ACCEPTED" && assignedStaffLabel && (
+          {activeMilestoneStatus === "PENDING_CLIENT_APPROVAL" && assignedBrokerLabel && (
             <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Staff: {assignedStaffLabel}
+              Broker reviewed · {assignedBrokerLabel}
             </p>
           )}
         </div>
         <div className="flex items-center gap-3">
-          {canInviteStaff && (
-            <button
-              onClick={() => setIsStaffInviteDialogOpen(true)}
-              className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100"
-            >
-              <UserPlus className="h-4 w-4" />
-              Invite Staff
-            </button>
-          )}
           {/* View Contract Button */}
           {contractHref && (
             <Link
@@ -1786,7 +1789,7 @@ export function ProjectWorkspace() {
                     {currencyFormatter.format(Number(entry.amount || 0))}
                   </div>
                   <div className="text-xs text-slate-600 sm:text-right">
-                    {runtimeStatus}
+                    {formatMilestoneRuntimeStatus(runtimeStatus)}
                   </div>
                 </div>
               );
@@ -1841,12 +1844,12 @@ export function ProjectWorkspace() {
                 tasks={activeTasks}
                 progress={activeProgress}
                 currentRole={currentRole}
-                isAssignedStaff={isAssignedStaff}
-                hasAcceptedStaff={hasAcceptedStaff}
-                assignedStaffLabel={assignedStaffLabel}
+                isAssignedReviewer={isAssignedBroker}
+                hasIntermediateReviewer={hasBrokerReviewStep}
+                assignedReviewerLabel={assignedBrokerLabel}
                 onApprove={handleApproveMilestone}
                 onRequestReview={handleRequestMilestoneReview}
-                onStaffReview={handleStaffReviewMilestone}
+                onReviewerDecision={handleBrokerReviewMilestone}
                 onRaiseDispute={handleRaiseDispute}
                 canApprove={canApproveMilestone}
                 currency={project?.currency ?? "USD"}
@@ -2114,82 +2117,6 @@ export function ProjectWorkspace() {
         </>
       )}
 
-      <Dialog
-        open={isStaffInviteDialogOpen}
-        onOpenChange={setIsStaffInviteDialogOpen}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Invite Staff</DialogTitle>
-            <DialogDescription>
-              Chon mot staff reviewer de giam sat milestone review cho du an
-              nay.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <label className="text-sm font-medium text-slate-700">
-              Staff reviewer
-            </label>
-            <Select
-              value={selectedStaffId}
-              onValueChange={setSelectedStaffId}
-              disabled={
-                isLoadingStaffCandidates || staffCandidates.length === 0
-              }
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={
-                    isLoadingStaffCandidates
-                      ? "Dang tai staff..."
-                      : "Chon staff reviewer"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {staffCandidates.map((staff) => (
-                  <SelectItem key={staff.id} value={staff.id}>
-                    {staff.fullName} - {staff.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {staffCandidates.length === 0 && !isLoadingStaffCandidates && (
-              <p className="text-sm text-slate-500">
-                Hien chua co staff reviewer kha dung.
-              </p>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsStaffInviteDialogOpen(false)}
-              disabled={isInvitingStaff}
-            >
-              Huy
-            </Button>
-            <Button
-              type="button"
-              onClick={handleInviteStaff}
-              disabled={isInvitingStaff || !selectedStaffId}
-            >
-              {isInvitingStaff ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Dang gui...
-                </>
-              ) : (
-                "Gui loi moi"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <CreateMilestoneModal
         open={isMilestoneModalOpen}
         title={newMilestoneTitle}
@@ -2238,7 +2165,7 @@ export function ProjectWorkspace() {
         task={selectedTask}
         specFeatures={specFeatureOptions}
         canReviewSubmissions={canReviewTaskSubmissions}
-        allowTaskStatusEditing={!isReadOnly && !isStaff}
+        allowTaskStatusEditing={!isReadOnly}
         onClose={handleCloseTaskDetail}
         onUpdate={handleTaskUpdate}
       />

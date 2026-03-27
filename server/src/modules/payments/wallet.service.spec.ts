@@ -5,15 +5,23 @@ import {
   TransactionEntity,
   TransactionStatus,
   TransactionType,
+  UserEntity,
+  UserRole,
+  UserStatus,
   WalletEntity,
   WalletStatus,
 } from '../../database/entities';
+import { PayPalPayoutsGateway } from './pay-pal-payouts.gateway';
 import { WalletService } from './wallet.service';
 
 describe('WalletService', () => {
   let service: WalletService;
   let walletRepository: jest.Mocked<Repository<WalletEntity>>;
   let transactionRepository: jest.Mocked<Repository<TransactionEntity>>;
+  let userRepository: jest.Mocked<Repository<UserEntity>>;
+  const payPalPayoutsGateway = {
+    getMerchantBalance: jest.fn(),
+  };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -31,7 +39,19 @@ describe('WalletService', () => {
           provide: getRepositoryToken(TransactionEntity),
           useValue: {
             findAndCount: jest.fn(),
+            create: jest.fn((data) => data),
+            save: jest.fn(),
           },
+        },
+        {
+          provide: getRepositoryToken(UserEntity),
+          useValue: {
+            findOne: jest.fn(),
+          },
+        },
+        {
+          provide: PayPalPayoutsGateway,
+          useValue: payPalPayoutsGateway,
         },
       ],
     }).compile();
@@ -39,6 +59,16 @@ describe('WalletService', () => {
     service = module.get(WalletService);
     walletRepository = module.get(getRepositoryToken(WalletEntity));
     transactionRepository = module.get(getRepositoryToken(TransactionEntity));
+    userRepository = module.get(getRepositoryToken(UserEntity));
+    payPalPayoutsGateway.getMerchantBalance.mockResolvedValue({
+      provider: 'PAYPAL',
+      environment: 'sandbox',
+      status: 'UNAVAILABLE',
+      checkedAt: new Date('2026-03-27T00:00:00.000Z'),
+      message: 'Unavailable in tests',
+      errorCode: 'TEST',
+      balances: [],
+    });
   });
 
   it('creates a wallet when none exists', async () => {
@@ -133,6 +163,199 @@ describe('WalletService', () => {
       id: 'tx-1',
       type: TransactionType.DEPOSIT,
       status: TransactionStatus.COMPLETED,
+    });
+  });
+
+  it('returns the platform treasury wallet using the earliest active admin/staff owner', async () => {
+    userRepository.findOne.mockResolvedValueOnce({
+      id: 'admin-1',
+      email: 'platform@example.com',
+      fullName: 'Platform Owner',
+      role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
+      createdAt: new Date('2026-03-10T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-10T00:00:00.000Z'),
+    } as UserEntity);
+    walletRepository.findOne.mockResolvedValueOnce({
+      id: 'wallet-platform',
+      userId: 'admin-1',
+      balance: 25,
+      pendingBalance: 5,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 10,
+      totalEarned: 35,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity);
+
+    const result = await service.getPlatformWalletSnapshot();
+
+    expect(userRepository.findOne).toHaveBeenCalledWith({
+      where: [
+        { role: UserRole.ADMIN, status: UserStatus.ACTIVE },
+        { role: UserRole.STAFF, status: UserStatus.ACTIVE },
+      ],
+      order: { createdAt: 'ASC' },
+    });
+    expect(result.owner).toMatchObject({
+      id: 'admin-1',
+      email: 'platform@example.com',
+      fullName: 'Platform Owner',
+      role: UserRole.ADMIN,
+    });
+    expect(result.wallet).toMatchObject({
+      id: 'wallet-platform',
+      userId: 'admin-1',
+      availableBalance: 25,
+      pendingBalance: 5,
+      totalEarned: 35,
+    });
+    expect(result.merchantBalance).toMatchObject({
+      provider: 'PAYPAL',
+      status: 'UNAVAILABLE',
+      errorCode: 'TEST',
+    });
+  });
+
+  it('records a PayPal gateway fee against the platform wallet', async () => {
+    userRepository.findOne.mockResolvedValueOnce({
+      id: 'admin-1',
+      email: 'platform@example.com',
+      fullName: 'Platform Owner',
+      role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
+      createdAt: new Date('2026-03-10T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-10T00:00:00.000Z'),
+    } as UserEntity);
+    walletRepository.findOne.mockResolvedValueOnce({
+      id: 'wallet-platform',
+      userId: 'admin-1',
+      balance: 55,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 55,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity);
+    walletRepository.save.mockImplementation(async (value) => value as WalletEntity);
+    transactionRepository.save.mockImplementation(async (value) => ({
+      id: 'tx-fee-1',
+      ...value,
+    }) as TransactionEntity);
+
+    const transaction = await service.recordPlatformGatewayFee({
+      fundingIntentId: 'intent-1',
+      milestoneId: 'milestone-1',
+      escrowId: 'escrow-1',
+      milestoneTitle: 'Kickoff',
+      currency: 'USD',
+      grossAmount: 100,
+      feeAmount: 3.8,
+      netMerchantAmount: 96.2,
+      providerReference: 'CAPTURE-1',
+    });
+
+    expect(walletRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        balance: 51.2,
+        totalSpent: 3.8,
+      }),
+    );
+    expect(transactionRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 3.8,
+        type: TransactionType.FEE_DEDUCTION,
+        paymentMethod: 'PAYPAL',
+        externalTransactionId: 'CAPTURE-1',
+        metadata: expect.objectContaining({
+          stage: 'gateway_fee',
+          feeAmount: 3.8,
+          grossAmount: 100,
+          netMerchantAmount: 96.2,
+        }),
+      }),
+    );
+    expect(transaction).toMatchObject({
+      id: 'tx-fee-1',
+      amount: 3.8,
+    });
+  });
+
+  it('records a funding inflow mirror without changing the treasury balance', async () => {
+    userRepository.findOne.mockResolvedValueOnce({
+      id: 'admin-1',
+      email: 'platform@example.com',
+      fullName: 'Platform Owner',
+      role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
+      createdAt: new Date('2026-03-10T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-10T00:00:00.000Z'),
+    } as UserEntity);
+    walletRepository.findOne.mockResolvedValueOnce({
+      id: 'wallet-platform',
+      userId: 'admin-1',
+      balance: 25,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 35,
+      totalSpent: 3.8,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity);
+    transactionRepository.save.mockImplementation(async (value) => ({
+      id: 'tx-funding-mirror-1',
+      ...value,
+    }) as TransactionEntity);
+
+    const transaction = await service.recordPlatformFundingMirror({
+      fundingIntentId: 'intent-1',
+      milestoneId: 'milestone-1',
+      milestoneTitle: 'Kickoff',
+      escrowId: 'escrow-1',
+      currency: 'USD',
+      amount: 100,
+      paymentMethod: 'PAYPAL_ACCOUNT',
+      providerReference: 'CAPTURE-1',
+      gateway: 'PAYPAL',
+      payerUserId: 'client-1',
+      payerEmail: 'buyer@example.com',
+      depositTransactionId: 'tx-deposit-1',
+      holdTransactionId: 'tx-hold-1',
+    });
+
+    expect(walletRepository.save).not.toHaveBeenCalled();
+    expect(transactionRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        amount: 100,
+        type: TransactionType.DEPOSIT,
+        paymentMethod: 'PAYPAL_ACCOUNT',
+        externalTransactionId: 'CAPTURE-1',
+        metadata: expect.objectContaining({
+          mirroredFundingInflow: true,
+          informationalOnly: true,
+          milestoneId: 'milestone-1',
+          escrowId: 'escrow-1',
+          payerEmail: 'buyer@example.com',
+        }),
+        balanceAfter: 25,
+      }),
+    );
+    expect(transaction).toMatchObject({
+      id: 'tx-funding-mirror-1',
+      amount: 100,
     });
   });
 });

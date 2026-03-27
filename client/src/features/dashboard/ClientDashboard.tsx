@@ -262,14 +262,14 @@ export function ClientDashboard() {
                 <div>
                   <h3 className="font-semibold text-slate-950">Billing & Wallet</h3>
                   <p className="text-sm text-slate-600">
-                    Review balances, add PayPal, and prep milestone funding.
+                    Manage funding methods and wallet activity.
                   </p>
                 </div>
               </div>
             </CardHeader>
             <CardContent className="space-y-3">
               <p className="text-sm leading-6 text-slate-600">
-                Funding methods and escrow movements now live in one place, so you can move from dashboard to milestone payment flow without hunting through menus.
+                Add PayPal, check escrow activity, or jump into funding.
               </p>
               <Button className="w-full gap-2" asChild>
                 <Link to={ROUTES.CLIENT_BILLING}>

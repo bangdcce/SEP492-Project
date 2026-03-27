@@ -14,6 +14,7 @@ import {
   Users,
   User,
   HelpCircle,
+  Wallet,
 } from "lucide-react";
 
 export interface AdminSidebarMenuItem {
@@ -34,6 +35,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: LayoutDashboard,
     path: "/admin/dashboard",
     description: "Overview and statistics",
+    section: "main",
+  },
+  {
+    id: "finance",
+    label: "Finance",
+    icon: Wallet,
+    path: "/admin/finance",
+    description: "Platform revenue and treasury wallet",
     section: "main",
   },
   // Management

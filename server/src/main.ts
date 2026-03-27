@@ -197,6 +197,7 @@ async function bootstrap() {
     allowedHeaders: [
       'Content-Type',
       'Authorization',
+      'Idempotency-Key',
       'X-Requested-With',
       'X-Timezone',
       'X-Request-Id',

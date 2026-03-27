@@ -71,6 +71,7 @@ export const ROUTES = {
 
   // ========== ADMIN ROUTES - prefix /admin ==========
   ADMIN_DASHBOARD: "/admin/dashboard",
+  ADMIN_FINANCE: "/admin/finance",
   ADMIN_AUDIT_LOGS: "/admin/audit-logs",
   ADMIN_DISPUTE_APPEALS: "/admin/disputes/appeals",
   ADMIN_REVIEW_MODERATION: "/admin/reviews",

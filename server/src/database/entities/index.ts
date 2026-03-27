@@ -27,6 +27,7 @@ export { ProjectEntity, ProjectStatus, PricingModel } from './project.entity';
 export { ProjectCategoryEntity } from './project-category.entity';
 export { MilestoneEntity, MilestoneStatus } from './milestone.entity';
 export { TaskEntity, TaskStatus } from './task.entity';
+export { TaskHistoryEntity } from './task-history.entity';
 export {
   WorkspaceMessageEntity,
   WorkspaceMessageType,
@@ -48,7 +49,7 @@ export {
   FundingGateway,
   FundingIntentStatus,
 } from './funding-intent.entity';
-export { PayoutMethodEntity } from './payout-method.entity';
+export { PayoutMethodEntity, PayoutMethodType } from './payout-method.entity';
 export { FeeConfigEntity, FeeType } from './fee-config.entity';
 export { PayoutRequestEntity, PayoutStatus } from './payout-request.entity';
 export { PlatformSettingsEntity } from './platform-settings.entity';

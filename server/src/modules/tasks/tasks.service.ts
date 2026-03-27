@@ -15,10 +15,7 @@ import * as path from 'path';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
-import {
-  ProjectEntity,
-  ProjectStaffInviteStatus,
-} from '../../database/entities/project.entity';
+import { ProjectEntity } from '../../database/entities/project.entity';
 import { UserRole } from '../../database/entities/user.entity';
 import {
   CalendarEventEntity,
@@ -36,8 +33,8 @@ import { ReviewSubmissionDto } from './dto/review-submission.dto';
 import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 import { TasksRealtimeBridge } from './tasks.realtime';
 
-/**
- * Response type for submission review
+  /**
+   * Response type for submission review
  */
 export interface SubmissionReviewResult {
   submission: TaskSubmissionEntity;
@@ -613,7 +610,7 @@ export class TasksService {
 
   /**
    * Review a task submission (Approve or Request Changes)
-   * Only CLIENT or STAFF users can review submissions
+   * Only CLIENT or BROKER users can review submissions
    *
    * Business Logic:
    * - If APPROVED: Task status → DONE
@@ -670,19 +667,15 @@ export class TasksService {
       if (project.clientId !== reviewerId) {
         throw new ForbiddenException('Only the project client can review submissions');
       }
-    } else if (normalizedReviewerRole === UserRole.STAFF) {
-      const isAssignedStaff =
-        project.staffId === reviewerId &&
-        project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED;
-
-      if (!isAssignedStaff) {
+    } else if (normalizedReviewerRole === UserRole.BROKER) {
+      if (project.brokerId !== reviewerId) {
         throw new ForbiddenException(
-          'Only the assigned staff reviewer can review submissions for this project',
+          'Only the assigned broker can review submissions for this project',
         );
       }
     } else {
       throw new ForbiddenException(
-        'Only the project client or assigned staff reviewer can review submissions',
+        'Only the project client or assigned broker can review submissions',
       );
     }
 

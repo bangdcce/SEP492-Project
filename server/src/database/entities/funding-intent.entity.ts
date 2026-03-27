@@ -13,6 +13,7 @@ import { numericTransformer } from '../transformers/column-numeric.transformer';
 export enum FundingGateway {
   INTERNAL_SANDBOX = 'INTERNAL_SANDBOX',
   PAYPAL = 'PAYPAL',
+  STRIPE = 'STRIPE',
 }
 
 export enum FundingIntentStatus {

@@ -24,6 +24,7 @@ import {
   MilestoneApprovalResult,
   CreateProjectMilestoneInput,
   UpdateProjectMilestoneInput,
+  ProjectCancelResult,
 } from './projects.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { hasAnyUserRole } from '../auth/utils/role.utils';
@@ -188,6 +189,41 @@ export class ProjectsController {
     return project;
   }
 
+  @Post(':id/cancel')
+  async cancelProject(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<ProjectCancelResult> {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      throw new BadRequestException('User authentication required to cancel project');
+    }
+
+    if (!this.hasRole(req.user?.role, UserRole.CLIENT, UserRole.ADMIN)) {
+      throw new ForbiddenException('Only the project client can cancel this project');
+    }
+
+    const reqContext = {
+      ip: req.ip,
+      userAgent: req.get('user-agent'),
+      method: req.method,
+      path: req.path,
+    };
+
+    try {
+      return await this.projectsService.cancelProject(id, userId, req.user?.role, reqContext);
+    } catch (error: unknown) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.error(`Failed to cancel project ${id}: ${errorMessage}`);
+      throw new InternalServerErrorException('Failed to cancel project');
+    }
+  }
+
   @Post(':id/invite-staff')
   async inviteStaff(
     @Param('id', ParseUUIDPipe) id: string,
@@ -307,8 +343,8 @@ export class ProjectsController {
     return this.projectsService.requestMilestoneReview(id, userId);
   }
 
-  @Post('milestones/:id/staff-review')
-  async reviewMilestoneAsStaff(
+  @Post('milestones/:id/broker-review')
+  async reviewMilestoneAsBroker(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReviewMilestoneStaffDto,
     @Req() req: AuthenticatedRequest,
@@ -319,19 +355,28 @@ export class ProjectsController {
       throw new BadRequestException('User authentication required');
     }
 
-    if (!this.hasRole(req.user?.role, UserRole.STAFF, UserRole.ADMIN)) {
-      throw new ForbiddenException('Only staff users can review milestones');
+    if (!this.hasRole(req.user?.role, UserRole.BROKER, UserRole.ADMIN)) {
+      throw new ForbiddenException('Only broker users can review milestones');
     }
 
-    return this.projectsService.reviewMilestoneAsStaff(id, userId, {
+    return this.projectsService.reviewMilestoneAsBroker(id, userId, {
       recommendation: dto.recommendation,
       note: dto.note,
     });
   }
 
+  @Post('milestones/:id/staff-review')
+  async reviewMilestoneAsStaffCompatibilityAlias(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReviewMilestoneStaffDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.reviewMilestoneAsBroker(id, dto, req);
+  }
+
   /**
    * Approve a milestone and release funds
-   * Only Client or Broker can approve
+   * Only the project client can give final approval
    *
    * @param id - Milestone UUID
    * @param dto - Optional approval data (feedback)

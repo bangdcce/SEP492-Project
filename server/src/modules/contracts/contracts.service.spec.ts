@@ -32,6 +32,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 describe('ContractsService', () => {
   let service: ContractsService;
   let queryRunner: QueryRunner;
+  let mockDataSource: { createQueryRunner: jest.Mock; getRepository: jest.Mock };
 
   const mockContractsRepo = {
     findOne: jest.fn(),
@@ -51,6 +52,9 @@ describe('ContractsService', () => {
   const mockContractArchiveStorage = {
     persistPdfArtifact: jest.fn(),
     downloadPdfArtifact: jest.fn(),
+  };
+  const mockEscrowReadRepository = {
+    find: jest.fn().mockResolvedValue([]),
   };
 
   const mockManager = {
@@ -154,8 +158,14 @@ describe('ContractsService', () => {
       manager: mockManager,
     } as unknown as QueryRunner;
 
-    const mockDataSource = {
+    mockDataSource = {
       createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === EscrowEntity) {
+          return mockEscrowReadRepository;
+        }
+        return { find: jest.fn().mockResolvedValue([]) };
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({

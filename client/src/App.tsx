@@ -141,6 +141,7 @@ const SubscriptionPage = lazy(() =>
   import("@/features/subscriptions/SubscriptionPage"),
 );
 const BillingPage = lazy(() => import("@/features/payments/BillingPage"));
+const AdminFinancePage = lazy(() => import("@/features/payments/AdminFinancePage"));
 
 // ========== STAFF PAGES ==========
 const StaffLayout = lazy(() =>
@@ -729,6 +730,16 @@ function App() {
             <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminDashboard />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_FINANCE}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminFinancePage />
               </AdminDashboardLayout>
             </RoleGuard>
           }

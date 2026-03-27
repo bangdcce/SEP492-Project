@@ -1165,6 +1165,30 @@ export class ContractsService {
       await this.contractsRepository.update(contract.id, updatePayload);
     }
 
+    if (contract.projectId) {
+      const escrowRepository = this.dataSource.getRepository(EscrowEntity);
+      const escrows = await escrowRepository.find({
+        where: { projectId: contract.projectId },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      const releasedEscrows = escrows.filter((item) => item.status === EscrowStatus.RELEASED).length;
+      const disputedEscrows = escrows.filter((item) => item.status === EscrowStatus.DISPUTED).length;
+      const fundedEscrows = escrows.filter((item) => item.status === EscrowStatus.FUNDED).length;
+
+      (contract as any).runtimeEscrowSummary = {
+        totalEscrows: escrows.length,
+        fundedEscrows,
+        releasedEscrows,
+        disputedEscrows,
+        refundableEscrows: fundedEscrows,
+        cancelShortcutAvailable: releasedEscrows === 0 && disputedEscrows === 0,
+      };
+    }
+
     (contract as any).documentHash = this.computeContractDocumentHash(contract);
     return contract as ContractEntity & { documentHash?: string };
   }
