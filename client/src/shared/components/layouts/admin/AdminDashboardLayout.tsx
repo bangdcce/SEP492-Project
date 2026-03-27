@@ -29,12 +29,14 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
   };
 
   return (
-    <div className="flex h-screen bg-slate-50/50 overflow-hidden">
+    <div className="flex min-h-screen bg-slate-50/50">
       {/* Desktop Sidebar */}
-      <AdminSidebar
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={handleToggleSidebar}
-      />
+      <div className="hidden self-start lg:sticky lg:top-0 lg:block lg:h-screen">
+        <AdminSidebar
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={handleToggleSidebar}
+        />
+      </div>
 
       {/* Mobile Sidebar Overlay */}
       {isMobileMenuOpen && (
@@ -50,12 +52,12 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
         />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-6 flex flex-col">
+        <main className="flex min-w-0 flex-1 flex-col p-6">
           <div className="max-w-7xl mx-auto w-full flex-1">{children}</div>
           {showFooter && <ClientFooter />}
         </main>
