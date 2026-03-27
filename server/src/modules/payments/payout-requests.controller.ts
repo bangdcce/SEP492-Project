@@ -47,7 +47,7 @@ export class PayoutRequestsController {
     this.assertCanRequestCashout(user);
     return {
       success: true,
-      data: await this.payoutRequestsService.listForUser(user.id, query),
+      data: await this.payoutRequestsService.listForUser(user, query),
     };
   }
 

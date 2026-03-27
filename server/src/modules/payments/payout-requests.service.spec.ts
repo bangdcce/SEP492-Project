@@ -48,6 +48,7 @@ describe('PayoutRequestsService', () => {
   const walletService = {
     getOrCreateWallet: jest.fn(),
     toWalletSnapshot: jest.fn(),
+    buildWalletSnapshot: jest.fn(),
     reserveWithdrawal: jest.fn(),
     finalizeWithdrawal: jest.fn(),
     releaseWithdrawal: jest.fn(),
@@ -107,6 +108,7 @@ describe('PayoutRequestsService', () => {
       availableBalance: Number(wallet.balance || 0),
       pendingBalance: Number(wallet.pendingBalance || 0),
       heldBalance: Number(wallet.heldBalance || 0),
+      awaitingReleaseAmount: 0,
       totalDeposited: Number(wallet.totalDeposited || 0),
       totalWithdrawn: Number(wallet.totalWithdrawn || 0),
       totalEarned: Number(wallet.totalEarned || 0),
@@ -116,6 +118,9 @@ describe('PayoutRequestsService', () => {
       createdAt: wallet.createdAt,
       updatedAt: wallet.updatedAt,
     }));
+    walletService.buildWalletSnapshot.mockImplementation(async (wallet: WalletEntity) =>
+      walletService.toWalletSnapshot(wallet),
+    );
     walletService.reserveWithdrawal.mockImplementation(async (wallet: WalletEntity, amount: number) => {
       wallet.balance -= amount;
       wallet.pendingBalance += amount;

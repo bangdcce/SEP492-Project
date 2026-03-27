@@ -3,6 +3,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import Decimal from 'decimal.js';
 import { Between, EntityManager, Repository } from 'typeorm';
 import {
+  EscrowEntity,
+  EscrowStatus,
+  ProjectEntity,
   TransactionEntity,
   TransactionStatus,
   TransactionType,
@@ -28,6 +31,8 @@ export class WalletService {
     private readonly walletRepository: Repository<WalletEntity>,
     @InjectRepository(TransactionEntity)
     private readonly transactionRepository: Repository<TransactionEntity>,
+    @InjectRepository(EscrowEntity)
+    private readonly escrowRepository: Repository<EscrowEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
     private readonly payPalPayoutsGateway: PayPalPayoutsGateway,
@@ -112,9 +117,10 @@ export class WalletService {
     return walletRepo.save(wallet);
   }
 
-  async getWalletSnapshot(userId: string): Promise<WalletSnapshot> {
+  async getWalletSnapshot(user: Pick<UserEntity, 'id' | 'role'> | string): Promise<WalletSnapshot> {
+    const userId = typeof user === 'string' ? user : user.id;
     const wallet = await this.getOrCreateWallet(userId);
-    return this.toWalletSnapshot(wallet);
+    return this.buildWalletSnapshot(wallet, typeof user === 'string' ? undefined : user.role);
   }
 
   async getPlatformWalletSnapshot(): Promise<PlatformWalletSnapshotResult> {
@@ -129,11 +135,12 @@ export class WalletService {
   }
 
   async listTransactions(
-    userId: string,
+    user: Pick<UserEntity, 'id' | 'role'> | string,
     page = 1,
     limit = 20,
     range?: WalletTransactionRange,
   ): Promise<WalletTransactionsResult> {
+    const userId = typeof user === 'string' ? user : user.id;
     const safePage = Number.isFinite(page) && page > 0 ? page : 1;
     const safeLimit = Number.isFinite(limit) && limit > 0 ? Math.min(limit, 100) : 20;
     const wallet = await this.getOrCreateWallet(userId);
@@ -156,7 +163,10 @@ export class WalletService {
     });
 
     return {
-      wallet: this.toWalletSnapshot(wallet),
+      wallet: await this.buildWalletSnapshot(
+        wallet,
+        typeof user === 'string' ? undefined : user.role,
+      ),
       items: items.map((item) => this.toWalletTransaction(item)),
       total,
       page: safePage,
@@ -176,6 +186,20 @@ export class WalletService {
       owner: this.toPlatformWalletOwner(owner),
       ...result,
     };
+  }
+
+  async buildWalletSnapshot(
+    wallet: WalletEntity,
+    role?: UserRole,
+    manager?: EntityManager,
+  ): Promise<WalletSnapshot> {
+    const awaitingReleaseAmount = await this.resolveAwaitingReleaseAmount(
+      wallet.userId,
+      role,
+      manager,
+    );
+
+    return this.toWalletSnapshot(wallet, { awaitingReleaseAmount });
   }
 
   async recordPlatformGatewayFee(
@@ -303,13 +327,19 @@ export class WalletService {
     );
   }
 
-  toWalletSnapshot(wallet: WalletEntity): WalletSnapshot {
+  toWalletSnapshot(
+    wallet: WalletEntity,
+    options?: {
+      awaitingReleaseAmount?: number;
+    },
+  ): WalletSnapshot {
     return {
       id: wallet.id,
       userId: wallet.userId,
       availableBalance: Number(wallet.balance || 0),
       pendingBalance: Number(wallet.pendingBalance || 0),
       heldBalance: Number(wallet.heldBalance || 0),
+      awaitingReleaseAmount: Number(options?.awaitingReleaseAmount || 0),
       totalDeposited: Number(wallet.totalDeposited || 0),
       totalWithdrawn: Number(wallet.totalWithdrawn || 0),
       totalEarned: Number(wallet.totalEarned || 0),
@@ -404,6 +434,36 @@ export class WalletService {
       email: user.email,
       role: user.role,
     };
+  }
+
+  private async resolveAwaitingReleaseAmount(
+    userId: string,
+    role?: UserRole,
+    manager?: EntityManager,
+  ): Promise<number> {
+    if (role !== UserRole.BROKER && role !== UserRole.FREELANCER) {
+      return 0;
+    }
+
+    const escrowRepo = manager?.getRepository(EscrowEntity) ?? this.escrowRepository;
+    const shareColumn =
+      role === UserRole.BROKER ? 'escrow.brokerShare' : 'escrow.developerShare';
+    const projectRoleColumn =
+      role === UserRole.BROKER ? 'project.brokerId' : 'project.freelancerId';
+
+    const result = await escrowRepo
+      .createQueryBuilder('escrow')
+      .innerJoin(ProjectEntity, 'project', 'project.id = escrow.projectId')
+      .select(`COALESCE(SUM(${shareColumn}), 0)`, 'total')
+      .where('escrow.status IN (:...statuses)', {
+        statuses: [EscrowStatus.FUNDED, EscrowStatus.DISPUTED],
+      })
+      .andWhere(`${projectRoleColumn} = :userId`, { userId })
+      .getRawOne<{ total: string | number | null }>();
+
+    return new Decimal(result?.total ?? 0)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toNumber();
   }
 
   private async resolvePlatformWalletOwner(manager?: EntityManager): Promise<UserEntity> {

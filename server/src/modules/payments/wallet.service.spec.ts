@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import {
+  EscrowEntity,
   TransactionEntity,
   TransactionStatus,
   TransactionType,
@@ -18,12 +19,28 @@ describe('WalletService', () => {
   let service: WalletService;
   let walletRepository: jest.Mocked<Repository<WalletEntity>>;
   let transactionRepository: jest.Mocked<Repository<TransactionEntity>>;
+  let escrowRepository: jest.Mocked<Repository<EscrowEntity>>;
   let userRepository: jest.Mocked<Repository<UserEntity>>;
+  let escrowQueryBuilder: {
+    innerJoin: jest.Mock;
+    select: jest.Mock;
+    where: jest.Mock;
+    andWhere: jest.Mock;
+    getRawOne: jest.Mock;
+  };
   const payPalPayoutsGateway = {
     getMerchantBalance: jest.fn(),
   };
 
   beforeEach(async () => {
+    escrowQueryBuilder = {
+      innerJoin: jest.fn().mockReturnThis(),
+      select: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      getRawOne: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         WalletService,
@@ -44,6 +61,12 @@ describe('WalletService', () => {
           },
         },
         {
+          provide: getRepositoryToken(EscrowEntity),
+          useValue: {
+            createQueryBuilder: jest.fn(() => escrowQueryBuilder),
+          },
+        },
+        {
           provide: getRepositoryToken(UserEntity),
           useValue: {
             findOne: jest.fn(),
@@ -59,6 +82,7 @@ describe('WalletService', () => {
     service = module.get(WalletService);
     walletRepository = module.get(getRepositoryToken(WalletEntity));
     transactionRepository = module.get(getRepositoryToken(TransactionEntity));
+    escrowRepository = module.get(getRepositoryToken(EscrowEntity));
     userRepository = module.get(getRepositoryToken(UserEntity));
     payPalPayoutsGateway.getMerchantBalance.mockResolvedValue({
       provider: 'PAYPAL',
@@ -107,6 +131,7 @@ describe('WalletService', () => {
       availableBalance: 0,
       pendingBalance: 0,
       heldBalance: 0,
+      awaitingReleaseAmount: 0,
       currency: 'USD',
       status: WalletStatus.ACTIVE,
     });
@@ -159,6 +184,7 @@ describe('WalletService', () => {
 
     expect(result.total).toBe(1);
     expect(result.wallet.availableBalance).toBe(10);
+    expect(result.wallet.awaitingReleaseAmount).toBe(0);
     expect(result.items[0]).toMatchObject({
       id: 'tx-1',
       type: TransactionType.DEPOSIT,
@@ -212,6 +238,7 @@ describe('WalletService', () => {
       userId: 'admin-1',
       availableBalance: 25,
       pendingBalance: 5,
+      awaitingReleaseAmount: 0,
       totalEarned: 35,
     });
     expect(result.merchantBalance).toMatchObject({
@@ -357,5 +384,66 @@ describe('WalletService', () => {
       id: 'tx-funding-mirror-1',
       amount: 100,
     });
+  });
+
+  it('computes awaiting release for freelancer snapshots from funded and disputed escrows', async () => {
+    walletRepository.findOne.mockResolvedValueOnce({
+      id: 'wallet-freelancer',
+      userId: 'freelancer-1',
+      balance: 740,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 120,
+      totalEarned: 860,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity);
+    escrowQueryBuilder.getRawOne.mockResolvedValueOnce({ total: '180.50' });
+
+    const result = await service.getWalletSnapshot({
+      id: 'freelancer-1',
+      role: UserRole.FREELANCER,
+    } as UserEntity);
+
+    expect(escrowRepository.createQueryBuilder).toHaveBeenCalledWith('escrow');
+    expect(escrowQueryBuilder.andWhere).toHaveBeenCalledWith(
+      'project.freelancerId = :userId',
+      { userId: 'freelancer-1' },
+    );
+    expect(result.awaitingReleaseAmount).toBe(180.5);
+  });
+
+  it('computes awaiting release for broker snapshots from funded and disputed escrows', async () => {
+    walletRepository.findOne.mockResolvedValueOnce({
+      id: 'wallet-broker',
+      userId: 'broker-1',
+      balance: 80,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 40,
+      totalEarned: 120,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity);
+    escrowQueryBuilder.getRawOne.mockResolvedValueOnce({ total: '50.00' });
+
+    const result = await service.getWalletSnapshot({
+      id: 'broker-1',
+      role: UserRole.BROKER,
+    } as UserEntity);
+
+    expect(escrowQueryBuilder.andWhere).toHaveBeenCalledWith(
+      'project.brokerId = :userId',
+      { userId: 'broker-1' },
+    );
+    expect(result.awaitingReleaseAmount).toBe(50);
   });
 });

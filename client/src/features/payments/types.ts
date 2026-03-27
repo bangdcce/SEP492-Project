@@ -33,6 +33,7 @@ export interface WalletSnapshot {
   availableBalance: number;
   pendingBalance: number;
   heldBalance: number;
+  awaitingReleaseAmount: number;
   totalDeposited: number;
   totalWithdrawn: number;
   totalEarned: number;

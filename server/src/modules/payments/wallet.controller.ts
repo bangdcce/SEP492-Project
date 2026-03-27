@@ -27,7 +27,7 @@ export class WalletController {
   async getMyWallet(@GetUser() user: UserEntity) {
     return {
       success: true,
-      data: await this.walletService.getWalletSnapshot(user.id),
+      data: await this.walletService.getWalletSnapshot(user),
     };
   }
 
@@ -39,7 +39,7 @@ export class WalletController {
   ) {
     return {
       success: true,
-      data: await this.walletService.listTransactions(user.id, query.page, query.limit, query.range),
+      data: await this.walletService.listTransactions(user, query.page, query.limit, query.range),
     };
   }
 

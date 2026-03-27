@@ -42,10 +42,13 @@ export class PayoutRequestsService {
     private readonly payoutGateway: PayPalPayoutsGateway,
   ) {}
 
-  async listForUser(userId: string, query: PayoutRequestsQueryDto = {}): Promise<PayoutRequestsResult> {
+  async listForUser(
+    user: Pick<UserEntity, 'id' | 'role'>,
+    query: PayoutRequestsQueryDto = {},
+  ): Promise<PayoutRequestsResult> {
     const page = Number.isFinite(query.page) && (query.page ?? 1) > 0 ? query.page ?? 1 : 1;
     const limit = Number.isFinite(query.limit) && (query.limit ?? 20) > 0 ? Math.min(query.limit ?? 20, 100) : 20;
-    const wallet = await this.walletService.getOrCreateWallet(userId);
+    const wallet = await this.walletService.getOrCreateWallet(user.id);
 
     const [items, total] = await this.payoutRequestRepository.findAndCount({
       where: {
@@ -59,7 +62,7 @@ export class PayoutRequestsService {
     });
 
     return {
-      wallet: this.walletService.toWalletSnapshot(wallet),
+      wallet: await this.walletService.buildWalletSnapshot(wallet, user.role),
       items: items.map((item) => this.toPayoutRequestView(item, item.payoutMethod)),
       total,
       page,
@@ -239,7 +242,7 @@ export class PayoutRequestsService {
 
         return {
           request: this.toPayoutRequestView(request, payoutMethod),
-          wallet: this.walletService.toWalletSnapshot(wallet),
+          wallet: await this.walletService.buildWalletSnapshot(wallet, user.role, manager),
         };
       } catch (error) {
         await this.walletService.releaseWithdrawal(wallet, amount.toNumber(), manager);
@@ -264,7 +267,7 @@ export class PayoutRequestsService {
 
         return {
           request: this.toPayoutRequestView(request, payoutMethod),
-          wallet: this.walletService.toWalletSnapshot(wallet),
+          wallet: await this.walletService.buildWalletSnapshot(wallet, user.role, manager),
         };
       }
     });
