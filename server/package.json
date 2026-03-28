@@ -10,6 +10,7 @@
     "seed:domains": "ts-node src/database/seeds/run-seeds.ts",
     "seed:dispute-fixtures": "node scripts/seed-dispute-project-fixtures.js",
     "seed:review-smoke-fixtures": "node scripts/ensure-review-moderation-smoke-fixtures.js",
+    "seed:payment-demo": "node scripts/seed-payment-demo-fixtures.js",
     "smoke:runtime": "node scripts/smoke-runtime-modules.js",
     "generate:keys": "node scripts/generate-keys.js",
     "generate:ssl": "ts-node src/scripts/generate-ssl.ts",
@@ -83,6 +84,7 @@
     "sanitize-html": "^2.17.0",
     "sharp": "^0.34.5",
     "socket.io": "^4.7.5",
+    "stripe": "^20.4.1",
     "typeorm": "^0.3.27",
     "uuid": "^13.0.0"
   },

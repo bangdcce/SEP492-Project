@@ -20,6 +20,7 @@ import {
   ContractMilestoneSnapshotItem,
 } from '../../database/entities/contract.entity';
 import { DisputeEntity, DisputeStatus } from '../../database/entities/dispute.entity';
+import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { ReviewEntity } from '../../database/entities/review.entity';
 import {
   DeliverableType,
@@ -28,10 +29,12 @@ import {
   StaffRecommendation,
 } from '../../database/entities/milestone.entity';
 import { TaskEntity, TaskStatus } from '../../database/entities/task.entity';
+import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
 import { EscrowReleaseService } from '../payments/escrow-release.service';
+import { EscrowRefundMode, EscrowRefundResult, WalletSnapshot } from '../payments/payments.types';
 import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 
 // Response type with enriched dispute info
@@ -121,6 +124,20 @@ export interface MilestoneApprovalResult {
   message: string;
 }
 
+export interface ProjectCancelResult {
+  projectId: string;
+  status: ProjectStatus;
+  project: ProjectEntity;
+  refundedEscrows: EscrowRefundResult[];
+  refundModeSummary: EscrowRefundMode | 'MIXED' | 'NONE';
+  refundTransactionIds: string[];
+  clientWalletSnapshot: WalletSnapshot | null;
+  totalRefundedAmount: number;
+  lockedMilestonesCount: number;
+  blockedTasksCount: number;
+  message: string;
+}
+
 export interface CreateProjectMilestoneInput {
   title: string;
   description?: string;
@@ -158,8 +175,12 @@ export class ProjectsService {
     private readonly reviewRepository: Repository<ReviewEntity>,
     @InjectRepository(MilestoneEntity)
     private readonly milestoneRepository: Repository<MilestoneEntity>,
+    @InjectRepository(EscrowEntity)
+    private readonly escrowRepository: Repository<EscrowEntity>,
     @InjectRepository(TaskEntity)
     private readonly taskRepository: Repository<TaskEntity>,
+    @InjectRepository(TaskHistoryEntity)
+    private readonly taskHistoryRepository: Repository<TaskHistoryEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
     private readonly dataSource: DataSource,
@@ -474,6 +495,39 @@ export class ProjectsService {
     milestone.staffReviewNote = null;
   }
 
+  private requiresBrokerMilestoneReview(
+    project: Pick<ProjectEntity, 'brokerId' | 'clientId'>,
+  ): boolean {
+    return Boolean(project.brokerId && project.brokerId !== project.clientId);
+  }
+
+  private async assertMilestoneEscrowIsFundedBeforeReview(milestoneId: string): Promise<void> {
+    const escrow = await this.escrowRepository.findOne({
+      where: { milestoneId },
+      select: ['id', 'status', 'fundedAmount', 'totalAmount'],
+    });
+
+    if (!escrow) {
+      throw new ConflictException(
+        'This milestone is not ready for review because its escrow has not been prepared yet',
+      );
+    }
+
+    if (escrow.status !== EscrowStatus.FUNDED) {
+      throw new ConflictException(
+        'Fund this milestone first. Broker review starts only after escrow is fully funded',
+      );
+    }
+
+    const fundedAmount = new Decimal(escrow.fundedAmount ?? 0).toDecimalPlaces(2);
+    const totalAmount = new Decimal(escrow.totalAmount ?? 0).toDecimalPlaces(2);
+    if (!fundedAmount.equals(totalAmount)) {
+      throw new ConflictException(
+        'Escrow funding is incomplete. Review can only start after the full milestone amount is locked',
+      );
+    }
+  }
+
   private sanitizeProjectStaffRelation(project: ProjectEntity | null): ProjectEntity | null {
     if (!project?.staff) {
       return project;
@@ -673,17 +727,18 @@ export class ProjectsService {
       throw new BadRequestException('All milestone tasks must be DONE before requesting review');
     }
 
-    milestone.status =
-      project.staffId && project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED
-        ? MilestoneStatus.PENDING_STAFF_REVIEW
-        : MilestoneStatus.SUBMITTED;
+    await this.assertMilestoneEscrowIsFundedBeforeReview(milestone.id);
+
+    milestone.status = this.requiresBrokerMilestoneReview(project)
+      ? MilestoneStatus.PENDING_STAFF_REVIEW
+      : MilestoneStatus.SUBMITTED;
     milestone.submittedAt = new Date();
     this.clearStaffReviewDecision(milestone);
 
     return this.milestoneRepository.save(milestone);
   }
 
-  async reviewMilestoneAsStaff(
+  async reviewMilestoneAsBroker(
     milestoneId: string,
     reviewerId: string,
     payload: StaffReviewMilestoneInput,
@@ -694,22 +749,20 @@ export class ProjectsService {
       throw new ConflictException('Cannot review milestone while the project is disputed');
     }
 
-    const isAssignedStaff =
-      project.staffId === reviewerId &&
-      project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED;
-    if (!isAssignedStaff) {
-      throw new ForbiddenException('Only the assigned staff reviewer can review this milestone');
+    const isAssignedBroker = project.brokerId === reviewerId;
+    if (!isAssignedBroker) {
+      throw new ForbiddenException('Only the assigned broker reviewer can review this milestone');
     }
 
     if (milestone.status !== MilestoneStatus.PENDING_STAFF_REVIEW) {
       throw new BadRequestException(
-        `Cannot staff-review milestone with status "${milestone.status}"`,
+        `Cannot broker-review milestone with status "${milestone.status}"`,
       );
     }
 
     const trimmedNote = payload.note.trim();
     if (!trimmedNote) {
-      throw new BadRequestException('Staff review note is required');
+      throw new BadRequestException('Broker review note is required');
     }
 
     milestone.reviewedByStaffId = reviewerId;
@@ -724,6 +777,14 @@ export class ProjectsService {
     }
 
     return this.milestoneRepository.save(milestone);
+  }
+
+  async reviewMilestoneAsStaff(
+    milestoneId: string,
+    reviewerId: string,
+    payload: StaffReviewMilestoneInput,
+  ): Promise<MilestoneEntity> {
+    return this.reviewMilestoneAsBroker(milestoneId, reviewerId, payload);
   }
 
   async createMilestone(
@@ -1032,7 +1093,7 @@ export class ProjectsService {
 
   /**
    * Approve a milestone and release funds
-   * Only Project Owner (Client) or Broker can approve
+   * Only the project client can give the final approval
    *
    * @param milestoneId - Milestone ID
    * @param userId - User attempting to approve
@@ -1088,15 +1149,14 @@ export class ProjectsService {
         throw new ConflictException('Cannot approve milestone while the project is under dispute');
       }
 
-      const isAuthorized = project.clientId === userId || project.brokerId === userId;
-      if (!isAuthorized) {
+      if (project.clientId !== userId) {
         throw new ForbiddenException(
-          'Only the Project Owner (Client) or Broker can approve milestones',
+          'Only the project client can give final milestone approval',
         );
       }
 
       auditProjectId = project.id;
-      approvalActorLabel = project.clientId === userId ? 'Client' : 'Broker';
+      approvalActorLabel = 'Client';
 
       if (milestone.status === MilestoneStatus.COMPLETED) {
         throw new BadRequestException('Milestone is already completed');
@@ -1177,6 +1237,8 @@ export class ProjectsService {
         manager,
       );
       releaseTransactionIds = releaseResult.releaseTransactionIds;
+      milestone.status = MilestoneStatus.PAID;
+      updatedMilestone = await milestoneRepository.save(milestone);
 
       this.logger.log(
         `💰 FUNDS RELEASED: Milestone "${milestone.title}" (${milestone.amount} ${logCurrency}) approved by user ${userId} | tx=${releaseTransactionIds.join(',')}`,
@@ -1184,7 +1246,7 @@ export class ProjectsService {
     });
 
     const newData = {
-      status: MilestoneStatus.COMPLETED,
+      status: MilestoneStatus.PAID,
       feedback: feedback || null,
       approvedBy: userId,
       approvedAt: new Date().toISOString(),
@@ -1208,7 +1270,7 @@ export class ProjectsService {
     }
 
     this.logger.log(
-      `✅ Milestone ${milestoneId} approved: ${previousStatus} → COMPLETED | Tasks: ${doneTasks}/${totalTasks} | ReleaseTx: ${releaseTransactionIds.length}`,
+      `✅ Milestone ${milestoneId} approved: ${previousStatus} → PAID | Tasks: ${doneTasks}/${totalTasks} | ReleaseTx: ${releaseTransactionIds.length}`,
     );
 
     return {
@@ -1218,6 +1280,235 @@ export class ProjectsService {
       message: `Milestone "${updatedMilestone?.title}" has been approved. Funds have been released.`,
     };
   }
+
+  async cancelProject(
+    projectId: string,
+    requesterId: string,
+    requesterRole?: UserRole | string,
+    reqContext?: RequestContext,
+  ): Promise<ProjectCancelResult> {
+    const isAdmin = requesterRole === UserRole.ADMIN;
+    const now = new Date();
+    const refundedEscrows: EscrowRefundResult[] = [];
+    let updatedProject: ProjectEntity | null = null;
+    let lockedMilestonesCount = 0;
+    let blockedTasksCount = 0;
+
+    const candidateProject = await this.projectRepository.findOne({
+      where: { id: projectId },
+    });
+
+    if (!candidateProject) {
+      throw new NotFoundException(`Project ${projectId} not found`);
+    }
+
+    if (!isAdmin && candidateProject.clientId !== requesterId) {
+      throw new ForbiddenException('Only the project client can cancel this project');
+    }
+
+    if (
+      [ProjectStatus.CANCELED, ProjectStatus.PAID, ProjectStatus.DISPUTED].includes(
+        candidateProject.status,
+      )
+    ) {
+      throw new BadRequestException(`Project ${projectId} is already ${candidateProject.status}`);
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const projectRepository = manager.getRepository(ProjectEntity);
+      const milestoneRepository = manager.getRepository(MilestoneEntity);
+      const escrowRepository = manager.getRepository(EscrowEntity);
+      const taskRepository = manager.getRepository(TaskEntity);
+      const taskHistoryRepository = manager.getRepository(TaskHistoryEntity);
+
+      const project = await projectRepository
+        .createQueryBuilder('project')
+        .setLock('pessimistic_write')
+        .where('project.id = :projectId', { projectId })
+        .getOne();
+
+      if (!project) {
+        throw new NotFoundException(`Project ${projectId} not found`);
+      }
+
+      if (!isAdmin && project.clientId !== requesterId) {
+        throw new ForbiddenException('Only the project client can cancel this project');
+      }
+
+      if (
+        [ProjectStatus.CANCELED, ProjectStatus.PAID, ProjectStatus.DISPUTED].includes(
+          project.status,
+        )
+      ) {
+        throw new BadRequestException(`Project ${projectId} is already ${project.status}`);
+      }
+
+      const milestones = await milestoneRepository
+        .createQueryBuilder('milestone')
+        .setLock('pessimistic_write')
+        .where('milestone.projectId = :projectId', { projectId })
+        .orderBy('milestone.createdAt', 'ASC')
+        .getMany();
+
+      const escrows = await escrowRepository
+        .createQueryBuilder('escrow')
+        .setLock('pessimistic_write')
+        .where('escrow.projectId = :projectId', { projectId })
+        .orderBy('escrow.createdAt', 'ASC')
+        .getMany();
+
+      if (escrows.some((escrow) => escrow.status === EscrowStatus.RELEASED)) {
+        throw new BadRequestException('Cannot cancel a project after escrow has been released');
+      }
+
+      if (escrows.some((escrow) => escrow.status === EscrowStatus.DISPUTED)) {
+        throw new BadRequestException('Cannot cancel a project while escrow is disputed');
+      }
+
+      const tasks = await taskRepository
+        .createQueryBuilder('task')
+        .setLock('pessimistic_write')
+        .where('task.projectId = :projectId', { projectId })
+        .orderBy('task.createdAt', 'ASC')
+        .getMany();
+
+      const milestoneById = new Map(milestones.map((milestone) => [milestone.id, milestone]));
+
+      for (const escrow of escrows.filter((item) => item.status === EscrowStatus.FUNDED)) {
+        const milestone = milestoneById.get(escrow.milestoneId);
+        if (!milestone) {
+          throw new NotFoundException(`Milestone ${escrow.milestoneId} not found`);
+        }
+
+        const refundResult = await this.escrowReleaseService.refundCancelledEscrow(
+          project,
+          milestone,
+          escrow,
+          requesterId,
+          manager,
+        );
+        refundedEscrows.push(refundResult);
+      }
+
+      for (const milestone of milestones) {
+        if (
+          [MilestoneStatus.COMPLETED, MilestoneStatus.PAID, MilestoneStatus.LOCKED].includes(
+            milestone.status,
+          )
+        ) {
+          continue;
+        }
+
+        milestone.status = MilestoneStatus.LOCKED;
+        await milestoneRepository.save(milestone);
+        lockedMilestonesCount += 1;
+      }
+
+      const cancelledAt = now;
+      for (const task of tasks) {
+        if (task.status === TaskStatus.DONE) {
+          continue;
+        }
+
+        const previousStatus = task.status;
+        task.status = TaskStatus.BLOCKED;
+        task.submittedAt = null;
+        await taskRepository.save(task);
+        blockedTasksCount += 1;
+
+        await taskHistoryRepository.save(
+          taskHistoryRepository.create({
+            taskId: task.id,
+            actorId: requesterId,
+            fieldChanged: 'status',
+            oldValue: previousStatus,
+            newValue: TaskStatus.BLOCKED,
+            createdAt: cancelledAt,
+          }),
+        );
+      }
+
+      project.status = ProjectStatus.CANCELED;
+      project.staffId = null;
+      project.staffInviteStatus = null;
+      await projectRepository.save(project);
+      updatedProject = project;
+    });
+
+    if (!updatedProject) {
+      throw new InternalServerErrorException('Project cancellation did not complete');
+    }
+
+    const totalRefundedAmount = refundedEscrows.reduce(
+      (sum, refund) => new Decimal(sum).plus(refund.refundedAmount).toNumber(),
+      0,
+    );
+    const refundModes = Array.from(new Set(refundedEscrows.map((refund) => refund.refundMode)));
+    const refundModeSummary: EscrowRefundMode | 'MIXED' | 'NONE' = refundModes.length === 0
+      ? 'NONE'
+      : refundModes.length === 1
+        ? refundModes[0]
+        : 'MIXED';
+
+    await this.auditLogsService.logUpdate(
+      'Project',
+      projectId,
+      { status: candidateProject.status },
+      {
+        status: ProjectStatus.CANCELED,
+        refundedEscrows: refundedEscrows.length,
+        totalRefundedAmount,
+        refundModeSummary,
+        lockedMilestonesCount,
+        blockedTasksCount,
+      },
+      reqContext,
+      requesterId,
+    );
+
+    for (const refund of refundedEscrows) {
+      await this.auditLogsService.logUpdate(
+        'Escrow',
+        refund.escrowId,
+        { status: EscrowStatus.FUNDED },
+        {
+          status: EscrowStatus.REFUNDED,
+          refundedAt: now,
+          refundedAmount: refund.refundedAmount,
+          refundTransactionId: refund.refundTransactionId,
+          refundMode: refund.refundMode,
+          externalRefundReference: refund.externalRefundReference,
+        },
+        reqContext,
+        requesterId,
+      );
+    }
+
+    await this.recordWorkspaceSystemMessage(
+      projectId,
+      refundModeSummary === 'PAYPAL_CAPTURE_REFUND'
+        ? `Project "${updatedProject.title}" was cancelled. Refunded ${refundedEscrows.length} escrow(s) totaling ${totalRefundedAmount.toFixed(2)} ${updatedProject.currency || 'USD'} back to the client's PayPal funding source.`
+        : refundModeSummary === 'MIXED'
+          ? `Project "${updatedProject.title}" was cancelled. Refunded ${refundedEscrows.length} escrow(s) totaling ${totalRefundedAmount.toFixed(2)} ${updatedProject.currency || 'USD'} across PayPal and internal wallet paths.`
+          : `Project "${updatedProject.title}" was cancelled. Refunded ${refundedEscrows.length} escrow(s) totaling ${totalRefundedAmount.toFixed(2)} ${updatedProject.currency || 'USD'} back to the client's internal wallet.`,
+    );
+
+    return {
+      projectId,
+      status: updatedProject.status,
+      project: updatedProject,
+      refundedEscrows,
+      refundModeSummary,
+      refundTransactionIds: refundedEscrows.map((refund) => refund.refundTransactionId),
+      clientWalletSnapshot:
+        refundedEscrows[refundedEscrows.length - 1]?.clientWalletSnapshot ?? null,
+      totalRefundedAmount,
+      lockedMilestonesCount,
+      blockedTasksCount,
+      message: `Project "${updatedProject.title}" has been cancelled.`,
+    };
+  }
+
   async findOne(id: string, viewerId?: string): Promise<(ProjectEntity & ProjectWithDisputeInfo) | null> {
     const project = await this.projectRepository.findOne({
       where: { id },

@@ -54,6 +54,20 @@ export const contractsApi = {
     return apiClient.post(`/contracts/${id}/discard`, {});
   },
 
+  cancelProject: (
+    projectId: string,
+  ): Promise<{
+    projectId: string;
+    status: string;
+    totalRefundedAmount: number;
+    refundModeSummary: "NONE" | "INTERNAL_LEDGER" | "PAYPAL_CAPTURE_REFUND" | "MIXED";
+    lockedMilestonesCount: number;
+    blockedTasksCount: number;
+    message: string;
+  }> => {
+    return apiClient.post(`/projects/${projectId}/cancel`, {});
+  },
+
   signContract: (
     id: string,
     contentHash: string,

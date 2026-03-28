@@ -140,6 +140,8 @@ const KYCStatusPage = lazy(() => import("@/pages/KYCStatusPage"));
 const SubscriptionPage = lazy(() =>
   import("@/features/subscriptions/SubscriptionPage"),
 );
+const BillingPage = lazy(() => import("@/features/payments/BillingPage"));
+const AdminFinancePage = lazy(() => import("@/features/payments/AdminFinancePage"));
 
 // ========== STAFF PAGES ==========
 const StaffLayout = lazy(() =>
@@ -505,6 +507,16 @@ function App() {
             </RoleGuard>
           }
         />
+        <Route
+          path={ROUTES.FREELANCER_BILLING}
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <BillingPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
 
         {/* ========== CLIENT ROUTES - /client/* ========== */}
         <Route
@@ -700,6 +712,16 @@ function App() {
             </RoleGuard>
           }
         />
+        <Route
+          path={ROUTES.CLIENT_BILLING}
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <BillingPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
 
         {/* ========== ADMIN ROUTES - /admin/* ========== */}
         <Route
@@ -708,6 +730,16 @@ function App() {
             <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminDashboard />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_FINANCE}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminFinancePage />
               </AdminDashboardLayout>
             </RoleGuard>
           }
@@ -1025,6 +1057,16 @@ function App() {
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <SubscriptionPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_BILLING}
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <BillingPage />
               </BrokerDashboardLayout>
             </RoleGuard>
           }

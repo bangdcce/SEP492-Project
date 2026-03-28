@@ -11,6 +11,7 @@ import { DigitalSignatureEntity } from '../../database/entities/digital-signatur
 import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
+import { ContractArchiveStorageService } from './contract-archive.storage';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { SignatureProvidersController } from './signature-providers.controller';
 
@@ -30,7 +31,7 @@ import { SignatureProvidersController } from './signature-providers.controller';
     NotificationsModule,
   ],
   controllers: [ContractsController, SignatureProvidersController],
-  providers: [ContractsService],
+  providers: [ContractsService, ContractArchiveStorageService],
   exports: [ContractsService],
 })
 export class ContractsModule {}

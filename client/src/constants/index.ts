@@ -34,6 +34,7 @@ export const ROUTES = {
   FREELANCER_PROFILE: "/freelancer/profile",
   FREELANCER_ONBOARDING: "/freelancer/onboarding",
   FREELANCER_KYC_STATUS: "/freelancer/kyc-status",
+  FREELANCER_BILLING: "/freelancer/billing",
 
   // Broker Routes
   BROKER_DASHBOARD: "/broker/dashboard",
@@ -44,6 +45,7 @@ export const ROUTES = {
   BROKER_DISPUTES: "/broker/disputes",
   BROKER_DISPUTE_DETAIL: "/broker/disputes/:disputeId",
   BROKER_KYC_STATUS: "/broker/kyc-status",
+  BROKER_BILLING: "/broker/billing",
   PROJECT_REQUEST_DETAILS: "/broker/project-requests/:id",
 
   // Admin Routes
@@ -59,6 +61,7 @@ export const ROUTES = {
   CLIENT_DISPUTE_DETAIL: "/client/disputes/:disputeId",
   CLIENT_KYC_STATUS: "/client/kyc-status",
   CLIENT_SUBSCRIPTION: "/client/subscription",
+  CLIENT_BILLING: "/client/billing",
   
 
 
@@ -68,6 +71,7 @@ export const ROUTES = {
 
   // ========== ADMIN ROUTES - prefix /admin ==========
   ADMIN_DASHBOARD: "/admin/dashboard",
+  ADMIN_FINANCE: "/admin/finance",
   ADMIN_AUDIT_LOGS: "/admin/audit-logs",
   ADMIN_DISPUTE_APPEALS: "/admin/disputes/appeals",
   ADMIN_REVIEW_MODERATION: "/admin/reviews",

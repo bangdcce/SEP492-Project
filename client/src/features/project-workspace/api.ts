@@ -252,7 +252,7 @@ export const createTaskSubmission = async (
 
 /**
  * Review a task submission (Approve or Request Changes)
- * Only CLIENT or STAFF users can call this endpoint
+ * Only CLIENT or BROKER users can call this endpoint
  * 
  * @param taskId - Task ID
  * @param submissionId - Submission ID to review
@@ -405,12 +405,14 @@ export const requestMilestoneReview = async (milestoneId: string): Promise<Miles
   return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/request-review`);
 };
 
-export const reviewMilestoneAsStaff = async (
+export const reviewMilestoneAsBroker = async (
   milestoneId: string,
   payload: { recommendation: StaffRecommendation; note: string },
 ): Promise<Milestone> => {
-  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/staff-review`, payload);
+  return apiClient.post<Milestone>(`/projects/milestones/${milestoneId}/broker-review`, payload);
 };
+
+export const reviewMilestoneAsStaff = reviewMilestoneAsBroker;
 
 /**
  * Response from POST /milestones/:id/approve
@@ -424,7 +426,7 @@ export interface MilestoneApprovalResult {
 
 /**
  * Approve a milestone and release funds
- * Only Client or Broker can call this
+ * Only the client can call this final approval step
  * Endpoint: POST /projects/milestones/:id/approve
  */
 export const approveMilestone = async (

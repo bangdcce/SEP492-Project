@@ -1,4 +1,5 @@
 ﻿import { Logger, Module } from '@nestjs/common';
+import './config/postgres-date-parsers';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';

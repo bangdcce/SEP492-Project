@@ -1,4 +1,5 @@
 import type { DeliverableType } from "@/features/project-specs/types";
+import type { MilestoneEscrowSummary } from "@/features/payments/types";
 
 export type KanbanColumnKey = "TODO" | "IN_PROGRESS" | "IN_REVIEW" | "DONE";
 
@@ -219,6 +220,7 @@ export type Milestone = {
   progress?: number; // 0-100 percentage
   totalTasks?: number;
   completedTasks?: number;
+  escrow?: MilestoneEscrowSummary | null;
 };
 
 export type KanbanBoard = Record<KanbanColumnKey, Task[]>;

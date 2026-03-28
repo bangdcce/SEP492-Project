@@ -99,7 +99,6 @@ const deriveSeedBudget = (request: ProjectRequest | null): number | undefined =>
 
   return parsedRange.min;
 };
-
 const buildRequestSeedValues = (
   request: ProjectRequest | null,
   requestId?: string,
