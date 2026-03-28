@@ -2,14 +2,15 @@ import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsNotEmpty,
   IsNumber,
   IsObject,
   IsOptional,
   IsString,
-  IsUrl,
   IsUUID,
   Min,
+  Matches,
   ValidateNested,
 } from 'class-validator';
 
@@ -32,7 +33,9 @@ export class ClientSpecReferenceLinkDto {
   @IsNotEmpty()
   label: string;
 
-  @IsUrl()
+  @Matches(/^(https?:\/\/)?[\w.-]+\.[a-z]{2,}.*$/i, {
+    message: 'Reference links must be a valid http/https URL or bare domain.',
+  })
   url: string;
 }
 
@@ -49,12 +52,16 @@ export class CreateClientSpecDto {
   description: string;
 
   @IsNumber()
-  @Min(0)
+  @Min(1)
   estimatedBudget: number;
 
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
-  estimatedTimeline: string;
+  estimatedTimeline?: string;
+
+  @IsOptional()
+  @IsDateString()
+  agreedDeliveryDeadline?: string;
 
   @IsOptional()
   @IsString()
@@ -79,4 +86,8 @@ export class CreateClientSpecDto {
   @IsOptional()
   @IsString()
   templateCode?: string;
+
+  @IsOptional()
+  @IsString()
+  changeSummary?: string;
 }

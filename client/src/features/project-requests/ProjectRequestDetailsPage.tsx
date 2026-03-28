@@ -15,7 +15,6 @@ import {
   Clock3,
 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
-import { STORAGE_KEYS } from "@/constants";
 
 import type { ProjectRequest, RequestStatus } from "./types";
 import { projectRequestsApi } from "./api";
@@ -29,6 +28,8 @@ import { InviteModal } from "@/features/discovery/InviteModal";
 import { CandidateProfileModal } from "@/features/requests/components/CandidateProfileModal";
 import { ScoreExplanationModal } from "@/features/requests/components/ScoreExplanationModal";
 import { RequestFreelancerMarketPanel } from "@/features/requests/components/RequestFreelancerMarketPanel";
+import { RequestAttachmentGallery } from "@/features/requests/components/RequestAttachmentGallery";
+import { RequestChatPanel } from "@/features/request-chat/RequestChatPanel";
 import { Button } from "@/shared/components/custom/Button";
 import { Badge } from "@/shared/components/ui/badge";
 import {
@@ -40,9 +41,10 @@ import {
 } from "@/shared/components/ui/card";
 import { Separator } from "@/shared/components/ui/separator";
 import { Skeleton } from "@/shared/components/ui/skeleton";
-import { getStoredJson } from "@/shared/utils/storage";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
 import { connectSocket } from "@/shared/realtime/socket";
 import { toast } from "sonner";
+import { useCurrentUser } from "@/shared/hooks/useCurrentUser";
 import {
   formatHumanStatus,
   getSelectedFreelancerProposal,
@@ -51,6 +53,7 @@ import {
   resolveRequestFlowSnapshot,
 } from "../requests/requestFlow";
 import { ProposalModal } from "./components/ProposalModal";
+import { buildTrustProfilePath } from "@/features/trust-profile/routes";
 
 type BrokerSpecFlow = {
   clientSpec: ProjectSpec | null;
@@ -60,7 +63,7 @@ type BrokerSpecFlow = {
 type CurrentUserSummary = {
   id?: string;
   role?: string;
-} | null;
+};
 
 export default function ProjectRequestDetailsPage() {
   const { id } = useParams<{ id: string }>();
@@ -74,7 +77,7 @@ export default function ProjectRequestDetailsPage() {
   const [isCreatingContract, setIsCreatingContract] = useState(false);
   const [isProposalModalOpen, setIsProposalModalOpen] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
-  const [user, setUser] = useState<CurrentUserSummary>(null);
+  const user = useCurrentUser<CurrentUserSummary>();
   const [freelancerMatches, setFreelancerMatches] = useState<RequestMatchCandidate[]>([]);
   const [freelancerMatchesLoading, setFreelancerMatchesLoading] = useState(false);
   const [selectedCandidate, setSelectedCandidate] = useState<RequestMatchCandidate | null>(null);
@@ -83,18 +86,23 @@ export default function ProjectRequestDetailsPage() {
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteModalData, setInviteModalData] = useState<{ id: string; name: string } | null>(null);
 
-  useEffect(() => {
-    setUser(getStoredJson(STORAGE_KEYS.USER));
-  }, []);
-
   const isAdmin = user?.role === "ADMIN";
 
-  const fetchFreelancerMatches = async (requestId: string, useAi: boolean = false) => {
+  const fetchFreelancerMatches = async (
+    requestId: string,
+    useAi: boolean = false,
+    topN?: number,
+  ) => {
     try {
       setFreelancerMatchesLoading(true);
       const data = useAi
-        ? await wizardService.getFreelancerMatches(requestId, { enableAi: true, topN: 10 })
-        : await wizardService.getFreelancerMatchesQuick(requestId);
+        ? await wizardService.getFreelancerMatches(requestId, {
+            enableAi: true,
+            topN: topN ?? 20,
+          })
+        : await wizardService.getFreelancerMatchesQuick(requestId, {
+            topN: topN ?? 60,
+          });
       setFreelancerMatches(Array.isArray(data) ? data : []);
       if (useAi) {
         toast.success("AI analysis complete");
@@ -129,6 +137,7 @@ export default function ProjectRequestDetailsPage() {
     if (!id) return;
     try {
       setIsLoading(true);
+      setError(null);
       const requestResponse = await projectRequestsApi.getById(id);
       setRequest(requestResponse);
       const requestSpecs = Array.isArray(requestResponse?.specs)
@@ -149,13 +158,13 @@ export default function ProjectRequestDetailsPage() {
         nextLinkedContract,
       );
       if (nextFlowSnapshot.phaseNumber >= 3 && requestResponse?.viewerPermissions?.canInviteFreelancer) {
-        void fetchFreelancerMatches(requestResponse.id, false);
+        void fetchFreelancerMatches(requestResponse.id, false, 60);
       } else {
         setFreelancerMatches([]);
       }
     } catch (err: unknown) {
       console.error("Failed to fetch request:", err);
-      setError("Failed to load project request details.");
+      setError(getApiErrorDetails(err, "Failed to load project request details.").message);
     } finally {
       setIsLoading(false);
     }
@@ -168,6 +177,30 @@ export default function ProjectRequestDetailsPage() {
   useEffect(() => {
     if (!id) return;
     const socket = connectSocket();
+    const refetchIfRelevant = (payload: {
+      requestId?: string | null;
+      specId?: string | null;
+      contractId?: string | null;
+      projectId?: string | null;
+    }) => {
+      const knownSpecIds = new Set(
+        [specFlow.clientSpec?.id, specFlow.fullSpec?.id]
+          .concat((request?.specs || []).map((spec) => spec.id))
+          .filter((value): value is string => Boolean(value)),
+      );
+
+      const isRelevant =
+        (payload?.requestId && payload.requestId === id) ||
+        (payload?.contractId &&
+          payload.contractId === (request?.linkedContractSummary?.id || linkedContract?.id)) ||
+        (payload?.projectId && payload.projectId === request?.linkedProjectSummary?.id) ||
+        (payload?.specId && knownSpecIds.has(payload.specId));
+
+      if (isRelevant) {
+        void fetchRequest();
+      }
+    };
+
     const handleNotificationCreated = (payload: {
       notification?: {
         relatedType?: string | null;
@@ -179,6 +212,11 @@ export default function ProjectRequestDetailsPage() {
       const notification = payload?.notification ?? payload;
       const relatedType = String(notification?.relatedType || "");
       const relatedId = String(notification?.relatedId || "");
+      const knownSpecIds = new Set(
+        [specFlow.clientSpec?.id, specFlow.fullSpec?.id]
+          .concat((request?.specs || []).map((spec) => spec.id))
+          .filter((value): value is string => Boolean(value)),
+      );
 
       const isRelevant =
         (relatedType === "ProjectRequest" && relatedId === id) ||
@@ -188,7 +226,7 @@ export default function ProjectRequestDetailsPage() {
         (relatedType === "Contract" &&
           Boolean(request?.linkedContractSummary?.id) &&
           relatedId === request?.linkedContractSummary?.id) ||
-        (relatedType === "ProjectSpec" && relatedId === id);
+        (relatedType === "ProjectSpec" && knownSpecIds.has(relatedId));
 
       if (isRelevant) {
         void fetchRequest();
@@ -196,10 +234,25 @@ export default function ProjectRequestDetailsPage() {
     };
 
     socket.on("NOTIFICATION_CREATED", handleNotificationCreated);
+    socket.on("REQUEST_UPDATED", refetchIfRelevant);
+    socket.on("SPEC_UPDATED", refetchIfRelevant);
+    socket.on("CONTRACT_UPDATED", refetchIfRelevant);
     return () => {
       socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
+      socket.off("REQUEST_UPDATED", refetchIfRelevant);
+      socket.off("SPEC_UPDATED", refetchIfRelevant);
+      socket.off("CONTRACT_UPDATED", refetchIfRelevant);
     };
-  }, [fetchRequest, id, request?.linkedContractSummary?.id, request?.linkedProjectSummary?.id]);
+  }, [
+    fetchRequest,
+    id,
+    linkedContract?.id,
+    request?.linkedContractSummary?.id,
+    request?.linkedProjectSummary?.id,
+    request?.specs,
+    specFlow.clientSpec?.id,
+    specFlow.fullSpec?.id,
+  ]);
 
   if (isLoading) {
     return (
@@ -262,6 +315,8 @@ export default function ProjectRequestDetailsPage() {
   const canApplyAsBroker =
     user?.role === "BROKER" && Boolean(request.viewerPermissions?.canApplyAsBroker);
   const showWorkflowPhases = canManageBrokerWorkflow;
+  const canViewRequestChat = Boolean(request.id && (canManageBrokerWorkflow || isAdmin));
+  const requestChatReadOnly = Boolean(isAdmin && !canManageBrokerWorkflow);
   const sidebarStatusLabel = canManageBrokerWorkflow
     ? `Workflow phase ${brokerWorkflowPhase}/5`
     : hasAppliedToRequest
@@ -391,21 +446,30 @@ export default function ProjectRequestDetailsPage() {
     if (clientSpec.status === ProjectSpecStatus.REJECTED) {
       return {
         title: "Client Spec was rejected",
-        description: "Revise the Client Spec and submit it again for client review.",
-        ctaLabel: "Edit Client Spec",
-        onClick: () => navigate(`/broker/specs/${clientSpec.id}`),
+        description: clientSpec.rejectionReason
+          ? `Revise the Client Spec based on the client's feedback: ${clientSpec.rejectionReason}`
+          : "Revise the Client Spec and submit it again for client review.",
+        ctaLabel: "Revise Client Spec",
+        onClick: () => navigate(`/broker/project-requests/${request.id}/create-client-spec`),
         ctaVariant: "primary" as const,
       };
     }
 
-    if (
-      clientSpec.status === ProjectSpecStatus.DRAFT ||
-      clientSpec.status === ProjectSpecStatus.CLIENT_REVIEW
-    ) {
+    if (clientSpec.status === ProjectSpecStatus.DRAFT) {
+      return {
+        title: "Finish Client Spec draft",
+        description: "Continue editing the client-readable scope, then submit it for client review.",
+        ctaLabel: "Edit Client Spec",
+        onClick: () => navigate(`/broker/project-requests/${request.id}/create-client-spec`),
+        ctaVariant: "primary" as const,
+      };
+    }
+
+    if (clientSpec.status === ProjectSpecStatus.CLIENT_REVIEW) {
       return {
         title: "Complete Client Spec approval",
         description: "Client must approve Client Spec before freelancer selection and Final Spec sign-off.",
-        ctaLabel: "Open Client Spec",
+        ctaLabel: "Open Client Review",
         onClick: () => navigate(`/broker/specs/${clientSpec.id}`),
         ctaVariant: "outline" as const,
       };
@@ -511,18 +575,7 @@ export default function ProjectRequestDetailsPage() {
             </CardHeader>
             <CardContent className="space-y-2">
               {request.attachments?.length ? (
-                request.attachments.map((attachment) => (
-                  <a
-                    key={attachment.url}
-                    href={attachment.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="flex items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
-                  >
-                    <span className="truncate">{attachment.filename}</span>
-                    <span className="text-xs text-slate-500">{attachment.category || "attachment"}</span>
-                  </a>
-                ))
+                <RequestAttachmentGallery attachments={request.attachments} />
               ) : (
                 <p className="text-sm text-slate-500">No attachment uploaded.</p>
               )}
@@ -648,10 +701,10 @@ export default function ProjectRequestDetailsPage() {
                      : `/broker/project-requests/${request.id}/create-spec`,
                  )
                }
-               onQuickMatch={() => void fetchFreelancerMatches(request.id, false)}
-               onAiMatch={() => void fetchFreelancerMatches(request.id, true)}
+               onQuickMatch={() => void fetchFreelancerMatches(request.id, false, 60)}
+               onAiMatch={() => void fetchFreelancerMatches(request.id, true, 20)}
                onOpenScoreExplanation={() => setIsScoreExplanationOpen(true)}
-               onSearchMarketplace={() => navigate("/broker/marketplace")}
+               onSearchMarketplace={() => void fetchFreelancerMatches(request.id, false, 100)}
                onOpenProfile={handleOpenCandidateProfile}
                onInviteFreelancer={handleOpenFreelancerInvite}
              />
@@ -785,6 +838,11 @@ export default function ProjectRequestDetailsPage() {
                   <p className="text-sm text-muted-foreground">
                     Broker drafts client-readable spec, then client approves/rejects it.
                   </p>
+                  {clientSpec?.status === ProjectSpecStatus.REJECTED && clientSpec.rejectionReason && (
+                    <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+                      Client feedback: {clientSpec.rejectionReason}
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       variant={clientSpec ? "outline" : "primary"}
@@ -958,19 +1016,36 @@ export default function ProjectRequestDetailsPage() {
             </CardHeader>
             <CardContent className="space-y-4">
               {request.client ? (
-                <div className="flex items-start gap-3">
-                  <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
-                    {(request.client.fullName || "C").charAt(0).toUpperCase()}
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium leading-none">
-                      {request.client.fullName || "Unknown Client"}
-                    </p>
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Mail className="h-3.5 w-3.5" />
-                      <span>{request.client.email}</span>
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold">
+                      {(request.client.fullName || "C").charAt(0).toUpperCase()}
+                    </div>
+                    <div className="space-y-1">
+                      <p className="text-sm font-medium leading-none">
+                        {request.client.fullName || "Unknown Client"}
+                      </p>
+                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                        <Mail className="h-3.5 w-3.5" />
+                        <span>{request.client.email}</span>
+                      </div>
                     </div>
                   </div>
+                  {user?.role === "BROKER" && request.client.id && (
+                    <Button
+                      variant="outline"
+                      className="w-full"
+                      onClick={() =>
+                        navigate(
+                          buildTrustProfilePath(request.client!.id, {
+                            role: user.role,
+                          }),
+                        )
+                      }
+                    >
+                      View Trust Profile
+                    </Button>
+                  )}
                 </div>
               ) : (
                 <div className="text-sm text-muted-foreground">
@@ -1007,6 +1082,13 @@ export default function ProjectRequestDetailsPage() {
                  </Button>
                </CardContent>
            </Card>
+
+          {canViewRequestChat ? (
+            <RequestChatPanel
+              requestId={request.id}
+              readOnly={requestChatReadOnly}
+            />
+          ) : null}
         </div>
       </div>
 

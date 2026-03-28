@@ -7,6 +7,7 @@ import { AdminDashboardLayout } from "@/shared/components/layouts/admin";
 import { Spinner } from "@/shared/components/ui";
 import { RoleGuard } from "@/shared/components/auth/RoleGuard";
 import { apiClient } from "@/shared/api/client";
+import { getStoredItem } from "@/shared/utils/storage";
 
 // Lazy load pages for better performance
 import { lazy, Suspense, useEffect, useState } from "react";
@@ -35,7 +36,21 @@ const FreelancerRequestsPage = lazy(
 const MyInvitationsPage = lazy(() => import("@/features/dashboard/MyInvitationsPage").then(m => ({ default: m.MyInvitationsPage })));
 const InvitationDetailsPage = lazy(() => import("@/features/dashboard/InvitationDetailsPage").then(m => ({ default: m.InvitationDetailsPage })));
 const DiscoveryPage = lazy(() => import("@/features/discovery/DiscoveryPage").then(m => ({ default: m.DiscoveryPage })));
-const PartnerProfilePage = lazy(() => import("@/features/discovery/PartnerProfilePage").then(m => ({ default: m.PartnerProfilePage })));
+const TrustProfilePage = lazy(() =>
+  import("@/features/trust-profile/pages/TrustProfilePage").then((m) => ({
+    default: m.TrustProfilePage,
+  })),
+);
+const ParticipantDisputesPage = lazy(() =>
+  import("@/features/disputes/pages/ParticipantDisputesPage").then((m) => ({
+    default: m.ParticipantDisputesPage,
+  })),
+);
+const ParticipantDisputeDetailPage = lazy(() =>
+  import("@/features/disputes/pages/ParticipantDisputeDetailPage").then((m) => ({
+    default: m.ParticipantDisputeDetailPage,
+  })),
+);
 
 // ========== PROJECT PAGES ==========
 const ProjectListPage = lazy(
@@ -89,8 +104,14 @@ const ContractListPage = lazy(
 );
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
+const AdminWizardQuestionsPage = lazy(() => import("@/pages/AdminWizardQuestionsPage"));
 const AdminLeaveManagementPage = lazy(
   () => import("@/pages/AdminLeaveManagementPage"),
+);
+const AdminAppealQueuePage = lazy(() =>
+  import("@/features/disputes/pages/AdminAppealQueuePage").then((module) => ({
+    default: module.AdminAppealQueuePage,
+  })),
 );
 
 // ========== HEARINGS (CLIENT/BROKER/FREELANCER) ==========
@@ -169,6 +190,9 @@ const StaffHearingRoomPage = lazy(() =>
 
 // ========== LANDING PAGE ==========
 const LandingPage = lazy(() => import("@/pages/LandingPage"));
+const FAQPage = lazy(() => import("@/pages/FAQPage"));
+const LegalTermsPage = lazy(() => import("@/pages/LegalTermsPage"));
+const LegalPrivacyPage = lazy(() => import("@/pages/LegalPrivacyPage"));
 
 // ========== AUTH PAGES ==========
 const SignInPage = lazy(() => import("@/pages/SignInPage"));
@@ -194,7 +218,7 @@ function App() {
     const bootstrap = async () => {
       try {
         const { isAuthenticated } = await apiClient.bootstrapSession();
-        
+
         // Only start proactive refresh if authenticated and session is stable
         // Wait a bit to ensure cookies are fully set after login
         if (isAuthenticated) {
@@ -219,11 +243,50 @@ function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    let isReconciling = false;
+
+    const reconcileSession = async () => {
+      if (isReconciling) {
+        return;
+      }
+
+      isReconciling = true;
+      try {
+        await apiClient.bootstrapSession();
+      } finally {
+        isReconciling = false;
+      }
+    };
+
+    const handleWindowFocus = () => {
+      void reconcileSession();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void reconcileSession();
+      }
+    };
+
+    window.addEventListener("focus", handleWindowFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", handleWindowFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, []);
+
   // Listen for authentication state changes
   useEffect(() => {
     const handleUserDataUpdate = () => {
       // Check if user is still authenticated
-      const userStr = localStorage.getItem('user');
+      const userStr = getStoredItem("user");
       if (userStr && userStr !== 'null') {
         // User logged in or session restored
         apiClient.startProactiveRefresh();
@@ -249,6 +312,9 @@ function App() {
       <Routes>
         {/* ========== LANDING PAGE ========== */}
         <Route path={ROUTES.LANDING} element={<LandingPage />} />
+        <Route path={ROUTES.FAQ} element={<FAQPage />} />
+        <Route path={ROUTES.LEGAL_TERMS} element={<LegalTermsPage />} />
+        <Route path={ROUTES.LEGAL_PRIVACY} element={<LegalPrivacyPage />} />
 
         {/* ========== AUTH ROUTES - No Layout ========== */}
         <Route path={ROUTES.LOGIN} element={<SignInPage />} />
@@ -287,6 +353,26 @@ function App() {
           }
         />
         <Route
+          path={ROUTES.FREELANCER_DISPUTES}
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <ParticipantDisputesPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.FREELANCER_DISPUTE_DETAIL}
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout showFooter={false} contentMode="hearing-room">
+                <ParticipantDisputeDetailPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path="/freelancer/hearings/:hearingId"
           element={
             <RoleGuard allowedRoles={["FREELANCER"]}>
@@ -312,6 +398,16 @@ function App() {
             <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <ProfilePage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/freelancer/profiles/:id"
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <TrustProfilePage />
               </FreelancerDashboardLayout>
             </RoleGuard>
           }
@@ -462,6 +558,16 @@ function App() {
           }
         />
         <Route
+          path="/client/profiles/:id"
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <TrustProfilePage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.CLIENT_PROJECTS}
           element={
             <RoleGuard allowedRoles={["CLIENT"]}>
@@ -477,6 +583,26 @@ function App() {
             <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <ParticipantHearingsPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_DISPUTES}
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <ParticipantDisputesPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_DISPUTE_DETAIL}
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout showFooter={false} contentMode="hearing-room">
+                <ParticipantDisputeDetailPage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -557,7 +683,7 @@ function App() {
           element={
             <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
-                <PartnerProfilePage />
+                <TrustProfilePage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -597,6 +723,16 @@ function App() {
           }
         />
         <Route
+          path={ROUTES.ADMIN_DISPUTE_APPEALS}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminAppealQueuePage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.ADMIN_REVIEW_MODERATION}
           element={
             <RoleGuard allowedRoles={["ADMIN"]}>
@@ -626,6 +762,17 @@ function App() {
             </RoleGuard>
           }
         />
+        <Route
+          path="/admin/wizard-questions"
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminWizardQuestionsPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+
         <Route
           path="/admin/leave"
           element={
@@ -699,6 +846,26 @@ function App() {
           }
         />
         <Route
+          path={ROUTES.BROKER_DISPUTES}
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <ParticipantDisputesPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_DISPUTE_DETAIL}
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout showFooter={false} contentMode="hearing-room">
+                <ParticipantDisputeDetailPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path="/broker/hearings/:hearingId"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
@@ -749,22 +916,32 @@ function App() {
           }
         />
         <Route
-          path="/broker/invitations"
+          path="/broker/profiles/:id"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
-               <BrokerDashboardLayout>
-                  <MyInvitationsPage />
-               </BrokerDashboardLayout>
+              <BrokerDashboardLayout>
+                <TrustProfilePage />
+              </BrokerDashboardLayout>
             </RoleGuard>
           }
         />
-         <Route
+        <Route
+          path="/broker/invitations"
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <MyInvitationsPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path="/broker/invitations/:id"
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
-               <BrokerDashboardLayout>
-                  <InvitationDetailsPage />
-               </BrokerDashboardLayout>
+              <BrokerDashboardLayout>
+                <InvitationDetailsPage />
+              </BrokerDashboardLayout>
             </RoleGuard>
           }
         />

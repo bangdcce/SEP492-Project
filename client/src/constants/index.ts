@@ -13,6 +13,9 @@ export const API_CONFIG = {
 export const ROUTES = {
   HOME: "/",
   LANDING: "/",
+  FAQ: "/faq",
+  LEGAL_TERMS: "/legal/terms",
+  LEGAL_PRIVACY: "/legal/privacy",
   LOGIN: "/login",
   REGISTER: "/register",
   FORGOT_PASSWORD: "/forgot-password",
@@ -25,6 +28,8 @@ export const ROUTES = {
   // Freelancer Routes
   FREELANCER_DASHBOARD: "/freelancer/dashboard",
   FREELANCER_PROJECTS: "/freelancer/projects",
+  FREELANCER_DISPUTES: "/freelancer/disputes",
+  FREELANCER_DISPUTE_DETAIL: "/freelancer/disputes/:disputeId",
   FREELANCER_WORKSPACE: "/freelancer/workspace/:projectId",
   FREELANCER_PROFILE: "/freelancer/profile",
   FREELANCER_ONBOARDING: "/freelancer/onboarding",
@@ -36,6 +41,8 @@ export const ROUTES = {
   BROKER_WORKSPACE: "/broker/workspace/:projectId",
   BROKER_PROFILE: "/broker/profile",
   BROKER_MARKETPLACE: "/broker/marketplace",
+  BROKER_DISPUTES: "/broker/disputes",
+  BROKER_DISPUTE_DETAIL: "/broker/disputes/:disputeId",
   BROKER_KYC_STATUS: "/broker/kyc-status",
   PROJECT_REQUEST_DETAILS: "/broker/project-requests/:id",
 
@@ -48,6 +55,8 @@ export const ROUTES = {
   CLIENT_PROFILE: "/client/profile",
   CLIENT_DISCOVERY: "/client/discovery",
   CLIENT_DISCOVERY_PROFILE: "/client/discovery/profile/:id",
+  CLIENT_DISPUTES: "/client/disputes",
+  CLIENT_DISPUTE_DETAIL: "/client/disputes/:disputeId",
   CLIENT_KYC_STATUS: "/client/kyc-status",
   CLIENT_SUBSCRIPTION: "/client/subscription",
   
@@ -60,6 +69,7 @@ export const ROUTES = {
   // ========== ADMIN ROUTES - prefix /admin ==========
   ADMIN_DASHBOARD: "/admin/dashboard",
   ADMIN_AUDIT_LOGS: "/admin/audit-logs",
+  ADMIN_DISPUTE_APPEALS: "/admin/disputes/appeals",
   ADMIN_REVIEW_MODERATION: "/admin/reviews",
   ADMIN_LEAVE: "/admin/leave",
   ADMIN_PROFILE: "/admin/profile",

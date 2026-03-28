@@ -1,0 +1,140 @@
+@startuml Register_Class_Diagram
+title User Registration - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class RegisterDto {
+    + role: UserRole
+    + email: string
+    + password: string
+    + fullName: string
+    + phoneNumber: string
+    + acceptedTerms: boolean
+    + acceptedPrivacy: boolean
+    + skills: string[]
+    + domains: string[]
+    + captchaToken: string
+}
+
+class ApiClient {
+    + postJson(url: string, body: any, withCredentials: boolean): Promise<any>
+}
+
+class SignUpPage {
+    - loading: boolean
+    + validate(dto: RegisterDto): boolean
+    + submit(dto: RegisterDto): Promise<void>
+}
+
+class AuthController {
+    - authService: AuthService
+    - captchaService: CaptchaService
+    + signUp(dto: RegisterDto, req: any): any
+}
+
+class AuthService {
+    - userRepo: Repository
+    - profileRepo: Repository
+    - walletRepo: Repository
+    - userSkillRepo: Repository
+    - emailVerificationService: EmailVerificationService
+    - auditLogsService: AuditLogsService
+
+    + register(dto: RegisterDto, meta: any): any
+}
+
+class CaptchaService {
+    + verify(token: string): boolean
+}
+
+class EmailVerificationService {
+    - emailService: EmailService
+    + sendVerificationEmail(userId: string, email: string): void
+}
+
+class EmailService {
+    + send(to: string, subject: string, html: string): void
+}
+
+class AuditLogsService {
+    + recordRegistration(userId: string, meta: any): void
+}
+
+class Repository {
+    + findOne(options: any): Promise<any>
+    + create(data: any): any
+    + save(entity: any): Promise<any>
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + passwordHash: string
+    + role: UserRole
+    + createdAt: Date
+}
+
+class ProfileEntity {
+    + id: string
+    + userId: string
+    + fullName: string
+    + phoneNumber: string
+}
+
+class WalletEntity {
+    + id: string
+    + userId: string
+    + balance: number
+}
+
+class UserSkillEntity {
+    + id: string
+    + userId: string
+    + skillId: string
+}
+
+enum UserRole {
+    ADMIN
+    STAFF
+    BROKER
+    CLIENT
+    FREELANCER
+}
+
+class AuditLogEntity {
+    + id: string
+    + actorId: string
+    + action: string
+    + createdAt: Date
+}
+
+SignUpPage ..> ApiClient
+ApiClient ..> AuthController
+AuthController --> CaptchaService
+AuthController --> AuthService
+AuthController ..> RegisterDto
+AuthService --> Repository
+AuthService --> EmailVerificationService
+AuthService --> AuditLogsService
+AuthService ..> UserEntity
+AuthService ..> ProfileEntity
+AuthService ..> WalletEntity
+AuthService ..> UserSkillEntity
+EmailVerificationService --> EmailService
+AuditLogsService ..> AuditLogEntity
+UserEntity -- UserRole
+RegisterDto -- UserRole
+
+@enduml

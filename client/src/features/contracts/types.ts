@@ -3,6 +3,11 @@ export interface ContractSignature {
   signatureHash: string;
   contentHash?: string | null;
   signerRole?: string | null;
+  provider?: string | null;
+  providerSessionId?: string | null;
+  legalStatus?: string | null;
+  certificateSerial?: string | null;
+  verifiedAt?: string | null;
   signedAt: string;
   userAgent?: string | null;
   user?: {
@@ -49,6 +54,15 @@ export interface ContractSummary {
   projectTitle: string;
   title: string;
   status: "DRAFT" | "SENT" | "SIGNED" | "ACTIVATED" | "ACTIVE" | "ARCHIVED";
+  legalSignatureStatus?:
+    | "NOT_STARTED"
+    | "PENDING_PROVIDER"
+    | "SESSION_CREATED"
+    | "VERIFIED"
+    | "FAILED";
+  provider?: string | null;
+  verifiedAt?: string | null;
+  certificateSerial?: string | null;
   createdAt: string;
   clientName: string;
   freelancerName?: string | null;
@@ -79,6 +93,16 @@ export interface Contract {
   activatedAt?: string | null;
   contentHash?: string | null;
   documentHash?: string | null;
+  legalSignatureStatus?:
+    | "NOT_STARTED"
+    | "PENDING_PROVIDER"
+    | "SESSION_CREATED"
+    | "VERIFIED"
+    | "FAILED";
+  provider?: string | null;
+  verifiedAt?: string | null;
+  certificateSerial?: string | null;
+  legalSignatureEvidence?: Record<string, unknown> | null;
   commercialContext?: ContractCommercialContext | null;
   milestoneSnapshot?: ContractMilestoneSnapshotItem[] | null;
   requiredSignerCount?: number;

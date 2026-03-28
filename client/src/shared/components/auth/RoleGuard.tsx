@@ -1,6 +1,6 @@
 import { Navigate, useLocation } from "react-router-dom";
-import { STORAGE_KEYS, ROUTES } from "@/constants";
-import { getStoredItem } from "@/shared/utils/storage";
+import { ROUTES } from "@/constants";
+import { useCurrentUser } from "@/shared/hooks/useCurrentUser";
 
 interface RoleGuardProps {
   children: React.ReactNode;
@@ -9,10 +9,24 @@ interface RoleGuardProps {
 
 export const RoleGuard: React.FC<RoleGuardProps> = ({ children, allowedRoles }) => {
   const location = useLocation();
+  const user = useCurrentUser<{ role?: string }>();
 
-  // Get user from local storage or session storage
-  const userJson = getStoredItem(STORAGE_KEYS.USER);
-  const user = userJson ? JSON.parse(userJson) : null;
+  const resolveRoleHome = (role?: string) => {
+    switch (role?.toUpperCase()) {
+      case "ADMIN":
+        return ROUTES.ADMIN_DASHBOARD;
+      case "BROKER":
+        return ROUTES.BROKER_DASHBOARD;
+      case "FREELANCER":
+        return ROUTES.FREELANCER_DASHBOARD;
+      case "STAFF":
+        return "/staff/dashboard";
+      case "CLIENT":
+        return ROUTES.CLIENT_DASHBOARD;
+      default:
+        return ROUTES.LOGIN;
+    }
+  };
 
   // Check if user exists
   if (!user) {
@@ -26,9 +40,7 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({ children, allowedRoles }) 
   const hasAccess = allowedRoles.some((role) => role.toUpperCase() === userRole);
 
   if (!hasAccess) {
-    // Redirect to home or 404 if unauthorized
-    // You might want to redirect to their specific dashboard instead
-    return <Navigate to={ROUTES.NOT_FOUND} replace />;
+    return <Navigate to={resolveRoleHome(user.role)} replace />;
   }
 
   // Render children if authorized

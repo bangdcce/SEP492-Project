@@ -27,6 +27,15 @@ import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { triggerBlobDownload } from "@/shared/utils/download";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
+import { Textarea } from "@/shared/components/ui/textarea";
+import {
+  submitDisputeEscalationRequest,
   getDisputeActivities,
   getDisputeComplexity,
   getDisputeDetail,
@@ -35,6 +44,9 @@ import {
   invalidateDisputeDetailCache,
   invalidateDisputesCache,
   submitDisputeAppeal,
+  submitDisputeRejectionAppeal,
+  submitNeutralPanelRecommendation,
+  submitDisputeReviewRequest,
 } from "../../api";
 import type {
   DisputeActivity,
@@ -183,6 +195,19 @@ export const DisputeDetailHub = ({
   const [appealLoading, setAppealLoading] = useState(false);
   const [appealWizardOpen, setAppealWizardOpen] = useState(false);
   const [dossierExporting, setDossierExporting] = useState(false);
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [requestDialogMode, setRequestDialogMode] = useState<
+    "impact-review" | "support-escalation" | "admin-oversight" | "neutral-panel" | null
+  >(null);
+  const [reviewReason, setReviewReason] = useState("");
+  const [reviewImpactSummary, setReviewImpactSummary] = useState("");
+  const [panelRecommendation, setPanelRecommendation] = useState<
+    "UPHOLD" | "OVERTURN" | "NEEDS_HEARING"
+  >("UPHOLD");
+  const [panelSummary, setPanelSummary] = useState("");
+  const [panelRationale, setPanelRationale] = useState("");
+  const [panelSubmitting, setPanelSubmitting] = useState(false);
   const [refreshToken, setRefreshToken] = useState(0);
 
   const currentUser = useMemo(() => {
@@ -355,14 +380,23 @@ export const DisputeDetailHub = ({
     [],
   );
 
+  const allowedActions = dispute?.allowedActions ?? [];
+  const appealTrack = dispute?.appealTrack;
+  const appealDeadlineSource = appealTrack?.deadline ?? verdict?.appealDeadline ?? null;
   const appealDeadlinePassed = useMemo(() => {
-    if (!verdict?.appealDeadline) return false;
-    return Date.now() > new Date(verdict.appealDeadline).getTime();
-  }, [verdict?.appealDeadline]);
+    if (!appealDeadlineSource) return false;
+    return Date.now() > new Date(appealDeadlineSource).getTime();
+  }, [appealDeadlineSource]);
 
-  const canSubmitAppeal = useMemo(() => {
+  const canSubmitVerdictAppeal = useMemo(() => {
+    if (allowedActions.includes("SUBMIT_APPEAL")) {
+      return true;
+    }
     if (!dispute || !verdict) return false;
     if (canViewInternal) return false;
+    if (appealTrack?.kind && appealTrack.kind !== "NONE") {
+      return appealTrack.kind === "VERDICT" && Boolean(appealTrack.canSubmit);
+    }
     if (dispute.canAppealVerdict === true) {
       return true;
     }
@@ -373,31 +407,204 @@ export const DisputeDetailHub = ({
     if (dispute.isAppealed || verdict.isAppealVerdict) return false;
     if (!verdict.appealDeadline || appealDeadlinePassed) return false;
     return true;
-  }, [appealDeadlinePassed, canViewInternal, currentUser?.id, dispute, verdict]);
+  }, [
+    allowedActions,
+    appealDeadlinePassed,
+    appealTrack?.canSubmit,
+    appealTrack?.kind,
+    canViewInternal,
+    currentUser?.id,
+    dispute,
+    verdict,
+  ]);
+
+  const canSubmitRejectionAppeal = useMemo(() => {
+    if (allowedActions.includes("SUBMIT_REJECTION_APPEAL")) {
+      return true;
+    }
+    return Boolean(appealTrack?.kind === "REJECTION" && appealTrack.canSubmit);
+  }, [allowedActions, appealTrack]);
+
+  const canSubmitAppeal = canSubmitVerdictAppeal || canSubmitRejectionAppeal;
+  const appealDialogMode = canSubmitRejectionAppeal ? "rejection" : "verdict";
 
   const canResolveAppeal = useMemo(() => {
     return Boolean(isAdmin && dispute?.status === DisputeStatus.APPEALED && verdict?.id);
   }, [dispute?.status, isAdmin, verdict?.id]);
 
+  const canSubmitImpactReview = useMemo(() => {
+    if (allowedActions.includes("SUBMIT_IMPACT_REVIEW")) {
+      return true;
+    }
+    if (!dispute || canViewInternal || !currentUser?.id) {
+      return false;
+    }
+
+    if ([dispute.raisedById, dispute.defendantId].includes(currentUser.id)) {
+      return false;
+    }
+
+    return [
+      dispute.project?.clientId,
+      dispute.project?.brokerId,
+      dispute.project?.freelancerId,
+    ].includes(currentUser.id);
+  }, [
+    allowedActions,
+    canViewInternal,
+    currentUser?.id,
+    dispute,
+  ]);
+  const canRequestSupportEscalation =
+    allowedActions.includes("REQUEST_SUPPORT_ESCALATION");
+  const canRequestAdminOversight =
+    allowedActions.includes("REQUEST_ADMIN_OVERSIGHT");
+  const canRequestNeutralPanel =
+    allowedActions.includes("REQUEST_NEUTRAL_PANEL");
+  const isNeutralPanelReviewer = Boolean(
+    dispute?.participants?.some(
+      (participant) =>
+        participant.userId === currentUser?.id &&
+        participant.caseRole === "NEUTRAL_PANEL",
+    ),
+  );
+
   const handleAppealSubmit = useCallback(
-    async (input: { reason: string }) => {
+    async (input: {
+      reason: string;
+      disclaimerAccepted: boolean;
+      disclaimerVersion?: string;
+    }) => {
       if (!disputeId) return;
       try {
         setAppealLoading(true);
-        await submitDisputeAppeal(disputeId, { reason: input.reason });
+        if (appealDialogMode === "rejection") {
+          await submitDisputeRejectionAppeal(disputeId, { reason: input.reason });
+        } else {
+          await submitDisputeAppeal(disputeId, input);
+        }
         invalidateDisputesCache();
         invalidateDisputeDetailCache(disputeId);
-        toast.success("Appeal submitted successfully");
+        toast.success(
+          appealDialogMode === "rejection"
+            ? "Rejection appeal submitted successfully"
+            : "Appeal submitted successfully",
+        );
         setAppealDialogOpen(false);
         handleRealtimeRefresh();
       } catch (error: any) {
-        toast.error(error?.response?.data?.message || "Failed to submit appeal");
+        toast.error(
+          error?.response?.data?.message ||
+            (appealDialogMode === "rejection"
+              ? "Failed to submit rejection appeal"
+              : "Failed to submit appeal"),
+        );
       } finally {
         setAppealLoading(false);
       }
     },
-    [disputeId, handleRealtimeRefresh],
+    [appealDialogMode, disputeId, handleRealtimeRefresh],
   );
+
+  const handleReviewRequestSubmit = useCallback(async () => {
+    if (!disputeId || !requestDialogMode) {
+      return;
+    }
+    const reason = reviewReason.trim();
+    if (reason.length < 20) {
+      toast.error("Please provide at least 20 characters of context.");
+      return;
+    }
+
+    try {
+      setReviewSubmitting(true);
+      if (requestDialogMode === "impact-review") {
+        await submitDisputeReviewRequest(disputeId, {
+          reason,
+          impactSummary: reviewImpactSummary.trim() || undefined,
+        });
+      } else {
+        await submitDisputeEscalationRequest(disputeId, {
+          kind:
+            requestDialogMode === "support-escalation"
+              ? "SUPPORT_ESCALATION"
+              : requestDialogMode === "admin-oversight"
+                ? "ADMIN_OVERSIGHT"
+                : "NEUTRAL_PANEL",
+          reason,
+          impactSummary: reviewImpactSummary.trim() || undefined,
+        });
+      }
+      invalidateDisputeDetailCache(disputeId);
+      invalidateDisputesCache();
+      toast.success(
+        requestDialogMode === "impact-review"
+          ? "Impact review submitted."
+          : requestDialogMode === "support-escalation"
+            ? "Support escalation submitted."
+            : requestDialogMode === "admin-oversight"
+              ? "Admin oversight request submitted."
+              : "Neutral panel request submitted.",
+      );
+      setReviewDialogOpen(false);
+      setRequestDialogMode(null);
+      setReviewReason("");
+      setReviewImpactSummary("");
+      handleRealtimeRefresh();
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message || "Failed to submit dispute request",
+      );
+    } finally {
+      setReviewSubmitting(false);
+    }
+  }, [
+    disputeId,
+    handleRealtimeRefresh,
+    requestDialogMode,
+    reviewImpactSummary,
+    reviewReason,
+  ]);
+
+  const handleNeutralPanelRecommendationSubmit = useCallback(async () => {
+    if (!disputeId) {
+      return;
+    }
+
+    const rationale = panelRationale.trim();
+    if (rationale.length < 50) {
+      toast.error("Panel rationale must be at least 50 characters.");
+      return;
+    }
+
+    try {
+      setPanelSubmitting(true);
+      await submitNeutralPanelRecommendation(disputeId, {
+        recommendation: panelRecommendation,
+        rationale,
+        summary: panelSummary.trim() || undefined,
+      });
+      invalidateDisputeDetailCache(disputeId);
+      invalidateDisputesCache();
+      toast.success("Neutral panel recommendation submitted.");
+      setPanelSummary("");
+      setPanelRationale("");
+      handleRealtimeRefresh();
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message ||
+          "Failed to submit neutral panel recommendation",
+      );
+    } finally {
+      setPanelSubmitting(false);
+    }
+  }, [
+    disputeId,
+    handleRealtimeRefresh,
+    panelRationale,
+    panelRecommendation,
+    panelSummary,
+  ]);
 
   const handleAppealResolved = useCallback(async () => {
     if (!disputeId) return;
@@ -420,7 +627,6 @@ export const DisputeDetailHub = ({
       setDossierExporting(false);
     }
   }, [disputeId]);
-  const allowedActions = dispute?.allowedActions ?? [];
   const evidenceReadOnly = !allowedActions.includes("UPLOAD_EVIDENCE");
   const hearingPanelReadOnly = !allowedActions.includes("MANAGE_HEARING");
   const participantArchiveReadOnly = Boolean(dispute?.isReadOnly && !canViewInternal);
@@ -510,7 +716,7 @@ export const DisputeDetailHub = ({
   const escrowAmount = dispute?.disputedAmount
     ? currencyFormatter.format(dispute.disputedAmount)
     : "N/A";
-  const appealDeadlineText = formatAppealDeadlineText(verdict?.appealDeadline);
+  const appealDeadlineText = formatAppealDeadlineText(appealDeadlineSource);
   const isClosedCase = Boolean(dispute?.isReadOnly);
   const hasRenderableVerdict = Boolean(
     verdict &&
@@ -520,6 +726,21 @@ export const DisputeDetailHub = ({
       verdict.result,
   );
   const appealStateLabel = useMemo(() => {
+    if (appealTrack?.state && appealTrack.state !== "NONE") {
+      const kindLabel = appealTrack.kind === "REJECTION" ? "rejection appeal" : "appeal";
+      if (appealTrack.state === "AVAILABLE") {
+        return `${kindLabel} available`;
+      }
+      if (appealTrack.state === "FILED") {
+        return `${kindLabel} filed`;
+      }
+      if (appealTrack.state === "RESOLVED") {
+        return `${kindLabel} resolved`;
+      }
+      if (appealTrack.state === "EXPIRED") {
+        return `${kindLabel} expired`;
+      }
+    }
     if (dispute?.appealState) {
       return dispute.appealState.replaceAll("_", " ");
     }
@@ -545,12 +766,54 @@ export const DisputeDetailHub = ({
     canSubmitAppeal,
     dispute?.appealResolution,
     dispute?.appealResolvedAt,
+    dispute?.appealState,
     dispute?.isAppealed,
     dispute?.status,
     isClosedCase,
+    appealTrack,
     verdict?.appealDeadline,
     verdict?.isAppealVerdict,
   ]);
+  const requestDialogCopy = useMemo(() => {
+    switch (requestDialogMode) {
+      case "support-escalation":
+        return {
+          title: "Request Staff Support",
+          description:
+            "Request another staff member or an internal support flow for a difficult dispute case.",
+          reasonLabel: "Why support is needed",
+          impactLabel: "Scope / evidence context",
+          submitLabel: "Submit Support Request",
+        };
+      case "admin-oversight":
+        return {
+          title: "Request Admin Oversight",
+          description:
+            "Escalate this dispute for direct admin oversight when the case is unusually risky or complex.",
+          reasonLabel: "Why admin oversight is needed",
+          impactLabel: "Risk / impact summary",
+          submitLabel: "Submit Oversight Request",
+        };
+      case "neutral-panel":
+        return {
+          title: "Request Neutral Panel",
+          description:
+            "Ask for a neutral advisory panel to review the dispute dossier and provide a recommendation.",
+          reasonLabel: "Why a neutral panel is justified",
+          impactLabel: "Panel context / disputed impact",
+          submitLabel: "Submit Panel Request",
+        };
+      default:
+        return {
+          title: "Submit Impact Review",
+          description:
+            "Explain how this dispute outcome affects you and why it should receive additional review.",
+          reasonLabel: "Impact review reason",
+          impactLabel: "Business / trust impact summary",
+          submitLabel: "Submit Impact Review",
+        };
+    }
+  }, [requestDialogMode]);
 
   if (!disputeId) {
     return (
@@ -645,7 +908,7 @@ export const DisputeDetailHub = ({
                 className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
               >
                 <Scale className="h-4 w-4" />
-                Appeal Verdict
+                {canSubmitRejectionAppeal ? "Appeal Rejection" : "Formal Verdict Appeal"}
               </button>
             ) : null}
             {canResolveAppeal ? (
@@ -656,6 +919,58 @@ export const DisputeDetailHub = ({
               >
                 <ShieldAlert className="h-4 w-4" />
                 {appealWizardOpen ? "Hide Appeal Review" : "Resolve Appeal"}
+              </button>
+            ) : null}
+            {canSubmitImpactReview ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRequestDialogMode("impact-review");
+                  setReviewDialogOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-800 hover:bg-sky-100"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                Impact Review
+              </button>
+            ) : null}
+            {canRequestSupportEscalation ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRequestDialogMode("support-escalation");
+                  setReviewDialogOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-800 hover:bg-emerald-100"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                Request Staff Support
+              </button>
+            ) : null}
+            {canRequestAdminOversight ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRequestDialogMode("admin-oversight");
+                  setReviewDialogOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-fuchsia-300 bg-fuchsia-50 px-4 py-2 text-sm font-medium text-fuchsia-800 hover:bg-fuchsia-100"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                Request Admin Oversight
+              </button>
+            ) : null}
+            {canRequestNeutralPanel ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setRequestDialogMode("neutral-panel");
+                  setReviewDialogOpen(true);
+                }}
+                className="inline-flex items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100"
+              >
+                <ShieldAlert className="h-4 w-4" />
+                Request Neutral Panel
               </button>
             ) : null}
             <button
@@ -683,6 +998,114 @@ export const DisputeDetailHub = ({
             {dispute?.flowGuide ? (
               <div className="mb-4 rounded-xl border border-teal-100 bg-teal-50 px-4 py-3 text-sm text-teal-900">
                 {dispute.flowGuide}
+              </div>
+            ) : null}
+
+            {appealTrack?.kind && appealTrack.kind !== "NONE" ? (
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-amber-950">
+                      {appealTrack.kind === "REJECTION"
+                        ? "Rejection Appeal Track"
+                        : "Appeal Track"}
+                    </h3>
+                    <p className="mt-1 text-xs text-amber-900/80">
+                      State: <strong>{appealStateLabel}</strong>
+                      {appealTrack.requiresHearing ? " • Tier 2 hearing required" : " • Desk review"}
+                    </p>
+                  </div>
+                  {appealTrack.isSlaBreached ? (
+                    <span className="rounded-full border border-rose-300 bg-rose-50 px-2 py-0.5 text-xs font-semibold text-rose-700">
+                      SLA risk
+                    </span>
+                  ) : null}
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                      Deadline
+                    </div>
+                    <div className="mt-1 text-sm text-slate-800">
+                      {appealTrack.deadline
+                        ? format(new Date(appealTrack.deadline), "MMM d, yyyy h:mm a")
+                        : "Not set"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                      Assigned Admin
+                    </div>
+                    <div className="mt-1 text-sm text-slate-800">
+                      {appealTrack.assignedAdmin?.fullName ||
+                        appealTrack.assignedAdmin?.email ||
+                        appealTrack.assignedAdminId ||
+                        "Pending assignment"}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-amber-200 bg-white px-3 py-2">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-amber-700">
+                      Resolution
+                    </div>
+                    <div className="mt-1 text-sm text-slate-800">
+                      {appealTrack.resolution || "Awaiting review"}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {isNeutralPanelReviewer ? (
+              <div className="mb-4 rounded-xl border border-violet-200 bg-violet-50/60 p-4">
+                <h3 className="text-sm font-semibold text-violet-950">
+                  Neutral Panel Recommendation
+                </h3>
+                <p className="mt-1 text-xs text-violet-900/80">
+                  Submit an advisory recommendation for admin review. Your recommendation does not
+                  directly finalize the case.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {(["UPHOLD", "OVERTURN", "NEEDS_HEARING"] as const).map((option) => (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => setPanelRecommendation(option)}
+                      className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                        panelRecommendation === option
+                          ? "border-violet-700 bg-violet-700 text-white"
+                          : "border-violet-200 bg-white text-violet-800"
+                      }`}
+                    >
+                      {option.replaceAll("_", " ")}
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-3 grid gap-3 md:grid-cols-2">
+                  <Textarea
+                    value={panelSummary}
+                    onChange={(event) => setPanelSummary(event.target.value)}
+                    placeholder="Optional neutral summary for admin context."
+                    rows={4}
+                    className="resize-none bg-white text-sm"
+                  />
+                  <Textarea
+                    value={panelRationale}
+                    onChange={(event) => setPanelRationale(event.target.value)}
+                    placeholder="Required rationale. Explain the evidence basis for your recommendation."
+                    rows={4}
+                    className="resize-none bg-white text-sm"
+                  />
+                </div>
+                <div className="mt-3 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void handleNeutralPanelRecommendationSubmit()}
+                    disabled={panelSubmitting || panelRationale.trim().length < 50}
+                    className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-60"
+                  >
+                    {panelSubmitting ? "Submitting..." : "Submit Recommendation"}
+                  </button>
+                </div>
               </div>
             ) : null}
 
@@ -845,6 +1268,7 @@ export const DisputeDetailHub = ({
                 <VerdictWizard
                   disputeId={disputeId}
                   disputedAmount={dispute?.disputedAmount}
+                  disputeCategory={dispute?.category}
                   mode="appeal"
                   existingVerdictId={verdict.id}
                   appealContext={dispute?.appealReason ?? ""}
@@ -974,7 +1398,7 @@ export const DisputeDetailHub = ({
                 ? format(new Date(dispute.resolutionDeadline), "MMM d, yyyy")
                 : "N/A"}
             </div>
-            {verdict?.appealDeadline ? (
+            {appealDeadlineSource ? (
               <div className="flex items-center gap-2">
                 <Scale className="h-4 w-4 text-gray-400" />
                 Appeal window {appealDeadlineText ?? "Available"}
@@ -1031,25 +1455,73 @@ export const DisputeDetailHub = ({
                 {appealStateLabel}
               </p>
             </div>
-            {dispute?.appealedAt ? (
+            {appealTrack?.kind && appealTrack.kind !== "NONE" ? (
+              <div>
+                <span className="text-xs uppercase tracking-wider text-gray-400">Track</span>
+                <p className="font-medium text-slate-900">
+                  {appealTrack.kind === "REJECTION" ? "Rejection appeal" : "Verdict appeal"}
+                </p>
+              </div>
+            ) : null}
+            {(appealTrack?.filedAt || dispute?.appealedAt || dispute?.rejectionAppealedAt) ? (
               <div>
                 <span className="text-xs uppercase tracking-wider text-gray-400">Appealed At</span>
-                <p>{format(new Date(dispute.appealedAt), "MMM d, yyyy h:mm a")}</p>
+                <p>
+                  {format(
+                    new Date(
+                      appealTrack?.filedAt ||
+                        dispute?.appealedAt ||
+                        dispute?.rejectionAppealedAt ||
+                        "",
+                    ),
+                    "MMM d, yyyy h:mm a",
+                  )}
+                </p>
               </div>
             ) : null}
-            {dispute?.appealReason ? (
+            {(dispute?.appealReason || dispute?.rejectionAppealReason) ? (
               <div>
                 <span className="text-xs uppercase tracking-wider text-gray-400">Appeal Reason</span>
-                <p className="whitespace-pre-wrap text-slate-700">{dispute.appealReason}</p>
+                <p className="whitespace-pre-wrap text-slate-700">
+                  {dispute.appealReason || dispute.rejectionAppealReason}
+                </p>
               </div>
             ) : null}
-            {dispute?.appealResolution ? (
+            {(appealTrack?.assignedAdmin?.fullName ||
+              appealTrack?.assignedAdmin?.email ||
+              appealTrack?.assignedAdminId) ? (
+              <div>
+                <span className="text-xs uppercase tracking-wider text-gray-400">Assigned Admin</span>
+                <p className="text-slate-700">
+                  {appealTrack?.assignedAdmin?.fullName ||
+                    appealTrack?.assignedAdmin?.email ||
+                    appealTrack?.assignedAdminId}
+                </p>
+              </div>
+            ) : null}
+            {(appealTrack?.resolution ||
+              dispute?.appealResolution ||
+              dispute?.rejectionAppealResolution) ? (
               <div>
                 <span className="text-xs uppercase tracking-wider text-gray-400">Resolution</span>
-                <p className="whitespace-pre-wrap text-slate-700">{dispute.appealResolution}</p>
-                {dispute.appealResolvedAt ? (
+                <p className="whitespace-pre-wrap text-slate-700">
+                  {appealTrack?.resolution ||
+                    dispute?.appealResolution ||
+                    dispute?.rejectionAppealResolution}
+                </p>
+                {(appealTrack?.resolvedAt ||
+                  dispute?.appealResolvedAt ||
+                  dispute?.rejectionAppealResolvedAt) ? (
                   <p className="mt-1 text-xs text-gray-500">
-                    {format(new Date(dispute.appealResolvedAt), "MMM d, yyyy h:mm a")}
+                    {format(
+                      new Date(
+                        appealTrack?.resolvedAt ||
+                          dispute?.appealResolvedAt ||
+                          dispute?.rejectionAppealResolvedAt ||
+                          "",
+                      ),
+                      "MMM d, yyyy h:mm a",
+                    )}
                   </p>
                 ) : null}
               </div>
@@ -1058,9 +1530,72 @@ export const DisputeDetailHub = ({
         </aside>
       </div>
 
+      <Dialog
+        open={reviewDialogOpen}
+        onOpenChange={(open) => {
+          setReviewDialogOpen(open);
+          if (!open) {
+            setReviewReason("");
+            setReviewImpactSummary("");
+            setRequestDialogMode(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{requestDialogCopy.title}</DialogTitle>
+            <DialogDescription>
+              {requestDialogCopy.description}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {requestDialogCopy.reasonLabel}
+              </label>
+              <Textarea
+                value={reviewReason}
+                onChange={(event) => setReviewReason(event.target.value)}
+                rows={5}
+                placeholder="Explain the issue, the fairness concern, and the specific review or support you need."
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                {requestDialogCopy.impactLabel}
+              </label>
+              <Textarea
+                value={reviewImpactSummary}
+                onChange={(event) => setReviewImpactSummary(event.target.value)}
+                rows={3}
+                placeholder="Optional summary of practical impact, key evidence, or why this case needs escalation."
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setReviewDialogOpen(false)}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleReviewRequestSubmit()}
+                disabled={reviewSubmitting || reviewReason.trim().length < 20}
+                className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-60"
+              >
+                {reviewSubmitting ? "Submitting..." : requestDialogCopy.submitLabel}
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <AppealDialog
         open={appealDialogOpen}
         onOpenChange={setAppealDialogOpen}
+        mode={appealDialogMode}
         onSubmit={handleAppealSubmit}
         deadlineText={appealDeadlineText}
       />

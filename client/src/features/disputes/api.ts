@@ -9,6 +9,7 @@ import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { getFileNameFromDisposition } from "@/shared/utils/download";
 import type {
+  AppealOwnerSummary,
   DisputeActivity,
   DisputeEvidence,
   DisputeEvidenceQuota,
@@ -22,6 +23,7 @@ import type {
   DisputeScheduleProposal,
   SchedulingWorklistResponse,
   DisputeDossier,
+  NeutralPanelCandidate,
 } from "./types/dispute.types";
 import type { CreateDisputeDto } from "./types/dispute.dto";
 import type { DisputePhase } from "../staff/types/staff.types";
@@ -38,6 +40,40 @@ export interface ProjectBoard {
 export interface DisputeAppealInput {
   reason: string;
   additionalEvidence?: string[];
+  disclaimerAccepted: boolean;
+  disclaimerVersion?: string;
+}
+
+export interface DisputeRejectionAppealInput {
+  reason: string;
+}
+
+export interface DisputeRejectionAppealResolutionInput {
+  decision: "OVERTURN" | "UPHOLD";
+  resolution: string;
+}
+
+export interface AssignAppealOwnerInput {
+  adminId: string;
+}
+
+export interface DisputeEscalationRequestInput {
+  kind: "SUPPORT_ESCALATION" | "ADMIN_OVERSIGHT" | "NEUTRAL_PANEL";
+  reason: string;
+  impactSummary?: string;
+  evidenceIds?: string[];
+}
+
+export interface AssignNeutralPanelInput {
+  reviewerIds: string[];
+  reason: string;
+  instructions?: string;
+}
+
+export interface NeutralPanelRecommendationInput {
+  recommendation: "UPHOLD" | "OVERTURN" | "NEEDS_HEARING";
+  rationale: string;
+  summary?: string;
 }
 
 export interface DisputeAppealVerdictInput {
@@ -59,8 +95,9 @@ export interface DisputeAppealVerdictInput {
     remedyRationale?: string;
     trustPenaltyRationale?: string;
   };
-  amountToFreelancer: number;
-  amountToClient: number;
+  amountToFreelancer?: number;
+  amountToClient?: number;
+  splitRatioClient?: number;
   trustScorePenalty?: number;
   banUser?: boolean;
   banDurationDays?: number;
@@ -87,6 +124,20 @@ export interface DisputeRuleCatalogItem {
   operationalGuidance: string[];
 }
 
+export interface DisputeActionCatalogItem {
+  code: string;
+  label: string;
+  ownerRole: string;
+  defaultUrgent: boolean;
+  guidance: string;
+}
+
+type DisputeCatalogEnvelope<T> = {
+  data?: T;
+  generatedAt?: string;
+  disclaimer?: string;
+};
+
 type CacheOptions = {
   preferCache?: boolean;
   ttlMs?: number;
@@ -96,6 +147,8 @@ const DISPUTES_LIST_TTL_MS = 30_000;
 const DISPUTE_DETAIL_TTL_MS = 60_000;
 const DISPUTE_ACTIVITY_TTL_MS = 30_000;
 const DISPUTE_COMPLEXITY_TTL_MS = 5 * 60_000;
+const UUID_V4_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const getDisputesCacheScope = () => {
   const user = getStoredJson<{ id?: string; role?: string }>(STORAGE_KEYS.USER);
@@ -211,8 +264,26 @@ export const getDisputeDetail = async (
   );
 };
 
-export const getDisputeRuleCatalog = async (): Promise<DisputeRuleCatalogItem[]> => {
-  return await apiClient.get<DisputeRuleCatalogItem[]>("/disputes/rules/catalog");
+export const getDisputeRuleCatalog = async (filters?: {
+  faultType?: string;
+  disputeCategory?: string;
+  result?: string;
+}): Promise<DisputeRuleCatalogItem[]> => {
+  const params = new URLSearchParams();
+  if (filters?.faultType) params.set("faultType", filters.faultType);
+  if (filters?.disputeCategory) params.set("disputeCategory", filters.disputeCategory);
+  if (filters?.result) params.set("result", filters.result);
+  const payload = await apiClient.get<DisputeCatalogEnvelope<DisputeRuleCatalogItem[]>>(
+    `/disputes/rules/catalog${params.toString() ? `?${params.toString()}` : ""}`,
+  );
+  return payload?.data ?? ((payload as unknown as DisputeRuleCatalogItem[]) || []);
+};
+
+export const getDisputeActionCatalog = async (): Promise<DisputeActionCatalogItem[]> => {
+  const payload = await apiClient.get<DisputeCatalogEnvelope<DisputeActionCatalogItem[]>>(
+    "/disputes/actions/catalog",
+  );
+  return payload?.data ?? ((payload as unknown as DisputeActionCatalogItem[]) || []);
 };
 
 export const createDispute = async (
@@ -228,11 +299,77 @@ export const submitDisputeAppeal = async (
   return await apiClient.post<DisputeSummary>(`/disputes/${disputeId}/appeal`, input);
 };
 
+export const submitDisputeRejectionAppeal = async (
+  disputeId: string,
+  input: DisputeRejectionAppealInput,
+): Promise<DisputeSummary> => {
+  return await apiClient.post<DisputeSummary>(`/disputes/${disputeId}/rejection/appeal`, input);
+};
+
+export const submitDisputeReviewRequest = async (
+  disputeId: string,
+  input: {
+    reason: string;
+    impactSummary?: string;
+    evidenceIds?: string[];
+  },
+) => {
+  return await apiClient.post(`/disputes/${disputeId}/review-request`, input);
+};
+
 export const resolveDisputeAppeal = async (
   disputeId: string,
   input: DisputeAppealVerdictInput,
 ): Promise<DisputeSummary> => {
   return await apiClient.patch<DisputeSummary>(`/disputes/${disputeId}/appeal/resolve`, input);
+};
+
+export const resolveDisputeRejectionAppeal = async (
+  disputeId: string,
+  input: DisputeRejectionAppealResolutionInput,
+): Promise<DisputeSummary> => {
+  return await apiClient.patch<DisputeSummary>(
+    `/disputes/${disputeId}/rejection/appeal/resolve`,
+    input,
+  );
+};
+
+export const getAppealOwners = async (): Promise<AppealOwnerSummary[]> => {
+  return await apiClient.get<AppealOwnerSummary[]>(`/disputes/admin/appeal-owners`);
+};
+
+export const assignAppealOwner = async (
+  disputeId: string,
+  input: AssignAppealOwnerInput,
+): Promise<DisputeSummary> => {
+  return await apiClient.patch<DisputeSummary>(`/disputes/${disputeId}/appeal/owner`, input);
+};
+
+export const submitDisputeEscalationRequest = async (
+  disputeId: string,
+  input: DisputeEscalationRequestInput,
+) => {
+  return await apiClient.post(`/disputes/${disputeId}/escalation-request`, input);
+};
+
+export const getNeutralPanelCandidates = async (
+  disputeId: string,
+): Promise<NeutralPanelCandidate[]> => {
+  return await apiClient.get<NeutralPanelCandidate[]>(`/disputes/${disputeId}/panel-candidates`);
+};
+
+export const assignNeutralPanel = async (
+  disputeId: string,
+  input: AssignNeutralPanelInput,
+): Promise<DisputeSummary> => {
+  return await apiClient.post<DisputeSummary>(`/disputes/${disputeId}/panel/assign`, input);
+};
+
+export const submitNeutralPanelRecommendation = async (
+  disputeId: string,
+  input: NeutralPanelRecommendationInput,
+) => {
+  return await apiClient.post(`/disputes/${disputeId}/panel/recommendation`, input);
 };
 
 export const getProjectBoard = async (
@@ -505,14 +642,26 @@ export const getDisputeComplexities = async (
   data: Record<string, DisputeComplexity>;
   failedIds: string[];
 }> => {
-  const uniqueIds = Array.from(new Set(disputeIds)).filter(Boolean);
+  const uniqueIds = Array.from(
+    new Set(disputeIds.map((id) => id?.trim()).filter(Boolean)),
+  ) as string[];
   if (!uniqueIds.length) return { data: {}, failedIds: [] };
+
+  const validIds = uniqueIds.filter((id) => UUID_V4_PATTERN.test(id));
+  const skippedIds = uniqueIds.filter((id) => !UUID_V4_PATTERN.test(id));
+
+  if (skippedIds.length > 0) {
+    console.warn(
+      "[Disputes] Skipping malformed disputeIds for complexity batch:",
+      skippedIds,
+    );
+  }
 
   const preferCache = options?.preferCache !== false;
   const cached: Record<string, DisputeComplexity> = {};
   const missing: string[] = [];
 
-  uniqueIds.forEach((id) => {
+  validIds.forEach((id) => {
     if (preferCache) {
       const cachedValue = getCachedValue<DisputeComplexity>(
         `disputes:complexity:${id}`,
@@ -526,7 +675,7 @@ export const getDisputeComplexities = async (
   });
 
   if (!missing.length) {
-    return { data: cached, failedIds: [] };
+    return { data: cached, failedIds: skippedIds };
   }
 
   const response = await apiClient.post<{
@@ -550,7 +699,7 @@ export const getDisputeComplexities = async (
   const errorIds = Object.keys(response?.errors ?? {});
   const returnedIds = new Set([...Object.keys(dataMap), ...errorIds]);
   const orphanIds = missing.filter((id) => !returnedIds.has(id));
-  const failedIds = [...errorIds, ...orphanIds];
+  const failedIds = [...skippedIds, ...errorIds, ...orphanIds];
 
   return { data: { ...cached, ...dataMap }, failedIds };
 };
@@ -689,6 +838,13 @@ export const resolveDispute = async (
       legalAnalysis: string;
       conclusion: string;
       supportingEvidenceIds?: string[];
+      policyReferences?: string[];
+      legalReferences?: string[];
+      contractReferences?: string[];
+      evidenceReferences?: string[];
+      analysis?: string;
+      remedyRationale?: string;
+      trustPenaltyRationale?: string;
     };
     splitRatioClient?: number;
     amountToFreelancer?: number;

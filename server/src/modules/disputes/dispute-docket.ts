@@ -30,9 +30,16 @@ export type DisputeAllowedAction =
   | 'UPLOAD_EVIDENCE'
   | 'SEND_STATEMENT'
   | 'SUBMIT_APPEAL'
+  | 'SUBMIT_REJECTION_APPEAL'
+  | 'SUBMIT_IMPACT_REVIEW'
+  | 'REQUEST_SUPPORT_ESCALATION'
+  | 'REQUEST_ADMIN_OVERSIGHT'
+  | 'REQUEST_NEUTRAL_PANEL'
   | 'RESOLVE_APPEAL'
+  | 'RESOLVE_REJECTION_APPEAL'
   | 'MANAGE_HEARING'
-  | 'VIEW_COMPLEXITY';
+  | 'VIEW_COMPLEXITY'
+  | 'MANAGE_APPEAL_QUEUE';
 
 export interface DocketHearingSnapshot {
   id: string;
@@ -411,6 +418,11 @@ export const resolveDisputeAllowedActions = (input: {
   raisedById?: string | null;
   defendantId?: string | null;
   canAppealVerdict: boolean;
+  canAppealRejection?: boolean;
+  canSubmitImpactReview?: boolean;
+  canRequestSupportEscalation?: boolean;
+  canRequestAdminOversight?: boolean;
+  canRequestNeutralPanel?: boolean;
   hasActionableHearing: boolean;
 }): DisputeAllowedAction[] => {
   const actions = new Set<DisputeAllowedAction>([
@@ -440,8 +452,34 @@ export const resolveDisputeAllowedActions = (input: {
     actions.add('SUBMIT_APPEAL');
   }
 
+  if (input.canAppealRejection) {
+    actions.add('SUBMIT_REJECTION_APPEAL');
+  }
+
+  if (input.canSubmitImpactReview) {
+    actions.add('SUBMIT_IMPACT_REVIEW');
+  }
+
+  if (input.canRequestSupportEscalation) {
+    actions.add('REQUEST_SUPPORT_ESCALATION');
+  }
+
+  if (input.canRequestAdminOversight) {
+    actions.add('REQUEST_ADMIN_OVERSIGHT');
+  }
+
+  if (input.canRequestNeutralPanel) {
+    actions.add('REQUEST_NEUTRAL_PANEL');
+  }
+
   if (input.status === DisputeStatus.APPEALED && input.userRole === UserRole.ADMIN) {
     actions.add('RESOLVE_APPEAL');
+    actions.add('MANAGE_APPEAL_QUEUE');
+  }
+
+  if (input.status === DisputeStatus.REJECTION_APPEALED && input.userRole === UserRole.ADMIN) {
+    actions.add('RESOLVE_REJECTION_APPEAL');
+    actions.add('MANAGE_APPEAL_QUEUE');
   }
 
   if (

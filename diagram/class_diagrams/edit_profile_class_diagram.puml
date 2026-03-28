@@ -1,0 +1,84 @@
+@startuml Edit_Profile_Class_Diagram
+title Edit Profile - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class UpdateProfileDto {
+    + fullName: string
+    + phoneNumber: string
+    + bio: string
+    + avatarBase64: string
+}
+
+class ApiClient {
+    + patchJson(url: string, body: any, withCredentials: boolean): Promise<any>
+}
+
+class ProfilePage {
+    - saving: boolean
+    + enterEditMode(): void
+    + validate(dto: UpdateProfileDto): boolean
+    + save(dto: UpdateProfileDto): Promise<void>
+}
+
+class AuthController {
+    - authService: AuthService
+    + updateProfile(userId: string, dto: UpdateProfileDto): any
+}
+
+class JwtAuthGuard {
+    + canActivate(context: any): boolean
+}
+
+class ValidationPipe {
+    + transform(value: any, metadata: any): any
+}
+
+class AuthService {
+    - userRepo: Repository
+    - profileRepo: Repository
+    + updateProfile(userId: string, dto: UpdateProfileDto): any
+}
+
+class Repository {
+    + findOne(options: any): Promise<any>
+    + save(entity: any): Promise<any>
+    + update(id: any, partial: any): Promise<any>
+}
+
+class UserEntity {
+    + id: string
+    + fullName: string
+    + phoneNumber: string
+}
+
+class ProfileEntity {
+    + id: string
+    + userId: string
+    + bio: string
+    + avatarUrl: string
+}
+
+ProfilePage ..> ApiClient
+ApiClient ..> AuthController
+AuthController ..> JwtAuthGuard
+AuthController ..> ValidationPipe
+AuthController --> AuthService
+AuthController ..> UpdateProfileDto
+AuthService --> Repository
+AuthService ..> UserEntity
+AuthService ..> ProfileEntity
+
+@enduml

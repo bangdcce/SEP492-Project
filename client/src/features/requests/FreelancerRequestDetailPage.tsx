@@ -17,17 +17,19 @@ import { wizardService } from "@/features/wizard/services/wizardService";
 import type { ProjectSpec } from "@/features/project-specs/types";
 import { ProjectSpecStatus, SpecPhase } from "@/features/project-specs/types";
 import type { ContractSummary } from "@/features/contracts/types";
-import { STORAGE_KEYS } from "@/constants";
-import { getStoredJson } from "@/shared/utils/storage";
 import { connectSocket } from "@/shared/realtime/socket";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
 import type { ProjectRequest } from "./types";
+import { RequestAttachmentGallery } from "./components/RequestAttachmentGallery";
+import { RequestChatPanel } from "@/features/request-chat/RequestChatPanel";
 import {
   formatHumanStatus as formatStatus,
   isContractActivated,
   pickLatestSpecByPhase,
   resolveRequestFlowSnapshot,
 } from "./requestFlow";
+import { buildTrustProfilePath } from "@/features/trust-profile/routes";
+import { useCurrentUser } from "@/shared/hooks/useCurrentUser";
 
 type RequestWithRelations = ProjectRequest & {
   client?: { id: string; fullName: string; email?: string };
@@ -48,7 +50,7 @@ type RequestWithRelations = ProjectRequest & {
 
 type CurrentUserSummary = {
   id?: string;
-} | null;
+};
 
 const getSpecBadgeClass = (status?: string) => {
   switch (status) {
@@ -69,7 +71,7 @@ const getSpecBadgeClass = (status?: string) => {
 export default function FreelancerRequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const currentUser = getStoredJson<CurrentUserSummary>(STORAGE_KEYS.USER);
+  const currentUser = useCurrentUser<CurrentUserSummary>();
 
   const [request, setRequest] = useState<RequestWithRelations | null>(null);
   const [specs, setSpecs] = useState<ProjectSpec[]>([]);
@@ -117,6 +119,11 @@ export default function FreelancerRequestDetailPage() {
       const notification = payload?.notification ?? payload;
       const relatedType = String(notification?.relatedType || "");
       const relatedId = String(notification?.relatedId || "");
+      const knownSpecIds = new Set(
+        (request?.specs || [])
+          .map((spec) => spec.id)
+          .filter((value): value is string => Boolean(value)),
+      );
 
       const isRelevant =
         (relatedType === "ProjectRequest" && relatedId === id) ||
@@ -126,7 +133,7 @@ export default function FreelancerRequestDetailPage() {
         (relatedType === "Contract" &&
           Boolean(request?.linkedContractSummary?.id) &&
           relatedId === request?.linkedContractSummary?.id) ||
-        (relatedType === "ProjectSpec" && relatedId === id);
+        (relatedType === "ProjectSpec" && knownSpecIds.has(relatedId));
 
       if (isRelevant) {
         void fetchRequest(id);
@@ -137,7 +144,7 @@ export default function FreelancerRequestDetailPage() {
     return () => {
       socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
     };
-  }, [fetchRequest, id, request?.linkedContractSummary?.id, request?.linkedProjectSummary?.id]);
+  }, [fetchRequest, id, request?.linkedContractSummary?.id, request?.linkedProjectSummary?.id, request?.specs]);
 
   if (isLoading) {
     return (
@@ -165,6 +172,7 @@ export default function FreelancerRequestDetailPage() {
   const proposalList = request.freelancerProposals || request.proposals || [];
   const myProposal = proposalList.find((proposal) => proposal.freelancerId === currentUser?.id) || null;
   const normalizedProposalStatus = String(myProposal?.status || "").toUpperCase();
+  const canUseRequestChat = ["ACCEPTED", "PENDING"].includes(normalizedProposalStatus);
   const canOpenFinalSpec = Boolean(fullSpec);
   const shouldHighlightFinalSign =
     fullSpec?.specPhase === SpecPhase.FULL_SPEC &&
@@ -172,6 +180,11 @@ export default function FreelancerRequestDetailPage() {
   const canOpenContract = Boolean(linkedContract?.id);
   const contractActivated = isContractActivated(linkedContract);
   const canOpenWorkspace = Boolean(contractActivated && linkedContract?.projectId);
+  const clientTrustProfilePath = request.client?.id
+    ? buildTrustProfilePath(request.client.id, {
+        role: "FREELANCER",
+      })
+    : null;
   const freelancerNextAction = (() => {
     if (!myProposal || normalizedProposalStatus === "INVITED") {
       return {
@@ -308,6 +321,20 @@ export default function FreelancerRequestDetailPage() {
         </CardContent>
       </Card>
 
+      {request.attachments?.length ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-lg">
+              <FileText className="h-4 w-4" />
+              Request Attachments
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RequestAttachmentGallery attachments={request.attachments} />
+          </CardContent>
+        </Card>
+      ) : null}
+
       <Card className="border-blue-200 bg-blue-50/40">
         <CardContent className="flex flex-wrap items-center justify-between gap-3 pt-6">
           <div className="flex items-start gap-2">
@@ -333,6 +360,15 @@ export default function FreelancerRequestDetailPage() {
             <div className="rounded-md border p-3">
               <p className="text-xs text-muted-foreground">Client</p>
               <p className="font-medium">{request.client?.fullName || "—"}</p>
+              {clientTrustProfilePath && (
+                <Button
+                  variant="link"
+                  className="mt-1 h-auto px-0 text-sm"
+                  onClick={() => navigate(clientTrustProfilePath)}
+                >
+                  View Trust Profile
+                </Button>
+              )}
             </div>
             <div className="rounded-md border p-3">
               <p className="text-xs text-muted-foreground">Broker</p>
@@ -430,6 +466,10 @@ export default function FreelancerRequestDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {canUseRequestChat ? (
+        <RequestChatPanel requestId={request.id} />
+      ) : null}
 
       <Card>
         <CardHeader>

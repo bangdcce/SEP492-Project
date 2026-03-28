@@ -1,25 +1,31 @@
 import { apiClient } from "@/shared/api/client";
 
 export interface WizardOption {
-  id: string;
+  id: number;
   value: string;
   label: string;
   sortOrder: number;
+  recommendedProductTypes?: string[];
+  group?: "COMMON" | "SPECIALIZED";
+  templateTags?: string[];
+  isSuggestedDefault?: boolean;
 }
 
 export interface WizardQuestion {
-  id: string;
+  id: number;
   code: string;
   label: string;
   helpText?: string;
   inputType: "SELECT" | "CHECKBOX" | "TEXT" | "RADIO";
   sortOrder: number;
+  isActive?: boolean;
   options: WizardOption[];
 }
 
 export interface ProjectRequestAttachment {
   filename: string;
   url: string;
+  storagePath?: string | null;
   mimetype?: string | null;
   size?: number | null;
   category?: "requirements" | "attachment";
@@ -29,6 +35,7 @@ export interface CreateProjectRequestDto {
   title: string;
   description: string;
   budgetRange?: string;
+  requestedDeadline?: string;
   intendedTimeline?: string;
   techPreferences?: string;
   status?: string;
@@ -152,8 +159,15 @@ export const wizardService = {
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
 
-  getBrokerMatchesQuick: async (requestId: string) => {
-    return await apiClient.get(`/matching/${requestId}?role=BROKER&enableAi=false`);
+  getBrokerMatchesQuick: async (
+    requestId: string,
+    options?: { topN?: number },
+  ) => {
+    const params = new URLSearchParams();
+    params.set("role", "BROKER");
+    params.set("enableAi", "false");
+    if (options?.topN !== undefined) params.set("topN", String(options.topN));
+    return await apiClient.get(`/matching/${requestId}?${params.toString()}`);
   },
 
   getFreelancerMatches: async (
@@ -168,7 +182,41 @@ export const wizardService = {
     return await apiClient.get(`/matching/${requestId}?${qs}`);
   },
 
-  getFreelancerMatchesQuick: async (requestId: string) => {
-    return await apiClient.get(`/matching/${requestId}?role=FREELANCER&enableAi=false`);
+  getFreelancerMatchesQuick: async (
+    requestId: string,
+    options?: { topN?: number },
+  ) => {
+    const params = new URLSearchParams();
+    params.set("role", "FREELANCER");
+    params.set("enableAi", "false");
+    if (options?.topN !== undefined) params.set("topN", String(options.topN));
+    return await apiClient.get(`/matching/${requestId}?${params.toString()}`);
+  },
+
+  // ========== ADMIN METHODS ==========
+
+  // View all wizard questions (includes inactive)
+  getAllQuestionsForAdmin: async (): Promise<WizardQuestion[]> => {
+    return await apiClient.get<WizardQuestion[]>("/admin/wizard/questions");
+  },
+
+  // Create new wizard question
+  createWizardQuestion: async (data: Partial<WizardQuestion>) => {
+    return await apiClient.post("/admin/wizard/questions", data);
+  },
+
+  // View detail of a specific wizard question
+  getQuestionDetailForAdmin: async (id: number): Promise<WizardQuestion> => {
+    return await apiClient.get<WizardQuestion>(`/admin/wizard/questions/${id}`);
+  },
+
+  // Update wizard question
+  updateWizardQuestion: async (id: number, data: Partial<WizardQuestion>) => {
+    return await apiClient.put(`/admin/wizard/questions/${id}`, data);
+  },
+
+  // Delete wizard question
+  deleteWizardQuestion: async (id: number) => {
+    return await apiClient.delete(`/admin/wizard/questions/${id}`);
   },
 };

@@ -4,7 +4,10 @@ import { AdminDashboardController } from './admin-dashboard.controller';
 import { AdminDashboardService } from './admin-dashboard.service';
 import {
   AuditLogEntity,
+  DisputeEntity,
+  DisputeHearingEntity,
   EscrowEntity,
+  NotificationEntity,
   ProjectEntity,
   StaffPerformanceEntity,
   StaffWorkloadEntity,
@@ -18,6 +21,9 @@ import {
       ProjectEntity,
       EscrowEntity,
       AuditLogEntity,
+      DisputeEntity,
+      DisputeHearingEntity,
+      NotificationEntity,
       StaffPerformanceEntity,
       StaffWorkloadEntity,
     ]),

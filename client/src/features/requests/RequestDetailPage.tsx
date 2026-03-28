@@ -18,6 +18,7 @@ import {
   DialogTrigger,
   DialogDescription,
 } from "@/shared/components/ui";
+import { Textarea } from "@/shared/components/ui/textarea";
 import { wizardService } from "../wizard/services/wizardService";
 import { format } from "date-fns";
 import { ArrowLeft, AlertTriangle, Check, FileText, HelpCircle, Loader2, Trash2, UserPlus, Users } from "lucide-react";
@@ -38,6 +39,7 @@ import { CandidateProfileModal } from "./components/CandidateProfileModal";
 import { ScoreExplanationModal } from "./components/ScoreExplanationModal";
 import { RequestBrokerMarketPanel } from "./components/RequestBrokerMarketPanel";
 import { RequestContractHandoffPanel } from "./components/RequestContractHandoffPanel";
+import { RequestChatPanel } from "@/features/request-chat/RequestChatPanel";
 import type { ProjectSpec } from "@/features/project-specs/types";
 import { ProjectSpecStatus, SpecPhase } from "@/features/project-specs/types";
 import type { ContractSummary } from "@/features/contracts/types";
@@ -50,6 +52,8 @@ import {
   resolveRequestFlowSnapshot,
 } from "./requestFlow";
 import { buildClientNextAction } from "./requestDetailActions";
+import { buildTrustProfilePath } from "@/features/trust-profile/routes";
+import { projectRequestsApi } from "@/features/project-requests/api";
 
 // Helper for safe date formatting
 const safeFormatDate = (dateStr: string | Date | null | undefined, fmt: string) => {
@@ -102,6 +106,8 @@ export default function RequestDetailPage() {
   // Invite Modal State
   const [isInviteModalOpen, setIsInviteModalOpen] = useState(false);
   const [inviteModalData, setInviteModalData] = useState<{ id: string, name: string, role: "BROKER" | "FREELANCER" } | null>(null);
+  const [commercialResponseNote, setCommercialResponseNote] = useState("");
+  const [isRespondingCommercialChange, setIsRespondingCommercialChange] = useState(false);
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
@@ -195,6 +201,33 @@ export default function RequestDetailPage() {
   useEffect(() => {
     if (!id) return;
     const socket = connectSocket();
+    const refetchIfRelevant = (payload: {
+      requestId?: string | null;
+      specId?: string | null;
+      contractId?: string | null;
+      projectId?: string | null;
+    }) => {
+      const linkedProjectId = request?.linkedProjectSummary?.id;
+      const linkedContractId = request?.linkedContractSummary?.id || linkedContract?.id;
+      const knownSpecIds = new Set(
+        [specFlow.clientSpec?.id, specFlow.fullSpec?.id]
+          .concat((request?.specs || []).map((spec) => spec.id))
+          .filter((value): value is string => Boolean(value)),
+      );
+
+      const isRelevant =
+        (payload?.requestId && payload.requestId === id) ||
+        (payload?.projectId && Boolean(linkedProjectId) && payload.projectId === linkedProjectId) ||
+        (payload?.contractId &&
+          Boolean(linkedContractId) &&
+          payload.contractId === linkedContractId) ||
+        (payload?.specId && knownSpecIds.has(payload.specId));
+
+      if (isRelevant) {
+        void fetchData(id);
+      }
+    };
+
     const handleNotificationCreated = (payload: {
       notification?: {
         relatedType?: string | null;
@@ -208,12 +241,17 @@ export default function RequestDetailPage() {
       const relatedId = String(notification?.relatedId || "");
       const linkedProjectId = request?.linkedProjectSummary?.id;
       const linkedContractId = request?.linkedContractSummary?.id;
+      const knownSpecIds = new Set(
+        [specFlow.clientSpec?.id, specFlow.fullSpec?.id]
+          .concat((request?.specs || []).map((spec) => spec.id))
+          .filter((value): value is string => Boolean(value)),
+      );
 
       const isRelevant =
         (relatedType === "ProjectRequest" && relatedId === id) ||
         (relatedType === "Project" && Boolean(linkedProjectId) && relatedId === linkedProjectId) ||
         (relatedType === "Contract" && Boolean(linkedContractId) && relatedId === linkedContractId) ||
-        (relatedType === "ProjectSpec" && id === request?.id);
+        (relatedType === "ProjectSpec" && knownSpecIds.has(relatedId));
 
       if (isRelevant) {
         void fetchData(id);
@@ -221,10 +259,25 @@ export default function RequestDetailPage() {
     };
 
     socket.on("NOTIFICATION_CREATED", handleNotificationCreated);
+    socket.on("REQUEST_UPDATED", refetchIfRelevant);
+    socket.on("SPEC_UPDATED", refetchIfRelevant);
+    socket.on("CONTRACT_UPDATED", refetchIfRelevant);
     return () => {
       socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
+      socket.off("REQUEST_UPDATED", refetchIfRelevant);
+      socket.off("SPEC_UPDATED", refetchIfRelevant);
+      socket.off("CONTRACT_UPDATED", refetchIfRelevant);
     };
-  }, [fetchData, id, request?.id, request?.linkedContractSummary?.id, request?.linkedProjectSummary?.id]);
+  }, [
+    fetchData,
+    id,
+    linkedContract?.id,
+    request?.linkedContractSummary?.id,
+    request?.linkedProjectSummary?.id,
+    request?.specs,
+    specFlow.clientSpec?.id,
+    specFlow.fullSpec?.id,
+  ]);
 
   const handleStatusChange = async (newStatus: RequestStatus) => {
       try {
@@ -351,6 +404,36 @@ export default function RequestDetailPage() {
     }
   };
 
+  const handleRespondCommercialChange = async (action: "APPROVE" | "REJECT") => {
+    if (!id || !request?.activeCommercialChangeRequest?.id) return;
+
+    try {
+      setIsRespondingCommercialChange(true);
+      await projectRequestsApi.respondCommercialChangeRequest(
+        id,
+        request.activeCommercialChangeRequest.id,
+        {
+          action,
+          note: commercialResponseNote.trim() || undefined,
+        },
+      );
+      toast.success(
+        action === "APPROVE"
+          ? "Commercial change approved"
+          : "Commercial change rejected",
+      );
+      setCommercialResponseNote("");
+      void fetchData(id);
+    } catch (error) {
+      toast.error(
+        getApiErrorDetails(error, "Failed to respond to commercial change request.")
+          .message,
+      );
+    } finally {
+      setIsRespondingCommercialChange(false);
+    }
+  };
+
   if (loading)
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -416,6 +499,11 @@ export default function RequestDetailPage() {
   const contractActivated = isContractActivated(linkedContract);
   const canOpenWorkspace = Boolean(linkedContract?.projectId && contractActivated);
   const assignedBrokerProfileId = request.broker?.id ?? null;
+  const assignedBrokerProfilePath = assignedBrokerProfileId
+    ? buildTrustProfilePath(assignedBrokerProfileId, { role: UserRole.CLIENT })
+    : null;
+  const activeCommercialChange = request.activeCommercialChangeRequest;
+  const canUseRequestChat = Boolean(request.brokerId && currentPhase >= 2);
   const clientNextAction = buildClientNextAction({
     currentPhase,
     clientSpec,
@@ -684,8 +772,8 @@ export default function RequestDetailPage() {
                 onOpenProfile={handleOpenCandidateProfile}
                 onPhaseAdvance={() => setActiveTab("phase2")}
                 onOpenAssignedBrokerProfile={
-                  assignedBrokerProfileId
-                    ? () => navigate(`/client/discovery/profile/${assignedBrokerProfileId}`)
+                  assignedBrokerProfilePath
+                    ? () => navigate(assignedBrokerProfilePath)
                     : null
                 }
                 onOpenScoreExplanation={() => setIsScoreExplanationOpen(true)}
@@ -936,6 +1024,109 @@ export default function RequestDetailPage() {
                                     </div>
                                 </div>
 
+                                {activeCommercialChange ? (
+                                  <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                      <div>
+                                        <h4 className="font-semibold text-amber-950">
+                                          Commercial change request
+                                        </h4>
+                                        <p className="text-sm text-amber-900">
+                                          Broker cannot change budget, timeline, or client-facing features in the full spec without your approval.
+                                        </p>
+                                      </div>
+                                      <Badge variant="outline" className="bg-white">
+                                        {activeCommercialChange.status}
+                                      </Badge>
+                                    </div>
+
+                                    <div className="mt-4 grid gap-3 md:grid-cols-2">
+                                      <div className="rounded-lg border bg-white p-3 text-sm">
+                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                          Budget
+                                        </p>
+                                        <p className="mt-1">
+                                          {activeCommercialChange.currentBudget != null
+                                            ? `$${Number(activeCommercialChange.currentBudget).toLocaleString()}`
+                                            : "Not set"}
+                                          {" -> "}
+                                          {activeCommercialChange.proposedBudget != null
+                                            ? `$${Number(activeCommercialChange.proposedBudget).toLocaleString()}`
+                                            : "No change"}
+                                        </p>
+                                      </div>
+                                      <div className="rounded-lg border bg-white p-3 text-sm">
+                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                          Timeline
+                                        </p>
+                                        <p className="mt-1">
+                                          {activeCommercialChange.currentTimeline || "Not set"}
+                                          {" -> "}
+                                          {activeCommercialChange.proposedTimeline || "No change"}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="mt-3 rounded-lg border bg-white p-3 text-sm">
+                                      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                        Broker reason
+                                      </p>
+                                      <p className="mt-1 whitespace-pre-wrap text-slate-700">
+                                        {activeCommercialChange.reason}
+                                      </p>
+                                    </div>
+
+                                    {activeCommercialChange.proposedClientFeatures?.length ? (
+                                      <div className="mt-3 rounded-lg border bg-white p-3 text-sm">
+                                        <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                                          Proposed client-facing features
+                                        </p>
+                                        <div className="mt-2 space-y-2">
+                                          {activeCommercialChange.proposedClientFeatures.map((feature, index) => (
+                                            <div key={`${feature.title}-${index}`} className="rounded-md border border-slate-200 p-3">
+                                              <p className="font-medium text-slate-900">{feature.title}</p>
+                                              <p className="mt-1 text-slate-600">{feature.description}</p>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ) : null}
+
+                                    {activeCommercialChange.status === "PENDING" ? (
+                                      <div className="mt-4 space-y-3">
+                                        <Textarea
+                                          value={commercialResponseNote}
+                                          onChange={(event) => setCommercialResponseNote(event.target.value)}
+                                          placeholder="Optional note back to the broker"
+                                          className="bg-white"
+                                        />
+                                        <div className="flex flex-wrap gap-3">
+                                          <Button
+                                            disabled={isRespondingCommercialChange}
+                                            onClick={() => void handleRespondCommercialChange("APPROVE")}
+                                          >
+                                            {isRespondingCommercialChange ? "Updating..." : "Approve change"}
+                                          </Button>
+                                          <Button
+                                            variant="outline"
+                                            disabled={isRespondingCommercialChange}
+                                            onClick={() => void handleRespondCommercialChange("REJECT")}
+                                          >
+                                            Reject change
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    ) : activeCommercialChange.respondedAt ? (
+                                      <p className="mt-3 text-sm text-amber-900">
+                                        Responded {safeFormatDate(activeCommercialChange.respondedAt, "MMM d, yyyy")}
+                                        {activeCommercialChange.responseNote
+                                          ? `: ${activeCommercialChange.responseNote}`
+                                          : "."}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ) : null}
+
                                 <div className="grid gap-4 md:grid-cols-2">
                                     <div className="rounded-lg border bg-background p-4">
                                         <div className="mb-2 flex items-center justify-between gap-2">
@@ -1065,7 +1256,21 @@ export default function RequestDetailPage() {
                                 </div>
                             </div>
                             {request.broker ? (
-                                <Button variant="ghost" size="sm">View Profile</Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    if (request.broker?.id) {
+                                      navigate(
+                                        buildTrustProfilePath(request.broker.id, {
+                                          role: UserRole.CLIENT,
+                                        }),
+                                      );
+                                    }
+                                  }}
+                                >
+                                  View Profile
+                                </Button>
                             ) : (
                                 <Button size="sm" onClick={() => setActiveTab('phase1')}>Find Broker</Button>
                             )}
@@ -1197,6 +1402,10 @@ export default function RequestDetailPage() {
               </Card>
             </>
         )}
+
+        {canUseRequestChat ? (
+          <RequestChatPanel requestId={request.id} />
+        ) : null}
         </div>
 
       </div>

@@ -5,20 +5,15 @@ import { fetchProjectsByUser } from "./api";
 import type { Project } from "./types";
 import { ProjectCard } from "./components/ProjectCard";
 import { Spinner } from "@/shared/components/ui";
-import { STORAGE_KEYS, ROUTES } from "@/constants";
+import { ROUTES } from "@/constants";
 import type { User } from "@/features/auth/types";
-import { getStoredJson } from "@/shared/utils/storage";
-
-// Helper to get current user from storage (session/local)
-const getCurrentUser = (): User | null => {
-  return getStoredJson<User>(STORAGE_KEYS.USER);
-};
+import { useCurrentUser } from "@/shared/hooks/useCurrentUser";
 
 export default function ProjectListPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [user] = useState<User | null>(getCurrentUser);
+  const user = useCurrentUser<User>();
   const navigate = useNavigate();
 
   useEffect(() => {

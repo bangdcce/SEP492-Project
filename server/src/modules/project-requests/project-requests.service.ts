@@ -1,11 +1,17 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions, In, MoreThan } from 'typeorm';
+import { randomUUID } from 'crypto';
 import { QuotaService } from '../subscriptions/quota.service';
 import { QuotaAction } from '../../database/entities/quota-usage-log.entity';
 import {
   ProjectRequestEntity,
   ProjectRequestAttachmentMetadata,
+  ProjectRequestCommercialBaseline,
+  ProjectRequestCommercialChangeRequest,
+  ProjectRequestCommercialFeature,
+  ProjectRequestScopeBaseline,
   RequestStatus,
 } from '../../database/entities/project-request.entity';
 import { ProjectRequestAnswerEntity } from '../../database/entities/project-request-answer.entity';
@@ -27,11 +33,25 @@ import {
 import { MatchingService } from '../matching/matching.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ContractsService } from '../contracts/contracts.service';
+import { RequestChatService } from '../request-chat/request-chat.service';
+import {
+  buildPublicUploadUrl,
+  extractUploadStoragePath,
+} from '../../common/utils/public-upload-url.util';
+import {
+  extractProjectRequestStoragePath,
+  getProjectRequestSignedUrl,
+} from '../../common/utils/supabase-object-storage.util';
+import {
+  CreateCommercialChangeRequestDto,
+  RespondCommercialChangeRequestDto,
+} from './dto/commercial-change-request.dto';
 
 const BROKER_APPLICATION_CAP = 10;
 const BROKER_APPLICATION_WINDOW_HOURS = 72;
 const ACTIVE_BROKER_APPLICATION_STATUSES = [ProposalStatus.PENDING, ProposalStatus.INVITED] as const;
 const FREELANCER_PENDING_CLIENT_APPROVAL = 'PENDING_CLIENT_APPROVAL' as const;
+const DATE_ONLY_INPUT_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 type BrokerHistorySummary = {
   projectId: string;
@@ -68,6 +88,8 @@ export class ProjectRequestsService {
     private readonly quotaService: QuotaService,
     private readonly notificationsService: NotificationsService,
     private readonly contractsService: ContractsService,
+    private readonly requestChatService: RequestChatService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   private toUserHandle(user?: Pick<UserEntity, 'email'> | null): string | null {
@@ -79,6 +101,306 @@ export class ProjectRequestsService {
     return localPart ? `@${localPart}` : null;
   }
 
+  private getTodayDateInputValue(referenceDate: Date = new Date()): string {
+    const year = referenceDate.getFullYear();
+    const month = `${referenceDate.getMonth() + 1}`.padStart(2, '0');
+    const day = `${referenceDate.getDate()}`.padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+  }
+
+  private normalizeIntendedTimeline(value?: string): string | undefined {
+    const normalizedValue = `${value || ''}`.trim();
+    if (!normalizedValue) {
+      return undefined;
+    }
+
+    if (
+      DATE_ONLY_INPUT_PATTERN.test(normalizedValue) &&
+      normalizedValue < this.getTodayDateInputValue()
+    ) {
+      throw new BadRequestException('Expected completion date cannot be in the past.');
+    }
+
+    return normalizedValue;
+  }
+
+  private normalizeRequestedDeadline(value?: string | null): string | undefined {
+    const normalizedValue = `${value || ''}`.trim();
+    if (!normalizedValue) {
+      return undefined;
+    }
+
+    const parsedDate = new Date(normalizedValue);
+    const dateOnly =
+      DATE_ONLY_INPUT_PATTERN.exec(normalizedValue)?.[0] ||
+      (Number.isNaN(parsedDate.getTime()) ? null : parsedDate.toISOString().slice(0, 10));
+
+    if (!dateOnly) {
+      throw new BadRequestException('Requested deadline must be a valid YYYY-MM-DD date.');
+    }
+
+    if (dateOnly < this.getTodayDateInputValue()) {
+      throw new BadRequestException('Expected completion date cannot be in the past.');
+    }
+
+    return dateOnly;
+  }
+
+  private safeNormalizeRequestedDeadline(value?: string | null): string | null {
+    try {
+      return this.normalizeRequestedDeadline(value) ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private getDateKeyFromDate(value?: Date | string | null): string | null {
+    if (!value) {
+      return null;
+    }
+
+    const parsedDate = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(parsedDate.getTime())) {
+      return null;
+    }
+
+    return this.getTodayDateInputValue(parsedDate);
+  }
+
+  private sanitizePlainText(value?: string | null): string {
+    return `${value || ''}`.trim();
+  }
+
+  private humanizeProductTypeValue(value: string): string {
+    return value
+      .trim()
+      .replace(/[_/]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .toLowerCase()
+      .replace(/\b\w/g, (char) => char.toUpperCase());
+  }
+
+  private normalizeProductTypeComparable(value?: string | null): string | null {
+    const sanitized = this.sanitizePlainText(value);
+    if (!sanitized) {
+      return null;
+    }
+
+    return sanitized
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toUpperCase();
+  }
+
+  private getRequestProductTypeSnapshot(
+    request: Pick<ProjectRequestEntity, 'answers'>,
+  ): Pick<ProjectRequestScopeBaseline, 'productTypeCode' | 'productTypeLabel'> {
+    const productTypeAnswer = (request.answers || []).find(
+      (answer) => answer?.question?.code === 'PRODUCT_TYPE',
+    );
+
+    const normalizedCode = this.normalizeProductTypeComparable(
+      productTypeAnswer?.valueText || productTypeAnswer?.option?.label,
+    );
+    const rawLabel = this.sanitizePlainText(
+      productTypeAnswer?.option?.label || productTypeAnswer?.valueText,
+    );
+
+    return {
+      productTypeCode: normalizedCode,
+      productTypeLabel: rawLabel
+        ? this.humanizeProductTypeValue(rawLabel)
+        : normalizedCode
+          ? this.humanizeProductTypeValue(normalizedCode)
+          : null,
+    };
+  }
+
+  private buildProjectGoalSummary(title?: string | null, description?: string | null): string | null {
+    const normalizedTitle = this.sanitizePlainText(title);
+    const normalizedDescription = this.sanitizePlainText(description);
+    if (!normalizedTitle && !normalizedDescription) {
+      return null;
+    }
+    if (!normalizedDescription) {
+      return normalizedTitle;
+    }
+    const compactDescription =
+      normalizedDescription.length > 220
+        ? `${normalizedDescription.slice(0, 217).trimEnd()}...`
+        : normalizedDescription;
+    return normalizedTitle
+      ? `${normalizedTitle}: ${compactDescription}`
+      : compactDescription;
+  }
+
+  private buildRequestScopeBaseline(request: ProjectRequestEntity): ProjectRequestScopeBaseline {
+    const derivedDeadline =
+      this.safeNormalizeRequestedDeadline(
+        request.requestedDeadline ??
+          (DATE_ONLY_INPUT_PATTERN.test(`${request.intendedTimeline || ''}`)
+            ? request.intendedTimeline
+            : undefined),
+      ) ?? null;
+    const productTypeSnapshot = this.getRequestProductTypeSnapshot(request);
+    const stored = request.requestScopeBaseline || null;
+
+    return {
+      productTypeCode: productTypeSnapshot.productTypeCode ?? stored?.productTypeCode ?? null,
+      productTypeLabel: productTypeSnapshot.productTypeLabel ?? stored?.productTypeLabel ?? null,
+      projectGoalSummary:
+        this.buildProjectGoalSummary(request.title, request.description) ??
+        stored?.projectGoalSummary ??
+        null,
+      requestedDeadline: derivedDeadline ?? stored?.requestedDeadline ?? null,
+      requestTitle: this.sanitizePlainText(request.title),
+      requestDescription: this.sanitizePlainText(request.description),
+    };
+  }
+
+  private resolveCommercialChangeTimelineFloor(
+    request: ProjectRequestEntity,
+    baseline: ProjectRequestCommercialBaseline,
+  ): string {
+    const todayKey = this.getTodayDateInputValue();
+    const requestScopeBaseline = this.buildRequestScopeBaseline(request);
+    const candidates = [
+      todayKey,
+      requestScopeBaseline.requestedDeadline,
+      this.safeNormalizeRequestedDeadline(
+        baseline.agreedDeliveryDeadline ?? baseline.estimatedTimeline ?? undefined,
+      ),
+      this.getDateKeyFromDate(request.createdAt),
+    ].filter((value): value is string => Boolean(value));
+
+    return candidates.reduce(
+      (latest, candidate) => (candidate > latest ? candidate : latest),
+      todayKey,
+    );
+  }
+
+  private buildPublicUploadUrl(pathname: string): string {
+    return buildPublicUploadUrl(pathname);
+  }
+
+  private async resolveAttachmentUrl(
+    attachment: Pick<ProjectRequestAttachmentMetadata, 'url' | 'storagePath'>,
+  ): Promise<string> {
+    const objectStoragePath =
+      extractProjectRequestStoragePath(attachment?.storagePath) ||
+      extractProjectRequestStoragePath(attachment?.url);
+    if (objectStoragePath) {
+      return getProjectRequestSignedUrl(objectStoragePath);
+    }
+
+    const storagePath =
+      extractUploadStoragePath(attachment?.storagePath) ||
+      extractUploadStoragePath(attachment?.url);
+    const rawUrl = `${attachment?.url || ''}`.trim();
+
+    if (storagePath) {
+      return this.buildPublicUploadUrl(storagePath);
+    }
+
+    return rawUrl;
+  }
+
+  private normalizeCommercialFeatures(
+    features?: ProjectRequestCommercialFeature[] | null,
+  ): ProjectRequestCommercialFeature[] | null {
+    if (!features?.length) {
+      return null;
+    }
+
+    const normalized = features
+      .map((feature) => ({
+        id: this.sanitizePlainText(feature?.id) || null,
+        title: `${feature?.title || ''}`.trim(),
+        description: `${feature?.description || ''}`.trim(),
+        priority: feature?.priority ?? null,
+      }))
+      .filter((feature) => feature.title.length > 0 && feature.description.length > 0);
+
+    return normalized.length > 0 ? normalized : null;
+  }
+
+  private normalizeCommercialBaseline(
+    baseline?: ProjectRequestCommercialBaseline | null,
+  ): ProjectRequestCommercialBaseline | null {
+    if (!baseline) {
+      return null;
+    }
+
+    return {
+      source:
+        baseline.source === 'CLIENT_SPEC' || baseline.source === 'COMMERCIAL_CHANGE'
+          ? baseline.source
+          : 'REQUEST',
+      budgetRange: `${baseline.budgetRange || ''}`.trim() || null,
+      estimatedBudget:
+        typeof baseline.estimatedBudget === 'number' && Number.isFinite(baseline.estimatedBudget)
+          ? baseline.estimatedBudget
+          : typeof baseline.agreedBudget === 'number' && Number.isFinite(baseline.agreedBudget)
+            ? baseline.agreedBudget
+          : null,
+      estimatedTimeline:
+        `${baseline.estimatedTimeline || baseline.agreedDeliveryDeadline || ''}`.trim() || null,
+      clientFeatures: this.normalizeCommercialFeatures(
+        baseline.clientFeatures ?? baseline.agreedClientFeatures,
+      ),
+      agreedBudget:
+        typeof baseline.agreedBudget === 'number' && Number.isFinite(baseline.agreedBudget)
+          ? baseline.agreedBudget
+          : typeof baseline.estimatedBudget === 'number' && Number.isFinite(baseline.estimatedBudget)
+            ? baseline.estimatedBudget
+            : null,
+      agreedDeliveryDeadline:
+        this.safeNormalizeRequestedDeadline(
+          `${baseline.agreedDeliveryDeadline || baseline.estimatedTimeline || ''}`.trim() || undefined,
+        ) ?? null,
+      agreedClientFeatures: this.normalizeCommercialFeatures(
+        baseline.agreedClientFeatures ?? baseline.clientFeatures,
+      ),
+      sourceSpecId: `${baseline.sourceSpecId || ''}`.trim() || null,
+      sourceChangeRequestId: `${baseline.sourceChangeRequestId || ''}`.trim() || null,
+      approvedAt: `${baseline.approvedAt || ''}`.trim() || null,
+    };
+  }
+
+  private normalizeCommercialChangeRequest(
+    value?: ProjectRequestCommercialChangeRequest | null,
+  ): ProjectRequestCommercialChangeRequest | null {
+    if (!value?.id) {
+      return null;
+    }
+
+    return {
+      id: value.id,
+      status:
+        value.status === 'APPROVED' || value.status === 'REJECTED' ? value.status : 'PENDING',
+      reason: `${value.reason || ''}`.trim(),
+      requestedByBrokerId: `${value.requestedByBrokerId || ''}`.trim(),
+      requestedAt: `${value.requestedAt || ''}`.trim(),
+      respondedAt: `${value.respondedAt || ''}`.trim() || null,
+      respondedByClientId: `${value.respondedByClientId || ''}`.trim() || null,
+      responseNote: `${value.responseNote || ''}`.trim() || null,
+      currentBudget:
+        typeof value.currentBudget === 'number' && Number.isFinite(value.currentBudget)
+          ? value.currentBudget
+          : null,
+      proposedBudget:
+        typeof value.proposedBudget === 'number' && Number.isFinite(value.proposedBudget)
+          ? value.proposedBudget
+          : null,
+      currentTimeline: `${value.currentTimeline || ''}`.trim() || null,
+      proposedTimeline: `${value.proposedTimeline || ''}`.trim() || null,
+      currentClientFeatures: this.normalizeCommercialFeatures(value.currentClientFeatures),
+      proposedClientFeatures: this.normalizeCommercialFeatures(value.proposedClientFeatures),
+      parentSpecId: `${value.parentSpecId || ''}`.trim() || null,
+    };
+  }
+
   private normalizeAttachments(
     attachments?: ProjectRequestAttachmentMetadata[] | null,
   ): ProjectRequestAttachmentMetadata[] {
@@ -87,18 +409,46 @@ export class ProjectRequestsService {
     }
 
     return attachments
-      .map((attachment) => ({
-        filename: `${attachment?.filename || ''}`.trim(),
-        url: `${attachment?.url || ''}`.trim(),
-        mimetype: attachment?.mimetype?.trim() || null,
-        size:
-          typeof attachment?.size === 'number' && Number.isFinite(attachment.size)
-            ? attachment.size
-            : null,
-        category:
-          attachment?.category === 'requirements' ? 'requirements' : 'attachment',
-      }))
-      .filter((attachment) => attachment.filename.length > 0 && attachment.url.length > 0);
+      .map((attachment) => {
+        const objectStoragePath =
+          extractProjectRequestStoragePath(attachment?.storagePath) ||
+          extractProjectRequestStoragePath(attachment?.url);
+        const localStoragePath =
+          extractUploadStoragePath(attachment?.storagePath) ||
+          extractUploadStoragePath(attachment?.url);
+        const storagePath = objectStoragePath ?? localStoragePath;
+        const rawUrl = `${attachment?.url || ''}`.trim();
+
+        return {
+          filename: `${attachment?.filename || ''}`.trim(),
+          storagePath,
+          url: objectStoragePath || localStoragePath || rawUrl,
+          mimetype: attachment?.mimetype?.trim() || null,
+          size:
+            typeof attachment?.size === 'number' && Number.isFinite(attachment.size)
+              ? attachment.size
+              : null,
+          category:
+            attachment?.category === 'requirements' ? 'requirements' : 'attachment',
+        };
+      })
+      .filter(
+        (attachment) =>
+          attachment.filename.length > 0 &&
+          (attachment.url.length > 0 || `${attachment.storagePath || ''}`.length > 0),
+      );
+  }
+
+  private async hydrateAttachments(
+    attachments?: ProjectRequestAttachmentMetadata[] | null,
+  ): Promise<ProjectRequestAttachmentMetadata[]> {
+    const normalized = this.normalizeAttachments(attachments);
+    return Promise.all(
+      normalized.map(async (attachment) => ({
+        ...attachment,
+        url: await this.resolveAttachmentUrl(attachment),
+      })),
+    );
   }
 
   private getBrokerApplicationWindowStart(referenceAt: Date = new Date()): Date {
@@ -235,6 +585,42 @@ export class ProjectRequestsService {
       )[0] ?? null;
   }
 
+  private async buildOriginalRequestContext(request: ProjectRequestEntity) {
+    return {
+      title: request.title,
+      description: request.description,
+      budgetRange: request.budgetRange ?? null,
+      intendedTimeline: request.intendedTimeline ?? null,
+      requestedDeadline:
+        this.buildRequestScopeBaseline(request).requestedDeadline ?? request.requestedDeadline ?? null,
+      techPreferences: request.techPreferences ?? null,
+      attachments: await this.hydrateAttachments(request.attachments),
+    };
+  }
+
+  private resolveCommercialBaseline(request: ProjectRequestEntity): ProjectRequestCommercialBaseline | null {
+    const normalized = this.normalizeCommercialBaseline(request.commercialBaseline);
+    if (normalized) {
+      return normalized;
+    }
+
+    return {
+      source: 'REQUEST',
+      budgetRange: request.budgetRange ?? null,
+      estimatedBudget: null,
+      estimatedTimeline:
+        this.buildRequestScopeBaseline(request).requestedDeadline ?? request.intendedTimeline ?? null,
+      clientFeatures: null,
+      agreedBudget: null,
+      agreedDeliveryDeadline:
+        this.buildRequestScopeBaseline(request).requestedDeadline ?? request.requestedDeadline ?? null,
+      agreedClientFeatures: null,
+      sourceSpecId: null,
+      sourceChangeRequestId: null,
+      approvedAt: null,
+    };
+  }
+
   private buildFlowSnapshot(input: {
     request: ProjectRequestEntity;
     clientSpec: Pick<ProjectSpecEntity, 'id' | 'status'> | null;
@@ -248,9 +634,17 @@ export class ProjectRequestsService {
     let phase: RequestFlowPhase =
       request.status === RequestStatus.CONVERTED_TO_PROJECT || linkedProject
         ? 'PROJECT_CREATED'
-        : request.status === RequestStatus.CONTRACT_PENDING || linkedContract
+        : request.status === RequestStatus.CONTRACT_PENDING ||
+            linkedContract ||
+            fullSpec?.status === ProjectSpecStatus.ALL_SIGNED
           ? 'CONTRACT'
-          : request.status === RequestStatus.SPEC_APPROVED || request.status === RequestStatus.HIRING
+          : fullSpec ||
+              selectedFreelancer ||
+              request.status === RequestStatus.HIRING
+            ? 'FINAL_SPEC_REVIEW'
+            : request.status === RequestStatus.SPEC_APPROVED ||
+                clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED ||
+                clientSpec?.status === ProjectSpecStatus.APPROVED
             ? 'FREELANCER_SELECTION'
             : request.status === RequestStatus.BROKER_ASSIGNED ||
                 request.status === RequestStatus.PENDING_SPECS ||
@@ -261,9 +655,9 @@ export class ProjectRequestsService {
     if (fullSpec?.status === ProjectSpecStatus.FINAL_REVIEW) {
       phase = 'FINAL_SPEC_REVIEW';
     } else if (fullSpec?.status === ProjectSpecStatus.ALL_SIGNED) {
-      phase = linkedContract ? 'CONTRACT' : 'FINAL_SPEC_SIGNED';
+      phase = 'CONTRACT';
     } else if (clientSpec?.status === ProjectSpecStatus.CLIENT_REVIEW) {
-      phase = 'CLIENT_SPEC_REVIEW';
+      phase = 'SPEC_WORKFLOW';
     }
 
     return {
@@ -282,13 +676,19 @@ export class ProjectRequestsService {
         phase === 'REQUEST_INTAKE'
           ? 'SELECT_BROKER'
           : phase === 'SPEC_WORKFLOW'
-            ? 'REVIEW_OR_PREPARE_SPEC'
+            ? clientSpec?.status === ProjectSpecStatus.CLIENT_REVIEW
+              ? 'CLIENT_REVIEW_PENDING'
+              : 'REVIEW_OR_PREPARE_SPEC'
             : phase === 'FREELANCER_SELECTION'
               ? 'SELECT_FREELANCER'
               : phase === 'FINAL_SPEC_REVIEW'
-                ? 'FINALIZE_SPEC'
+                ? fullSpec?.status === ProjectSpecStatus.FINAL_REVIEW
+                  ? 'COMPLETE_SPEC_SIGNING'
+                  : 'PREPARE_FINAL_SPEC'
                 : phase === 'CONTRACT'
-                  ? 'COMPLETE_CONTRACT_HANDOFF'
+                  ? linkedContract
+                    ? 'COMPLETE_CONTRACT_HANDOFF'
+                    : 'INITIALIZE_CONTRACT'
                   : 'OPEN_PROJECT',
     };
   }
@@ -580,6 +980,18 @@ export class ProjectRequestsService {
     await this.notificationsService.createMany(Array.from(deduped.values()));
   }
 
+  private emitRequestUpdated(requestId: string, userIds: Array<string | null | undefined>) {
+    const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
+    uniqueUserIds.forEach((userId) => {
+      this.eventEmitter.emit('request.updated', {
+        userId,
+        requestId,
+        entityType: 'ProjectRequest',
+        entityId: requestId,
+      });
+    });
+  }
+
   private async buildRequestReadModel(request: ProjectRequestEntity, user?: UserEntity) {
     const specs = (request.specs || []) as Array<
       Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
@@ -691,10 +1103,18 @@ export class ProjectRequestsService {
       brokerSlots: brokerApplicationSlots,
       freelancerSelectionSummary,
     });
+    const hydratedAttachments = await this.hydrateAttachments(request.attachments);
+    const originalRequestContext = await this.buildOriginalRequestContext(request);
 
     return {
       ...request,
-      attachments: this.normalizeAttachments(request.attachments),
+      attachments: hydratedAttachments,
+      originalRequestContext,
+      requestScopeBaseline: this.buildRequestScopeBaseline(request),
+      commercialBaseline: this.resolveCommercialBaseline(request),
+      activeCommercialChangeRequest: this.normalizeCommercialChangeRequest(
+        request.activeCommercialChangeRequest,
+      ),
       freelancerProposals: request.proposals,
       specSummary: {
         clientSpec: clientSpec
@@ -809,6 +1229,58 @@ export class ProjectRequestsService {
   // ... (existing create/update methods)
 
   async create(clientId: string, dto: CreateProjectRequestDto, req: RequestContext) {
+<<<<<<< HEAD
+=======
+    // Quota check: enforce free-tier limit on active requests
+    await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
+    const intendedTimeline = this.normalizeIntendedTimeline(dto.intendedTimeline);
+    const requestedDeadline = this.normalizeRequestedDeadline(
+      dto.requestedDeadline ?? (DATE_ONLY_INPUT_PATTERN.test(`${dto.intendedTimeline || ''}`) ? dto.intendedTimeline : undefined),
+    );
+
+    const request = this.requestRepo.create({
+      clientId: clientId,
+      title: dto.title,
+      description: dto.description,
+      budgetRange: dto.budgetRange,
+      intendedTimeline,
+      requestedDeadline: requestedDeadline ?? null,
+      techPreferences: dto.techPreferences,
+      attachments: this.normalizeAttachments(dto.attachments),
+      wizardProgressStep: dto.wizardProgressStep ?? 1,
+      status:
+        (dto.status as RequestStatus) ??
+        (dto.isDraft ? RequestStatus.DRAFT : RequestStatus.PUBLIC_DRAFT),
+    });
+
+    const savedRequest = await this.requestRepo.save(request);
+
+    // Create answers
+    if (dto.answers && dto.answers.length > 0) {
+      const answers = dto.answers.map((ans) =>
+        this.answerRepo.create({
+          requestId: savedRequest.id,
+          questionId: ans.questionId,
+          optionId: ans.optionId,
+          valueText: ans.valueText,
+        }),
+      );
+      await this.answerRepo.save(answers);
+    }
+
+    // Return the full request with answers
+    const fullRequest = await this.requestRepo.findOne({
+      where: { id: savedRequest.id },
+      relations: ['answers', 'answers.question', 'answers.option'],
+    });
+
+    if (fullRequest) {
+      fullRequest.requestScopeBaseline = this.buildRequestScopeBaseline(fullRequest);
+      await this.requestRepo.save(fullRequest);
+    }
+
+    // Audit Log
+>>>>>>> d6b2bb53f4c3b7a4f9f3138d65ce2337f1ceee0c
     try {
       // Quota check: enforce free-tier limit on active requests
       await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
@@ -884,6 +1356,27 @@ export class ProjectRequestsService {
       console.error(`Create Request Failed: ${message}`);
       throw error;
     }
+<<<<<<< HEAD
+=======
+
+    await this.quotaService.incrementUsage(clientId, QuotaAction.CREATE_REQUEST, {
+      requestId: savedRequest.id,
+    });
+    if (fullRequest) {
+      await this.notifyUsers([
+        {
+          userId: clientId,
+          title: 'Project request created',
+          body: `Request "${fullRequest.title}" has been created and is now being tracked.`,
+          relatedType: 'ProjectRequest',
+          relatedId: fullRequest.id,
+        },
+      ]);
+      this.emitRequestUpdated(fullRequest.id, [clientId, fullRequest.brokerId]);
+    }
+
+    return fullRequest;
+>>>>>>> d6b2bb53f4c3b7a4f9f3138d65ce2337f1ceee0c
   }
 
   // ... existing methods ...
@@ -896,7 +1389,13 @@ export class ProjectRequestsService {
     if (status) {
       options.where = { status };
     }
-    return this.requestRepo.find(options);
+    const requests = await this.requestRepo.find(options);
+    return Promise.all(
+      requests.map(async (request) => ({
+        ...request,
+        attachments: await this.hydrateAttachments(request.attachments),
+      })),
+    );
   }
 
   async update(id: string, dto: UpdateProjectRequestDto, user?: UserEntity, req?: RequestContext) {
@@ -915,7 +1414,17 @@ export class ProjectRequestsService {
     if (dto.title) request.title = dto.title;
     if (dto.description) request.description = dto.description;
     if (dto.budgetRange) request.budgetRange = dto.budgetRange;
-    if (dto.intendedTimeline) request.intendedTimeline = dto.intendedTimeline;
+    if (dto.intendedTimeline !== undefined) {
+      const intendedTimeline = this.normalizeIntendedTimeline(dto.intendedTimeline);
+      request.intendedTimeline = intendedTimeline ?? null;
+    }
+    if (dto.requestedDeadline !== undefined || dto.intendedTimeline !== undefined) {
+      request.requestedDeadline =
+        this.normalizeRequestedDeadline(
+          dto.requestedDeadline ??
+            (DATE_ONLY_INPUT_PATTERN.test(`${dto.intendedTimeline || ''}`) ? dto.intendedTimeline : undefined),
+        ) ?? null;
+    }
     if (dto.techPreferences) request.techPreferences = dto.techPreferences;
     if (dto.attachments) request.attachments = this.normalizeAttachments(dto.attachments);
     if (dto.wizardProgressStep !== undefined) {
@@ -953,6 +1462,11 @@ export class ProjectRequestsService {
       );
       await this.answerRepo.save(answers);
     }
+
+    const refreshedRequest = await this.findOneEntity(id);
+    refreshedRequest.requestScopeBaseline = this.buildRequestScopeBaseline(refreshedRequest);
+    await this.requestRepo.save(refreshedRequest);
+    this.emitRequestUpdated(id, [refreshedRequest.clientId, refreshedRequest.brokerId]);
 
     return this.findOne(id);
   }
@@ -1006,19 +1520,33 @@ export class ProjectRequestsService {
   }
 
   async findAllByClient(clientId: string) {
-    return this.requestRepo.find({
+    const requests = await this.requestRepo.find({
       where: { clientId },
       relations: ['answers', 'answers.question', 'answers.option'],
       order: { createdAt: 'DESC' },
     });
+
+    return Promise.all(
+      requests.map(async (request) => ({
+        ...request,
+        attachments: await this.hydrateAttachments(request.attachments),
+      })),
+    );
   }
 
   async findDraftsByClient(clientId: string) {
-    return this.requestRepo.find({
+    const requests = await this.requestRepo.find({
       where: { clientId, status: RequestStatus.DRAFT },
       relations: ['answers', 'answers.question', 'answers.option'],
       order: { createdAt: 'DESC' },
     });
+
+    return Promise.all(
+      requests.map(async (request) => ({
+        ...request,
+        attachments: await this.hydrateAttachments(request.attachments),
+      })),
+    );
   }
 
   async findOne(id: string, user?: UserEntity) {
@@ -1077,6 +1605,314 @@ export class ProjectRequestsService {
     }
 
     return this.buildRequestReadModel(request, user);
+  }
+
+  private async emitRequestSystemMessage(requestId: string, content: string) {
+    try {
+      await this.requestChatService.createSystemMessage(requestId, content);
+    } catch (error) {
+      console.warn(
+        `Request chat system message failed for ${requestId}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private assertCommercialChangeRequestAllowed(input: {
+    request: ProjectRequestEntity;
+    latestFullSpec: Pick<ProjectSpecEntity, 'id' | 'status'> | null;
+  }) {
+    const { request, latestFullSpec } = input;
+
+    if (!request.brokerId) {
+      throw new BadRequestException('Commercial change requests require an assigned broker');
+    }
+
+    if (request.status === RequestStatus.CONTRACT_PENDING || request.status === RequestStatus.CONVERTED_TO_PROJECT) {
+      throw new BadRequestException('Commercial changes are locked after contract handoff begins');
+    }
+
+    if (
+      latestFullSpec &&
+      ![ProjectSpecStatus.DRAFT, ProjectSpecStatus.REJECTED].includes(latestFullSpec.status)
+    ) {
+      if (latestFullSpec.status === ProjectSpecStatus.FINAL_REVIEW) {
+        throw new BadRequestException(
+          'Full spec is already in final review. Request changes on the full spec before proposing a commercial update.',
+        );
+      }
+
+      throw new BadRequestException(
+        `Commercial changes are not allowed while full spec is ${latestFullSpec.status}.`,
+      );
+    }
+  }
+
+  private buildBaselineFromApprovedChange(
+    request: ProjectRequestEntity,
+    changeRequest: ProjectRequestCommercialChangeRequest,
+  ): ProjectRequestCommercialBaseline {
+    return {
+      source: 'COMMERCIAL_CHANGE',
+      budgetRange: request.budgetRange ?? null,
+      estimatedBudget: changeRequest.proposedBudget ?? null,
+      estimatedTimeline: changeRequest.proposedTimeline ?? null,
+      clientFeatures: this.normalizeCommercialFeatures(changeRequest.proposedClientFeatures),
+      agreedBudget: changeRequest.proposedBudget ?? null,
+      agreedDeliveryDeadline:
+        this.safeNormalizeRequestedDeadline(changeRequest.proposedTimeline ?? undefined) ?? null,
+      agreedClientFeatures: this.normalizeCommercialFeatures(changeRequest.proposedClientFeatures),
+      sourceSpecId: changeRequest.parentSpecId ?? null,
+      sourceChangeRequestId: changeRequest.id,
+      approvedAt: changeRequest.respondedAt ?? new Date().toISOString(),
+    };
+  }
+
+  async createCommercialChangeRequest(
+    requestId: string,
+    actor: UserEntity,
+    dto: CreateCommercialChangeRequestDto,
+    req: RequestContext,
+  ) {
+    const request = await this.findOneEntity(requestId);
+    const isAssignedBroker = actor.role === UserRole.BROKER && request.brokerId === actor.id;
+    const isInternal = actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF;
+
+    if (!isAssignedBroker && !isInternal) {
+      throw new ForbiddenException(
+        'Only the assigned broker or internal staff can propose commercial changes.',
+      );
+    }
+
+    const specs = (request.specs || []) as Array<
+      Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
+    >;
+    const clientSpec = this.pickLatestSpecByPhase(specs, SpecPhase.CLIENT_SPEC);
+    const fullSpec = this.pickLatestSpecByPhase(specs, SpecPhase.FULL_SPEC);
+    const baseline = this.resolveCommercialBaseline(request);
+
+    if (
+      !baseline?.estimatedBudget ||
+      ![
+        ProjectSpecStatus.CLIENT_APPROVED,
+        ProjectSpecStatus.APPROVED,
+      ].includes(clientSpec?.status as ProjectSpecStatus)
+    ) {
+      throw new BadRequestException(
+        'Commercial changes are only available after the client approves the client spec baseline.',
+      );
+    }
+
+    this.assertCommercialChangeRequestAllowed({
+      request,
+      latestFullSpec: fullSpec,
+    });
+
+    const existingChangeRequest = this.normalizeCommercialChangeRequest(
+      request.activeCommercialChangeRequest,
+    );
+    if (existingChangeRequest?.status === 'PENDING') {
+      throw new BadRequestException(
+        'There is already an open commercial change request for this request.',
+      );
+    }
+
+    const proposedFeatures = this.normalizeCommercialFeatures(dto.proposedClientFeatures);
+    const currentFeatures = this.normalizeCommercialFeatures(baseline.clientFeatures);
+    const currentTimeline =
+      this.safeNormalizeRequestedDeadline(
+        baseline.agreedDeliveryDeadline ?? baseline.estimatedTimeline ?? undefined,
+      ) ?? null;
+    const proposedTimeline =
+      dto.proposedTimeline != null && `${dto.proposedTimeline}`.trim()
+        ? this.normalizeRequestedDeadline(dto.proposedTimeline)
+        : null;
+    const commercialTimelineFloor = this.resolveCommercialChangeTimelineFloor(
+      request,
+      baseline,
+    );
+
+    if (proposedTimeline && proposedTimeline < commercialTimelineFloor) {
+      throw new BadRequestException(
+        `Commercial change timeline cannot be earlier than ${commercialTimelineFloor}. Use this flow only to preserve or extend the approved/requested deadline.`,
+      );
+    }
+
+    const hasBudgetChange =
+      typeof baseline.estimatedBudget === 'number' &&
+      Math.abs((dto.proposedBudget ?? 0) - baseline.estimatedBudget) > 0.01;
+    const hasTimelineChange = proposedTimeline !== currentTimeline;
+    const hasFeatureChange =
+      JSON.stringify(proposedFeatures || []) !== JSON.stringify(currentFeatures || []);
+
+    if (!hasBudgetChange && !hasTimelineChange && !hasFeatureChange) {
+      throw new BadRequestException(
+        'Commercial change request must actually change budget, timeline, or client-facing features.',
+      );
+    }
+
+    const commercialChangeRequest: ProjectRequestCommercialChangeRequest = {
+      id: randomUUID(),
+      status: 'PENDING',
+      reason: `${dto.reason || ''}`.trim(),
+      requestedByBrokerId: actor.id,
+      requestedAt: new Date().toISOString(),
+      respondedAt: null,
+      respondedByClientId: null,
+      responseNote: null,
+      currentBudget: baseline.estimatedBudget ?? null,
+      proposedBudget: dto.proposedBudget,
+      currentTimeline,
+      proposedTimeline,
+      currentClientFeatures: currentFeatures,
+      proposedClientFeatures: proposedFeatures,
+      parentSpecId: dto.parentSpecId || clientSpec?.id || null,
+    };
+
+    if (commercialChangeRequest.reason.length < 10) {
+      throw new BadRequestException('Commercial change reason must be at least 10 characters.');
+    }
+
+    request.activeCommercialChangeRequest = commercialChangeRequest;
+    await this.requestRepo.save(request);
+
+    await this.auditLogsService.log({
+      actorId: actor.id,
+      action: 'CREATE_COMMERCIAL_CHANGE_REQUEST',
+      entityType: 'ProjectRequest',
+      entityId: requestId,
+      newData: commercialChangeRequest as unknown as Record<string, unknown>,
+      req,
+    });
+
+    await this.notifyUsers([
+      {
+        userId: request.clientId,
+        title: 'Commercial change requested',
+        body: `Broker proposed a commercial change for "${request.title}". Review the updated budget/timeline before final spec approval.`,
+        relatedType: 'ProjectRequest',
+        relatedId: requestId,
+      },
+      {
+        userId: request.brokerId,
+        title: 'Commercial change submitted',
+        body: `Your commercial change request for "${request.title}" is waiting for client approval.`,
+        relatedType: 'ProjectRequest',
+        relatedId: requestId,
+      },
+    ]);
+
+    await this.emitRequestSystemMessage(
+      requestId,
+      'Broker submitted a commercial change request for client approval.',
+    );
+
+    return this.findOne(requestId, actor);
+  }
+
+  async respondCommercialChangeRequest(
+    requestId: string,
+    changeRequestId: string,
+    actor: UserEntity,
+    dto: RespondCommercialChangeRequestDto,
+    req: RequestContext,
+  ) {
+    const request = await this.findOneEntity(requestId);
+    if (actor.role !== UserRole.CLIENT || request.clientId !== actor.id) {
+      throw new ForbiddenException('Only the request owner can respond to commercial changes.');
+    }
+
+    const changeRequest = this.normalizeCommercialChangeRequest(request.activeCommercialChangeRequest);
+    if (!changeRequest || changeRequest.id !== changeRequestId) {
+      throw new NotFoundException('Commercial change request not found.');
+    }
+    if (changeRequest.status !== 'PENDING') {
+      throw new BadRequestException(
+        `Commercial change request is already ${changeRequest.status.toLowerCase()}.`,
+      );
+    }
+
+    const specs = (request.specs || []) as Array<
+      Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
+    >;
+    const fullSpec = this.pickLatestSpecByPhase(specs, SpecPhase.FULL_SPEC);
+    this.assertCommercialChangeRequestAllowed({
+      request,
+      latestFullSpec: fullSpec,
+    });
+
+    changeRequest.status = dto.action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
+    changeRequest.respondedAt = new Date().toISOString();
+    changeRequest.respondedByClientId = actor.id;
+    changeRequest.responseNote = `${dto.note || ''}`.trim() || null;
+
+    if (dto.action === 'APPROVE') {
+      request.commercialBaseline = this.buildBaselineFromApprovedChange(request, changeRequest);
+    }
+
+    request.activeCommercialChangeRequest = changeRequest;
+    await this.requestRepo.save(request);
+
+    if (dto.action === 'APPROVE' && fullSpec?.id) {
+      const fullSpecEntity = await this.findOneEntity(requestId).then((entity) =>
+        (entity.specs || []).find((spec) => spec.id === fullSpec.id),
+      );
+      if (fullSpecEntity && [ProjectSpecStatus.DRAFT, ProjectSpecStatus.REJECTED].includes(fullSpecEntity.status)) {
+        fullSpecEntity.status = ProjectSpecStatus.REJECTED;
+        fullSpecEntity.rejectionReason =
+          'Commercial baseline changed. Review budget, timeline, and client-facing features before resubmitting.';
+        await (this.requestRepo.manager.getRepository(ProjectSpecEntity)).save(fullSpecEntity);
+      }
+    }
+
+    await this.auditLogsService.log({
+      actorId: actor.id,
+      action:
+        dto.action === 'APPROVE'
+          ? 'APPROVE_COMMERCIAL_CHANGE_REQUEST'
+          : 'REJECT_COMMERCIAL_CHANGE_REQUEST',
+      entityType: 'ProjectRequest',
+      entityId: requestId,
+      newData: changeRequest as unknown as Record<string, unknown>,
+      req,
+    });
+
+    await this.notifyUsers([
+      {
+        userId: request.brokerId,
+        title:
+          dto.action === 'APPROVE'
+            ? 'Commercial change approved'
+            : 'Commercial change rejected',
+        body:
+          dto.action === 'APPROVE'
+            ? `Client approved the commercial change for "${request.title}". Update the final spec to match the new baseline.`
+            : `Client rejected the commercial change for "${request.title}".`,
+        relatedType: 'ProjectRequest',
+        relatedId: requestId,
+      },
+      {
+        userId: request.clientId,
+        title:
+          dto.action === 'APPROVE'
+            ? 'Commercial baseline updated'
+            : 'Commercial change closed',
+        body:
+          dto.action === 'APPROVE'
+            ? `You approved the commercial update for "${request.title}".`
+            : `You rejected the commercial update for "${request.title}".`,
+        relatedType: 'ProjectRequest',
+        relatedId: requestId,
+      },
+    ]);
+
+    await this.emitRequestSystemMessage(
+      requestId,
+      dto.action === 'APPROVE'
+        ? 'Client approved the commercial change request. The final spec baseline was updated.'
+        : 'Client rejected the commercial change request.',
+    );
+
+    return this.findOne(requestId, actor);
   }
 
   async findMatches(id: string, userId?: string) {
@@ -1162,6 +1998,10 @@ export class ProjectRequestsService {
         relatedId: requestId,
       },
     ]);
+    await this.emitRequestSystemMessage(
+      requestId,
+      'Client invited a broker to collaborate on this request.',
+    );
     return savedProposal;
   }
 
@@ -1220,6 +2060,10 @@ export class ProjectRequestsService {
         relatedId: requestId,
       },
     ]);
+    await this.emitRequestSystemMessage(
+      requestId,
+      'Broker recommended a freelancer and is waiting for client approval.',
+    );
     return savedProposal;
   }
 
@@ -1265,6 +2109,10 @@ export class ProjectRequestsService {
         relatedId: requestId,
       },
     ]);
+    await this.emitRequestSystemMessage(
+      requestId,
+      'Client approved the freelancer recommendation and sent an invitation.',
+    );
 
     return savedProposal;
   }
@@ -1303,6 +2151,10 @@ export class ProjectRequestsService {
         relatedId: requestId,
       },
     ]);
+    await this.emitRequestSystemMessage(
+      requestId,
+      'Client rejected the freelancer recommendation.',
+    );
 
     return savedProposal;
   }
@@ -1468,6 +2320,10 @@ export class ProjectRequestsService {
           relatedId: requestId,
         })),
     ]);
+    await this.emitRequestSystemMessage(
+      requestId,
+      'Client selected a broker for this request.',
+    );
 
     return this.findOne(requestId);
   }
@@ -1512,6 +2368,10 @@ export class ProjectRequestsService {
         relatedId: requestId,
       },
     ]);
+    await this.emitRequestSystemMessage(
+      requestId,
+      'A broker application slot was released for this request.',
+    );
 
     return this.findOne(requestId, actor);
   }
@@ -1560,6 +2420,10 @@ export class ProjectRequestsService {
         relatedId: requestId,
       },
     ]);
+    await this.emitRequestSystemMessage(
+      requestId,
+      'Client approved the specification set and the request is moving forward.',
+    );
     return saved;
   }
 
@@ -1646,6 +2510,12 @@ export class ProjectRequestsService {
         relatedId: linkedProject?.id ?? requestId,
       },
     ]);
+    await this.emitRequestSystemMessage(
+      requestId,
+      linkedProject
+        ? `Request was converted into project "${linkedProject.title}".`
+        : 'Request moved into project workflow.',
+    );
     return this.findOne(requestId, actor);
   }
   async deleteRequest(requestId: string, userId: string, req?: RequestContext) {

@@ -26,8 +26,8 @@ export class UsersSearchService {
   ) {}
 
   async searchUsers(filters: UserSearchFilters) {
-    const page = filters.page || 1;
-    const limit = filters.limit || 10;
+    const page = Math.max(1, filters.page || 1);
+    const limit = Math.min(100, Math.max(1, filters.limit || 50));
     const skip = (page - 1) * limit;
 
     const query = this.userRepo
@@ -36,7 +36,8 @@ export class UsersSearchService {
       .leftJoinAndSelect('user.userSkills', 'userSkill') // Assuming relation exists or will be added
       .leftJoinAndSelect('userSkill.skill', 'skill')
       .where('user.isBanned = :isBanned', { isBanned: false })
-      .andWhere('user.isVerified = :isVerified', { isVerified: true });
+      .andWhere('user.isVerified = :isVerified', { isVerified: true })
+      .distinct(true);
 
     if (filters.role) {
       query.andWhere('user.role = :role', { role: filters.role });
@@ -47,12 +48,13 @@ export class UsersSearchService {
     }
 
     if (filters.search) {
+      const search = `%${filters.search.trim()}%`;
       query.andWhere(
         new Brackets((qb) => {
-          qb.where('user.fullName ILIKE :search', { search: `%${filters.search}%` }).orWhere(
-            'profile.bio ILIKE :search',
-            { search: `%${filters.search}%` },
-          );
+          qb.where('user.fullName ILIKE :search', { search })
+            .orWhere('user.email ILIKE :search', { search })
+            .orWhere('profile.bio ILIKE :search', { search })
+            .orWhere('skill.name ILIKE :search', { search });
         }),
       );
     }

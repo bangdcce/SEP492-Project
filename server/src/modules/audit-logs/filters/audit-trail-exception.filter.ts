@@ -26,36 +26,74 @@ export class AuditTrailExceptionFilter implements ExceptionFilter {
     const response = ctx.getResponse<Response>();
     const status = this.resolveStatus(exception);
     const payload = this.resolveErrorPayload(exception);
+    const shouldSkipExpectedSession401 = this.shouldSkipExpectedSession401(
+      request,
+      status,
+      payload.message,
+    );
 
-    await this.auditLogsService.log({
-      actorId: this.auditLogsService.extractActorId(request),
-      action: 'ERROR',
-      entityType: 'HttpRequest',
-      entityId:
-        ((request.headers['x-request-id'] as string | undefined) || (request as any).requestId || '') ||
-        `${request.method}:${request.originalUrl || request.url}`,
-      req: request,
-      source: 'SERVER',
-      eventCategory: 'ERROR',
-      eventName: 'request-failed',
-      statusCode: status,
-      errorCode: payload.code,
-      errorMessage: payload.message,
-      metadata: {
-        exceptionName: exception instanceof Error ? exception.name : 'UnknownError',
-        path: request.originalUrl || request.url,
-      },
-    });
+    if (!shouldSkipExpectedSession401) {
+      await this.auditLogsService.log({
+        actorId: this.auditLogsService.extractActorId(request),
+        action: 'ERROR',
+        entityType: 'HttpRequest',
+        entityId:
+          ((request.headers['x-request-id'] as string | undefined) || (request as any).requestId || '') ||
+          `${request.method}:${request.originalUrl || request.url}`,
+        req: request,
+        source: 'SERVER',
+        eventCategory: 'ERROR',
+        eventName: 'request-failed',
+        statusCode: status,
+        errorCode: payload.code,
+        errorMessage: payload.message,
+        metadata: {
+          exceptionName: exception instanceof Error ? exception.name : 'UnknownError',
+          path: request.originalUrl || request.url,
+        },
+      });
+    }
 
     if (response.headersSent) {
       return;
     }
 
-    this.logger.error(
-      `HTTP ${status} ${request.method} ${request.originalUrl || request.url}: ${payload.message}`,
-    );
+    if (!shouldSkipExpectedSession401) {
+      this.logger.error(
+        `HTTP ${status} ${request.method} ${request.originalUrl || request.url}: ${payload.message}`,
+      );
+    }
 
     response.status(status).json(payload.body);
+  }
+
+  private shouldSkipExpectedSession401(
+    request: Request,
+    status: number,
+    message?: string,
+  ): boolean {
+    if (status !== HttpStatus.UNAUTHORIZED) {
+      return false;
+    }
+
+    const method = String(request.method || '').toUpperCase();
+    const path = String(request.originalUrl || request.url || '')
+      .split('?')[0]
+      .replace(/\/+$/, '');
+
+    if (method === 'GET' && path === '/auth/session') {
+      return true;
+    }
+
+    if (
+      method === 'POST' &&
+      path === '/auth/refresh' &&
+      /refresh token not found in cookies/i.test(String(message || ''))
+    ) {
+      return true;
+    }
+
+    return false;
   }
 
   private resolveStatus(exception: unknown): number {

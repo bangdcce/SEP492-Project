@@ -8,6 +8,7 @@ import {
   IsNumber,
   Min,
   MaxLength,
+  IsBoolean,
 } from 'class-validator';
 import { DisputeCategory } from 'src/database/entities';
 
@@ -52,4 +53,13 @@ export class CreateDisputeDto {
   @IsNumber()
   @Min(0)
   disputedAmount?: number;
+
+  @IsBoolean()
+  @IsNotEmpty()
+  disclaimerAccepted: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  disclaimerVersion?: string;
 }

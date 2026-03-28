@@ -76,6 +76,7 @@ import {
 } from "@/shared/components/ui/sheet";
 import { resolveRoleBasePath } from "../utils/hearingRouting";
 import { isActiveCalendarHearingStatus } from "../utils/hearingLifecycle";
+import { normalizeExternalMeetingLink } from "../utils/externalMeetingLink";
 
 type HearingCalendarEvent = {
   id: string;
@@ -272,7 +273,9 @@ const normalizeHearingSummary = (
     scheduledAt: getStringValue(value.scheduledAt),
     nextAction: getStringValue(value.nextAction),
     appealState: getStringValue(value.appealState) ?? "NONE",
-    externalMeetingLink: getStringValue(value.externalMeetingLink),
+    externalMeetingLink:
+      normalizeExternalMeetingLink(getStringValue(value.externalMeetingLink)) ??
+      getStringValue(value.externalMeetingLink),
   };
 };
 
@@ -396,6 +399,9 @@ export const ParticipantHearingsPage = () => {
   const roleBasePath = useMemo(
     () => resolveRoleBasePath(currentUser?.role),
     [currentUser?.role],
+  );
+  const selectedExternalMeetingHref = normalizeExternalMeetingLink(
+    selectedEvent?.externalMeetingLink,
   );
   const createdDisputeId = searchParams.get("createdDisputeId");
   const focusedDisputeId =
@@ -543,7 +549,9 @@ export const ParticipantHearingsPage = () => {
             type: event.type,
             referenceId: event.referenceId,
             referenceType: event.referenceType,
-            externalMeetingLink: event.externalMeetingLink,
+            externalMeetingLink:
+              normalizeExternalMeetingLink(event.externalMeetingLink) ??
+              event.externalMeetingLink,
             metadata: (event.metadata as Record<string, unknown>) || undefined,
             disputeId:
               event.disputeContext?.disputeId ||
@@ -1817,13 +1825,13 @@ export const ParticipantHearingsPage = () => {
                 </div>
               ) : null}
 
-              {selectedEvent.externalMeetingLink ? (
+              {selectedExternalMeetingHref ? (
                 <div>
                   <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                     Meeting link
                   </p>
                   <a
-                    href={selectedEvent.externalMeetingLink}
+                    href={selectedExternalMeetingHref}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="mt-1 inline-flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 font-medium text-teal-700 hover:bg-teal-100"

@@ -24,6 +24,7 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { MatchingService } from '../matching/matching.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RequestChatService } from '../request-chat/request-chat.service';
 import { QuotaService } from '../subscriptions/quota.service';
 import { ProjectRequestsService } from './project-requests.service';
 import { ProjectSpecStatus, SpecPhase } from '../../database/entities/project-spec.entity';
@@ -80,6 +81,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
   let quotaService: { checkQuota: jest.Mock; incrementUsage: jest.Mock };
   let notificationsService: { createMany: jest.Mock };
   let contractsService: { initializeContract: jest.Mock };
+  let requestChatService: { createSystemMessage: jest.Mock; assertRequestReadAccess: jest.Mock; assertRequestWriteAccess: jest.Mock };
   let projectHistoryQueryBuilder: {
     select: jest.Mock;
     where: jest.Mock;
@@ -112,6 +114,11 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
     };
     contractsService = {
       initializeContract: jest.fn().mockResolvedValue(undefined),
+    };
+    requestChatService = {
+      createSystemMessage: jest.fn().mockResolvedValue(undefined),
+      assertRequestReadAccess: jest.fn().mockResolvedValue(undefined),
+      assertRequestWriteAccess: jest.fn().mockResolvedValue(undefined),
     };
     projectHistoryQueryBuilder = {
       select: jest.fn().mockReturnThis(),
@@ -168,6 +175,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         {
           provide: ContractsService,
           useValue: contractsService,
+        },
+        {
+          provide: RequestChatService,
+          useValue: requestChatService,
         },
       ],
     }).compile();

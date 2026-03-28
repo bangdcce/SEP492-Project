@@ -9,6 +9,7 @@ import { ProjectSpecSignatureEntity } from '../../database/entities/project-spec
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { RequestChatModule } from '../request-chat/request-chat.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { NotificationsModule } from '../notifications/notifications.module';
     ]),
     AuditLogsModule, // For logging actions
     NotificationsModule,
+    RequestChatModule,
   ],
   controllers: [ProjectSpecsController],
   providers: [ProjectSpecsService],

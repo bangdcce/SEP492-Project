@@ -13,6 +13,8 @@ interface HearingRealtimeHandlers {
   onHearingResumed?: (payload: any) => void;
   onHearingEnded?: (payload: any) => void;
   onHearingExtended?: (payload: any) => void;
+  onHearingTimeWarning?: (payload: any) => void;
+  onHearingFollowUpScheduled?: (payload: any) => void;
   onStatementSubmitted?: (payload: any) => void;
   onQuestionAsked?: (payload: any) => void;
   onQuestionAnswered?: (payload: any) => void;
@@ -89,6 +91,10 @@ export const useHearingRealtime = (
     const onHearingEnded = (p: any) => handlersRef.current?.onHearingEnded?.(p);
     const onHearingExtended = (p: any) =>
       handlersRef.current?.onHearingExtended?.(p);
+    const onHearingTimeWarning = (p: any) =>
+      handlersRef.current?.onHearingTimeWarning?.(p);
+    const onHearingFollowUpScheduled = (p: any) =>
+      handlersRef.current?.onHearingFollowUpScheduled?.(p);
     const onStatementSubmitted = (p: any) =>
       handlersRef.current?.onStatementSubmitted?.(p);
     const onQuestionAsked = (p: any) =>
@@ -125,6 +131,8 @@ export const useHearingRealtime = (
     socket.on("HEARING_RESUMED", onHearingResumed);
     socket.on("HEARING_ENDED", onHearingEnded);
     socket.on("HEARING_EXTENDED", onHearingExtended);
+    socket.on("HEARING_TIME_WARNING", onHearingTimeWarning);
+    socket.on("HEARING_FOLLOW_UP_SCHEDULED", onHearingFollowUpScheduled);
     socket.on("HEARING_STATEMENT_SUBMITTED", onStatementSubmitted);
     socket.on("HEARING_QUESTION_ASKED", onQuestionAsked);
     socket.on("HEARING_QUESTION_ANSWERED", onQuestionAnswered);
@@ -155,6 +163,8 @@ export const useHearingRealtime = (
       socket.off("HEARING_RESUMED", onHearingResumed);
       socket.off("HEARING_ENDED", onHearingEnded);
       socket.off("HEARING_EXTENDED", onHearingExtended);
+      socket.off("HEARING_TIME_WARNING", onHearingTimeWarning);
+      socket.off("HEARING_FOLLOW_UP_SCHEDULED", onHearingFollowUpScheduled);
       socket.off("HEARING_STATEMENT_SUBMITTED", onStatementSubmitted);
       socket.off("HEARING_QUESTION_ASKED", onQuestionAsked);
       socket.off("HEARING_QUESTION_ANSWERED", onQuestionAnswered);
