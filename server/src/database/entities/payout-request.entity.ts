@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
   ManyToOne,
   JoinColumn,
+  Index,
 } from 'typeorm';
 import { numericTransformer } from '../transformers/column-numeric.transformer';
 
@@ -16,11 +17,14 @@ export enum PayoutStatus {
   APPROVED = 'APPROVED',
   PROCESSING = 'PROCESSING',
   COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
   REJECTED = 'REJECTED',
   CANCELLED = 'CANCELLED',
 }
 
 @Entity('payout_requests')
+@Index(['walletId', 'requestedAt'])
+@Index(['status', 'requestedAt'])
 export class PayoutRequestEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -69,39 +73,45 @@ export class PayoutRequestEntity {
 
   // === APPROVAL WORKFLOW ===
   @Column({ type: 'timestamp', nullable: true })
-  approvedAt: Date;
+  approvedAt: Date | null;
 
-  @Column({ nullable: true })
-  approvedBy: string;
+  @Column({ type: 'uuid', nullable: true })
+  approvedBy: string | null;
 
   @Column({ type: 'timestamp', nullable: true })
-  rejectedAt: Date;
+  rejectedAt: Date | null;
 
-  @Column({ nullable: true })
-  rejectedBy: string;
+  @Column({ type: 'uuid', nullable: true })
+  rejectedBy: string | null;
 
   @Column({ type: 'text', nullable: true })
-  rejectionReason: string;
+  rejectionReason: string | null;
 
   // === PROCESSING ===
   @Column({ type: 'timestamp', nullable: true })
-  processedAt: Date;
+  processedAt: Date | null;
 
-  @Column({ nullable: true })
-  processedBy: string;
+  @Column({ type: 'text', nullable: true })
+  processedBy: string | null;
 
   @Column({ type: 'varchar', nullable: true })
-  externalReference: string; // Bank transfer reference number
+  externalReference: string | null; // Bank transfer reference number
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  errorCode: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  failureReason: string | null;
 
   // === LINK TO TRANSACTION ===
   @Column({ type: 'uuid', nullable: true })
-  transactionId: string; // Link to Transaction(WITHDRAWAL) when created
+  transactionId: string | null; // Link to Transaction(WITHDRAWAL) when created
 
   @Column({ type: 'text', nullable: true })
-  note: string;
+  note: string | null;
 
   @Column({ type: 'text', nullable: true })
-  adminNote: string;
+  adminNote: string | null;
 
   @CreateDateColumn()
   requestedAt: Date;
@@ -126,7 +136,4 @@ export class PayoutRequestEntity {
   @JoinColumn({ name: 'approvedBy' })
   approver: any;
 
-  @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
-  @JoinColumn({ name: 'processedBy' })
-  processor: any;
 }

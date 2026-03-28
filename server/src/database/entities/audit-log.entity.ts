@@ -17,8 +17,8 @@ export class AuditLogEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ name: 'actor_id', type: 'uuid' })
-  actorId: string;
+  @Column({ name: 'actor_id', type: 'uuid', nullable: true })
+  actorId: string | null;
 
   @Column({ length: 100 })
   action: string;
@@ -92,7 +92,7 @@ export class AuditLogEntity {
   createdAt: Date;
 
   // Relations
-  @ManyToOne(() => UserEntity, { onDelete: 'RESTRICT' })
+  @ManyToOne(() => UserEntity, { onDelete: 'RESTRICT', nullable: true })
   @JoinColumn({ name: 'actor_id' })
-  actor: UserEntity;
+  actor: UserEntity | null;
 }

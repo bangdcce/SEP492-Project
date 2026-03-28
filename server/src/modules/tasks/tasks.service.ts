@@ -14,10 +14,8 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as path from 'path';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
-import {
-  ProjectEntity,
-  ProjectStaffInviteStatus,
-} from '../../database/entities/project.entity';
+import { EscrowEntity } from '../../database/entities/escrow.entity';
+import { ProjectEntity } from '../../database/entities/project.entity';
 import { UserRole } from '../../database/entities/user.entity';
 import {
   CalendarEventEntity,
@@ -35,8 +33,8 @@ import { ReviewSubmissionDto } from './dto/review-submission.dto';
 import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 import { TasksRealtimeBridge } from './tasks.realtime';
 
-/**
- * Response type for submission review
+  /**
+   * Response type for submission review
  */
 export interface SubmissionReviewResult {
   submission: TaskSubmissionEntity;
@@ -54,9 +52,29 @@ export interface KanbanBoard {
   DONE: TaskEntity[];
 }
 
+export interface WorkspaceMilestoneEscrowSummary {
+  id: string;
+  status: string;
+  totalAmount: number;
+  fundedAmount: number;
+  releasedAmount: number;
+  developerShare: number;
+  brokerShare: number;
+  platformFee: number;
+  currency: string;
+  fundedAt: Date | null;
+  releasedAt: Date | null;
+  refundedAt: Date | null;
+  updatedAt: Date;
+}
+
+export interface WorkspaceMilestoneView extends MilestoneEntity {
+  escrow: WorkspaceMilestoneEscrowSummary | null;
+}
+
 export interface BoardWithMilestones {
   tasks: KanbanBoard;
-  milestones: MilestoneEntity[];
+  milestones: WorkspaceMilestoneView[];
 }
 
 export type KanbanStatus =
@@ -206,6 +224,8 @@ export class TasksService {
     private readonly taskRepository: Repository<TaskEntity>,
     @InjectRepository(MilestoneEntity)
     private readonly milestoneRepository: Repository<MilestoneEntity>,
+    @InjectRepository(EscrowEntity)
+    private readonly escrowRepository: Repository<EscrowEntity>,
     @InjectRepository(ProjectEntity)
     private readonly projectRepository: Repository<ProjectEntity>,
     @InjectRepository(CalendarEventEntity)
@@ -590,12 +610,12 @@ export class TasksService {
 
   /**
    * Review a task submission (Approve or Request Changes)
-   * Only CLIENT or STAFF users can review submissions
-   * 
+   * Only CLIENT or BROKER users can review submissions
+   *
    * Business Logic:
    * - If APPROVED: Task status → DONE
    * - If REQUEST_CHANGES: Task status → IN_PROGRESS (sent back to freelancer)
-   * 
+   *
    * @param taskId - Task ID
    * @param submissionId - Submission ID to review
    * @param dto - ReviewSubmissionDto with status and optional reviewNote
@@ -647,19 +667,15 @@ export class TasksService {
       if (project.clientId !== reviewerId) {
         throw new ForbiddenException('Only the project client can review submissions');
       }
-    } else if (normalizedReviewerRole === UserRole.STAFF) {
-      const isAssignedStaff =
-        project.staffId === reviewerId &&
-        project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED;
-
-      if (!isAssignedStaff) {
+    } else if (normalizedReviewerRole === UserRole.BROKER) {
+      if (project.brokerId !== reviewerId) {
         throw new ForbiddenException(
-          'Only the assigned staff reviewer can review submissions for this project',
+          'Only the assigned broker can review submissions for this project',
         );
       }
     } else {
       throw new ForbiddenException(
-        'Only the project client or assigned staff reviewer can review submissions',
+        'Only the project client or assigned broker can review submissions',
       );
     }
 
@@ -679,9 +695,7 @@ export class TasksService {
 
     if (dto.status === TaskSubmissionStatus.APPROVED) {
       newTaskStatus = TaskStatus.DONE;
-      this.logger.log(
-        `Submission ${submissionId} APPROVED → Task ${taskId} marked as DONE`,
-      );
+      this.logger.log(`Submission ${submissionId} APPROVED → Task ${taskId} marked as DONE`);
     } else {
       // REQUEST_CHANGES - send back to freelancer
       newTaskStatus = TaskStatus.IN_PROGRESS;
@@ -697,13 +711,7 @@ export class TasksService {
 
     // Step 6: Record history
     if (previousTaskStatus !== newTaskStatus) {
-      await this.createHistory(
-        taskId,
-        'status',
-        previousTaskStatus,
-        newTaskStatus,
-        reviewerId,
-      );
+      await this.createHistory(taskId, 'status', previousTaskStatus, newTaskStatus, reviewerId);
     }
 
     // Step 7: Refetch updated task
@@ -925,6 +933,16 @@ export class TasksService {
       order: { startDate: 'ASC', sortOrder: 'ASC', createdAt: 'ASC' },
     });
 
+    const escrows =
+      milestones.length > 0
+        ? await this.escrowRepository.find({
+            where: { milestoneId: In(milestones.map((milestone) => milestone.id)) },
+          })
+        : [];
+    const escrowMap = new Map(
+      escrows.map((escrow) => [escrow.milestoneId, this.toMilestoneEscrowSummary(escrow)]),
+    );
+
     // Group tasks by status
     const board: KanbanBoard = {
       TODO: [],
@@ -948,7 +966,28 @@ export class TasksService {
 
     return {
       tasks: board,
-      milestones,
+      milestones: milestones.map((milestone) => ({
+        ...milestone,
+        escrow: escrowMap.get(milestone.id) ?? null,
+      })),
+    };
+  }
+
+  private toMilestoneEscrowSummary(escrow: EscrowEntity): WorkspaceMilestoneEscrowSummary {
+    return {
+      id: escrow.id,
+      status: escrow.status,
+      totalAmount: Number(escrow.totalAmount || 0),
+      fundedAmount: Number(escrow.fundedAmount || 0),
+      releasedAmount: Number(escrow.releasedAmount || 0),
+      developerShare: Number(escrow.developerShare || 0),
+      brokerShare: Number(escrow.brokerShare || 0),
+      platformFee: Number(escrow.platformFee || 0),
+      currency: escrow.currency,
+      fundedAt: escrow.fundedAt || null,
+      releasedAt: escrow.releasedAt || null,
+      refundedAt: escrow.refundedAt || null,
+      updatedAt: escrow.updatedAt,
     };
   }
 

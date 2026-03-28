@@ -797,6 +797,8 @@ export class AuthService {
         companyName: updateProfileDto.companyName,
         skills: updateProfileDto.skills,
         portfolioLinks: updateProfileDto.portfolioLinks,
+        linkedinUrl: updateProfileDto.linkedinUrl,
+        cvUrl: updateProfileDto.cvUrl,
       });
       await this.profileRepository.save(profile);
     } else {

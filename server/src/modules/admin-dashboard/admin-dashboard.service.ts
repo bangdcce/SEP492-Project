@@ -1,10 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Between, In, Repository } from 'typeorm';
+import { Between, In, LessThanOrEqual, Like, Not, Repository } from 'typeorm';
 import {
   AuditLogEntity,
+  DisputeEntity,
+  DisputePriority,
+  DisputeStatus,
+  DisputeHearingEntity,
+  HearingStatus,
   EscrowEntity,
   EscrowStatus,
+  NotificationEntity,
   ProjectEntity,
   ProjectStatus,
   StaffPerformanceEntity,
@@ -12,11 +18,33 @@ import {
   UserEntity,
   UserRole,
 } from '../../database/entities';
+import { ASSIGNMENT_CONFIG } from '../disputes/services/staff-assignment.service';
 
 type DashboardRange = '7d' | '30d' | '90d';
 type AdminActionFamily = 'exports' | 'approvals' | 'userModeration' | 'reviewAudit' | 'other';
+type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE';
 
 const COMPLETED_PROJECT_STATUSES = [ProjectStatus.COMPLETED, ProjectStatus.PAID];
+const CLOSED_DISPUTE_STATUSES = [
+  DisputeStatus.RESOLVED,
+  DisputeStatus.REJECTED,
+  DisputeStatus.CANCELED,
+] as const;
+const ALERT_SEVERITY_ORDER: Record<AlertSeverity, number> = {
+  SEVERE: 5,
+  CRITICAL: 4,
+  HIGH: 3,
+  MEDIUM: 2,
+  LOW: 1,
+};
+const ADMIN_RISK_CONFIG = {
+  appealBacklogHigh: 3,
+  overturnRateHighPercent: 20,
+  overdueDisputeHigh: 1,
+  autoCloseIncidentHigh: 1,
+  followUpSchedulingFailureHigh: 1,
+  auditHighRiskBurst: 3,
+} as const;
 
 @Injectable()
 export class AdminDashboardService {
@@ -29,6 +57,12 @@ export class AdminDashboardService {
     private readonly escrowRepository: Repository<EscrowEntity>,
     @InjectRepository(AuditLogEntity)
     private readonly auditLogRepository: Repository<AuditLogEntity>,
+    @InjectRepository(DisputeEntity)
+    private readonly disputeRepository: Repository<DisputeEntity>,
+    @InjectRepository(DisputeHearingEntity)
+    private readonly hearingRepository: Repository<DisputeHearingEntity>,
+    @InjectRepository(NotificationEntity)
+    private readonly notificationRepository: Repository<NotificationEntity>,
     @InjectRepository(StaffPerformanceEntity)
     private readonly performanceRepository: Repository<StaffPerformanceEntity>,
     @InjectRepository(StaffWorkloadEntity)
@@ -58,6 +92,11 @@ export class AdminDashboardService {
       adminLogs,
       performanceRows,
       workloadRows,
+      overdueCriticalDisputes,
+      activeAppealsBacklog,
+      autoClosedHearings,
+      followUpSchedulingFailures,
+      followUpManualRequired,
     ] = await Promise.all([
       this.sumRevenueBetween(currentStart, now),
       this.sumRevenueBetween(previousStart, previousEnd),
@@ -114,11 +153,53 @@ export class AdminDashboardService {
           date: Between(currentStart, now),
         },
       }),
+      this.disputeRepository.count({
+        where: {
+          status: Not(In([...CLOSED_DISPUTE_STATUSES])),
+          resolutionDeadline: LessThanOrEqual(now),
+          priority: In([DisputePriority.HIGH, DisputePriority.CRITICAL]),
+        },
+      }),
+      this.disputeRepository.count({
+        where: {
+          status: DisputeStatus.APPEALED,
+        },
+      }),
+      this.hearingRepository.count({
+        where: {
+          status: HearingStatus.COMPLETED,
+          endedAt: Between(currentStart, now),
+          summary: Like('System auto-close:%'),
+        },
+      }),
+      this.notificationRepository.count({
+        where: {
+          createdAt: Between(currentStart, now),
+          title: 'Follow-up hearing scheduling failed',
+        },
+      }),
+      this.notificationRepository.count({
+        where: {
+          createdAt: Between(currentStart, now),
+          title: 'Follow-up hearing needs manual scheduling',
+        },
+      }),
     ]);
 
     const adminTeam = this.buildAdminTeam(adminUsers, adminLogs);
     const staffTeam = this.buildStaffTeam(staffUsers, performanceRows, workloadRows);
     const currentActiveStaff = staffTeam.members.filter((member) => member.isActive).length;
+    const criticalAlerts = this.buildCriticalAlerts({
+      adminLogs,
+      staffTeam,
+      performanceRows,
+      overdueCriticalDisputes,
+      activeAppealsBacklog,
+      autoClosedHearings,
+      followUpSchedulingFailures,
+      followUpManualRequired,
+    });
+    const riskMethodology = this.buildRiskMethodology(criticalAlerts);
 
     return {
       generatedAt: now.toISOString(),
@@ -165,6 +246,8 @@ export class AdminDashboardService {
           overloadedCount: staffTeam.members.filter((member) => member.isOverloaded).length,
         },
       },
+      criticalAlerts,
+      riskMethodology,
     };
   }
 
@@ -545,6 +628,199 @@ export class AdminDashboardService {
     const afterData = log.afterData as Record<string, unknown> | undefined;
     const security = afterData?._security_analysis as { riskLevel?: string } | undefined;
     return security?.riskLevel || 'NORMAL';
+  }
+
+  private buildCriticalAlerts(input: {
+    adminLogs: AuditLogEntity[];
+    staffTeam: ReturnType<AdminDashboardService['buildStaffTeam']>;
+    performanceRows: StaffPerformanceEntity[];
+    overdueCriticalDisputes: number;
+    activeAppealsBacklog: number;
+    autoClosedHearings: number;
+    followUpSchedulingFailures: number;
+    followUpManualRequired: number;
+  }) {
+    const alerts: Array<{
+      severity: AlertSeverity;
+      source: string;
+      title: string;
+      summary: string;
+      metricValue: number;
+      thresholdLabel: string;
+      actionUrl: string;
+      reason: string;
+    }> = [];
+
+    const highRiskAdminActions = input.adminLogs.filter((log) =>
+      ['HIGH', 'CRITICAL', 'SEVERE'].includes(this.getAuditRiskLevel(log).toUpperCase()),
+    ).length;
+    const overloadedCount = input.staffTeam.members.filter((member) => member.isOverloaded).length;
+    const backlogPendingCases = input.staffTeam.members.reduce(
+      (sum, member) => sum + member.pendingCases,
+      0,
+    );
+    const totalAppealed = input.performanceRows.reduce(
+      (sum, row) => sum + Number(row.totalAppealed || 0),
+      0,
+    );
+    const totalOverturned = input.performanceRows.reduce(
+      (sum, row) => sum + Number(row.totalOverturnedByAdmin || 0),
+      0,
+    );
+    const overturnRate =
+      totalAppealed > 0 ? Math.round((totalOverturned / totalAppealed) * 10000) / 100 : 0;
+
+    if (input.overdueCriticalDisputes >= ADMIN_RISK_CONFIG.overdueDisputeHigh) {
+      alerts.push({
+        severity: input.overdueCriticalDisputes >= 3 ? 'SEVERE' : 'CRITICAL',
+        source: 'DISPUTE_SLA',
+        title: 'Urgent disputes are overdue',
+        summary: `${input.overdueCriticalDisputes} high-priority dispute(s) passed their resolution deadline.`,
+        metricValue: input.overdueCriticalDisputes,
+        thresholdLabel: `>= ${ADMIN_RISK_CONFIG.overdueDisputeHigh} overdue high/critical disputes`,
+        actionUrl: '/staff/caseload',
+        reason:
+          'High and critical disputes past SLA indicate escalation risk and require immediate staffing attention.',
+      });
+    }
+
+    if (input.autoClosedHearings >= ADMIN_RISK_CONFIG.autoCloseIncidentHigh) {
+      alerts.push({
+        severity: input.autoClosedHearings >= 3 ? 'SEVERE' : 'HIGH',
+        source: 'HEARING_TIMEOUT',
+        title: 'Hearings auto-closed by timeout',
+        summary: `${input.autoClosedHearings} hearing(s) were system-closed after timeout in the selected range.`,
+        metricValue: input.autoClosedHearings,
+        thresholdLabel: `>= ${ADMIN_RISK_CONFIG.autoCloseIncidentHigh} auto-closed hearings`,
+        actionUrl: '/staff/hearings',
+        reason:
+          'Repeated auto-closure means hearings are overrunning without manual resolution, extension, or verdict control.',
+      });
+    }
+
+    if (
+      input.followUpSchedulingFailures >= ADMIN_RISK_CONFIG.followUpSchedulingFailureHigh ||
+      input.followUpManualRequired >= ADMIN_RISK_CONFIG.followUpSchedulingFailureHigh
+    ) {
+      const totalFollowUpRisk =
+        input.followUpSchedulingFailures + input.followUpManualRequired;
+      alerts.push({
+        severity: input.followUpSchedulingFailures > 0 ? 'SEVERE' : 'HIGH',
+        source: 'FOLLOW_UP_SCHEDULING',
+        title: 'Follow-up hearing scheduling needs intervention',
+        summary: `${totalFollowUpRisk} follow-up scheduling incident(s) need review (${input.followUpSchedulingFailures} failures, ${input.followUpManualRequired} manual-required).`,
+        metricValue: totalFollowUpRisk,
+        thresholdLabel: `>= ${ADMIN_RISK_CONFIG.followUpSchedulingFailureHigh} scheduling incident`,
+        actionUrl: '/staff/hearings',
+        reason:
+          'If unresolved disputes do not receive timely follow-up hearings, the case backlog and appeal exposure both increase.',
+      });
+    }
+
+    if (input.activeAppealsBacklog >= ADMIN_RISK_CONFIG.appealBacklogHigh) {
+      alerts.push({
+        severity: input.activeAppealsBacklog >= 6 ? 'SEVERE' : 'HIGH',
+        source: 'APPEAL_BACKLOG',
+        title: 'Appeal backlog is rising',
+        summary: `${input.activeAppealsBacklog} dispute appeal(s) are currently active and awaiting resolution.`,
+        metricValue: input.activeAppealsBacklog,
+        thresholdLabel: `>= ${ADMIN_RISK_CONFIG.appealBacklogHigh} active appeals`,
+        actionUrl: '/admin/dashboard',
+        reason:
+          'A growing appeal backlog is a direct signal of unresolved participant risk and delayed final outcomes.',
+      });
+    }
+
+    if (overturnRate >= ADMIN_RISK_CONFIG.overturnRateHighPercent) {
+      alerts.push({
+        severity: overturnRate >= 35 ? 'SEVERE' : 'HIGH',
+        source: 'VERDICT_QUALITY',
+        title: 'Overturn rate is above tolerance',
+        summary: `${overturnRate}% of appealed staff verdicts were overturned in the selected window.`,
+        metricValue: overturnRate,
+        thresholdLabel: `>= ${ADMIN_RISK_CONFIG.overturnRateHighPercent}% overturn rate`,
+        actionUrl: '/admin/dashboard',
+        reason:
+          'High overturn rate suggests staff adjudication quality or consistency is drifting from review standards.',
+      });
+    }
+
+    if (
+      overloadedCount > 0 ||
+      backlogPendingCases >= ASSIGNMENT_CONFIG.SHORTAGE_THRESHOLD * 5
+    ) {
+      alerts.push({
+        severity: overloadedCount >= 2 ? 'CRITICAL' : 'HIGH',
+        source: 'STAFF_CAPACITY',
+        title: 'Staff capacity is under pressure',
+        summary: `${overloadedCount} overloaded staff member(s) and ${backlogPendingCases} pending dispute case(s) are pressuring the queue.`,
+        metricValue: backlogPendingCases,
+        thresholdLabel: `utilization >= ${ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD}% or backlog spike`,
+        actionUrl: '/staff/caseload',
+        reason:
+          'Capacity pressure raises the probability of delayed hearings, rushed reviews, and missed SLA windows.',
+      });
+    }
+
+    if (highRiskAdminActions >= ADMIN_RISK_CONFIG.auditHighRiskBurst) {
+      alerts.push({
+        severity: highRiskAdminActions >= 5 ? 'SEVERE' : 'HIGH',
+        source: 'ADMIN_AUDIT',
+        title: 'High-risk admin actions detected',
+        summary: `${highRiskAdminActions} high-risk admin audit event(s) were recorded in the selected range.`,
+        metricValue: highRiskAdminActions,
+        thresholdLabel: `>= ${ADMIN_RISK_CONFIG.auditHighRiskBurst} high-risk audit events`,
+        actionUrl: '/admin/audit-logs',
+        reason:
+          'A burst of high-risk admin actions should be reviewed immediately for governance and misuse exposure.',
+      });
+    }
+
+    return alerts.sort(
+      (left, right) =>
+        ALERT_SEVERITY_ORDER[right.severity] - ALERT_SEVERITY_ORDER[left.severity],
+    );
+  }
+
+  private buildRiskMethodology(
+    criticalAlerts: Array<{
+      severity: AlertSeverity;
+      source: string;
+      title: string;
+      summary: string;
+      metricValue: number;
+      thresholdLabel: string;
+      actionUrl: string;
+      reason: string;
+    }>,
+  ) {
+    return {
+      generatedAt: new Date().toISOString(),
+      scoringWeights: {
+        workload: ASSIGNMENT_CONFIG.WORKLOAD_WEIGHT,
+        performance: ASSIGNMENT_CONFIG.PERFORMANCE_WEIGHT,
+        fairness: ASSIGNMENT_CONFIG.FAIRNESS_WEIGHT,
+      },
+      thresholds: {
+        maxUtilizationRate: ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE,
+        overloadedThreshold: ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD,
+        staffShortageThreshold: ASSIGNMENT_CONFIG.SHORTAGE_THRESHOLD,
+        appealBacklogHigh: ADMIN_RISK_CONFIG.appealBacklogHigh,
+        overturnRateHighPercent: ADMIN_RISK_CONFIG.overturnRateHighPercent,
+        overdueDisputeHigh: ADMIN_RISK_CONFIG.overdueDisputeHigh,
+        autoCloseIncidentHigh: ADMIN_RISK_CONFIG.autoCloseIncidentHigh,
+        followUpSchedulingFailureHigh: ADMIN_RISK_CONFIG.followUpSchedulingFailureHigh,
+        auditHighRiskBurst: ADMIN_RISK_CONFIG.auditHighRiskBurst,
+      },
+      activeSignals: criticalAlerts.map((alert) => ({
+        severity: alert.severity,
+        source: alert.source,
+        title: alert.title,
+        metricValue: alert.metricValue,
+        thresholdLabel: alert.thresholdLabel,
+        whyRanked: alert.reason,
+      })),
+    };
   }
 
   private createBuckets(range: DashboardRange, start: Date, end: Date) {

@@ -6,27 +6,24 @@ import { projectRequestsApi } from './api';
 import type { ProjectRequest } from './types';
 import { Loader2, Search } from 'lucide-react';
 import { KYCBlocker, useKYCStatus } from '@/shared/components/custom/KYCBlocker';
-import { STORAGE_KEYS } from '@/constants';
-import { getStoredJson } from '@/shared/utils/storage';
 import { Card, CardContent, CardHeader, CardTitle } from '@/shared/components/ui/card';
 import { Input } from '@/shared/components/ui/input';
 import { Badge } from '@/shared/components/ui/badge';
 import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
 import toast from 'react-hot-toast';
+import { useCurrentUser } from '@/shared/hooks/useCurrentUser';
 
 export const BrokerProjectsPage: React.FC = () => {
   const location = useLocation();
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [loading, setLoading] = useState(true);
-  const [user, setUser] = useState<any>(null);
   const [kycStatus, setKycStatus] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [upgradeModalData, setUpgradeModalData] = useState<any>(null);
   const { checkKycStatus } = useKYCStatus();
+  const user = useCurrentUser<{ id?: string; role?: string }>();
 
   useEffect(() => {
-    setUser(getStoredJson(STORAGE_KEYS.USER));
-    
     // Check KYC status
     checkKycStatus().then(setKycStatus);
   }, [checkKycStatus]);

@@ -7,6 +7,7 @@ import {
   IsInt,
   IsNotEmpty,
   IsNumber,
+  IsObject,
   IsOptional,
   IsString,
   IsUUID,
@@ -141,4 +142,73 @@ export class UpdateContractDraftDto {
   @ValidateNested({ each: true })
   @Type(() => UpdateContractDraftMilestoneDto)
   milestoneSnapshot?: UpdateContractDraftMilestoneDto[];
+}
+
+export class CreateSignatureSessionDto {
+  @ApiProperty({
+    description: 'Legal signature provider code',
+    example: 'VN_CA_SANDBOX',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  @MinLength(2)
+  @MaxLength(120)
+  provider?: string;
+}
+
+export class SignatureProviderWebhookDto {
+  @ApiProperty({
+    description: 'Contract identifier',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @IsUUID()
+  @IsNotEmpty()
+  contractId: string;
+
+  @ApiProperty({
+    description: 'Provider session identifier',
+    required: false,
+    example: 'sigsess_123456',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  providerSessionId?: string;
+
+  @ApiProperty({
+    description: 'Provider status',
+    example: 'VERIFIED',
+  })
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  status: string;
+
+  @ApiProperty({
+    description: 'Certificate serial returned by provider',
+    required: false,
+    example: 'CA-2026-000001',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  certificateSerial?: string;
+
+  @ApiProperty({
+    description: 'Verification timestamp',
+    required: false,
+  })
+  @IsOptional()
+  @IsDateString()
+  verifiedAt?: string;
+
+  @ApiProperty({
+    description: 'Provider payload/evidence',
+    required: false,
+    type: Object,
+  })
+  @IsOptional()
+  @IsObject()
+  evidence?: Record<string, unknown>;
 }

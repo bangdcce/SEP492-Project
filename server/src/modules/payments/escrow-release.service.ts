@@ -10,6 +10,7 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import {
   EscrowEntity,
   EscrowStatus,
+  FundingGateway,
   MilestoneEntity,
   MilestoneStatus,
   ProjectEntity,
@@ -21,7 +22,13 @@ import {
   UserStatus,
   WalletEntity,
 } from '../../database/entities';
-import { MilestoneReleaseRecipientView, MilestoneReleaseResult } from './payments.types';
+import {
+  EscrowRefundResult,
+  EscrowRefundMode,
+  MilestoneReleaseRecipientView,
+  MilestoneReleaseResult,
+} from './payments.types';
+import { PayPalCheckoutService } from './pay-pal-checkout.service';
 import { WalletService } from './wallet.service';
 
 export interface EscrowFullReleasePlan {
@@ -47,6 +54,7 @@ export class EscrowReleaseService {
     private readonly userRepository: Repository<UserEntity>,
     private readonly dataSource: DataSource,
     private readonly walletService: WalletService,
+    private readonly payPalCheckoutService: PayPalCheckoutService,
   ) {}
 
   async buildFullReleasePlanForMilestone(
@@ -69,6 +77,22 @@ export class EscrowReleaseService {
 
     return this.dataSource.transaction((transactionManager) =>
       this.releaseWithinManager(milestoneId, approvedBy, transactionManager),
+    );
+  }
+
+  async refundCancelledEscrow(
+    project: ProjectEntity,
+    milestone: MilestoneEntity,
+    escrow: EscrowEntity,
+    cancelledBy: string,
+    manager?: EntityManager,
+  ): Promise<EscrowRefundResult> {
+    if (manager) {
+      return this.refundWithinManager(project, milestone, escrow, cancelledBy, manager);
+    }
+
+    return this.dataSource.transaction((transactionManager) =>
+      this.refundWithinManager(project, milestone, escrow, cancelledBy, transactionManager),
     );
   }
 
@@ -375,6 +399,207 @@ export class EscrowReleaseService {
       clientWalletSnapshot: this.walletService.toWalletSnapshot(clientWallet),
       releaseTransactionIds: relatedReleaseIds,
       recipients,
+    };
+  }
+
+  private async refundWithinManager(
+    project: ProjectEntity,
+    milestone: MilestoneEntity,
+    escrow: EscrowEntity,
+    cancelledBy: string,
+    manager: EntityManager,
+  ): Promise<EscrowRefundResult> {
+    if (escrow.projectId !== project.id) {
+      throw new ConflictException(
+        `Escrow ${escrow.id} does not belong to project ${project.id}`,
+      );
+    }
+
+    if (escrow.milestoneId !== milestone.id) {
+      throw new ConflictException(
+        `Escrow ${escrow.id} does not belong to milestone ${milestone.id}`,
+      );
+    }
+
+    if (escrow.status === EscrowStatus.RELEASED || escrow.status === EscrowStatus.REFUNDED) {
+      throw new BadRequestException(`Escrow ${escrow.id} is already ${escrow.status}`);
+    }
+
+    if (escrow.status === EscrowStatus.DISPUTED) {
+      throw new BadRequestException('Disputed escrow cannot be refunded');
+    }
+
+    if (escrow.status !== EscrowStatus.FUNDED) {
+      throw new BadRequestException(`Escrow ${escrow.id} must be FUNDED before refund`);
+    }
+
+    const refundAmount = new Decimal(escrow.fundedAmount || escrow.totalAmount || 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+    if (refundAmount.lessThanOrEqualTo(0)) {
+      throw new ConflictException(`Escrow ${escrow.id} has no refundable balance`);
+    }
+
+    const currency = escrow.currency || project.currency || 'USD';
+    const clientWallet = await this.walletService.getOrCreateWallet(
+      project.clientId,
+      currency,
+      manager,
+    );
+    const heldBalance = new Decimal(clientWallet.heldBalance || 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+    if (heldBalance.lessThan(refundAmount)) {
+      throw new ConflictException(
+        `Client wallet held balance is insufficient for refund. Held ${heldBalance.toFixed(2)}, needed ${refundAmount.toFixed(2)}.`,
+      );
+    }
+
+    const providerRefund = await this.resolveRefundExecution(
+      project,
+      milestone,
+      escrow,
+      refundAmount.toNumber(),
+      currency,
+      manager,
+    );
+    const now = new Date();
+    if (providerRefund.creditedToInternalWallet) {
+      clientWallet.balance = new Decimal(clientWallet.balance || 0)
+        .plus(refundAmount)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
+    }
+    clientWallet.heldBalance = heldBalance
+      .minus(refundAmount)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toNumber();
+    await manager.getRepository(WalletEntity).save(clientWallet);
+
+    const transactionRepo = manager.getRepository(TransactionEntity);
+    const refundTransaction = await transactionRepo.save(
+      transactionRepo.create({
+        walletId: clientWallet.id,
+        amount: refundAmount.toNumber(),
+        fee: 0,
+        netAmount: providerRefund.creditedToInternalWallet ? refundAmount.toNumber() : 0,
+        currency,
+        type: TransactionType.REFUND,
+        status: TransactionStatus.COMPLETED,
+        referenceType: 'Escrow',
+        referenceId: escrow.id,
+        paymentMethod: providerRefund.paymentMethod,
+        externalTransactionId: providerRefund.externalRefundReference,
+        description: providerRefund.refundMode === 'PAYPAL_CAPTURE_REFUND'
+          ? `PayPal refund for canceled project milestone "${milestone.title}"`
+          : `Escrow refund for canceled project milestone "${milestone.title}"`,
+        balanceAfter: clientWallet.balance,
+        initiatedBy: 'system',
+        relatedTransactionId: escrow.holdTransactionId || null,
+        completedAt: now,
+        metadata: {
+          milestoneId: milestone.id,
+          projectId: project.id,
+          cancelledBy,
+          stage: 'refund',
+          sourceWalletId: clientWallet.id,
+          holdTransactionId: escrow.holdTransactionId || null,
+          refundMode: providerRefund.refundMode,
+          creditedToInternalWallet: providerRefund.creditedToInternalWallet,
+          externalRefundReference: providerRefund.externalRefundReference,
+          providerCaptureId: providerRefund.providerCaptureId,
+          providerStatus: providerRefund.providerStatus,
+        },
+      }),
+    );
+
+    escrow.status = EscrowStatus.REFUNDED;
+    escrow.fundedAmount = refundAmount.toNumber();
+    escrow.releasedAmount = 0;
+    escrow.clientApproved = false;
+    escrow.clientApprovedAt = null;
+    escrow.refundedAt = now;
+    escrow.refundTransactionId = refundTransaction.id;
+    escrow.clientWalletId = clientWallet.id;
+    await manager.getRepository(EscrowEntity).save(escrow);
+
+    return {
+      milestoneId: milestone.id,
+      escrowId: escrow.id,
+      escrowStatus: escrow.status,
+      refundedAmount: refundAmount.toNumber(),
+      refundMode: providerRefund.refundMode,
+      externalRefundReference: providerRefund.externalRefundReference,
+      creditedToInternalWallet: providerRefund.creditedToInternalWallet,
+      clientWalletSnapshot: this.walletService.toWalletSnapshot(clientWallet),
+      refundTransactionId: refundTransaction.id,
+    };
+  }
+
+  private async resolveRefundExecution(
+    project: ProjectEntity,
+    milestone: MilestoneEntity,
+    escrow: EscrowEntity,
+    refundAmount: number,
+    currency: string,
+    manager: EntityManager,
+  ): Promise<{
+    refundMode: EscrowRefundMode;
+    externalRefundReference: string | null;
+    creditedToInternalWallet: boolean;
+    paymentMethod: string | null;
+    providerCaptureId: string | null;
+    providerStatus: string | null;
+  }> {
+    if (!escrow.holdTransactionId) {
+      return {
+        refundMode: 'INTERNAL_LEDGER',
+        externalRefundReference: null,
+        creditedToInternalWallet: true,
+        paymentMethod: null,
+        providerCaptureId: null,
+        providerStatus: null,
+      };
+    }
+
+    const holdTransaction = await manager.getRepository(TransactionEntity).findOne({
+      where: { id: escrow.holdTransactionId },
+    });
+    const gateway =
+      holdTransaction?.metadata
+      && typeof holdTransaction.metadata === 'object'
+      && typeof holdTransaction.metadata.gateway === 'string'
+        ? holdTransaction.metadata.gateway
+        : null;
+    const providerCaptureId = holdTransaction?.externalTransactionId?.trim() || null;
+
+    if (gateway !== FundingGateway.PAYPAL || !providerCaptureId) {
+      return {
+        refundMode: 'INTERNAL_LEDGER',
+        externalRefundReference: null,
+        creditedToInternalWallet: true,
+        paymentMethod: holdTransaction?.paymentMethod || null,
+        providerCaptureId,
+        providerStatus: null,
+      };
+    }
+
+    const providerRefund = await this.payPalCheckoutService.refundCapture({
+      captureId: providerCaptureId,
+      currency,
+      amount: refundAmount,
+      requestId: `escrow-${escrow.id}-cancel-refund`,
+    });
+
+    return {
+      refundMode: 'PAYPAL_CAPTURE_REFUND',
+      externalRefundReference: providerRefund.refundId,
+      creditedToInternalWallet: false,
+      paymentMethod: holdTransaction?.paymentMethod || 'PAYPAL_ACCOUNT',
+      providerCaptureId,
+      providerStatus: providerRefund.status,
     };
   }
 

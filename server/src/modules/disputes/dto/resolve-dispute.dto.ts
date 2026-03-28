@@ -82,7 +82,7 @@ export class ResolveDisputeDto {
    */
   @IsOptional()
   @IsNumber()
-  @Min(0)
-  @Max(100)
+  @Min(1)
+  @Max(99)
   splitRatioClient?: number;
 }

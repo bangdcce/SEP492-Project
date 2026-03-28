@@ -54,6 +54,20 @@ export const contractsApi = {
     return apiClient.post(`/contracts/${id}/discard`, {});
   },
 
+  cancelProject: (
+    projectId: string,
+  ): Promise<{
+    projectId: string;
+    status: string;
+    totalRefundedAmount: number;
+    refundModeSummary: "NONE" | "INTERNAL_LEDGER" | "PAYPAL_CAPTURE_REFUND" | "MIXED";
+    lockedMilestonesCount: number;
+    blockedTasksCount: number;
+    message: string;
+  }> => {
+    return apiClient.post(`/projects/${projectId}/cancel`, {});
+  },
+
   signContract: (
     id: string,
     contentHash: string,
@@ -76,6 +90,24 @@ export const contractsApi = {
     warning?: string;
   }> => {
     return apiClient.post(`/contracts/activate/${id}`, {});
+  },
+
+  createSignatureSession: (
+    id: string,
+    provider?: string,
+  ): Promise<{
+    contractId: string;
+    provider: string;
+    sessionId: string | null;
+    status: string;
+    callbackPath: string;
+    contentHash?: string | null;
+    verifiedAt?: string | null;
+    certificateSerial?: string | null;
+  }> => {
+    return apiClient.post(`/contracts/${id}/signature-sessions`, {
+      provider,
+    });
   },
 
   downloadPdf: async (id: string): Promise<ArrayBuffer> => {

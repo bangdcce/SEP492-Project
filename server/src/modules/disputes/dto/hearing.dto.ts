@@ -18,6 +18,7 @@ import {
 } from 'class-validator';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
+import { coerceExternalMeetingLinkForValidation } from '../../../common/utils/external-meeting-link.util';
 import {
   SpeakerRole,
   HearingTier,
@@ -25,6 +26,7 @@ import {
   HearingParticipantRole,
   DisputePhase,
 } from 'src/database/entities';
+import { FollowUpActionDto, TransformFollowUpActions } from './follow-up-action.dto';
 
 /**
  * DTO ?? len l?ch phien ?i?u tr?n
@@ -58,9 +60,15 @@ export class ScheduleHearingDto {
   @IsOptional()
   tier?: HearingTier; // Default: TIER_1 (Staff)
 
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }) => coerceExternalMeetingLinkForValidation(value))
   @ValidateIf((_, value) => typeof value === 'string' && value.length > 0)
-  @IsUrl({ require_protocol: true }, { message: 'externalMeetingLink must be a valid absolute URL' })
+  @IsUrl(
+    { require_protocol: true, protocols: ['http', 'https'] },
+    {
+      message:
+        'externalMeetingLink must be a valid URL. Google Meet links must use a code like abc-defg-hij.',
+    },
+  )
   @MaxLength(500)
   externalMeetingLink?: string; // Link Google Meet/Zoom n?u c?n video call
 
@@ -108,10 +116,12 @@ export class UpdateHearingStatusDto {
   @IsNotEmpty()
   findings: string;
 
+  @TransformFollowUpActions()
   @IsArray()
-  @IsString({ each: true })
+  @ValidateNested({ each: true })
+  @Type(() => FollowUpActionDto)
   @IsOptional()
-  pendingActions?: string[];
+  pendingActions?: FollowUpActionDto[];
 
   @IsString()
   @MaxLength(2000)
@@ -295,10 +305,12 @@ export class EndHearingDto {
   @IsNotEmpty()
   findings: string;
 
+  @TransformFollowUpActions()
   @IsArray()
-  @IsString({ each: true })
+  @ValidateNested({ each: true })
+  @Type(() => FollowUpActionDto)
   @IsOptional()
-  pendingActions?: string[];
+  pendingActions?: FollowUpActionDto[];
 
   @IsString()
   @MaxLength(2000)
@@ -338,9 +350,15 @@ export class RescheduleHearingDto {
   @IsOptional()
   requiredDocuments?: string[];
 
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  @Transform(({ value }) => coerceExternalMeetingLinkForValidation(value))
   @ValidateIf((_, value) => typeof value === 'string' && value.length > 0)
-  @IsUrl({ require_protocol: true }, { message: 'externalMeetingLink must be a valid absolute URL' })
+  @IsUrl(
+    { require_protocol: true, protocols: ['http', 'https'] },
+    {
+      message:
+        'externalMeetingLink must be a valid URL. Google Meet links must use a code like abc-defg-hij.',
+    },
+  )
   @MaxLength(500)
   externalMeetingLink?: string;
 

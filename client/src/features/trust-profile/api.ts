@@ -7,6 +7,7 @@ import { apiClient } from "@/shared/api/client";
 import type {
   CreateReviewPayload,
   CreateReportPayload,
+  TrustProfileResponse,
   Review,
   ReviewEditHistoryEntry,
 } from "./types";
@@ -16,6 +17,10 @@ import type {
  */
 export const createReview = async (payload: CreateReviewPayload) => {
   return apiClient.post<Review>("/reviews", payload);
+};
+
+export const getTrustProfile = async (userId: string) => {
+  return apiClient.get<TrustProfileResponse>(`/trust-profiles/${userId}`);
 };
 
 /**

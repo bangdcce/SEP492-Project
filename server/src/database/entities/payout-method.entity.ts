@@ -11,8 +11,14 @@ import {
   Index,
 } from 'typeorm';
 
+export enum PayoutMethodType {
+  BANK_ACCOUNT = 'BANK_ACCOUNT',
+  PAYPAL_EMAIL = 'PAYPAL_EMAIL',
+}
+
 @Entity('payout_methods')
 @Index(['userId'])
+@Index(['userId', 'type'])
 export class PayoutMethodEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -20,20 +26,34 @@ export class PayoutMethodEntity {
   @Column()
   userId: string;
 
-  @Column({ type: 'varchar', length: 100 })
-  bankName: string; // Vietcombank, Techcombank
-
-  @Column({ type: 'varchar', length: 20, nullable: true })
-  bankCode: string; // VCB, TCB (cho BIN lookup)
-
-  @Column({ type: 'varchar', length: 30 })
-  accountNumber: string;
-
   @Column({ type: 'varchar', length: 255 })
-  accountHolderName: string;
+  displayName: string;
+
+  @Column({
+    type: 'enum',
+    enum: PayoutMethodType,
+    enumName: 'payout_methods_type_enum',
+    default: PayoutMethodType.BANK_ACCOUNT,
+  })
+  type: PayoutMethodType;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  paypalEmail: string | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
-  branchName: string;
+  bankName: string | null; // Vietcombank, Techcombank
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  bankCode: string | null; // VCB, TCB (cho BIN lookup)
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  accountNumber: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  accountHolderName: string | null;
+
+  @Column({ type: 'varchar', length: 100, nullable: true })
+  branchName: string | null;
 
   @Column({ default: false })
   isDefault: boolean; // Tài khoản mặc định để rút
@@ -42,7 +62,7 @@ export class PayoutMethodEntity {
   isVerified: boolean; // Đã xác minh (test transfer 1000đ)
 
   @Column({ type: 'timestamp', nullable: true })
-  verifiedAt: Date;
+  verifiedAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

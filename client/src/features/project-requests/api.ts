@@ -24,4 +24,35 @@ export const projectRequestsApi = {
       { coverLetter }
     );
   },
+
+  createCommercialChangeRequest: (
+    id: string,
+    payload: {
+      proposedBudget: number;
+      proposedTimeline?: string;
+      proposedClientFeatures?: Array<{
+        title: string;
+        description: string;
+        priority?: "MUST_HAVE" | "SHOULD_HAVE" | "NICE_TO_HAVE" | null;
+      }>;
+      reason: string;
+      parentSpecId?: string;
+    },
+  ) => {
+    return apiClient.post<ProjectRequest>(
+      `/project-requests/${id}/commercial-change-requests`,
+      payload,
+    );
+  },
+
+  respondCommercialChangeRequest: (
+    id: string,
+    changeRequestId: string,
+    payload: { action: "APPROVE" | "REJECT"; note?: string },
+  ) => {
+    return apiClient.post<ProjectRequest>(
+      `/project-requests/${id}/commercial-change-requests/${changeRequestId}/respond`,
+      payload,
+    );
+  },
 };

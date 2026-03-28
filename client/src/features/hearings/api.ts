@@ -26,6 +26,7 @@ import type {
   HearingVerdictInput,
   VerdictReadiness,
 } from "./types";
+import { coerceExternalMeetingLinkInput } from "./utils/externalMeetingLink";
 
 type ApiEnvelope<T> = {
   success?: boolean;
@@ -49,7 +50,12 @@ export const scheduleHearing = async (
 ): Promise<HearingScheduleResult> => {
   const response = await apiClient.post<ApiEnvelope<HearingScheduleResult>>(
     "/disputes/hearings/schedule",
-    input,
+    {
+      ...input,
+      externalMeetingLink: coerceExternalMeetingLinkInput(
+        input.externalMeetingLink,
+      ),
+    },
   );
   return unwrapData<HearingScheduleResult>(response);
 };
@@ -94,7 +100,9 @@ export const rescheduleHearing = async (
       estimatedDurationMinutes: input.estimatedDurationMinutes,
       agenda: input.agenda,
       requiredDocuments: input.requiredDocuments,
-      externalMeetingLink: input.externalMeetingLink,
+      externalMeetingLink: coerceExternalMeetingLinkInput(
+        input.externalMeetingLink,
+      ),
       isEmergency: input.isEmergency,
     },
   );

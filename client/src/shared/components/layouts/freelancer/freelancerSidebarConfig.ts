@@ -13,9 +13,11 @@ import {
   Briefcase,
   User,
   Video,
+  Scale,
   ShieldCheck,
   FileSignature,
   FolderOpen,
+  WalletCards,
   CreditCard,
 } from "lucide-react";
 
@@ -95,6 +97,14 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     section: "workspace",
   },
   {
+    id: "disputes",
+    label: "Disputes",
+    icon: Scale,
+    path: "/freelancer/disputes",
+    description: "Track dispute history, verdicts, and appeals",
+    section: "workspace",
+  },
+  {
     id: "contracts",
     label: "Contracts",
     icon: FileSignature,
@@ -116,6 +126,14 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     icon: ShieldCheck,
     path: "/freelancer/kyc-status",
     description: "Verify your identity",
+    section: "account",
+  },
+  {
+    id: "billing",
+    label: "Earnings Wallet",
+    icon: WalletCards,
+    path: "/freelancer/billing",
+    description: "Track released earnings and wallet history",
     section: "account",
   },
   {

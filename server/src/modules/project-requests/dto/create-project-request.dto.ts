@@ -33,10 +33,15 @@ export class ProjectRequestAttachmentDto {
   @IsString()
   filename: string;
 
-  @ApiProperty()
-  @IsNotEmpty()
+  @ApiPropertyOptional()
+  @IsOptional()
   @IsString()
-  url: string;
+  url?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  storagePath?: string;
 
   @ApiPropertyOptional()
   @IsOptional()
@@ -76,6 +81,11 @@ export class CreateProjectRequestDto {
   @IsOptional()
   @IsString()
   intendedTimeline?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @IsString()
+  requestedDeadline?: string;
 
   @ApiPropertyOptional()
   @IsOptional()

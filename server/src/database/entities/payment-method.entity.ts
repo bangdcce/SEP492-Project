@@ -11,6 +11,7 @@ import {
 
 export enum PaymentMethodType {
   PAYPAL_ACCOUNT = 'PAYPAL_ACCOUNT',
+  CARD_ACCOUNT = 'CARD_ACCOUNT',
   BANK_ACCOUNT = 'BANK_ACCOUNT',
 }
 
@@ -34,6 +35,21 @@ export class PaymentMethodEntity {
 
   @Column({ type: 'varchar', length: 255, nullable: true })
   paypalEmail: string | null;
+
+  @Column({ type: 'varchar', length: 50, nullable: true })
+  cardBrand: string | null;
+
+  @Column({ type: 'varchar', length: 4, nullable: true })
+  cardLast4: string | null;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
+  cardholderName: string | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  cardExpiryMonth: number | null;
+
+  @Column({ type: 'smallint', nullable: true })
+  cardExpiryYear: number | null;
 
   @Column({ type: 'varchar', length: 100, nullable: true })
   bankName: string | null;

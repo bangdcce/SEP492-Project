@@ -10,6 +10,7 @@ import {
   DisputeLedgerEntity,
   HearingStatus,
   HearingReminderType,
+  NotificationEntity,
 } from 'src/database/entities';
 import { DISPUTE_EVENTS } from './dispute.events';
 import { DisputeGateway } from '../gateways/dispute.gateway';
@@ -28,11 +29,194 @@ export class DisputeEventListener {
     private readonly hearingRepo: Repository<DisputeHearingEntity>,
     @InjectRepository(DisputeLedgerEntity)
     private readonly ledgerRepo: Repository<DisputeLedgerEntity>,
+    @InjectRepository(NotificationEntity)
+    private readonly notificationRepo: Repository<NotificationEntity>,
     private readonly staffAssignmentService: StaffAssignmentService,
     private readonly disputesService: DisputesService,
     private readonly verdictService: VerdictService,
     private readonly gateway: DisputeGateway,
   ) {}
+
+  private async createNotifications(
+    userIds: string[],
+    title: string,
+    body: string,
+    relatedType?: string,
+    relatedId?: string,
+  ): Promise<void> {
+    const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      return;
+    }
+
+    const notifications = uniqueIds.map((userId) =>
+      this.notificationRepo.create({
+        userId,
+        title,
+        body,
+        relatedType,
+        relatedId,
+      }),
+    );
+
+    try {
+      const savedNotifications = await this.notificationRepo.save(notifications);
+      savedNotifications.forEach((notification) => {
+        this.gateway.emitUserEvent(notification.userId, 'NOTIFICATION_CREATED', {
+          notification,
+          serverTimestamp: this.toIsoString(),
+        });
+      });
+    } catch (error) {
+      this.logger.warn(
+        `Failed to persist notifications for ${uniqueIds.length} users: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+    }
+  }
+
+  private async emitFollowUpScheduled(payload: {
+    disputeId: string;
+    previousHearingId: string;
+    nextHearingId?: string | null;
+    scheduledAt?: Date | null;
+    manualRequired: boolean;
+    reason?: string | null;
+    closureReason?: string | null;
+  }): Promise<void> {
+    const eventPayload = {
+      disputeId: payload.disputeId,
+      previousHearingId: payload.previousHearingId,
+      nextHearingId: payload.nextHearingId || null,
+      scheduledAt: payload.scheduledAt || null,
+      manualRequired: payload.manualRequired,
+      reason: payload.reason || null,
+      closureReason: payload.closureReason || null,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    this.gateway.emitHearingEvent(payload.previousHearingId, 'HEARING_FOLLOW_UP_SCHEDULED', eventPayload);
+    this.gateway.emitDisputeEvent(payload.disputeId, 'HEARING_FOLLOW_UP_SCHEDULED', eventPayload);
+    this.gateway.emitStaffDashboardEvent('HEARING_FOLLOW_UP_SCHEDULED', eventPayload);
+
+    await this.appendLedger(payload.disputeId, 'HEARING_FOLLOW_UP_SCHEDULED', {
+      metadata: {
+        previousHearingId: payload.previousHearingId,
+        nextHearingId: payload.nextHearingId || null,
+        scheduledAt: payload.scheduledAt ? this.toIsoString(payload.scheduledAt) : null,
+        manualRequired: payload.manualRequired,
+        reason: payload.reason || null,
+        closureReason: payload.closureReason || null,
+      },
+    });
+  }
+
+  private async scheduleFollowUpIfNeeded(payload: {
+    hearingId: string;
+    disputeId: string;
+    moderatorId?: string | null;
+    endedById?: string | null;
+    closureReason?: string | null;
+  }): Promise<void> {
+    const dispute = await this.disputeRepo.findOne({
+      where: { id: payload.disputeId },
+      select: ['id', 'status', 'assignedStaffId', 'escalatedToAdminId', 'raisedById'],
+    });
+
+    if (!dispute) {
+      return;
+    }
+
+    if (
+      [DisputeStatus.RESOLVED, DisputeStatus.REJECTED, DisputeStatus.CANCELED].includes(
+        dispute.status,
+      )
+    ) {
+      return;
+    }
+
+    const verdict = await this.verdictService.getVerdictByDisputeId(dispute.id);
+    if (verdict) {
+      return;
+    }
+
+    const existingActive = await this.hearingRepo.findOne({
+      where: {
+        disputeId: dispute.id,
+        status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS, HearingStatus.PAUSED]),
+      },
+      select: ['id', 'scheduledAt', 'createdAt'],
+      order: { createdAt: 'DESC' },
+    });
+
+    if (existingActive) {
+      await this.emitFollowUpScheduled({
+        disputeId: dispute.id,
+        previousHearingId: payload.hearingId,
+        nextHearingId: existingActive.id,
+        scheduledAt: existingActive.scheduledAt,
+        manualRequired: false,
+        closureReason: payload.closureReason || null,
+      });
+      return;
+    }
+
+    const triggerActorId =
+      payload.endedById || dispute.assignedStaffId || dispute.escalatedToAdminId || dispute.raisedById;
+
+    if (!triggerActorId) {
+      return;
+    }
+
+    try {
+      const followUp = await this.disputesService.escalateToHearing(dispute.id, triggerActorId);
+      const reason = followUp.reason || followUp.fallbackReason || null;
+
+      await this.emitFollowUpScheduled({
+        disputeId: dispute.id,
+        previousHearingId: payload.hearingId,
+        nextHearingId: followUp.hearingId || null,
+        scheduledAt: followUp.scheduledAt || null,
+        manualRequired: followUp.manualRequired,
+        reason,
+        closureReason: payload.closureReason || null,
+      });
+
+      if (followUp.manualRequired) {
+        const recipients = [
+          dispute.assignedStaffId,
+          dispute.escalatedToAdminId,
+          payload.moderatorId,
+        ].filter((value): value is string => Boolean(value));
+        await this.createNotifications(
+          recipients,
+          'Follow-up hearing needs manual scheduling',
+          `Dispute ${dispute.id.slice(0, 8)} still has no verdict. Manual follow-up hearing scheduling is required.`,
+          'Dispute',
+          dispute.id,
+        );
+      }
+    } catch (error) {
+      const recipients = [
+        dispute.assignedStaffId,
+        dispute.escalatedToAdminId,
+        payload.moderatorId,
+      ].filter((value): value is string => Boolean(value));
+      await this.createNotifications(
+        recipients,
+        'Follow-up hearing scheduling failed',
+        `Dispute ${dispute.id.slice(0, 8)} still needs another hearing, but the automatic scheduler failed. Please review and schedule manually.`,
+        'Dispute',
+        dispute.id,
+      );
+      this.logger.warn(
+        `Follow-up hearing scheduling failed for dispute ${dispute.id}: ${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+    }
+  }
 
   private canonicalize(value: unknown): string {
     if (Array.isArray(value)) {
@@ -161,7 +345,7 @@ export class DisputeEventListener {
     const existingHearing = await this.hearingRepo.findOne({
       where: {
         disputeId: payload.disputeId,
-        status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS]),
+        status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS, HearingStatus.PAUSED]),
       },
       select: ['id'],
     });
@@ -286,7 +470,13 @@ export class DisputeEventListener {
   }
 
   @OnEvent('hearing.ended')
-  async handleHearingEnded(payload: { hearingId?: string; endedById?: string }): Promise<void> {
+  async handleHearingEnded(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    endedById?: string | null;
+    endedByType?: 'USER' | 'SYSTEM';
+    closureReason?: string | null;
+  }): Promise<void> {
     if (!payload?.hearingId) {
       return;
     }
@@ -303,7 +493,9 @@ export class DisputeEventListener {
     const endedPayload = {
       disputeId: hearing.disputeId,
       hearingId: hearing.id,
-      endedById: payload.endedById,
+      endedById: payload.endedById || null,
+      endedByType: payload.endedByType || 'USER',
+      closureReason: payload.closureReason || null,
       serverTimestamp: this.toIsoString(),
     };
 
@@ -315,6 +507,64 @@ export class DisputeEventListener {
       actorId: payload.endedById || null,
       metadata: {
         hearingId: hearing.id,
+        endedByType: payload.endedByType || 'USER',
+        closureReason: payload.closureReason || null,
+      },
+    });
+
+    await this.scheduleFollowUpIfNeeded({
+      hearingId: hearing.id,
+      disputeId: hearing.disputeId,
+      moderatorId: hearing.moderatorId,
+      endedById: payload.endedById || null,
+      closureReason: payload.closureReason || null,
+    });
+  }
+
+  @OnEvent('hearing.timeWarning')
+  async handleHearingTimeWarning(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    warningType?: string;
+    minutesRemaining?: number;
+    participantIds?: string[];
+    scheduledEndAt?: Date;
+    graceEndsAt?: Date;
+    pauseAutoCloseAt?: Date | null;
+  }): Promise<void> {
+    if (!payload?.hearingId || !payload?.disputeId) {
+      return;
+    }
+
+    const eventPayload = {
+      hearingId: payload.hearingId,
+      disputeId: payload.disputeId,
+      warningType: payload.warningType || null,
+      minutesRemaining: payload.minutesRemaining ?? null,
+      scheduledEndAt: payload.scheduledEndAt || null,
+      graceEndsAt: payload.graceEndsAt || null,
+      pauseAutoCloseAt: payload.pauseAutoCloseAt || null,
+      serverTimestamp: this.toIsoString(),
+    };
+
+    this.gateway.emitHearingEvent(payload.hearingId, 'HEARING_TIME_WARNING', eventPayload);
+    this.gateway.emitDisputeEvent(payload.disputeId, 'HEARING_TIME_WARNING', eventPayload);
+    this.gateway.emitStaffDashboardEvent('HEARING_TIME_WARNING', eventPayload);
+
+    for (const userId of payload.participantIds ?? []) {
+      this.gateway.emitUserEvent(userId, 'HEARING_TIME_WARNING', eventPayload);
+    }
+
+    await this.appendLedger(payload.disputeId, 'HEARING_TIME_WARNING', {
+      metadata: {
+        hearingId: payload.hearingId,
+        warningType: payload.warningType || null,
+        minutesRemaining: payload.minutesRemaining ?? null,
+        scheduledEndAt: payload.scheduledEndAt ? this.toIsoString(payload.scheduledEndAt) : null,
+        graceEndsAt: payload.graceEndsAt ? this.toIsoString(payload.graceEndsAt) : null,
+        pauseAutoCloseAt: payload.pauseAutoCloseAt
+          ? this.toIsoString(payload.pauseAutoCloseAt)
+          : null,
       },
     });
   }

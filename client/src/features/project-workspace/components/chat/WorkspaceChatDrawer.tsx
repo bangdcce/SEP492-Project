@@ -69,6 +69,7 @@ import type {
   Task,
   TaskSubmission,
   WorkspaceChatAttachment,
+  WorkspaceChatEditHistoryEntry,
   WorkspaceChatMentionMember,
   WorkspaceChatMessage,
   WorkspaceChatReplySummary,
@@ -2745,4 +2746,3 @@ export function WorkspaceChatDrawer({
     </Sheet>
   );
 }
-

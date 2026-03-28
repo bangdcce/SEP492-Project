@@ -8,6 +8,7 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { ResolveDisputeDto } from './resolve-dispute.dto';
+import { FollowUpActionDto, TransformFollowUpActions } from './follow-up-action.dto';
 
 export class CloseHearingMinutesDto {
   @IsString()
@@ -18,10 +19,12 @@ export class CloseHearingMinutesDto {
   @IsNotEmpty()
   findings: string;
 
+  @TransformFollowUpActions()
   @IsArray()
-  @IsString({ each: true })
+  @ValidateNested({ each: true })
+  @Type(() => FollowUpActionDto)
   @IsOptional()
-  pendingActions?: string[];
+  pendingActions?: FollowUpActionDto[];
 
   @IsOptional()
   @IsBoolean()

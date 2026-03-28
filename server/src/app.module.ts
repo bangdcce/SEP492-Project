@@ -1,4 +1,5 @@
 ﻿import { Logger, Module } from '@nestjs/common';
+import './config/postgres-date-parsers';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ThrottlerModule } from '@nestjs/throttler';
@@ -28,6 +29,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { LeaveModule } from './modules/leave/leave.module';
 import { HealthModule } from './modules/health/health.module';
 import { WorkspaceChatModule } from './modules/workspace-chat/workspace-chat.module';
+import { RequestChatModule } from './modules/request-chat/request-chat.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { AdminDashboardModule } from './modules/admin-dashboard/admin-dashboard.module';
@@ -133,6 +135,7 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
     PaymentsModule,
     HealthModule,
     WorkspaceChatModule,
+    RequestChatModule,
     SubscriptionsModule,
     AdminDashboardModule,
   ],

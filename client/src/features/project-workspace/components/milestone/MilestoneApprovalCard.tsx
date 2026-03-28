@@ -27,12 +27,12 @@ interface MilestoneApprovalCardProps {
   tasks: Task[];
   progress: number;
   currentRole?: string;
-  isAssignedStaff?: boolean;
-  hasAcceptedStaff?: boolean;
-  assignedStaffLabel?: string | null;
+  isAssignedReviewer?: boolean;
+  hasIntermediateReviewer?: boolean;
+  assignedReviewerLabel?: string | null;
   onApprove: (milestoneId: string, feedback?: string) => Promise<void>;
   onRequestReview: (milestoneId: string) => Promise<void>;
-  onStaffReview: (
+  onReviewerDecision: (
     milestoneId: string,
     payload: { recommendation: "ACCEPT" | "REJECT"; note: string },
   ) => Promise<void>;
@@ -52,20 +52,20 @@ const STATUS_META: Record<
     icon: PartyPopper,
   },
   PENDING_STAFF_REVIEW: {
-    title: "Waiting for Staff Review",
-    subtitle: "The assigned staff reviewer needs to check the milestone before client approval.",
+    title: "Waiting for Broker Review",
+    subtitle: "The assigned broker reviews the milestone before client approval.",
     tone: "border-sky-200 bg-gradient-to-br from-sky-50 via-white to-cyan-50",
     icon: ShieldCheck,
   },
   PENDING_CLIENT_APPROVAL: {
     title: "Waiting for Client Approval",
-    subtitle: "Staff has completed the review. The client can now approve and release funds.",
+    subtitle: "Broker review is complete. The client can now approve and release funds.",
     tone: "border-indigo-200 bg-gradient-to-br from-indigo-50 via-white to-slate-50",
     icon: UserCheck,
   },
   SUBMITTED: {
     title: "Waiting for Client Approval",
-    subtitle: "No staff reviewer is assigned, so the milestone goes directly to the client.",
+    subtitle: "Milestone has been submitted and is waiting for the next approval step.",
     tone: "border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50",
     icon: CheckCircle,
   },
@@ -74,18 +74,18 @@ const STATUS_META: Record<
 const STAFF_REVIEW_ATTESTATIONS = [
   {
     key: "deliverablesVerified",
-    label: "Code Quality / Deliverables Verified",
-    description: "Reviewed the submitted deliverables, evidence links, and core output quality.",
+    label: "Deliverables Match The Milestone",
+    description: "Reviewed the submitted deliverables, evidence links, and core output against the locked milestone scope.",
   },
   {
     key: "meetsRequirements",
-    label: "Meets Project Requirements",
-    description: "Confirmed the milestone aligns with the original scope and expected acceptance criteria.",
+    label: "Ready For Client Acceptance",
+    description: "Confirmed the milestone is ready for the client to validate the business outcome and approve release.",
   },
   {
     key: "noMaliciousContent",
-    label: "No Malicious Content Detected",
-    description: "Checked for suspicious, harmful, or unauthorized content in the submitted materials.",
+    label: "Release Summary Is Accurate",
+    description: "Checked the release context, payout split, and broker note so the client has the right approval summary.",
   },
 ] as const;
 
@@ -102,12 +102,12 @@ export function MilestoneApprovalCard({
   tasks,
   progress,
   currentRole,
-  isAssignedStaff = false,
-  hasAcceptedStaff = false,
-  assignedStaffLabel,
+  isAssignedReviewer = false,
+  hasIntermediateReviewer = false,
+  assignedReviewerLabel,
   onApprove,
   onRequestReview,
-  onStaffReview,
+  onReviewerDecision,
   onRaiseDispute,
   canApprove = false,
   currency,
@@ -157,21 +157,24 @@ export function MilestoneApprovalCard({
   const canFreelancerRequestReview =
     role === "FREELANCER" &&
     ["PENDING", "IN_PROGRESS", "REVISIONS_REQUIRED"].includes(milestoneStatus);
-  const canAssignedStaffReview = isAssignedStaff && milestoneStatus === "PENDING_STAFF_REVIEW";
+  const canAssignedReviewerReview =
+    isAssignedReviewer && milestoneStatus === "PENDING_STAFF_REVIEW";
   const canClientApproveNow =
     canApprove &&
     role === "CLIENT" &&
     (milestoneStatus === "PENDING_CLIENT_APPROVAL" ||
-      (milestoneStatus === "SUBMITTED" && !hasAcceptedStaff));
+      (milestoneStatus === "SUBMITTED" && !hasIntermediateReviewer));
 
-  const waitingMessage = canAssignedStaffReview
-    ? "You are the assigned staff reviewer for this milestone."
+  const waitingMessage = canAssignedReviewerReview
+    ? "You are the assigned broker reviewer for this milestone."
     : milestoneStatus === "PENDING_STAFF_REVIEW"
-      ? `Waiting for ${assignedStaffLabel || "the assigned staff reviewer"} to review this milestone.`
+      ? `Waiting for ${assignedReviewerLabel || "the assigned broker"} to review this milestone.`
       : milestoneStatus === "PENDING_CLIENT_APPROVAL"
         ? "Waiting for the client to approve and release funds."
         : milestoneStatus === "SUBMITTED"
-          ? "Waiting for the client to approve this milestone."
+          ? hasIntermediateReviewer
+            ? `Submitted. ${assignedReviewerLabel || "The broker"} needs to review this milestone before client approval.`
+            : "Waiting for the client to approve this milestone."
           : "Complete the next action to move this milestone forward.";
   const completedStaffReviewChecks = STAFF_REVIEW_ATTESTATIONS.filter(
     (item) => staffReviewChecks[item.key],
@@ -226,7 +229,7 @@ export function MilestoneApprovalCard({
   const handleStaffReview = async (recommendation: "ACCEPT" | "REJECT") => {
     const note = staffNote.trim();
     if (!isStaffReviewReady || !note) {
-      setError("Complete all review confirmations and provide a detailed audit note.");
+      setError("Complete the broker review checklist and add a note before submitting.");
       return;
     }
 
@@ -234,13 +237,13 @@ export function MilestoneApprovalCard({
     setError(null);
 
     try {
-      await onStaffReview(milestone.id, { recommendation, note });
+      await onReviewerDecision(milestone.id, { recommendation, note });
       setShowStaffReviewPanel(false);
       setStaffNote("");
       setStaffReviewChecks(createInitialStaffReviewChecks());
     } catch (err: unknown) {
       const errorMessage =
-        err instanceof Error ? err.message : "Failed to submit staff review";
+        err instanceof Error ? err.message : "Failed to submit broker review";
       setError(errorMessage);
     } finally {
       setIsSubmittingStaffReview(false);
@@ -297,8 +300,8 @@ export function MilestoneApprovalCard({
             <div className="mb-4 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-900">
               <p className="font-semibold">
                 {milestone.staffRecommendation === "REJECT"
-                  ? "Staff requested changes:"
-                  : "Staff da duyet:"}
+                  ? "Broker requested changes:"
+                  : "Broker review approved:"}
               </p>
               <p className="mt-1">{milestone.staffReviewNote}</p>
             </div>
@@ -363,18 +366,18 @@ export function MilestoneApprovalCard({
                 {isRequestingReview ? (
                   <>
                     <Loader2 className="h-5 w-5 animate-spin" />
-                    Dang gui...
+                    Submitting...
                   </>
                 ) : (
                   <>
                     <Send className="h-5 w-5" />
-                    Yeu cau nghiem thu Milestone
+                    Request milestone review
                   </>
                 )}
               </button>
             )}
 
-            {canAssignedStaffReview && (
+            {canAssignedReviewerReview && (
               <button
                 onClick={() => {
                   setShowStaffReviewPanel((current) => !current);
@@ -383,7 +386,7 @@ export function MilestoneApprovalCard({
                 className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-sky-600 px-6 py-3 font-semibold text-white transition-colors hover:bg-sky-700"
               >
                 <ShieldCheck className="h-5 w-5" />
-                Review Milestone
+                Broker Review
               </button>
             )}
 
@@ -397,11 +400,13 @@ export function MilestoneApprovalCard({
               </button>
             )}
 
-            {!canFreelancerRequestReview && !canAssignedStaffReview && !canClientApproveNow && (
+            {!canFreelancerRequestReview &&
+              !canAssignedReviewerReview &&
+              !canClientApproveNow && (
               <div className="flex-1 rounded-xl border border-slate-200 bg-white/70 px-4 py-3 text-sm text-slate-600">
                 {waitingMessage}
               </div>
-            )}
+              )}
 
             <button
               onClick={() => onRaiseDispute?.(milestone.id)}
@@ -412,17 +417,16 @@ export function MilestoneApprovalCard({
             </button>
           </div>
 
-          {canAssignedStaffReview && showStaffReviewPanel && (
+          {canAssignedReviewerReview && showStaffReviewPanel && (
             <div className="mt-4 overflow-hidden rounded-2xl border border-slate-200 bg-white">
               <div className="border-b border-slate-200 px-6 py-5">
                 <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-600">
                   <ShieldCheck className="h-3.5 w-3.5 text-teal-600" />
-                  Staff Quality Assessment
+                  Broker Review Summary
                 </div>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-700">
-                  By submitting this review, you confirm that you have thoroughly checked
-                  the deliverables against the initial requirements and your recommendation
-                  is accurate to the best of your professional judgment.
+                  Confirm whether this milestone is ready for client approval, or send
+                  it back with a specific note describing what still needs to change.
                 </p>
               </div>
 
@@ -431,10 +435,10 @@ export function MilestoneApprovalCard({
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div>
                       <p className="text-sm font-semibold text-slate-900">
-                        Pre-submission checklist
+                        Review checklist
                       </p>
                       <p className="text-xs text-slate-500">
-                        Complete every attestation before issuing a recommendation.
+                        Complete every confirmation before sending your recommendation.
                       </p>
                     </div>
                     <div className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-600">
@@ -473,7 +477,7 @@ export function MilestoneApprovalCard({
                 <div className="space-y-2">
                   <div className="flex items-center justify-between gap-3">
                     <label className="text-sm font-semibold text-slate-900">
-                      Audit Note
+                      Broker note
                     </label>
                     <span className="text-xs font-medium text-slate-500">
                       Required
@@ -487,29 +491,27 @@ export function MilestoneApprovalCard({
                         setError(null);
                       }
                     }}
-                    placeholder="Provide detailed feedback, audit results, and your final recommendation for the client..."
+                    placeholder="Summarize what you reviewed and what the client should know before approving..."
                     rows={7}
                     className="min-h-[168px] rounded-2xl border-slate-300 bg-white px-4 py-3 text-sm leading-6 text-slate-900 placeholder:text-slate-400 focus-visible:border-teal-600 focus-visible:ring-teal-600/15"
                   />
                   <p className="text-xs leading-5 text-slate-500">
-                    Include what you inspected, any risk findings, the quality bar applied,
-                    and the rationale behind your recommendation.
+                    Call out the deliverables checked, any concerns, and why you are accepting or rejecting the milestone.
                   </p>
                 </div>
 
                 <div className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50/70 px-4 py-3 text-sm text-slate-700">
                   <ShieldAlert className="mt-0.5 h-4 w-4 flex-shrink-0 text-slate-500" />
                   <p className="leading-6">
-                    The client will rely on this assessment as part of the approval and
-                    fund release decision. Keep the note factual, auditable, and specific.
+                    The client will use this note during final approval and fund release. Keep it factual and specific.
                   </p>
                 </div>
 
                 <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 lg:flex-row lg:items-center lg:justify-between">
                   <p className="text-xs leading-5 text-slate-500">
                     {isStaffReviewReady
-                      ? "Assessment is complete. You can now submit your recommendation."
-                      : "Complete every checklist item and write an audit note before submitting."}
+                      ? "Review is complete. You can now submit your recommendation."
+                      : "Complete every checklist item and add a broker note before submitting."}
                   </p>
 
                   <div className="flex flex-col gap-3 sm:flex-row">
@@ -534,7 +536,7 @@ export function MilestoneApprovalCard({
                       ) : (
                         <XCircle className="h-4 w-4" />
                       )}
-                      Reject & Request Revisions
+                      Send Back for Changes
                     </Button>
                     <Button
                       type="button"
@@ -548,7 +550,7 @@ export function MilestoneApprovalCard({
                       ) : (
                         <CheckCircle className="h-4 w-4" />
                       )}
-                      Approve & Recommend Release
+                      Accept & Forward to Client
                     </Button>
                   </div>
                 </div>
@@ -600,6 +602,34 @@ export function MilestoneApprovalCard({
                 and instruct the system to release the escrow allocation tied to
                 this milestone.
               </div>
+              {milestone.escrow ? (
+                <div className="mt-4 grid gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:grid-cols-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                      Freelancer
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-slate-950">
+                      {formatCurrency(milestone.escrow.developerShare, currency ?? "USD")}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                      Broker
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-slate-950">
+                      {formatCurrency(milestone.escrow.brokerShare, currency ?? "USD")}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">
+                      Platform fee
+                    </p>
+                    <p className="mt-2 text-sm font-semibold text-slate-950">
+                      {formatCurrency(milestone.escrow.platformFee, currency ?? "USD")}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div className="mb-5">

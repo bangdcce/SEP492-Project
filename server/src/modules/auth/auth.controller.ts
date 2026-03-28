@@ -290,13 +290,20 @@ export class AuthController {
     // Fetch user with profile to get all profile data
     const userWithProfile = await this.authService.findUserWithProfile(req.user.id);
 
+    if (!userWithProfile) {
+      throw new UnauthorizedException({
+        error: 'SESSION_REVOKED',
+        message: 'Authenticated user not found',
+      });
+    }
+
     // Service method ﾄ黛ｻ・map user entity thﾃnh response DTO
     const userResponse: AuthResponseDto = {
-      id: req.user.id,
-      email: req.user.email,
-      fullName: req.user.fullName,
-      phoneNumber: req.user.phoneNumber,
-      timeZone: req.user.timeZone,
+      id: userWithProfile.id,
+      email: userWithProfile.email,
+      fullName: userWithProfile.fullName,
+      phoneNumber: userWithProfile.phoneNumber,
+      timeZone: userWithProfile.timeZone,
       avatarUrl: userWithProfile?.profile?.avatarUrl,
       bio: userWithProfile?.profile?.bio,
       companyName: userWithProfile?.profile?.companyName,
@@ -304,18 +311,18 @@ export class AuthController {
       linkedinUrl: userWithProfile?.profile?.linkedinUrl,
       cvUrl: userWithProfile?.profile?.cvUrl,
       portfolioLinks: userWithProfile?.profile?.portfolioLinks,
-      role: req.user.role,
-      isVerified: req.user.isVerified,
-      isEmailVerified: !!req.user.emailVerifiedAt,
-      currentTrustScore: req.user.currentTrustScore,
-      badge: req.user.badge || 'NORMAL',
+      role: userWithProfile.role,
+      isVerified: userWithProfile.isVerified,
+      isEmailVerified: !!userWithProfile.emailVerifiedAt,
+      currentTrustScore: userWithProfile.currentTrustScore,
+      badge: userWithProfile.badge || 'NORMAL',
       stats: {
-        finished: req.user.totalProjectsFinished || 0,
-        disputes: req.user.totalDisputesLost || 0,
-        score: Number(req.user.currentTrustScore) || 0,
+        finished: userWithProfile.totalProjectsFinished || 0,
+        disputes: userWithProfile.totalDisputesLost || 0,
+        score: Number(userWithProfile.currentTrustScore) || 0,
       },
-      createdAt: req.user.createdAt,
-      updatedAt: req.user.updatedAt,
+      createdAt: userWithProfile.createdAt,
+      updatedAt: userWithProfile.updatedAt,
     };
 
     return {

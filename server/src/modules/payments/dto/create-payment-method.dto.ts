@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBoolean, IsEmail, IsEnum, IsOptional, IsString, MaxLength, ValidateIf } from 'class-validator';
+import { IsBoolean, IsEmail, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, ValidateIf } from 'class-validator';
 import { PaymentMethodType } from '../../../database/entities';
 
 export class CreatePaymentMethodDto {
@@ -18,6 +18,38 @@ export class CreatePaymentMethodDto {
   @IsEmail()
   @MaxLength(255)
   paypalEmail?: string;
+
+  @ApiPropertyOptional({ example: 'Visa' })
+  @ValidateIf((dto: CreatePaymentMethodDto) => dto.type === PaymentMethodType.CARD_ACCOUNT)
+  @IsString()
+  @MaxLength(50)
+  cardBrand?: string;
+
+  @ApiPropertyOptional({ example: '4242' })
+  @ValidateIf((dto: CreatePaymentMethodDto) => dto.type === PaymentMethodType.CARD_ACCOUNT)
+  @IsString()
+  @MaxLength(4)
+  cardLast4?: string;
+
+  @ApiPropertyOptional({ example: 'Nguyen Van A' })
+  @ValidateIf((dto: CreatePaymentMethodDto) => dto.type === PaymentMethodType.CARD_ACCOUNT)
+  @IsString()
+  @MaxLength(255)
+  cardholderName?: string;
+
+  @ApiPropertyOptional({ example: 12 })
+  @ValidateIf((dto: CreatePaymentMethodDto) => dto.type === PaymentMethodType.CARD_ACCOUNT)
+  @IsInt()
+  @Min(1)
+  @Max(12)
+  cardExpiryMonth?: number;
+
+  @ApiPropertyOptional({ example: 2028 })
+  @ValidateIf((dto: CreatePaymentMethodDto) => dto.type === PaymentMethodType.CARD_ACCOUNT)
+  @IsInt()
+  @Min(2024)
+  @Max(2100)
+  cardExpiryYear?: number;
 
   @ApiPropertyOptional({ example: 'Vietcombank' })
   @ValidateIf((dto: CreatePaymentMethodDto) => dto.type === PaymentMethodType.BANK_ACCOUNT)

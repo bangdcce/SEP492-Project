@@ -7,12 +7,14 @@ import type { LucideIcon } from "lucide-react";
 import {
   CalendarDays,
   LayoutDashboard,
+  Scale,
   ScrollText,
   Shield,
   UserCheck,
   Users,
   User,
   HelpCircle,
+  Wallet,
 } from "lucide-react";
 
 export interface AdminSidebarMenuItem {
@@ -35,6 +37,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     description: "Overview and statistics",
     section: "main",
   },
+  {
+    id: "finance",
+    label: "Finance",
+    icon: Wallet,
+    path: "/admin/finance",
+    description: "Platform revenue and treasury wallet",
+    section: "main",
+  },
   // Management
   {
     id: "audit-logs",
@@ -50,6 +60,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: CalendarDays,
     path: "/admin/leave",
     description: "Review leave requests and staff quotas",
+    section: "management",
+  },
+  {
+    id: "dispute-appeals",
+    label: "Appeal Queue",
+    icon: Scale,
+    path: "/admin/disputes/appeals",
+    description: "Review and route dispute appeals",
     section: "management",
   },
   {

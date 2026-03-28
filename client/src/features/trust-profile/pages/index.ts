@@ -5,3 +5,4 @@
 
 export { ReviewDetailPage } from "./ReviewDetailPage";
 export { ReviewEditHistoryPage } from "./ReviewEditHistoryPage";
+export { TrustProfilePage } from "./TrustProfilePage";

@@ -47,6 +47,12 @@ describe('AuditLogsService', () => {
     expect(service).toBeDefined();
   });
 
+  it('returns null actor id for anonymous requests', () => {
+    expect(service.extractActorId()).toBeNull();
+    expect(service.extractActorId({})).toBeNull();
+    expect(service.extractActorId({ user: { id: 'user-1' } })).toBe('user-1');
+  });
+
   it('exports JSON payloads with metadata', async () => {
     builder.getMany.mockResolvedValue([
       {

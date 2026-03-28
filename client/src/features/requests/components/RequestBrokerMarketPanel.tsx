@@ -10,8 +10,12 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/shared/components/ui";
+import { RequestAttachmentGallery } from "./RequestAttachmentGallery";
 import { Check, FileText, HelpCircle, Info, Loader2, Sparkles, Star, UserPlus, Users } from "lucide-react";
+import { useLocation, useNavigate } from "react-router-dom";
+import { buildTrustProfilePath } from "@/features/trust-profile/routes";
 import { RequestStatus, type BrokerApplicationItem, type ProjectRequest, type RequestMatchCandidate, type RequestSlotSummary } from "../types";
+import { extractCandidateReasoning } from "../matchReasoning";
 
 type RequestBrokerMarketPanelProps = {
   request: ProjectRequest;
@@ -56,8 +60,31 @@ export function RequestBrokerMarketPanel({
   onGetAiSuggestions,
   formatDate,
 }: RequestBrokerMarketPanelProps) {
+  const navigate = useNavigate();
+  const location = useLocation();
   const isDraftVisibilityStatus =
     request.status === RequestStatus.PUBLIC_DRAFT || request.status === RequestStatus.PRIVATE_DRAFT;
+
+  const openBrokerTrustProfile = (brokerId?: string) => {
+    if (!brokerId) {
+      return;
+    }
+
+    navigate(
+      buildTrustProfilePath(brokerId, {
+        pathname: location.pathname,
+        role: "CLIENT",
+      }),
+    );
+  };
+
+  const getBrokerReasoning = (candidate: RequestMatchCandidate) => {
+    return extractCandidateReasoning(candidate.reasoning, [
+      candidate.id,
+      candidate.candidateId,
+      candidate.userId,
+    ]);
+  };
 
   return (
     <Card>
@@ -169,20 +196,7 @@ export function RequestBrokerMarketPanel({
                     Attachments
                   </div>
                   {request.attachments?.length ? (
-                    <div className="space-y-2">
-                      {request.attachments.map((attachment) => (
-                        <a
-                          key={attachment.url}
-                          href={attachment.url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="flex items-center justify-between rounded-md border border-slate-200 px-3 py-2 text-sm hover:bg-slate-50"
-                        >
-                          <span className="truncate">{attachment.filename}</span>
-                          <span className="text-xs text-slate-500">{attachment.category || "attachment"}</span>
-                        </a>
-                      ))}
-                    </div>
+                    <RequestAttachmentGallery attachments={request.attachments} />
                   ) : (
                     <p className="text-sm text-muted-foreground">No attachment uploaded yet.</p>
                   )}
@@ -256,6 +270,13 @@ export function RequestBrokerMarketPanel({
                               ) : null}
                             </div>
                             <div className="flex flex-col gap-2">
+                              <Button
+                                variant="outline"
+                                onClick={() => openBrokerTrustProfile(brokerId)}
+                                disabled={!brokerId}
+                              >
+                                View Trust Profile
+                              </Button>
                               <Button onClick={() => brokerId && onAcceptBroker(brokerId)} disabled={!brokerId}>
                                 Hire Broker
                               </Button>
@@ -297,13 +318,23 @@ export function RequestBrokerMarketPanel({
                                 Invited on {formatDate(proposal.createdAt, "MMM d, yyyy")}
                               </p>
                             </div>
-                            {String(proposal.status).toUpperCase() === "ACCEPTED" ? (
-                              <Button onClick={() => brokerId && onAcceptBroker(brokerId)} size="sm" disabled={!brokerId}>
-                                Hire Candidate
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openBrokerTrustProfile(brokerId)}
+                                disabled={!brokerId}
+                              >
+                                View Trust Profile
                               </Button>
-                            ) : String(proposal.status).toUpperCase() === "INVITED" ? (
-                              <span className="text-sm italic text-muted-foreground">Waiting for response...</span>
-                            ) : null}
+                              {String(proposal.status).toUpperCase() === "ACCEPTED" ? (
+                                <Button onClick={() => brokerId && onAcceptBroker(brokerId)} size="sm" disabled={!brokerId}>
+                                  Hire Candidate
+                                </Button>
+                              ) : String(proposal.status).toUpperCase() === "INVITED" ? (
+                                <span className="text-sm italic text-muted-foreground">Waiting for response...</span>
+                              ) : null}
+                            </div>
                           </div>
                         );
                       })}
@@ -346,6 +377,7 @@ export function RequestBrokerMarketPanel({
                 ) : (
                   matches.map((broker) => {
                     const brokerId = broker.id || broker.candidateId || broker.userId;
+                    const reasoning = getBrokerReasoning(broker);
                     return (
                       <div
                         key={brokerId || broker.fullName}
@@ -409,8 +441,8 @@ export function RequestBrokerMarketPanel({
                               </div>
                             ) : null}
 
-                            {broker.reasoning ? (
-                              <p className="mt-1 line-clamp-2 text-xs italic text-muted-foreground">{broker.reasoning}</p>
+                            {reasoning ? (
+                              <p className="mt-1 line-clamp-2 text-xs italic text-muted-foreground">{reasoning}</p>
                             ) : null}
                           </div>
                         </div>

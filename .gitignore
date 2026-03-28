@@ -49,3 +49,12 @@ docs/
 
 # AI/Agent skills (local only)
 .agent/
+
+# Local Codex desktop state
+.codex/config.toml
+.codex/environments/
+
+# Local scratch outputs
+test-results/
+tmp/
+figma/BrokerDashboard-Figma-Spec.md

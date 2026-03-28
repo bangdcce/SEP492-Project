@@ -17,19 +17,25 @@ export function StepB2({ question, value, onChange }: StepB2Props) {
         {question.helpText && <p className="text-muted-foreground mt-2">{question.helpText}</p>}
       </div>
 
-      <RadioGroup value={value} onValueChange={onChange} className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {question.options.map((option) => (
-          <div key={option.id}>
-             <RadioGroupItem value={option.value} id={option.id} className="peer sr-only" />
-            <Label
-              htmlFor={option.id}
-               className="flex flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-6 hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary transition-all h-32 cursor-pointer text-center"
-            >
-              <span className="font-medium">{option.label}</span>
-            </Label>
-          </div>
-        ))}
-      </RadioGroup>
+      <div className="max-h-80 overflow-y-auto pr-1">
+        <RadioGroup
+          value={value}
+          onValueChange={onChange}
+          className="grid grid-cols-2 md:grid-cols-4 gap-4"
+        >
+          {question.options.map((option) => (
+            <div key={option.id}>
+              <RadioGroupItem value={option.value} id={String(option.id)} className="peer sr-only" />
+              <Label
+                htmlFor={String(option.id)}
+                className="flex h-32 cursor-pointer flex-col items-center justify-center rounded-md border-2 border-muted bg-popover p-6 text-center transition-all hover:bg-accent hover:text-accent-foreground peer-data-[state=checked]:border-primary"
+              >
+                <span className="font-medium">{option.label}</span>
+              </Label>
+            </div>
+          ))}
+        </RadioGroup>
+      </div>
     </div>
   );
 }

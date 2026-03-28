@@ -137,13 +137,21 @@ export class AdminVerdictDto {
   adminComment?: string;
 
   // === MONEY SPLIT ===
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  amountToFreelancer: number;
+  amountToFreelancer?: number;
 
+  @IsOptional()
   @IsNumber()
   @Min(0)
-  amountToClient: number;
+  amountToClient?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(99)
+  splitRatioClient?: number;
 
   // === PENALTY ===
   @IsNumber()

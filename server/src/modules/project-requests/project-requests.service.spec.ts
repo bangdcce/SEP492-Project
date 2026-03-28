@@ -24,6 +24,7 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { MatchingService } from '../matching/matching.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { RequestChatService } from '../request-chat/request-chat.service';
 import { QuotaService } from '../subscriptions/quota.service';
 import { ProjectRequestsService } from './project-requests.service';
 import { ProjectSpecStatus, SpecPhase } from '../../database/entities/project-spec.entity';
@@ -80,6 +81,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
   let quotaService: { checkQuota: jest.Mock; incrementUsage: jest.Mock };
   let notificationsService: { createMany: jest.Mock };
   let contractsService: { initializeContract: jest.Mock };
+  let requestChatService: { createSystemMessage: jest.Mock; assertRequestReadAccess: jest.Mock; assertRequestWriteAccess: jest.Mock };
   let projectHistoryQueryBuilder: {
     select: jest.Mock;
     where: jest.Mock;
@@ -112,6 +114,11 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
     };
     contractsService = {
       initializeContract: jest.fn().mockResolvedValue(undefined),
+    };
+    requestChatService = {
+      createSystemMessage: jest.fn().mockResolvedValue(undefined),
+      assertRequestReadAccess: jest.fn().mockResolvedValue(undefined),
+      assertRequestWriteAccess: jest.fn().mockResolvedValue(undefined),
     };
     projectHistoryQueryBuilder = {
       select: jest.fn().mockReturnThis(),
@@ -169,6 +176,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
           provide: ContractsService,
           useValue: contractsService,
         },
+        {
+          provide: RequestChatService,
+          useValue: requestChatService,
+        },
       ],
     }).compile();
 
@@ -186,7 +197,8 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
   });
 
   describe('create', () => {
-    it('creates a new marketplace request in PUBLIC_DRAFT when isDraft is false', async () => {
+    it('UC14-CRT-01 creates a new marketplace request in PUBLIC_DRAFT when isDraft is false', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log');
       const dto = {
         title: 'Marketplace request',
         description: 'Post this request to the broker marketplace',
@@ -230,13 +242,20 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         QuotaAction.CREATE_REQUEST,
         { requestId: createdRequest.id },
       );
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        'Create Request Successful: PUBLIC_DRAFT',
+      );
       expect(result).toEqual(hydratedRequest);
     });
 
-    it('creates a draft request in DRAFT when isDraft is true', async () => {
+    it('UC14-CRT-02 creates a draft request in DRAFT when isDraft is true', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log');
       const dto = {
         title: 'Draft request',
         description: 'Save for later',
+        budgetRange: '$5,000 - $10,000',
+        intendedTimeline: '8 weeks',
+        techPreferences: 'NestJS, React',
         isDraft: true,
         answers: [],
       };
@@ -250,15 +269,416 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
 
       expect(requestRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
+          budgetRange: '$5,000 - $10,000',
+          intendedTimeline: '8 weeks',
+          techPreferences: 'NestJS, React',
           status: RequestStatus.DRAFT,
         }),
       );
       expect(answerRepo.create).not.toHaveBeenCalled();
+      expect(consoleLogSpy).toHaveBeenCalledWith('Create Request Successful: DRAFT');
       expect(result).toEqual(createdRequest);
+    });
+
+    it('UC14-CRT-03 normalizes attachment metadata and ignores blank attachment rows during request creation', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log');
+      const dto = {
+        title: 'Attachment request',
+        description: 'Include uploaded reference files',
+        budgetRange: '$5,000 - $10,000',
+        intendedTimeline: '8 weeks',
+        techPreferences: 'NestJS, React',
+        isDraft: false,
+        attachments: [
+          {
+            filename: ' brief.pdf ',
+            url: ' /uploads/brief.pdf ',
+            mimetype: ' application/pdf ',
+            size: 2048,
+            category: 'requirements',
+          },
+          {
+            filename: ' image.png ',
+            url: ' /uploads/image.png ',
+            mimetype: ' image/png ',
+          },
+          {
+            filename: '',
+            url: '/uploads/ignored.pdf',
+          },
+        ],
+        answers: [],
+      };
+      const createdRequest = makeRequest({
+        status: RequestStatus.PUBLIC_DRAFT,
+        title: dto.title,
+      });
+
+      requestRepo.create.mockReturnValue(createdRequest);
+      requestRepo.save.mockResolvedValue(createdRequest);
+      requestRepo.findOne.mockResolvedValue(createdRequest);
+
+      await service.create('client-1', dto as any, {} as any);
+
+      expect(requestRepo.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          budgetRange: '$5,000 - $10,000',
+          intendedTimeline: '8 weeks',
+          techPreferences: 'NestJS, React',
+          status: RequestStatus.PUBLIC_DRAFT,
+          attachments: [
+            {
+              filename: 'brief.pdf',
+              url: '/uploads/brief.pdf',
+              mimetype: 'application/pdf',
+              size: 2048,
+              category: 'requirements',
+            },
+            {
+              filename: 'image.png',
+              url: '/uploads/image.png',
+              mimetype: 'image/png',
+              size: null,
+              category: 'attachment',
+            },
+          ],
+        }),
+      );
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        'Create Request Successful: PUBLIC_DRAFT',
+      );
+    });
+
+    it('UC14-CRT-04 stops request creation when quota validation rejects the submission', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error');
+      quotaService.checkQuota.mockRejectedValueOnce(new BadRequestException('Quota exceeded'));
+
+      await expect(
+        service.create(
+          'client-1',
+          {
+            title: 'Blocked request',
+            description: 'This should not be saved',
+            budgetRange: '$5,000 - $10,000',
+            intendedTimeline: '8 weeks',
+            techPreferences: 'NestJS, React',
+            isDraft: false,
+            answers: [],
+          } as any,
+          {} as any,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(requestRepo.create).not.toHaveBeenCalled();
+      expect(requestRepo.save).not.toHaveBeenCalled();
+      expect(answerRepo.create).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Create Request Failed: Quota exceeded',
+      );
+    });
+
+    it('UC14-CRT-05 returns the created request when audit logging fails and logs the failure message', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log');
+      const consoleErrorSpy = jest.spyOn(console, 'error');
+      const dto = {
+        title: 'Audit fallback request',
+        description: 'Keep creating the request even if audit logging is down',
+        budgetRange: '$5,000 - $10,000',
+        intendedTimeline: '8 weeks',
+        techPreferences: 'NestJS, React',
+        isDraft: false,
+        answers: [],
+      };
+      const createdRequest = makeRequest({
+        status: RequestStatus.PUBLIC_DRAFT,
+        title: dto.title,
+        description: dto.description,
+      });
+      const auditFailure = new Error('audit service unavailable');
+
+      requestRepo.create.mockReturnValue(createdRequest);
+      requestRepo.save.mockResolvedValue(createdRequest);
+      requestRepo.findOne.mockResolvedValue(createdRequest);
+      auditLogsService.logCreate.mockRejectedValueOnce(auditFailure);
+
+      const result = await service.create('client-1', dto as any, {} as any);
+
+      expect(result).toEqual(createdRequest);
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Create Request Audit Log Failed');
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        'Create Request Successful: PUBLIC_DRAFT',
+      );
+      expect(quotaService.incrementUsage).toHaveBeenCalledWith(
+        'client-1',
+        QuotaAction.CREATE_REQUEST,
+        { requestId: createdRequest.id },
+      );
+      expect(notificationsService.createMany).toHaveBeenCalledWith([
+        {
+          userId: 'client-1',
+          title: 'Project request created',
+          body: `Request "${createdRequest.title}" has been created and is now being tracked.`,
+          relatedType: 'ProjectRequest',
+          relatedId: createdRequest.id,
+        },
+      ]);
+    });
+  });
+
+  describe('findAllByClient', () => {
+    it('returns the current client request list with the expected query shape', async () => {
+      const listedRequests = [
+        makeRequest({
+          id: 'req-2',
+          clientId: 'client-1',
+          title: 'Second request',
+          createdAt: new Date('2026-03-20T00:00:00.000Z'),
+        }),
+        makeRequest({
+          id: 'req-1',
+          clientId: 'client-1',
+          title: 'First request',
+          createdAt: new Date('2026-03-19T00:00:00.000Z'),
+        }),
+      ];
+
+      requestRepo.find.mockResolvedValue(listedRequests);
+
+      const result = await service.findAllByClient('client-1');
+
+      expect(requestRepo.find).toHaveBeenCalledWith({
+        where: { clientId: 'client-1' },
+        relations: ['answers', 'answers.question', 'answers.option'],
+        order: { createdAt: 'DESC' },
+      });
+      expect(result).toEqual(listedRequests);
+    });
+  });
+
+  describe('findOne - client request access', () => {
+    it('returns request detail for the owning client without masking client contact data', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          status: RequestStatus.PUBLIC_DRAFT,
+          clientId: 'client-1',
+          client: {
+            id: 'client-1',
+            fullName: 'Client Owner',
+            email: 'client@example.com',
+            phoneNumber: '0123456789',
+          } as any,
+        }),
+      );
+
+      const result = await service.findOne(
+        'req-1',
+        { id: 'client-1', role: UserRole.CLIENT } as UserEntity,
+      );
+
+      expect(result.id).toBe('req-1');
+      expect(result.client?.email).toBe('client@example.com');
+      expect((result.client as any)?.phoneNumber).toBe('0123456789');
+    });
+
+    it('rejects request detail when a client tries to view another client request', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          clientId: 'client-2',
+        }),
+      );
+
+      await expect(
+        service.findOne('req-1', { id: 'client-1', role: UserRole.CLIENT } as UserEntity),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('rejects request detail when the request does not exist', async () => {
+      requestRepo.findOne.mockResolvedValue(null);
+
+      await expect(
+        service.findOne('req-404', { id: 'client-1', role: UserRole.CLIENT } as UserEntity),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('findMatches', () => {
+    it('checks AI-match quota, forwards broker matching input, and records the candidate count', async () => {
+      const request = makeRequest({
+        id: 'req-match-1',
+        description: 'Need a fintech broker who knows React and NestJS.',
+        techPreferences: 'React, NestJS, FinTech',
+      });
+      const matches = [
+        {
+          userId: 'broker-1',
+          fullName: 'Broker One',
+          matchScore: 91,
+        },
+      ];
+
+      requestRepo.findOne.mockResolvedValue(request);
+      matchingService.findMatches.mockResolvedValue(matches);
+
+      const result = await service.findMatches('req-match-1', 'client-1');
+
+      expect(quotaService.checkQuota).toHaveBeenCalledWith(
+        'client-1',
+        QuotaAction.AI_MATCH_SEARCH,
+      );
+      expect(matchingService.findMatches).toHaveBeenCalledWith(
+        {
+          requestId: 'req-match-1',
+          specDescription: 'Need a fintech broker who knows React and NestJS.',
+          requiredTechStack: ['React', 'NestJS', 'FinTech'],
+          budgetRange: '$5,000 - $10,000',
+          estimatedDuration: '8 weeks',
+        },
+        { role: 'BROKER' },
+      );
+      expect(quotaService.incrementUsage).toHaveBeenCalledWith(
+        'client-1',
+        QuotaAction.AI_MATCH_SEARCH,
+        {
+          requestId: 'req-match-1',
+          candidatesFound: 1,
+        },
+      );
+      expect(result).toEqual(matches);
+    });
+
+    it('allows broker matching lookup without quota tracking when no caller id is provided', async () => {
+      const request = makeRequest({
+        id: 'req-match-2',
+        description: 'Need help with a marketplace launch.',
+        techPreferences: '',
+      });
+
+      requestRepo.findOne.mockResolvedValue(request);
+      matchingService.findMatches.mockResolvedValue([]);
+
+      const result = await service.findMatches('req-match-2');
+
+      expect(quotaService.checkQuota).not.toHaveBeenCalled();
+      expect(matchingService.findMatches).toHaveBeenCalledWith(
+        {
+          requestId: 'req-match-2',
+          specDescription: 'Need help with a marketplace launch.',
+          requiredTechStack: [],
+          budgetRange: '$5,000 - $10,000',
+          estimatedDuration: '8 weeks',
+        },
+        { role: 'BROKER' },
+      );
+      expect(quotaService.incrementUsage).not.toHaveBeenCalled();
+      expect(result).toEqual([]);
     });
   });
 
   describe('update', () => {
+    it('updates editable fields, attachments, wizard progress, and answers for the owning client', async () => {
+      const existingRequest = makeRequest({
+        clientId: 'client-1',
+        title: 'Old request title',
+        description: 'Old description',
+        wizardProgressStep: 1,
+      });
+      const updatedRequest = makeRequest({
+        clientId: 'client-1',
+        title: 'Updated request title',
+        description: 'Updated description',
+        budgetRange: '$10,000 - $15,000',
+        intendedTimeline: '12 weeks',
+        techPreferences: 'NestJS, Vue',
+        attachments: [
+          {
+            filename: 'brief.pdf',
+            url: 'https://files.example.com/brief.pdf',
+            mimetype: 'application/pdf',
+            size: 2048,
+            category: 'requirements',
+          },
+        ] as any,
+        wizardProgressStep: 3,
+      });
+
+      jest.spyOn(service as any, 'findOneEntity').mockResolvedValue(existingRequest);
+      jest.spyOn(service, 'findOne').mockResolvedValue(updatedRequest as any);
+      requestRepo.save.mockImplementation(async (value) => value);
+      answerRepo.create.mockImplementation((value) => value);
+      answerRepo.save.mockResolvedValue([
+        { requestId: 'req-1', questionId: 'q-1', valueText: 'Updated answer' },
+      ]);
+
+      const result = await service.update(
+        'req-1',
+        {
+          title: 'Updated request title',
+          description: 'Updated description',
+          budgetRange: '$10,000 - $15,000',
+          intendedTimeline: '12 weeks',
+          techPreferences: 'NestJS, Vue',
+          attachments: [
+            {
+              filename: '  brief.pdf  ',
+              url: ' https://files.example.com/brief.pdf ',
+              mimetype: ' application/pdf ',
+              size: 2048,
+              category: 'requirements',
+            },
+          ],
+          wizardProgressStep: 3,
+          answers: [{ questionId: 'q-1', valueText: 'Updated answer' }],
+        } as any,
+        { id: 'client-1', role: UserRole.CLIENT } as UserEntity,
+      );
+
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: 'Updated request title',
+          description: 'Updated description',
+          budgetRange: '$10,000 - $15,000',
+          intendedTimeline: '12 weeks',
+          techPreferences: 'NestJS, Vue',
+          wizardProgressStep: 3,
+          attachments: [
+            expect.objectContaining({
+              filename: 'brief.pdf',
+              url: 'https://files.example.com/brief.pdf',
+              mimetype: 'application/pdf',
+              size: 2048,
+              category: 'requirements',
+            }),
+          ],
+        }),
+      );
+      expect(answerRepo.delete).toHaveBeenCalledWith({ requestId: 'req-1' });
+      expect(answerRepo.create).toHaveBeenCalledWith({
+        requestId: 'req-1',
+        questionId: 'q-1',
+        optionId: undefined,
+        valueText: 'Updated answer',
+      });
+      expect(result).toEqual(updatedRequest);
+    });
+
+    it('rejects request editing from a different client owner', async () => {
+      jest.spyOn(service as any, 'findOneEntity').mockResolvedValue(
+        makeRequest({
+          clientId: 'client-1',
+        }),
+      );
+
+      await expect(
+        service.update(
+          'req-1',
+          { title: 'Unauthorized edit' } as any,
+          { id: 'client-2', role: UserRole.CLIENT } as UserEntity,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(requestRepo.save).not.toHaveBeenCalled();
+    });
+
     it('switches PUBLIC_DRAFT to PRIVATE_DRAFT and rejects pending broker proposals', async () => {
       const existingRequest = makeRequest({ status: RequestStatus.PUBLIC_DRAFT });
       const updatedRequest = makeRequest({ status: RequestStatus.PRIVATE_DRAFT });
@@ -337,6 +757,31 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(result).toEqual(publishedRequest);
     });
 
+    it('publishes a client-owned private draft request to PUBLIC_DRAFT', async () => {
+      const privateDraftRequest = makeRequest({ status: RequestStatus.PRIVATE_DRAFT });
+      const publishedRequest = makeRequest({ status: RequestStatus.PUBLIC_DRAFT });
+
+      jest
+        .spyOn(service, 'findOne')
+        .mockResolvedValueOnce(privateDraftRequest as any)
+        .mockResolvedValueOnce(publishedRequest as any);
+      requestRepo.save.mockResolvedValue(publishedRequest);
+
+      const result = await service.publish('req-1', 'client-1', {} as any);
+
+      expect(requestRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RequestStatus.PUBLIC_DRAFT }),
+      );
+      expect(auditLogsService.logUpdate).toHaveBeenCalledWith(
+        'ProjectRequest',
+        'req-1',
+        { status: RequestStatus.PRIVATE_DRAFT },
+        { status: RequestStatus.PUBLIC_DRAFT },
+        expect.anything(),
+      );
+      expect(result).toEqual(publishedRequest);
+    });
+
     it('returns the request unchanged when it is already PUBLIC_DRAFT', async () => {
       const publicRequest = makeRequest({ status: RequestStatus.PUBLIC_DRAFT });
 
@@ -362,6 +807,138 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
 
       expect(requestRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects publish when a broker is already assigned even if the request is still in a draft status', async () => {
+      const assignedPrivateDraft = makeRequest({
+        status: RequestStatus.PRIVATE_DRAFT,
+        brokerId: 'broker-1',
+      });
+
+      jest.spyOn(service, 'findOne').mockResolvedValue(assignedPrivateDraft as any);
+
+      await expect(service.publish('req-1', 'client-1', {} as any)).rejects.toThrow(
+        BadRequestException,
+      );
+
+      expect(requestRepo.save).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('inviteBroker', () => {
+    it('creates an INVITED broker proposal, records invite quota usage, and notifies the broker', async () => {
+      const request = makeRequest({
+        id: 'req-invite-1',
+        brokerId: null,
+        title: 'Marketplace request',
+      });
+      const createdProposal = {
+        id: 'bp-1',
+        requestId: 'req-invite-1',
+        brokerId: 'broker-1',
+        status: ProposalStatus.INVITED,
+        coverLetter: 'Please review this request.',
+      };
+
+      requestRepo.findOne.mockResolvedValue(request);
+      brokerProposalRepo.findOne.mockResolvedValue(null);
+      brokerProposalRepo.create.mockReturnValue(createdProposal);
+      brokerProposalRepo.save.mockResolvedValue(createdProposal);
+
+      const result = await service.inviteBroker(
+        'req-invite-1',
+        'broker-1',
+        'Please review this request.',
+        'client-1',
+      );
+
+      expect(quotaService.checkQuota).toHaveBeenCalledWith(
+        'client-1',
+        QuotaAction.INVITE_BROKER,
+        'req-invite-1',
+      );
+      expect(brokerProposalRepo.create).toHaveBeenCalledWith({
+        requestId: 'req-invite-1',
+        brokerId: 'broker-1',
+        status: ProposalStatus.INVITED,
+        coverLetter: 'Please review this request.',
+      });
+      expect(quotaService.incrementUsage).toHaveBeenCalledWith(
+        'client-1',
+        QuotaAction.INVITE_BROKER,
+        {
+          entityId: 'req-invite-1',
+          brokerId: 'broker-1',
+        },
+      );
+      expect(notificationsService.createMany).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          expect.objectContaining({
+            userId: 'broker-1',
+            title: 'New broker invitation',
+            relatedId: 'req-invite-1',
+          }),
+        ]),
+      );
+      expect(result).toEqual(createdProposal);
+    });
+
+    it('rejects inviting a broker when the request already has an assigned broker', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          id: 'req-invite-2',
+          brokerId: 'broker-existing',
+        }),
+      );
+
+      await expect(
+        service.inviteBroker('req-invite-2', 'broker-1', 'Please join this project.', 'client-1'),
+      ).rejects.toThrow('Request already has a broker assigned');
+
+      expect(brokerProposalRepo.findOne).not.toHaveBeenCalled();
+      expect(brokerProposalRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects inviting a broker who already has an INVITED proposal', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          id: 'req-invite-3',
+          brokerId: null,
+        }),
+      );
+      brokerProposalRepo.findOne.mockResolvedValue({
+        id: 'proposal-existing',
+        requestId: 'req-invite-3',
+        brokerId: 'broker-1',
+        status: ProposalStatus.INVITED,
+      });
+
+      await expect(
+        service.inviteBroker('req-invite-3', 'broker-1', 'Reminder invite.', 'client-1'),
+      ).rejects.toThrow('Broker already invited');
+
+      expect(brokerProposalRepo.save).not.toHaveBeenCalled();
+    });
+
+    it('rejects inviting a broker who has already applied to the request', async () => {
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          id: 'req-invite-4',
+          brokerId: null,
+        }),
+      );
+      brokerProposalRepo.findOne.mockResolvedValue({
+        id: 'proposal-pending',
+        requestId: 'req-invite-4',
+        brokerId: 'broker-1',
+        status: ProposalStatus.PENDING,
+      });
+
+      await expect(
+        service.inviteBroker('req-invite-4', 'broker-1', 'Please join this request.', 'client-1'),
+      ).rejects.toThrow('Broker has already applied');
+
+      expect(brokerProposalRepo.save).not.toHaveBeenCalled();
     });
   });
 

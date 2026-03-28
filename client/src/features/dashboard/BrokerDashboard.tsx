@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { formatDistanceToNowStrict } from "date-fns";
 import {
   AlertTriangle,
@@ -11,6 +11,7 @@ import {
   FileText,
   FolderKanban,
   Sparkles,
+  WalletCards,
 } from "lucide-react";
 import {
   Card,
@@ -27,8 +28,8 @@ import type { ProjectRequest } from "../project-requests/types";
 import { RequestStatus } from "../project-requests/types";
 import { fetchProjectsByUser } from "@/features/project-list/api";
 import type { Project } from "@/features/project-list/types";
-import { STORAGE_KEYS } from "@/constants";
-import { getStoredJson } from "@/shared/utils/storage";
+import { ROUTES } from "@/constants";
+import { useCurrentUser } from "@/shared/hooks/useCurrentUser";
 
 const WORKSPACE_LIVE_STATUSES = new Set([
   "INITIALIZING",
@@ -72,7 +73,7 @@ export function BrokerDashboard() {
   const [requests, setRequests] = useState<ProjectRequest[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
-  const currentUser = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
+  const currentUser = useCurrentUser<{ id?: string; role?: string }>();
 
   useEffect(() => {
     const loadData = async () => {
@@ -215,6 +216,12 @@ export function BrokerDashboard() {
             <h1 className="text-3xl font-bold tracking-tight text-slate-900">Dashboard</h1>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" asChild>
+              <Link to={ROUTES.BROKER_BILLING}>
+                <WalletCards className="mr-2 h-4 w-4" />
+                Commission Wallet
+              </Link>
+            </Button>
             <Button variant="outline" onClick={() => navigate("/broker/marketplace")}>
               <Compass className="mr-2 h-4 w-4" />
               Open Marketplace

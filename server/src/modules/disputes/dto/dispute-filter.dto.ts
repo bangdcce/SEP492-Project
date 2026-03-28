@@ -108,6 +108,10 @@ export class DisputeFilterDto {
   assignedStaffId?: string;
 
   @IsOptional()
+  @IsString()
+  escalatedToAdminId?: string;
+
+  @IsOptional()
   @Transform(({ value }) => value === 'true' || value === true)
   @IsBoolean()
   includeUnassignedForStaff?: boolean;
