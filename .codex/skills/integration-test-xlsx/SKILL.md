@@ -28,6 +28,9 @@ Default information model:
 - Prefer thorough Normal/Alternative/Boundary/Exception coverage, but only mark `Pass` when it is supported by verified evidence or explicit user-provided execution results.
 - Preserve UC traceability with `functions[].relatedUseCases` and/or `testCases[].useCaseRefs` instead of splitting sheets per UC.
 - Support the legacy round-based template only when the user explicitly provides that older workbook layout.
+- Default to one workbook file for the requested scope. Put all requested feature/function tabs into that single file.
+- Keep `Cover`, `Test case List`, `FeatureN`, and `Test Report` together in the same workbook.
+- Do not generate cumulative version chains or many near-duplicate files unless the user explicitly asks for that older flow.
 
 ## Workflow
 
@@ -36,15 +39,16 @@ Default information model:
 3. Convert the extracted content into JSON that matches `references/input-shape.md`.
 4. Put each feature/module into one `FeatureN` sheet and each function into one `sections[]` group unless the user explicitly asks for another layout.
 5. Keep UC references only as traceability tags in the function or case metadata.
-6. Run:
+6. Keep the requested scope in one workbook file by default instead of splitting it across multiple files.
+7. Run:
 
 ```powershell
 node .codex/skills/integration-test-xlsx/scripts/generate_integration_test_xlsx.cjs --input <input.json> --output <output.xlsx>
 ```
 
-7. If the user explicitly wants the older round-based report, pass the older template with `--template`.
-8. Verify the workbook by reopening it with `xlsx` and confirming the expected sheet names, feature count, and filled result cells.
-9. Return the absolute path to the generated workbook.
+8. If the user explicitly wants the older round-based report, pass the older template with `--template`.
+9. Verify the workbook by reopening it with `xlsx` and confirming the expected sheet names, feature count, and filled result cells.
+10. Return the absolute path to the generated workbook.
 
 ## Limits
 
