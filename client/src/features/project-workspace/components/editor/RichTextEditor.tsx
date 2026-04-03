@@ -1,4 +1,4 @@
-import { forwardRef, useRef, useState } from "react";
+import { forwardRef, useEffect, useRef, useState } from "react";
 import type {
   ButtonHTMLAttributes,
   ChangeEvent,
@@ -215,6 +215,7 @@ function DatePillNodeView({ node, updateAttributes, editor }: NodeViewProps) {
 
 type RichTextEditorProps = {
   placeholder?: string;
+  initialContent?: string;
   onChange?: (html: string) => void;
   onSave?: (html: string) => Promise<void> | void;
   onCancel?: () => void;
@@ -322,6 +323,7 @@ const formatFileSize = (bytes: number): string => {
 
 export default function RichTextEditor({
   placeholder = "Add a comment...",
+  initialContent = "",
   onChange,
   onSave,
   onCancel,
@@ -448,7 +450,7 @@ export default function RichTextEditor({
           "before:content-[attr(data-placeholder)] before:float-left before:text-gray-400 before:pointer-events-none before:h-0",
       }),
     ],
-    content: "",
+    content: initialContent,
     editorProps: {
       handlePaste: (view, event) => {
         const imageFiles = extractImageFiles(event.clipboardData);
@@ -519,6 +521,26 @@ export default function RichTextEditor({
     onFocus: () => setIsFocused(true),
     onBlur: () => setIsFocused(false),
   });
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+
+    const nextContent = initialContent || "";
+    const currentContent = editor.getHTML();
+
+    if (nextContent) {
+      if (currentContent !== nextContent) {
+        editor.commands.setContent(nextContent);
+      }
+      return;
+    }
+
+    if (!editor.isEmpty) {
+      editor.commands.clearContent(true);
+    }
+  }, [editor, initialContent]);
 
   const showActions = isFocused || hasContent;
 

@@ -31,6 +31,7 @@ import { CreateSubtaskDto } from './dto/create-subtask.dto';
 import { LinkSubtaskDto } from './dto/link-subtask.dto';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { ReviewSubmissionDto } from './dto/review-submission.dto';
+import { CreateTaskCommentDto, UpdateTaskCommentDto } from './dto/task-comment.dto';
 import { UserRole } from '../../database/entities/user.entity';
 
 // Interface for authenticated request with user context
@@ -72,9 +73,9 @@ export class TasksController {
     return this.tasksService.getTaskHistory(id);
   }
 
-  @Get(':id/comments')
-  getTaskComments(@Param('id') id: string) {
-    return this.tasksService.getTaskComments(id);
+  @Get(':taskId/comments')
+  getTaskComments(@Param('taskId') taskId: string) {
+    return this.tasksService.getTaskComments(taskId);
   }
 
   @Get(':id/links')
@@ -129,15 +130,37 @@ export class TasksController {
     return this.tasksService.uploadFile(file);
   }
 
-  @Post(':id/comments')
+  @Post(':taskId/comments')
   addComment(
-    @Param('id') id: string,
-    @Body('content') content: string,
+    @Param('taskId') taskId: string,
+    @Body() body: CreateTaskCommentDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    if (!content) throw new BadRequestException('Content is required');
     // JwtAuthGuard ensures user exists, but TS needs reassurance or fallback
-    return this.tasksService.addComment(id, content, req.user?.id || 'SYSTEM');
+    return this.tasksService.addComment(taskId, body.content, req.user?.id || 'SYSTEM');
+  }
+
+  @Patch('comments/:id')
+  updateComment(
+    @Param('id') id: string,
+    @Body() body: UpdateTaskCommentDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (!req.user?.id) {
+      throw new ForbiddenException('Authentication required');
+    }
+
+    return this.tasksService.updateComment(id, req.user.id, body.content);
+  }
+
+  @Delete('comments/:id')
+  async deleteComment(@Param('id') id: string, @Req() req: AuthenticatedRequest) {
+    if (!req.user?.id) {
+      throw new ForbiddenException('Authentication required');
+    }
+
+    await this.tasksService.deleteComment(id, req.user.id, req.user.role);
+    return { success: true };
   }
 
   @Patch(':id/status')

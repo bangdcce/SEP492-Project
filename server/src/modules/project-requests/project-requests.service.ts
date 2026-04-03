@@ -1229,8 +1229,6 @@ export class ProjectRequestsService {
   // ... (existing create/update methods)
 
   async create(clientId: string, dto: CreateProjectRequestDto, req: RequestContext) {
-<<<<<<< HEAD
-=======
     // Quota check: enforce free-tier limit on active requests
     await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
     const intendedTimeline = this.normalizeIntendedTimeline(dto.intendedTimeline);
@@ -1280,84 +1278,18 @@ export class ProjectRequestsService {
     }
 
     // Audit Log
->>>>>>> d6b2bb53f4c3b7a4f9f3138d65ce2337f1ceee0c
     try {
-      // Quota check: enforce free-tier limit on active requests
-      await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
-
-      const request = this.requestRepo.create({
-        clientId: clientId,
-        title: dto.title,
-        description: dto.description,
-        budgetRange: dto.budgetRange,
-        intendedTimeline: dto.intendedTimeline,
-        techPreferences: dto.techPreferences,
-        attachments: this.normalizeAttachments(dto.attachments),
-        wizardProgressStep: dto.wizardProgressStep ?? 1,
-        status:
-          (dto.status as RequestStatus) ??
-          (dto.isDraft ? RequestStatus.DRAFT : RequestStatus.PUBLIC_DRAFT),
-      });
-
-      const savedRequest = await this.requestRepo.save(request);
-
-      // Create answers
-      if (dto.answers && dto.answers.length > 0) {
-        const answers = dto.answers.map((ans) =>
-          this.answerRepo.create({
-            requestId: savedRequest.id,
-            questionId: ans.questionId,
-            optionId: ans.optionId,
-            valueText: ans.valueText,
-          }),
-        );
-        await this.answerRepo.save(answers);
-      }
-
-      // Return the full request with answers
-      const fullRequest = await this.requestRepo.findOne({
-        where: { id: savedRequest.id },
-        relations: ['answers', 'answers.question', 'answers.option'],
-      });
-
-      // Audit Log
-      try {
-        if (fullRequest) {
-          await this.auditLogsService.logCreate(
-            'ProjectRequest',
-            savedRequest.id,
-            fullRequest as unknown as Record<string, unknown>,
-            req,
-          );
-        }
-      } catch (_error) {
-        console.error('Create Request Audit Log Failed');
-      }
-
-      await this.quotaService.incrementUsage(clientId, QuotaAction.CREATE_REQUEST, {
-        requestId: savedRequest.id,
-      });
       if (fullRequest) {
-        await this.notifyUsers([
-          {
-            userId: clientId,
-            title: 'Project request created',
-            body: `Request "${fullRequest.title}" has been created and is now being tracked.`,
-            relatedType: 'ProjectRequest',
-            relatedId: fullRequest.id,
-          },
-        ]);
+        await this.auditLogsService.logCreate(
+          'ProjectRequest',
+          savedRequest.id,
+          fullRequest as unknown as Record<string, unknown>,
+          req,
+        );
       }
-
-      console.log(`Create Request Successful: ${fullRequest?.status ?? request.status}`);
-      return fullRequest;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`Create Request Failed: ${message}`);
-      throw error;
+      console.error('Audit log failed', error);
     }
-<<<<<<< HEAD
-=======
 
     await this.quotaService.incrementUsage(clientId, QuotaAction.CREATE_REQUEST, {
       requestId: savedRequest.id,
@@ -1376,7 +1308,6 @@ export class ProjectRequestsService {
     }
 
     return fullRequest;
->>>>>>> d6b2bb53f4c3b7a4f9f3138d65ce2337f1ceee0c
   }
 
   // ... existing methods ...
