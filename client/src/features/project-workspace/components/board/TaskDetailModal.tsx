@@ -15,6 +15,8 @@ import {
   Flag,
   AlertTriangle,
   Circle,
+  Pencil,
+  Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -32,6 +34,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/shared/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/shared/components/ui/dropdown-menu";
 import { Input } from "@/shared/components/ui/input";
 import { Progress } from "@/shared/components/ui/progress";
 import RichTextEditor from "../editor/RichTextEditor";
@@ -248,6 +256,10 @@ export function TaskDetailModal({
   const [loadingComments, setLoadingComments] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
   const [isSavingComment, setIsSavingComment] = useState(false);
+  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [updatingCommentId, setUpdatingCommentId] = useState<string | null>(null);
+  const [commentPendingDelete, setCommentPendingDelete] = useState<TaskComment | null>(null);
+  const [deletingCommentId, setDeletingCommentId] = useState<string | null>(null);
   const [visibleHistoryCount, setVisibleHistoryCount] = useState(5);
 
   // Web Links State
@@ -290,6 +302,7 @@ export function TaskDetailModal({
 
   // Get current user for role-based UI
   const currentUser = getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
+  const currentUserId = currentUser?.id ?? null;
   const currentUserRole = currentUser?.role?.toUpperCase();
   const canReview = canReviewSubmissions || currentUserRole === "CLIENT";
   const isFreelancer = currentUserRole === "FREELANCER";
@@ -299,6 +312,10 @@ export function TaskDetailModal({
     setApproveDialogSubmission(null);
     setIsLabelPopoverOpen(false);
     setLabelDraft("");
+    setEditingCommentId(null);
+    setUpdatingCommentId(null);
+    setCommentPendingDelete(null);
+    setDeletingCommentId(null);
   }, [initialTask]);
 
   useEffect(() => {
@@ -433,27 +450,82 @@ export function TaskDetailModal({
           <User className="w-4 h-4 text-gray-500" />
         )}
       </div>
-      <div>
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-gray-900">
-            {comment.actor?.fullName || "System"}
-          </span>
-          <span
-            className="text-xs text-gray-400"
-            title={normalizeToUTC(comment.createdAt).toLocaleString()}
-          >
-            {formatDistanceToNow(normalizeToUTC(comment.createdAt), { addSuffix: true })}
-          </span>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="font-semibold text-gray-900">
+                {comment.actor?.fullName || "System"}
+              </span>
+              <span
+                className="text-xs text-gray-400"
+                title={normalizeToUTC(comment.createdAt).toLocaleString()}
+              >
+                {formatDistanceToNow(normalizeToUTC(comment.createdAt), { addSuffix: true })}
+              </span>
+            </div>
+          </div>
+
+          {isCommentOwner(comment) && editingCommentId !== comment.id ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  className="rounded p-1 text-gray-400 opacity-0 transition hover:bg-gray-100 hover:text-gray-600 group-hover:opacity-100 focus-visible:opacity-100"
+                  aria-label="Comment actions"
+                >
+                  <MoreHorizontal className="h-4 w-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-36">
+                <DropdownMenuItem
+                  onSelect={() => handleStartEditingComment(comment)}
+                  className="flex items-center gap-2"
+                >
+                  <Pencil className="h-4 w-4" />
+                  Edit
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  onSelect={() => setCommentPendingDelete(comment)}
+                  className="flex items-center gap-2 text-red-600 focus:text-red-600"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  Delete
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
         </div>
-        <div
-          className={cn(
-            "prose prose-sm max-w-none text-gray-700 prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1",
-            "[&_[data-type=taskList]]:pl-2",
-            "[&_[data-type=taskItem]]:flex [&_[data-type=taskItem]]:items-start [&_[data-type=taskItem]]:gap-2",
-            "[&_[data-type=taskItem]_input]:mt-1 [&_[data-type=taskItem]_input]:accent-blue-600",
-          )}
-          dangerouslySetInnerHTML={{ __html: comment.content }}
-        />
+
+        {editingCommentId === comment.id ? (
+          <RichTextEditor
+            className="mt-3"
+            initialContent={comment.content}
+            onSave={(html) => handleUpdateComment(comment.id, html)}
+            onCancel={handleCancelEditingComment}
+            isSaving={updatingCommentId === comment.id}
+            saveLabel="Update"
+          />
+        ) : (
+          <div
+            className={cn(
+              "mt-1 text-sm text-gray-700",
+              "[&_p]:mb-2 [&_p]:leading-relaxed",
+              "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5",
+              "[&_li]:my-1 [&_a]:text-blue-600 [&_a]:underline",
+              "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-gray-100 [&_pre]:p-3 [&_pre]:border [&_pre]:border-gray-200",
+              "[&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px]",
+              "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded [&_img]:border [&_img]:border-gray-200",
+              "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse",
+              "[&_th]:border [&_th]:border-gray-200 [&_th]:bg-gray-50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:text-xs [&_th]:font-semibold",
+              "[&_td]:border [&_td]:border-gray-200 [&_td]:px-2 [&_td]:py-1 [&_td]:text-xs",
+              "[&_[data-type=taskList]]:my-2 [&_[data-type=taskList]]:list-none [&_[data-type=taskList]]:pl-2",
+              "[&_[data-type=taskItem]]:flex [&_[data-type=taskItem]]:items-start [&_[data-type=taskItem]]:gap-2",
+              "[&_[data-type=taskItem]_input]:mt-1 [&_[data-type=taskItem]_input]:accent-blue-600"
+            )}
+            dangerouslySetInnerHTML={{ __html: comment.content }}
+          />
+        )}
       </div>
     </div>
   );
@@ -575,6 +647,67 @@ export function TaskDetailModal({
       console.error("Failed to save comment:", error);
     } finally {
       setIsSavingComment(false);
+    }
+  };
+
+  const getCommentOwnerId = (comment: TaskComment) => comment.actor?.id || comment.actorId;
+
+  const isCommentOwner = (comment: TaskComment) =>
+    Boolean(currentUserId) && getCommentOwnerId(comment) === currentUserId;
+
+  const handleStartEditingComment = (comment: TaskComment) => {
+    setCommentPendingDelete(null);
+    setEditingCommentId(comment.id);
+  };
+
+  const handleCancelEditingComment = () => {
+    setEditingCommentId(null);
+  };
+
+  const handleUpdateComment = async (commentId: string, content: string) => {
+    setUpdatingCommentId(commentId);
+    try {
+      const api = await import("../../api");
+      const updatedComment = await api.updateComment(commentId, content);
+      setComments((prev) =>
+        prev.map((comment) => (comment.id === commentId ? updatedComment : comment)),
+      );
+      setEditingCommentId(null);
+      toast.success("Comment updated.");
+    } catch (error) {
+      console.error("Failed to update comment:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to update comment",
+      );
+      throw error;
+    } finally {
+      setUpdatingCommentId(null);
+    }
+  };
+
+  const handleConfirmDeleteComment = async () => {
+    if (!commentPendingDelete) {
+      return;
+    }
+
+    const targetComment = commentPendingDelete;
+    setDeletingCommentId(targetComment.id);
+    try {
+      const api = await import("../../api");
+      await api.deleteComment(targetComment.id);
+      setComments((prev) => prev.filter((comment) => comment.id !== targetComment.id));
+      if (editingCommentId === targetComment.id) {
+        setEditingCommentId(null);
+      }
+      setCommentPendingDelete(null);
+      toast.success("Comment deleted.");
+    } catch (error) {
+      console.error("Failed to delete comment:", error);
+      toast.error(
+        error instanceof Error ? error.message : "Failed to delete comment",
+      );
+    } finally {
+      setDeletingCommentId(null);
     }
   };
 
@@ -1601,39 +1734,7 @@ export function TaskDetailModal({
 
                          {/* Comment List */}
                          <div className="space-y-4">
-                            {comments.map(comment => (
-                                <div key={comment.id} className="flex gap-3 text-sm group">
-                                     <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-                                          {comment.actor?.avatarUrl ? <img src={comment.actor.avatarUrl} className="w-full h-full rounded-full" /> : <User className="w-4 h-4 text-gray-500" />}
-                                     </div>
-                                     <div>
-                                         <div className="flex items-center gap-2">
-                                             <span className="font-semibold text-gray-900">{comment.actor?.fullName || "System"}</span>
-                                             <span className="text-xs text-gray-400">
-                                                 {formatDistanceToNow(normalizeToUTC(comment.createdAt), { addSuffix: true })}
-                                             </span>
-                                         </div>
-                                         <div
-                                           className={cn(
-                                             "mt-1 text-sm text-gray-700",
-                                             "[&_p]:mb-2 [&_p]:leading-relaxed",
-                                             "[&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5",
-                                             "[&_li]:my-1 [&_a]:text-blue-600 [&_a]:underline",
-                                             "[&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded [&_pre]:bg-gray-100 [&_pre]:p-3 [&_pre]:border [&_pre]:border-gray-200",
-                                             "[&_code]:rounded [&_code]:bg-slate-100 [&_code]:px-1 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px]",
-                                             "[&_img]:my-2 [&_img]:max-w-full [&_img]:rounded [&_img]:border [&_img]:border-gray-200",
-                                             "[&_table]:my-2 [&_table]:w-full [&_table]:border-collapse",
-                                             "[&_th]:border [&_th]:border-gray-200 [&_th]:bg-gray-50 [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_th]:text-xs [&_th]:font-semibold",
-                                             "[&_td]:border [&_td]:border-gray-200 [&_td]:px-2 [&_td]:py-1 [&_td]:text-xs",
-                                             "[&_[data-type=taskList]]:my-2 [&_[data-type=taskList]]:list-none [&_[data-type=taskList]]:pl-2",
-                                             "[&_[data-type=taskItem]]:flex [&_[data-type=taskItem]]:items-start [&_[data-type=taskItem]]:gap-2",
-                                             "[&_[data-type=taskItem]_input]:mt-1 [&_[data-type=taskItem]_input]:accent-blue-600"
-                                           )}
-                                           dangerouslySetInnerHTML={{ __html: comment.content }}
-                                         />
-                                     </div>
-                                </div>
-                            ))}
+                           {comments.map((comment) => renderCommentItem(comment))}
                          </div>
                      </div>
                  </div>
@@ -1968,6 +2069,79 @@ export function TaskDetailModal({
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
                   Confirm & Mark as Done
+                </>
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={Boolean(commentPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deletingCommentId) {
+            setCommentPendingDelete(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="max-w-md border border-slate-200 bg-white p-0 shadow-2xl">
+          <div className="border-b border-slate-200 px-6 py-5">
+            <AlertDialogHeader className="gap-3 text-left">
+              <div className="flex items-start gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-red-200 bg-red-50 text-red-700">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div className="space-y-1">
+                  <AlertDialogTitle className="text-base font-semibold text-slate-900">
+                    Delete Comment
+                  </AlertDialogTitle>
+                  <AlertDialogDescription className="text-sm leading-6 text-slate-600">
+                    This action will remove the selected comment from the task detail view.
+                  </AlertDialogDescription>
+                </div>
+              </div>
+            </AlertDialogHeader>
+          </div>
+
+          <div className="space-y-4 px-6 py-5">
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                Comment Preview
+              </p>
+              <p className="mt-2 text-sm font-semibold text-slate-900">
+                {commentPendingDelete?.actor?.fullName || "Your comment"}
+              </p>
+              <div
+                className="mt-2 max-h-24 overflow-hidden text-sm leading-6 text-slate-600 [&_p]:inline [&_p]:m-0"
+                dangerouslySetInnerHTML={{ __html: commentPendingDelete?.content || "" }}
+              />
+            </div>
+          </div>
+
+          <AlertDialogFooter className="border-t border-slate-200 bg-slate-50 px-6 py-4 sm:justify-between">
+            <AlertDialogCancel
+              disabled={Boolean(deletingCommentId)}
+              className="border-slate-300 bg-white text-slate-700 hover:bg-slate-100 hover:text-slate-900"
+            >
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={Boolean(deletingCommentId)}
+              className="bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-400"
+              onClick={(event) => {
+                event.preventDefault();
+                void handleConfirmDeleteComment();
+              }}
+            >
+              {deletingCommentId ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete Comment
                 </>
               )}
             </AlertDialogAction>
