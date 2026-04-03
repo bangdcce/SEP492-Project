@@ -1,0 +1,96 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "EP-207",
+      "class_name": "ProjectRequestsController / ProjectRequestsService",
+      "function_name": "Release Broker Slot",
+      "sheet_name": "EP-207 Release Broker Slot",
+      "test_requirement": "Cover POST /project-requests/:id/release-broker-slot with executed Jest evidence for successful slot release, inactive application rejection, non-owner rejection, and exact terminal log output.",
+      "loc": 68,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" is currently \"PUBLIC_DRAFT\"",
+            "Request \"req-1\" has no assigned broker",
+            "Broker application \"application-1\" belongs to request \"req-1\"",
+            "Broker application \"application-1\" is currently \"PENDING\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "proposalId": "\"application-1\"",
+            "actorId": "\"client-1\"",
+            "actorRole": "\"CLIENT\""
+          },
+          "returns": [
+            "returns request with status = PUBLIC_DRAFT"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Release Broker Slot Successful: \"application-1\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" has no assigned broker",
+            "Broker application \"application-1\" belongs to request \"req-1\"",
+            "Broker application \"application-1\" is currently \"ACCEPTED\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "proposalId": "\"application-1\"",
+            "actorId": "\"client-1\"",
+            "actorRole": "\"CLIENT\""
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Proposal status ACCEPTED cannot be released."
+          ],
+          "logs": [
+            "Release Broker Slot Failed: Proposal status ACCEPTED cannot be released."
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client does not own request \"req-1\"",
+            "Request \"req-1\" belongs to client \"client-1\"",
+            "Request \"req-1\" has no assigned broker"
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "proposalId": "\"application-1\"",
+            "actorId": "\"client-2\"",
+            "actorRole": "\"CLIENT\""
+          },
+          "returns": [],
+          "exceptions": [
+            "ForbiddenException: Only the client or internal staff can release a broker slot."
+          ],
+          "logs": [
+            "Release Broker Slot Failed: Only the client or internal staff can release a broker slot."
+          ]
+        }
+      ]
+    }
+  ]
+}

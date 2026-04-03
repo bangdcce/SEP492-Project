@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "UC-54",
+      "class_name": "ProjectRequestsController / ProjectRequestsService",
+      "function_name": "View Request Invitation",
+      "sheet_name": "View Request Invitation",
+      "test_requirement": "Cover GET /project-requests/invitations/my for UC-54 View Request Invitation with executed Jest evidence for controller forwarding, broker invitation lists, freelancer invitation lists, empty-list behavior, and terminal log messages.",
+      "loc": 19,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Controller receives authenticated user \"broker-1\" with role \"BROKER\""
+          ],
+          "inputs": {
+            "userId": "\"broker-1\"",
+            "role": "\"BROKER\""
+          },
+          "returns": [
+            "returns invitation list from service"
+          ],
+          "exceptions": [],
+          "logs": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated user \"broker-1\" has broker invitations in visible statuses",
+            "Broker invitation results are ordered by createdAt DESC"
+          ],
+          "inputs": {
+            "userId": "\"broker-1\"",
+            "role": "\"BROKER\""
+          },
+          "returns": [
+            "returns broker invitation list"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Get My Invitations Successful: BROKER -> 2 invitation(s)"
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated user \"freelancer-1\" has 1 freelancer invitation with status \"INVITED\"",
+            "Freelancer invitation results are ordered by createdAt DESC"
+          ],
+          "inputs": {
+            "userId": "\"freelancer-1\"",
+            "role": "\"FREELANCER\""
+          },
+          "returns": [
+            "returns freelancer invitation list"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Get My Invitations Successful: FREELANCER -> 1 invitation(s)"
+          ]
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated user \"client-1\" does not map to a broker or freelancer invitation branch"
+          ],
+          "inputs": {
+            "userId": "\"client-1\"",
+            "role": "\"CLIENT\""
+          },
+          "returns": [
+            "returns empty invitation list"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Get My Invitations Successful: CLIENT -> 0 invitation(s)"
+          ]
+        }
+      ]
+    }
+  ]
+}

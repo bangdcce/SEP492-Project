@@ -74,23 +74,33 @@ export class SubscriptionsController {
   async getPlans(@Request() req: any) {
     const user = req.user;
     this.logger.debug(`User ${user.id} requesting plans for role ${user.role}`);
+    try {
+      const plans = await this.subscriptionsService.getPlansForRole(user.role);
 
-    const plans = await this.subscriptionsService.getPlansForRole(user.role);
+      const response = {
+        success: true,
+        data: plans.map((plan) => ({
+          id: plan.id,
+          name: plan.name,
+          displayName: plan.displayName,
+          description: plan.description,
+          role: plan.role,
+          priceMonthly: Number(plan.priceMonthly),
+          priceQuarterly: Number(plan.priceQuarterly),
+          priceYearly: Number(plan.priceYearly),
+          perks: plan.perks,
+        })),
+      };
 
-    return {
-      success: true,
-      data: plans.map((plan) => ({
-        id: plan.id,
-        name: plan.name,
-        displayName: plan.displayName,
-        description: plan.description,
-        role: plan.role,
-        priceMonthly: Number(plan.priceMonthly),
-        priceQuarterly: Number(plan.priceQuarterly),
-        priceYearly: Number(plan.priceYearly),
-        perks: plan.perks,
-      })),
-    };
+      this.logger.log(
+        `Get Plans Endpoint Successful: user="${user.id}" role="${user.role}" count=${response.data.length}`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Get Plans Endpoint Failed: ${message}`);
+      throw error;
+    }
   }
 
   /**
@@ -123,21 +133,31 @@ export class SubscriptionsController {
   async getMySubscription(@Request() req: any) {
     const user = req.user;
     this.logger.debug(`User ${user.id} viewing subscription status`);
+    try {
+      const subscriptionData = await this.subscriptionsService.getMySubscription(
+        user.id,
+      );
 
-    const subscriptionData = await this.subscriptionsService.getMySubscription(
-      user.id,
-    );
+      // Enrich with quota usage summary
+      const usage = await this.quotaService.getUsageSummary(user.id, user.role);
 
-    // Enrich with quota usage summary
-    const usage = await this.quotaService.getUsageSummary(user.id, user.role);
+      const response = {
+        success: true,
+        data: {
+          ...subscriptionData,
+          usage,
+        },
+      };
 
-    return {
-      success: true,
-      data: {
-        ...subscriptionData,
-        usage,
-      },
-    };
+      this.logger.log(
+        `Get My Subscription Endpoint Successful: user="${user.id}" premium=${response.data.isPremium}`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Get My Subscription Endpoint Failed: ${message}`);
+      throw error;
+    }
   }
 
   /**
@@ -180,24 +200,34 @@ export class SubscriptionsController {
     this.logger.log(
       `User ${user.id} subscribing to plan ${dto.planId} (${dto.billingCycle})`,
     );
+    try {
+      const subscription = await this.subscriptionsService.subscribe(
+        user.id,
+        dto,
+      );
 
-    const subscription = await this.subscriptionsService.subscribe(
-      user.id,
-      dto,
-    );
+      const response = {
+        success: true,
+        message: 'Successfully subscribed to Premium! Enjoy your new perks.',
+        data: {
+          id: subscription.id,
+          status: subscription.status,
+          billingCycle: subscription.billingCycle,
+          currentPeriodStart: subscription.currentPeriodStart,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          amountPaid: Number(subscription.amountPaid),
+        },
+      };
 
-    return {
-      success: true,
-      message: 'Successfully subscribed to Premium! Enjoy your new perks.',
-      data: {
-        id: subscription.id,
-        status: subscription.status,
-        billingCycle: subscription.billingCycle,
-        currentPeriodStart: subscription.currentPeriodStart,
-        currentPeriodEnd: subscription.currentPeriodEnd,
-        amountPaid: Number(subscription.amountPaid),
-      },
-    };
+      this.logger.log(
+        `Subscribe Endpoint Successful: user="${user.id}" subscription="${subscription.id}"`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Subscribe Endpoint Failed: ${message}`);
+      throw error;
+    }
   }
 
   /**
@@ -241,19 +271,29 @@ export class SubscriptionsController {
   ) {
     const user = req.user;
     this.logger.log(`User ${user.id} cancelling subscription`);
+    try {
+      const subscription = await this.subscriptionsService.cancel(user.id, dto);
 
-    const subscription = await this.subscriptionsService.cancel(user.id, dto);
+      const response = {
+        success: true,
+        message: `Subscription cancelled. Your premium perks will remain active until ${subscription.currentPeriodEnd.toISOString().split('T')[0]}.`,
+        data: {
+          id: subscription.id,
+          status: subscription.status,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          cancelledAt: subscription.cancelledAt,
+        },
+      };
 
-    return {
-      success: true,
-      message: `Subscription cancelled. Your premium perks will remain active until ${subscription.currentPeriodEnd.toISOString().split('T')[0]}.`,
-      data: {
-        id: subscription.id,
-        status: subscription.status,
-        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-        currentPeriodEnd: subscription.currentPeriodEnd,
-        cancelledAt: subscription.cancelledAt,
-      },
-    };
+      this.logger.log(
+        `Cancel Subscription Endpoint Successful: user="${user.id}" subscription="${subscription.id}"`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Cancel Subscription Endpoint Failed: ${message}`);
+      throw error;
+    }
   }
 }

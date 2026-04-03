@@ -178,46 +178,57 @@ export class SubscriptionsService {
    * @returns Full subscription status with perks and usage counters
    */
   async getMySubscription(userId: string) {
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException('User not found');
+    try {
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      const subscription = await this.getActiveSubscription(userId);
+      const isPremium = !!subscription;
+      const perks = isPremium && subscription.plan
+        ? subscription.plan.perks
+        : FREE_TIER_PERKS[user.role] || {};
+
+      const result = {
+        isPremium,
+        subscription: subscription
+          ? {
+              id: subscription.id,
+              status: subscription.status,
+              billingCycle: subscription.billingCycle,
+              currentPeriodStart: subscription.currentPeriodStart,
+              currentPeriodEnd: subscription.currentPeriodEnd,
+              cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+              amountPaid: subscription.amountPaid,
+              plan: subscription.plan
+                ? {
+                    id: subscription.plan.id,
+                    name: subscription.plan.name,
+                    displayName: subscription.plan.displayName,
+                    description: subscription.plan.description,
+                    role: subscription.plan.role,
+                    priceMonthly: subscription.plan.priceMonthly,
+                    priceQuarterly: subscription.plan.priceQuarterly,
+                    priceYearly: subscription.plan.priceYearly,
+                    perks: subscription.plan.perks,
+                  }
+                : null,
+            }
+          : null,
+        perks,
+        usage: {},
+      };
+
+      this.logger.log(
+        `Get My Subscription Successful: user="${userId}" premium=${isPremium}`,
+      );
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Get My Subscription Failed: ${message}`);
+      throw error;
     }
-
-    const subscription = await this.getActiveSubscription(userId);
-    const isPremium = !!subscription;
-    const perks = isPremium && subscription.plan
-      ? subscription.plan.perks
-      : FREE_TIER_PERKS[user.role] || {};
-
-    return {
-      isPremium,
-      subscription: subscription
-        ? {
-            id: subscription.id,
-            status: subscription.status,
-            billingCycle: subscription.billingCycle,
-            currentPeriodStart: subscription.currentPeriodStart,
-            currentPeriodEnd: subscription.currentPeriodEnd,
-            cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-            amountPaid: subscription.amountPaid,
-            plan: subscription.plan
-              ? {
-                  id: subscription.plan.id,
-                  name: subscription.plan.name,
-                  displayName: subscription.plan.displayName,
-                  description: subscription.plan.description,
-                  role: subscription.plan.role,
-                  priceMonthly: subscription.plan.priceMonthly,
-                  priceQuarterly: subscription.plan.priceQuarterly,
-                  priceYearly: subscription.plan.priceYearly,
-                  perks: subscription.plan.perks,
-                }
-              : null,
-          }
-        : null,
-      perks,
-      usage: {},
-    };
   }
 
   /**
@@ -229,15 +240,24 @@ export class SubscriptionsService {
    * @returns Array of available plans sorted by display order
    */
   async getPlansForRole(role: UserRole): Promise<SubscriptionPlanEntity[]> {
-    return this.planRepo.find({
-      where: {
-        role,
-        isActive: true,
-      },
-      order: {
-        displayOrder: 'ASC',
-      },
-    });
+    try {
+      const plans = await this.planRepo.find({
+        where: {
+          role,
+          isActive: true,
+        },
+        order: {
+          displayOrder: 'ASC',
+        },
+      });
+
+      this.logger.log(`Get Plans Successful: role="${role}" count=${plans.length}`);
+      return plans;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Get Plans Failed: ${message}`);
+      throw error;
+    }
   }
 
   /**
@@ -258,75 +278,80 @@ export class SubscriptionsService {
     userId: string,
     dto: SubscribeDto,
   ): Promise<UserSubscriptionEntity> {
-    // Check for existing active subscription
-    const existing = await this.getActiveSubscription(userId);
-    if (existing) {
-      throw new ConflictException(
-        'You already have an active subscription. Cancel it first before subscribing to a new plan.',
+    try {
+      // Check for existing active subscription
+      const existing = await this.getActiveSubscription(userId);
+      if (existing) {
+        throw new ConflictException(
+          'You already have an active subscription. Cancel it first before subscribing to a new plan.',
+        );
+      }
+
+      // Validate plan exists and is active
+      const plan = await this.planRepo.findOne({
+        where: { id: dto.planId, isActive: true },
+      });
+      if (!plan) {
+        throw new NotFoundException('Subscription plan not found or is no longer available.');
+      }
+
+      // Validate plan matches user role
+      const user = await this.userRepo.findOne({ where: { id: userId } });
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      if (plan.role !== user.role) {
+        throw new BadRequestException(
+          `This plan is for ${plan.role} users. Your role is ${user.role}.`,
+        );
+      }
+
+      // Calculate billing period
+      const now = new Date();
+      const durationDays = CYCLE_DURATION_DAYS[dto.billingCycle];
+      const periodEnd = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
+
+      // Calculate amount based on billing cycle
+      let amount: number;
+      switch (dto.billingCycle) {
+        case BillingCycle.QUARTERLY:
+          amount = Number(plan.priceQuarterly);
+          break;
+        case BillingCycle.YEARLY:
+          amount = Number(plan.priceYearly);
+          break;
+        case BillingCycle.MONTHLY:
+        default:
+          amount = Number(plan.priceMonthly);
+          break;
+      }
+
+      // Create subscription
+      const subscription = this.subscriptionRepo.create({
+        userId,
+        planId: dto.planId,
+        status: SubscriptionStatus.ACTIVE,
+        billingCycle: dto.billingCycle,
+        currentPeriodStart: now,
+        currentPeriodEnd: periodEnd,
+        cancelAtPeriodEnd: false,
+        amountPaid: amount,
+        paymentReference: dto.paymentReference || null,
+      });
+
+      const saved = await this.subscriptionRepo.save(subscription);
+
+      this.logger.log(
+        `Subscribe Successful: user="${userId}" plan="${plan.id}" cycle="${dto.billingCycle}"`,
       );
+
+      return saved;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Subscribe Failed: ${message}`);
+      throw error;
     }
-
-    // Validate plan exists and is active
-    const plan = await this.planRepo.findOne({
-      where: { id: dto.planId, isActive: true },
-    });
-    if (!plan) {
-      throw new NotFoundException('Subscription plan not found or is no longer available.');
-    }
-
-    // Validate plan matches user role
-    const user = await this.userRepo.findOne({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-
-    if (plan.role !== user.role) {
-      throw new BadRequestException(
-        `This plan is for ${plan.role} users. Your role is ${user.role}.`,
-      );
-    }
-
-    // Calculate billing period
-    const now = new Date();
-    const durationDays = CYCLE_DURATION_DAYS[dto.billingCycle];
-    const periodEnd = new Date(now.getTime() + durationDays * 24 * 60 * 60 * 1000);
-
-    // Calculate amount based on billing cycle
-    let amount: number;
-    switch (dto.billingCycle) {
-      case BillingCycle.QUARTERLY:
-        amount = Number(plan.priceQuarterly);
-        break;
-      case BillingCycle.YEARLY:
-        amount = Number(plan.priceYearly);
-        break;
-      case BillingCycle.MONTHLY:
-      default:
-        amount = Number(plan.priceMonthly);
-        break;
-    }
-
-    // Create subscription
-    const subscription = this.subscriptionRepo.create({
-      userId,
-      planId: dto.planId,
-      status: SubscriptionStatus.ACTIVE,
-      billingCycle: dto.billingCycle,
-      currentPeriodStart: now,
-      currentPeriodEnd: periodEnd,
-      cancelAtPeriodEnd: false,
-      amountPaid: amount,
-      paymentReference: dto.paymentReference || null,
-    });
-
-    const saved = await this.subscriptionRepo.save(subscription);
-
-    this.logger.log(
-      `User ${userId} subscribed to plan ${plan.name} (${dto.billingCycle}). ` +
-      `Period: ${now.toISOString()} to ${periodEnd.toISOString()}. Amount: ${amount} VND`,
-    );
-
-    return saved;
   }
 
   /**
@@ -345,41 +370,45 @@ export class SubscriptionsService {
     userId: string,
     dto: CancelSubscriptionDto,
   ): Promise<UserSubscriptionEntity> {
-    const subscription = await this.subscriptionRepo.findOne({
-      where: {
-        userId,
-        status: SubscriptionStatus.ACTIVE,
-      },
-      relations: ['plan'],
-    });
+    try {
+      const subscription = await this.subscriptionRepo.findOne({
+        where: {
+          userId,
+          status: SubscriptionStatus.ACTIVE,
+        },
+        relations: ['plan'],
+      });
 
-    if (!subscription) {
-      throw new NotFoundException(
-        'No active subscription found. You are currently on the free plan.',
+      if (!subscription) {
+        throw new NotFoundException(
+          'No active subscription found. You are currently on the free plan.',
+        );
+      }
+
+      if (subscription.cancelAtPeriodEnd) {
+        throw new ConflictException(
+          'Your subscription is already scheduled for cancellation at the end of the current billing period.',
+        );
+      }
+
+      // Soft cancel - keep perks until period end
+      subscription.cancelAtPeriodEnd = true;
+      subscription.cancelReason = dto.reason || null;
+      subscription.cancelledAt = new Date();
+      subscription.status = SubscriptionStatus.CANCELLED;
+
+      const updated = await this.subscriptionRepo.save(subscription);
+
+      this.logger.log(
+        `Cancel Subscription Successful: user="${userId}" subscription="${subscription.id}"`,
       );
+
+      return updated;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Cancel Subscription Failed: ${message}`);
+      throw error;
     }
-
-    if (subscription.cancelAtPeriodEnd) {
-      throw new ConflictException(
-        'Your subscription is already scheduled for cancellation at the end of the current billing period.',
-      );
-    }
-
-    // Soft cancel — keep perks until period end
-    subscription.cancelAtPeriodEnd = true;
-    subscription.cancelReason = dto.reason || null;
-    subscription.cancelledAt = new Date();
-    subscription.status = SubscriptionStatus.CANCELLED;
-
-    const updated = await this.subscriptionRepo.save(subscription);
-
-    this.logger.log(
-      `User ${userId} cancelled subscription ${subscription.id}. ` +
-      `Perks remain active until ${subscription.currentPeriodEnd.toISOString()}. ` +
-      `Reason: ${dto.reason || 'No reason provided'}`,
-    );
-
-    return updated;
   }
 
   /**

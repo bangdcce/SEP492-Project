@@ -1,0 +1,219 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC42_Active_Dispute_Listing_Test_Case_v1.0",
+    "creator": "Codex",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "defaultTester": "Codex",
+    "environment": [
+      "1. Frontend: React ParticipantDisputesPage routed from client/src/App.tsx",
+      "2. Frontend API: client/src/features/disputes/api.ts using GET /disputes/my with cachedFetch support",
+      "3. Backend: NestJS disputes controller GET /disputes/my and DisputesService.getMyDisputes scope filtering",
+      "4. Evidence source: code inspection of client/src/features/disputes/pages/ParticipantDisputesPage.tsx, client/src/features/disputes/api.ts, server/src/modules/disputes/disputes.controller.ts, server/src/modules/disputes/disputes.service.ts, and server/src/modules/disputes/dto/dispute-filter.dto.ts"
+    ],
+    "notes": "UC-42 View List Of Active Dispute was selected because docs currently contain no exported test-case or traceability workbook for this use case, while the repository already contains the participant dispute listing flow. The repository does not include an executed automated test suite that directly proves this listing path, so the cases below are derived from implemented frontend and backend behavior and remain Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "UC-42 View List Of Active Dispute",
+        "changeType": "A",
+        "description": "Initial feature/function-based workbook generated from the implemented participant dispute listing flow.",
+        "reference": "client/src/features/disputes/pages/ParticipantDisputesPage.tsx, client/src/features/disputes/api.ts, server/src/modules/disputes/disputes.controller.ts, server/src/modules/disputes/disputes.service.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "ACTIVE-DISPUTE-LIST",
+      "name": "Active Dispute Listing",
+      "testRequirement": "Validate participant dispute retrieval, involved-user scope expansion, active/appeal/closed grouping, empty-state handling, and fetch-failure fallback for UC-42 View List Of Active Dispute.",
+      "referenceDocument": [
+        "client/src/App.tsx",
+        "client/src/features/disputes/pages/ParticipantDisputesPage.tsx",
+        "client/src/features/disputes/api.ts",
+        "server/src/modules/disputes/disputes.controller.ts",
+        "server/src/modules/disputes/disputes.service.ts",
+        "server/src/modules/disputes/dto/dispute-filter.dto.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 6,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Participant Dispute API Wrapper",
+          "description": "Build query parameters for the participant listing request, call GET /disputes/my, and scope the response cache per user.",
+          "preCondition": "A signed-in user exists in local storage and the frontend can call the disputes API.",
+          "relatedUseCases": [
+            "UC-42"
+          ],
+          "actor": "Authenticated User",
+          "done": false
+        },
+        {
+          "name": "Participant Dispute Retrieval",
+          "description": "Return disputes visible to the current participant through raiser, defendant, project involvement, or dispute-party membership scope.",
+          "preCondition": "The caller is authenticated and the backend can query disputes, users, and related project joins.",
+          "relatedUseCases": [
+            "UC-42"
+          ],
+          "actor": "Authenticated User",
+          "done": false
+        },
+        {
+          "name": "Participant Dispute List Rendering",
+          "description": "Load disputes into the page, split them into active, appeals, and closed groups, and show list cards, empty state, or error fallback.",
+          "preCondition": "The user can navigate to the disputes page and the frontend can resolve a role-based navigation path.",
+          "relatedUseCases": [
+            "UC-42"
+          ],
+          "actor": "Authenticated User",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Participant Dispute API Wrapper",
+          "testCases": [
+            {
+              "id": "[UC42-API-01]",
+              "description": "Request the participant dispute list with the intended default filters and bypass cache when the page loads.",
+              "procedure": "1. Open the participant disputes page as an authenticated user.\n2. Allow loadDisputes to execute.\n3. Inspect the getMyDisputes call.",
+              "expectedResults": "1. The frontend requests page = 1, limit = 50, sortBy = updatedAt, sortOrder = DESC, and asInvolved = true.\n2. The request is sent through GET /disputes/my.\n3. preferCache is set to false for this page load path.",
+              "actualResults": "",
+              "dependencies": "Authenticated browser session and reachable frontend disputes API module.",
+              "useCaseRefs": [
+                "UC-42"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from ParticipantDisputesPage.loadDisputes and client/src/features/disputes/api.ts."
+            },
+            {
+              "id": "[UC42-API-02]",
+              "description": "Build a user-scoped cache key for participant dispute retrieval so cached data is isolated per signed-in account.",
+              "procedure": "1. Persist a signed-in user id and role under STORAGE_KEYS.USER.\n2. Call getMyDisputes with any filter combination.\n3. Inspect the generated cache key.",
+              "expectedResults": "1. getDisputesCacheScope resolves the user role and id from storage.\n2. The cache key uses disputes:mine:<role>:<userId>:<query> format.\n3. Different users produce different cache scopes.",
+              "actualResults": "",
+              "dependencies": "The STORAGE_KEYS.USER entry exists and requestCache utilities are available.",
+              "useCaseRefs": [
+                "UC-42"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers request-cache separation for participant listings."
+            }
+          ]
+        },
+        {
+          "title": "Participant Dispute Retrieval",
+          "testCases": [
+            {
+              "id": "[UC42-SVC-01]",
+              "description": "Return disputes where the caller is directly the raiser or defendant.",
+              "procedure": "1. Authenticate as a user who has disputes as raiser and defendant.\n2. Call GET /disputes/my with no explicit asRaiser or asDefendant flags.\n3. Inspect the returned rows.",
+              "expectedResults": "1. DisputesController.getMyDisputes forwards the current user id and role to DisputesService.getMyDisputes.\n2. DisputesService defaults to resolvedAsInvolved = true when no narrower flags are provided.\n3. The query includes disputes where dispute.raisedById = userId or dispute.defendantId = userId.",
+              "actualResults": "",
+              "dependencies": "Authenticated user with at least one directly related dispute.",
+              "useCaseRefs": [
+                "UC-42"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from DisputesController.getMyDisputes and DisputesService.getMyDisputes."
+            },
+            {
+              "id": "[UC42-SVC-02]",
+              "description": "Expand participant visibility to project involvement and dispute-party membership when asInvolved scope is active.",
+              "procedure": "1. Authenticate as a user related to a dispute through project client, freelancer, broker, or dispute_parties membership.\n2. Call GET /disputes/my with asInvolved = true.\n3. Inspect the query result set.",
+              "expectedResults": "1. The query joins project and evaluates project.clientId, project.freelancerId, and project.brokerId against the current user id.\n2. The query also includes EXISTS on dispute_parties for matching group membership.\n3. Matching involved disputes are returned even when the user is not the direct raiser or defendant.",
+              "actualResults": "",
+              "dependencies": "Authenticated user with indirect project or dispute-party involvement.",
+              "useCaseRefs": [
+                "UC-42"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the broader participant visibility branch in DisputesService.getMyDisputes."
+            }
+          ]
+        },
+        {
+          "title": "Participant Dispute List Rendering",
+          "testCases": [
+            {
+              "id": "[UC42-UI-01]",
+              "description": "Group loaded disputes into Active, Appeals, and Closed tabs and show only active cases by default.",
+              "procedure": "1. Open the participant disputes page with a response containing open, appealed, and resolved disputes.\n2. Wait for the fetch to complete.\n3. Observe the default tab and group counters.",
+              "expectedResults": "1. The page stores the fetched disputes and computes groupedDisputes.\n2. The default selected group is active.\n3. Active excludes APPEALED, REJECTION_APPEALED, RESOLVED, REJECTED, and CANCELED statuses.\n4. Each tab shows its item count from the grouped collection.",
+              "actualResults": "",
+              "dependencies": "The API returns disputes spanning active, appeal, and closed statuses.",
+              "useCaseRefs": [
+                "UC-42"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the groupedDisputes useMemo and group state default."
+            },
+            {
+              "id": "[UC42-UI-02]",
+              "description": "Render dispute summary cards with route navigation into the selected case detail.",
+              "procedure": "1. Open the participant disputes page with at least one visible active dispute.\n2. Observe the rendered card content.\n3. Click a dispute card.",
+              "expectedResults": "1. Each card renders dispute display code or DSP fallback, title, status pill, project summary, next-step label, reason excerpt, updated date, and appeal label.\n2. Clicking the card navigates to <roleBasePath>/disputes/{disputeId}.\n3. The Open Hearings Calendar button navigates to <roleBasePath>/hearings.",
+              "actualResults": "",
+              "dependencies": "At least one visible dispute and a role-resolved navigation base path.",
+              "useCaseRefs": [
+                "UC-42"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the main active-dispute listing presentation path."
+            },
+            {
+              "id": "[UC42-UI-03]",
+              "description": "Show an empty state when the selected dispute group has no items.",
+              "procedure": "1. Open the participant disputes page with no disputes in the selected group.\n2. Wait for loading to finish.\n3. Observe the rendered content.",
+              "expectedResults": "1. The page does not crash when visibleDisputes is empty.\n2. It renders the message No disputes in this group.\n3. No dispute cards are shown.",
+              "actualResults": "",
+              "dependencies": "The API returns zero disputes for the chosen group or an empty overall data array.",
+              "useCaseRefs": [
+                "UC-42"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Boundary case derived from the empty-state branch."
+            },
+            {
+              "id": "[UC42-UI-04]",
+              "description": "Handle a failed dispute fetch by showing an error toast and ending the loading state.",
+              "procedure": "1. Open the participant disputes page.\n2. Force getMyDisputes to reject.\n3. Observe the page state after the catch/finally path completes.",
+              "expectedResults": "1. The error is logged to the console.\n2. toast.error displays Could not load disputes.\n3. loading returns to false so the UI can recover.",
+              "actualResults": "",
+              "dependencies": "The participant disputes API call fails or rejects.",
+              "useCaseRefs": [
+                "UC-42"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Abnormal path derived from the loadDisputes try/catch/finally block."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

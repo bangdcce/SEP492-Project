@@ -1,0 +1,319 @@
+﻿{
+    "sheetName":  "UC-04 Traceability",
+    "columnWidths":  [
+                         18,
+                         28,
+                         44,
+                         12,
+                         12,
+                         12,
+                         12,
+                         12,
+                         12
+                     ],
+    "rows":  [
+                 [
+                     "Function Code",
+                     "UC-04",
+                     "",
+                     "Function Name",
+                     "Own Profile Viewing"
+                 ],
+                 [
+                     "Created By",
+                     "Bao",
+                     "",
+                     "Executed By",
+                     ""
+                 ],
+                 [
+                     "Lines of code",
+                     "Scoped frontend/backend units (5 tested methods)",
+                     "",
+                     "Lack of test cases",
+                     "0"
+                 ],
+                 [
+                     "Test requirement",
+                     "Cover JWT-backed own-profile access, merged profile DTO retrieval, frontend state hydration, storage sync, optional-field fallbacks, and load-failure handling for the implemented UC-04 own profile viewing flow."
+                 ],
+                 [
+                     "Passed",
+                     "Failed",
+                     "Untested",
+                     "",
+                     "N",
+                     "A",
+                     "B",
+                     "",
+                     "Total Test Cases"
+                 ],
+                 [
+                     "0",
+                     "0",
+                     "6",
+                     "",
+                     "3",
+                     "2",
+                     "1",
+                     "",
+                     "6"
+                 ],
+                 [
+
+                 ],
+                 [
+                     "",
+                     "",
+                     "",
+                     "UTCID01",
+                     "UTCID02",
+                     "UTCID03",
+                     "UTCID04",
+                     "UTCID05",
+                     "UTCID06"
+                 ],
+                 [
+                     "Condition",
+                     "Precondition",
+                     "Valid bearer token resolves to an existing user",
+                     "O",
+                     "",
+                     "",
+                     "O",
+                     "O",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Precondition",
+                     "Frontend authenticated profile route is rendered",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     "O",
+                     "O"
+                 ],
+                 [
+                     "Condition",
+                     "Precondition",
+                     "Related profile row exists",
+                     "O",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Action",
+                     "Validate JWT",
+                     "O",
+                     "O",
+                     "O",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Action",
+                     "Read auth profile",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Action",
+                     "Populate ProfilePage state",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     "O",
+                     "O"
+                 ],
+                 [
+                     "Condition",
+                     "Input Variable",
+                     "Profile relation missing",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     "O",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Input Variable",
+                     "Access token subject user is missing",
+                     "",
+                     "O",
+                     "",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Input Variable",
+                     "Response includes avatar and bio",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Input Variable",
+                     "Response omits avatar and bio",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Input Variable",
+                     "getProfile request rejects",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O"
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "request.user is attached by JwtStrategy",
+                     "O",
+                     "",
+                     "",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "AuthResponseDto contains merged core and profile fields",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "Optional profile fields remain blank-safe when profile is missing",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "ProfilePage state and cached header user are synchronized",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "Initials and empty-string fallbacks are used for missing optional values",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Exception",
+                     "UnauthorizedException",
+                     "",
+                     "O",
+                     "",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Exception",
+                     "Error toast and no populated profile state",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O"
+                 ],
+                 [
+                     "Result",
+                     "Type(N : Normal, A : Abnormal, B : Boundary)",
+                     "",
+                     "N",
+                     "A",
+                     "N",
+                     "N",
+                     "B",
+                     "A"
+                 ],
+                 [
+                     "Result",
+                     "Passed/Failed",
+                     "",
+                     "Untested",
+                     "Untested",
+                     "Untested",
+                     "Untested",
+                     "Untested",
+                     "Untested"
+                 ],
+                 [
+                     "Result",
+                     "Executed Date",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Result",
+                     "Defect ID",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     ""
+                 ]
+             ]
+}

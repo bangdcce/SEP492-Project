@@ -1,0 +1,306 @@
+{
+  "sheetName": "UC-42 Traceability",
+  "columnWidths": [
+    18,
+    28,
+    46,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12
+  ],
+  "rows": [
+    [
+      "Function Code",
+      "UC-42",
+      "",
+      "Function Name",
+      "Active Dispute Listing"
+    ],
+    [
+      "Created By",
+      "Codex",
+      "",
+      "Executed By",
+      ""
+    ],
+    [
+      "Lines of code",
+      "Scoped frontend and backend units (1 page, 1 API wrapper, 1 controller endpoint, 1 service method)",
+      "",
+      "Lack of test cases",
+      "0"
+    ],
+    [
+      "Test requirement",
+      "Cover participant dispute retrieval, involved-user scope expansion, active grouping, navigation card rendering, empty states, and fetch failure handling for UC-42 View List Of Active Dispute."
+    ],
+    [
+      "Passed",
+      "Failed",
+      "Untested",
+      "",
+      "N",
+      "A",
+      "B",
+      "",
+      "Total Test Cases"
+    ],
+    [
+      "0",
+      "0",
+      "6",
+      "",
+      "4",
+      "1",
+      "1",
+      "",
+      "6"
+    ],
+    [],
+    [
+      "",
+      "",
+      "",
+      "UTCID01",
+      "UTCID02",
+      "UTCID03",
+      "UTCID04",
+      "UTCID05",
+      "UTCID06"
+    ],
+    [
+      "Condition",
+      "Precondition",
+      "Authenticated user opens the participant disputes listing flow",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O"
+    ],
+    [
+      "Condition",
+      "Precondition",
+      "Frontend can call GET /disputes/my and read STORAGE_KEYS.USER",
+      "O",
+      "O",
+      "",
+      "",
+      "",
+      "O"
+    ],
+    [
+      "Condition",
+      "Precondition",
+      "Backend can query dispute, project, and dispute_parties scope data",
+      "",
+      "",
+      "O",
+      "O",
+      "",
+      ""
+    ],
+    [
+      "Condition",
+      "Action",
+      "Open ParticipantDisputesPage and run loadDisputes",
+      "O",
+      "",
+      "",
+      "",
+      "O",
+      "O"
+    ],
+    [
+      "Condition",
+      "Action",
+      "Call GET /disputes/my",
+      "",
+      "",
+      "O",
+      "O",
+      "",
+      ""
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "Filters use page=1, limit=50, sortBy=updatedAt, sortOrder=DESC, asInvolved=true",
+      "O",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "Current user exists in local storage with id and role",
+      "",
+      "O",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "User is direct raiser or defendant on at least one dispute",
+      "",
+      "",
+      "O",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "User is indirectly involved through project roles or dispute_parties membership",
+      "",
+      "",
+      "",
+      "O",
+      "",
+      ""
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "Visible group contains no items after grouping",
+      "",
+      "",
+      "",
+      "",
+      "O",
+      ""
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "Participant listing request fails or rejects",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "O"
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Frontend requests the intended participant list filters without cache preference",
+      "O",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Cache key is isolated per signed-in user scope",
+      "",
+      "O",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Direct raiser and defendant disputes are included in the result",
+      "",
+      "",
+      "O",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Project-role and dispute-party involvement also returns matching disputes",
+      "",
+      "",
+      "",
+      "O",
+      "",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Empty-state message renders when the selected group has no disputes",
+      "",
+      "",
+      "",
+      "",
+      "O",
+      ""
+    ],
+    [
+      "Confirm",
+      "Exception",
+      "Error toast is shown and loading ends when the fetch fails",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "O"
+    ],
+    [
+      "Result",
+      "Type(N : Normal, A : Abnormal, B : Boundary)",
+      "",
+      "N",
+      "N",
+      "N",
+      "N",
+      "B",
+      "A"
+    ],
+    [
+      "Result",
+      "Passed/Failed",
+      "",
+      "Untested",
+      "Untested",
+      "Untested",
+      "Untested",
+      "Untested",
+      "Untested"
+    ],
+    [
+      "Result",
+      "Executed Date",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Result",
+      "Defect ID",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ]
+  ]
+}

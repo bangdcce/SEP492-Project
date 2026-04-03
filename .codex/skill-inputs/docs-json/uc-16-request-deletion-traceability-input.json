@@ -1,0 +1,102 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-27",
+    "version": "v1.1"
+  },
+  "functions": [
+    {
+      "function_code": "UC-16",
+      "class_name": "ProjectRequestsService",
+      "function_name": "Request Deletion",
+      "sheet_name": "Request Deletion",
+      "test_requirement": "Cover request deletion with readable service-level UTC rows: successful draft deletion, non-owner rejection, assigned-broker rejection, and accepted-freelancer rejection.",
+      "loc": 44,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "The viewer is an authenticated client",
+            "The viewer owns request req-delete",
+            "Request req-delete is in a deletable draft status",
+            "No broker is assigned and no accepted freelancer exists"
+          ],
+          "inputs": {
+            "requestId": "\"req-delete\"",
+            "currentStatus": "\"PUBLIC_DRAFT\"",
+            "brokerId": null,
+            "acceptedFreelancer": false
+          },
+          "returns": [
+            "Deletes request answers, broker proposals, and freelancer proposals for req-delete",
+            "Removes request req-delete",
+            "Writes the delete audit log",
+            "Returns success=true and message='Request deleted successfully'"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "The viewer is an authenticated client",
+            "Request req-delete belongs to another client"
+          ],
+          "inputs": {
+            "requestId": "\"req-delete\""
+          },
+          "returns": [],
+          "exceptions": [
+            "ForbiddenException: You can only delete your own requests"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "The viewer is an authenticated client",
+            "The viewer owns request req-delete",
+            "A broker is already assigned to the request"
+          ],
+          "inputs": {
+            "requestId": "\"req-delete\"",
+            "currentStatus": "\"BROKER_ASSIGNED\"",
+            "brokerId": "\"broker-1\""
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Cannot delete a request that has a broker assigned. Use Dispute or Report to resolve."
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "The viewer is an authenticated client",
+            "The viewer owns request req-delete",
+            "An accepted freelancer proposal already exists for the request"
+          ],
+          "inputs": {
+            "requestId": "\"req-delete\"",
+            "currentStatus": "\"DRAFT\"",
+            "acceptedFreelancer": true
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Cannot delete a request that has an accepted freelancer."
+          ]
+        }
+      ]
+    }
+  ]
+}

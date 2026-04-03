@@ -16,12 +16,12 @@ Default information model:
 
 ## Core behavior
 
-- Normalize free-form user input into the strict JSON shape in `references/input-shape.md`.
+- Normalize free-form user input into the strict JSON shape in `references/input-shape.md` **in-memory**.
 - Default to the strict `Cover`, `Test case List`, `FeatureN`, and `Test Report` workbook layout.
 - Treat each `FeatureN` sheet as a feature-level document that may contain multiple UC flows.
 - Prefer `sections[]` as function groups inside a feature sheet. In most cases, use one section per function.
 - Preserve the template sheet structure and overwrite workbook values deterministically with the bundled script.
-- Generate a real `.xlsx` file, not CSV.
+- Generate a single real `.xlsx` file (no companion JSON artifacts).
 - Fill concrete result columns directly on each case: `Actual Results`, `Result`, `Test date`, and `Tester`.
 - Default the tester name to `SonNT` when a case omits `tester` or still uses the placeholder `Codex`.
 - Use `Pass`, `Fail`, `Untested`, or `N/A` for strict-template case results.
@@ -33,18 +33,23 @@ Default information model:
 
 1. Extract project metadata, feature/module boundaries, functions inside each feature, and detailed test cases from the user input.
 2. Re-group the source material into `feature -> function -> test cases`, even when the source artifacts are written by use case.
-3. Convert the extracted content into JSON that matches `references/input-shape.md`.
+3. Convert the extracted content into JSON that matches `references/input-shape.md` (do not write it to `docs/`).
 4. Put each feature/module into one `FeatureN` sheet and each function into one `sections[]` group unless the user explicitly asks for another layout.
 5. Keep UC references only as traceability tags in the function or case metadata.
-6. Run:
+6. Choose an output path under `docs/interation/`:
+   - `docs/interation/fn-XX-<function-slug>-integration-test.xlsx` for function-scoped work
+   - `docs/interation/<feature-slug>-integration-test.xlsx` for feature-scoped work
+7. Run (prefer stdin input so no `*-input.json` is created):
 
 ```powershell
-node .codex/skills/integration-test-xlsx/scripts/generate_integration_test_xlsx.cjs --input <input.json> --output <output.xlsx>
+@'
+{ ...payload matching references/input-shape.md... }
+'@ | node .codex/skills/integration-test-xlsx/scripts/generate_integration_test_xlsx.cjs --input - --output <output.xlsx>
 ```
 
-7. If the user explicitly wants the older round-based report, pass the older template with `--template`.
-8. Verify the workbook by reopening it with `xlsx` and confirming the expected sheet names, feature count, and filled result cells.
-9. Return the absolute path to the generated workbook.
+8. If the user explicitly wants the older round-based report, pass the older template with `--template`.
+9. Verify the workbook by reopening it with `xlsx` and confirming the expected sheet names, feature count, and filled required cells.
+10. **Pass stage (completion gate):** the final answer returns only the absolute path to the `.xlsx` workbook, and no helper files (JSON inputs, scratch notes) are left in `docs/`.
 
 ## Limits
 
@@ -57,4 +62,4 @@ node .codex/skills/integration-test-xlsx/scripts/generate_integration_test_xlsx.
 
 - Read `references/input-shape.md` for the strict JSON contract.
 - Read `references/example-user-authentication-input.json` for a concrete feature/function-based payload sample.
-- Read `GradProject\SEP492-Project\docs` for related testcase of unittest or available testcase documents for the relevant feature/module.
+- Read `docs/interation/` (integration) and `docs/unit/` (unit) for existing workbooks that can be reused or aligned to the relevant feature/module.

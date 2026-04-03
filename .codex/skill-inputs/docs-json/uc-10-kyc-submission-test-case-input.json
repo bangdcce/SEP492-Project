@@ -1,0 +1,225 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC10_KYC_Submission_Test_Case_v1.0",
+    "creator": "Bao",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "defaultTester": "Bao",
+    "environment": [
+      "1. Frontend: React KYCPage routed from client/src/App.tsx",
+      "2. Backend: NestJS POST /kyc endpoint protected by JwtAuthGuard and handled by KycController.submitKyc",
+      "3. Service: KycService.submitKyc with FPT AI verification, data matching, encrypted storage upload, and KYC status decisioning",
+      "4. Evidence source: code inspection of client/src/pages/KYCPage.tsx, server/src/modules/kyc/kyc.controller.ts, server/src/modules/kyc/kyc.service.ts, server/src/modules/kyc/dto/submit-kyc.dto.ts, and server/src/database/entities/kyc-verification.entity.ts"
+    ],
+    "notes": "Strict feature-based workbook for UC-10 KYC Submission. No dedicated automated KYC submission spec was found in the repository, so all documented cases remain Untested and are derived from the implemented frontend validation, request assembly, DTO rules, and KYC service decision branches.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "UC-10 KYC Submission",
+        "changeType": "A",
+        "description": "Initial workbook generated from the implemented KYC submission page, controller, DTO validation, and backend decision flow.",
+        "reference": "client/src/pages/KYCPage.tsx, server/src/modules/kyc/kyc.controller.ts, server/src/modules/kyc/kyc.service.ts, server/src/modules/kyc/dto/submit-kyc.dto.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "KYC-SUBMISSION",
+      "name": "KYC Submission",
+      "testRequirement": "Validate client-side KYC input checks, multipart submission payload creation, duplicate-submission guards, required-document validation, and backend AI-driven approval, rejection, or manual-review outcomes for UC-10 KYC Submission.",
+      "referenceDocument": [
+        "client/src/App.tsx",
+        "client/src/pages/KYCPage.tsx",
+        "server/src/modules/kyc/kyc.controller.ts",
+        "server/src/modules/kyc/kyc.service.ts",
+        "server/src/modules/kyc/dto/submit-kyc.dto.ts",
+        "server/src/database/entities/kyc-verification.entity.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 8,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Client KYC Form Validation",
+          "description": "The KYC page validates age, ID number format, required address, required front and back ID images, required selfie, image MIME type, and 5 MB file size before allowing submission.",
+          "preCondition": "The user opens the KYC page and can enter personal information and choose image files.",
+          "relatedUseCases": [
+            "UC-10"
+          ],
+          "actor": "Authenticated User",
+          "done": false
+        },
+        {
+          "name": "KYC Submission Request Assembly",
+          "description": "The KYC page assembles multipart FormData with fullNameOnDocument, dateOfBirth, documentNumber, fixed documentType CCCD, and the three uploaded files, then posts the request to POST /kyc with credentials.",
+          "preCondition": "All three form steps validate successfully and the browser can reach the configured backend base URL.",
+          "relatedUseCases": [
+            "UC-10"
+          ],
+          "actor": "Authenticated User",
+          "done": false
+        },
+        {
+          "name": "Backend KYC Decision and Persistence",
+          "description": "The controller extracts the uploaded files and the service blocks duplicate pending or approved submissions, calls AI verification, compares extracted values with user-entered data, uploads encrypted assets, hashes the document number, stores the KYC record, and sets APPROVED, REJECTED, or PENDING based on the implemented decision rules.",
+          "preCondition": "The caller is authenticated through JwtAuthGuard and the service dependencies for AI verification, storage, and repositories are available.",
+          "relatedUseCases": [
+            "UC-10"
+          ],
+          "actor": "Authenticated User",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Client KYC Form Validation",
+          "testCases": [
+            {
+              "id": "[UC10-UI-01]",
+              "description": "Reject step 1 when the applicant is under 18 years old.",
+              "procedure": "1. Open the KYC page.\n2. Enter a valid full name, ID number, and address.\n3. Enter a date of birth that makes the user younger than 18.\n4. Click Next on step 1.",
+              "expectedResults": "1. validateStep1 calculates the age from the entered date.\n2. The page shows the error message You must be at least 18 years old.\n3. The wizard remains on step 1 and does not advance to ID upload.",
+              "dependencies": "KYC page is loaded and the browser can execute the local validation logic.",
+              "useCaseRefs": [
+                "UC-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from validateStep1 in client/src/pages/KYCPage.tsx and the IsAdultConstraint in SubmitKycDto."
+            },
+            {
+              "id": "[UC10-UI-02]",
+              "description": "Reject invalid ID numbers that are not 9 to 12 digits.",
+              "procedure": "1. Open the KYC page.\n2. Enter a valid adult date of birth, full name, and address.\n3. Enter an ID number containing non-digits or a length outside 9 to 12 digits.\n4. Click Next on step 1.",
+              "expectedResults": "1. validateStep1 applies the /^\\d{9,12}$/ pattern.\n2. The page shows Invalid ID number (9-12 digits).\n3. The wizard stays on step 1 and no request is sent.",
+              "dependencies": "KYC page is loaded and the form uses the current ID number validation regex.",
+              "useCaseRefs": [
+                "UC-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the client-side ID number format gate before document upload."
+            },
+            {
+              "id": "[UC10-UI-03]",
+              "description": "Reject non-image files or files larger than 5 MB during document selection.",
+              "procedure": "1. Open step 2 or step 3 of the KYC page.\n2. Attempt to upload a non-image file for one of the document inputs.\n3. Attempt to upload an image larger than 5 MB for one of the document inputs.",
+              "expectedResults": "1. handleFileChange rejects non-image files with Please upload an image file.\n2. handleFileChange rejects oversize files with File size must be less than 5MB.\n3. The invalid file is not stored in form state and no preview is created for that field.",
+              "dependencies": "The browser exposes file metadata and the user can interact with the upload boxes.",
+              "useCaseRefs": [
+                "UC-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the file-type and size checks in handleFileChange."
+            }
+          ]
+        },
+        {
+          "title": "KYC Submission Request Assembly",
+          "testCases": [
+            {
+              "id": "[UC10-REQ-01]",
+              "description": "Assemble and send a multipart KYC request after all three steps validate successfully.",
+              "procedure": "1. Enter valid personal information on step 1.\n2. Upload valid front and back ID images on step 2.\n3. Upload a valid selfie image on step 3.\n4. Click Submit and inspect the outgoing request.",
+              "expectedResults": "1. handleSubmit creates FormData with fullNameOnDocument, dateOfBirth, documentNumber, and documentType = CCCD.\n2. The request appends idCardFront, idCardBack, and selfie when the selected files exist.\n3. The browser sends POST /kyc with credentials included.\n4. When the response is OK, the page shows a success toast and moves to the processing state.",
+              "dependencies": "All local validations pass and the backend endpoint is reachable.",
+              "useCaseRefs": [
+                "UC-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from handleSubmit in client/src/pages/KYCPage.tsx and KycController.submitKyc."
+            },
+            {
+              "id": "[UC10-REQ-02]",
+              "description": "Reject submission when any required upload is missing.",
+              "procedure": "1. Complete step 1 with valid personal data.\n2. Leave one of idCardFront, idCardBack, or selfiePhoto empty.\n3. Attempt to continue and submit the wizard.",
+              "expectedResults": "1. validateStep2 or validateStep3 adds an error for the missing required document.\n2. The wizard remains on the current step.\n3. handleSubmit is not called and no POST /kyc request is sent.",
+              "dependencies": "The user can interact with the wizard steps without backend involvement.",
+              "useCaseRefs": [
+                "UC-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the required front, back, and selfie prerequisites before request assembly."
+            }
+          ]
+        },
+        {
+          "title": "Backend KYC Decision and Persistence",
+          "testCases": [
+            {
+              "id": "[UC10-SVC-01]",
+              "description": "Block a second submission when the latest KYC record is still pending or already approved.",
+              "procedure": "1. Authenticate as a user whose latest KYC record has status PENDING.\n2. Submit a new KYC request.\n3. Repeat the same scenario with the latest KYC record status APPROVED.",
+              "expectedResults": "1. submitKyc loads the latest record ordered by createdAt descending.\n2. A PENDING record causes BadRequestException with You already have a pending KYC verification.\n3. An APPROVED record causes BadRequestException with Your KYC is already verified.\n4. The service stops before AI verification or file upload starts.",
+              "dependencies": "The repository returns an existing latest KYC record for the authenticated user.",
+              "useCaseRefs": [
+                "UC-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the duplicate-submission guard near the start of KycService.submitKyc."
+            },
+            {
+              "id": "[UC10-SVC-02]",
+              "description": "Auto-approve and mark the user verified when AI approval and strong data matching both pass.",
+              "procedure": "1. Submit a KYC request with all three files present.\n2. Stub FPT AI to return decision AUTO_APPROVED with extracted values matching the DTO strongly enough to produce matchScore >= 0.8 and no critical mismatch.\n3. Inspect the stored KYC result.",
+              "expectedResults": "1. The service uploads all three encrypted files and hashes the document number before persistence.\n2. The new KYC row is saved with status APPROVED.\n3. userRepo.update sets isVerified = true for the user.\n4. The response returns signed document URLs and redacted AI extractedData markers instead of raw PII.",
+              "dependencies": "AI verification, encrypted storage upload, and repository saves all succeed.",
+              "useCaseRefs": [
+                "UC-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the happy path where AI confidence and value matching are both strong."
+            },
+            {
+              "id": "[UC10-SVC-03]",
+              "description": "Route the submission to manual review when a critical mismatch exists between entered data and extracted document data.",
+              "procedure": "1. Submit a KYC request with all required files present.\n2. Stub FPT AI extracted values so full name, ID number, or date of birth materially differs from the DTO.\n3. Inspect the saved KYC row and response.",
+              "expectedResults": "1. validateDataMatch marks criticalMismatch = true and adds the relevant mismatch issues.\n2. submitKyc prepends the CRITICAL user-entered data mismatch warning.\n3. The saved KYC row status becomes PENDING rather than auto-approved or auto-rejected.\n4. The combined issues are stored in rejectionReason for later reviewer visibility.",
+              "dependencies": "AI verification returns extractedData and the repositories accept the save.",
+              "useCaseRefs": [
+                "UC-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the service rule that critical data mismatch forces manual review."
+            },
+            {
+              "id": "[UC10-SVC-04]",
+              "description": "Auto-reject when AI returns AUTO_REJECTED and the issues are not just unreadable-document extraction failures.",
+              "procedure": "1. Submit a KYC request with all required files present.\n2. Stub FPT AI to return decision AUTO_REJECTED with issues that do not match the unreadable-extraction patterns.\n3. Inspect the stored KYC result.",
+              "expectedResults": "1. submitKyc determines that hasUnreadableIssue = false.\n2. The new KYC row is saved with status REJECTED.\n3. The response includes signed document URLs plus AI decision metadata and the rejection issues list.\n4. The user verification flag is not updated to true.",
+              "dependencies": "AI verification returns AUTO_REJECTED and storage upload plus persistence succeed.",
+              "useCaseRefs": [
+                "UC-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the explicit auto-reject branch in KycService.submitKyc."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
