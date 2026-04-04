@@ -86,21 +86,16 @@ class KycService {
     + approveKyc(id: string, adminId: string): KycVerificationEntity
     + rejectKyc(id: string, adminId: string, dto: RejectKycDto): KycVerificationEntity
     + getMyKyc(userId: string)
+    - buildUserKycPayload(kyc: KycVerificationEntity)
+    - getLatestApprovedKyc(userId: string)
+    - expirePreviousApprovedKycs(userId: string, activeKycId: string)
     + getAllKyc(status?: KycStatus, page = 1, limit = 20)
     + getKycById(id: string)
     + hasVerifiedKyc(userId: string): Promise<boolean>
     - normalizeString(str: string | undefined | null): string
-    - levenshteinDistance(str1: string, str2: string): number
-    - calculateSimilarity(str1: string, str2: string): number
-    - normalizeDateString(dateStr: string | undefined | null): string
+    ...
 }
 
-enum KycStatus {
-    PENDING
-    APPROVED
-    REJECTED
-    EXPIRED
-}
 
 class KycVerificationEntity {
     + id: string

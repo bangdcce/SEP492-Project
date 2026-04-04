@@ -1229,6 +1229,7 @@ export class ProjectRequestsService {
   // ... (existing create/update methods)
 
   async create(clientId: string, dto: CreateProjectRequestDto, req: RequestContext) {
+<<<<<<< HEAD
     try {
       // Quota check: enforce free-tier limit on active requests
       await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
@@ -1298,25 +1299,90 @@ export class ProjectRequestsService {
       await this.quotaService.incrementUsage(clientId, QuotaAction.CREATE_REQUEST, {
         requestId: savedRequest.id,
       });
-      if (fullRequest) {
-        await this.notifyUsers([
-          {
-            userId: clientId,
-            title: 'Project request created',
-            body: `Request "${fullRequest.title}" has been created and is now being tracked.`,
-            relatedType: 'ProjectRequest',
-            relatedId: fullRequest.id,
-          },
-        ]);
-      }
+=======
+    // Quota check: enforce free-tier limit on active requests
+    await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
+    const intendedTimeline = this.normalizeIntendedTimeline(dto.intendedTimeline);
+    const requestedDeadline = this.normalizeRequestedDeadline(
+      dto.requestedDeadline ?? (DATE_ONLY_INPUT_PATTERN.test(`${dto.intendedTimeline || ''}`) ? dto.intendedTimeline : undefined),
+    );
 
-      console.log(`Create Request Successful: ${fullRequest?.status ?? request.status}`);
-      return fullRequest;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      console.error(`Create Request Failed: ${message}`);
-      throw error;
+    const request = this.requestRepo.create({
+      clientId: clientId,
+      title: dto.title,
+      description: dto.description,
+      budgetRange: dto.budgetRange,
+      intendedTimeline,
+      requestedDeadline: requestedDeadline ?? null,
+      techPreferences: dto.techPreferences,
+      attachments: this.normalizeAttachments(dto.attachments),
+      wizardProgressStep: dto.wizardProgressStep ?? 1,
+      status:
+        (dto.status as RequestStatus) ??
+        (dto.isDraft ? RequestStatus.DRAFT : RequestStatus.PUBLIC_DRAFT),
+    });
+
+    const savedRequest = await this.requestRepo.save(request);
+
+    // Create answers
+    if (dto.answers && dto.answers.length > 0) {
+      const answers = dto.answers.map((ans) =>
+        this.answerRepo.create({
+          requestId: savedRequest.id,
+          questionId: ans.questionId,
+          optionId: ans.optionId,
+          valueText: ans.valueText,
+        }),
+      );
+      await this.answerRepo.save(answers);
     }
+
+    // Return the full request with answers
+    const fullRequest = await this.requestRepo.findOne({
+      where: { id: savedRequest.id },
+      relations: ['answers', 'answers.question', 'answers.option'],
+    });
+
+    if (fullRequest) {
+      fullRequest.requestScopeBaseline = this.buildRequestScopeBaseline(fullRequest);
+      await this.requestRepo.save(fullRequest);
+    }
+
+    // Audit Log
+    try {
+>>>>>>> 0d16bf749675aa68a14a4a7f61a4cf7e59f0c194
+      if (fullRequest) {
+        await this.auditLogsService.logCreate(
+          'ProjectRequest',
+          savedRequest.id,
+          fullRequest as unknown as Record<string, unknown>,
+          req,
+        );
+      }
+    } catch (error) {
+      console.error('Audit log failed', error);
+    }
+<<<<<<< HEAD
+=======
+
+    await this.quotaService.incrementUsage(clientId, QuotaAction.CREATE_REQUEST, {
+      requestId: savedRequest.id,
+    });
+    if (fullRequest) {
+      await this.notifyUsers([
+        {
+          userId: clientId,
+          title: 'Project request created',
+          body: `Request "${fullRequest.title}" has been created and is now being tracked.`,
+          relatedType: 'ProjectRequest',
+          relatedId: fullRequest.id,
+        },
+      ]);
+      this.emitRequestUpdated(fullRequest.id, [clientId, fullRequest.brokerId]);
+    }
+
+    return fullRequest;
+>>>>>>> 0d16bf749675aa68a14a4a7f61a4cf7e59f0c194
   }
 
   // ... existing methods ...

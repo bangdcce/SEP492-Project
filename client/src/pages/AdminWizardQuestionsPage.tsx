@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Edit, Trash2, Plus, Eye, ChevronUp, ChevronDown, Save, X } from 'lucide-react';
+import { Edit, Trash2, Eye, ChevronUp, ChevronDown, Save, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { wizardService } from '@/features/wizard/services/wizardService';
 import type { WizardQuestion, WizardOption } from '@/features/wizard/services/wizardService';
@@ -46,22 +46,6 @@ export default function AdminWizardQuestionsPage() {
     } catch (error: any) {
       toast.error(error.message || 'Failed to load question for editing');
     }
-  };
-
-  const handleAddQuestion = () => {
-    const nextSortOrder =
-      (questions.length > 0 ? questions[questions.length - 1].sortOrder : 0) + 1;
-
-    setEditingQuestion({
-      code: '',
-      label: '',
-      helpText: '',
-      inputType: 'SELECT',
-      sortOrder: nextSortOrder,
-      isActive: true,
-      options: [],
-    } as Partial<WizardQuestion>);
-    setShowEditModal(true);
   };
 
   const handleSaveEdit = async () => {
@@ -180,13 +164,6 @@ export default function AdminWizardQuestionsPage() {
             Manage questions in the Project Request creation flow
           </p>
         </div>
-        <button
-          onClick={handleAddQuestion}
-          className="inline-flex items-center px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium shadow hover:bg-blue-700"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Question
-        </button>
       </div>
 
       {/* Questions Table */}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Upload, Camera, User, CheckCircle, ArrowLeft, ArrowRight, Loader2, XCircle } from 'lucide-react';
 import { Button } from '@/shared/components/custom/Button';
 import { Input } from '@/shared/components/custom/input';
@@ -22,8 +22,20 @@ interface KYCFormData {
   selfiePhoto: File | null;
 }
 
+interface KycStatusResponse {
+  status?: string;
+  latestSubmissionStatus?: string;
+  hasPendingUpdate?: boolean;
+  hasRejectedUpdate?: boolean;
+  rejectionReason?: string;
+  updateRejectionReason?: string;
+  message?: string;
+}
+
 export default function KYCPage() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const isUpdateMode = searchParams.get('mode') === 'update';
 
   const [currentStep, setCurrentStep] = useState(1);
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'processing' | 'approved' | 'rejected'>('idle');
@@ -194,6 +206,25 @@ export default function KYCPage() {
     }
   };
 
+  const handleBackToProfile = () => {
+    const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+    const role = user?.role?.toUpperCase();
+
+    let profileRoute: string = ROUTES.CLIENT_PROFILE;
+
+    if (role === 'FREELANCER') {
+      profileRoute = ROUTES.FREELANCER_PROFILE;
+    } else if (role === 'BROKER') {
+      profileRoute = ROUTES.BROKER_PROFILE;
+    } else if (role === 'ADMIN') {
+      profileRoute = ROUTES.ADMIN_PROFILE;
+    } else if (role === 'STAFF') {
+      profileRoute = ROUTES.STAFF_PROFILE;
+    }
+
+    navigate(profileRoute);
+  };
+
   const handleSubmit = async () => {
     setLoading(true);
     
@@ -227,7 +258,11 @@ export default function KYCPage() {
         throw new Error(errorData.message || 'Failed to submit KYC');
       }
       
-      toast.success('KYC submitted successfully. Your documents are being processed.');
+      toast.success(
+        isUpdateMode
+          ? 'KYC update submitted successfully. Your current verification remains active while the update is reviewed.'
+          : 'KYC submitted successfully. Your documents are being processed.',
+      );
       setSubmissionStatus('processing');
     } catch (error: any) {
       toast.error(error.message || 'Unable to submit KYC. Please try again.');
@@ -243,19 +278,27 @@ export default function KYCPage() {
       });
 
       if (!response.ok) return;
-      const data = await response.json();
+      const data = (await response.json()) as KycStatusResponse;
       const status = data.status;
+      const latestSubmissionStatus = data.latestSubmissionStatus || data.status;
 
-      if (status === 'APPROVED') {
-        setSubmissionStatus('approved');
+      if (latestSubmissionStatus === 'PENDING' && (data.hasPendingUpdate || status === 'PENDING')) {
+        setSubmissionStatus('processing');
         setRejectionReason('');
-      } else if (status === 'REJECTED') {
+      } else if (
+        latestSubmissionStatus === 'REJECTED' &&
+        (data.hasRejectedUpdate || status === 'REJECTED')
+      ) {
         setSubmissionStatus('rejected');
         setRejectionReason(
-          data.rejectionReason ||
+          data.updateRejectionReason ||
+            data.rejectionReason ||
             data.message ||
-            'Your documents are not valid. Please check and resubmit.'
+            'Your documents are not valid. Please check and resubmit.',
         );
+      } else if (status === 'APPROVED') {
+        setSubmissionStatus('approved');
+        setRejectionReason('');
       } else if (status === 'PENDING') {
         setSubmissionStatus('processing');
       }
@@ -315,7 +358,9 @@ export default function KYCPage() {
                 </div>
                 <h1 className="text-2xl font-bold text-gray-900 mb-2">Verification in progress</h1>
                 <p className="text-gray-600">
-                  We are reviewing your ID documents. Please wait a few minutes.
+                  {isUpdateMode
+                    ? 'We are reviewing your updated ID documents. Your current verified status remains active during review.'
+                    : 'We are reviewing your ID documents. Please wait a few minutes.'}
                 </p>
                 <div className="space-y-3 mt-6">
                   <Button onClick={handleBackToDashboard} className="w-full">
@@ -347,7 +392,9 @@ export default function KYCPage() {
                 </div>
                 <h1 className="text-2xl font-bold text-gray-900 mb-2">Verification approved</h1>
                 <p className="text-gray-600">
-                  Your documents have been verified. You can return to your dashboard.
+                  {isUpdateMode
+                    ? 'Your KYC update has been approved. The latest identity information is now active.'
+                    : 'Your documents have been verified. You can return to your dashboard.'}
                 </p>
                 <div className="mt-6">
                   <Button onClick={handleBackToDashboard} className="w-full">
@@ -452,10 +499,12 @@ export default function KYCPage() {
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Identity Verification (KYC)
+            {isUpdateMode ? 'Update Identity Verification' : 'Identity Verification (KYC)'}
           </h1>
           <p className="text-gray-600">
-            Please provide your information for identity verification
+            {isUpdateMode
+              ? 'Submit your updated identity documents for a new KYC review'
+              : 'Please provide your information for identity verification'}
           </p>
         </div>
 
@@ -650,12 +699,12 @@ export default function KYCPage() {
           <div className="flex items-center justify-between mt-8 pt-6 border-t">
             <Button
               variant="outline"
-              onClick={handleBack}
-              disabled={currentStep === 1 || loading}
+              onClick={currentStep === 1 ? handleBackToProfile : handleBack}
+              disabled={loading}
               className="flex items-center gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
-              Back
+              {currentStep === 1 ? 'Back to profile' : 'Back'}
             </Button>
             
             <Button

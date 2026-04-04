@@ -21,6 +21,39 @@ export class UserStatsDto {
   score: number;
 }
 
+export class CertificationItemDto {
+  @ApiProperty({ description: 'Tên chứng chỉ', example: 'IBM Business Analyst' })
+  name: string;
+
+  @ApiProperty({ description: 'Tổ chức cấp', example: 'IBM' })
+  issuingOrganization: string;
+
+  @ApiProperty({ description: 'Tháng cấp chứng chỉ', example: 'Nov' })
+  issueMonth: string;
+
+  @ApiProperty({ description: 'Năm cấp chứng chỉ', example: '2025' })
+  issueYear: string;
+
+  @ApiProperty({
+    description: 'Mã định danh chứng chỉ',
+    example: 'R3N2OL4NM58R',
+    required: false,
+  })
+  credentialId?: string;
+
+  @ApiProperty({
+    description: 'Liên kết xác thực chứng chỉ',
+    example: 'https://www.credly.com/badges/example',
+  })
+  credentialUrl: string;
+
+  @ApiProperty({ description: 'Tháng hết hạn', example: 'Nov', required: false })
+  expirationMonth?: string;
+
+  @ApiProperty({ description: 'Năm hết hạn', example: '2028', required: false })
+  expirationYear?: string;
+}
+
 export class AuthResponseDto {
   @ApiProperty({ description: 'ID người dùng', example: '550e8400-e29b-41d4-a716-446655440000' })
   id: string;
@@ -84,6 +117,13 @@ export class AuthResponseDto {
 
   @ApiProperty({ description: 'Portfolio links', required: false })
   portfolioLinks?: Array<{ title: string; url: string }>;
+
+  @ApiProperty({
+    description: 'Danh sách chứng chỉ chuyên môn',
+    type: [CertificationItemDto],
+    required: false,
+  })
+  certifications?: CertificationItemDto[];
 
   @ApiProperty({ description: 'Vai trò người dùng', example: 'CLIENT' })
   role: string;

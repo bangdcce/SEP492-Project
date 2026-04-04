@@ -2,71 +2,48 @@
 
 ## Overview
 
-Client-side subscription management for InterDev premium plans. Implements UC-39 (View Subscription), UC-40 (Subscribe), and UC-41 (Cancel Subscription).
+Client-side subscription management for InterDev premium plans.
+
+The current implementation supports:
+- viewing the current subscription and quota usage,
+- saving a PayPal funding method for subscription checkout,
+- creating and approving a PayPal order for the selected plan,
+- activating the subscription only after the backend captures the PayPal order,
+- cancelling the subscription with soft-cancel behavior.
 
 ## Structure
 
-```
+```text
 subscriptions/
-├── components/
-│   └── UpgradeModal.tsx         # Reusable upgrade prompt for quota errors
-├── api.ts                       # API client for subscription endpoints
-├── types.ts                     # TypeScript types, enums, and display helpers
-├── SubscriptionPage.tsx         # Main subscription management page
-├── subscription.css             # Styles for all subscription components
-├── index.ts                     # Barrel exports
-└── README.md                    # This file
+|-- components/
+|   |-- PayPalSubscriptionCheckout.tsx
+|   `-- UpgradeModal.tsx
+|-- api.ts
+|-- types.ts
+|-- SubscriptionPage.tsx
+|-- subscription.css
+|-- index.ts
+`-- README.md
 ```
 
-## Pages
+## Current Flow
 
-### SubscriptionPage
-- View current plan status (Free vs Premium)
-- See active perks and their values
-- View quota usage with progress bars
-- Browse available plans with billing cycle selector
-- Subscribe to a plan
-- Cancel subscription with soft-cancel modal
+1. `SubscriptionPage` loads plans, the current subscription snapshot, and saved payment methods.
+2. If the user does not have a saved `PAYPAL_ACCOUNT` method yet, the page offers inline setup or a link to the billing page.
+3. `PayPalSubscriptionCheckout` calls `GET /subscriptions/paypal/config` to fetch the PayPal SDK config and the converted settlement quote.
+4. The PayPal button calls `POST /subscriptions/paypal/order` to create a server-side PayPal order for the chosen plan and billing cycle.
+5. After buyer approval, the page calls `POST /subscriptions/subscribe` with `planId`, `billingCycle`, `paymentMethodId`, and `orderId`.
+6. The backend captures the PayPal order and activates the subscription only after amount/currency validation passes.
 
-## Reusable Components
-
-### UpgradeModal
-A modal component that can be shown anywhere in the app when:
-- A user hits a free-tier quota limit (429 error)
-- A user tries to access a premium-only feature (403 error)
-
-Usage:
-```tsx
-import { UpgradeModal, parseQuotaError } from '@/features/subscriptions';
-
-const quotaError = parseQuotaError(error);
-if (quotaError) {
-  setShowUpgrade(true);
-}
-```
+This is a PayPal Orders capture flow, not a recurring PayPal Billing Subscriptions integration yet.
 
 ## API Functions
 
 | Function | Endpoint | Description |
 |----------|----------|-------------|
-| `getSubscriptionPlans()` | `GET /subscriptions/plans` | Fetch plans for user's role |
-| `getMySubscription()` | `GET /subscriptions/me` | Get current subscription status |
-| `subscribeToPlan()` | `POST /subscriptions/subscribe` | Subscribe to a plan |
-| `cancelSubscription()` | `POST /subscriptions/cancel` | Cancel current subscription |
-
-## Helper Functions
-
-| Function | Description |
-|----------|-------------|
-| `parseQuotaError(error)` | Parse a 429 response into quota details |
-| `isPremiumRequiredError(error)` | Check if a 403 is a premium-only error |
-| `formatVND(amount)` | Format currency in VND |
-| `formatPerkValue(key, value)` | Format a perk for display (-1→Unlimited, etc.) |
-
-## Routes
-
-| Route | Layout | Role |
-|-------|--------|------|
-| `/client/subscription` | ClientDashboardLayout | CLIENT |
-| `/broker/subscription` | BrokerDashboardLayout | BROKER |
-| `/freelancer/subscription` | FreelancerDashboardLayout | FREELANCER |
+| `getSubscriptionPlans()` | `GET /subscriptions/plans` | Fetch plans for the authenticated user's role |
+| `getMySubscription()` | `GET /subscriptions/me` | Get current subscription and usage snapshot |
+| `getSubscriptionPayPalConfig()` | `GET /subscriptions/paypal/config` | Load PayPal SDK config and checkout quote |
+| `createPayPalSubscriptionOrder()` | `POST /subscriptions/paypal/order` | Create the PayPal order for checkout |
+| `subscribeToPlan()` | `POST /subscriptions/subscribe` | Capture approved PayPal order and activate the plan |
+| `cancelSubscription()` | `POST /subscriptions/cancel` | Cancel the active subscription at period end |

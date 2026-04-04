@@ -9,6 +9,7 @@ import {
   CalendarDays,
   Video,
   User,
+  UserCheck,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -70,6 +71,7 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
     { label: "Calendar", icon: Calendar, path: "/staff/calendar" },
     { label: "Leave", icon: CalendarDays, path: "/staff/leave" },
     { label: "Hearings", icon: Video, path: "/staff/hearings" },
+    { label: "KYC Verification", icon: UserCheck, path: "/staff/kyc" },
     { label: "Profile", icon: User, path: "/staff/profile" },
   ];
 

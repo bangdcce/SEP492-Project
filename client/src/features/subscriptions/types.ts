@@ -101,7 +101,17 @@ export interface UserSubscription {
   currentPeriodEnd: string;
   cancelAtPeriodEnd: boolean;
   amountPaid: number;
+  payment?: SubscriptionPayment | null;
   plan: SubscriptionPlan;
+}
+
+export interface SubscriptionPayment {
+  provider: string;
+  reference?: string | null;
+  capturedAmount?: number | null;
+  currency?: string | null;
+  displayAmountVnd: number;
+  exchangeRateApplied?: number | null;
 }
 
 /**
@@ -122,13 +132,44 @@ export interface MySubscriptionResponse {
   usage: Record<string, QuotaUsage>;
 }
 
+export interface SubscriptionPayPalConfigRequest {
+  planId: string;
+  billingCycle: BillingCycle;
+  paymentMethodId: string;
+}
+
+export interface SubscriptionPayPalCheckoutConfig {
+  clientId: string;
+  environment: "sandbox" | "live";
+  vaultEnabled: boolean;
+  userIdToken: string | null;
+  chargeAmount: number;
+  chargeCurrency: string;
+  displayAmountVnd: number;
+  exchangeRateApplied: number;
+}
+
+export interface CreatePayPalSubscriptionOrderRequest
+  extends SubscriptionPayPalConfigRequest {
+  source?: string;
+  returnUrl?: string;
+  cancelUrl?: string;
+}
+
+export interface PayPalSubscriptionOrder extends SubscriptionPayPalCheckoutConfig {
+  orderId: string;
+  status: string;
+  vaultRequested: boolean;
+}
+
 /**
  * Subscribe request body for POST /subscriptions/subscribe.
  */
 export interface SubscribeRequest {
   planId: string;
   billingCycle: BillingCycle;
-  paymentReference?: string;
+  paymentMethodId: string;
+  orderId: string;
 }
 
 /**
@@ -151,6 +192,12 @@ export interface SubscribeResponse {
     currentPeriodStart: string;
     currentPeriodEnd: string;
     amountPaid: number;
+    payment?: {
+      provider: string;
+      reference?: string | null;
+      capturedAmount?: number | null;
+      currency?: string | null;
+    } | null;
   };
 }
 
@@ -225,6 +272,14 @@ export function formatVND(amount: number): string {
     style: 'currency',
     currency: 'VND',
     maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+export function formatCurrency(amount: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: currency === 'VND' ? 0 : 2,
   }).format(amount);
 }
 

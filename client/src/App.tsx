@@ -777,7 +777,7 @@ function App() {
         <Route
           path="/admin/kyc"
           element={
-            <RoleGuard allowedRoles={["ADMIN"]}>
+            <RoleGuard allowedRoles={["ADMIN", "STAFF"]}>
               <AdminDashboardLayout>
                 <AdminKYCPage />
               </AdminDashboardLayout>
@@ -1082,6 +1082,7 @@ function App() {
           <Route path="leave" element={<StaffLeavePage />} />
           <Route path="hearings" element={<StaffHearingsPage />} />
           <Route path="hearings/:hearingId" element={<StaffHearingRoomPage />} />
+          <Route path="kyc" element={<AdminKYCPage />} />
           <Route path="profile" element={<ProfilePage />} />
           {/* Fallback */}
           <Route index element={<Navigate to="dashboard" replace />} />

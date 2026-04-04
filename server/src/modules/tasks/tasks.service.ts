@@ -114,6 +114,20 @@ export interface ProjectRecentActivityItem {
   };
 }
 
+export interface TaskCommentItem {
+  id: string;
+  taskId: string;
+  actorId: string;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+  actor: {
+    id: string;
+    fullName: string;
+    avatarUrl?: string | null;
+  } | null;
+}
+
 export interface ProjectTaskRealtimeEvent {
   action: 'CREATED' | 'UPDATED';
   projectId: string;
@@ -372,17 +386,58 @@ export class TasksService {
     }));
   }
 
-  async getTaskComments(taskId: string): Promise<TaskCommentEntity[]> {
+  private sanitizeCommentContent(content: string): string {
+    return sanitizeHtml(content, COMMENT_SANITIZE_OPTIONS).trim();
+  }
+
+  private async ensureTaskExists(taskId: string): Promise<void> {
+    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+  }
+
+  private mapTaskComment(comment: TaskCommentEntity): TaskCommentItem {
+    const actorProfile = comment.actor?.profile as { avatarUrl?: string | null } | undefined;
+
+    return {
+      id: comment.id,
+      taskId: comment.taskId,
+      actorId: comment.actorId,
+      content: this.sanitizeCommentContent(comment.content),
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      actor: comment.actor
+        ? {
+            id: comment.actor.id,
+            fullName: comment.actor.fullName,
+            avatarUrl: actorProfile?.avatarUrl ?? null,
+          }
+        : null,
+    };
+  }
+
+  private async findHydratedComment(commentId: string): Promise<TaskCommentEntity | null> {
+    return this.commentRepository.findOne({
+      where: { id: commentId },
+      relations: ['actor', 'actor.profile'],
+    });
+  }
+
+  async getCommentsByTask(taskId: string): Promise<TaskCommentItem[]> {
+    await this.ensureTaskExists(taskId);
+
     const comments = await this.commentRepository.find({
       where: { taskId },
-      relations: ['actor'],
+      relations: ['actor', 'actor.profile'],
       order: { createdAt: 'DESC' },
     });
 
-    return comments.map((comment) => ({
-      ...comment,
-      content: sanitizeHtml(comment.content, COMMENT_SANITIZE_OPTIONS).trim(),
-    }));
+    return comments.map((comment) => this.mapTaskComment(comment));
+  }
+
+  async getTaskComments(taskId: string): Promise<TaskCommentItem[]> {
+    return this.getCommentsByTask(taskId);
   }
 
   async getTaskLinks(taskId: string): Promise<TaskLinkEntity[]> {
@@ -534,8 +589,10 @@ export class TasksService {
     return linked;
   }
 
-  async addComment(taskId: string, content: string, actorId: string): Promise<TaskCommentEntity> {
-    const sanitizedContent = sanitizeHtml(content, COMMENT_SANITIZE_OPTIONS).trim();
+  async createComment(taskId: string, actorId: string, content: string): Promise<TaskCommentItem> {
+    await this.ensureTaskExists(taskId);
+
+    const sanitizedContent = this.sanitizeCommentContent(content);
     if (!sanitizedContent) {
       throw new BadRequestException('Content is required');
     }
@@ -550,12 +607,7 @@ export class TasksService {
     this.logger.log(`[Adding Comment] Saving at UTC: ${comment.createdAt.toISOString()}`);
     const saved = await this.commentRepository.save(comment);
 
-    // Return with actor relation
-    // Return with actor relation
-    const fullComment = await this.commentRepository.findOne({
-      where: { id: saved.id },
-      relations: ['actor'],
-    });
+    const fullComment = await this.findHydratedComment(saved.id);
 
     if (!fullComment) {
       throw new NotFoundException('Comment not found after creation');
@@ -568,7 +620,77 @@ export class TasksService {
       this.logger.warn(`Failed to extract task attachments: ${message}`);
     }
 
-    return fullComment;
+    return this.mapTaskComment(fullComment);
+  }
+
+  async addComment(taskId: string, content: string, actorId: string): Promise<TaskCommentItem> {
+    return this.createComment(taskId, actorId, content);
+  }
+
+  async updateComment(
+    commentId: string,
+    actorId: string,
+    content: string,
+  ): Promise<TaskCommentItem> {
+    const sanitizedContent = this.sanitizeCommentContent(content);
+    if (!sanitizedContent) {
+      throw new BadRequestException('Content is required');
+    }
+
+    const comment = await this.commentRepository.findOne({
+      where: { id: commentId },
+    });
+
+    if (!comment) {
+      throw new NotFoundException('Comment not found');
+    }
+
+    if (comment.actorId !== actorId) {
+      throw new ForbiddenException('You can only edit your own comments');
+    }
+
+    if (comment.content !== sanitizedContent) {
+      comment.content = sanitizedContent;
+      await this.commentRepository.save(comment);
+    }
+
+    try {
+      await this.createAttachmentsFromComment(comment.taskId, actorId, sanitizedContent);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Failed to extract task attachments: ${message}`);
+    }
+
+    const fullComment = await this.findHydratedComment(comment.id);
+    if (!fullComment) {
+      throw new NotFoundException('Comment not found after update');
+    }
+
+    return this.mapTaskComment(fullComment);
+  }
+
+  async deleteComment(
+    commentId: string,
+    actorId: string,
+    actorRole?: UserRole | string,
+  ): Promise<void> {
+    const comment = await this.commentRepository.findOne({
+      where: { id: commentId },
+    });
+
+    if (!comment) {
+      throw new NotFoundException('Comment not found');
+    }
+
+    const normalizedActorRole = String(actorRole || '').toUpperCase();
+    const isAdmin = normalizedActorRole === UserRole.ADMIN;
+    const isAuthor = comment.actorId === actorId;
+
+    if (!isAuthor && !isAdmin) {
+      throw new ForbiddenException('You can only delete your own comments unless you are an admin');
+    }
+
+    await this.commentRepository.remove(comment);
   }
 
   async submitWork(

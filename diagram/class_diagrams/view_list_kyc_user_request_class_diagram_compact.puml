@@ -65,14 +65,15 @@ class KycService {
     --
     + getAllKyc(status: KycStatus, page: number, limit: number): any
     + getMyKyc(userId: string)
+    - buildUserKycPayload(kyc: KycVerificationEntity)
+    - getLatestApprovedKyc(userId: string)
+    - expirePreviousApprovedKycs(userId: string, activeKycId: string)
     + getKycById(id: string)
     + approveKyc(id: string, adminId: string)
     + rejectKyc(id: string, adminId: string, dto: RejectKycDto)
     + hasVerifiedKyc(userId: string): Promise<boolean>
     - normalizeString(str: string | undefined | null): string
-    - levenshteinDistance(str1: string, str2: string): number
-    - calculateSimilarity(str1: string, str2: string): number
-    - normalizeDateString(dateStr: string | undefined | null): string
+    ...
 }
 
 class Repository {
@@ -94,12 +95,6 @@ class KycVerificationEntity {
     --
 }
 
-enum KycStatus {
-    PENDING
-    APPROVED
-    REJECTED
-    EXPIRED
-}
 
 AdminKYCPage ..> ApiClient
 ApiClient ..> KycController
