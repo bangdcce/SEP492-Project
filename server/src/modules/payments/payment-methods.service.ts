@@ -127,6 +127,11 @@ export class PaymentMethodsService {
         await repo.update({ userId, isDefault: true }, { isDefault: false });
       }
 
+      const payPalEmailChanged =
+        normalizedDto.type === PaymentMethodType.PAYPAL_ACCOUNT
+        && this.normalizeComparableEmail(method.paypalEmail)
+          !== this.normalizeComparableEmail(normalizedDto.paypalEmail);
+
       method.displayName = this.buildDisplayName(normalizedDto);
       method.paypalEmail =
         normalizedDto.type === PaymentMethodType.PAYPAL_ACCOUNT
@@ -167,6 +172,12 @@ export class PaymentMethodsService {
           : null;
       method.branchName = normalizedDto.branchName?.trim() || null;
       method.isDefault = shouldBecomeDefault;
+
+      if (payPalEmailChanged) {
+        method.metadata = this.stripPayPalVaultMetadata(method.metadata);
+        method.isVerified = false;
+        method.verifiedAt = null;
+      }
 
       const saved = await repo.save(method);
       const hasFundingHistory = await manager
@@ -326,6 +337,23 @@ export class PaymentMethodsService {
     }
 
     return {};
+  }
+
+  private stripPayPalVaultMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): Record<string, unknown> | null {
+    if (!metadata || typeof metadata !== 'object') {
+      return null;
+    }
+
+    const nextMetadata = { ...metadata };
+    delete nextMetadata.paypalVault;
+
+    return Object.keys(nextMetadata).length > 0 ? nextMetadata : null;
+  }
+
+  private normalizeComparableEmail(email: string | null | undefined): string {
+    return typeof email === 'string' ? email.trim().toLowerCase() : '';
   }
 
   private buildUpdatePayload(

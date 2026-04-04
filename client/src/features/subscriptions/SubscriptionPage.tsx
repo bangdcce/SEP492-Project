@@ -1,19 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import paypalLogo from "@/assets/brands/paypal-logo.svg";
-import { cancelSubscription, getMySubscription, getSubscriptionPlans } from "./api";
-import { PayPalSubscriptionCheckout } from "./components/PayPalSubscriptionCheckout";
+import { useNavigate } from "react-router-dom";
 import {
-  BillingCycle,
+  AlertTriangle,
+  CalendarDays,
+  Check,
+  CreditCard,
+  InfinityIcon,
+  Sparkles,
+  X,
+  Zap,
+} from "lucide-react";
+import { cancelSubscription, getMySubscription } from "./api";
+import {
   formatCurrency,
   formatPerkValue,
   formatVND,
   getBillingCycleLabel,
-  getMonthlyEquivalent,
   PERK_LABELS,
   QUOTA_ACTION_LABELS,
   type MySubscriptionResponse,
   type QuotaUsage,
-  type SubscriptionPlan,
 } from "./types";
 import { createPaymentMethod, getPaymentMethods } from "@/features/payments/api";
 import type { PaymentMethodView } from "@/features/payments/types";
@@ -23,44 +29,34 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
-import { Input } from "@/shared/components/ui/input";
 import { Progress } from "@/shared/components/ui/progress";
-import {
-  AlertTriangle,
-  CalendarDays,
-  Check,
-  CreditCard,
-  InfinityIcon,
-  Loader2,
-  ShieldCheck,
-  Sparkles,
-  X,
-  Zap,
-} from "lucide-react";
+import { SubscriptionPayPalSetupDialog } from "./components/SubscriptionPayPalSetupDialog";
+import { resolveSubscriptionCheckoutRoute } from "./subscriptionRoutes";
 
 const getErrorMessage = (error: unknown, fallback: string) => {
   if (error instanceof Error && error.message) {
     return error.message;
   }
+
   const axiosErr = error as { response?: { data?: { message?: string } } };
   return axiosErr?.response?.data?.message || fallback;
 };
 
 export function SubscriptionPage() {
+  const navigate = useNavigate();
   const currentUser = useCurrentUser<{ role?: string; email?: string }>();
+  const subscriptionCheckoutRoute = resolveSubscriptionCheckoutRoute(currentUser?.role);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<MySubscriptionResponse | null>(null);
-  const [plans, setPlans] = useState<SubscriptionPlan[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[]>([]);
   const [paymentMethodsLoaded, setPaymentMethodsLoaded] = useState(false);
-  const [selectedCycle, setSelectedCycle] = useState(BillingCycle.MONTHLY);
   const [payPalEmailInput, setPayPalEmailInput] = useState("");
+  const [payPalSetupError, setPayPalSetupError] = useState<string | null>(null);
   const [savingPayPalMethod, setSavingPayPalMethod] = useState(false);
   const [showPayPalSetupModal, setShowPayPalSetupModal] = useState(false);
-  const [dismissedPayPalSetupPrompt, setDismissedPayPalSetupPrompt] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
@@ -69,9 +65,8 @@ export function SubscriptionPage() {
     try {
       setLoading(true);
       setError(null);
-      const [subscriptionResult, plansResult, paymentMethodsResult] = await Promise.allSettled([
+      const [subscriptionResult, paymentMethodsResult] = await Promise.allSettled([
         getMySubscription(),
-        getSubscriptionPlans(),
         getPaymentMethods(),
       ]);
 
@@ -79,12 +74,6 @@ export function SubscriptionPage() {
         setSubscription(subscriptionResult.value);
       } else {
         setSubscription(null);
-      }
-
-      if (plansResult.status === "fulfilled") {
-        setPlans(plansResult.value);
-      } else {
-        setPlans([]);
       }
 
       if (paymentMethodsResult.status === "fulfilled") {
@@ -98,9 +87,6 @@ export function SubscriptionPage() {
       const loadErrors: string[] = [];
       if (subscriptionResult.status === "rejected") {
         loadErrors.push(getErrorMessage(subscriptionResult.reason, "Failed to load subscription data."));
-      }
-      if (plansResult.status === "rejected") {
-        loadErrors.push(getErrorMessage(plansResult.reason, "Failed to load subscription plans."));
       }
       if (paymentMethodsResult.status === "rejected") {
         loadErrors.push(
@@ -122,6 +108,14 @@ export function SubscriptionPage() {
     void fetchData();
   }, [fetchData]);
 
+  useEffect(() => {
+    if (payPalEmailInput.trim() || !currentUser?.email) {
+      return;
+    }
+
+    setPayPalEmailInput(currentUser.email);
+  }, [currentUser?.email, payPalEmailInput]);
+
   const payPalMethods = useMemo(
     () => paymentMethods.filter((method) => method.type === "PAYPAL_ACCOUNT"),
     [paymentMethods],
@@ -136,42 +130,33 @@ export function SubscriptionPage() {
   const perks = subscription?.perks || {};
   const needsPayPalSetup = !isPremium && paymentMethodsLoaded && !activePayPalMethod;
 
-  useEffect(() => {
-    if (payPalEmailInput.trim() || !currentUser?.email) {
+  const handleUpgradeClick = () => {
+    if (needsPayPalSetup || !activePayPalMethod) {
+      setPayPalSetupError(null);
+      setShowPayPalSetupModal(true);
       return;
     }
 
-    setPayPalEmailInput(currentUser.email);
-  }, [currentUser?.email, payPalEmailInput]);
-
-  useEffect(() => {
-    if (!needsPayPalSetup || dismissedPayPalSetupPrompt) {
-      return;
-    }
-
-    setShowPayPalSetupModal(true);
-  }, [dismissedPayPalSetupPrompt, needsPayPalSetup]);
-
-  const openPayPalSetupModal = () => {
-    setShowPayPalSetupModal(true);
+    navigate(subscriptionCheckoutRoute);
   };
 
   const handlePayPalSetupModalChange = (open: boolean) => {
     setShowPayPalSetupModal(open);
     if (!open) {
-      setDismissedPayPalSetupPrompt(true);
+      setPayPalSetupError(null);
     }
   };
 
   const handleCreatePayPalMethod = async () => {
     const trimmedEmail = payPalEmailInput.trim();
     if (!trimmedEmail) {
-      setError("Enter the PayPal email you want to save first.");
+      setPayPalSetupError("Enter the PayPal email you want to save first.");
       return;
     }
 
     try {
       setSavingPayPalMethod(true);
+      setPayPalSetupError(null);
       setError(null);
       await createPaymentMethod({
         type: "PAYPAL_ACCOUNT",
@@ -179,13 +164,11 @@ export function SubscriptionPage() {
         displayName: trimmedEmail,
         isDefault: payPalMethods.length === 0,
       });
-      setSuccessMessage("PayPal funding method saved for subscription checkout.");
-      setPayPalEmailInput("");
-      setShowPayPalSetupModal(false);
-      setDismissedPayPalSetupPrompt(true);
       await fetchData();
+      setShowPayPalSetupModal(false);
+      navigate(subscriptionCheckoutRoute);
     } catch (err: unknown) {
-      setError(getErrorMessage(err, "Failed to save the PayPal method."));
+      setPayPalSetupError(getErrorMessage(err, "Failed to save the PayPal method."));
     } finally {
       setSavingPayPalMethod(false);
     }
@@ -205,15 +188,6 @@ export function SubscriptionPage() {
     } finally {
       setCancelling(false);
     }
-  };
-
-  const handleUpgradeClick = () => {
-    if (needsPayPalSetup) {
-      openPayPalSetupModal();
-      return;
-    }
-
-    document.getElementById("plans-section")?.scrollIntoView({ behavior: "smooth" });
   };
 
   if (loading) {
@@ -333,7 +307,7 @@ export function SubscriptionPage() {
               ) : (
                 <Button onClick={handleUpgradeClick}>
                   <Zap className="mr-2 h-4 w-4" />
-                  {needsPayPalSetup ? "Set Up PayPal First" : "Upgrade to Premium"}
+                  {activePayPalMethod ? "Continue to Purchase" : "Set Up PayPal First"}
                 </Button>
               )}
             </CardFooter>
@@ -349,6 +323,7 @@ export function SubscriptionPage() {
                 {Object.entries(usage).map(([action, data]: [string, QuotaUsage]) => {
                   const isUnlimited = data.limit === "Unlimited" || data.limit === -1;
                   const progress = isUnlimited ? 0 : Math.min(100, (data.used / Number(data.limit)) * 100);
+
                   return (
                     <div key={action} className="space-y-2">
                       <div className="flex justify-between text-sm">
@@ -383,229 +358,18 @@ export function SubscriptionPage() {
         </Card>
       </div>
 
-      {!isPremium ? (
-        <div id="plans-section" className="space-y-8 pt-8">
-          <div className="text-center">
-            <h2 className="text-3xl font-bold tracking-tight">Upgrade to Premium</h2>
-            <p className="mx-auto mt-3 max-w-2xl text-muted-foreground">
-              Save a PayPal funding method, review the live settlement quote, then approve the checkout button for your plan.
-            </p>
-            <div className="mt-6 inline-flex rounded-xl bg-muted p-1">
-              {Object.values(BillingCycle).map((cycle) => (
-                <button
-                  key={cycle}
-                  onClick={() => setSelectedCycle(cycle)}
-                  className={`rounded-lg px-6 py-2.5 text-sm font-medium transition-all ${
-                    selectedCycle === cycle ? "bg-background shadow-sm ring-1 ring-border" : "text-muted-foreground"
-                  }`}
-                >
-                  {getBillingCycleLabel(cycle)}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <Card className="border-primary/20 bg-primary/5">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5 text-primary" />
-                PayPal Setup
-              </CardTitle>
-              <CardDescription>
-                Subscription checkout now uses PayPal end to end. Save a PayPal account first if you do not already have one.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {activePayPalMethod ? (
-                <div className="rounded-2xl border border-border bg-background p-4">
-                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-start gap-3">
-                      <div className="rounded-xl border border-slate-200 bg-white p-2.5">
-                        <img src={paypalLogo} alt="PayPal" className="h-5 w-auto" />
-                      </div>
-                      <div>
-                        <p className="font-medium">{activePayPalMethod.paypalEmail || activePayPalMethod.displayName}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {activePayPalMethod.fastCheckoutReady
-                            ? "Vault is already ready for faster PayPal checkout."
-                            : "The first successful approval will verify and vault this PayPal account."}
-                        </p>
-                      </div>
-                    </div>
-                    <Badge variant="secondary" className="w-fit">
-                      {activePayPalMethod.fastCheckoutReady ? "Vault ready" : "First approval pending"}
-                    </Badge>
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-4 rounded-2xl border border-dashed border-slate-300 bg-background p-5">
-                  <div className="flex items-start gap-3">
-                    <div className="rounded-xl border border-slate-200 bg-white p-2.5">
-                      <img src={paypalLogo} alt="PayPal" className="h-5 w-auto" />
-                    </div>
-                    <div className="space-y-1">
-                      <p className="font-medium text-foreground">No PayPal funding method saved yet</p>
-                      <p className="text-sm leading-6 text-muted-foreground">
-                        Subscription checkout needs a saved PayPal buyer account first. This is separate from your payout wallet email, but you can use the same PayPal address if you want.
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 md:grid-cols-3">
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Step 1</p>
-                      <p className="mt-2 text-sm font-medium text-slate-900">Save buyer email</p>
-                      <p className="mt-1 text-sm text-slate-600">Store the PayPal account you want to approve subscription purchases with.</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Step 2</p>
-                      <p className="mt-2 text-sm font-medium text-slate-900">Approve checkout</p>
-                      <p className="mt-1 text-sm text-slate-600">Pick a plan and finish the PayPal approval button for the first subscription purchase.</p>
-                    </div>
-                    <div>
-                      <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Step 3</p>
-                      <p className="mt-2 text-sm font-medium text-slate-900">Come back faster next time</p>
-                      <p className="mt-1 text-sm text-slate-600">The first approved payment verifies the buyer and prepares faster future PayPal checkout.</p>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap gap-3">
-                    <Button onClick={openPayPalSetupModal}>Set up PayPal now</Button>
-                    <Button variant="outline" onClick={handleUpgradeClick}>
-                      Review premium plans
-                    </Button>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className={`mx-auto grid gap-6 ${plans.length === 1 ? "max-w-3xl" : "md:grid-cols-2 lg:grid-cols-3"}`}>
-            {plans.map((plan) => {
-              const monthlyEquiv = getMonthlyEquivalent(plan, selectedCycle);
-              const totalPrice =
-                selectedCycle === BillingCycle.QUARTERLY
-                  ? plan.priceQuarterly
-                  : selectedCycle === BillingCycle.YEARLY
-                    ? plan.priceYearly
-                    : plan.priceMonthly;
-              return (
-                <Card key={plan.id} className="border-primary/20 shadow-lg">
-                  <CardHeader className="pt-8 text-center">
-                    <CardTitle className="text-2xl">{plan.displayName}</CardTitle>
-                    <div className="mt-4 flex items-baseline justify-center gap-1">
-                      <span className="text-4xl font-extrabold tracking-tight">{formatVND(monthlyEquiv)}</span>
-                      <span className="text-sm text-muted-foreground">/mo</span>
-                    </div>
-                    {selectedCycle !== BillingCycle.MONTHLY ? (
-                      <p className="text-xs text-muted-foreground">
-                        Billed {formatVND(totalPrice)} {getBillingCycleLabel(selectedCycle).toLowerCase()}
-                      </p>
-                    ) : null}
-                    <CardDescription className="mt-2">{plan.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent>
-                    <ul className="space-y-3">
-                      {Object.entries(plan.perks).map(([key, value]) => (
-                        <li key={key} className="flex items-start justify-between gap-4 text-sm">
-                          <span className="font-medium">{PERK_LABELS[key] || key}</span>
-                          <span className="text-muted-foreground">{formatPerkValue(key, value)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </CardContent>
-                  <CardFooter>
-                    {activePayPalMethod ? (
-                      <PayPalSubscriptionCheckout
-                        planId={plan.id}
-                        planDisplayName={plan.displayName}
-                        billingCycle={selectedCycle}
-                        paymentMethodId={activePayPalMethod.id}
-                        onSubscribed={async (result) => {
-                          setSuccessMessage(result.message);
-                          setError(null);
-                          await fetchData();
-                        }}
-                        onError={setError}
-                      />
-                    ) : (
-                      <Button className="w-full" onClick={openPayPalSetupModal}>
-                        Set up PayPal to continue
-                      </Button>
-                    )}
-                  </CardFooter>
-                </Card>
-              );
-            })}
-          </div>
-        </div>
-      ) : null}
-
-      <Dialog open={showPayPalSetupModal} onOpenChange={handlePayPalSetupModalChange}>
-        <DialogContent className="sm:max-w-[560px]">
-          <DialogHeader>
-            <DialogTitle>Set up PayPal for subscription checkout</DialogTitle>
-            <DialogDescription>
-              Save the PayPal buyer account you want to use for premium purchases before starting checkout.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-5 py-1">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <div className="flex items-start gap-3">
-                <div className="rounded-xl border border-slate-200 bg-white p-2.5">
-                  <img src={paypalLogo} alt="PayPal" className="h-5 w-auto" />
-                </div>
-                <div className="space-y-1">
-                  <p className="text-sm font-semibold text-slate-900">Saved PayPal funding method</p>
-                  <p className="text-sm leading-6 text-slate-600">
-                    This buyer account is used to approve subscription payments. It is separate from your payout wallet setup, although the same PayPal email can be used for both.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="space-y-1">
-                <p className="text-sm font-semibold text-slate-900">PayPal buyer email</p>
-                <p className="text-sm text-slate-500">
-                  Save the PayPal account that should appear during subscription approval.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label htmlFor="subscription-paypal-email" className="text-sm font-medium text-slate-800">
-                  PayPal email
-                </label>
-                <Input
-                  id="subscription-paypal-email"
-                  type="email"
-                  autoComplete="email"
-                  inputMode="email"
-                  placeholder="buyer@example.com"
-                  value={payPalEmailInput}
-                  onChange={(event) => setPayPalEmailInput(event.target.value)}
-                />
-                <p className="text-xs leading-5 text-slate-500">
-                  The first successful PayPal approval will verify and vault this buyer for faster future subscription checkout.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <DialogFooter className="gap-2 sm:gap-0">
-            <Button
-              variant="outline"
-              onClick={() => handlePayPalSetupModalChange(false)}
-              disabled={savingPayPalMethod}
-            >
-              Not now
-            </Button>
-            <Button onClick={() => void handleCreatePayPalMethod()} disabled={savingPayPalMethod}>
-              {savingPayPalMethod ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-              {savingPayPalMethod ? "Saving..." : "Save PayPal"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SubscriptionPayPalSetupDialog
+        open={showPayPalSetupModal}
+        onOpenChange={handlePayPalSetupModalChange}
+        payPalEmail={payPalEmailInput}
+        onPayPalEmailChange={(value) => {
+          setPayPalSetupError(null);
+          setPayPalEmailInput(value);
+        }}
+        onSave={handleCreatePayPalMethod}
+        saving={savingPayPalMethod}
+        error={payPalSetupError}
+      />
 
       <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
         <DialogContent className="sm:max-w-[425px]">

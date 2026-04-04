@@ -4,11 +4,13 @@
 
 // Pages
 export { SubscriptionPage } from './SubscriptionPage';
+export { SubscriptionCheckoutPage } from './SubscriptionCheckoutPage';
 
 // Components
 export { UpgradeModal } from './components/UpgradeModal';
 export type { UpgradeModalProps } from './components/UpgradeModal';
 export { PayPalSubscriptionCheckout } from './components/PayPalSubscriptionCheckout';
+export { SubscriptionPayPalSetupDialog } from './components/SubscriptionPayPalSetupDialog';
 
 // API
 export {
@@ -51,3 +53,9 @@ export {
   getMonthlyEquivalent,
   calculateSavings,
 } from './types';
+
+export {
+  normalizeSupportedSubscriptionRole,
+  resolveSubscriptionCheckoutRoute,
+  resolveSubscriptionRoute,
+} from './subscriptionRoutes';

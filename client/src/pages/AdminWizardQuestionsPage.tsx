@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Edit, Trash2, Eye, ChevronUp, ChevronDown, Save, X } from 'lucide-react';
+import { Edit, Trash2, Eye, ChevronUp, ChevronDown, Save, X, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { wizardService } from '@/features/wizard/services/wizardService';
 import type { WizardQuestion, WizardOption } from '@/features/wizard/services/wizardService';
