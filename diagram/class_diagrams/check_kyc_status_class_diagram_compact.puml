@@ -86,15 +86,16 @@ class KycService {
     - kycRepo: Repository
     --
     + getMyKyc(userId: string): any
+    - buildUserKycPayload(kyc: KycVerificationEntity)
+    - getLatestApprovedKyc(userId: string)
+    - expirePreviousApprovedKycs(userId: string, activeKycId: string)
     + getAllKyc(status?: KycStatus, page = 1, limit = 20)
     + getKycById(id: string)
     + approveKyc(id: string, adminId: string)
     + rejectKyc(id: string, adminId: string, dto: RejectKycDto)
     + hasVerifiedKyc(userId: string): Promise<boolean>
     - normalizeString(str: string | undefined | null): string
-    - levenshteinDistance(str1: string, str2: string): number
-    - calculateSimilarity(str1: string, str2: string): number
-    - normalizeDateString(dateStr: string | undefined | null): string
+    ...
 }
 
 KYCStatusPage *-- KYCData

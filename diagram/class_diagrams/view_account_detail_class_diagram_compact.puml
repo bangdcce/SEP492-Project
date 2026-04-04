@@ -61,6 +61,9 @@ class UsersService {
     - kycRepo: Repository
     --
     + getUserDetail(userId: string): any
+    - parseSkillFilter(input?: string | string[]): string[]
+    - buildRequestMatchText(request: ProjectRequestEntity): string
+    - getCommercialFeatures(request: ProjectRequestEntity): ProjectRequestCommercialFeature[]
     + getAllUsers(filters: UserFilterDto)
     + banUser(userId: string, adminId: string, dto: BanUserDto)
     + unbanUser(userId: string, adminId: string, dto: UnbanUserDto)
@@ -83,14 +86,15 @@ class KycService {
     --
     + getKycByIdWithWatermark(id: string, reviewerId: string, reviewerEmail: string, reviewerRole: string, ipAddress: string, sessionId: string, userAgent: string, reason: string, reasonDetails: string): any
     + getMyKyc(userId: string)
+    - buildUserKycPayload(kyc: KycVerificationEntity)
+    - getLatestApprovedKyc(userId: string)
+    - expirePreviousApprovedKycs(userId: string, activeKycId: string)
     + getAllKyc(status?: KycStatus, page = 1, limit = 20)
     + getKycById(id: string)
     + approveKyc(id: string, adminId: string)
     + rejectKyc(id: string, adminId: string, dto: RejectKycDto)
     + hasVerifiedKyc(userId: string): Promise<boolean>
-    - normalizeString(str: string | undefined | null): string
-    - levenshteinDistance(str1: string, str2: string): number
-    - calculateSimilarity(str1: string, str2: string): number
+    ...
 }
 
 class SupabaseStorageUtil {

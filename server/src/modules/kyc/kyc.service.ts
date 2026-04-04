@@ -44,19 +44,20 @@ export class KycService {
       selfie: MulterFile;
     },
   ) {
-    // Check if user already has pending or approved KYC
-    const existingKyc = await this.kycRepo.findOne({
+    // Only one active pending submission is allowed at a time.
+    const latestKyc = await this.kycRepo.findOne({
       where: { userId },
       order: { createdAt: 'DESC' },
     });
 
-    if (existingKyc && existingKyc.status === KycStatus.PENDING) {
+    if (latestKyc && latestKyc.status === KycStatus.PENDING) {
       throw new BadRequestException('You already have a pending KYC verification');
     }
 
-    if (existingKyc && existingKyc.status === KycStatus.APPROVED) {
-      throw new BadRequestException('Your KYC is already verified');
-    }
+    const latestApprovedKyc =
+      latestKyc?.status === KycStatus.APPROVED
+        ? latestKyc
+        : await this.getLatestApprovedKyc(userId);
 
     // Validate files
     if (!files.idCardFront || !files.idCardBack || !files.selfie) {
@@ -126,6 +127,7 @@ export class KycService {
 
     // Step 5: If auto-approved by AI, update user verification status immediately
     if (autoApproved) {
+      await this.expirePreviousApprovedKycs(userId, savedKyc.id);
       await this.userRepo.update(userId, { isVerified: true });
     }
 
@@ -160,6 +162,8 @@ export class KycService {
         criticalMismatch: dataValidation.criticalMismatch,
         issues: dataValidation.issues,
       },
+      isResubmission: !!latestApprovedKyc,
+      replacesApprovedKycId: latestApprovedKyc?.id,
     };
   }
 
@@ -167,18 +171,51 @@ export class KycService {
    * Get user's KYC status
    */
   async getMyKyc(userId: string) {
-    const kyc = await this.kycRepo.findOne({
+    const latestKyc = await this.kycRepo.findOne({
       where: { userId },
       order: { createdAt: 'DESC' },
     });
 
-    if (!kyc) {
+    if (!latestKyc) {
       return {
         status: 'NOT_STARTED',
         message: 'You have not submitted KYC verification yet',
       };
     }
 
+    const latestApprovedKyc =
+      latestKyc.status === KycStatus.APPROVED
+        ? latestKyc
+        : await this.getLatestApprovedKyc(userId);
+
+    if (
+      latestApprovedKyc &&
+      latestApprovedKyc.id !== latestKyc.id &&
+      (latestKyc.status === KycStatus.PENDING || latestKyc.status === KycStatus.REJECTED)
+    ) {
+      const approvedPayload = await this.buildUserKycPayload(latestApprovedKyc);
+
+      return {
+        ...approvedPayload,
+        status: KycStatus.APPROVED,
+        latestSubmissionId: latestKyc.id,
+        latestSubmissionStatus: latestKyc.status,
+        hasPendingUpdate: latestKyc.status === KycStatus.PENDING,
+        hasRejectedUpdate: latestKyc.status === KycStatus.REJECTED,
+        updateSubmittedAt: latestKyc.createdAt,
+        updateReviewedAt: latestKyc.reviewedAt,
+        updateRejectionReason: latestKyc.rejectionReason,
+        message:
+          latestKyc.status === KycStatus.PENDING
+            ? 'Your current KYC remains verified while your updated documents are under review.'
+            : 'Your current KYC remains verified, but your latest KYC update was rejected.',
+      };
+    }
+
+    return await this.buildUserKycPayload(latestKyc);
+  }
+
+  private async buildUserKycPayload(kyc: KycVerificationEntity) {
     // Generate fresh signed URLs
     const [frontUrl, backUrl, selfieUrl] = await Promise.all([
       getSignedUrl(kyc.documentFrontUrl, 3600),
@@ -206,6 +243,32 @@ export class KycService {
       updatedAt: kyc.updatedAt,
       reviewedAt: kyc.reviewedAt,
     };
+  }
+
+  private async getLatestApprovedKyc(userId: string) {
+    return await this.kycRepo.findOne({
+      where: { userId, status: KycStatus.APPROVED },
+      order: { reviewedAt: 'DESC', createdAt: 'DESC' },
+    });
+  }
+
+  private async expirePreviousApprovedKycs(userId: string, activeKycId: string) {
+    const approvedKycs = await this.kycRepo.find({
+      where: { userId, status: KycStatus.APPROVED },
+      order: { createdAt: 'DESC' },
+    });
+
+    const staleApprovedKycs = approvedKycs.filter((kyc) => kyc.id !== activeKycId);
+
+    if (staleApprovedKycs.length === 0) {
+      return;
+    }
+
+    staleApprovedKycs.forEach((kyc) => {
+      kyc.status = KycStatus.EXPIRED;
+    });
+
+    await this.kycRepo.save(staleApprovedKycs);
   }
 
   /**
@@ -416,6 +479,7 @@ export class KycService {
     kyc.reviewedAt = new Date();
 
     await this.kycRepo.save(kyc);
+    await this.expirePreviousApprovedKycs(kyc.userId, kyc.id);
 
     // Update user's isVerified status
     await this.userRepo.update(kyc.userId, { isVerified: true });

@@ -64,6 +64,9 @@ class UsersService {
     - userRepo: Repository
     --
     + getUsers(filters: any): any
+    - parseSkillFilter(input?: string | string[]): string[]
+    - buildRequestMatchText(request: ProjectRequestEntity): string
+    - getCommercialFeatures(request: ProjectRequestEntity): ProjectRequestCommercialFeature[]
     + getAllUsers(filters: UserFilterDto)
     + getUserDetail(userId: string)
     + banUser(userId: string, adminId: string, dto: BanUserDto)

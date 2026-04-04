@@ -2,7 +2,17 @@
  * Auth Feature - Type Definitions
  */
 
-export type UserRole = 'client' | 'broker' | 'freelancer' | 'admin' | 'ADMIN' | 'CLIENT' | 'BROKER' | 'FREELANCER';
+export type UserRole =
+  | 'client'
+  | 'broker'
+  | 'freelancer'
+  | 'admin'
+  | 'staff'
+  | 'ADMIN'
+  | 'CLIENT'
+  | 'BROKER'
+  | 'FREELANCER'
+  | 'STAFF';
 
 export interface User {
   id: string;
@@ -19,6 +29,18 @@ export interface User {
 export interface PortfolioLink {
   title: string;
   url: string;
+}
+
+export interface Certification {
+  id?: string;
+  name: string;
+  issuingOrganization: string;
+  issueMonth: string;
+  issueYear: string;
+  credentialId?: string;
+  credentialUrl: string;
+  expirationMonth?: string;
+  expirationYear?: string;
 }
 
 // ============================================

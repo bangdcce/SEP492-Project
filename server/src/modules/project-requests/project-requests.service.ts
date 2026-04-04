@@ -1229,8 +1229,6 @@ export class ProjectRequestsService {
   // ... (existing create/update methods)
 
   async create(clientId: string, dto: CreateProjectRequestDto, req: RequestContext) {
-<<<<<<< HEAD
-=======
     // Quota check: enforce free-tier limit on active requests
     await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
     const intendedTimeline = this.normalizeIntendedTimeline(dto.intendedTimeline);
@@ -1280,7 +1278,6 @@ export class ProjectRequestsService {
     }
 
     // Audit Log
->>>>>>> d6b2bb53f4c3b7a4f9f3138d65ce2337f1ceee0c
     try {
       // Quota check: enforce free-tier limit on active requests
       await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
@@ -1356,8 +1353,6 @@ export class ProjectRequestsService {
       console.error(`Create Request Failed: ${message}`);
       throw error;
     }
-<<<<<<< HEAD
-=======
 
     await this.quotaService.incrementUsage(clientId, QuotaAction.CREATE_REQUEST, {
       requestId: savedRequest.id,
@@ -1376,7 +1371,6 @@ export class ProjectRequestsService {
     }
 
     return fullRequest;
->>>>>>> d6b2bb53f4c3b7a4f9f3138d65ce2337f1ceee0c
   }
 
   // ... existing methods ...

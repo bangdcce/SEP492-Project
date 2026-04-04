@@ -120,7 +120,6 @@ class EmailService {
 class AuditLogsService {
     --
     + recordRegistration(userId: string, meta: any): void
-    + logView(entityType: string, entityId: string, req?: RequestContext, actorId?: string)
     + logLogin(actorId: string, metadata: Record<string, unknown>, req?: RequestContext)
     + logRegistration(actorId: string, metadata: Record<string, unknown>, req?: RequestContext)
     + logLogout(actorId: string, req?: RequestContext)
@@ -129,6 +128,7 @@ class AuditLogsService {
     + findAll(queryDto: GetAuditLogsDto)
     + findOne(id: string)
     + getTimeline(id: string)
+    + exportLogs(queryDto: GetAuditLogsDto): Promise<
     ...
 }
 

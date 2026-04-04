@@ -14,6 +14,7 @@ import type {
   ResetPasswordRequest,
   ResetPasswordResponse,
   PortfolioLink,
+  Certification,
 } from './types';
 
 /**
@@ -106,6 +107,7 @@ export const updateProfile = async (data: {
   bio?: string;
   skills?: string[];
   portfolioLinks?: PortfolioLink[];
+  certifications?: Certification[];
   companyName?: string;
   linkedinUrl?: string;
   cvUrl?: string;

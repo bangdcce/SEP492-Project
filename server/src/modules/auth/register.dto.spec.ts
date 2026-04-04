@@ -29,6 +29,16 @@ describe('RegisterDto', () => {
     expect(messages).toHaveLength(0);
   });
 
+  it('rejects malformed email addresses before business logic runs', async () => {
+    const messages = await getMessages(
+      createPayload({
+        email: 'invalid-email',
+      }),
+    );
+
+    expect(messages).toContain('Invalid email format');
+  });
+
   it('rejects roles outside the self-registration allowlist', async () => {
     const messages = await getMessages(
       createPayload({
@@ -49,6 +59,16 @@ describe('RegisterDto', () => {
     expect(messages).toContain(
       'Invalid phone number format. Correct format: 0[3|5|7|8|9]xxxxxxxx (e.g., 0987654321)',
     );
+  });
+
+  it('rejects full names that contain unsupported characters', async () => {
+    const messages = await getMessages(
+      createPayload({
+        fullName: 'New User 123',
+      }),
+    );
+
+    expect(messages).toContain('Full name can only contain letters and spaces');
   });
 
   it('rejects email domains outside the trusted-provider list', async () => {

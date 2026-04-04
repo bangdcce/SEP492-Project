@@ -1,0 +1,212 @@
+@startuml View_Request_Detail_Class_Diagram
+title View Request Detail - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class RequestDetailPage {
+    - id: string | undefined
+    - request: ProjectRequest | null
+    - matches: RequestMatchCandidate[]
+    - freelancerMatches: RequestMatchCandidate[]
+    - loading: boolean
+    - loadError: string | null
+    - specFlow: { clientSpec: ProjectSpec | null; fullSpec: ProjectSpec | null }
+    - linkedContract: ContractSummary | null
+    - activeTab: string
+    - viewMode: string
+    --
+    + fetchBrokerMatches(requestId: string, useAi?: boolean): Promise<void>
+    + fetchFreelancerMatches(requestId: string, useAi?: boolean): Promise<void>
+    + fetchData(requestId: string): Promise<void>
+}
+
+class wizardService {
+    ...
+    --
+    + getQuestions(): Promise<WizardQuestion[]>
+    + submitRequest(data: CreateProjectRequestDto): Promise<any>
+    + uploadFiles(files: File[], category: "requirements" | "attachments"): Promise<UploadProjectRequestFilesResult>
+    + updateRequest(id: string, data: Partial<CreateProjectRequestDto>): Promise<any>
+    + publishRequest(id: string): Promise<any>
+    + getDrafts(): Promise<any>
+    + getMatches(requestId: string): Promise<any>
+    + getRequests(): Promise<any>
+    + getRequestById(id: string): Promise<any>
+    + inviteBroker(requestId: string, brokerId: string): Promise<any>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + put<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + delete<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    - setupInterceptors()
+    - isRefreshEndpoint(url?: string): boolean
+    - isPublicAuthEndpoint(url?: string): boolean
+    - refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class RolesGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean>
+}
+
+class ProjectRequestsController {
+    - projectRequestsService: ProjectRequestsService
+    --
+    + create(userId: string, createDto: CreateProjectRequestDto, req: RequestContext): Promise<ProjectRequestEntity>
+    + getProjectRequests(user: UserEntity, status?: string): Promise<any>
+    + findMyDrafts(userId: string): Promise<ProjectRequestEntity[]>
+    + getMyInvitations(user: UserEntity): Promise<any>
+    + getFreelancerRequestAccessList(user: UserEntity): Promise<any>
+    + findMatches(id: string): Promise<any>
+    + getOne(id: string, user: UserEntity): Promise<any>
+    + assignBroker(id: string, brokerId: string, req: RequestContext): Promise<any>
+    + update(id: string, updateDto: UpdateProjectRequestDto, user: UserEntity, req: RequestContext): Promise<ProjectRequestEntity>
+    + publish(id: string, userId: string, req: RequestContext): Promise<any>
+    ...
+}
+
+class ProjectRequestsService {
+    - requestRepo: Repository<ProjectRequestEntity>
+    - answerRepo: Repository<ProjectRequestAnswerEntity>
+    - auditLogsService: AuditLogsService
+    - matchingService: MatchingService
+    - quotaService: QuotaService
+    - notificationsService: NotificationsService
+    - contractsService: ContractsService
+    - requestChatService: RequestChatService
+    - eventEmitter: EventEmitter2
+    --
+    + create(clientId: string, dto: CreateProjectRequestDto, req: RequestContext): Promise<ProjectRequestEntity | null>
+    + findAll(status?: RequestStatus): Promise<any[]>
+    + update(id: string, dto: UpdateProjectRequestDto, user?: UserEntity, req?: RequestContext): Promise<ProjectRequestEntity>
+    + publish(requestId: string, userId: string, req?: RequestContext): Promise<any>
+    + findAllByClient(clientId: string): Promise<any[]>
+    + findDraftsByClient(clientId: string): Promise<ProjectRequestEntity[]>
+    + findOne(id: string, user?: UserEntity): Promise<any>
+    + findMatches(id: string, userId?: string): Promise<any>
+    + inviteBroker(requestId: string, brokerId: string, message?: string, inviterId?: string): Promise<any>
+    + getInvitationsForUser(userId: string, role: UserRole): Promise<any>
+    ...
+}
+
+class MatchingController {
+    - matchingService: MatchingService
+    - requestRepo: Repository<ProjectRequestEntity>
+    - brokerProposalRepo: Repository<BrokerProposalEntity>
+    - freelancerProposalRepo: Repository<ProjectRequestProposalEntity>
+    --
+    + findMatches(requestId: string, role: "BROKER" | "FREELANCER", enableAi?: string, topN?: string): Promise<any>
+    - parseRequestedTags(...rawValues: Array<string | null | undefined>): string[]
+    - extractRequestTerms(request: ProjectRequestEntity, role: 'BROKER' | 'FREELANCER'): string[]
+}
+
+class MatchingService {
+    - hardFilter: HardFilterService
+    - tagScorer: TagScorerService
+    - aiRanker: AiRankerService
+    - classifier: ClassifierService
+    - configService: ConfigService
+    --
+    + findMatches(input: MatchingInput, options: MatchingOptions): Promise<ClassifiedResult[]>
+}
+
+class Repository {
+    --
+    + findOne(options: any): Promise<any>
+    + find(options?: any): Promise<any[]>
+    + create(data: any): any
+    + save(entity: any): Promise<any>
+    + update(criteria: any, partial: any): Promise<any>
+}
+
+
+
+
+
+class ProjectRequestEntity {
+    + id: string
+    + clientId: string
+    + title: string
+    + description: string
+    + budgetRange: string
+    + intendedTimeline: string
+    + requestedDeadline: string | null
+    + attachments: ProjectRequestAttachmentMetadata[] | null
+    + status: RequestStatus
+    + brokerId: string
+    ...
+    --
+}
+
+class ProjectSpecEntity {
+    + id: string
+    + requestId: string
+    + specPhase: SpecPhase
+    + status: ProjectSpecStatus
+    + title: string
+    + summary: string | null
+    + createdAt: Date
+    + updatedAt: Date
+    + parentSpecId: string | null
+    + description: string
+    ...
+    --
+}
+
+RequestDetailPage ..> wizardService
+RequestDetailPage ..> RequestStatus
+RequestDetailPage ..> ProjectSpecStatus
+RequestDetailPage ..> SpecPhase
+
+wizardService ..> ApiClient
+wizardService ..> ProjectRequestEntity
+wizardService ..> MatchingController
+
+ProjectRequestsController ..> JwtAuthGuard
+ProjectRequestsController ..> RolesGuard
+ProjectRequestsController --> ProjectRequestsService
+
+ProjectRequestsService ..> Repository
+ProjectRequestsService ..> ProjectRequestEntity
+ProjectRequestsService ..> RequestStatus
+ProjectRequestsService ..> UserRole
+
+MatchingController ..> JwtAuthGuard
+MatchingController --> MatchingService
+MatchingController ..> Repository
+
+MatchingService ..> RequestStatus
+
+ProjectRequestEntity --> RequestStatus
+ProjectSpecEntity --> ProjectSpecStatus
+ProjectSpecEntity --> SpecPhase
+
+@enduml

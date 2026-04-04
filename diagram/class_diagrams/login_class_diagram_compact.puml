@@ -152,7 +152,6 @@ class JwtPayload {
 class AuditLogsService {
     --
     + logLogin(actorId: string, metadata: Record<string, unknown>, req?: any): Promise<any>
-    + logView(entityType: string, entityId: string, req?: RequestContext, actorId?: string)
     + logRegistration(actorId: string, metadata: Record<string, unknown>, req?: RequestContext)
     + logLogout(actorId: string, req?: RequestContext)
     + log(payload: AuditLogPayload, repository?: Repository<AuditLogEntity>)
@@ -161,6 +160,7 @@ class AuditLogsService {
     + findOne(id: string)
     + getTimeline(id: string)
     + exportLogs(queryDto: GetAuditLogsDto): Promise<
+    + extractActorId(req?: RequestContext): string | null
     ...
 }
 

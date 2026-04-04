@@ -8,6 +8,7 @@ import {
   IsArray,
   ValidateNested,
   IsUrl,
+  IsNotEmpty,
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
@@ -17,6 +18,43 @@ class PortfolioLinkDto {
 
   @IsUrl()
   url: string;
+}
+
+class CertificationDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  name: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(120)
+  issuingOrganization: string;
+
+  @IsString()
+  @IsNotEmpty()
+  issueMonth: string;
+
+  @IsString()
+  @Matches(/^\d{4}$/)
+  issueYear: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  credentialId?: string;
+
+  @IsUrl()
+  credentialUrl: string;
+
+  @IsOptional()
+  @IsString()
+  expirationMonth?: string;
+
+  @IsOptional()
+  @IsString()
+  @Matches(/^\d{4}$/)
+  expirationYear?: string;
 }
 
 export class UpdateProfileDto {
@@ -112,6 +150,26 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsString()
   cvUrl?: string;
+
+  @ApiProperty({
+    description: 'Danh sách chứng chỉ chuyên môn',
+    example: [
+      {
+        name: 'IBM Business Analyst',
+        issuingOrganization: 'IBM',
+        issueMonth: 'Nov',
+        issueYear: '2025',
+        credentialId: 'R3N2OL4NM58R',
+        credentialUrl: 'https://www.credly.com/badges/example',
+      },
+    ],
+    required: false,
+  })
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CertificationDto)
+  certifications?: CertificationDto[];
 
   @ApiProperty({
     description: 'Múi giờ IANA (ví dụ: Asia/Ho_Chi_Minh)',

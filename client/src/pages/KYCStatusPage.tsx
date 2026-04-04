@@ -22,6 +22,13 @@ interface KYCData {
   rejectionReason?: string;
   submittedAt?: string;
   reviewedAt?: string;
+  latestSubmissionStatus?: string;
+  hasPendingUpdate?: boolean;
+  hasRejectedUpdate?: boolean;
+  updateSubmittedAt?: string;
+  updateReviewedAt?: string;
+  updateRejectionReason?: string;
+  message?: string;
 }
 
 export default function KYCStatusPage() {
@@ -55,6 +62,13 @@ export default function KYCStatusPage() {
         rejectionReason: data.rejectionReason,
         submittedAt: data.createdAt,
         reviewedAt: data.reviewedAt,
+        latestSubmissionStatus: data.latestSubmissionStatus,
+        hasPendingUpdate: data.hasPendingUpdate,
+        hasRejectedUpdate: data.hasRejectedUpdate,
+        updateSubmittedAt: data.updateSubmittedAt,
+        updateReviewedAt: data.updateReviewedAt,
+        updateRejectionReason: data.updateRejectionReason,
+        message: data.message,
       });
     } catch (error) {
       setKycData({ status: 'NOT_SUBMITTED' });
@@ -70,11 +84,11 @@ export default function KYCStatusPage() {
 
   // Auto-refresh when pending
   useEffect(() => {
-    if (kycData?.status !== 'PENDING') return;
+    if (kycData?.status !== 'PENDING' && !kycData?.hasPendingUpdate) return;
 
     const interval = setInterval(() => fetchKYCStatus(), 10000);
     return () => clearInterval(interval);
-  }, [kycData?.status]);
+  }, [kycData?.hasPendingUpdate, kycData?.status]);
 
   const getStatusConfig = (status: KYCStatus) => {
     switch (status) {
@@ -136,6 +150,8 @@ export default function KYCStatusPage() {
 
   const status = kycData?.status || 'NOT_SUBMITTED';
   const isNotVerified = status === 'NOT_SUBMITTED' || status === 'NOT_STARTED';
+  const hasPendingUpdate = !!kycData?.hasPendingUpdate;
+  const hasRejectedUpdate = !!kycData?.hasRejectedUpdate;
   const config = getStatusConfig(status);
   const StatusIcon = config.icon;
 
@@ -163,7 +179,7 @@ export default function KYCStatusPage() {
                 </Badge>
               </div>
             </div>
-            {status === 'PENDING' && (
+            {(status === 'PENDING' || hasPendingUpdate) && (
               <Button
                 variant="outline"
                 onClick={() => fetchKYCStatus(true)}
@@ -176,6 +192,36 @@ export default function KYCStatusPage() {
         </CardHeader>
         <CardContent className="pt-6">
           <p className="text-muted-foreground mb-6">{config.description}</p>
+
+          {status === 'APPROVED' && hasPendingUpdate && (
+            <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <Clock className="h-5 w-5 text-yellow-600 mt-0.5" />
+                <div>
+                  <p className="font-medium text-yellow-800">KYC Update In Review</p>
+                  <p className="text-yellow-700 text-sm mt-1">
+                    {kycData?.message ||
+                      'Your current KYC remains active while the newly submitted documents are being reviewed.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {status === 'APPROVED' && hasRejectedUpdate && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="h-5 w-5 text-amber-600 mt-0.5" />
+                <div>
+                  <p className="font-medium text-amber-800">Latest KYC Update Was Rejected</p>
+                  <p className="text-amber-700 text-sm mt-1">
+                    {kycData?.updateRejectionReason ||
+                      'Your current verified KYC is still active, but the latest update submission was rejected.'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Rejection Reason */}
           {status === 'REJECTED' && kycData?.rejectionReason && (
@@ -219,6 +265,20 @@ export default function KYCStatusPage() {
                   </span>
                 </p>
               )}
+              {kycData?.updateSubmittedAt && status === 'APPROVED' && (
+                <p className="mt-1">
+                  Latest update submitted on:{' '}
+                  <span className="font-medium">
+                    {new Date(kycData.updateSubmittedAt).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'long',
+                      day: 'numeric',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </span>
+                </p>
+              )}
             </div>
           )}
 
@@ -229,6 +289,16 @@ export default function KYCStatusPage() {
               className="w-full bg-teal-600 hover:bg-teal-700"
             >
               {status === 'REJECTED' ? 'Resubmit Verification' : 'Start Verification'}
+              <ArrowRight className="ml-2 h-4 w-4" />
+            </Button>
+          )}
+
+          {status === 'APPROVED' && !hasPendingUpdate && (
+            <Button
+              onClick={() => navigate(`${ROUTES.KYC_VERIFICATION}?mode=update`)}
+              className="w-full bg-teal-600 hover:bg-teal-700"
+            >
+              {hasRejectedUpdate ? 'Submit KYC Update Again' : 'Update Verification'}
               <ArrowRight className="ml-2 h-4 w-4" />
             </Button>
           )}
