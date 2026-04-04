@@ -1,6 +1,9 @@
-import { UnauthorizedException } from '@nestjs/common';
-
-import { UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 
 import { AuthController } from './auth.controller';
 import { BadgeType, AuthResponseDto } from './dto';
@@ -198,6 +201,108 @@ describe('AuthController.register', () => {
       'Unknown Device',
     );
   });
+
+  it('rethrows service exceptions so the HTTP layer can return the conflict response', async () => {
+    authService.register.mockRejectedValueOnce(new ConflictException('Email already exists'));
+
+    await expect(
+      controller.register(registerDto as any, '127.0.0.1', {
+        headers: {
+          'user-agent': 'Mozilla/5.0',
+        },
+      } as any),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+});
+
+describe('AuthController.verifyEmail', () => {
+  let controller: AuthController;
+  let emailVerificationService: Record<string, jest.Mock>;
+
+  beforeEach(() => {
+    emailVerificationService = {
+      verifyEmail: jest.fn().mockResolvedValue({
+        message: 'Email verified successfully',
+        email: 'member@gmail.com',
+      }),
+    };
+
+    controller = new AuthController(
+      {
+        register: jest.fn(),
+        login: jest.fn(),
+      } as any,
+      emailVerificationService as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('passes the token to the verification service and returns its payload', async () => {
+    const result = await controller.verifyEmail('valid-token');
+
+    expect(emailVerificationService.verifyEmail).toHaveBeenCalledWith('valid-token');
+    expect(result).toEqual({
+      message: 'Email verified successfully',
+      email: 'member@gmail.com',
+    });
+  });
+
+  it('rethrows service errors so the HTTP layer can return a bad request response', async () => {
+    emailVerificationService.verifyEmail.mockRejectedValueOnce(
+      new BadRequestException('Invalid token'),
+    );
+
+    await expect(controller.verifyEmail('invalid-token')).rejects.toBeInstanceOf(
+      BadRequestException,
+    );
+  });
+});
+
+describe('AuthController.resendVerification', () => {
+  let controller: AuthController;
+  let emailVerificationService: Record<string, jest.Mock>;
+
+  beforeEach(() => {
+    emailVerificationService = {
+      resendVerificationEmail: jest.fn().mockResolvedValue({
+        message: 'Verification email sent. Please check your inbox.',
+      }),
+    };
+
+    controller = new AuthController(
+      {
+        register: jest.fn(),
+        login: jest.fn(),
+      } as any,
+      emailVerificationService as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('passes the email to the verification service and returns its payload', async () => {
+    const result = await controller.resendVerification('member@gmail.com');
+
+    expect(emailVerificationService.resendVerificationEmail).toHaveBeenCalledWith(
+      'member@gmail.com',
+    );
+    expect(result).toEqual({
+      message: 'Verification email sent. Please check your inbox.',
+    });
+  });
+
+  it('rethrows service errors so the HTTP layer can return the not found response', async () => {
+    emailVerificationService.resendVerificationEmail.mockRejectedValueOnce(
+      new NotFoundException('User not found'),
+    );
+
+    await expect(controller.resendVerification('missing@gmail.com')).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
 });
 
 describe('AuthController.login', () => {
@@ -287,6 +392,81 @@ describe('AuthController.login', () => {
       'Unknown IP',
       undefined,
     );
+  });
+});
+
+describe('AuthController.logout', () => {
+  let controller: AuthController;
+  let authService: Record<string, jest.Mock>;
+
+  beforeEach(() => {
+    authService = {
+      logout: jest.fn().mockResolvedValue({
+        message: 'Logout successful',
+      }),
+    };
+
+    controller = new AuthController(
+      authService as any,
+      {} as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('passes the authenticated user id and refresh token to the service, then clears auth cookies', async () => {
+    const response = createResponseMock();
+
+    const result = await controller.logout(
+      {
+        user: {
+          id: 'user-1',
+        },
+        cookies: {
+          refreshToken: 'refresh-token',
+        },
+      } as any,
+      response as any,
+    );
+
+    expect(authService.logout).toHaveBeenCalledWith('user-1', 'refresh-token');
+    expect(response.clearCookie).toHaveBeenNthCalledWith(
+      1,
+      'accessToken',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/',
+      }),
+    );
+    expect(response.clearCookie).toHaveBeenNthCalledWith(
+      2,
+      'refreshToken',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/',
+      }),
+    );
+    expect(result).toEqual({
+      message: 'Logout successful',
+      data: null,
+    });
+  });
+
+  it('passes undefined refresh token when the cookie is missing', async () => {
+    const response = createResponseMock();
+
+    await controller.logout(
+      {
+        user: {
+          id: 'user-2',
+        },
+        cookies: {},
+      } as any,
+      response as any,
+    );
+
+    expect(authService.logout).toHaveBeenCalledWith('user-2', undefined);
   });
 });
 
@@ -562,5 +742,463 @@ describe('AuthController.updateProfile', () => {
       message: expect.any(String),
       data: updatedProfileResponse,
     });
+  });
+});
+
+describe('AuthController.getSession', () => {
+  let controller: AuthController;
+  let authService: { getSessionUser: jest.Mock };
+
+  beforeEach(() => {
+    authService = {
+      getSessionUser: jest.fn().mockResolvedValue(updatedProfileResponse),
+    };
+
+    controller = new AuthController(
+      authService as any,
+      {} as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('returns the authenticated session snapshot from the service', async () => {
+    const result = await controller.getSession({
+      user: {
+        id: 'user-1',
+      },
+    } as any);
+
+    expect(authService.getSessionUser).toHaveBeenCalledWith('user-1');
+    expect(result).toEqual({
+      message: 'Session is valid',
+      data: updatedProfileResponse,
+    });
+  });
+
+  it('rethrows service errors so the HTTP layer can return an unauthorized response', async () => {
+    authService.getSessionUser.mockRejectedValueOnce(
+      new UnauthorizedException({
+        error: 'SESSION_REVOKED',
+        message: 'Authenticated user not found',
+      }),
+    );
+
+    await expect(
+      controller.getSession({
+        user: {
+          id: 'missing-user',
+        },
+      } as any),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe('AuthController.refreshToken', () => {
+  let controller: AuthController;
+  let authService: { refreshToken: jest.Mock };
+
+  beforeEach(() => {
+    authService = {
+      refreshToken: jest.fn().mockResolvedValue({
+        accessToken: 'new-access-token',
+        refreshToken: 'new-refresh-token',
+      }),
+    };
+
+    controller = new AuthController(
+      authService as any,
+      {} as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('refreshes tokens, sets cookies, and returns an empty data payload', async () => {
+    const response = createResponseMock();
+
+    const result = await controller.refreshToken(
+      {
+        cookies: {
+          refreshToken: 'current-refresh-token',
+        },
+      } as any,
+      response as any,
+    );
+
+    expect(authService.refreshToken).toHaveBeenCalledWith('current-refresh-token');
+    expect(response.cookie).toHaveBeenNthCalledWith(
+      1,
+      'accessToken',
+      'new-access-token',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/',
+      }),
+    );
+    expect(response.cookie).toHaveBeenNthCalledWith(
+      2,
+      'refreshToken',
+      'new-refresh-token',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/',
+      }),
+    );
+    expect(result).toEqual({
+      message: 'Token refreshed successfully',
+      data: {},
+    });
+  });
+
+  it('rejects when the refresh token cookie is missing', async () => {
+    const response = createResponseMock();
+
+    await expect(
+      controller.refreshToken(
+        {
+          cookies: {},
+        } as any,
+        response as any,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(authService.refreshToken).not.toHaveBeenCalled();
+    expect(response.cookie).not.toHaveBeenCalled();
+  });
+
+  it('clears cookies and rethrows when the service rejects the refresh token', async () => {
+    const response = createResponseMock();
+    authService.refreshToken.mockRejectedValueOnce(
+      new UnauthorizedException({
+        error: 'SESSION_REVOKED',
+        message: 'Session has been revoked',
+      }),
+    );
+
+    await expect(
+      controller.refreshToken(
+        {
+          cookies: {
+            refreshToken: 'stale-refresh-token',
+          },
+          headers: {
+            'user-agent': 'Mozilla/5.0',
+          },
+          ip: '203.0.113.10',
+        } as any,
+        response as any,
+      ),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+
+    expect(response.clearCookie).toHaveBeenNthCalledWith(
+      1,
+      'accessToken',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/',
+      }),
+    );
+    expect(response.clearCookie).toHaveBeenNthCalledWith(
+      2,
+      'refreshToken',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/',
+      }),
+    );
+  });
+});
+
+describe('AuthController.forgotPassword', () => {
+  let controller: AuthController;
+  let authService: { forgotPassword: jest.Mock };
+
+  beforeEach(() => {
+    authService = {
+      forgotPassword: jest.fn().mockResolvedValue({
+        message: 'OTP code has been sent to your email',
+        email: 'me***@gmail.com',
+        expiresIn: 300,
+      }),
+    };
+
+    controller = new AuthController(
+      authService as any,
+      {} as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('forwards the payload and wraps the forgot-password response', async () => {
+    const payload = {
+      email: 'member@gmail.com',
+    };
+
+    const result = await controller.forgotPassword(payload as any);
+
+    expect(authService.forgotPassword).toHaveBeenCalledWith(payload);
+    expect(result).toEqual({
+      message: 'OTP code has been sent',
+      data: {
+        message: 'OTP code has been sent to your email',
+        email: 'me***@gmail.com',
+        expiresIn: 300,
+      },
+    });
+  });
+
+  it('rethrows service errors for invalid forgot-password requests', async () => {
+    authService.forgotPassword.mockRejectedValueOnce(
+      new BadRequestException('Email does not exist'),
+    );
+
+    await expect(
+      controller.forgotPassword({
+        email: 'missing@gmail.com',
+      } as any),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+});
+
+describe('AuthController.verifyOtp', () => {
+  let controller: AuthController;
+  let authService: { verifyOtp: jest.Mock };
+
+  beforeEach(() => {
+    authService = {
+      verifyOtp: jest.fn(),
+    };
+
+    controller = new AuthController(
+      authService as any,
+      {} as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('returns the valid OTP result from the service', async () => {
+    authService.verifyOtp.mockResolvedValueOnce({
+      message: 'OTP code is valid',
+      isValid: true,
+    });
+
+    const result = await controller.verifyOtp({
+      email: 'member@gmail.com',
+      otp: '123456',
+    } as any);
+
+    expect(authService.verifyOtp).toHaveBeenCalledWith({
+      email: 'member@gmail.com',
+      otp: '123456',
+    });
+    expect(result).toEqual({
+      message: 'OTP is valid',
+      data: {
+        message: 'OTP code is valid',
+        isValid: true,
+      },
+    });
+  });
+
+  it('returns the invalid OTP result from the service without throwing', async () => {
+    authService.verifyOtp.mockResolvedValueOnce({
+      message: 'Incorrect OTP code',
+      isValid: false,
+    });
+
+    const result = await controller.verifyOtp({
+      email: 'member@gmail.com',
+      otp: '654321',
+    } as any);
+
+    expect(result).toEqual({
+      message: 'OTP is invalid',
+      data: {
+        message: 'Incorrect OTP code',
+        isValid: false,
+      },
+    });
+  });
+});
+
+describe('AuthController.resetPassword', () => {
+  let controller: AuthController;
+  let authService: { resetPassword: jest.Mock };
+
+  beforeEach(() => {
+    authService = {
+      resetPassword: jest.fn(),
+    };
+
+    controller = new AuthController(
+      authService as any,
+      {} as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('forwards the payload and wraps the reset-password response', async () => {
+    authService.resetPassword.mockResolvedValueOnce({
+      message: 'Password reset successful. Please login again.',
+    });
+
+    const payload = {
+      email: 'member@gmail.com',
+      otp: '123456',
+      newPassword: 'newpass123',
+      confirmPassword: 'newpass123',
+    };
+
+    const result = await controller.resetPassword(payload as any);
+
+    expect(authService.resetPassword).toHaveBeenCalledWith(payload);
+    expect(result).toEqual({
+      message: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng',
+      data: {
+        message: 'Password reset successful. Please login again.',
+      },
+    });
+  });
+
+  it('rethrows unauthorized reset-password errors from the service', async () => {
+    authService.resetPassword.mockRejectedValueOnce(
+      new UnauthorizedException('Invalid OTP code'),
+    );
+
+    await expect(
+      controller.resetPassword({
+        email: 'member@gmail.com',
+        otp: '000000',
+        newPassword: 'newpass123',
+        confirmPassword: 'newpass123',
+      } as any),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+});
+
+describe('AuthController.checkObligations', () => {
+  let controller: AuthController;
+  let authService: { checkActiveObligations: jest.Mock };
+
+  beforeEach(() => {
+    authService = {
+      checkActiveObligations: jest.fn().mockResolvedValue({
+        hasObligations: true,
+        activeProjects: 2,
+        walletBalance: 150,
+      }),
+    };
+
+    controller = new AuthController(
+      authService as any,
+      {} as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('returns the obligation snapshot for the authenticated user', async () => {
+    const result = await controller.checkObligations({
+      user: {
+        id: 'user-1',
+      },
+    } as any);
+
+    expect(authService.checkActiveObligations).toHaveBeenCalledWith('user-1');
+    expect(result).toEqual({
+      hasObligations: true,
+      activeProjects: 2,
+      walletBalance: 150,
+    });
+  });
+});
+
+describe('AuthController.deleteAccount', () => {
+  let controller: AuthController;
+  let authService: { deleteAccount: jest.Mock };
+
+  beforeEach(() => {
+    authService = {
+      deleteAccount: jest.fn().mockResolvedValue({
+        message: 'Account has been deleted successfully',
+      }),
+    };
+
+    controller = new AuthController(
+      authService as any,
+      {} as any,
+      {
+        get: jest.fn(),
+      } as any,
+    );
+  });
+
+  it('forwards the payload, clears auth cookies, and returns the delete result', async () => {
+    const response = createResponseMock();
+    const payload = {
+      password: 'currentPassword123',
+      reason: 'No longer need the service',
+    };
+
+    const result = await controller.deleteAccount(
+      {
+        user: {
+          id: 'user-1',
+        },
+      } as any,
+      payload as any,
+      response as any,
+    );
+
+    expect(authService.deleteAccount).toHaveBeenCalledWith('user-1', payload);
+    expect(response.clearCookie).toHaveBeenNthCalledWith(
+      1,
+      'accessToken',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/',
+      }),
+    );
+    expect(response.clearCookie).toHaveBeenNthCalledWith(
+      2,
+      'refreshToken',
+      expect.objectContaining({
+        httpOnly: true,
+        path: '/',
+      }),
+    );
+    expect(result).toEqual({
+      message: 'Account has been deleted successfully',
+    });
+  });
+
+  it('rethrows bad-request delete-account errors from the service', async () => {
+    authService.deleteAccount.mockRejectedValueOnce(
+      new BadRequestException('Cannot delete account while having active projects or wallet balance'),
+    );
+
+    await expect(
+      controller.deleteAccount(
+        {
+          user: {
+            id: 'user-1',
+          },
+        } as any,
+        {
+          password: 'currentPassword123',
+        } as any,
+        createResponseMock() as any,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });

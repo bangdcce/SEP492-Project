@@ -102,7 +102,14 @@ function parsePumlFile(filePath) {
     if (mBlock) {
       const kindToken = mBlock[1];
       const name = mBlock[2];
-      const kind = kindToken.startsWith('enum') ? 'enum' : 'class';
+      // Teacher requirement: enums are NOT shown in class diagrams.
+      // Skip enum blocks entirely.
+      if (kindToken.startsWith('enum')) {
+        i++;
+        while (i < lines.length && (lines[i] ?? '').trim() !== '}') i++;
+        continue;
+      }
+      const kind = 'class';
       /** @type {string[]} */
       const bodyLines = [];
       i++;

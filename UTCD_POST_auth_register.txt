@@ -1,0 +1,136 @@
+UTCD Decision Table — POST /auth/register
+
+Purpose
+- This file is a text template you can mark with "O" (like your Excel matrix).
+- It is derived from the current backend code:
+  - AuthController.register(): returns 201 with { message, data }
+  - RegisterDto: class-validator rules for request body
+  - CaptchaGuard: optional depending on RECAPTCHA_ENABLED
+  - AuthService.register(): conflict checks (email exists / legal consent)
+
+How to use
+1) Pick a column (UTCD01..UTCD12) and put "O" in the rows that apply.
+2) For each UTCD column, mark exactly ONE expected outcome row (E..).
+3) If you need more cases, copy UTCD12 to UTCD13, etc.
+
+Legend
+- Cxx = condition (input/environment)
+- Exx = expected result
+
+Conditions (rows)
+C01  Request body is valid for all DTO validators
+C02  Email format valid (IsEmail)
+C03  Email is NOT disposable (IsNotDisposableEmail)
+C04  Password valid (string, not empty, >=8, pattern)
+C05  Full name valid (2-50 chars, letters/spaces)
+C06  Phone valid (VN: ^0[3|5|7|8|9][0-9]{8}$)
+C07  Role is registerable (CLIENT|BROKER|FREELANCER)
+C08  acceptTerms is present (boolean)
+C09  acceptPrivacy is present (boolean)
+C10  acceptTerms == true
+C11  acceptPrivacy == true
+C12  Email does NOT already exist in DB
+C13  RECAPTCHA_ENABLED == 'true'
+C14  recaptchaToken provided (when captcha enabled)
+C15  recaptchaToken is valid (captchaService.verifyRecaptcha == true)
+C16  domainIds / skillIds (if provided) are arrays of strings
+
+Expected outcomes (rows)
+E01  201 Created; response has { message, data: AuthResponseDto }
+E02  400 Bad Request; DTO validation failed
+E03  400 Bad Request; captcha required or captcha invalid
+E04  409 Conflict; email already used
+E05  409 Conflict; must accept Terms + Privacy (legal consent)
+
+Matrix (blank — fill with O)
+| Row | Description                                             | UTCD01 | UTCD02 | UTCD03 | UTCD04 | UTCD05 | UTCD06 | UTCD07 | UTCD08 | UTCD09 | UTCD10 | UTCD11 | UTCD12 |
+|-----|----------------------------------------------------------|--------|--------|--------|--------|--------|--------|--------|--------|--------|--------|--------|--------|
+| C01 | Request body valid overall                               |        |        |        |        |        |        |        |        |        |        |        |        |
+| C02 | Email format valid                                       |        |        |        |        |        |        |        |        |        |        |        |        |
+| C03 | Email not disposable                                     |        |        |        |        |        |        |        |        |        |        |        |        |
+| C04 | Password valid                                           |        |        |        |        |        |        |        |        |        |        |        |        |
+| C05 | Full name valid                                          |        |        |        |        |        |        |        |        |        |        |        |        |
+| C06 | Phone valid                                              |        |        |        |        |        |        |        |        |        |        |        |        |
+| C07 | Role is registerable                                     |        |        |        |        |        |        |        |        |        |        |        |        |
+| C08 | acceptTerms present                                      |        |        |        |        |        |        |        |        |        |        |        |        |
+| C09 | acceptPrivacy present                                    |        |        |        |        |        |        |        |        |        |        |        |        |
+| C10 | acceptTerms == true                                      |        |        |        |        |        |        |        |        |        |        |        |        |
+| C11 | acceptPrivacy == true                                    |        |        |        |        |        |        |        |        |        |        |        |        |
+| C12 | Email not already exists                                 |        |        |        |        |        |        |        |        |        |        |        |        |
+| C13 | RECAPTCHA_ENABLED == 'true'                              |        |        |        |        |        |        |        |        |        |        |        |        |
+| C14 | recaptchaToken provided                                  |        |        |        |        |        |        |        |        |        |        |        |        |
+| C15 | recaptchaToken valid                                     |        |        |        |        |        |        |        |        |        |        |        |        |
+| C16 | domainIds/skillIds arrays of strings (if provided)        |        |        |        |        |        |        |        |        |        |        |        |        |
+| E01 | 201 Created                                              |        |        |        |        |        |        |        |        |        |        |        |        |
+| E02 | 400 Bad Request (DTO validation)                         |        |        |        |        |        |        |        |        |        |        |        |        |
+| E03 | 400 Bad Request (captcha)                                |        |        |        |        |        |        |        |        |        |        |        |        |
+| E04 | 409 Conflict (email exists)                              |        |        |        |        |        |        |        |        |        |        |        |        |
+| E05 | 409 Conflict (legal consent missing)                     |        |        |        |        |        |        |        |        |        |        |        |        |
+
+Suggested markings (you can follow this to fill the matrix)
+
+UTCD01 — Happy path (captcha disabled)
+- Mark O: C01 C02 C03 C04 C05 C06 C07 C08 C09 C10 C11 C12
+- Do NOT mark: C13 C14 C15
+- Expected: E01
+
+UTCD02 — Invalid email format
+- Mark O: C03 C04 C05 C06 C07 C08 C09 C10 C11 C12
+- Leave blank / not satisfied: C02 (email invalid) so overall C01 is NOT true
+- Expected: E02
+
+UTCD03 — Disposable email
+- Mark O: C02 C04 C05 C06 C07 C08 C09 C10 C11 C12
+- Leave blank: C03 (disposable) so overall C01 is NOT true
+- Expected: E02
+
+UTCD04 — Password fails (too short / pattern)
+- Mark O: C02 C03 C05 C06 C07 C08 C09 C10 C11 C12
+- Leave blank: C04 so overall C01 is NOT true
+- Expected: E02
+
+UTCD05 — Full name invalid
+- Mark O: C02 C03 C04 C06 C07 C08 C09 C10 C11 C12
+- Leave blank: C05 so overall C01 is NOT true
+- Expected: E02
+
+UTCD06 — Phone invalid
+- Mark O: C02 C03 C04 C05 C07 C08 C09 C10 C11 C12
+- Leave blank: C06 so overall C01 is NOT true
+- Expected: E02
+
+UTCD07 — Role not allowed (e.g., ADMIN)
+- Mark O: C02 C03 C04 C05 C06 C08 C09 C10 C11 C12
+- Leave blank: C07 so overall C01 is NOT true
+- Expected: E02
+
+UTCD08 — Missing acceptTerms / acceptPrivacy field (not provided)
+- Example: acceptTerms missing
+- Mark O: C02 C03 C04 C05 C06 C07 C09 C11 C12
+- Leave blank: C08 (acceptTerms present) and C10
+- Expected: E02
+
+UTCD09 — Legal consent not accepted (acceptTerms=false OR acceptPrivacy=false)
+- Mark O: C01 C02 C03 C04 C05 C06 C07 C08 C09 C12
+- Leave blank: at least one of C10/C11
+- Expected: E05 (Note: service throws ConflictException)
+
+UTCD10 — Email already exists
+- Mark O: C01 C02 C03 C04 C05 C06 C07 C08 C09 C10 C11
+- Leave blank: C12
+- Expected: E04
+
+UTCD11 — Captcha enabled but missing recaptchaToken
+- Mark O: C13 (captcha enabled)
+- Leave blank: C14 (no token), C15
+- Expected: E03
+
+UTCD12 — Captcha enabled, token provided but invalid
+- Mark O: C13 C14
+- Leave blank: C15
+- Expected: E03
+
+Notes
+- If captcha is disabled (RECAPTCHA_ENABLED != 'true'), CaptchaGuard always passes.
+- The controller responds with 201 (Created) on success and includes a Vietnamese success message.
+- Legal consent failure currently returns 409 Conflict (not 400) because AuthService uses ConflictException.

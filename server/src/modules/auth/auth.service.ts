@@ -789,6 +789,11 @@ export class AuthService {
     let profile = await this.profileRepository.findOne({ where: { userId } });
 
     if (!profile) {
+      const initialBankInfo =
+        updateProfileDto.certifications !== undefined
+          ? { certifications: updateProfileDto.certifications }
+          : undefined;
+
       // T蘯｡o profile m盻嬖 n蘯ｿu chﾆｰa cﾃｳ
       profile = this.profileRepository.create({
         userId,
@@ -799,6 +804,7 @@ export class AuthService {
         portfolioLinks: updateProfileDto.portfolioLinks,
         linkedinUrl: updateProfileDto.linkedinUrl,
         cvUrl: updateProfileDto.cvUrl,
+        bankInfo: initialBankInfo,
       });
       await this.profileRepository.save(profile);
     } else {
@@ -815,6 +821,14 @@ export class AuthService {
       if (updateProfileDto.linkedinUrl !== undefined)
         updateProfileData['linkedinUrl'] = updateProfileDto.linkedinUrl;
       if (updateProfileDto.cvUrl !== undefined) updateProfileData['cvUrl'] = updateProfileDto.cvUrl;
+      if (updateProfileDto.certifications !== undefined) {
+        const existingBankInfo =
+          profile.bankInfo && typeof profile.bankInfo === 'object' ? profile.bankInfo : {};
+        updateProfileData.bankInfo = {
+          ...existingBankInfo,
+          certifications: updateProfileDto.certifications,
+        };
+      }
 
       if (Object.keys(updateProfileData).length > 0) {
         await this.profileRepository.update({ userId }, updateProfileData);
@@ -983,6 +997,8 @@ export class AuthService {
   }
 
   private mapToAuthResponse(user: UserEntity): AuthResponseDto {
+    const certifications = this.extractCertifications(user.profile?.bankInfo);
+
     return {
       id: user.id,
       email: user.email,
@@ -996,6 +1012,7 @@ export class AuthService {
       cvUrl: user.profile?.cvUrl,
       companyName: user.profile?.companyName,
       portfolioLinks: user.profile?.portfolioLinks,
+      ...(certifications !== undefined ? { certifications } : {}),
       role: user.role,
       isVerified: user.isVerified,
       isEmailVerified: !!user.emailVerifiedAt,
@@ -1005,5 +1022,13 @@ export class AuthService {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  private extractCertifications(bankInfo?: Record<string, any> | null) {
+    if (!bankInfo || typeof bankInfo !== 'object' || !Array.isArray(bankInfo.certifications)) {
+      return undefined;
+    }
+
+    return bankInfo.certifications;
   }
 }

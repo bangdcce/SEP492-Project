@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Search, Ban, UserCheck, Key, Shield, AlertCircle, X } from 'lucide-react';
+import { Search, Ban, UserCheck, Shield, AlertCircle, X } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface User {
@@ -58,11 +58,8 @@ export default function AdminUsersPage() {
   // Modals
   const [showBanModal, setShowBanModal] = useState(false);
   const [showUnbanModal, setShowUnbanModal] = useState(false);
-  const [showResetPasswordModal, setShowResetPasswordModal] = useState(false);
   const [banReason, setBanReason] = useState('');
   const [unbanReason, setUnbanReason] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-  const [sendEmail, setSendEmail] = useState(true);
 
   const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -221,32 +218,6 @@ export default function AdminUsersPage() {
     }
   };
 
-  const handleResetPassword = async () => {
-    if (!selectedUser || !newPassword.trim()) {
-      toast.error('Please provide a new password');
-      return;
-    }
-
-    try {
-      const response = await fetch(`${API_URL}/users/${selectedUser.id}/reset-password`, {
-        method: 'POST',
-        credentials: 'include',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ newPassword, sendEmail }),
-      });
-
-      if (!response.ok) throw new Error('Failed to reset password');
-
-      toast.success('Password reset successfully');
-      setShowResetPasswordModal(false);
-      setNewPassword('');
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to reset password');
-    }
-  };
-
   const getRoleBadgeColor = (role: string) => {
     const colors: Record<string, string> = {
       ADMIN: 'bg-red-100 text-red-800',
@@ -279,7 +250,7 @@ export default function AdminUsersPage() {
         {/* Header */}
         <div className="mb-6">
           <h1 className="text-3xl font-bold text-gray-900">User Management</h1>
-          <p className="text-gray-600 mt-2">Manage users, ban/unban, reset passwords</p>
+          <p className="text-gray-600 mt-2">Manage users and ban/unban access</p>
         </div>
 
         {/* Stats Cards */}
@@ -371,7 +342,7 @@ export default function AdminUsersPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Trust Score</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Projects</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
@@ -432,19 +403,7 @@ export default function AdminUsersPage() {
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setSelectedUser(user);
-                          setShowResetPasswordModal(true);
-                        }}
-                        className="text-blue-600 hover:text-blue-900 mr-3"
-                        title="Reset Password"
-                      >
-                        <Key className="w-5 h-5 inline" />
-                      </button>
-                      
+                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm font-medium">
                       {user.isBanned ? (
                         <button
                           onClick={(e) => {
@@ -452,10 +411,10 @@ export default function AdminUsersPage() {
                             setSelectedUser(user);
                             setShowUnbanModal(true);
                           }}
-                          className="text-green-600 hover:text-green-900"
+                          className="inline-flex items-center justify-center text-green-600 hover:text-green-900"
                           title="Unban User"
                         >
-                          <UserCheck className="w-5 h-5 inline" />
+                          <UserCheck className="w-5 h-5" />
                         </button>
                       ) : (
                         <button
@@ -464,10 +423,10 @@ export default function AdminUsersPage() {
                             setSelectedUser(user);
                             setShowBanModal(true);
                           }}
-                          className="text-red-600 hover:text-red-900"
+                          className="inline-flex items-center justify-center text-red-600 hover:text-red-900"
                           title="Ban User"
                         >
-                          <Ban className="w-5 h-5 inline" />
+                          <Ban className="w-5 h-5" />
                         </button>
                       )}
                     </td>
@@ -794,92 +753,6 @@ export default function AdminUsersPage() {
                   className="px-5 py-2.5 bg-gradient-to-r from-green-500 to-green-600 text-white rounded-xl hover:from-green-600 hover:to-green-700 transition-all font-medium shadow-lg hover:shadow-xl"
                 >
                   Unban User
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Reset Password Modal */}
-        {showResetPasswordModal && selectedUser && (
-          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-            <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden animate-in fade-in zoom-in duration-200">
-              {/* Header */}
-              <div className="bg-gradient-to-r from-blue-500 to-blue-600 px-6 py-5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="p-2 bg-white/20 rounded-lg">
-                      <Key className="w-6 h-6 text-white" />
-                    </div>
-                    <h3 className="text-xl font-bold text-white">Reset Password</h3>
-                  </div>
-                  <button
-                    onClick={() => {
-                      setShowResetPasswordModal(false);
-                      setNewPassword('');
-                    }}
-                    className="p-1 hover:bg-white/20 rounded-lg transition-colors"
-                  >
-                    <X className="w-5 h-5 text-white" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Content */}
-              <div className="p-6 space-y-5">
-                <div className="bg-blue-50 border border-blue-100 rounded-xl p-4">
-                  <div className="flex items-start gap-3">
-                    <Key className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
-                    <div>
-                      <p className="text-sm font-medium text-blue-900">Reset user password</p>
-                      <p className="text-sm text-blue-700 mt-1">
-                        <strong>{selectedUser.fullName}</strong>
-                        <span className="text-blue-600"> ({selectedUser.email})</span>
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    New temporary password <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
-                    placeholder="Enter new temporary password..."
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                  />
-                </div>
-
-                <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer hover:bg-gray-100 transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={sendEmail}
-                    onChange={(e) => setSendEmail(e.target.checked)}
-                    className="w-4 h-4 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
-                  />
-                  <span className="text-sm font-medium text-gray-700">Send email notification to user</span>
-                </label>
-              </div>
-
-              {/* Footer */}
-              <div className="bg-gray-50 px-6 py-4 flex gap-3 justify-end">
-                <button
-                  onClick={() => {
-                    setShowResetPasswordModal(false);
-                    setNewPassword('');
-                  }}
-                  className="px-5 py-2.5 text-gray-700 bg-white border border-gray-300 rounded-xl hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleResetPassword}
-                  className="px-5 py-2.5 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-xl hover:from-blue-600 hover:to-blue-700 transition-all font-medium shadow-lg hover:shadow-xl"
-                >
-                  Reset Password
                 </button>
               </div>
             </div>

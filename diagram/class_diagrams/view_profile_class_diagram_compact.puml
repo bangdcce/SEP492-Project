@@ -67,12 +67,13 @@ class AuthService {
     + logout(userId: string, refreshToken?: string): Promise<LogoutResponseDto>
     + validateUser(userId: string): Promise<UserEntity | null>
     + refreshToken(oldRefreshToken: string): Promise<
+    - buildRefreshTokenFingerprint(token: string): string
+    - findSessionByRefreshToken(token: string): Promise<AuthSessionEntity | null>
     - cleanupExpiredSessions(userId: string): Promise<void>
     + forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto>
     + verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<VerifyOtpResponseDto>
     + resetPassword(resetPasswordDto: ResetPasswordDto): Promise<ResetPasswordResponseDto>
-    + findUserWithProfile(userId: string): Promise<UserEntity | null>
-    - mapToAuthResponse(user: UserEntity): AuthResponseDto
+    ...
 }
 
 class Repository {
@@ -111,13 +112,6 @@ class ProfileEntity {
     --
 }
 
-enum UserRole {
-    ADMIN
-    STAFF
-    BROKER
-    CLIENT
-    FREELANCER
-}
 
 ProfilePage ..> ApiClient
 ApiClient ..> AuthController

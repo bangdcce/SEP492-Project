@@ -76,9 +76,7 @@ Modal -> Modal : 15. Show obligations summary and warning
 activate Modal
 deactivate Modal
 
-Modal --> Actor : 16. Display Step 1: Review obligations
-
-== Step 1: Review Obligations ==
+Modal --> Actor : 16. Display obligations review
 
 alt [Has Active Projects or Balance]
     Actor -> Modal : 17. Click "Proceed"
@@ -91,9 +89,7 @@ else [No Obligations]
     Modal -> Modal : 21. Move to confirmation step
     activate Modal
     deactivate Modal
-    Modal --> Actor : 22. Display Step 2: Confirm deletion
-
-    == Step 2: Password Confirmation ==
+    Modal --> Actor : 22. Display password confirmation
 
     Actor -> Modal : 23. Enter password
     Modal -> Modal : 24. Store the entered password

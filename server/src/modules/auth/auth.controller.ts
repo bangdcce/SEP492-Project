@@ -298,6 +298,10 @@ export class AuthController {
     }
 
     // Service method ﾄ黛ｻ・map user entity thﾃnh response DTO
+    const certifications = Array.isArray(userWithProfile?.profile?.bankInfo?.certifications)
+      ? userWithProfile.profile.bankInfo.certifications
+      : undefined;
+
     const userResponse: AuthResponseDto = {
       id: userWithProfile.id,
       email: userWithProfile.email,
@@ -311,6 +315,7 @@ export class AuthController {
       linkedinUrl: userWithProfile?.profile?.linkedinUrl,
       cvUrl: userWithProfile?.profile?.cvUrl,
       portfolioLinks: userWithProfile?.profile?.portfolioLinks,
+      ...(certifications !== undefined ? { certifications } : {}),
       role: userWithProfile.role,
       isVerified: userWithProfile.isVerified,
       isEmailVerified: !!userWithProfile.emailVerifiedAt,

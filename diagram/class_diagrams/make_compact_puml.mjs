@@ -3,10 +3,7 @@ import * as path from 'node:path';
 
 const BLOCK_START_RE = /^\s*(class|interface|abstract\s+class|enum)\s+([A-Za-z_][\w.]*)\s*\{\s*$/;
 
-const SKIP_OUTPUT_NAMES = new Set([
-  // This one was manually curated earlier.
-  'register_kyc_class_diagram_compact.puml',
-]);
+const SKIP_OUTPUT_NAMES = new Set([]);
 
 const PROJECT_ROOT = path.resolve(process.cwd(), '..', '..'); // SEP492-Project/
 const CODE_ROOTS = [
@@ -416,6 +413,14 @@ function makeCompactPuml(text, codeIndex) {
     const isEnum = kindToken.trim().startsWith('enum');
     const className = m[2];
 
+    // Teacher requirement: enums are NOT shown in class diagrams.
+    // Skip emitting the entire enum block in compact output.
+    if (isEnum) {
+      i++;
+      while (i < lines.length && (lines[i] ?? '').trim() !== '}') i++;
+      continue;
+    }
+
     out.push(line);
     /** @type {string[]} */
     const body = [];
@@ -423,12 +428,6 @@ function makeCompactPuml(text, codeIndex) {
     while (i < lines.length && (lines[i] ?? '').trim() !== '}') {
       body.push(lines[i]);
       i++;
-    }
-
-    if (isEnum) {
-      out.push(...body);
-      out.push(lines[i] ?? '}');
-      continue;
     }
 
     // Detect indentation from first non-empty line, fallback to 4 spaces.

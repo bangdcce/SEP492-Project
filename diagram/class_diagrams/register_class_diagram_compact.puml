@@ -81,12 +81,13 @@ class AuthService {
     + logout(userId: string, refreshToken?: string): Promise<LogoutResponseDto>
     + validateUser(userId: string): Promise<UserEntity | null>
     + refreshToken(oldRefreshToken: string): Promise<
+    - buildRefreshTokenFingerprint(token: string): string
+    - findSessionByRefreshToken(token: string): Promise<AuthSessionEntity | null>
     - cleanupExpiredSessions(userId: string): Promise<void>
     + forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto>
     + verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<VerifyOtpResponseDto>
     + resetPassword(resetPasswordDto: ResetPasswordDto): Promise<ResetPasswordResponseDto>
-    + findUserWithProfile(userId: string): Promise<UserEntity | null>
-    - mapToAuthResponse(user: UserEntity): AuthResponseDto
+    ...
 }
 
 class CaptchaService {
@@ -119,15 +120,15 @@ class EmailService {
 class AuditLogsService {
     --
     + recordRegistration(userId: string, meta: any): void
-    + logView(entityType: string, entityId: string, req?: RequestContext, actorId?: string)
     + logLogin(actorId: string, metadata: Record<string, unknown>, req?: RequestContext)
-    + logRegistration(actorId: string, metadata: Record<string, unknown>)
+    + logRegistration(actorId: string, metadata: Record<string, unknown>, req?: RequestContext)
     + logLogout(actorId: string, req?: RequestContext)
-    + log(payload: AuditLogPayload)
+    + log(payload: AuditLogPayload, repository?: Repository<AuditLogEntity>)
+    + logOrThrow(payload: AuditLogPayload, repository?: Repository<AuditLogEntity>)
     + findAll(queryDto: GetAuditLogsDto)
-    - determineRiskLevel(action: string): RiskLevel
-    - extractActorId(req?: RequestContext): string
-    - extractIp(req?: RequestContext): string
+    + findOne(id: string)
+    + getTimeline(id: string)
+    + exportLogs(queryDto: GetAuditLogsDto): Promise<
     ...
 }
 
@@ -198,13 +199,6 @@ class UserSkillEntity {
     --
 }
 
-enum UserRole {
-    ADMIN
-    STAFF
-    BROKER
-    CLIENT
-    FREELANCER
-}
 
 class AuditLogEntity {
     + id: string
@@ -213,10 +207,10 @@ class AuditLogEntity {
     + createdAt: Date
     + entityType: string
     + entityId: string
-    + ipAddress: string
-    + userAgent: string
-    + beforeData: Record<string, any>
-    + afterData: Record<string, any>
+    + requestId: string | null
+    + sessionId: string | null
+    + route: string | null
+    + httpMethod: string | null
     ...
     --
 }

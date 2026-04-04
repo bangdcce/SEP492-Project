@@ -70,14 +70,15 @@ class KycService {
     --
     + getKycByIdWithWatermark(id: string,\n reviewerId: string, reviewerEmail: string, reviewerRole: string,\n ipAddress: string, sessionId: string, userAgent: string,\n reason: string, reasonDetails: string): any
     + getMyKyc(userId: string)
+    - buildUserKycPayload(kyc: KycVerificationEntity)
+    - getLatestApprovedKyc(userId: string)
+    - expirePreviousApprovedKycs(userId: string, activeKycId: string)
     + getAllKyc(status?: KycStatus, page = 1, limit = 20)
     + getKycById(id: string)
     + approveKyc(id: string, adminId: string)
     + rejectKyc(id: string, adminId: string, dto: RejectKycDto)
     + hasVerifiedKyc(userId: string): Promise<boolean>
-    - normalizeString(str: string | undefined | null): string
-    - levenshteinDistance(str1: string, str2: string): number
-    - calculateSimilarity(str1: string, str2: string): number
+    ...
 }
 
 class SupabaseStorageUtil {
@@ -120,12 +121,6 @@ class KycVerificationEntity {
     --
 }
 
-enum KycStatus {
-    PENDING
-    APPROVED
-    REJECTED
-    EXPIRED
-}
 
 class AuditLogEntity {
     + id: string
@@ -136,8 +131,8 @@ class AuditLogEntity {
     + ipAddress: string
     + userAgent: string
     + createdAt: Date
-    + beforeData: Record<string, any>
-    + afterData: Record<string, any>
+    + requestId: string | null
+    + sessionId: string | null
     ...
     --
 }
