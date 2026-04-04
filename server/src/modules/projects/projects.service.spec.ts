@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { ContractEntity } from '../../database/entities/contract.entity';
 import { DisputeEntity } from '../../database/entities/dispute.entity';
+import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { ReviewEntity } from '../../database/entities/review.entity';
 import {
   DeliverableType,
@@ -13,6 +14,7 @@ import {
 } from '../../database/entities/milestone.entity';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
 import { TaskEntity, TaskStatus } from '../../database/entities/task.entity';
+import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { ProjectsService } from './projects.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
@@ -21,17 +23,31 @@ import { EscrowReleaseService } from '../payments/escrow-release.service';
 const createQueryBuilderMock = (result: unknown) => ({
   setLock: jest.fn().mockReturnThis(),
   where: jest.fn().mockReturnThis(),
+  orderBy: jest.fn().mockReturnThis(),
   getOne: jest.fn().mockResolvedValue(result),
+  getMany: jest
+    .fn()
+    .mockResolvedValue(Array.isArray(result) ? result : result ? [result] : []),
 });
 
-describe('ProjectsService approveMilestone', () => {
+describe('ProjectsService', () => {
   let service: ProjectsService;
 
-  const projectRepository = {};
+  const projectRepository = {
+    findOne: jest.fn(),
+  };
   const disputeRepository = {};
   const reviewRepository = {};
-  const milestoneRepository = {};
-  const taskRepository = {};
+  const milestoneRepository = {
+    findOne: jest.fn(),
+    save: jest.fn(),
+  };
+  const escrowRepository = {
+    findOne: jest.fn(),
+  };
+  const taskRepository = {
+    count: jest.fn(),
+  };
   const userRepository = {};
   const auditLogsService = {
     logUpdate: jest.fn(),
@@ -41,6 +57,7 @@ describe('ProjectsService approveMilestone', () => {
   };
   const escrowReleaseService = {
     releaseForApprovedMilestone: jest.fn(),
+    refundCancelledEscrow: jest.fn(),
   };
 
   const milestoneRepoInTransaction = {
@@ -49,16 +66,29 @@ describe('ProjectsService approveMilestone', () => {
   };
   const projectRepoInTransaction = {
     createQueryBuilder: jest.fn(),
+    save: jest.fn(),
+  };
+  const escrowRepoInTransaction = {
+    createQueryBuilder: jest.fn(),
+    save: jest.fn(),
   };
   const taskRepoInTransaction = {
     find: jest.fn(),
+    createQueryBuilder: jest.fn(),
+    save: jest.fn(),
+  };
+  const taskHistoryRepoInTransaction = {
+    create: jest.fn((value) => value),
+    save: jest.fn(),
   };
 
   const manager = {
     getRepository: jest.fn((entity) => {
       if (entity === MilestoneEntity) return milestoneRepoInTransaction;
       if (entity === ProjectEntity) return projectRepoInTransaction;
+      if (entity === EscrowEntity) return escrowRepoInTransaction;
       if (entity === TaskEntity) return taskRepoInTransaction;
+      if (entity === TaskHistoryEntity) return taskHistoryRepoInTransaction;
       throw new Error('Unexpected repository');
     }),
   };
@@ -71,6 +101,7 @@ describe('ProjectsService approveMilestone', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    milestoneRepository.save.mockImplementation((value: MilestoneEntity) => value);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -92,8 +123,19 @@ describe('ProjectsService approveMilestone', () => {
           useValue: milestoneRepository,
         },
         {
+          provide: getRepositoryToken(EscrowEntity),
+          useValue: escrowRepository,
+        },
+        {
           provide: getRepositoryToken(TaskEntity),
           useValue: taskRepository,
+        },
+        {
+          provide: getRepositoryToken(TaskHistoryEntity),
+          useValue: {
+            create: jest.fn((value) => value),
+            save: jest.fn(),
+          },
         },
         {
           provide: getRepositoryToken(UserEntity),
@@ -119,6 +161,102 @@ describe('ProjectsService approveMilestone', () => {
     }).compile();
 
     service = module.get(ProjectsService);
+  });
+
+  it('routes requested milestone review to broker review when the project has an assigned broker', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      projectId: 'project-1',
+      status: MilestoneStatus.IN_PROGRESS,
+      submittedAt: null,
+    } as MilestoneEntity;
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      status: ProjectStatus.IN_PROGRESS,
+    } as ProjectEntity;
+
+    milestoneRepository.findOne.mockResolvedValue(milestone);
+    projectRepository.findOne.mockResolvedValue(project);
+    taskRepository.count.mockResolvedValueOnce(2).mockResolvedValueOnce(2);
+    escrowRepository.findOne.mockResolvedValue({
+      id: 'escrow-1',
+      milestoneId: 'milestone-1',
+      status: EscrowStatus.FUNDED,
+      fundedAmount: 100,
+      totalAmount: 100,
+    });
+
+    const result = await service.requestMilestoneReview('milestone-1', 'freelancer-1');
+
+    expect(result.status).toBe(MilestoneStatus.PENDING_STAFF_REVIEW);
+    expect(result.submittedAt).toBeInstanceOf(Date);
+    expect(milestoneRepository.save).toHaveBeenCalledWith(milestone);
+  });
+
+  it('rejects milestone review requests before escrow is funded', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      projectId: 'project-1',
+      status: MilestoneStatus.IN_PROGRESS,
+      submittedAt: null,
+    } as MilestoneEntity;
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      status: ProjectStatus.IN_PROGRESS,
+    } as ProjectEntity;
+
+    milestoneRepository.findOne.mockResolvedValue(milestone);
+    projectRepository.findOne.mockResolvedValue(project);
+    taskRepository.count.mockResolvedValueOnce(1).mockResolvedValueOnce(1);
+    escrowRepository.findOne.mockResolvedValue({
+      id: 'escrow-1',
+      milestoneId: 'milestone-1',
+      status: EscrowStatus.PENDING,
+      fundedAmount: 0,
+      totalAmount: 100,
+    });
+
+    await expect(
+      service.requestMilestoneReview('milestone-1', 'freelancer-1'),
+    ).rejects.toThrow('Fund this milestone first');
+  });
+
+  it('allows the assigned broker to complete the intermediate milestone review', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      projectId: 'project-1',
+      status: MilestoneStatus.PENDING_STAFF_REVIEW,
+      reviewedByStaffId: null,
+      staffRecommendation: null,
+      staffReviewNote: null,
+    } as MilestoneEntity;
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      status: ProjectStatus.IN_PROGRESS,
+    } as ProjectEntity;
+
+    milestoneRepository.findOne.mockResolvedValue(milestone);
+    projectRepository.findOne.mockResolvedValue(project);
+
+    const result = await service.reviewMilestoneAsBroker('milestone-1', 'broker-1', {
+      recommendation: 'ACCEPT',
+      note: 'Broker review passed.',
+    });
+
+    expect(result.status).toBe(MilestoneStatus.PENDING_CLIENT_APPROVAL);
+    expect(result.reviewedByStaffId).toBe('broker-1');
+    expect(result.staffRecommendation).toBe('ACCEPT');
+    expect(result.staffReviewNote).toBe('Broker review passed.');
+    expect(milestoneRepository.save).toHaveBeenCalledWith(milestone);
   });
 
   it('approves a submitted milestone and releases escrow without changing the response contract', async () => {
@@ -193,9 +331,9 @@ describe('ProjectsService approveMilestone', () => {
     });
 
     expect(result.fundsReleased).toBe(true);
-    expect(result.milestone.status).toBe(MilestoneStatus.COMPLETED);
+    expect(result.milestone.status).toBe(MilestoneStatus.PAID);
     expect(result.message).toContain('Funds have been released');
-    expect(milestoneRepoInTransaction.save).toHaveBeenCalledTimes(1);
+    expect(milestoneRepoInTransaction.save).toHaveBeenCalledTimes(2);
     expect(escrowReleaseService.releaseForApprovedMilestone).toHaveBeenCalledWith(
       'milestone-1',
       'client-1',
@@ -249,7 +387,7 @@ describe('ProjectsService approveMilestone', () => {
     expect(auditLogsService.logUpdate).not.toHaveBeenCalled();
   });
 
-  it('allows approving a milestone after staff review when status is PENDING_CLIENT_APPROVAL', async () => {
+  it('allows approving a milestone after broker review when status is PENDING_CLIENT_APPROVAL', async () => {
     const milestone = {
       id: 'milestone-1',
       title: 'Kickoff',
@@ -284,12 +422,45 @@ describe('ProjectsService approveMilestone', () => {
 
     const result = await service.approveMilestone('milestone-1', 'client-1');
 
-    expect(result.milestone.status).toBe(MilestoneStatus.COMPLETED);
+    expect(result.milestone.status).toBe(MilestoneStatus.PAID);
     expect(escrowReleaseService.releaseForApprovedMilestone).toHaveBeenCalledWith(
       'milestone-1',
       'client-1',
       manager,
     );
+  });
+
+  it('rejects broker users from giving final milestone approval', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      title: 'Kickoff',
+      amount: 100,
+      projectId: 'project-1',
+      status: MilestoneStatus.PENDING_CLIENT_APPROVAL,
+      deliverableType: DeliverableType.OTHER,
+      feedback: null,
+      sortOrder: 1,
+    } as MilestoneEntity;
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      currency: 'USD',
+      status: ProjectStatus.IN_PROGRESS,
+    } as ProjectEntity;
+
+    milestoneRepoInTransaction.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock(milestone),
+    );
+    projectRepoInTransaction.createQueryBuilder.mockReturnValue(createQueryBuilderMock(project));
+
+    await expect(service.approveMilestone('milestone-1', 'broker-1')).rejects.toThrow(
+      'Only the project client can give final milestone approval',
+    );
+
+    expect(taskRepoInTransaction.find).not.toHaveBeenCalled();
+    expect(escrowReleaseService.releaseForApprovedMilestone).not.toHaveBeenCalled();
   });
 
   it('rejects milestone approval while the project is disputed', async () => {
@@ -322,5 +493,190 @@ describe('ProjectsService approveMilestone', () => {
     );
 
     expect(escrowReleaseService.releaseForApprovedMilestone).not.toHaveBeenCalled();
+  });
+
+  it('cancels an active project, refunds funded escrows, and locks unfinished work', async () => {
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      staffId: 'staff-1',
+      staffInviteStatus: 'ACCEPTED',
+      currency: 'USD',
+      status: ProjectStatus.IN_PROGRESS,
+      title: 'Website rebuild',
+    } as ProjectEntity;
+    const milestone1 = {
+      id: 'milestone-1',
+      projectId: 'project-1',
+      status: MilestoneStatus.SUBMITTED,
+      title: 'Discovery',
+    } as MilestoneEntity;
+    const milestone2 = {
+      id: 'milestone-2',
+      projectId: 'project-1',
+      status: MilestoneStatus.COMPLETED,
+      title: 'Design',
+    } as MilestoneEntity;
+    const escrow1 = {
+      id: 'escrow-1',
+      projectId: 'project-1',
+      milestoneId: 'milestone-1',
+      status: EscrowStatus.FUNDED,
+      totalAmount: 100,
+      fundedAmount: 100,
+      currency: 'USD',
+      holdTransactionId: 'tx-hold-1',
+    } as EscrowEntity;
+    const escrow2 = {
+      id: 'escrow-2',
+      projectId: 'project-1',
+      milestoneId: 'milestone-2',
+      status: EscrowStatus.PENDING,
+      totalAmount: 250,
+      fundedAmount: 0,
+      currency: 'USD',
+    } as EscrowEntity;
+    const task1 = {
+      id: 'task-1',
+      projectId: 'project-1',
+      milestoneId: 'milestone-1',
+      status: TaskStatus.IN_PROGRESS,
+      submittedAt: new Date('2026-03-25T00:00:00.000Z'),
+    } as TaskEntity;
+    const task2 = {
+      id: 'task-2',
+      projectId: 'project-1',
+      milestoneId: 'milestone-2',
+      status: TaskStatus.DONE,
+      submittedAt: new Date('2026-03-25T00:00:00.000Z'),
+    } as TaskEntity;
+
+    projectRepository.findOne.mockResolvedValue(project);
+    projectRepoInTransaction.createQueryBuilder.mockReturnValue(createQueryBuilderMock(project));
+    milestoneRepoInTransaction.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock([milestone1, milestone2]),
+    );
+    escrowRepoInTransaction.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock([escrow1, escrow2]),
+    );
+    taskRepoInTransaction.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock([task1, task2]),
+    );
+    milestoneRepoInTransaction.save.mockImplementation((value: MilestoneEntity) => value);
+    projectRepoInTransaction.save.mockImplementation((value: ProjectEntity) => value);
+    taskRepoInTransaction.save.mockImplementation((value: TaskEntity) => value);
+    taskHistoryRepoInTransaction.save.mockImplementation((value) => value);
+    escrowReleaseService.refundCancelledEscrow.mockResolvedValue({
+      milestoneId: 'milestone-1',
+      escrowId: 'escrow-1',
+      escrowStatus: EscrowStatus.REFUNDED,
+      refundedAmount: 100,
+      clientWalletSnapshot: {
+        id: 'wallet-client',
+        userId: 'client-1',
+        availableBalance: 100,
+        pendingBalance: 0,
+        heldBalance: 0,
+        totalDeposited: 100,
+        totalWithdrawn: 0,
+        totalEarned: 0,
+        totalSpent: 0,
+        currency: 'USD',
+        status: 'ACTIVE',
+        createdAt: new Date('2026-03-13T00:00:00.000Z'),
+        updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+      },
+      refundTransactionId: 'tx-refund-1',
+    });
+
+    const result = await service.cancelProject('project-1', 'client-1', 'CLIENT', {
+      ip: '127.0.0.1',
+      method: 'POST',
+      path: '/projects/project-1/cancel',
+    });
+
+    expect(escrowReleaseService.refundCancelledEscrow).toHaveBeenCalledTimes(1);
+    expect(escrowReleaseService.refundCancelledEscrow).toHaveBeenCalledWith(
+      project,
+      milestone1,
+      escrow1,
+      'client-1',
+      manager,
+    );
+    expect(milestoneRepoInTransaction.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'milestone-1',
+        status: MilestoneStatus.LOCKED,
+      }),
+    );
+    expect(taskRepoInTransaction.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'task-1',
+        status: TaskStatus.BLOCKED,
+        submittedAt: null,
+      }),
+    );
+    expect(taskRepoInTransaction.save).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'task-2',
+        status: TaskStatus.BLOCKED,
+      }),
+    );
+    expect(taskHistoryRepoInTransaction.save).toHaveBeenCalled();
+    expect(projectRepoInTransaction.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 'project-1',
+        status: ProjectStatus.CANCELED,
+        staffId: null,
+        staffInviteStatus: null,
+      }),
+    );
+    expect(auditLogsService.logUpdate).toHaveBeenCalled();
+    expect(result.totalRefundedAmount).toBe(100);
+    expect(result.refundedEscrows).toHaveLength(1);
+    expect(result.project.status).toBe(ProjectStatus.CANCELED);
+  });
+
+  it('rejects project cancellation after any escrow has already been released', async () => {
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      status: ProjectStatus.IN_PROGRESS,
+    } as ProjectEntity;
+    const milestone = {
+      id: 'milestone-1',
+      projectId: 'project-1',
+      status: MilestoneStatus.SUBMITTED,
+    } as MilestoneEntity;
+
+    projectRepository.findOne.mockResolvedValue(project);
+    projectRepoInTransaction.createQueryBuilder.mockReturnValue(createQueryBuilderMock(project));
+    milestoneRepoInTransaction.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock([milestone]),
+    );
+    escrowRepoInTransaction.createQueryBuilder.mockReturnValue(
+      createQueryBuilderMock([
+        {
+          id: 'escrow-1',
+          projectId: 'project-1',
+          milestoneId: 'milestone-1',
+          status: EscrowStatus.RELEASED,
+          totalAmount: 100,
+          fundedAmount: 100,
+        } as EscrowEntity,
+      ]),
+    );
+    taskRepoInTransaction.createQueryBuilder.mockReturnValue(createQueryBuilderMock([]));
+
+    await expect(service.cancelProject('project-1', 'client-1')).rejects.toThrow(
+      'Cannot cancel a project after escrow has been released',
+    );
+
+    expect(escrowReleaseService.refundCancelledEscrow).not.toHaveBeenCalled();
+    expect(projectRepoInTransaction.save).not.toHaveBeenCalled();
   });
 });

@@ -5,6 +5,7 @@ import { DataSource } from 'typeorm';
 import {
   EscrowEntity,
   EscrowStatus,
+  FundingGateway,
   MilestoneEntity,
   MilestoneStatus,
   ProjectEntity,
@@ -16,6 +17,7 @@ import {
   WalletStatus,
 } from '../../database/entities';
 import { EscrowReleaseService } from './escrow-release.service';
+import { PayPalCheckoutService } from './pay-pal-checkout.service';
 import { WalletService } from './wallet.service';
 
 const createQueryBuilderMock = (result: unknown) => ({
@@ -44,12 +46,16 @@ describe('EscrowReleaseService', () => {
     getOrCreateWallet: jest.fn(),
     toWalletSnapshot: jest.fn(),
   };
+  const payPalCheckoutService = {
+    refundCapture: jest.fn(),
+  };
   const walletRepository = {
     save: jest.fn(),
   };
   const transactionRepository = {
     create: jest.fn((data: Partial<TransactionEntity>) => data),
     save: jest.fn(),
+    findOne: jest.fn(),
   };
 
   const manager = {
@@ -97,6 +103,10 @@ describe('EscrowReleaseService', () => {
         {
           provide: WalletService,
           useValue: walletService,
+        },
+        {
+          provide: PayPalCheckoutService,
+          useValue: payPalCheckoutService,
         },
       ],
     }).compile();
@@ -303,6 +313,240 @@ describe('EscrowReleaseService', () => {
     expect(platformWallet.totalEarned).toBe(5);
     expect(escrow.status).toBe(EscrowStatus.RELEASED);
     expect(escrow.clientApproved).toBe(true);
+  });
+
+  it('refunds a funded escrow back to the client wallet when a project is cancelled', async () => {
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      currency: 'USD',
+    } as ProjectEntity;
+    const milestone = {
+      id: 'milestone-1',
+      title: 'Kickoff',
+      projectId: 'project-1',
+    } as MilestoneEntity;
+    const escrow = {
+      id: 'escrow-1',
+      milestoneId: 'milestone-1',
+      projectId: 'project-1',
+      status: EscrowStatus.FUNDED,
+      totalAmount: 100,
+      fundedAmount: 100,
+      releasedAmount: 0,
+      currency: 'USD',
+      holdTransactionId: 'tx-hold',
+    } as EscrowEntity;
+    const clientWallet = {
+      id: 'wallet-client',
+      userId: 'client-1',
+      balance: 0,
+      pendingBalance: 0,
+      heldBalance: 100,
+      totalDeposited: 100,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+
+    walletService.getOrCreateWallet.mockResolvedValue(clientWallet);
+    walletService.toWalletSnapshot.mockReturnValue({
+      id: clientWallet.id,
+      userId: clientWallet.userId,
+      availableBalance: 100,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 100,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: clientWallet.createdAt,
+      updatedAt: clientWallet.updatedAt,
+    });
+    transactionRepository.findOne.mockResolvedValue({
+      id: 'tx-hold',
+      paymentMethod: 'PAYPAL_ACCOUNT',
+      externalTransactionId: null,
+      metadata: {
+        gateway: FundingGateway.INTERNAL_SANDBOX,
+      },
+    } as Partial<TransactionEntity>);
+    walletRepository.save.mockImplementation((wallet: WalletEntity) => wallet);
+    transactionRepository.save.mockImplementation((transaction: Partial<TransactionEntity>) => ({
+      ...(transaction as TransactionEntity),
+      id: 'tx-refund',
+    }));
+    escrowRepository.save.mockImplementation((value: EscrowEntity) => value);
+
+    const result = await service.refundCancelledEscrow(
+      project,
+      milestone,
+      escrow,
+      'client-1',
+      manager as never,
+    );
+
+    expect(walletService.getOrCreateWallet).toHaveBeenCalledWith('client-1', 'USD', manager);
+    expect(walletRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        balance: 100,
+        heldBalance: 0,
+      }),
+    );
+    expect(transactionRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'REFUND',
+        referenceId: 'escrow-1',
+        relatedTransactionId: 'tx-hold',
+        externalTransactionId: null,
+      }),
+    );
+    expect(escrowRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: EscrowStatus.REFUNDED,
+        refundedAt: expect.any(Date),
+        refundTransactionId: 'tx-refund',
+        clientWalletId: 'wallet-client',
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        escrowId: 'escrow-1',
+        milestoneId: 'milestone-1',
+        escrowStatus: EscrowStatus.REFUNDED,
+        refundedAmount: 100,
+        refundMode: 'INTERNAL_LEDGER',
+        externalRefundReference: null,
+        creditedToInternalWallet: true,
+        refundTransactionId: 'tx-refund',
+      }),
+    );
+  });
+
+  it('refunds a PayPal-funded escrow back to PayPal without re-crediting the internal wallet', async () => {
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      currency: 'USD',
+    } as ProjectEntity;
+    const milestone = {
+      id: 'milestone-1',
+      title: 'Kickoff',
+      projectId: 'project-1',
+    } as MilestoneEntity;
+    const escrow = {
+      id: 'escrow-1',
+      milestoneId: 'milestone-1',
+      projectId: 'project-1',
+      status: EscrowStatus.FUNDED,
+      totalAmount: 100,
+      fundedAmount: 100,
+      releasedAmount: 0,
+      currency: 'USD',
+      holdTransactionId: 'tx-hold',
+    } as EscrowEntity;
+    const clientWallet = {
+      id: 'wallet-client',
+      userId: 'client-1',
+      balance: 0,
+      pendingBalance: 0,
+      heldBalance: 100,
+      totalDeposited: 100,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+
+    walletService.getOrCreateWallet.mockResolvedValue(clientWallet);
+    walletService.toWalletSnapshot.mockReturnValue({
+      id: clientWallet.id,
+      userId: clientWallet.userId,
+      availableBalance: 0,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 100,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: clientWallet.createdAt,
+      updatedAt: clientWallet.updatedAt,
+    });
+    transactionRepository.findOne.mockResolvedValue({
+      id: 'tx-hold',
+      paymentMethod: 'PAYPAL_ACCOUNT',
+      externalTransactionId: 'CAPTURE-1',
+      metadata: {
+        gateway: FundingGateway.PAYPAL,
+      },
+    } as Partial<TransactionEntity>);
+    payPalCheckoutService.refundCapture.mockResolvedValue({
+      refundId: 'REFUND-1',
+      status: 'COMPLETED',
+      captureId: 'CAPTURE-1',
+      alreadyRefunded: false,
+    });
+    walletRepository.save.mockImplementation((wallet: WalletEntity) => wallet);
+    transactionRepository.save.mockImplementation((transaction: Partial<TransactionEntity>) => ({
+      ...(transaction as TransactionEntity),
+      id: 'tx-refund',
+    }));
+    escrowRepository.save.mockImplementation((value: EscrowEntity) => value);
+
+    const result = await service.refundCancelledEscrow(
+      project,
+      milestone,
+      escrow,
+      'client-1',
+      manager as never,
+    );
+
+    expect(payPalCheckoutService.refundCapture).toHaveBeenCalledWith({
+      captureId: 'CAPTURE-1',
+      currency: 'USD',
+      amount: 100,
+      requestId: 'escrow-escrow-1-cancel-refund',
+    });
+    expect(walletRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        balance: 0,
+        heldBalance: 0,
+      }),
+    );
+    expect(transactionRepository.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: 'REFUND',
+        externalTransactionId: 'REFUND-1',
+        netAmount: 0,
+      }),
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        escrowId: 'escrow-1',
+        milestoneId: 'milestone-1',
+        escrowStatus: EscrowStatus.REFUNDED,
+        refundedAmount: 100,
+        refundMode: 'PAYPAL_CAPTURE_REFUND',
+        externalRefundReference: 'REFUND-1',
+        creditedToInternalWallet: false,
+        refundTransactionId: 'tx-refund',
+      }),
+    );
   });
 
   it('rejects release when client held balance is insufficient', async () => {

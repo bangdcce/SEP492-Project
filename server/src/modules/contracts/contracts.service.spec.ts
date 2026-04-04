@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -25,10 +26,13 @@ import { ProjectRequestEntity } from '../../database/entities/project-request.en
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
+import { ContractArchiveStorageService } from './contract-archive.storage';
+import { NotificationsService } from '../notifications/notifications.service';
 
 describe('ContractsService', () => {
   let service: ContractsService;
   let queryRunner: QueryRunner;
+  let mockDataSource: { createQueryRunner: jest.Mock; getRepository: jest.Mock };
 
   const mockContractsRepo = {
     findOne: jest.fn(),
@@ -40,6 +44,18 @@ describe('ContractsService', () => {
   const mockProjectRequestsRepo = {};
   const mockProjectRequestProposalsRepo = { find: jest.fn() };
   const mockAuditLogsService = { log: jest.fn() };
+  const mockNotificationsService = {
+    create: jest.fn().mockResolvedValue(undefined),
+    createMany: jest.fn().mockResolvedValue(undefined),
+  };
+  const mockEventEmitter = { emit: jest.fn() };
+  const mockContractArchiveStorage = {
+    persistPdfArtifact: jest.fn(),
+    downloadPdfArtifact: jest.fn(),
+  };
+  const mockEscrowReadRepository = {
+    find: jest.fn().mockResolvedValue([]),
+  };
 
   const mockManager = {
     create: jest.fn((_: unknown, data: unknown) => data),
@@ -142,8 +158,14 @@ describe('ContractsService', () => {
       manager: mockManager,
     } as unknown as QueryRunner;
 
-    const mockDataSource = {
+    mockDataSource = {
       createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === EscrowEntity) {
+          return mockEscrowReadRepository;
+        }
+        return { find: jest.fn().mockResolvedValue([]) };
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -158,7 +180,10 @@ describe('ContractsService', () => {
           useValue: mockProjectRequestProposalsRepo,
         },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
+        { provide: ContractArchiveStorageService, useValue: mockContractArchiveStorage },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: EventEmitter2, useValue: mockEventEmitter },
       ],
     }).compile();
 
@@ -264,6 +289,34 @@ describe('ContractsService', () => {
           return { id: 'project-uuid', ...entity };
         }
         return args[1];
+      });
+      mockContractsRepo.findOne.mockResolvedValue({
+        id: 'contract-uuid',
+        projectId: 'project-uuid',
+        sourceSpecId: spec.id,
+        title: spec.title,
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project: {
+          ...buildProject({
+            client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+            broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+            freelancer: {
+              id: 'freelancer-uuid',
+              fullName: 'Freelancer',
+              email: 'freelancer@example.com',
+            } as any,
+            request: { specs: [spec] } as any,
+          }),
+        },
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(buildProject(), {
+          scopeNarrativeRichContent: spec.richContentJson,
+          scopeNarrativePlainText: 'Delivery assumptions\nBroker provides staging access.',
+        }),
+        termsContent: 'Detailed Scope Notes\nBroker provides staging access.',
+        signatures: [],
+        contentHash: null,
       });
 
       const result = await service.initializeProjectAndContract(brokerUser, spec.id);
@@ -502,6 +555,9 @@ describe('ContractsService', () => {
         }
         return [];
       });
+      jest
+        .spyOn<any, any>(service as any, 'persistSignedContractArchiveIfPossible')
+        .mockResolvedValue(true);
 
       const result = await service.signContract(
         brokerUser,
@@ -515,6 +571,7 @@ describe('ContractsService', () => {
       );
 
       expect(result.allRequiredSigned).toBe(true);
+      expect(result.archivePersisted).toBe(true);
       expect(mockManager.save).toHaveBeenCalledWith(
         DigitalSignatureEntity,
         expect.objectContaining({
@@ -532,6 +589,114 @@ describe('ContractsService', () => {
           activatedAt: null,
         }),
       );
+    });
+
+    it('keeps signing successful when archive persistence is unavailable', async () => {
+      const project = buildProject({ freelancerId: null });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.SENT,
+        activatedAt: null,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project, { freelancerId: null }),
+        termsContent: 'Terms',
+      } as ContractEntity;
+      contract.contentHash = (service as any).computeContentHash(contract);
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: any) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        if (entity === DigitalSignatureEntity && options?.where?.userId === brokerUser.id) {
+          return null;
+        }
+        return null;
+      });
+      mockManager.find.mockImplementation(async (entity: unknown) => {
+        if (entity === DigitalSignatureEntity) {
+          return [
+            {
+              contractId: contract.id,
+              userId: 'client-uuid',
+              signedAt: new Date('2026-03-10T10:00:00.000Z'),
+            },
+            {
+              contractId: contract.id,
+              userId: 'broker-uuid',
+              signedAt: new Date('2026-03-10T10:05:00.000Z'),
+            },
+          ];
+        }
+        return [];
+      });
+      jest
+        .spyOn<any, any>(service as any, 'persistSignedContractArchiveIfPossible')
+        .mockResolvedValue(false);
+
+      const result = await service.signContract(
+        brokerUser,
+        contract.id,
+        contract.contentHash,
+        {
+          headers: {},
+          ip: '127.0.0.1',
+          get: jest.fn().mockReturnValue('jest-agent'),
+        } as any,
+      );
+
+      expect(result.allRequiredSigned).toBe(true);
+      expect(result.archivePersisted).toBe(false);
+    });
+  });
+
+  describe('generatePdfForUser', () => {
+    it('streams the archived artifact when one is available', async () => {
+      const archivedBuffer = Buffer.from('archived-contract-pdf');
+      const contract = {
+        id: 'contract-uuid',
+        status: ContractStatus.SIGNED,
+        archiveStoragePath: 'contracts/contract-uuid/archive-hash.pdf',
+        archiveDocumentHash: 'archive-hash',
+      } as ContractEntity;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+      mockContractArchiveStorage.downloadPdfArtifact.mockResolvedValue(archivedBuffer);
+
+      const dynamicPdfSpy = jest
+        .spyOn<any, any>(service as any, 'buildPdfBufferForContract')
+        .mockResolvedValue(Buffer.from('dynamic-pdf'));
+
+      const result = await service.generatePdfForUser(brokerUser, contract.id);
+
+      expect(result).toEqual(archivedBuffer);
+      expect(mockContractArchiveStorage.downloadPdfArtifact).toHaveBeenCalledWith(
+        contract.archiveStoragePath,
+      );
+      expect(dynamicPdfSpy).not.toHaveBeenCalled();
+    });
+
+    it('falls back to dynamic PDF rendering when archive storage is missing the object', async () => {
+      const dynamicBuffer = Buffer.from('dynamic-contract-pdf');
+      const contract = {
+        id: 'contract-uuid',
+        status: ContractStatus.ACTIVATED,
+        archiveStoragePath: 'contracts/contract-uuid/archive-hash.pdf',
+        archiveDocumentHash: 'archive-hash',
+      } as ContractEntity;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+      mockContractArchiveStorage.downloadPdfArtifact.mockResolvedValue(null);
+
+      jest
+        .spyOn<any, any>(service as any, 'buildPdfBufferForContract')
+        .mockResolvedValue(dynamicBuffer);
+
+      const result = await service.generatePdfForUser(brokerUser, contract.id);
+
+      expect(result).toEqual(dynamicBuffer);
     });
   });
 
@@ -588,6 +753,7 @@ describe('ContractsService', () => {
         projectId: project.id,
         sourceSpecId: 'spec-uuid',
         status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
         activatedAt: null,
         project,
         milestoneSnapshot: snapshot,
@@ -668,6 +834,7 @@ describe('ContractsService', () => {
         projectId: project.id,
         sourceSpecId: 'spec-uuid',
         status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
         activatedAt: null,
         project,
         milestoneSnapshot: buildSnapshot(),

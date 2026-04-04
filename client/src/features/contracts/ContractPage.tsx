@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import {
   ArchiveX,
   ArrowRight,
@@ -14,6 +14,7 @@ import {
   ScrollText,
   ShieldCheck,
   Users,
+  WalletCards,
 } from "lucide-react";
 import { Button } from "@/shared/components/ui/button";
 import {
@@ -21,7 +22,6 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/shared/components/ui/alert";
-import { Badge } from "@/shared/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -32,6 +32,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/shared/components/ui/alert-dialog";
+import { Badge } from "@/shared/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -48,6 +49,11 @@ import { connectSocket } from "@/shared/realtime/socket";
 import { getStoredJson } from "@/shared/utils/storage";
 import { contractsApi } from "./api";
 import type { Contract, ContractMilestoneSnapshotItem } from "./types";
+import {
+  normalizeSupportedBillingRole,
+  resolveBillingLabel,
+  resolveBillingRoute,
+} from "@/features/payments/roleRoutes";
 import {
   SpecNarrativeRenderer,
   narrativeHasContent,
@@ -319,6 +325,8 @@ export default function ContractPage() {
   const [isActivating, setIsActivating] = useState(false);
   const [isCreatingSignatureSession, setIsCreatingSignatureSession] =
     useState(false);
+  const [isCancelingProject, setIsCancelingProject] = useState(false);
+  const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
   const [isPreparingPdfPreview, setIsPreparingPdfPreview] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
@@ -476,7 +484,7 @@ export default function ContractPage() {
     [requiredSignerIds, signedUserIds],
   );
 
-  const resolveSignerName = (userId: string) => {
+  const resolveSignerName = useCallback((userId: string) => {
     const signature = sortedSignatures.find((item) => item.userId === userId);
     if (signature?.user?.fullName) return signature.user.fullName;
     if (userId === contract?.project?.clientId) {
@@ -489,7 +497,7 @@ export default function ContractPage() {
       return contract.project?.freelancer?.fullName || "Freelancer";
     }
     return userId;
-  };
+  }, [contract, sortedSignatures]);
 
   const snapshotTotal = sortedSnapshot.reduce(
     (sum, milestone) => sum + Number(milestone.amount || 0),
@@ -505,6 +513,15 @@ export default function ContractPage() {
     Boolean(contract?.activatedAt);
   const isBrokerOwner =
     Boolean(currentUser?.id) && currentUser?.id === contract?.project?.brokerId;
+  const isClientOwner =
+    Boolean(currentUser?.id) && currentUser?.id === contract?.project?.clientId;
+  const currentProjectStatus = contract?.project?.status ?? null;
+  const runtimeEscrowSummary = contract?.runtimeEscrowSummary ?? null;
+  const cancelBlockedByReleasedOrDisputedEscrow = Boolean(
+    runtimeEscrowSummary &&
+      !runtimeEscrowSummary.cancelShortcutAvailable &&
+      (runtimeEscrowSummary.releasedEscrows > 0 || runtimeEscrowSummary.disputedEscrows > 0),
+  );
   const currentUserIsParty = Boolean(
     currentUser?.id && requiredSignerIds.includes(currentUser.id),
   );
@@ -529,7 +546,27 @@ export default function ContractPage() {
   const canCreateSignatureSession = Boolean(
     contract && currentUserIsParty && isSigned && !isActivated,
   );
+  const canCancelProject = Boolean(
+    contract &&
+      isActivated &&
+      isClientOwner &&
+      currentProjectStatus !== "CANCELED" &&
+      currentProjectStatus !== "PAID" &&
+      currentProjectStatus !== "DISPUTED" &&
+      (runtimeEscrowSummary?.cancelShortcutAvailable ?? true),
+  );
   const canOpenWorkspace = Boolean(isActivated && contract?.projectId);
+  const currentContractHref =
+    contract?.id && roleBasePath ? `${roleBasePath}/contracts/${contract.id}` : null;
+  const workspaceHref =
+    canOpenWorkspace && contract?.projectId ? `${roleBasePath}/workspace/${contract.projectId}` : null;
+  const billingRole = normalizeSupportedBillingRole(currentUser?.role);
+  const billingHref =
+    currentContractHref
+      ? `${resolveBillingRoute(currentUser?.role)}?${new URLSearchParams({
+          returnTo: currentContractHref,
+        }).toString()}`
+      : null;
 
   const primaryCurrency =
     contract?.commercialContext?.currency || contract?.project?.currency || "USD";
@@ -558,7 +595,7 @@ export default function ContractPage() {
       return "Legacy draft contract. New contracts now begin directly in SENT status.";
     }
     return "Review the frozen agreement, its audit hashes, and the signature trail.";
-  }, [isActivated, isDraft, isSent, isSigned, missingSignerIds, contract]);
+  }, [isActivated, isDraft, isSent, isSigned, missingSignerIds, resolveSignerName]);
 
   const legalSignatureStatusCopy = useMemo(() => {
     switch (contract?.legalSignatureStatus) {
@@ -780,6 +817,35 @@ export default function ContractPage() {
     }
   };
 
+  const handleCancelProject = async () => {
+    if (!contract) return;
+
+    try {
+      setIsCancelingProject(true);
+      setError("");
+      const result = await contractsApi.cancelProject(contract.projectId);
+      await reloadContract(contract.id);
+      setIsCancelDialogOpen(false);
+      alert(
+        result.totalRefundedAmount > 0
+          ? result.refundModeSummary === "PAYPAL_CAPTURE_REFUND"
+            ? `Project cancelled. Refunded ${result.totalRefundedAmount} ${primaryCurrency} back to the funding PayPal account.`
+            : result.refundModeSummary === "MIXED"
+              ? `Project cancelled. Refunded ${result.totalRefundedAmount} ${primaryCurrency} across PayPal and internal wallet paths.`
+              : `Project cancelled. Refunded ${result.totalRefundedAmount} ${primaryCurrency} back to the internal wallet.`
+          : "Project cancelled.",
+      );
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.response?.data?.message ||
+          "Failed to cancel the project. If any escrow is already released, move this case to the dispute flow.",
+      );
+    } finally {
+      setIsCancelingProject(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex h-screen items-center justify-center">
@@ -802,7 +868,7 @@ export default function ContractPage() {
         <CardContent className="space-y-6 p-6 md:p-8">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="space-y-3">
-              <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
                 <Badge
                   variant={isActivated ? "default" : "outline"}
                   className="px-3 py-1 text-xs uppercase tracking-[0.24em]"
@@ -845,6 +911,24 @@ export default function ContractPage() {
                 <Download className="mr-2 h-4 w-4" />
                 {isDownloadingPdf ? "Downloading..." : "Download PDF"}
               </Button>
+              {isActivated && billingHref && (
+                <Button
+                  asChild
+                  variant="outline"
+                  className="border-teal-200 text-teal-700 hover:bg-teal-50"
+                >
+                  <Link to={billingHref}>
+                    <WalletCards className="mr-2 h-4 w-4" />
+                    {resolveBillingLabel(billingRole)}
+                  </Link>
+                </Button>
+              )}
+              {!isActivated && (
+                <div className="inline-flex items-center gap-2 rounded-md border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600">
+                  <WalletCards className="h-4 w-4 text-slate-400" />
+                  Contract-linked wallet view unlocks after activation
+                </div>
+              )}
               {canDiscardBeforeSign && (
                 <Button
                   variant="outline"
@@ -856,19 +940,31 @@ export default function ContractPage() {
                   {isDiscarding ? "Discarding..." : "Discard Before Sign"}
                 </Button>
               )}
-              {canOpenWorkspace && (
+              {canCancelProject && (
                 <Button
-                  onClick={() =>
-                    window.location.assign(
-                      `${roleBasePath}/workspace/${contract.projectId}`,
-                    )
-                  }
+                  variant="outline"
+                  onClick={() => setIsCancelDialogOpen(true)}
+                  disabled={isCancelingProject}
+                  className="border-rose-200 text-rose-700 hover:bg-rose-50"
                 >
-                  <Briefcase className="mr-2 h-4 w-4" />
-                  Open Workspace
+                  <ArchiveX className="mr-2 h-4 w-4" />
+                  {isCancelingProject ? "Cancelling..." : "Cancel & Refund Project"}
+                </Button>
+              )}
+              {workspaceHref && (
+                <Button asChild>
+                  <Link to={workspaceHref}>
+                    <Briefcase className="mr-2 h-4 w-4" />
+                    Open Workspace
+                  </Link>
                 </Button>
               )}
             </div>
+            {cancelBlockedByReleasedOrDisputedEscrow ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Cancel Project is locked because at least one escrow has already been released or disputed. Use dispute or manual closure instead of the cancel shortcut.
+              </div>
+            ) : null}
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -967,6 +1063,46 @@ export default function ContractPage() {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+
+      <AlertDialog
+        open={isCancelDialogOpen}
+        onOpenChange={(open) => {
+          if (!isCancelingProject) {
+            setIsCancelDialogOpen(open);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel and refund this project?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Any funded escrow that has not been released yet will be refunded to the client.
+              Unfinished milestones and tasks will be locked immediately after cancellation.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+            <p className="font-medium text-rose-950">This shortcut only applies before payout release.</p>
+            <ul className="space-y-1 text-rose-900">
+              <li>• Funded escrows that are still unreleased will be refunded.</li>
+              <li>• Unfinished milestones and tasks will move into a locked terminal state.</li>
+              <li>• Released or disputed milestones must be handled through dispute or manual closure.</li>
+            </ul>
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isCancelingProject}>Keep project</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleCancelProject();
+              }}
+              disabled={isCancelingProject}
+              className="bg-rose-600 text-white hover:bg-rose-700"
+            >
+              {isCancelingProject ? "Cancelling..." : "Cancel & refund"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {showPdfPreview && pdfPreviewUrl && (
         <Card className="border-slate-200 shadow-sm">
@@ -1553,18 +1689,12 @@ export default function ContractPage() {
                       Milestones and escrows now follow the frozen contract
                       snapshot. Execution updates can continue in the workspace.
                     </p>
-                    {canOpenWorkspace && (
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          window.location.assign(
-                            `${roleBasePath}/workspace/${contract.projectId}`,
-                          )
-                        }
-                      >
-                        Open Workspace
-                        <ArrowRight className="ml-2 h-4 w-4" />
+                    {workspaceHref && (
+                      <Button size="sm" variant="outline" asChild>
+                        <Link to={workspaceHref}>
+                          Open Workspace
+                          <ArrowRight className="ml-2 h-4 w-4" />
+                        </Link>
                       </Button>
                     )}
                   </AlertDescription>

@@ -2746,4 +2746,3 @@ export function WorkspaceChatDrawer({
     </Sheet>
   );
 }
-

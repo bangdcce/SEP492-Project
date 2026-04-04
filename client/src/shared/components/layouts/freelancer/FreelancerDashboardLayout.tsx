@@ -35,15 +35,17 @@ export const FreelancerDashboardLayout: React.FC<
 
   const mainClass =
     contentMode === "hearing-room"
-      ? "flex-1 overflow-y-auto overflow-x-hidden px-[2.5%] py-3 flex flex-col"
-      : "flex-1 overflow-y-auto overflow-x-hidden p-6 flex flex-col";
+      ? "flex min-w-0 flex-1 flex-col px-[2.5%] py-3"
+      : "flex min-w-0 flex-1 flex-col p-6";
 
   return (
-    <div className="flex h-screen bg-slate-50/50 overflow-hidden">
-      <FreelancerSidebar
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={handleToggleSidebar}
-      />
+    <div className="flex min-h-screen bg-slate-50/50">
+      <div className="hidden self-start lg:sticky lg:top-0 lg:block lg:h-screen">
+        <FreelancerSidebar
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={handleToggleSidebar}
+        />
+      </div>
 
       {isMobileMenuOpen && (
         <>
@@ -57,7 +59,7 @@ export const FreelancerDashboardLayout: React.FC<
         </>
       )}
 
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}

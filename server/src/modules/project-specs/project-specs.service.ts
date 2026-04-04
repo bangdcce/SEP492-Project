@@ -37,6 +37,7 @@ import { CreateClientSpecDto } from './dto/create-client-spec.dto';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
 import { randomUUID } from 'crypto';
+import { randomUUID } from 'crypto';
 import sanitizeHtml from 'sanitize-html';
 import { RequestChatService } from '../request-chat/request-chat.service';
 

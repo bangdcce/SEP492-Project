@@ -107,9 +107,18 @@ export interface Contract {
   milestoneSnapshot?: ContractMilestoneSnapshotItem[] | null;
   requiredSignerCount?: number;
   signedCount?: number;
+  runtimeEscrowSummary?: {
+    totalEscrows: number;
+    fundedEscrows: number;
+    releasedEscrows: number;
+    disputedEscrows: number;
+    refundableEscrows: number;
+    cancelShortcutAvailable: boolean;
+  } | null;
   createdAt: string;
   project: {
     id: string;
+    status?: string;
     title: string;
     description: string;
     totalBudget: number;

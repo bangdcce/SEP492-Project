@@ -8,13 +8,12 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Request } from 'express';
-import { createHash } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Brackets, DataSource, QueryRunner, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
-import { v4 as uuidv4 } from 'uuid';
 import {
   ContractCommercialContext,
   ContractEntity,
@@ -53,6 +52,7 @@ import {
   UpdateContractDraftDto,
   UpdateContractDraftMilestoneDto,
 } from './dto';
+import { ContractArchiveStorageService } from './contract-archive.storage';
 import { NotificationsService } from '../notifications/notifications.service';
 
 type ContractPartyRole = 'CLIENT' | 'BROKER' | 'FREELANCER';
@@ -84,6 +84,7 @@ export class ContractsService {
     private readonly notificationsService: NotificationsService,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
+    private readonly contractArchiveStorage: ContractArchiveStorageService,
   ) {}
 
   private sortMilestones(milestones: MilestoneEntity[]): MilestoneEntity[] {
@@ -740,7 +741,7 @@ export class ContractsService {
       item.contractMilestoneKey?.trim() ||
       item.sourceSpecMilestoneId ||
       item.projectMilestoneId ||
-      uuidv4();
+      randomUUID();
 
     return {
       contractMilestoneKey,
@@ -791,7 +792,7 @@ export class ContractsService {
     const milestones = this.sortMilestones(spec.milestones || []);
     return milestones.map((milestone, index) =>
       this.normalizeSnapshotItem({
-        contractMilestoneKey: milestone.id || uuidv4(),
+        contractMilestoneKey: milestone.id || randomUUID(),
         sourceSpecMilestoneId: milestone.id ?? null,
         title: milestone.title,
         description: milestone.description ?? null,
@@ -1121,6 +1122,129 @@ export class ContractsService {
 
   private normalizeStoredContractUrl(contract: Pick<ContractEntity, 'id' | 'contractUrl'>): string {
     return normalizeContractPdfUrl(contract.id, contract.contractUrl);
+  }
+
+  private async hydrateContractReadModel(
+    contract: ContractEntity,
+  ): Promise<ContractEntity & { documentHash?: string }> {
+    let selectedSpec: ProjectSpecEntity | null = null;
+    if (contract.project?.request?.specs) {
+      selectedSpec = this.selectSpecForContract(
+        contract.project.request.specs,
+        contract.sourceSpecId ?? null,
+      );
+      contract.project.request.spec = selectedSpec;
+    }
+
+    if (!contract.commercialContext) {
+      contract.commercialContext = this.buildCommercialContextFallback(contract, selectedSpec);
+    }
+    if (!Array.isArray(contract.milestoneSnapshot) || contract.milestoneSnapshot.length === 0) {
+      if (selectedSpec?.milestones?.length) {
+        contract.milestoneSnapshot = this.buildSnapshotFromSpecMilestones(selectedSpec);
+      } else {
+        contract.milestoneSnapshot = [];
+      }
+    }
+
+    const updatePayload: Partial<ContractEntity> = {};
+
+    const currentContentHash = this.computeContentHash(contract);
+    if (contract.contentHash !== currentContentHash) {
+      contract.contentHash = currentContentHash;
+      updatePayload.contentHash = currentContentHash;
+    }
+
+    const nextContractUrl = this.normalizeStoredContractUrl(contract);
+    if (contract.contractUrl !== nextContractUrl) {
+      contract.contractUrl = nextContractUrl;
+      updatePayload.contractUrl = nextContractUrl;
+    }
+
+    if (Object.keys(updatePayload).length > 0) {
+      await this.contractsRepository.update(contract.id, updatePayload);
+    }
+
+    if (contract.projectId) {
+      const escrowRepository = this.dataSource.getRepository(EscrowEntity);
+      const escrows = await escrowRepository.find({
+        where: { projectId: contract.projectId },
+        select: {
+          id: true,
+          status: true,
+        },
+      });
+
+      const releasedEscrows = escrows.filter((item) => item.status === EscrowStatus.RELEASED).length;
+      const disputedEscrows = escrows.filter((item) => item.status === EscrowStatus.DISPUTED).length;
+      const fundedEscrows = escrows.filter((item) => item.status === EscrowStatus.FUNDED).length;
+
+      (contract as any).runtimeEscrowSummary = {
+        totalEscrows: escrows.length,
+        fundedEscrows,
+        releasedEscrows,
+        disputedEscrows,
+        refundableEscrows: fundedEscrows,
+        cancelShortcutAvailable: releasedEscrows === 0 && disputedEscrows === 0,
+      };
+    }
+
+    (contract as any).documentHash = this.computeContractDocumentHash(contract);
+    return contract as ContractEntity & { documentHash?: string };
+  }
+
+  private async persistSignedContractArchiveIfPossible(contractId: string): Promise<boolean> {
+    try {
+      const contract = await this.findContractForRead(contractId);
+      await this.hydrateContractReadModel(contract);
+
+      if (contract.status !== ContractStatus.SIGNED) {
+        return false;
+      }
+
+      const documentHash =
+        (contract as any).documentHash || this.computeContractDocumentHash(contract);
+
+      if (
+        contract.archiveStoragePath &&
+        contract.archiveDocumentHash === documentHash &&
+        contract.archivePersistedAt
+      ) {
+        return true;
+      }
+
+      const pdfBuffer = await this.buildPdfBufferForContract(
+        contract as ContractEntity & { documentHash?: string },
+      );
+      const persisted = await this.contractArchiveStorage.persistPdfArtifact(
+        contract.id,
+        documentHash,
+        pdfBuffer,
+      );
+
+      if (!persisted) {
+        this.logger.warn(
+          `Contract ${contract.id} signed without persisted archive artifact; dynamic PDF fallback remains available.`,
+        );
+        return false;
+      }
+
+      await this.contractsRepository.update(contract.id, {
+        contractUrl: this.normalizeStoredContractUrl(contract),
+        archiveStoragePath: persisted.storagePath,
+        archivePersistedAt: new Date(),
+        archiveDocumentHash: documentHash,
+      });
+
+      return true;
+    } catch (error) {
+      this.logger.warn(
+        `Contract ${contractId} signed but archive persistence was skipped: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`,
+      );
+      return false;
+    }
   }
 
   private normalizeClientIp(req: Request): string | null {
@@ -1501,46 +1625,7 @@ export class ContractsService {
   async findOneForUser(user: UserEntity, id: string) {
     const contract = await this.findContractForRead(id);
     this.assertUserCanViewContract(user, contract);
-
-    let selectedSpec: ProjectSpecEntity | null = null;
-    if (contract.project?.request?.specs) {
-      selectedSpec = this.selectSpecForContract(
-        contract.project.request.specs,
-        contract.sourceSpecId ?? null,
-      );
-      contract.project.request.spec = selectedSpec;
-    }
-
-    if (!contract.commercialContext) {
-      contract.commercialContext = this.buildCommercialContextFallback(contract, selectedSpec);
-    }
-    if (!Array.isArray(contract.milestoneSnapshot) || contract.milestoneSnapshot.length === 0) {
-      if (selectedSpec?.milestones?.length) {
-        contract.milestoneSnapshot = this.buildSnapshotFromSpecMilestones(selectedSpec);
-      } else {
-        contract.milestoneSnapshot = [];
-      }
-    }
-
-    const updatePayload: Partial<ContractEntity> = {};
-
-    const currentContentHash = this.computeContentHash(contract);
-    if (contract.contentHash !== currentContentHash) {
-      contract.contentHash = currentContentHash;
-      updatePayload.contentHash = currentContentHash;
-    }
-
-    const nextContractUrl = this.normalizeStoredContractUrl(contract);
-    if (contract.contractUrl !== nextContractUrl) {
-      contract.contractUrl = nextContractUrl;
-      updatePayload.contractUrl = nextContractUrl;
-    }
-
-    if (Object.keys(updatePayload).length > 0) {
-      await this.contractsRepository.update(contract.id, updatePayload);
-    }
-
-    (contract as any).documentHash = this.computeContractDocumentHash(contract);
+    await this.hydrateContractReadModel(contract);
     (contract as any).requiredSignerCount = this.getRequiredContractSignerIds(contract).length;
     (contract as any).signedCount = Array.isArray(contract.signatures) ? contract.signatures.length : 0;
     return contract;
@@ -2135,10 +2220,9 @@ export class ContractsService {
     }
   }
 
-  async generatePdfForUser(user: UserEntity, contractId: string): Promise<Buffer> {
-    const contract = (await this.findOneForUser(user, contractId)) as ContractEntity & {
-      documentHash?: string;
-    };
+  private async buildPdfBufferForContract(
+    contract: ContractEntity & { documentHash?: string },
+  ): Promise<Buffer> {
     const signatures = (contract.signatures || []) as Array<
       DigitalSignatureEntity & { user?: UserEntity | null }
     >;
@@ -2506,6 +2590,32 @@ export class ContractsService {
     return pdfDocument.getBuffer();
   }
 
+  async generatePdfForUser(user: UserEntity, contractId: string): Promise<Buffer> {
+    const contract = (await this.findOneForUser(user, contractId)) as ContractEntity & {
+      documentHash?: string;
+    };
+
+    const canUseArchivedArtifact =
+      Boolean(contract.archiveStoragePath && contract.archiveDocumentHash) &&
+      (contract.status === ContractStatus.SIGNED || contract.status === ContractStatus.ACTIVATED);
+
+    if (canUseArchivedArtifact) {
+      const archivedBuffer = await this.contractArchiveStorage.downloadPdfArtifact(
+        contract.archiveStoragePath!,
+      );
+
+      if (archivedBuffer) {
+        return archivedBuffer;
+      }
+
+      this.logger.warn(
+        `Archived contract PDF missing for ${contract.id} at ${contract.archiveStoragePath}; falling back to dynamic rendering.`,
+      );
+    }
+
+    return this.buildPdfBufferForContract(contract);
+  }
+
   async signContract(user: UserEntity, contractId: string, contentHash: string, req: Request) {
     const normalizedContentHash = contentHash?.trim();
     if (!normalizedContentHash) {
@@ -2520,6 +2630,7 @@ export class ContractsService {
     let signaturesCount = 0;
     let allRequiredSigned = false;
     let contractForEvents: ContractEntity | null = null;
+    let archivePersisted = false;
 
     try {
       const contract = await this.loadContractForUpdate(queryRunner, contractId);
@@ -2609,6 +2720,7 @@ export class ContractsService {
     }
 
     if (allRequiredSigned) {
+      archivePersisted = await this.persistSignedContractArchiveIfPossible(contractId);
       await this.auditLogsService.log({
         actorId: user.id,
         action: 'CONTRACT_FULLY_SIGNED',
@@ -2636,6 +2748,7 @@ export class ContractsService {
       signaturesCount,
       requiredSignerCount,
       allRequiredSigned,
+      archivePersisted,
     };
   }
 

@@ -28,6 +28,9 @@ Default information model:
 - Prefer thorough Normal/Alternative/Boundary/Exception coverage, but only mark `Pass` when it is supported by verified evidence or explicit user-provided execution results.
 - Preserve UC traceability with `functions[].relatedUseCases` and/or `testCases[].useCaseRefs` instead of splitting sheets per UC.
 - Support the legacy round-based template only when the user explicitly provides that older workbook layout.
+- Default to one workbook file for the requested scope. Put all requested feature/function tabs into that single file.
+- Keep `Cover`, `Test case List`, `FeatureN`, and `Test Report` together in the same workbook.
+- Do not generate cumulative version chains or many near-duplicate files unless the user explicitly asks for that older flow.
 
 ## Workflow
 

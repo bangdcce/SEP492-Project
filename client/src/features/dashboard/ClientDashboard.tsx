@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Card,
   CardHeader,
@@ -10,9 +11,8 @@ import {
   Spinner,
 } from "@/shared/components/ui";
 import { wizardService } from "../wizard/services/wizardService";
-import { useNavigate } from "react-router-dom";
 import { format } from "date-fns";
-import { PlusCircle, AlertCircle } from "lucide-react";
+import { PlusCircle, AlertCircle, WalletCards, ArrowRight } from "lucide-react";
 import { ROUTES } from "@/constants";
 import { RequestStatus } from "../requests/types";
 
@@ -250,6 +250,33 @@ export function ClientDashboard() {
                 </span>
                 <span className="font-bold">{totalRequestsCount}</span>
               </div>
+            </CardContent>
+          </Card>
+
+          <Card className="overflow-hidden border-teal-200 bg-[radial-gradient(circle_at_top_right,_rgba(20,184,166,0.18),_transparent_42%),linear-gradient(135deg,_#f8fffe_0%,_#f0fdfa_55%,_#ecfeff_100%)]">
+            <CardHeader>
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl border border-teal-200 bg-white p-3 shadow-sm">
+                  <WalletCards className="h-5 w-5 text-teal-700" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-slate-950">Billing & Wallet</h3>
+                  <p className="text-sm text-slate-600">
+                    Manage funding methods and wallet activity.
+                  </p>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <p className="text-sm leading-6 text-slate-600">
+                Add PayPal, check escrow activity, or jump into funding.
+              </p>
+              <Button className="w-full gap-2" asChild>
+                <Link to={ROUTES.CLIENT_BILLING}>
+                  Open Billing & Wallet
+                  <ArrowRight className="h-4 w-4" />
+                </Link>
+              </Button>
             </CardContent>
           </Card>
         </div>

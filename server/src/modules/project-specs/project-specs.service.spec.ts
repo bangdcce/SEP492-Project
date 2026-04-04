@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { ProjectSpecsService } from './project-specs.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import {
@@ -59,11 +60,34 @@ describe('ProjectSpecsService', () => {
     assertRequestReadAccess: jest.fn().mockResolvedValue(undefined),
     assertRequestWriteAccess: jest.fn().mockResolvedValue(undefined),
   };
+  const mockEventEmitter = {
+    emit: jest.fn(),
+  };
 
   const mockUser: UserEntity = {
     id: 'broker-uuid',
     role: UserRole.BROKER,
   } as UserEntity;
+
+  const buildRequest = (overrides: Partial<ProjectRequestEntity> = {}) =>
+    ({
+      id: 'request-uuid',
+      brokerId: 'broker-uuid',
+      clientId: 'client-uuid',
+      title: 'Project request',
+      description: 'Legacy request fixture',
+      status: RequestStatus.PROCESSING,
+      requestedDeadline: '2026-05-15',
+      requestScopeBaseline: {
+        productTypeCode: 'CUSTOM_SOFTWARE',
+        productTypeLabel: 'Custom Software',
+        projectGoalSummary: 'Deliver a production-ready implementation',
+        requestedDeadline: '2026-05-15',
+        requestTitle: 'Project request',
+        requestDescription: 'Legacy request fixture',
+      },
+      ...overrides,
+    }) as ProjectRequestEntity;
 
   beforeEach(async () => {
     // Mock QueryRunner
@@ -105,6 +129,7 @@ describe('ProjectSpecsService', () => {
         { provide: DataSource, useValue: mockDataSource },
         { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: RequestChatService, useValue: mockRequestChatService },
+        { provide: EventEmitter2, useValue: mockEventEmitter },
       ],
     }).compile();
 
@@ -128,6 +153,8 @@ describe('ProjectSpecsService', () => {
           title: 'Design',
           description: 'UI/UX',
           amount: 300, // 30% (Max allowed for 1st)
+          startDate: '2026-04-01',
+          dueDate: '2026-04-10',
           deliverableType: DeliverableType.DESIGN_PROTOTYPE,
           retentionAmount: 0,
           sortOrder: 1,
@@ -136,6 +163,8 @@ describe('ProjectSpecsService', () => {
           title: 'Development',
           description: 'Backend',
           amount: 500, // 50%
+          startDate: '2026-04-11',
+          dueDate: '2026-04-24',
           deliverableType: DeliverableType.SOURCE_CODE,
           retentionAmount: 0,
           sortOrder: 2,
@@ -144,8 +173,10 @@ describe('ProjectSpecsService', () => {
           title: 'Deployment',
           description: 'Go Live',
           amount: 200, // 20% (Min allowed for Last)
+          startDate: '2026-04-25',
+          dueDate: '2026-05-15',
           deliverableType: DeliverableType.DEPLOYMENT,
-          retentionAmount: 200,
+          retentionAmount: 20,
           sortOrder: 3,
         },
       ],
@@ -161,12 +192,7 @@ describe('ProjectSpecsService', () => {
 
     it('Scenario 1: Happy Path - Should successfully create spec with 0 warnings', async () => {
       // Mock Request found and owned by broker
-      const mockRequest = {
-        id: 'request-uuid',
-        brokerId: 'broker-uuid',
-        status: RequestStatus.PROCESSING, // or whatever status allows it
-        broker: mockUser,
-      };
+      const mockRequest = buildRequest({ broker: mockUser });
       (queryRunner.manager.findOne as jest.Mock)
         .mockResolvedValueOnce(mockRequest)
         .mockResolvedValueOnce(null);
@@ -196,7 +222,7 @@ describe('ProjectSpecsService', () => {
     });
 
     it('Scenario 2: Milestone Budget Violation - First Milestone > 30%', async () => {
-      const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid' };
+      const mockRequest = buildRequest();
       (queryRunner.manager.findOne as jest.Mock)
         .mockResolvedValueOnce(mockRequest)
         .mockResolvedValueOnce(null);
@@ -216,7 +242,7 @@ describe('ProjectSpecsService', () => {
     });
 
     it('Scenario 3: Milestone Budget Violation - Last Milestone < 20%', async () => {
-      const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid' };
+      const mockRequest = buildRequest();
       (queryRunner.manager.findOne as jest.Mock)
         .mockResolvedValueOnce(mockRequest)
         .mockResolvedValueOnce(null);
@@ -236,11 +262,7 @@ describe('ProjectSpecsService', () => {
     });
 
     it('Scenario 4: Keyword Warnings', async () => {
-      const mockRequest = {
-        id: 'request-uuid',
-        brokerId: 'broker-uuid',
-        status: RequestStatus.PROCESSING,
-      };
+      const mockRequest = buildRequest();
       (queryRunner.manager.findOne as jest.Mock)
         .mockResolvedValueOnce(mockRequest)
         .mockResolvedValueOnce(null);
@@ -264,7 +286,7 @@ describe('ProjectSpecsService', () => {
     });
 
     it('Scenario 5: Feature Validation - Short Criteria', async () => {
-      const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid' };
+      const mockRequest = buildRequest();
       (queryRunner.manager.findOne as jest.Mock)
         .mockResolvedValueOnce(mockRequest)
         .mockResolvedValueOnce(null);
@@ -299,6 +321,8 @@ describe('ProjectSpecsService', () => {
           title: 'Phase 1',
           description: 'Discovery and design',
           amount: 300,
+          startDate: '2026-04-01',
+          dueDate: '2026-04-10',
           deliverableType: DeliverableType.DESIGN_PROTOTYPE,
           retentionAmount: 0,
           sortOrder: 1,
@@ -307,6 +331,8 @@ describe('ProjectSpecsService', () => {
           title: 'Phase 2',
           description: 'Implementation',
           amount: 660,
+          startDate: '2026-04-11',
+          dueDate: '2026-04-30',
           deliverableType: DeliverableType.SOURCE_CODE,
           retentionAmount: 0,
           sortOrder: 2,
@@ -315,6 +341,8 @@ describe('ProjectSpecsService', () => {
           title: 'Phase 3',
           description: 'Release',
           amount: 240,
+          startDate: '2026-05-01',
+          dueDate: '2026-05-15',
           deliverableType: DeliverableType.DEPLOYMENT,
           retentionAmount: 0,
           sortOrder: 3,
@@ -332,7 +360,7 @@ describe('ProjectSpecsService', () => {
     };
 
     it('rejects createFullSpec when milestone budget exceeds approved client spec budget', async () => {
-      const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid', broker: mockUser };
+      const mockRequest = buildRequest({ broker: mockUser });
       const approvedClientSpec = {
         id: 'client-spec-uuid',
         requestId: 'request-uuid',
@@ -358,7 +386,7 @@ describe('ProjectSpecsService', () => {
         parentSpecId: 'client-spec-uuid',
         specPhase: SpecPhase.FULL_SPEC,
         status: ProjectSpecStatus.DRAFT,
-        request: { brokerId: 'broker-uuid' },
+        request: buildRequest(),
         parentSpec: {
           id: 'client-spec-uuid',
           totalBudget: 1000,
@@ -381,7 +409,7 @@ describe('ProjectSpecsService', () => {
         specPhase: SpecPhase.FULL_SPEC,
         status: ProjectSpecStatus.DRAFT,
         lockedByContractId: 'contract-uuid',
-        request: { brokerId: 'broker-uuid' },
+        request: buildRequest(),
         parentSpec: {
           id: 'client-spec-uuid',
           totalBudget: 1400,
@@ -400,7 +428,7 @@ describe('ProjectSpecsService', () => {
     });
 
     it('rejects createFullSpec when milestone retention exceeds milestone amount', async () => {
-      const mockRequest = { id: 'request-uuid', brokerId: 'broker-uuid', broker: mockUser };
+      const mockRequest = buildRequest({ broker: mockUser });
       const approvedClientSpec = {
         id: 'client-spec-uuid',
         requestId: 'request-uuid',
@@ -448,7 +476,7 @@ describe('ProjectSpecsService', () => {
         parentSpecId: 'client-spec-uuid',
         specPhase: SpecPhase.FULL_SPEC,
         status: ProjectSpecStatus.DRAFT,
-        request: { brokerId: 'broker-uuid' },
+        request: buildRequest(),
         parentSpec: {
           id: 'client-spec-uuid',
           totalBudget: 1400,
