@@ -1,0 +1,40 @@
+{
+  "sheetName": "FN-01 Traceability",
+  "columnWidths": [
+    18,
+    28,
+    52,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12
+  ],
+  "rows": [
+    ["Function Code", "FN-01", "", "Function Name", "Register Account"],
+    ["Created By", "Codex", "", "Executed By", "SonNT"],
+    ["Lines of code", "Scoped auth registration controller/service flow, DTO validation rules, CAPTCHA guard, and verification-email trigger path", "", "Lack of test cases", "0"],
+    ["Test requirement", "Cover successful guarded registration, broker or freelancer skill persistence, duplicate-email rejection, legal-consent enforcement, CAPTCHA blocking, and DTO validation failures for the implemented register-account flow."],
+    ["Passed", "Failed", "Untested", "", "N", "A", "B", "", "Total Test Cases"],
+    ["0", "0", "6", "", "2", "4", "0", "", "6"],
+    [],
+    ["", "", "", "UTCID01", "UTCID02", "UTCID03", "UTCID04", "UTCID05", "UTCID06"],
+    ["Condition", "Precondition", "The submitted email address is not already used", "O", "O", "", "O", "", "O"],
+    ["Condition", "Precondition", "Legal consent flags are accepted", "O", "O", "", "", "", "O"],
+    ["Condition", "Precondition", "CAPTCHA is either disabled or solved successfully", "O", "O", "", "", "", ""],
+    ["Condition", "Action", "Submit POST /auth/register", "O", "O", "O", "O", "O", "O"],
+    ["Condition", "Input Variable", "Role is CLIENT", "O", "", "", "", "", ""],
+    ["Condition", "Input Variable", "Role is BROKER or FREELANCER with domainIds and skillIds", "", "O", "", "", "", ""],
+    ["Condition", "Input Variable", "Submitted email already exists", "", "", "O", "", "", ""],
+    ["Condition", "Input Variable", "acceptTerms = false or acceptPrivacy = false", "", "", "", "O", "", ""],
+    ["Condition", "Input Variable", "reCAPTCHA token is missing or invalid while enforcement is enabled", "", "", "", "", "O", ""],
+    ["Condition", "Input Variable", "Payload violates RegisterDto validation rules", "", "", "", "", "", "O"],
+    ["Expected output", "API", "HTTP 201 response is returned and a new CLIENT account is created with hashed password plus verification-email trigger", "X", "", "", "", "", ""],
+    ["Expected output", "Database", "Broker or freelancer domain and skill link rows are persisted along with the new account", "", "X", "", "", "", ""],
+    ["Expected output", "API", "ConflictException blocks duplicate-email registration without creating another user", "", "", "X", "", "", ""],
+    ["Expected output", "API", "ConflictException blocks registration when legal consent is missing", "", "", "", "X", "", ""],
+    ["Expected output", "API", "BadRequestException from CaptchaGuard blocks controller execution", "", "", "", "", "X", ""],
+    ["Expected output", "API", "HTTP 400 validation errors are returned and no user is created", "", "", "", "", "", "X"]
+  ]
+}

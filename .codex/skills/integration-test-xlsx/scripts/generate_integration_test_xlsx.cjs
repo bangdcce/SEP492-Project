@@ -65,11 +65,16 @@ function parseArgs(argv) {
 
 function printUsage() {
   console.log(
-    "Usage: node generate_integration_test_xlsx.cjs --input <input.json> --output <output.xlsx> [--template <template.xlsx>]"
+    "Usage: node generate_integration_test_xlsx.cjs --input <input.json|-> --output <output.xlsx> [--template <template.xlsx>]"
   );
 }
 
 function readJson(filePath) {
+  if (filePath === "-") {
+    const text = fs.readFileSync(0, "utf8");
+    return JSON.parse(text);
+  }
+
   return JSON.parse(fs.readFileSync(filePath, "utf8"));
 }
 
@@ -951,7 +956,7 @@ function main() {
   assert(args.input, "Missing --input");
   assert(args.output, "Missing --output");
 
-  const inputPath = path.resolve(process.cwd(), args.input);
+  const inputPath = args.input === "-" ? "-" : path.resolve(process.cwd(), args.input);
   const outputPath = path.resolve(process.cwd(), args.output);
   const strictDefaultTemplate = path.resolve(
     __dirname,
@@ -968,7 +973,9 @@ function main() {
       ? strictDefaultTemplate
       : legacyDefaultTemplate;
 
-  assert(fs.existsSync(inputPath), `Input JSON not found: ${inputPath}`);
+  if (inputPath !== "-") {
+    assert(fs.existsSync(inputPath), `Input JSON not found: ${inputPath}`);
+  }
   assert(fs.existsSync(templatePath), `Template workbook not found: ${templatePath}`);
 
   const payload = readJson(inputPath);

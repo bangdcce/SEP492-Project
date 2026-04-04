@@ -1,0 +1,98 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-27",
+    "version": "v1.1"
+  },
+  "functions": [
+    {
+      "function_code": "UC-08",
+      "class_name": "ProjectRequestsService",
+      "function_name": "Request Creation Wizard",
+      "sheet_name": "Request Creation Wizard",
+      "test_requirement": "Focus on the wizard-driven create-request process in ProjectRequestsService.create: marketplace submission, draft save, attachment normalization, default wizard step handling, and quota-gated rejection.",
+      "loc": 69,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Client is authenticated",
+            "Create-request quota is available",
+            "Wizard payload contains title, description, and answer rows"
+          ],
+          "inputs": {
+            "title": "Marketplace request",
+            "isDraft": false,
+            "answersCount": 2
+          },
+          "returns": [
+            "Creates a PUBLIC_DRAFT request, saves wizard answers, records audit create, and increments create-request quota"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Client is authenticated",
+            "Create-request quota is available",
+            "Wizard payload is submitted in save-draft mode"
+          ],
+          "inputs": {
+            "title": "Draft request",
+            "isDraft": true,
+            "answersCount": 0
+          },
+          "returns": [
+            "Creates a DRAFT request without creating answer rows"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Client is authenticated",
+            "Create-request quota is available",
+            "Attachment metadata includes trimmed valid files and invalid blank entries"
+          ],
+          "inputs": {
+            "title": "Attachment request",
+            "isDraft": false,
+            "attachments": "2 valid + 1 invalid",
+            "wizardProgressStep": "omitted"
+          },
+          "returns": [
+            "Normalizes attachment metadata and defaults wizardProgressStep to 1 before saving"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Quota validation rejects the submission before persistence"
+          ],
+          "inputs": {
+            "title": "Blocked request",
+            "isDraft": false
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Quota exceeded"
+          ]
+        }
+      ]
+    }
+  ]
+}

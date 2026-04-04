@@ -1,0 +1,261 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-27",
+    "version": "v1.1"
+  },
+  "functions": [
+    {
+      "function_code": "FN-02",
+      "class_name": "LoginDto / AuthController / AuthService",
+      "function_name": "Authentication Session",
+      "sheet_name": "Authentication Session",
+      "test_requirement": "Focus on login field validation, login request metadata handling, secure cookie login response, and the implemented authentication rejections for missing users, invalid credentials, deleted accounts, banned accounts, and unverified email states.",
+      "loc": 136,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Login payload is validated by LoginDto"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "SecurePass123!"
+          },
+          "returns": [
+            "LoginDto accepts a valid email and password payload"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Login payload is validated by LoginDto"
+          ],
+          "inputs": {
+            "email": "bad-email",
+            "password": "SecurePass123!"
+          },
+          "returns": [
+            "Validation error: Invalid email format"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Login payload is validated by LoginDto"
+          ],
+          "inputs": {
+            "email": "",
+            "password": "SecurePass123!"
+          },
+          "returns": [
+            "Validation error: Email is required"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Login payload is validated by LoginDto"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "short"
+          },
+          "returns": [
+            "Validation error: Password must be at least 8 characters"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Login payload is validated by LoginDto"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": 12345678
+          },
+          "returns": [
+            "Validation error: Password must be a string"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "AuthService returns a token pair and mapped user payload"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "SecurePass123!",
+            "userAgent": "Mozilla/5.0",
+            "ipAddress": "203.0.113.10",
+            "timeZone": "Asia/Bangkok"
+          },
+          "returns": [
+            "Login endpoint forwards request metadata, sets access and refresh cookies, and returns user data without tokens"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "AuthService returns a token pair and mapped user payload"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "SecurePass123!",
+            "userAgent": "header omitted",
+            "ipAddress": "request missing"
+          },
+          "returns": [
+            "Login endpoint falls back to Unknown Device and Unknown IP when request metadata is missing"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Existing verified account found by email",
+            "Stored password hash matches the submitted password"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "SecurePass123!",
+            "userAgent": "Chrome",
+            "ipAddress": "127.0.0.1",
+            "timeZone": "Asia/Bangkok"
+          },
+          "returns": [
+            "AuthService.login returns accessToken and refreshToken, updates timezone, and persists a new auth session"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "No matching user is found for the submitted email"
+          ],
+          "inputs": {
+            "email": "missing@gmail.com",
+            "password": "SecurePass123!"
+          },
+          "returns": [],
+          "exceptions": [
+            "UnauthorizedException: Invalid email or password"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Existing verified account found by email",
+            "Stored password hash does not match the submitted password"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "WrongPass123!"
+          },
+          "returns": [],
+          "exceptions": [
+            "UnauthorizedException: Invalid email or password"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Existing account found by email without a stored password hash"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "SecurePass123!"
+          },
+          "returns": [],
+          "exceptions": [
+            "UnauthorizedException: Invalid email or password"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Existing deleted account found by email",
+            "Stored password hash matches the submitted password"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "SecurePass123!"
+          },
+          "returns": [],
+          "exceptions": [
+            "UnauthorizedException: This account has been deleted"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Existing banned account found by email",
+            "Stored password hash matches the submitted password"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "SecurePass123!"
+          },
+          "returns": [],
+          "exceptions": [
+            "UnauthorizedException: This account has been banned. Please contact support."
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Existing account email has not been verified",
+            "Stored password hash matches the submitted password"
+          ],
+          "inputs": {
+            "email": "member@gmail.com",
+            "password": "SecurePass123!"
+          },
+          "returns": [],
+          "exceptions": [
+            "UnauthorizedException: EMAIL_NOT_VERIFIED"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,90 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "EP-203",
+      "class_name": "ProjectRequestsController / ProjectRequestsService",
+      "function_name": "Approve Freelancer Invite",
+      "sheet_name": "EP-203 Approve Fl Invite",
+      "test_requirement": "Cover POST /project-requests/:id/approve-freelancer-invite with executed Jest evidence for own-request approval, wrong-owner rejection, invalid recommendation status, and exact terminal log output.",
+      "loc": 57,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" already has assigned broker \"broker-1\"",
+            "Freelancer recommendation \"recommendation-approve-1\" belongs to request \"req-1\"",
+            "Freelancer recommendation \"recommendation-approve-1\" is currently \"PENDING_CLIENT_APPROVAL\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "proposalId": "\"recommendation-approve-1\"",
+            "clientId": "\"client-1\""
+          },
+          "returns": [
+            "returns freelancer invitation with status = INVITED"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Approve Freelancer Invite Successful: \"recommendation-approve-1\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client does not own request \"req-1\"",
+            "Request \"req-1\" belongs to client \"client-1\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "proposalId": "\"recommendation-approve-1\"",
+            "clientId": "\"client-2\""
+          },
+          "returns": [],
+          "exceptions": [
+            "ForbiddenException: Forbidden: You can only approve freelancer recommendations for your own requests"
+          ],
+          "logs": [
+            "Approve Freelancer Invite Failed: Forbidden: You can only approve freelancer recommendations for your own requests"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Freelancer recommendation \"recommendation-approve-1\" belongs to request \"req-1\"",
+            "Freelancer recommendation \"recommendation-approve-1\" is currently \"INVITED\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "proposalId": "\"recommendation-approve-1\"",
+            "clientId": "\"client-1\""
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Proposal status INVITED cannot be approved by the client."
+          ],
+          "logs": [
+            "Approve Freelancer Invite Failed: Proposal status INVITED cannot be approved by the client."
+          ]
+        }
+      ]
+    }
+  ]
+}

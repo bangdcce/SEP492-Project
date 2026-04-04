@@ -1,0 +1,284 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_FN10_Admin_User_Administration_Test_Case_v1.0",
+    "creator": "",
+    "reviewerApprover": "",
+    "issueDate": "26/03/2026",
+    "version": "v1.0",
+    "defaultTester": "",
+    "environment": [
+      "1. Frontend: client/src/pages/AdminUsersPage.tsx",
+      "2. Backend controller: server/src/modules/users/users.controller.ts",
+      "3. Backend service: server/src/modules/users/users.service.ts",
+      "4. DTOs: server/src/modules/users/dto/admin-user.dto.ts",
+      "5. Related data source: server/src/database/entities/user.entity.ts and server/src/database/entities/kyc-verification.entity.ts"
+    ],
+    "notes": "Feature workbook for function 10 Admin User Administration. The repository contains the admin user page and backend admin-user endpoints, but no matching executed unit or integration evidence for this module was found locally, so the cases below remain Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "26/03/2026",
+        "version": "v1.0",
+        "changeItem": "Function 10 Admin User Administration",
+        "changeType": "A",
+        "description": "Initial workbook generated from the implemented admin user management page, controller routes, DTO validation contracts, and backend service rules.",
+        "reference": "client/src/pages/AdminUsersPage.tsx, server/src/modules/users/users.controller.ts, server/src/modules/users/users.service.ts, server/src/modules/users/dto/admin-user.dto.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "ADMIN-USER-ADMIN",
+      "name": "Admin User Administration",
+      "testRequirement": "Validate admin-only user listing filters, statistics retrieval, detailed user and KYC lookup, ban and unban state transitions, and password reset behavior for user administration.",
+      "referenceDocument": [
+        "client/src/pages/AdminUsersPage.tsx",
+        "server/src/modules/users/users.controller.ts",
+        "server/src/modules/users/users.service.ts",
+        "server/src/modules/users/dto/admin-user.dto.ts",
+        "server/src/database/entities/user.entity.ts",
+        "server/src/database/entities/kyc-verification.entity.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 10,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Filtered User Listing",
+          "description": "The admin user page loads `/users` with paging, optional role filter, optional free-text search, and optional ban-status filter.",
+          "preCondition": "An authenticated ADMIN or STAFF user opens the user management page.",
+          "relatedUseCases": [
+            "FN-10"
+          ],
+          "actor": "Admin or Staff",
+          "done": false
+        },
+        {
+          "name": "User Statistics Retrieval",
+          "description": "The dashboard summary loads aggregate user counts and grouped role totals from `/users/admin/statistics`.",
+          "preCondition": "User records exist in multiple verification, ban, or role states.",
+          "relatedUseCases": [
+            "FN-10"
+          ],
+          "actor": "Admin or Staff",
+          "done": false
+        },
+        {
+          "name": "User Detail And KYC Lookup",
+          "description": "Opening a user row loads `/users/:id` and, when a KYC record exists, enriches the modal with watermarked KYC document URLs.",
+          "preCondition": "A user record exists and may optionally have one or more KYC submissions.",
+          "relatedUseCases": [
+            "FN-10"
+          ],
+          "actor": "Admin or Staff",
+          "done": false
+        },
+        {
+          "name": "User Ban And Unban Management",
+          "description": "The system changes user ban state with required reasons while preventing duplicate or invalid transitions.",
+          "preCondition": "The selected user exists and the operator has admin-level access.",
+          "relatedUseCases": [
+            "FN-10"
+          ],
+          "actor": "Admin or Staff",
+          "done": false
+        },
+        {
+          "name": "Administrative Password Reset",
+          "description": "The system hashes a provided temporary password, stores it, and returns the affected email address.",
+          "preCondition": "The selected user exists and an admin submits a non-empty temporary password.",
+          "relatedUseCases": [
+            "FN-10"
+          ],
+          "actor": "Admin or Staff",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Filtered User Listing",
+          "testCases": [
+            {
+              "id": "[FN10-LST-01]",
+              "description": "Load the admin user list with role, search, and ban-status filters applied together.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Open the admin user page.\n3. Set role filter, search text, and status filter.\n4. Let the page call GET /users with page and limit.\n5. Inspect the returned collection and pagination.",
+              "expectedResults": "1. The request includes page and limit.\n2. The request appends role, search, and isBanned only when each value is supplied.\n3. UsersService.getAllUsers applies the matching SQL filters.\n4. The response returns users, total, page, and totalPages for the filtered set.",
+              "dependencies": "User records exist across different roles, names, emails, and ban states.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from AdminUsersPage.fetchUsers and UsersService.getAllUsers."
+            },
+            {
+              "id": "[FN10-LST-02]",
+              "description": "Load the first page with default limit 20 when no optional filters are provided.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Open the admin user page with empty search, empty role, and empty status filters.\n3. Inspect the first GET /users request and returned paging values.",
+              "expectedResults": "1. The request sends page = 1 and limit = 20.\n2. Optional query parameters are omitted when empty.\n3. UsersService calculates skip = 0.\n4. Results are ordered by user.createdAt descending.",
+              "dependencies": "At least one user exists in the system.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Boundary coverage for default paging and empty-filter behavior."
+            }
+          ]
+        },
+        {
+          "title": "User Statistics Retrieval",
+          "testCases": [
+            {
+              "id": "[FN10-STA-01]",
+              "description": "Retrieve admin user statistics for total users, banned users, verified users, and role distribution.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Load the admin user page.\n3. Let the page call GET /users/admin/statistics.\n4. Inspect the payload used by the summary cards.",
+              "expectedResults": "1. UsersService.getUserStatistics counts total users.\n2. It counts banned users where isBanned = true.\n3. It counts verified users where isVerified = true.\n4. It groups users by role and returns byRole as a key-value map.",
+              "dependencies": "The database contains users in at least one role and status combination.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from AdminUsersPage.fetchStats and UsersService.getUserStatistics."
+            }
+          ]
+        },
+        {
+          "title": "User Detail And KYC Lookup",
+          "testCases": [
+            {
+              "id": "[FN10-DTL-01]",
+              "description": "Open a user detail modal and enrich it with the latest KYC status and signed document URLs when KYC exists.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Click a user row that has a latest KYC submission.\n3. Let the page call GET /users/:id.\n4. Let the page call GET /kyc/admin/:kycId/watermark when the returned KYC id exists.\n5. Inspect the modal content.",
+              "expectedResults": "1. UsersService.getUserDetail loads the user and latest KYC by createdAt descending.\n2. The response includes user identity, trust metrics, and base KYC metadata.\n3. The frontend performs a second KYC watermark request when kyc.id exists.\n4. The modal shows KYC status, rejection reason if present, and watermarked front/back document URLs when available.",
+              "dependencies": "A user exists with at least one KYC submission and the KYC watermark endpoint is reachable.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from openUserDetail, UsersService.getUserDetail, and the KYC watermark follow-up call."
+            },
+            {
+              "id": "[FN10-DTL-02]",
+              "description": "Return NOT_STARTED KYC status when a user detail is loaded for a user with no KYC submission.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Open a user detail for a user with no KYC rows.\n3. Inspect the `/users/:id` response and rendered modal.",
+              "expectedResults": "1. UsersService.getUserDetail returns the user record.\n2. latestKyc resolves to null.\n3. The response returns kyc.status = NOT_STARTED.\n4. The frontend does not attempt the watermark request because no kyc.id exists.",
+              "dependencies": "The selected user exists and has no KYC verification record.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Normal no-KYC branch coverage for the detail modal."
+            },
+            {
+              "id": "[FN10-DTL-03]",
+              "description": "Reject user detail lookup when the requested user id does not exist.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Call GET /users/:id with an unknown user id.\n3. Inspect the backend response and frontend error handling.",
+              "expectedResults": "1. UsersService.getUserDetail cannot find the user.\n2. The service throws NotFoundException with User not found.\n3. The frontend surfaces a failure toast and closes or avoids showing stale detail content.",
+              "dependencies": "The requested user id is not present in the users table.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Abnormal path for missing-user detail lookups."
+            }
+          ]
+        },
+        {
+          "title": "User Ban And Unban Management",
+          "testCases": [
+            {
+              "id": "[FN10-BAN-01]",
+              "description": "Ban an active user successfully with a required reason.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Select an active user.\n3. Submit PATCH /users/:id/ban with a non-empty reason.\n4. Reload the user list or detail.",
+              "expectedResults": "1. UsersService.banUser finds the user.\n2. The service sets isBanned = true.\n3. banReason, bannedAt, and bannedBy are stored.\n4. The response returns success and the refreshed user state shows Banned.",
+              "dependencies": "The selected user exists and is not currently banned.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from handleBanUser and UsersService.banUser."
+            },
+            {
+              "id": "[FN10-BAN-02]",
+              "description": "Reject a duplicate ban request when the user is already banned.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Select a user whose isBanned flag is already true.\n3. Submit PATCH /users/:id/ban with any reason.",
+              "expectedResults": "1. UsersService.banUser finds the user.\n2. The service detects user.isBanned is already true.\n3. It throws BadRequestException with User is already banned.\n4. Existing ban metadata remains unchanged.",
+              "dependencies": "The selected user exists and is already banned.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Abnormal duplicate-state protection for ban flow."
+            },
+            {
+              "id": "[FN10-UNB-01]",
+              "description": "Unban a banned user successfully.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Select a user whose account is currently banned.\n3. Submit PATCH /users/:id/unban with a reason.\n4. Reload the user list or detail.",
+              "expectedResults": "1. UsersService.unbanUser finds the user.\n2. The service sets isBanned = false.\n3. banReason, bannedAt, and bannedBy are cleared.\n4. The response returns success and the refreshed user state shows Active.",
+              "dependencies": "The selected user exists and is currently banned.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from handleUnbanUser and UsersService.unbanUser."
+            },
+            {
+              "id": "[FN10-UNB-02]",
+              "description": "Reject an unban request when the user is not currently banned.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Select an active user.\n3. Submit PATCH /users/:id/unban with a reason.",
+              "expectedResults": "1. UsersService.unbanUser finds the user.\n2. The service detects user.isBanned is false.\n3. It throws BadRequestException with User is not banned.\n4. No user-ban fields are changed.",
+              "dependencies": "The selected user exists and is not banned.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Abnormal invalid-state protection for unban flow."
+            }
+          ]
+        },
+        {
+          "title": "Administrative Password Reset",
+          "testCases": [
+            {
+              "id": "[FN10-PWD-01]",
+              "description": "Reset a user's password successfully with a supplied temporary password.",
+              "procedure": "1. Authenticate as ADMIN or STAFF.\n2. Select an existing user.\n3. Submit POST /users/:id/reset-password with newPassword and sendEmail.\n4. Inspect the response and persisted password hash.",
+              "expectedResults": "1. UsersService.resetUserPassword finds the user.\n2. The service hashes dto.newPassword with bcrypt.\n3. The stored passwordHash changes.\n4. The response returns Password reset successfully and the user's email address.",
+              "dependencies": "The selected user exists and a non-empty temporary password is provided.",
+              "useCaseRefs": [
+                "FN-10"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from handleResetPassword and UsersService.resetUserPassword."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

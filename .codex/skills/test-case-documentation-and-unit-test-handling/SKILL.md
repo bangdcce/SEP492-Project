@@ -4,7 +4,8 @@ description: Generate comprehensive unit tests and traceability documentation fr
 ---
 
 # Test Case Documentation and Unit Test Handling
-- Use xlsx file in D:\GradProject\SEP492-Project\docs\template\unit-test for reference, this file is from another project, but we could use it as a referene point to our doc
+- Use the reference workbook in `docs/template/unit-test/` for layout guidance.
+- Primary deliverable is **one** `.xlsx` file under `docs/unit/` (no companion JSON inputs or extra sidecar files).
 ## Core behavior
 - Support two starting points: direct code input or requirement / use-case input.
 - Treat provided code as the source of truth when the user gives code directly.
@@ -44,7 +45,7 @@ description: Generate comprehensive unit tests and traceability documentation fr
 ## Documentation workflow
 - After writing or locating the tests, create the traceability documentation as a real `.xlsx` workbook by default.
 - Do not create companion Markdown, JSON, TXT, or other note files unless the user explicitly asks for them.
-- If a helper JSON file is needed to build the workbook, treat it as temporary and delete it after generation.
+- If a helper JSON payload is needed to build the workbook, prefer piping it via stdin. If a temp file is used, delete it after generation.
 - When the user provides a matrix example/template, match that structure and wording as closely as possible, even if it implies a single consolidated use-case sheet instead of one sheet per function.
 - For unit-test traceability matrices, keep the workbook content limited to the matrix itself plus the normal header/summary rows.
 - Only output raw unit test code, discovery summaries, assumptions, or implementation-gap prose when the user explicitly asks for them.
@@ -113,9 +114,19 @@ description: Generate comprehensive unit tests and traceability documentation fr
 ## Workbook workflow
 - When the workspace is writable, create a real `.xlsx` workbook as the primary output whenever the user asks for documentation, a matrix, Excel output, or a template like an `.xlsx` screenshot.
 - Use the bundled script at `scripts/generate_traceability_xlsx.ps1` to build the workbook from a rectangular row matrix serialized as JSON.
+- Default output location: `docs/unit/fn-XX-<function-slug>-unit-test.xlsx` (or a feature-scoped name when the request covers many functions).
+- Prefer in-memory JSON to avoid creating `*-input.json` artifacts:
+
+```powershell
+$json = @'
+{ "sheetName": "FN-01 Traceability", "rows": [ ["..."], ["..."] ] }
+'@
+& .codex/skills/test-case-documentation-and-unit-test-handling/scripts/generate_traceability_xlsx.ps1 -InputJsonText $json -OutputPath <output.xlsx> -Overwrite
+```
+
 - Default workbook location:
-  1. `<workspace>/docs/<function-code-or-usecase>-traceability.xlsx` when a `docs` folder exists
-  2. otherwise `<workspace>/<function-code-or-usecase>-traceability.xlsx`
+  1. `<workspace>/docs/unit/<function-code>-unit-test.xlsx` when a `docs/unit` folder exists
+  2. otherwise `<workspace>/<function-code>-unit-test.xlsx`
 - Default workbook shape:
   1. one workbook for the requested feature or scope when multiple functions are involved
   2. one sheet per function by default
@@ -139,8 +150,8 @@ description: Generate comprehensive unit tests and traceability documentation fr
 
 ## Output defaults
 - Honor requests for only tests or only documentation when the user explicitly asks for that.
-- When the user asks for documentation or a workbook, default to the `.xlsx` workbook only.
-- Otherwise return both.
+- Default to returning only the `.xlsx` workbook path (and nothing else) unless the user explicitly asks for unit test code, raw matrices, or helper artifacts.
+- **Pass stage (completion gate):** the final answer returns only the absolute path to the `.xlsx` workbook under `docs/unit/`, and no helper files (JSON inputs, scratch notes) are left in `docs/`.
 - When the user gives a requirement or use case, do not ask for code first if the repository is available. Search the codebase, find the relevant implementation, scan the flow, and proceed.
 - When the user gives a requirement or use case and relevant test files already exist, run the closest matching test scope before finalizing the workbook so the result rows reflect actual execution.
 - When the user gives a requirement or use case, default to deep coverage across all directly relevant methods and functions that implement the flow, then document them function by function.

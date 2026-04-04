@@ -1,0 +1,220 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_FN25_Unit_Test_v1.0",
+    "creator": "",
+    "reviewerApprover": "",
+    "issueDate": "26/03/2026",
+    "version": "v1.0",
+    "defaultTester": "",
+    "environment": [
+      "1. Frontend: React staff leave page at client/src/features/staff/pages/StaffLeavePage.tsx and admin management page at client/src/pages/AdminLeaveManagementPage.tsx",
+      "2. Backend: NestJS leave controller/service under server/src/modules/leave with DTO validation and leave utility functions",
+      "3. Database: staff_leave_requests, staff_leave_policies, user_availabilities, staff_performances, and users tables"
+    ],
+    "notes": "Feature-level unit test workbook for FN-25 Staff Leave Request Management covering staff self-service leave requests, admin approval workflows, leave balance queries, and policy administration.",
+    "changeLog": [
+      {
+        "effectiveDate": "26/03/2026",
+        "version": "v1.0",
+        "changeItem": "FN-25 Staff Leave Request Management",
+        "changeType": "A",
+        "description": "Initial unit-test workbook for leave request creation, listing, approval race handling, cancellation, balance lookup, and monthly policy management.",
+        "reference": "server/src/modules/leave plus client/src/features/leave and staff/admin leave pages"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "LEAVE-MGMT",
+      "name": "Staff Leave Request Management",
+      "testRequirement": "Validate long-term leave request submission, request list visibility for staff and admin, approval and rejection handling, transactional cancellation, monthly balance retrieval, and admin policy management with default allowance fallback.",
+      "referenceDocument": [
+        "server/src/modules/leave/leave.controller.ts",
+        "server/src/modules/leave/leave.service.ts",
+        "server/src/modules/leave/leave.service.spec.ts",
+        "server/src/modules/leave/dto/leave.dto.ts",
+        "server/src/modules/leave/leave.utils.ts",
+        "client/src/features/leave/api.ts",
+        "client/src/features/staff/pages/StaffLeavePage.tsx",
+        "client/src/pages/AdminLeaveManagementPage.tsx"
+      ],
+      "statistics": {
+        "passed": 5,
+        "failed": 0,
+        "untested": 5,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Staff Leave Request Management",
+          "description": "Staff users submit long-term leave requests, review leave balances and prior requests, optionally cancel future leave, while admins review requests and maintain monthly allowance policies.",
+          "preCondition": "JWT authentication succeeds and the caller has STAFF or ADMIN role as required by each endpoint.",
+          "relatedUseCases": [
+            "UC-101"
+          ],
+          "actor": "Staff/Admin",
+          "done": true
+        }
+      ],
+      "sections": [
+        {
+          "title": "Staff Leave Self-Service",
+          "testCases": [
+            {
+              "id": "[LEAVE-REQ-01]",
+              "description": "Submit a valid future long-term leave request and return the refreshed monthly balance.",
+              "procedure": "1. Authenticate as STAFF.\\n2. Open StaffLeavePage.\\n3. Enter future start and end datetimes within working hours, optional reason, and submit.\\n4. Observe POST /leave/requests response and refreshed leave data.",
+              "expectedResults": "1. CreateLeaveRequestDto accepts LONG_TERM type with valid ISO datetimes.\\n2. LeaveService.createLeaveRequest rejects neither overlap nor allowance validation for this request.\\n3. A new PENDING leave request is saved with processed fields cleared.\\n4. The response message is 'Leave request submitted for approval' and includes request plus balance data.\\n5. StaffLeavePage clears the form and reloads requests and balance.",
+              "dependencies": "Authenticated staff account exists, target staff is active, and the request does not overlap existing pending or approved leave.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from leave.controller.ts#createLeaveRequest, leave.service.ts#createLeaveRequest, and StaffLeavePage handleSubmit flow."
+            },
+            {
+              "id": "[LEAVE-REQ-02]",
+              "description": "Reject invalid leave input when the range is in the past or end time is not after start time.",
+              "procedure": "1. Authenticate as STAFF.\\n2. Attempt to submit a request where startTime >= endTime or startTime is before the current time.\\n3. Inspect the API and UI response.",
+              "expectedResults": "1. StaffLeavePage.validateLeaveInput blocks clearly invalid local input and shows an error toast.\\n2. LeaveService.createLeaveRequest also guards startTime >= endTime and past-dated requests with BadRequestException.\\n3. No leave request row is created.",
+              "dependencies": "Authenticated staff session exists.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers client-side and server-side validation guardrails for malformed request windows."
+            },
+            {
+              "id": "[LEAVE-LIST-01]",
+              "description": "List a staff member's leave requests with processedBy summary but without exposing the full staff object.",
+              "procedure": "1. Run `npm test -- --runTestsByPath src/modules/leave/leave.service.spec.ts`.\\n2. Observe the test named 'returns processedBy summary for staff leave request listing'.",
+              "expectedResults": "1. LeaveService.listLeaveRequests scopes the query to requester.id for non-admin users.\\n2. The result rows contain processedBy summary with id, fullName, and email.\\n3. staff is omitted from the staff-facing payload.",
+              "dependencies": "Executed evidence from leave.service.spec.ts.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Passed",
+              "testDate": "03/26",
+              "tester": "",
+              "note": "Mapped directly to the executed Jest spec for staff leave listing."
+            },
+            {
+              "id": "[LEAVE-CAN-01]",
+              "description": "Cancel a future leave request and remove linked leave availability in the same transaction.",
+              "procedure": "1. Run `npm test -- --runTestsByPath src/modules/leave/leave.service.spec.ts`.\\n2. Observe the test named 'cancels leave using transaction to keep request and availability in sync'.",
+              "expectedResults": "1. LeaveService.cancelLeaveRequest allows owner cancellation for PENDING or APPROVED leave that has not started yet.\\n2. The request status transitions to CANCELLED with cancelledById and cancelledAt set.\\n3. Linked UserAvailabilityEntity rows for the leave request are deleted inside the transaction.\\n4. The service returns success with message 'Leave request cancelled'.",
+              "dependencies": "Executed evidence from leave.service.spec.ts.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Passed",
+              "testDate": "03/26",
+              "tester": "",
+              "note": "Directly backed by the executed transactional cancellation unit test."
+            },
+            {
+              "id": "[LEAVE-BAL-01]",
+              "description": "Return the selected month's leave balance including allowance, approved, pending, remaining, and overage totals.",
+              "procedure": "1. Authenticate as STAFF or ADMIN.\\n2. Call GET /leave/balance with month, includePending, and optional staffId for admin.\\n3. Open the Leave balance card on StaffLeavePage and compare the rendered values.",
+              "expectedResults": "1. LeaveService.getLeaveBalance resolves the target staff and time zone safely.\\n2. getLeaveBalanceInternal returns allowanceMinutes, approvedMinutes, pendingMinutes, countedMinutes, remainingMinutes, and overageMinutes.\\n3. StaffLeavePage renders the returned summary and usage bar for the selected month.",
+              "dependencies": "Leave policy and leave request data exist for the target month.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Feature behavior is implemented but has no direct matching automated test in the current repository."
+            }
+          ]
+        },
+        {
+          "title": "Admin Leave Operations",
+          "testCases": [
+            {
+              "id": "[LEAVE-LIST-02]",
+              "description": "List leave requests for admin review with both staff and processedBy actor summaries attached.",
+              "procedure": "1. Run `npm test -- --runTestsByPath src/modules/leave/leave.service.spec.ts`.\\n2. Observe the test named 'returns actor summaries for admin leave request listing'.",
+              "expectedResults": "1. LeaveService.listLeaveRequests allows admin to view all or filter by staffId.\\n2. Admin-facing results include staff and processedBy summaries with id, fullName, and email.\\n3. Sensitive fields such as passwordHash are not present in the response objects.",
+              "dependencies": "Executed evidence from leave.service.spec.ts.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Passed",
+              "testDate": "03/26",
+              "tester": "",
+              "note": "Mapped to the executed admin listing unit test."
+            },
+            {
+              "id": "[LEAVE-APR-01]",
+              "description": "Reject a pending leave request with an optional processing note from the admin management page.",
+              "procedure": "1. Authenticate as ADMIN.\\n2. Open AdminLeaveManagementPage on the Approvals tab.\\n3. Filter to a pending request, choose Reject, optionally enter a note, and confirm.\\n4. Inspect PATCH /leave/requests/:id/process response and refreshed list state.",
+              "expectedResults": "1. ProcessLeaveRequestDto accepts action = reject and optional note.\\n2. LeaveService.processLeaveRequest requires ADMIN role and a PENDING request.\\n3. The request is updated to REJECTED with processedById, processedAt, and processedNote recorded.\\n4. AdminLeaveManagementPage reloads the approvals list and shows the success toast.",
+              "dependencies": "A pending leave request exists for review.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Implemented flow with no direct matching Jest case in the current branch."
+            },
+            {
+              "id": "[LEAVE-APR-02]",
+              "description": "Abort approval cleanly when the request loses pending status during the approval race and roll back linked leave availability.",
+              "procedure": "1. Run `npm test -- --runTestsByPath src/modules/leave/leave.service.spec.ts`.\\n2. Observe the test named 'cleans up availability when approve update loses pending state race'.",
+              "expectedResults": "1. LeaveService.processLeaveRequest applies leave availability before the final status update.\\n2. If the update affects zero rows because the request is no longer pending, the service deletes linked availability by leave request id.\\n3. BadRequestException is thrown and performance upsert is not executed.",
+              "dependencies": "Executed evidence from leave.service.spec.ts.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Passed",
+              "testDate": "03/26",
+              "tester": "",
+              "note": "Executed abnormal-path unit test for approval race handling."
+            }
+          ]
+        },
+        {
+          "title": "Admin Policy Management",
+          "testCases": [
+            {
+              "id": "[LEAVE-POL-01]",
+              "description": "List staff leave policies with default monthly allowance fallback and pagination metadata.",
+              "procedure": "1. Run `npm test -- --runTestsByPath src/modules/leave/leave.service.spec.ts`.\\n2. Observe the test named 'lists leave policies with default allowance fallback'.",
+              "expectedResults": "1. LeaveService.listLeavePolicies is limited to ADMIN users.\\n2. STAFF users are paginated and searchable by id, fullName, or email.\\n3. Users without a saved StaffLeavePolicyEntity fall back to DEFAULT_MONTHLY_ALLOWANCE_MINUTES.\\n4. The response includes page, limit, total, and totalPages metadata.",
+              "dependencies": "Executed evidence from leave.service.spec.ts.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Passed",
+              "testDate": "03/26",
+              "tester": "",
+              "note": "Directly mapped to the executed policy-listing unit test."
+            },
+            {
+              "id": "[LEAVE-POL-02]",
+              "description": "Create or update a staff member's monthly leave allowance from the policy tab.",
+              "procedure": "1. Authenticate as ADMIN.\\n2. Open the Quota Policies tab on AdminLeaveManagementPage.\\n3. Enter a non-negative integer allowance and click Save.\\n4. Inspect PATCH /leave/policy/:staffId response and refreshed list.",
+              "expectedResults": "1. UpdateLeavePolicyDto enforces monthlyAllowanceMinutes as a non-negative integer.\\n2. LeaveService.updateLeavePolicy updates an existing policy or creates a new one when absent.\\n3. The response message is either 'Leave policy updated' or 'Leave policy created'.\\n4. AdminLeaveManagementPage refreshes the policy list and keeps the edited value in sync.",
+              "dependencies": "Target staff user exists and the caller has ADMIN role.",
+              "useCaseRefs": [
+                "UC-101"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Runtime behavior is implemented but not directly covered by the current leave.service.spec.ts file."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

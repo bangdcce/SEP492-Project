@@ -1229,85 +1229,97 @@ export class ProjectRequestsService {
   // ... (existing create/update methods)
 
   async create(clientId: string, dto: CreateProjectRequestDto, req: RequestContext) {
-    // Quota check: enforce free-tier limit on active requests
-    await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
-    const intendedTimeline = this.normalizeIntendedTimeline(dto.intendedTimeline);
-    const requestedDeadline = this.normalizeRequestedDeadline(
-      dto.requestedDeadline ?? (DATE_ONLY_INPUT_PATTERN.test(`${dto.intendedTimeline || ''}`) ? dto.intendedTimeline : undefined),
-    );
-
-    const request = this.requestRepo.create({
-      clientId: clientId,
-      title: dto.title,
-      description: dto.description,
-      budgetRange: dto.budgetRange,
-      intendedTimeline,
-      requestedDeadline: requestedDeadline ?? null,
-      techPreferences: dto.techPreferences,
-      attachments: this.normalizeAttachments(dto.attachments),
-      wizardProgressStep: dto.wizardProgressStep ?? 1,
-      status:
-        (dto.status as RequestStatus) ??
-        (dto.isDraft ? RequestStatus.DRAFT : RequestStatus.PUBLIC_DRAFT),
-    });
-
-    const savedRequest = await this.requestRepo.save(request);
-
-    // Create answers
-    if (dto.answers && dto.answers.length > 0) {
-      const answers = dto.answers.map((ans) =>
-        this.answerRepo.create({
-          requestId: savedRequest.id,
-          questionId: ans.questionId,
-          optionId: ans.optionId,
-          valueText: ans.valueText,
-        }),
-      );
-      await this.answerRepo.save(answers);
-    }
-
-    // Return the full request with answers
-    const fullRequest = await this.requestRepo.findOne({
-      where: { id: savedRequest.id },
-      relations: ['answers', 'answers.question', 'answers.option'],
-    });
-
-    if (fullRequest) {
-      fullRequest.requestScopeBaseline = this.buildRequestScopeBaseline(fullRequest);
-      await this.requestRepo.save(fullRequest);
-    }
-
-    // Audit Log
     try {
-      if (fullRequest) {
-        await this.auditLogsService.logCreate(
-          'ProjectRequest',
-          savedRequest.id,
-          fullRequest as unknown as Record<string, unknown>,
-          req,
+      // Quota check: enforce free-tier limit on active requests
+      await this.quotaService.checkQuota(clientId, QuotaAction.CREATE_REQUEST);
+      const intendedTimeline = this.normalizeIntendedTimeline(dto.intendedTimeline);
+      const requestedDeadline = this.normalizeRequestedDeadline(
+        dto.requestedDeadline ??
+          (DATE_ONLY_INPUT_PATTERN.test(`${dto.intendedTimeline || ''}`)
+            ? dto.intendedTimeline
+            : undefined),
+      );
+
+      const request = this.requestRepo.create({
+        clientId: clientId,
+        title: dto.title,
+        description: dto.description,
+        budgetRange: dto.budgetRange,
+        intendedTimeline,
+        requestedDeadline: requestedDeadline ?? null,
+        techPreferences: dto.techPreferences,
+        attachments: this.normalizeAttachments(dto.attachments),
+        wizardProgressStep: dto.wizardProgressStep ?? 1,
+        status:
+          (dto.status as RequestStatus) ??
+          (dto.isDraft ? RequestStatus.DRAFT : RequestStatus.PUBLIC_DRAFT),
+      });
+
+      const savedRequest = await this.requestRepo.save(request);
+
+      // Create answers
+      if (dto.answers && dto.answers.length > 0) {
+        const answers = dto.answers.map((ans) =>
+          this.answerRepo.create({
+            requestId: savedRequest.id,
+            questionId: ans.questionId,
+            optionId: ans.optionId,
+            valueText: ans.valueText,
+          }),
         );
+        await this.answerRepo.save(answers);
       }
+
+      // Return the full request with answers
+      const fullRequest = await this.requestRepo.findOne({
+        where: { id: savedRequest.id },
+        relations: ['answers', 'answers.question', 'answers.option'],
+      });
+
+      if (fullRequest) {
+        fullRequest.requestScopeBaseline = this.buildRequestScopeBaseline(fullRequest);
+        await this.requestRepo.save(fullRequest);
+      }
+
+      // Audit Log
+      try {
+        if (fullRequest) {
+          await this.auditLogsService.logCreate(
+            'ProjectRequest',
+            savedRequest.id,
+            fullRequest as unknown as Record<string, unknown>,
+            req,
+          );
+        }
+      } catch (_error) {
+        console.error('Create Request Audit Log Failed');
+      }
+
+      await this.quotaService.incrementUsage(clientId, QuotaAction.CREATE_REQUEST, {
+        requestId: savedRequest.id,
+      });
+
+      if (fullRequest) {
+        await this.notifyUsers([
+          {
+            userId: clientId,
+            title: 'Project request created',
+            body: `Request "${fullRequest.title}" has been created and is now being tracked.`,
+            relatedType: 'ProjectRequest',
+            relatedId: fullRequest.id,
+          },
+        ]);
+        this.emitRequestUpdated(fullRequest.id, [clientId, fullRequest.brokerId]);
+      }
+
+      const result = fullRequest ?? savedRequest;
+      console.log(`Create Request Successful: ${result.status}`);
+      return result;
     } catch (error) {
-      console.error('Audit log failed', error);
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Create Request Failed: ${messageText}`);
+      throw error;
     }
-
-    await this.quotaService.incrementUsage(clientId, QuotaAction.CREATE_REQUEST, {
-      requestId: savedRequest.id,
-    });
-    if (fullRequest) {
-      await this.notifyUsers([
-        {
-          userId: clientId,
-          title: 'Project request created',
-          body: `Request "${fullRequest.title}" has been created and is now being tracked.`,
-          relatedType: 'ProjectRequest',
-          relatedId: fullRequest.id,
-        },
-      ]);
-      this.emitRequestUpdated(fullRequest.id, [clientId, fullRequest.brokerId]);
-    }
-
-    return fullRequest;
   }
 
   // ... existing methods ...
@@ -1330,124 +1342,135 @@ export class ProjectRequestsService {
   }
 
   async update(id: string, dto: UpdateProjectRequestDto, user?: UserEntity, req?: RequestContext) {
-    const request = await this.findOneEntity(id);
+    try {
+      const request = await this.findOneEntity(id);
 
-    if (user) {
-      const isOwner = user.role === UserRole.CLIENT && request.clientId === user.id;
-      const isInternal = user.role === UserRole.ADMIN || user.role === UserRole.STAFF;
-      const isAssignedBroker = user.role === UserRole.BROKER && request.brokerId === user.id;
-      if (!isOwner && !isInternal && !isAssignedBroker) {
-        throw new ForbiddenException('Forbidden: You cannot update this request');
+      if (user) {
+        const isOwner = user.role === UserRole.CLIENT && request.clientId === user.id;
+        const isInternal = user.role === UserRole.ADMIN || user.role === UserRole.STAFF;
+        const isAssignedBroker = user.role === UserRole.BROKER && request.brokerId === user.id;
+        if (!isOwner && !isInternal && !isAssignedBroker) {
+          throw new ForbiddenException('Forbidden: You cannot update this request');
+        }
       }
-    }
 
-    // Update main fields
-    if (dto.title) request.title = dto.title;
-    if (dto.description) request.description = dto.description;
-    if (dto.budgetRange) request.budgetRange = dto.budgetRange;
-    if (dto.intendedTimeline !== undefined) {
-      const intendedTimeline = this.normalizeIntendedTimeline(dto.intendedTimeline);
-      request.intendedTimeline = intendedTimeline ?? null;
-    }
-    if (dto.requestedDeadline !== undefined || dto.intendedTimeline !== undefined) {
-      request.requestedDeadline =
-        this.normalizeRequestedDeadline(
-          dto.requestedDeadline ??
-            (DATE_ONLY_INPUT_PATTERN.test(`${dto.intendedTimeline || ''}`) ? dto.intendedTimeline : undefined),
-        ) ?? null;
-    }
-    if (dto.techPreferences) request.techPreferences = dto.techPreferences;
-    if (dto.attachments) request.attachments = this.normalizeAttachments(dto.attachments);
-    if (dto.wizardProgressStep !== undefined) {
-      request.wizardProgressStep = dto.wizardProgressStep;
-    }
-
-    // Manage status
-    if (dto.status) {
-      // Phase 2: Toggle Visibility Logic
-      // If Client switches PUBLIC -> PRIVATE: System automatically Denies all pending Broker applications.
-      if (
-        request.status === RequestStatus.PUBLIC_DRAFT &&
-        dto.status === RequestStatus.PRIVATE_DRAFT
-      ) {
-        await this.denyPendingProposals(request.id);
+      // Update main fields
+      if (dto.title) request.title = dto.title;
+      if (dto.description) request.description = dto.description;
+      if (dto.budgetRange) request.budgetRange = dto.budgetRange;
+      if (dto.intendedTimeline !== undefined) {
+        const intendedTimeline = this.normalizeIntendedTimeline(dto.intendedTimeline);
+        request.intendedTimeline = intendedTimeline ?? null;
       }
-      request.status = dto.status;
+      if (dto.requestedDeadline !== undefined || dto.intendedTimeline !== undefined) {
+        request.requestedDeadline =
+          this.normalizeRequestedDeadline(
+            dto.requestedDeadline ??
+              (DATE_ONLY_INPUT_PATTERN.test(`${dto.intendedTimeline || ''}`) ? dto.intendedTimeline : undefined),
+          ) ?? null;
+      }
+      if (dto.techPreferences) request.techPreferences = dto.techPreferences;
+      if (dto.attachments) request.attachments = this.normalizeAttachments(dto.attachments);
+      if (dto.wizardProgressStep !== undefined) {
+        request.wizardProgressStep = dto.wizardProgressStep;
+      }
+
+      if (dto.status) {
+        if (
+          request.status === RequestStatus.PUBLIC_DRAFT &&
+          dto.status === RequestStatus.PRIVATE_DRAFT
+        ) {
+          await this.denyPendingProposals(request.id);
+        }
+        request.status = dto.status;
+      }
+
+      await this.requestRepo.save(request);
+
+      if (dto.answers && dto.answers.length > 0) {
+        await this.answerRepo.delete({ requestId: id });
+
+        const answers = dto.answers.map((ans) =>
+          this.answerRepo.create({
+            requestId: id,
+            questionId: ans.questionId,
+            optionId: ans.optionId,
+            valueText: ans.valueText,
+          }),
+        );
+        await this.answerRepo.save(answers);
+      }
+
+      const refreshedRequest = await this.findOneEntity(id);
+      refreshedRequest.requestScopeBaseline = this.buildRequestScopeBaseline(refreshedRequest);
+      await this.requestRepo.save(refreshedRequest);
+      this.emitRequestUpdated(id, [refreshedRequest.clientId, refreshedRequest.brokerId]);
+
+      const updatedRequest = await this.findOne(id);
+      console.log(`Update Request Successful: "${id}" -> "${updatedRequest.status}"`);
+      return updatedRequest;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Update Request Failed: ${message}`);
+      throw error;
     }
-
-
-
-    await this.requestRepo.save(request);
-
-    // Update answers if provided
-    if (dto.answers && dto.answers.length > 0) {
-      await this.answerRepo.delete({ requestId: id });
-
-      const answers = dto.answers.map((ans) =>
-        this.answerRepo.create({
-          requestId: id,
-          questionId: ans.questionId,
-          optionId: ans.optionId,
-          valueText: ans.valueText,
-        }),
-      );
-      await this.answerRepo.save(answers);
-    }
-
-    const refreshedRequest = await this.findOneEntity(id);
-    refreshedRequest.requestScopeBaseline = this.buildRequestScopeBaseline(refreshedRequest);
-    await this.requestRepo.save(refreshedRequest);
-    this.emitRequestUpdated(id, [refreshedRequest.clientId, refreshedRequest.brokerId]);
-
-    return this.findOne(id);
   }
 
   async publish(requestId: string, userId: string, req?: RequestContext) {
-    const request = await this.findOne(requestId, {
-      id: userId,
-      role: UserRole.CLIENT,
-    } as UserEntity);
-    const previousStatus = request.status;
-
-    const publishableStatuses = [
-      RequestStatus.DRAFT,
-      RequestStatus.PRIVATE_DRAFT,
-      RequestStatus.PUBLIC_DRAFT,
-    ];
-
-    if (!publishableStatuses.includes(request.status)) {
-      throw new BadRequestException(
-        `Request cannot be published from status "${request.status}"`,
-      );
-    }
-
-    if (request.brokerId) {
-      throw new BadRequestException('Cannot publish a request that already has a broker assigned');
-    }
-
-    if (request.status === RequestStatus.PUBLIC_DRAFT) {
-      return request;
-    }
-
-    request.status = RequestStatus.PUBLIC_DRAFT;
-    await this.requestRepo.save(request);
-
     try {
-      await this.auditLogsService.logUpdate(
-        'ProjectRequest',
-        requestId,
-        { status: previousStatus },
-        { status: RequestStatus.PUBLIC_DRAFT },
-        req,
-      );
-    } catch (error) {
-      console.error('Audit log failed', error);
-    }
+      const request = await this.findOne(requestId, {
+        id: userId,
+        role: UserRole.CLIENT,
+      } as UserEntity);
+      const previousStatus = request.status;
 
-    return this.findOne(requestId, {
-      id: userId,
-      role: UserRole.CLIENT,
-    } as UserEntity);
+      const publishableStatuses = [
+        RequestStatus.DRAFT,
+        RequestStatus.PRIVATE_DRAFT,
+        RequestStatus.PUBLIC_DRAFT,
+      ];
+
+      if (!publishableStatuses.includes(request.status)) {
+        throw new BadRequestException(
+          `Request cannot be published from status "${request.status}"`,
+        );
+      }
+
+      if (request.brokerId) {
+        throw new BadRequestException('Cannot publish a request that already has a broker assigned');
+      }
+
+      if (request.status === RequestStatus.PUBLIC_DRAFT) {
+        console.log(`Publish Request Successful: "${requestId}" -> "${request.status}"`);
+        return request;
+      }
+
+      request.status = RequestStatus.PUBLIC_DRAFT;
+      await this.requestRepo.save(request);
+
+      try {
+        await this.auditLogsService.logUpdate(
+          'ProjectRequest',
+          requestId,
+          { status: previousStatus },
+          { status: RequestStatus.PUBLIC_DRAFT },
+          req,
+        );
+      } catch (_error) {
+        console.error('Publish Request Audit Log Failed');
+      }
+
+      const publishedRequest = await this.findOne(requestId, {
+        id: userId,
+        role: UserRole.CLIENT,
+      } as UserEntity);
+      console.log(`Publish Request Successful: "${requestId}" -> "${publishedRequest.status}"`);
+      return publishedRequest;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Publish Request Failed: ${message}`);
+      throw error;
+    }
   }
 
   async findAllByClient(clientId: string) {
@@ -1472,70 +1495,84 @@ export class ProjectRequestsService {
       order: { createdAt: 'DESC' },
     });
 
-    return Promise.all(
+    const hydratedRequests = await Promise.all(
       requests.map(async (request) => ({
         ...request,
         attachments: await this.hydrateAttachments(request.attachments),
       })),
     );
+
+    console.log(
+      `Find My Drafts Successful: ${hydratedRequests.length} draft request(s)`,
+    );
+
+    return hydratedRequests;
   }
 
   async findOne(id: string, user?: UserEntity) {
-    const request = await this.findOneEntity(id);
+    try {
+      const request = await this.findOneEntity(id);
 
-    if (user) {
-      if (user.role === UserRole.CLIENT && request.clientId !== user.id) {
-        throw new ForbiddenException('Forbidden: You can only view your own requests');
-      }
-
-      if (user.role === UserRole.BROKER) {
-        const isAssignedBroker = request.brokerId === user.id;
-        const hasActiveProposalAccess = Boolean(
-          request.brokerProposals?.some(
-            (proposal) =>
-              proposal.brokerId === user.id &&
-              [ProposalStatus.INVITED, ProposalStatus.PENDING, ProposalStatus.ACCEPTED].includes(
-                proposal.status as ProposalStatus,
-              ),
-          ),
-        );
-        const isOpenMarketplaceRequest =
-          !request.brokerId &&
-          [RequestStatus.PUBLIC_DRAFT, RequestStatus.PENDING].includes(request.status);
-        const isPrivateInviteRequest =
-          !request.brokerId &&
-          request.status === RequestStatus.PRIVATE_DRAFT &&
-          hasActiveProposalAccess;
-
-        if (!isAssignedBroker && !isOpenMarketplaceRequest && !isPrivateInviteRequest) {
-          throw new ForbiddenException(
-            'Forbidden: You can only view open marketplace requests, your invitations, or requests assigned to you',
-          );
+      if (user) {
+        if (user.role === UserRole.CLIENT && request.clientId !== user.id) {
+          throw new ForbiddenException('Forbidden: You can only view your own requests');
         }
 
-        // Marketplace viewers can review the request, but contact details stay hidden until assigned.
-        if (!isAssignedBroker && request.client) {
-          request.client.email = '********';
-          if ('phoneNumber' in request.client) {
-            (request.client as UserEntity & { phoneNumber?: string | null }).phoneNumber =
-              '********';
+        if (user.role === UserRole.BROKER) {
+          const isAssignedBroker = request.brokerId === user.id;
+          const hasActiveProposalAccess = Boolean(
+            request.brokerProposals?.some(
+              (proposal) =>
+                proposal.brokerId === user.id &&
+                [ProposalStatus.INVITED, ProposalStatus.PENDING, ProposalStatus.ACCEPTED].includes(
+                  proposal.status as ProposalStatus,
+                ),
+            ),
+          );
+          const isOpenMarketplaceRequest =
+            !request.brokerId &&
+            [RequestStatus.PUBLIC_DRAFT, RequestStatus.PENDING].includes(request.status);
+          const isPrivateInviteRequest =
+            !request.brokerId &&
+            request.status === RequestStatus.PRIVATE_DRAFT &&
+            hasActiveProposalAccess;
+
+          if (!isAssignedBroker && !isOpenMarketplaceRequest && !isPrivateInviteRequest) {
+            throw new ForbiddenException(
+              'Forbidden: You can only view open marketplace requests, your invitations, or requests assigned to you',
+            );
+          }
+
+          // Marketplace viewers can review the request, but contact details stay hidden until assigned.
+          if (!isAssignedBroker && request.client) {
+            request.client.email = '********';
+            if ('phoneNumber' in request.client) {
+              (request.client as UserEntity & { phoneNumber?: string | null }).phoneNumber =
+                '********';
+            }
+          }
+        }
+
+        if (user.role === UserRole.FREELANCER) {
+          const hasProposal = request.proposals?.some(
+            (proposal) =>
+              proposal.freelancerId === user.id &&
+              ['INVITED', 'PENDING', 'ACCEPTED'].includes((proposal.status || '').toUpperCase()),
+          );
+          if (!hasProposal) {
+            throw new ForbiddenException('Forbidden: You are not invited to this request');
           }
         }
       }
 
-      if (user.role === UserRole.FREELANCER) {
-        const hasProposal = request.proposals?.some(
-          (proposal) =>
-            proposal.freelancerId === user.id &&
-            ['INVITED', 'PENDING', 'ACCEPTED'].includes((proposal.status || '').toUpperCase()),
-        );
-        if (!hasProposal) {
-          throw new ForbiddenException('Forbidden: You are not invited to this request');
-        }
-      }
+      const readModel = await this.buildRequestReadModel(request, user);
+      console.log(`Get Request Detail Successful: "${id}"`);
+      return readModel;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Get Request Detail Failed: ${message}`);
+      throw error;
     }
-
-    return this.buildRequestReadModel(request, user);
   }
 
   private async emitRequestSystemMessage(requestId: string, content: string) {
@@ -1847,93 +1884,102 @@ export class ProjectRequestsService {
   }
 
   async findMatches(id: string, userId?: string) {
-    const request = await this.findOneEntity(id);
+    try {
+      const request = await this.findOneEntity(id);
 
-    // Quota check: enforce free-tier limit on AI match searches (daily)
-    if (userId) {
-      await this.quotaService.checkQuota(userId, QuotaAction.AI_MATCH_SEARCH);
+      // Quota check: enforce free-tier limit on AI match searches (daily)
+      if (userId) {
+        await this.quotaService.checkQuota(userId, QuotaAction.AI_MATCH_SEARCH);
+      }
+
+      const techStack = request.techPreferences
+        ? request.techPreferences.split(',').map(s => s.trim()).filter(s => s.length > 0)
+        : [];
+
+      const input = {
+        requestId: request.id,
+        specDescription: request.description,
+        requiredTechStack: techStack,
+        budgetRange: request.budgetRange,
+        estimatedDuration: request.intendedTimeline,
+      };
+
+      const results = await this.matchingService.findMatches(input, { role: 'BROKER' });
+
+      // Track quota usage after successful match search
+      if (userId) {
+        await this.quotaService.incrementUsage(userId, QuotaAction.AI_MATCH_SEARCH, {
+          requestId: id,
+          candidatesFound: results.length,
+        });
+      }
+
+      console.log(`Find Matches Successful: ${results.length} candidate(s) for request "${id}"`);
+      return results;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Find Matches Failed: ${message}`);
+      throw error;
     }
-
-    const techStack = request.techPreferences 
-      ? request.techPreferences.split(',').map(s => s.trim()).filter(s => s.length > 0)
-      : [];
-
-    const input = {
-      requestId: request.id,
-      specDescription: request.description,
-      requiredTechStack: techStack,
-      budgetRange: request.budgetRange,
-      estimatedDuration: request.intendedTimeline,
-    };
-
-    const results = await this.matchingService.findMatches(input, { role: 'BROKER' });
-
-    // Track quota usage after successful match search
-    if (userId) {
-      await this.quotaService.incrementUsage(userId, QuotaAction.AI_MATCH_SEARCH, {
-        requestId: id,
-        candidatesFound: results.length,
-      });
-    }
-
-    return results;
   }
 
   async inviteBroker(requestId: string, brokerId: string, message?: string, inviterId?: string) {
-    // 0. Quota check: enforce free-tier limit on invites per request
-    if (inviterId) {
-      await this.quotaService.checkQuota(inviterId, QuotaAction.INVITE_BROKER, requestId);
-    }
-
-    // 1. Check if request exists
-    const request = await this.findOneEntity(requestId);
-
-    // 2. Check if already has a broker
-    if (request.brokerId) throw new Error('Request already has a broker assigned');
-
-    // 3. Check if already invited or applied
-    const existing = await this.brokerProposalRepo.findOne({
-      where: { requestId, brokerId },
-    });
-
-    if (existing) {
-      if (existing.status === ProposalStatus.INVITED) {
-        throw new Error('Broker already invited');
+    try {
+      if (inviterId) {
+        await this.quotaService.checkQuota(inviterId, QuotaAction.INVITE_BROKER, requestId);
       }
-      if (existing.status === ProposalStatus.PENDING) {
-        throw new Error('Broker has already applied');
-      }
-      // If rejected/accepted, maybe allow re-invite? For now assume strict uniqueness.
-      throw new Error(`Broker already has proposal status: ${existing.status}`);
-    }
 
-    const proposal = this.brokerProposalRepo.create({
-      requestId,
-      brokerId,
-      status: ProposalStatus.INVITED,
-      coverLetter: message, // saving message in coverLetter for invites
-    });
-    const savedProposal = await this.brokerProposalRepo.save(proposal);
-    if (inviterId) {
-      await this.quotaService.incrementUsage(inviterId, QuotaAction.INVITE_BROKER, {
-        entityId: requestId,
-        brokerId,
+      const request = await this.findOneEntity(requestId);
+
+      if (request.brokerId) throw new Error('Request already has a broker assigned');
+
+      const existing = await this.brokerProposalRepo.findOne({
+        where: { requestId, brokerId },
       });
+
+      if (existing) {
+        if (existing.status === ProposalStatus.INVITED) {
+          throw new Error('Broker already invited');
+        }
+        if (existing.status === ProposalStatus.PENDING) {
+          throw new Error('Broker has already applied');
+        }
+        throw new Error(`Broker already has proposal status: ${existing.status}`);
+      }
+
+      const proposal = this.brokerProposalRepo.create({
+        requestId,
+        brokerId,
+        status: ProposalStatus.INVITED,
+        coverLetter: message,
+      });
+      const savedProposal = await this.brokerProposalRepo.save(proposal);
+      if (inviterId) {
+        await this.quotaService.incrementUsage(inviterId, QuotaAction.INVITE_BROKER, {
+          entityId: requestId,
+          brokerId,
+        });
+      }
+      await this.notifyUsers([
+        {
+          userId: brokerId,
+          title: 'New broker invitation',
+          body: `You were invited to collaborate on "${request.title}".`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        },
+      ]);
+      await this.emitRequestSystemMessage(
+        requestId,
+        'Client invited a broker to collaborate on this request.',
+      );
+      console.log(`Invite Broker Successful: "${requestId}" -> "${brokerId}"`);
+      return savedProposal;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Invite Broker Failed: ${messageText}`);
+      throw error;
     }
-    await this.notifyUsers([
-      {
-        userId: brokerId,
-        title: 'New broker invitation',
-        body: `You were invited to collaborate on "${request.title}".`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-    ]);
-    await this.emitRequestSystemMessage(
-      requestId,
-      'Client invited a broker to collaborate on this request.',
-    );
-    return savedProposal;
   }
 
   async inviteFreelancer(
@@ -1942,157 +1988,178 @@ export class ProjectRequestsService {
     message: string | undefined,
     actor: Pick<UserEntity, 'id' | 'role'>,
   ) {
-    const request = await this.findOneEntity(requestId);
-    const isAssignedBroker = actor.role === UserRole.BROKER && request.brokerId === actor.id;
-    const isInternal = actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF;
-    if (!isAssignedBroker && !isInternal) {
-      throw new ForbiddenException(
-        'Only the assigned broker or internal staff can recommend freelancers.',
+    try {
+      const request = await this.findOneEntity(requestId);
+      const isAssignedBroker = actor.role === UserRole.BROKER && request.brokerId === actor.id;
+      const isInternal = actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF;
+      if (!isAssignedBroker && !isInternal) {
+        throw new ForbiddenException(
+          'Only the assigned broker or internal staff can recommend freelancers.',
+        );
+      }
+
+      const specs = (request.specs || []) as Array<
+        Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
+      >;
+      const clientSpec = this.pickLatestSpecByPhase(specs, SpecPhase.CLIENT_SPEC);
+      const canRecommendFreelancer =
+        clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED &&
+        !this.resolveSelectedFreelancerProposal(request);
+      if (!canRecommendFreelancer) {
+        throw new BadRequestException(
+          'Freelancer recommendations are only available after the client approves the client spec.',
+        );
+      }
+
+      const existing = await this.freelancerProposalRepo.findOne({
+        where: { requestId, freelancerId },
+      });
+
+      if (existing) {
+        throw new Error(
+          `Freelancer already associated with this request (Status: ${existing.status})`,
+        );
+      }
+
+      const proposal = this.freelancerProposalRepo.create({
+        requestId,
+        freelancerId,
+        brokerId: request.brokerId ?? (isAssignedBroker ? actor.id : null),
+        status: FREELANCER_PENDING_CLIENT_APPROVAL,
+        coverLetter: message,
+      });
+      const savedProposal = await this.freelancerProposalRepo.save(proposal);
+      await this.notifyUsers([
+        {
+          userId: request.clientId,
+          title: 'Broker recommended a freelancer',
+          body: `A freelancer recommendation is pending your review for "${request.title}".`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        },
+      ]);
+      await this.emitRequestSystemMessage(
+        requestId,
+        'Broker recommended a freelancer and is waiting for client approval.',
       );
+      console.log(`Invite Freelancer Successful: "${requestId}" -> "${freelancerId}"`);
+      return savedProposal;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Invite Freelancer Failed: ${messageText}`);
+      throw error;
     }
-
-    const specs = (request.specs || []) as Array<
-      Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
-    >;
-    const clientSpec = this.pickLatestSpecByPhase(specs, SpecPhase.CLIENT_SPEC);
-    const canRecommendFreelancer =
-      clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED &&
-      !this.resolveSelectedFreelancerProposal(request);
-    if (!canRecommendFreelancer) {
-      throw new BadRequestException(
-        'Freelancer recommendations are only available after the client approves the client spec.',
-      );
-    }
-
-    const existing = await this.freelancerProposalRepo.findOne({
-      where: { requestId, freelancerId },
-    });
-
-    if (existing) {
-      throw new Error(
-        `Freelancer already associated with this request (Status: ${existing.status})`,
-      );
-    }
-
-    const proposal = this.freelancerProposalRepo.create({
-      requestId,
-      freelancerId,
-      brokerId: request.brokerId ?? (isAssignedBroker ? actor.id : null),
-      status: FREELANCER_PENDING_CLIENT_APPROVAL,
-      coverLetter: message,
-    });
-    const savedProposal = await this.freelancerProposalRepo.save(proposal);
-    await this.notifyUsers([
-      {
-        userId: request.clientId,
-        title: 'Broker recommended a freelancer',
-        body: `A freelancer recommendation is pending your review for "${request.title}".`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-    ]);
-    await this.emitRequestSystemMessage(
-      requestId,
-      'Broker recommended a freelancer and is waiting for client approval.',
-    );
-    return savedProposal;
   }
 
   async approveFreelancerInvite(requestId: string, proposalId: string, clientId: string) {
-    const request = await this.findOneEntity(requestId);
+    try {
+      const request = await this.findOneEntity(requestId);
 
-    if (request.clientId !== clientId) {
-      throw new ForbiddenException(
-        'Forbidden: You can only approve freelancer recommendations for your own requests',
+      if (request.clientId !== clientId) {
+        throw new ForbiddenException(
+          'Forbidden: You can only approve freelancer recommendations for your own requests',
+        );
+      }
+
+      const proposal = await this.freelancerProposalRepo.findOne({
+        where: { id: proposalId, requestId },
+        relations: ['freelancer'],
+      });
+      if (!proposal) {
+        throw new NotFoundException('Freelancer proposal not found.');
+      }
+
+      if (String(proposal.status || '').toUpperCase() !== FREELANCER_PENDING_CLIENT_APPROVAL) {
+        throw new BadRequestException(
+          `Proposal status ${proposal.status} cannot be approved by the client.`,
+        );
+      }
+
+      proposal.status = 'INVITED';
+      const savedProposal = await this.freelancerProposalRepo.save(proposal);
+
+      await this.notifyUsers([
+        {
+          userId: proposal.freelancerId,
+          title: 'You were invited to a project',
+          body: `You were invited to participate in "${request.title}".`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        },
+        {
+          userId: proposal.brokerId ?? request.brokerId,
+          title: 'Client approved your freelancer recommendation',
+          body: `Your freelancer recommendation was approved for "${request.title}".`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        },
+      ]);
+      await this.emitRequestSystemMessage(
+        requestId,
+        'Client approved the freelancer recommendation and sent an invitation.',
       );
+
+      console.log(`Approve Freelancer Invite Successful: "${proposalId}"`);
+      return savedProposal;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Approve Freelancer Invite Failed: ${messageText}`);
+      throw error;
     }
-
-    const proposal = await this.freelancerProposalRepo.findOne({
-      where: { id: proposalId, requestId },
-      relations: ['freelancer'],
-    });
-    if (!proposal) {
-      throw new NotFoundException('Freelancer proposal not found.');
-    }
-
-    if (String(proposal.status || '').toUpperCase() !== FREELANCER_PENDING_CLIENT_APPROVAL) {
-      throw new BadRequestException(
-        `Proposal status ${proposal.status} cannot be approved by the client.`,
-      );
-    }
-
-    proposal.status = 'INVITED';
-    const savedProposal = await this.freelancerProposalRepo.save(proposal);
-
-    await this.notifyUsers([
-      {
-        userId: proposal.freelancerId,
-        title: 'You were invited to a project',
-        body: `You were invited to participate in "${request.title}".`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-      {
-        userId: proposal.brokerId ?? request.brokerId,
-        title: 'Client approved your freelancer recommendation',
-        body: `Your freelancer recommendation was approved for "${request.title}".`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-    ]);
-    await this.emitRequestSystemMessage(
-      requestId,
-      'Client approved the freelancer recommendation and sent an invitation.',
-    );
-
-    return savedProposal;
   }
 
   async rejectFreelancerInvite(requestId: string, proposalId: string, clientId: string) {
-    const request = await this.findOneEntity(requestId);
+    try {
+      const request = await this.findOneEntity(requestId);
 
-    if (request.clientId !== clientId) {
-      throw new ForbiddenException(
-        'Forbidden: You can only reject freelancer recommendations for your own requests',
+      if (request.clientId !== clientId) {
+        throw new ForbiddenException(
+          'Forbidden: You can only reject freelancer recommendations for your own requests',
+        );
+      }
+
+      const proposal = await this.freelancerProposalRepo.findOne({
+        where: { id: proposalId, requestId },
+      });
+      if (!proposal) {
+        throw new NotFoundException('Freelancer proposal not found.');
+      }
+
+      if (String(proposal.status || '').toUpperCase() !== FREELANCER_PENDING_CLIENT_APPROVAL) {
+        throw new BadRequestException(
+          `Proposal status ${proposal.status} cannot be rejected by the client.`,
+        );
+      }
+
+      proposal.status = 'REJECTED';
+      const savedProposal = await this.freelancerProposalRepo.save(proposal);
+
+      await this.notifyUsers([
+        {
+          userId: proposal.brokerId ?? request.brokerId,
+          title: 'Client rejected your freelancer recommendation',
+          body: `Your freelancer recommendation was rejected for "${request.title}".`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        },
+      ]);
+      await this.emitRequestSystemMessage(
+        requestId,
+        'Client rejected the freelancer recommendation.',
       );
+
+      console.log(`Reject Freelancer Invite Successful: "${proposalId}"`);
+      return savedProposal;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Reject Freelancer Invite Failed: ${messageText}`);
+      throw error;
     }
-
-    const proposal = await this.freelancerProposalRepo.findOne({
-      where: { id: proposalId, requestId },
-    });
-    if (!proposal) {
-      throw new NotFoundException('Freelancer proposal not found.');
-    }
-
-    if (String(proposal.status || '').toUpperCase() !== FREELANCER_PENDING_CLIENT_APPROVAL) {
-      throw new BadRequestException(
-        `Proposal status ${proposal.status} cannot be rejected by the client.`,
-      );
-    }
-
-    proposal.status = 'REJECTED';
-    const savedProposal = await this.freelancerProposalRepo.save(proposal);
-
-    await this.notifyUsers([
-      {
-        userId: proposal.brokerId ?? request.brokerId,
-        title: 'Client rejected your freelancer recommendation',
-        body: `Your freelancer recommendation was rejected for "${request.title}".`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-    ]);
-    await this.emitRequestSystemMessage(
-      requestId,
-      'Client rejected the freelancer recommendation.',
-    );
-
-    return savedProposal;
   }
 
   async getInvitationsForUser(userId: string, role: UserRole) {
     if (role === UserRole.BROKER) {
-      return this.brokerProposalRepo.find({
+      const invitations = await this.brokerProposalRepo.find({
         where: {
           brokerId: userId,
           status: In([ProposalStatus.INVITED, ProposalStatus.PENDING, ProposalStatus.ACCEPTED]),
@@ -2100,18 +2167,27 @@ export class ProjectRequestsService {
         relations: ['request', 'request.client'],
         order: { createdAt: 'DESC' },
       });
+      console.log(
+        `Get My Invitations Successful: ${role} -> ${invitations.length} invitation(s)`,
+      );
+      return invitations;
     } else if (role === UserRole.FREELANCER) {
-      return this.freelancerProposalRepo.find({
+      const invitations = await this.freelancerProposalRepo.find({
         where: { freelancerId: userId, status: 'INVITED' },
         relations: ['request', 'request.client'],
         order: { createdAt: 'DESC' },
       });
+      console.log(
+        `Get My Invitations Successful: ${role} -> ${invitations.length} invitation(s)`,
+      );
+      return invitations;
     }
+    console.log(`Get My Invitations Successful: ${role} -> 0 invitation(s)`);
     return [];
   }
 
   async getFreelancerRequestAccessList(userId: string) {
-    return this.freelancerProposalRepo.find({
+    const requests = await this.freelancerProposalRepo.find({
       where: {
         freelancerId: userId,
         status: In(['INVITED', 'ACCEPTED', 'PENDING']),
@@ -2119,51 +2195,61 @@ export class ProjectRequestsService {
       relations: ['request', 'request.client', 'request.broker'],
       order: { createdAt: 'DESC' },
     });
+    console.log(
+      `Get Freelancer Request Access List Successful: ${requests.length} request(s)`,
+    );
+    return requests;
   }
 
   async applyToRequest(requestId: string, brokerId: string, coverLetter: string) {
-    const request = await this.findOneEntity(requestId);
+    try {
+      const request = await this.findOneEntity(requestId);
 
-    if (request.status !== RequestStatus.PUBLIC_DRAFT) {
-      throw new BadRequestException('Request is not open for marketplace applications.');
+      if (request.status !== RequestStatus.PUBLIC_DRAFT) {
+        throw new BadRequestException('Request is not open for marketplace applications.');
+      }
+
+      if (request.brokerId) {
+        throw new BadRequestException('Request already has a broker assigned.');
+      }
+
+      await this.assertBrokerApplicationSlotAvailable(requestId);
+
+      const existingProposal = await this.brokerProposalRepo.findOne({
+        where: { requestId, brokerId },
+      });
+
+      if (existingProposal) {
+        throw new BadRequestException('Broker already has an application or invitation for this request');
+      }
+
+      await this.quotaService.checkQuota(brokerId, QuotaAction.APPLY_TO_REQUEST);
+      const proposal = this.brokerProposalRepo.create({
+        requestId,
+        brokerId,
+        coverLetter,
+        status: ProposalStatus.PENDING,
+      });
+      const savedProposal = await this.brokerProposalRepo.save(proposal);
+      await this.quotaService.incrementUsage(brokerId, QuotaAction.APPLY_TO_REQUEST, {
+        requestId,
+      });
+      await this.notifyUsers([
+        {
+          userId: request.clientId,
+          title: 'Broker applied to your request',
+          body: `A broker applied to "${request.title}". Review the profile and decide whether to assign them.`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        },
+      ]);
+      console.log(`Apply To Request Successful: "${requestId}" -> "${brokerId}"`);
+      return savedProposal;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Apply To Request Failed: ${messageText}`);
+      throw error;
     }
-
-    if (request.brokerId) {
-      throw new BadRequestException('Request already has a broker assigned.');
-    }
-
-    await this.assertBrokerApplicationSlotAvailable(requestId);
-
-    // Check if the broker has already applied to this request
-    const existingProposal = await this.brokerProposalRepo.findOne({
-      where: { requestId, brokerId },
-    });
-
-    if (existingProposal) {
-      throw new BadRequestException('Broker already has an application or invitation for this request');
-    }
-
-    await this.quotaService.checkQuota(brokerId, QuotaAction.APPLY_TO_REQUEST);
-    const proposal = this.brokerProposalRepo.create({
-      requestId,
-      brokerId,
-      coverLetter,
-      status: ProposalStatus.PENDING,
-    });
-    const savedProposal = await this.brokerProposalRepo.save(proposal);
-    await this.quotaService.incrementUsage(brokerId, QuotaAction.APPLY_TO_REQUEST, {
-      requestId,
-    });
-    await this.notifyUsers([
-      {
-        userId: request.clientId,
-        title: 'Broker applied to your request',
-        body: `A broker applied to "${request.title}". Review the profile and decide whether to assign them.`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-    ]);
-    return savedProposal;
   }
 
   // --- Broker Self-Assignment (C02) ---
@@ -2173,138 +2259,145 @@ export class ProjectRequestsService {
     void brokerId;
     void req;
 
-    throw new ForbiddenException(
-      'Brokers cannot assign marketplace requests to themselves. Apply to the request and wait for the client to select you.',
-    );
+    const message =
+      'Brokers cannot assign marketplace requests to themselves. Apply to the request and wait for the client to select you.';
+    console.error(`Assign Broker Failed: ${message}`);
+    throw new ForbiddenException(message);
   }
 
   // --- Phase 2: Hire Broker ---
 
   async acceptBroker(requestId: string, brokerId: string, clientId?: string) {
-    const request = await this.findOneEntity(requestId);
-    
-    if (clientId && request.clientId !== clientId) {
-      throw new ForbiddenException('Forbidden: You can only accept brokers for your own requests');
-    }
-
-    // Expected state: PUBLIC_DRAFT or PRIVATE_DRAFT
-    // Also possibly PENDING_SPECS if legacy
-    if (
-      request.status !== RequestStatus.PUBLIC_DRAFT &&
-      request.status !== RequestStatus.PRIVATE_DRAFT &&
-      request.status !== RequestStatus.PENDING_SPECS
-    ) {
-      throw new Error('Request is not in a valid state to accept a broker');
-    }
-
-    // 1. Assign Broker
-    request.brokerId = brokerId;
-
-    // 2. Change Status -> BROKER_ASSIGNED
-    request.status = RequestStatus.BROKER_ASSIGNED;
-
-    await this.requestRepo.save(request);
-
-    // 3. Update Proposal Status
-    // Update the successful proposal to ACCEPTED
-    await this.brokerProposalRepo.update(
-      { requestId, brokerId },
-      { status: ProposalStatus.ACCEPTED },
-    );
-
-    // 4. Reject other Pending proposals?
-    // "System automatically Denies all pending Broker applications" - mostly for mode switch, but usually implies exclusivity
-    // We will reject all other PENDING proposals for this request
-    const otherProposals = await this.brokerProposalRepo.find({
-      where: { requestId, status: ProposalStatus.PENDING },
-    });
-
-    for (const p of otherProposals) {
-      if (p.brokerId !== brokerId) {
-        p.status = ProposalStatus.REJECTED;
-        await this.brokerProposalRepo.save(p);
+    try {
+      const request = await this.findOneEntity(requestId);
+      
+      if (clientId && request.clientId !== clientId) {
+        throw new ForbiddenException('Forbidden: You can only accept brokers for your own requests');
       }
-    }
 
-    await this.notifyUsers([
-      {
-        userId: request.clientId,
-        title: 'Broker accepted',
-        body: `You accepted a broker for "${request.title}".`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-      {
-        userId: brokerId,
-        title: 'Your broker proposal was accepted',
-        body: `You were selected as broker for "${request.title}".`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-      ...otherProposals
-        .filter((proposal) => proposal.brokerId !== brokerId)
-        .map((proposal) => ({
-          userId: proposal.brokerId,
-          title: 'Broker application closed',
-          body: `A slot was released on "${request.title}" because another broker was selected.`,
+      if (
+        request.status !== RequestStatus.PUBLIC_DRAFT &&
+        request.status !== RequestStatus.PRIVATE_DRAFT &&
+        request.status !== RequestStatus.PENDING_SPECS
+      ) {
+        throw new Error('Request is not in a valid state to accept a broker');
+      }
+
+      request.brokerId = brokerId;
+      request.status = RequestStatus.BROKER_ASSIGNED;
+
+      await this.requestRepo.save(request);
+
+      await this.brokerProposalRepo.update(
+        { requestId, brokerId },
+        { status: ProposalStatus.ACCEPTED },
+      );
+
+      const otherProposals = await this.brokerProposalRepo.find({
+        where: { requestId, status: ProposalStatus.PENDING },
+      });
+
+      for (const p of otherProposals) {
+        if (p.brokerId !== brokerId) {
+          p.status = ProposalStatus.REJECTED;
+          await this.brokerProposalRepo.save(p);
+        }
+      }
+
+      await this.notifyUsers([
+        {
+          userId: request.clientId,
+          title: 'Broker accepted',
+          body: `You accepted a broker for "${request.title}".`,
           relatedType: 'ProjectRequest',
           relatedId: requestId,
-        })),
-    ]);
-    await this.emitRequestSystemMessage(
-      requestId,
-      'Client selected a broker for this request.',
-    );
+        },
+        {
+          userId: brokerId,
+          title: 'Your broker proposal was accepted',
+          body: `You were selected as broker for "${request.title}".`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        },
+        ...otherProposals
+          .filter((proposal) => proposal.brokerId !== brokerId)
+          .map((proposal) => ({
+            userId: proposal.brokerId,
+            title: 'Broker application closed',
+            body: `A slot was released on "${request.title}" because another broker was selected.`,
+            relatedType: 'ProjectRequest',
+            relatedId: requestId,
+          })),
+      ]);
+      await this.emitRequestSystemMessage(
+        requestId,
+        'Client selected a broker for this request.',
+      );
 
-    return this.findOne(requestId);
+      const acceptedRequest = await this.findOne(requestId);
+      console.log(`Accept Broker Successful: "${requestId}" -> "${brokerId}"`);
+      return acceptedRequest;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Accept Broker Failed: ${messageText}`);
+      throw error;
+    }
   }
 
   async releaseBrokerSlot(requestId: string, proposalId: string, actor: UserEntity) {
-    const request = await this.findOneEntity(requestId);
-    const isOwner = actor.role === UserRole.CLIENT && request.clientId === actor.id;
-    const isInternal = actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF;
-    if (!isOwner && !isInternal) {
-      throw new ForbiddenException('Only the client or internal staff can release a broker slot.');
-    }
-    if (request.brokerId) {
-      throw new BadRequestException('Cannot release broker slots after a broker has been assigned.');
-    }
+    try {
+      const request = await this.findOneEntity(requestId);
+      const isOwner = actor.role === UserRole.CLIENT && request.clientId === actor.id;
+      const isInternal = actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF;
+      if (!isOwner && !isInternal) {
+        throw new ForbiddenException('Only the client or internal staff can release a broker slot.');
+      }
+      if (request.brokerId) {
+        throw new BadRequestException('Cannot release broker slots after a broker has been assigned.');
+      }
 
-    const proposal = await this.brokerProposalRepo.findOne({
-      where: { id: proposalId, requestId },
-    });
-    if (!proposal) {
-      throw new NotFoundException('Broker proposal not found.');
+      const proposal = await this.brokerProposalRepo.findOne({
+        where: { id: proposalId, requestId },
+      });
+      if (!proposal) {
+        throw new NotFoundException('Broker proposal not found.');
+      }
+
+      if (!ACTIVE_BROKER_APPLICATION_STATUSES.includes(proposal.status as (typeof ACTIVE_BROKER_APPLICATION_STATUSES)[number])) {
+        throw new BadRequestException(`Proposal status ${proposal.status} cannot be released.`);
+      }
+
+      proposal.status = ProposalStatus.REJECTED;
+      await this.brokerProposalRepo.save(proposal);
+      await this.notifyUsers([
+        {
+          userId: proposal.brokerId,
+          title: 'Broker slot released',
+          body: `Your active slot on "${request.title}" was released to free space for other candidates.`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        },
+        {
+          userId: request.clientId,
+          title: 'Broker slot released',
+          body: `A broker slot was released on "${request.title}".`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        },
+      ]);
+      await this.emitRequestSystemMessage(
+        requestId,
+        'A broker application slot was released for this request.',
+      );
+
+      const releasedRequest = await this.findOne(requestId, actor);
+      console.log(`Release Broker Slot Successful: "${proposalId}"`);
+      return releasedRequest;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Release Broker Slot Failed: ${messageText}`);
+      throw error;
     }
-
-    if (!ACTIVE_BROKER_APPLICATION_STATUSES.includes(proposal.status as (typeof ACTIVE_BROKER_APPLICATION_STATUSES)[number])) {
-      throw new BadRequestException(`Proposal status ${proposal.status} cannot be released.`);
-    }
-
-    proposal.status = ProposalStatus.REJECTED;
-    await this.brokerProposalRepo.save(proposal);
-    await this.notifyUsers([
-      {
-        userId: proposal.brokerId,
-        title: 'Broker slot released',
-        body: `Your active slot on "${request.title}" was released to free space for other candidates.`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-      {
-        userId: request.clientId,
-        title: 'Broker slot released',
-        body: `A broker slot was released on "${request.title}".`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      },
-    ]);
-    await this.emitRequestSystemMessage(
-      requestId,
-      'A broker application slot was released for this request.',
-    );
-
-    return this.findOne(requestId, actor);
   }
 
   private async denyPendingProposals(requestId: string) {
@@ -2450,70 +2543,70 @@ export class ProjectRequestsService {
     return this.findOne(requestId, actor);
   }
   async deleteRequest(requestId: string, userId: string, req?: RequestContext) {
-    const request = await this.requestRepo.findOne({
-      where: { id: requestId },
-      relations: ['proposals'],
-    });
-
-    if (!request) {
-      throw new NotFoundException('Request not found');
-    }
-
-    // 1. Only the owner can delete
-    if (request.clientId !== userId) {
-      throw new ForbiddenException('You can only delete your own requests');
-    }
-
-    // 2. Only deletable in draft statuses
-    const deletableStatuses = [
-      RequestStatus.DRAFT,
-      RequestStatus.PUBLIC_DRAFT,
-      RequestStatus.PRIVATE_DRAFT,
-    ];
-    if (!deletableStatuses.includes(request.status)) {
-      throw new BadRequestException(
-        `Cannot delete request with status "${request.status}". Only draft requests can be deleted.`,
-      );
-    }
-
-    // 3. No broker assigned
-    if (request.brokerId) {
-      throw new BadRequestException(
-        'Cannot delete a request that has a broker assigned. Use Dispute or Report to resolve.',
-      );
-    }
-
-    // 4. No accepted freelancer proposals
-    const acceptedProposal = await this.freelancerProposalRepo.findOne({
-      where: { requestId, status: 'ACCEPTED' },
-    });
-    if (acceptedProposal) {
-      throw new BadRequestException(
-        'Cannot delete a request that has an accepted freelancer.',
-      );
-    }
-
-    // 5. Cascade delete associated data
-    await this.answerRepo.delete({ requestId });
-    await this.brokerProposalRepo.delete({ requestId });
-    await this.freelancerProposalRepo.delete({ requestId });
-
-    // 6. Delete the request
-    await this.requestRepo.remove(request);
-
-    // 7. Audit log
     try {
-      await this.auditLogsService.logDelete(
-        'ProjectRequest',
-        requestId,
-        { title: request.title, status: request.status },
-        req,
-      );
-    } catch (error) {
-      console.error('Audit log failed for delete', error);
-    }
+      const request = await this.requestRepo.findOne({
+        where: { id: requestId },
+        relations: ['proposals'],
+      });
 
-    return { success: true, message: 'Request deleted successfully' };
+      if (!request) {
+        throw new NotFoundException('Request not found');
+      }
+
+      if (request.clientId !== userId) {
+        throw new ForbiddenException('You can only delete your own requests');
+      }
+
+      const deletableStatuses = [
+        RequestStatus.DRAFT,
+        RequestStatus.PUBLIC_DRAFT,
+        RequestStatus.PRIVATE_DRAFT,
+      ];
+      if (!deletableStatuses.includes(request.status)) {
+        throw new BadRequestException(
+          `Cannot delete request with status "${request.status}". Only draft requests can be deleted.`,
+        );
+      }
+
+      if (request.brokerId) {
+        throw new BadRequestException(
+          'Cannot delete a request that has a broker assigned. Use Dispute or Report to resolve.',
+        );
+      }
+
+      const acceptedProposal = await this.freelancerProposalRepo.findOne({
+        where: { requestId, status: 'ACCEPTED' },
+      });
+      if (acceptedProposal) {
+        throw new BadRequestException(
+          'Cannot delete a request that has an accepted freelancer.',
+        );
+      }
+
+      await this.answerRepo.delete({ requestId });
+      await this.brokerProposalRepo.delete({ requestId });
+      await this.freelancerProposalRepo.delete({ requestId });
+      await this.requestRepo.remove(request);
+
+      try {
+        await this.auditLogsService.logDelete(
+          'ProjectRequest',
+          requestId,
+          { title: request.title, status: request.status },
+          req,
+        );
+      } catch (_error) {
+        console.error('Delete Request Audit Log Failed');
+      }
+
+      const result = { success: true, message: 'Request deleted successfully' };
+      console.log(`Delete Request Successful: "${requestId}"`);
+      return result;
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Delete Request Failed: ${messageText}`);
+      throw error;
+    }
   }
 
   async seedTestData(clientId: string) {
@@ -2594,155 +2687,167 @@ export class ProjectRequestsService {
     role: UserRole,
     status: 'ACCEPTED' | 'REJECTED',
   ) {
-    if (role === UserRole.BROKER) {
-      const proposal = await this.brokerProposalRepo.findOne({
-        where: { id: invitationId, brokerId: userId },
-        relations: ['request'],
-      });
-      if (!proposal) throw new Error('Invitation not found');
-      if (proposal.status !== ProposalStatus.INVITED) {
-        throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
-      }
+    try {
+      if (role === UserRole.BROKER) {
+        const proposal = await this.brokerProposalRepo.findOne({
+          where: { id: invitationId, brokerId: userId },
+          relations: ['request'],
+        });
+        if (!proposal) throw new Error('Invitation not found');
+        if (proposal.status !== ProposalStatus.INVITED) {
+          throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
+        }
 
-      if (status === 'ACCEPTED') {
+        if (status === 'ACCEPTED') {
+          const request = proposal.request;
+          if (!request) {
+            throw new Error('Request not found for this invitation');
+          }
+
+          if (request.brokerId && request.brokerId !== userId) {
+            throw new BadRequestException('Another broker has already been assigned to this request.');
+          }
+
+          proposal.status = ProposalStatus.ACCEPTED;
+          request.brokerId = userId;
+
+          if (
+            request.status === RequestStatus.PUBLIC_DRAFT ||
+            request.status === RequestStatus.PRIVATE_DRAFT ||
+            request.status === RequestStatus.PENDING_SPECS
+          ) {
+            request.status = RequestStatus.BROKER_ASSIGNED;
+          }
+
+          await this.requestRepo.save(request);
+
+          const competingProposals = await this.brokerProposalRepo.find({
+            where: {
+              requestId: proposal.requestId,
+              status: In([ProposalStatus.INVITED, ProposalStatus.PENDING, ProposalStatus.ACCEPTED]),
+            },
+          });
+
+          for (const competingProposal of competingProposals) {
+            if (competingProposal.id === proposal.id) {
+              continue;
+            }
+            competingProposal.status = ProposalStatus.REJECTED;
+            await this.brokerProposalRepo.save(competingProposal);
+          }
+        } else {
+          proposal.status = ProposalStatus.REJECTED;
+        }
+
+        const savedProposal = await this.brokerProposalRepo.save(proposal);
+        await this.notifyUsers([
+          {
+            userId: proposal.request?.clientId,
+            title:
+              status === 'ACCEPTED'
+                ? 'Broker accepted your invitation'
+                : 'Broker declined your invitation',
+            body: `Invitation response recorded for "${proposal.request?.title || proposal.requestId}".`,
+            relatedType: 'ProjectRequest',
+            relatedId: proposal.requestId,
+          },
+        ]);
+        console.log(
+          `Respond To Invitation Successful: role="${role}" invitation="${invitationId}" status="${status}"`,
+        );
+        return savedProposal;
+      } else if (role === UserRole.FREELANCER) {
+        const proposal = await this.freelancerProposalRepo.findOne({
+          where: { id: invitationId, freelancerId: userId },
+          relations: ['request'],
+        });
+        if (!proposal) throw new Error('Invitation not found');
+
+        if (proposal.status !== 'INVITED') {
+          throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
+        }
+
         const request = proposal.request;
         if (!request) {
           throw new Error('Request not found for this invitation');
         }
-
-        if (request.brokerId && request.brokerId !== userId) {
-          throw new BadRequestException('Another broker has already been assigned to this request.');
-        }
-
-        proposal.status = ProposalStatus.ACCEPTED;
-        request.brokerId = userId;
-
-        if (
-          request.status === RequestStatus.PUBLIC_DRAFT ||
-          request.status === RequestStatus.PRIVATE_DRAFT ||
-          request.status === RequestStatus.PENDING_SPECS
-        ) {
-          request.status = RequestStatus.BROKER_ASSIGNED;
-        }
-
-        await this.requestRepo.save(request);
-
-        const competingProposals = await this.brokerProposalRepo.find({
-          where: {
-            requestId: proposal.requestId,
-            status: In([ProposalStatus.INVITED, ProposalStatus.PENDING, ProposalStatus.ACCEPTED]),
-          },
-        });
-
-        for (const competingProposal of competingProposals) {
-          if (competingProposal.id === proposal.id) {
-            continue;
-          }
-          competingProposal.status = ProposalStatus.REJECTED;
-          await this.brokerProposalRepo.save(competingProposal);
-        }
-      } else {
-        proposal.status = ProposalStatus.REJECTED;
-      }
-
-      const savedProposal = await this.brokerProposalRepo.save(proposal);
-      await this.notifyUsers([
-        {
-          userId: proposal.request?.clientId,
-          title:
-            status === 'ACCEPTED'
-              ? 'Broker accepted your invitation'
-              : 'Broker declined your invitation',
-          body: `Invitation response recorded for "${proposal.request?.title || proposal.requestId}".`,
-          relatedType: 'ProjectRequest',
-          relatedId: proposal.requestId,
-        },
-      ]);
-      return savedProposal;
-    } else if (role === UserRole.FREELANCER) {
-      const proposal = await this.freelancerProposalRepo.findOne({
-        where: { id: invitationId, freelancerId: userId },
-        relations: ['request'],
-      });
-      if (!proposal) throw new Error('Invitation not found');
-
-      if (proposal.status !== 'INVITED') {
-        throw new Error(`Cannot respond to invitation with status: ${proposal.status}`);
-      }
-
-      const request = proposal.request;
-      if (!request) {
-        throw new Error('Request not found for this invitation');
-      }
-      if (status === 'ACCEPTED') {
-        const requestWithSpecs = await this.findOneEntity(proposal.requestId);
-        const clientSpec = this.pickLatestSpecByPhase(
-          (requestWithSpecs.specs || []) as Array<
-            Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
-          >,
-          SpecPhase.CLIENT_SPEC,
-        );
-
-        const clientApproved =
-          clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED ||
-          clientSpec?.status === ProjectSpecStatus.APPROVED ||
-          request.status === RequestStatus.SPEC_APPROVED ||
-          request.status === RequestStatus.HIRING;
-
-        if (!clientApproved) {
-          throw new BadRequestException(
-            'Freelancer can only accept after the broker draft has been approved by the client.',
+        if (status === 'ACCEPTED') {
+          const requestWithSpecs = await this.findOneEntity(proposal.requestId);
+          const clientSpec = this.pickLatestSpecByPhase(
+            (requestWithSpecs.specs || []) as Array<
+              Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
+            >,
+            SpecPhase.CLIENT_SPEC,
           );
+
+          const clientApproved =
+            clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED ||
+            clientSpec?.status === ProjectSpecStatus.APPROVED ||
+            request.status === RequestStatus.SPEC_APPROVED ||
+            request.status === RequestStatus.HIRING;
+
+          if (!clientApproved) {
+            throw new BadRequestException(
+              'Freelancer can only accept after the broker draft has been approved by the client.',
+            );
+          }
         }
+
+        if (status === 'ACCEPTED') {
+          const existingAccepted = await this.freelancerProposalRepo.findOne({
+            where: { requestId: proposal.requestId, status: 'ACCEPTED' },
+          });
+          if (existingAccepted && existingAccepted.id !== proposal.id) {
+            throw new BadRequestException('A freelancer has already been accepted for this request');
+          }
+
+          proposal.status = 'ACCEPTED';
+
+          await this.freelancerProposalRepo
+            .createQueryBuilder()
+            .update()
+            .set({ status: 'REJECTED' })
+            .where('requestId = :requestId', { requestId: proposal.requestId })
+            .andWhere('id != :id', { id: proposal.id })
+            .andWhere('status IN (:...statuses)', { statuses: ['INVITED', 'PENDING'] })
+            .execute();
+        } else {
+          proposal.status = 'REJECTED';
+        }
+        const savedProposal = await this.freelancerProposalRepo.save(proposal);
+        await this.notifyUsers([
+          {
+            userId: request.clientId,
+            title:
+              status === 'ACCEPTED'
+                ? 'Freelancer accepted your invitation'
+                : 'Freelancer declined your invitation',
+            body: `Invitation response recorded for "${request.title}".`,
+            relatedType: 'ProjectRequest',
+            relatedId: request.id,
+          },
+          {
+            userId: request.brokerId,
+            title:
+              status === 'ACCEPTED'
+                ? 'Freelancer accepted invitation'
+                : 'Freelancer declined invitation',
+            body: `Invitation response recorded for "${request.title}".`,
+            relatedType: 'ProjectRequest',
+            relatedId: request.id,
+          },
+        ]);
+        console.log(
+          `Respond To Invitation Successful: role="${role}" invitation="${invitationId}" status="${status}"`,
+        );
+        return savedProposal;
       }
 
-      if (status === 'ACCEPTED') {
-        const existingAccepted = await this.freelancerProposalRepo.findOne({
-          where: { requestId: proposal.requestId, status: 'ACCEPTED' },
-        });
-        if (existingAccepted && existingAccepted.id !== proposal.id) {
-          throw new BadRequestException('A freelancer has already been accepted for this request');
-        }
-
-        proposal.status = 'ACCEPTED';
-
-        await this.freelancerProposalRepo
-          .createQueryBuilder()
-          .update()
-          .set({ status: 'REJECTED' })
-          .where('requestId = :requestId', { requestId: proposal.requestId })
-          .andWhere('id != :id', { id: proposal.id })
-          .andWhere('status IN (:...statuses)', { statuses: ['INVITED', 'PENDING'] })
-          .execute();
-      } else {
-        proposal.status = 'REJECTED';
-      }
-      const savedProposal = await this.freelancerProposalRepo.save(proposal);
-      await this.notifyUsers([
-        {
-          userId: request.clientId,
-          title:
-            status === 'ACCEPTED'
-              ? 'Freelancer accepted your invitation'
-              : 'Freelancer declined your invitation',
-          body: `Invitation response recorded for "${request.title}".`,
-          relatedType: 'ProjectRequest',
-          relatedId: request.id,
-        },
-        {
-          userId: request.brokerId,
-          title:
-            status === 'ACCEPTED'
-              ? 'Freelancer accepted invitation'
-              : 'Freelancer declined invitation',
-          body: `Invitation response recorded for "${request.title}".`,
-          relatedType: 'ProjectRequest',
-          relatedId: request.id,
-        },
-      ]);
-      return savedProposal;
+      throw new Error('Invalid role');
+    } catch (error) {
+      const messageText = error instanceof Error ? error.message : String(error);
+      console.error(`Respond To Invitation Failed: ${messageText}`);
+      throw error;
     }
-
-    throw new Error('Invalid role');
   }
 }

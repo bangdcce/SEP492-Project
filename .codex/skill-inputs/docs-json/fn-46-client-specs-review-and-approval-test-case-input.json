@@ -1,0 +1,207 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_FN46_Client_Specs_Review_And_Approval_Test_Case_v1.0",
+    "creator": "SonNT",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "defaultTester": "SonNT",
+    "environment": [
+      "1. Source use case: diagram/Usecases/UC14-UC24-usecases.md (UC-14 Manage Broker's Specs)",
+      "2. Frontend: client/src/features/project-specs/ClientSpecReviewPage.tsx and client/src/features/project-specs/api.ts",
+      "3. Backend: server/src/modules/project-specs/project-specs.controller.ts and server/src/modules/project-specs/project-specs.service.ts",
+      "4. Data model: server/src/database/entities/project-spec.entity.ts"
+    ],
+    "notes": "Feature workbook for function 46 Client Specs Review And Approval. The repository does not include executed end-to-end evidence for this flow, so the cases below are derived from the implemented client review page, API routes, and backend review-state transitions and remain Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "Function 46 Client Specs Review And Approval",
+        "changeType": "A",
+        "description": "Initial workbook generated from the implemented client spec review UI, controller routes, service rules, and UC description.",
+        "reference": "diagram/Usecases/UC14-UC24-usecases.md, client/src/features/project-specs/ClientSpecReviewPage.tsx, client/src/features/project-specs/api.ts, server/src/modules/project-specs/project-specs.controller.ts, server/src/modules/project-specs/project-specs.service.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "CLIENT-SPEC-REVIEW",
+      "name": "Client Specs Review And Approval",
+      "testRequirement": "Validate pending client-review retrieval, authorized spec viewing, scope item rendering, approval state transition, rejection with mandatory reason, and invalid-state protection for the client-readable project specification flow.",
+      "referenceDocument": [
+        "diagram/Usecases/UC14-UC24-usecases.md",
+        "client/src/features/project-specs/ClientSpecReviewPage.tsx",
+        "client/src/features/project-specs/api.ts",
+        "server/src/modules/project-specs/project-specs.controller.ts",
+        "server/src/modules/project-specs/project-specs.service.ts",
+        "server/src/database/entities/project-spec.entity.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 7,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Client Review Queue And Spec Access",
+          "description": "The system returns only client-owned specs in CLIENT_REVIEW status for the dashboard queue and allows viewing only to authorized request participants.",
+          "preCondition": "A client-readable spec exists and is linked to a request with client and broker identities.",
+          "relatedUseCases": [
+            "FN-46",
+            "UC-14"
+          ],
+          "actor": "Client",
+          "done": false
+        },
+        {
+          "name": "Client Spec Approval",
+          "description": "An authorized client approves a spec that is currently in CLIENT_REVIEW, which records approval time, updates the request state, and notifies the broker.",
+          "preCondition": "The viewer is the request client and the spec phase is CLIENT_SPEC with status CLIENT_REVIEW.",
+          "relatedUseCases": [
+            "FN-46",
+            "UC-14"
+          ],
+          "actor": "Client",
+          "done": false
+        },
+        {
+          "name": "Client Spec Rejection And Rework Request",
+          "description": "An authorized client rejects a client spec with a reason of at least 10 characters so the broker can revise and resubmit it.",
+          "preCondition": "The viewer is the request client and the spec phase is CLIENT_SPEC with status CLIENT_REVIEW.",
+          "relatedUseCases": [
+            "FN-46",
+            "UC-14"
+          ],
+          "actor": "Client",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Client Review Queue And Spec Access",
+          "testCases": [
+            {
+              "id": "[FN46-ACC-01]",
+              "description": "List only the current client's specs that are waiting in the client-review queue.",
+              "procedure": "1. Authenticate as a client.\n2. Call GET /project-specs/client-review.\n3. Seed one CLIENT_SPEC in CLIENT_REVIEW for this client and additional specs for another client or in a different status.\n4. Inspect the returned collection.",
+              "expectedResults": "1. The query filters by specPhase = CLIENT_SPEC.\n2. The query filters by status = CLIENT_REVIEW.\n3. The query filters by request.clientId = current client id.\n4. Only this client's pending review specs are returned in descending createdAt order.",
+              "dependencies": "The request and spec records exist and the caller is authenticated as a CLIENT role user.",
+              "useCaseRefs": [
+                "FN-46",
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from ProjectSpecsService.findPendingClientReview and the GET /project-specs/client-review route."
+            },
+            {
+              "id": "[FN46-ACC-02]",
+              "description": "Load the client spec review page with request summary and client scope items for an authorized client.",
+              "procedure": "1. Authenticate as the request owner.\n2. Open the client spec review page for a spec id.\n3. Let the page call GET /project-specs/:id.\n4. Inspect the rendered summary cards and Client Scope Items section.",
+              "expectedResults": "1. The page loads the spec through projectSpecsApi.getSpec.\n2. The page renders title, description, budget, timeline, and category fields.\n3. Each client feature renders with title, description, and priority badge.\n4. When the current role is CLIENT and the spec status is CLIENT_REVIEW, the page shows review actions.",
+              "dependencies": "The spec has clientFeatures data and the current user matches request.clientId.",
+              "useCaseRefs": [
+                "FN-46",
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from ClientSpecReviewPage and ProjectSpecsService.findOneForUser."
+            },
+            {
+              "id": "[FN46-ACC-03]",
+              "description": "Reject spec viewing for a user who is not the request client, broker, admin, staff, or matched freelancer.",
+              "procedure": "1. Authenticate as a user not linked to the request.\n2. Call GET /project-specs/:id for a client spec.\n3. Inspect the backend response.",
+              "expectedResults": "1. findOneForUser loads the spec and evaluates viewer access through assertUserCanViewSpec.\n2. Because the user is not an allowed participant, the service throws ForbiddenException.\n3. The response denies access and the spec body is not returned.",
+              "dependencies": "The request exists and the caller is authenticated but not related to the request or accepted/pending proposal list.",
+              "useCaseRefs": [
+                "FN-46",
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the negative access-control path for review-page retrieval."
+            }
+          ]
+        },
+        {
+          "title": "Client Spec Approval",
+          "testCases": [
+            {
+              "id": "[FN46-APR-01]",
+              "description": "Approve a client-readable spec successfully while it is in CLIENT_REVIEW status.",
+              "procedure": "1. Authenticate as the request client.\n2. Open a CLIENT_SPEC whose current status is CLIENT_REVIEW.\n3. Trigger POST /project-specs/:id/client-review with action = APPROVE.\n4. Reload the spec and related request.",
+              "expectedResults": "1. clientReviewSpec accepts the action only for CLIENT_SPEC records.\n2. The spec status changes to CLIENT_APPROVED.\n3. clientApprovedAt is set to the current timestamp.\n4. The linked request status changes to SPEC_APPROVED.\n5. The broker receives a notification that the client approved the spec.",
+              "dependencies": "The current user matches request.clientId and the broker id exists on the related request.",
+              "useCaseRefs": [
+                "FN-46",
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from ProjectSpecsService.clientReviewSpec when action is APPROVE."
+            },
+            {
+              "id": "[FN46-APR-02]",
+              "description": "Block approval when the spec is not currently in CLIENT_REVIEW status.",
+              "procedure": "1. Authenticate as the request client.\n2. Select a client spec already in DRAFT, CLIENT_APPROVED, or REJECTED.\n3. Submit POST /project-specs/:id/client-review with action = APPROVE.",
+              "expectedResults": "1. clientReviewSpec checks the current spec status before mutating data.\n2. The service throws BadRequestException stating the spec must be in CLIENT_REVIEW status.\n3. No request status, approval timestamp, or notification is written.",
+              "dependencies": "A client spec exists in a non-review status and the caller is otherwise authorized.",
+              "useCaseRefs": [
+                "FN-46",
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers invalid state transition protection for approval."
+            }
+          ]
+        },
+        {
+          "title": "Client Spec Rejection And Rework Request",
+          "testCases": [
+            {
+              "id": "[FN46-REJ-01]",
+              "description": "Reject a client spec with a valid change-request reason so the broker can revise it.",
+              "procedure": "1. Authenticate as the request client.\n2. Open a CLIENT_SPEC in CLIENT_REVIEW status.\n3. Submit POST /project-specs/:id/client-review with action = REJECT and a reason longer than 10 characters.\n4. Reload the spec.",
+              "expectedResults": "1. clientReviewSpec stores status = REJECTED.\n2. The rejectionReason field stores the submitted reason text.\n3. The broker receives a rejection notification containing the spec title and trimmed reason.\n4. The response returns the updated spec for the UI to refresh.",
+              "dependencies": "The current user matches request.clientId and the request has a broker owner.",
+              "useCaseRefs": [
+                "FN-46",
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Matches the UC branch where the client requests changes instead of approval."
+            },
+            {
+              "id": "[FN46-REJ-02]",
+              "description": "Reject the rejection action when the provided reason is shorter than 10 characters.",
+              "procedure": "1. Authenticate as the request client.\n2. Open a CLIENT_SPEC in CLIENT_REVIEW status.\n3. Submit POST /project-specs/:id/client-review with action = REJECT and a reason shorter than 10 characters.",
+              "expectedResults": "1. clientReviewSpec validates the rejection reason length.\n2. The service throws BadRequestException with Rejection reason must be at least 10 characters.\n3. The spec status remains unchanged and no broker notification is sent.",
+              "dependencies": "The spec is still in CLIENT_REVIEW and the caller is the linked client.",
+              "useCaseRefs": [
+                "FN-46",
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the explicit validation guard for client-requested rework."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

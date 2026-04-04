@@ -1,0 +1,173 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC09_KYC_Status_Viewing_Test_Case_v1.0",
+    "creator": "Bao",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "defaultTester": "Bao",
+    "environment": [
+      "1. Frontend: React KYCStatusPage routed from client/src/App.tsx",
+      "2. Backend: NestJS kyc module endpoint GET /kyc/me protected by JwtAuthGuard",
+      "3. Storage: signed URL generation for encrypted document assets",
+      "4. Evidence source: code inspection of client/src/pages/KYCStatusPage.tsx, server/src/modules/kyc/kyc.controller.ts, server/src/modules/kyc/kyc.service.ts, and server/src/database/entities/kyc-verification.entity.ts"
+    ],
+    "notes": "Strict feature-based workbook for UC-09 KYC Status Viewing. The repository does not include an executed integration spec for this flow, so the cases below are derived from the implemented user status endpoint and status page behavior and remain Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "UC-09 KYC Status Viewing",
+        "changeType": "A",
+        "description": "Initial feature/function-based workbook generated from the implemented KYC status API and client status page state handling.",
+        "reference": "client/src/pages/KYCStatusPage.tsx, server/src/modules/kyc/kyc.controller.ts, server/src/modules/kyc/kyc.service.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "KYC-STATUS",
+      "name": "KYC Status Viewing",
+      "testRequirement": "Validate authenticated KYC status retrieval, redacted user-facing payloads, and frontend rendering for not-started, pending, approved, rejected, and failed-fetch paths in UC-09 KYC Status Viewing.",
+      "referenceDocument": [
+        "client/src/App.tsx",
+        "client/src/pages/KYCStatusPage.tsx",
+        "server/src/modules/kyc/kyc.controller.ts",
+        "server/src/modules/kyc/kyc.service.ts",
+        "server/src/database/entities/kyc-verification.entity.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 6,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "User KYC Status API Retrieval",
+          "description": "The authenticated user calls GET /kyc/me and receives either a NOT_STARTED response or the latest KYC record with signed document URLs and redacted personal fields.",
+          "preCondition": "The caller is authenticated through JwtAuthGuard and the KYC service can query the latest verification record for the user.",
+          "relatedUseCases": [
+            "UC-09"
+          ],
+          "actor": "Authenticated User",
+          "done": false
+        },
+        {
+          "name": "KYC Status Page State Rendering",
+          "description": "The React status page fetches /kyc/me, maps response states to badges and actions, and handles pending refresh, rejection details, approved metadata, and fallback errors.",
+          "preCondition": "The user can navigate to the KYC status route and the frontend can call the configured VITE_API_URL /kyc/me endpoint with credentials included.",
+          "relatedUseCases": [
+            "UC-09"
+          ],
+          "actor": "Authenticated User",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "User KYC Status API Retrieval",
+          "testCases": [
+            {
+              "id": "[UC09-API-01]",
+              "description": "Return a not-started status when the authenticated user has never submitted KYC verification.",
+              "procedure": "1. Authenticate as a user with no KYC verification rows.\n2. Call GET /kyc/me.\n3. Inspect the service response.",
+              "expectedResults": "1. KycService.getMyKyc finds no record for the user.\n2. The API returns a payload with status = NOT_STARTED and message = You have not submitted KYC verification yet.\n3. No signed document URLs or sensitive fields are included.",
+              "actualResults": "",
+              "dependencies": "Authenticated user account with no rows in kyc_verifications.",
+              "useCaseRefs": [
+                "UC-09"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from KycController.getMyKyc and the no-record branch in KycService.getMyKyc."
+            },
+            {
+              "id": "[UC09-API-02]",
+              "description": "Return the latest KYC record with signed URLs and redacted personal data for an authenticated user.",
+              "procedure": "1. Authenticate as a user whose latest KYC record exists.\n2. Call GET /kyc/me.\n3. Inspect the returned payload fields.",
+              "expectedResults": "1. KycService.getMyKyc selects the newest KYC record by createdAt descending.\n2. Signed URLs are generated for documentFrontUrl, documentBackUrl, and selfieUrl.\n3. The response includes status, documentType, rejectionReason, createdAt, updatedAt, and reviewedAt.\n4. Personal fields are redacted as [SUBMITTED] instead of returning raw full name, document number, date of birth, or address.",
+              "actualResults": "",
+              "dependencies": "Authenticated user with at least one saved KYC verification row and working signed URL generation.",
+              "useCaseRefs": [
+                "UC-09"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the main user-facing retrieval path in KycService.getMyKyc."
+            }
+          ]
+        },
+        {
+          "title": "KYC Status Page State Rendering",
+          "testCases": [
+            {
+              "id": "[UC09-UI-01]",
+              "description": "Render the approved verification state with the verified timestamp after the page fetch succeeds.",
+              "procedure": "1. Open the KYC status page as a user whose API response returns status APPROVED with createdAt and reviewedAt.\n2. Let KYCStatusPage complete fetchKYCStatus.\n3. Observe the rendered card.",
+              "expectedResults": "1. A loading spinner is shown before the fetch finishes.\n2. The page renders the approved badge, success description, submitted date, and verified date.\n3. The Start Verification button is not shown.\n4. The approved success panel is displayed.",
+              "actualResults": "",
+              "dependencies": "The KYC status API returns status APPROVED plus createdAt and reviewedAt fields.",
+              "useCaseRefs": [
+                "UC-09"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from getStatusConfig(APPROVED) and the approved rendering branch in KYCStatusPage.tsx."
+            },
+            {
+              "id": "[UC09-UI-02]",
+              "description": "Fallback to the not-started state and show the start-verification CTA when the status fetch fails.",
+              "procedure": "1. Open the KYC status page.\n2. Force GET /kyc/me to fail with a non-OK response or network error.\n3. Observe the rendered state after fetchKYCStatus completes.",
+              "expectedResults": "1. The catch branch sets kycData.status to NOT_SUBMITTED.\n2. Loading stops and the page renders the Identity Not Verified content.\n3. The Start Verification button is shown and navigates to ROUTES.KYC_VERIFICATION.\n4. The benefits section for unverified users is displayed.",
+              "actualResults": "",
+              "dependencies": "The frontend can reach the route but the KYC status request fails or returns a non-OK response.",
+              "useCaseRefs": [
+                "UC-09"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "The implementation treats fetch failure and 404-like fallback similarly by rendering an unverified state."
+            },
+            {
+              "id": "[UC09-UI-03]",
+              "description": "Show the rejection reason and resubmission CTA when the API returns REJECTED.",
+              "procedure": "1. Open the KYC status page as a user whose API response returns status REJECTED with rejectionReason.\n2. Let the fetch succeed.\n3. Observe the rendered page.",
+              "expectedResults": "1. The rejected badge and failure description are displayed.\n2. A rejection-reason panel renders the returned rejectionReason text.\n3. The primary button label changes to Resubmit Verification and navigates to the KYC verification route.",
+              "actualResults": "",
+              "dependencies": "The API returns status REJECTED and a non-empty rejectionReason.",
+              "useCaseRefs": [
+                "UC-09"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from getStatusConfig(REJECTED) and the rejection panel branch in KYCStatusPage.tsx."
+            },
+            {
+              "id": "[UC09-UI-04]",
+              "description": "Keep the pending state refreshable with both manual refresh and automatic polling.",
+              "procedure": "1. Open the KYC status page as a user whose API response returns status PENDING.\n2. Observe the initial rendered state.\n3. Click the refresh button and wait for the polling interval.",
+              "expectedResults": "1. The pending badge and waiting message are displayed.\n2. A refresh button is visible and shows a spin animation while refreshing = true.\n3. useEffect schedules repeated fetchKYCStatus calls every 10 seconds while the status remains PENDING.\n4. The page stops polling automatically when the status changes away from PENDING.",
+              "actualResults": "",
+              "dependencies": "The API returns status PENDING and the page remains mounted long enough to exercise the polling interval.",
+              "useCaseRefs": [
+                "UC-09"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the pending refresh button and polling useEffect in KYCStatusPage.tsx."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

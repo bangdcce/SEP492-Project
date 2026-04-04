@@ -1,0 +1,215 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-27",
+    "version": "v1.1"
+  },
+  "functions": [
+    {
+      "function_code": "UC-11",
+      "class_name": "CreateProjectRequestDto / ProjectRequestsService",
+      "function_name": "Request Creation",
+      "sheet_name": "Request Creation",
+      "test_requirement": "Cover request creation with understandable field-level UTC rows: service creation flows plus DTO null/boundary validation for title, description, and wizardProgressStep.",
+      "loc": 108,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "The viewer is an authenticated client",
+            "Create-request quota is available",
+            "The payload contains two answer rows"
+          ],
+          "inputs": {
+            "title": "\"Marketplace request\"",
+            "description": "\"Post this request to the broker marketplace\"",
+            "isDraft": false,
+            "answers": "\"q-1 -> Marketplace; q-2 -> React\""
+          },
+          "returns": [
+            "Creates the request in PUBLIC_DRAFT",
+            "Creates 2 answer rows for the saved request",
+            "Writes the create audit log",
+            "Increments CREATE_REQUEST quota usage"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "The viewer is an authenticated client",
+            "Create-request quota is available",
+            "The payload is submitted in save-draft mode"
+          ],
+          "inputs": {
+            "title": "\"Draft request\"",
+            "description": "\"Save for later\"",
+            "isDraft": true,
+            "answers": "\"none\""
+          },
+          "returns": [
+            "Creates the request in DRAFT",
+            "Does not create answer rows when the answer list is empty"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "The viewer is an authenticated client",
+            "Create-request quota is available",
+            "The attachment payload contains 3 upload items: 2 valid files and 1 blank filename entry",
+            "wizardProgressStep is omitted by the caller"
+          ],
+          "inputs": {
+            "title": "\"Attachment request\"",
+            "description": "\"Include uploaded reference files\"",
+            "isDraft": false,
+            "attachments": "\"3 upload items (2 valid, 1 blank filename ignored)\"",
+            "wizardProgressStep": null
+          },
+          "returns": [
+            "Normalizes attachment metadata before saving",
+            "Keeps only the 2 valid attachments",
+            "Defaults wizardProgressStep to 1"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Quota validation rejects the submission before persistence"
+          ],
+          "inputs": {
+            "title": "\"Blocked request\"",
+            "description": "\"This should not be saved\"",
+            "isDraft": false
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Quota exceeded"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "DTO validation runs on CreateProjectRequestDto before the service is called"
+          ],
+          "inputs": {
+            "title": null,
+            "description": "\"Post this request to the broker marketplace\"",
+            "answers": "\"q-1 -> Marketplace\""
+          },
+          "returns": [],
+          "exceptions": [
+            "Validation error: title must be a string; title should not be empty"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "DTO validation runs on CreateProjectRequestDto before the service is called"
+          ],
+          "inputs": {
+            "title": "\"Marketplace request\"",
+            "description": null,
+            "answers": "\"q-1 -> Marketplace\""
+          },
+          "returns": [],
+          "exceptions": [
+            "Validation error: description must be a string; description should not be empty"
+          ]
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "DTO validation runs on CreateProjectRequestDto before the service is called"
+          ],
+          "inputs": {
+            "title": "\"Marketplace request\"",
+            "description": "\"Post this request to the broker marketplace\"",
+            "answers": "\"q-1 -> Marketplace\"",
+            "wizardProgressStep": 1
+          },
+          "returns": [
+            "CreateProjectRequestDto accepts wizardProgressStep = 1"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "DTO validation runs on CreateProjectRequestDto before the service is called"
+          ],
+          "inputs": {
+            "title": "\"Marketplace request\"",
+            "description": "\"Post this request to the broker marketplace\"",
+            "answers": "\"q-1 -> Marketplace\"",
+            "wizardProgressStep": 5
+          },
+          "returns": [
+            "CreateProjectRequestDto accepts wizardProgressStep = 5"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "DTO validation runs on CreateProjectRequestDto before the service is called"
+          ],
+          "inputs": {
+            "title": "\"Marketplace request\"",
+            "description": "\"Post this request to the broker marketplace\"",
+            "answers": "\"q-1 -> Marketplace\"",
+            "wizardProgressStep": 0
+          },
+          "returns": [],
+          "exceptions": [
+            "Validation error: wizardProgressStep must not be less than 1"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "DTO validation runs on CreateProjectRequestDto before the service is called"
+          ],
+          "inputs": {
+            "title": "\"Marketplace request\"",
+            "description": "\"Post this request to the broker marketplace\"",
+            "answers": "\"q-1 -> Marketplace\"",
+            "wizardProgressStep": 6
+          },
+          "returns": [],
+          "exceptions": [
+            "Validation error: wizardProgressStep must not be greater than 5"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,300 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "UC-24",
+      "class_name": "ProjectRequestsController / ProjectRequestsService",
+      "function_name": "Approve/Reject Application",
+      "sheet_name": "Approve Reject App",
+      "test_requirement": "Cover the full client-side application resolution flow across broker selection and freelancer recommendation review, including broker acceptance, broker release, freelancer approval, freelancer rejection, ownership failures, and invalid-state failures backed by executed Jest evidence.",
+      "loc": 173,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in broker selection phase \"REQUEST_INTAKE\"",
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" is currently \"PUBLIC_DRAFT\"",
+            "Request \"req-1\" has no assigned broker",
+            "Broker application from \"broker-1\" is currently \"PENDING\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "brokerId": "\"broker-1\"",
+            "clientId": "\"client-1\""
+          },
+          "returns": [
+            "returns request with status = BROKER_ASSIGNED"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Accept Broker Successful: \"req-1\" -> \"broker-1\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in broker selection phase \"REQUEST_INTAKE\"",
+            "Authenticated client does not own request \"req-1\"",
+            "Request \"req-1\" belongs to client \"client-1\"",
+            "Broker application from \"broker-1\" is currently \"PENDING\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "brokerId": "\"broker-1\"",
+            "clientId": "\"client-2\""
+          },
+          "returns": [],
+          "exceptions": [
+            "ForbiddenException: Forbidden: You can only accept brokers for your own requests"
+          ],
+          "logs": [
+            "Accept Broker Failed: Forbidden: You can only accept brokers for your own requests"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" is currently \"COMPLETED\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "brokerId": "\"broker-1\"",
+            "clientId": "\"client-1\""
+          },
+          "returns": [],
+          "exceptions": [
+            "Error: Request is not in a valid state to accept a broker"
+          ],
+          "logs": [
+            "Accept Broker Failed: Request is not in a valid state to accept a broker"
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in broker selection phase \"REQUEST_INTAKE\"",
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" has no assigned broker",
+            "Broker application \"application-1\" belongs to request \"req-1\"",
+            "Broker application \"application-1\" is currently \"PENDING\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "brokerApplicationId": "\"application-1\"",
+            "actorId": "\"client-1\"",
+            "actorRole": "\"CLIENT\""
+          },
+          "returns": [
+            "returns request with status = PUBLIC_DRAFT"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Release Broker Slot Successful: \"application-1\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" has no assigned broker",
+            "Broker application \"application-1\" belongs to request \"req-1\"",
+            "Broker application \"application-1\" is currently \"ACCEPTED\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "brokerApplicationId": "\"application-1\"",
+            "actorId": "\"client-1\"",
+            "actorRole": "\"CLIENT\""
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Proposal status ACCEPTED cannot be released."
+          ],
+          "logs": [
+            "Release Broker Slot Failed: Proposal status ACCEPTED cannot be released."
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client does not own request \"req-1\"",
+            "Request \"req-1\" belongs to client \"client-1\"",
+            "Request \"req-1\" has no assigned broker"
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "brokerApplicationId": "\"application-1\"",
+            "actorId": "\"client-2\"",
+            "actorRole": "\"CLIENT\""
+          },
+          "returns": [],
+          "exceptions": [
+            "ForbiddenException: Only the client or internal staff can release a broker slot."
+          ],
+          "logs": [
+            "Release Broker Slot Failed: Only the client or internal staff can release a broker slot."
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in freelancer recommendation phase \"FREELANCER_SELECTION\"",
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" already has assigned broker \"broker-1\"",
+            "Freelancer recommendation \"recommendation-approve-1\" belongs to request \"req-1\"",
+            "Freelancer recommendation \"recommendation-approve-1\" is currently \"PENDING_CLIENT_APPROVAL\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerRecommendationId": "\"recommendation-approve-1\"",
+            "clientId": "\"client-1\""
+          },
+          "returns": [
+            "returns freelancer invitation with status = INVITED"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Approve Freelancer Invite Successful: \"recommendation-approve-1\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in freelancer recommendation phase \"FREELANCER_SELECTION\"",
+            "Authenticated client does not own request \"req-1\"",
+            "Freelancer recommendation \"recommendation-approve-1\" belongs to request \"req-1\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerRecommendationId": "\"recommendation-approve-1\"",
+            "clientId": "\"client-2\""
+          },
+          "returns": [],
+          "exceptions": [
+            "ForbiddenException: Forbidden: You can only approve freelancer recommendations for your own requests"
+          ],
+          "logs": [
+            "Approve Freelancer Invite Failed: Forbidden: You can only approve freelancer recommendations for your own requests"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Freelancer recommendation \"recommendation-approve-1\" belongs to request \"req-1\"",
+            "Freelancer recommendation \"recommendation-approve-1\" is currently \"INVITED\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerRecommendationId": "\"recommendation-approve-1\"",
+            "clientId": "\"client-1\""
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Proposal status INVITED cannot be approved by the client."
+          ],
+          "logs": [
+            "Approve Freelancer Invite Failed: Proposal status INVITED cannot be approved by the client."
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in freelancer recommendation phase \"FREELANCER_SELECTION\"",
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" already has assigned broker \"broker-1\"",
+            "Freelancer recommendation \"recommendation-reject-1\" belongs to request \"req-1\"",
+            "Freelancer recommendation \"recommendation-reject-1\" is currently \"PENDING_CLIENT_APPROVAL\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerRecommendationId": "\"recommendation-reject-1\"",
+            "clientId": "\"client-1\""
+          },
+          "returns": [
+            "returns freelancer recommendation with status = REJECTED"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Reject Freelancer Invite Successful: \"recommendation-reject-1\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in freelancer recommendation phase \"FREELANCER_SELECTION\"",
+            "Authenticated client does not own request \"req-1\"",
+            "Freelancer recommendation \"recommendation-reject-1\" belongs to request \"req-1\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerRecommendationId": "\"recommendation-reject-1\"",
+            "clientId": "\"client-2\""
+          },
+          "returns": [],
+          "exceptions": [
+            "ForbiddenException: Forbidden: You can only reject freelancer recommendations for your own requests"
+          ],
+          "logs": [
+            "Reject Freelancer Invite Failed: Forbidden: You can only reject freelancer recommendations for your own requests"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Freelancer recommendation \"recommendation-reject-1\" belongs to request \"req-1\"",
+            "Freelancer recommendation \"recommendation-reject-1\" is currently \"INVITED\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerRecommendationId": "\"recommendation-reject-1\"",
+            "clientId": "\"client-1\""
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Proposal status INVITED cannot be rejected by the client."
+          ],
+          "logs": [
+            "Reject Freelancer Invite Failed: Proposal status INVITED cannot be rejected by the client."
+          ]
+        }
+      ]
+    }
+  ]
+}
