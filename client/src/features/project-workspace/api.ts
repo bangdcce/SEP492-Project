@@ -197,6 +197,21 @@ export const createComment = async (taskId: string, content: string): Promise<im
   return apiClient.post<import("./types").TaskComment>(`/tasks/${taskId}/comments`, { content });
 };
 
+export const updateComment = async (
+  commentId: string,
+  content: string,
+): Promise<import("./types").TaskComment> => {
+  return apiClient.patch<import("./types").TaskComment>(`/tasks/comments/${commentId}`, {
+    content,
+  });
+};
+
+export const deleteComment = async (
+  commentId: string,
+): Promise<{ success: boolean }> => {
+  return apiClient.delete<{ success: boolean }>(`/tasks/comments/${commentId}`);
+};
+
 export const fetchTaskLinks = async (taskId: string): Promise<TaskLink[]> => {
   return apiClient.get<TaskLink[]>(`/tasks/${taskId}/links`);
 };
