@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom';
-import { formatVND, QUOTA_ACTION_LABELS } from '../types';
+import { QUOTA_ACTION_LABELS } from '../types';
 import {
   Dialog,
   DialogContent,
