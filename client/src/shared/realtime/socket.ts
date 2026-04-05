@@ -8,6 +8,19 @@ let activeSocketUserId: string | null = null;
 let authSyncListenersBound = false;
 let isRefreshingToken = false;
 
+type SocketSubset = Pick<
+  Socket,
+  "on" | "once" | "off" | "emit" | "connect" | "disconnect" | "removeAllListeners" | "connected"
+>;
+
+type TestSocketFactory = (namespace: string) => SocketSubset | null | undefined;
+
+declare global {
+  interface Window {
+    __INTERDEV_TEST_SOCKET_FACTORY__?: TestSocketFactory;
+  }
+}
+
 const getRealtimeBaseUrl = (): string => {
   try {
     return new URL(API_CONFIG.BASE_URL).origin;
@@ -150,6 +163,13 @@ const handleSocketConnectError = async (
 };
 
 const createSocket = (namespace: string): Socket => {
+  const injectedFactory =
+    typeof window !== "undefined" ? window.__INTERDEV_TEST_SOCKET_FACTORY__ : undefined;
+  const injectedSocket = injectedFactory?.(namespace);
+  if (injectedSocket) {
+    return injectedSocket as Socket;
+  }
+
   const instance = io(`${getRealtimeBaseUrl()}${namespace}`, {
     autoConnect: false,
     transports: ["polling", "websocket"],

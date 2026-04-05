@@ -9322,15 +9322,16 @@ export class DisputesService {
       MilestoneStatus.PENDING_CLIENT_APPROVAL,
       MilestoneStatus.REVISIONS_REQUIRED,
     ];
+    const postDeliveryLike = [MilestoneStatus.COMPLETED, MilestoneStatus.PAID];
 
     switch (category) {
       case DisputeCategory.QUALITY:
         // Chất lượng: Phải có sản phẩm đềEđánh giá
-        return submittedLike;
+        return [...submittedLike, ...postDeliveryLike];
 
       case DisputeCategory.PAYMENT:
         // Thanh toán: Thường là khi đã nộp nhưng khách không trả tiền, hoặc đang làm mà khách không chịu giải ngân
-        return [...submittedLike, MilestoneStatus.IN_PROGRESS];
+        return [...submittedLike, MilestoneStatus.IN_PROGRESS, ...postDeliveryLike];
 
       case DisputeCategory.DEADLINE:
         // TrềEhạn: Có thềEkiện ngay khi đang làm (nếu đã quá hạn) hoặc đã nộp nhưng trềE
@@ -9340,6 +9341,7 @@ export class DisputesService {
           MilestoneStatus.PENDING_STAFF_REVIEW,
           MilestoneStatus.PENDING_CLIENT_APPROVAL,
           MilestoneStatus.REVISIONS_REQUIRED,
+          ...postDeliveryLike,
         ];
 
       case DisputeCategory.COMMUNICATION:
@@ -9349,7 +9351,7 @@ export class DisputesService {
       case DisputeCategory.OTHER:
       default:
         // Các loại khác: Có thềExảy ra bất cứ lúc nào trong quá trình thực hiện
-        return [MilestoneStatus.SUBMITTED, ...inProgressLike];
+        return [MilestoneStatus.SUBMITTED, ...inProgressLike, ...postDeliveryLike];
     }
   }
 

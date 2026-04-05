@@ -25,6 +25,7 @@ import {
 } from 'src/database/entities';
 import { LeaveService } from '../../leave/leave.service';
 import { StaffAssignmentService } from './staff-assignment.service';
+import { recordEvidence } from '../../../../test/fe16-fe18/evidence-recorder';
 
 describe('StaffAssignmentService', () => {
   let service: StaffAssignmentService;
@@ -194,6 +195,12 @@ describe('StaffAssignmentService', () => {
           }),
         }),
       );
+      recordEvidence({
+        id: 'FE17-ADM-01',
+        evidenceRef: 'staff-assignment.service.spec.ts::dashboard enum-safe broker filters',
+        actualResults:
+          'getDashboardOverview built riskSignals.multiPartyCases=2 and conflictingEvidenceCases=1 while calling the broker dispute filter with enum-safe brokerTypes across broker-related dispute roles.',
+      });
     });
   });
 });

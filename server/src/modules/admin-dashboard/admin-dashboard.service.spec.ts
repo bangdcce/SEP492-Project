@@ -16,6 +16,7 @@ describe('AdminDashboardService', () => {
     where: jest.fn().mockReturnThis(),
     andWhere: jest.fn().mockReturnThis(),
     orderBy: jest.fn().mockReturnThis(),
+    take: jest.fn().mockReturnThis(),
     getMany: jest.fn().mockResolvedValue(logs),
   });
 
@@ -145,12 +146,52 @@ describe('AdminDashboardService', () => {
       },
     ];
 
+    const systemIncidentLogs = [
+      {
+        id: 'incident-1',
+        createdAt: new Date('2026-03-19T11:30:00.000Z'),
+        eventCategory: 'ERROR',
+        errorCode: 'PAYPAL_TIMEOUT',
+        errorMessage: 'PayPal capture timed out',
+        metadata: {
+          summary: 'PayPal checkout capture timed out',
+          incident: {
+            scope: 'SYSTEM',
+            severity: 'SEVERE',
+            category: 'PAYMENT',
+            component: 'PayPalCheckoutService',
+            operation: 'capture-order',
+            fingerprint: 'payment:paypal-checkout-service:capture-order:paypal-timeout',
+          },
+        },
+      },
+      {
+        id: 'incident-2',
+        createdAt: new Date('2026-03-19T11:20:00.000Z'),
+        eventCategory: 'ERROR',
+        errorCode: 'PAYPAL_TIMEOUT',
+        errorMessage: 'PayPal capture timed out',
+        metadata: {
+          summary: 'PayPal checkout capture timed out',
+          incident: {
+            scope: 'SYSTEM',
+            severity: 'CRITICAL',
+            category: 'PAYMENT',
+            component: 'PayPalCheckoutService',
+            operation: 'capture-order',
+            fingerprint: 'payment:paypal-checkout-service:capture-order:paypal-timeout',
+          },
+        },
+      },
+    ];
+
     const auditLogRepository = {
       createQueryBuilder: jest
         .fn()
         .mockReturnValueOnce(createValueQb('2'))
         .mockReturnValueOnce(createValueQb('1'))
-        .mockReturnValueOnce(createLogsQb(adminLogs)),
+        .mockReturnValueOnce(createLogsQb(adminLogs))
+        .mockReturnValueOnce(createLogsQb(systemIncidentLogs)),
     };
 
     const disputeRepository = {
@@ -301,6 +342,23 @@ describe('AdminDashboardService', () => {
           source: 'FOLLOW_UP_SCHEDULING',
         }),
       ]),
+    );
+    expect(result.systemIncidentHub.summary).toEqual(
+      expect.objectContaining({
+        activeCount: 1,
+        severeCount: 1,
+        criticalCount: 0,
+        affectedComponents: 1,
+      }),
+    );
+    expect(result.systemIncidentHub.items[0]).toEqual(
+      expect.objectContaining({
+        fingerprint: 'payment:paypal-checkout-service:capture-order:paypal-timeout',
+        component: 'PayPalCheckoutService',
+        operation: 'capture-order',
+        occurrences: 2,
+        latestAuditLogId: 'incident-1',
+      }),
     );
     expect(result.riskMethodology).toEqual(
       expect.objectContaining({

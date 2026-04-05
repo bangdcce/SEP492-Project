@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { ArrowLeft, AlertCircle } from "lucide-react";
 import { STORAGE_KEYS } from "@/constants";
@@ -18,47 +18,46 @@ export function TrustProfilePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  const loadTrustProfile = useCallback(async () => {
+    if (!id) {
+      setError("Missing profile id.");
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await getTrustProfile(id);
+      setData(response);
+    } catch (loadError: unknown) {
+      const message =
+        (loadError as { response?: { data?: { message?: string } } })?.response?.data?.message ||
+        "Failed to load trust profile.";
+      setError(message);
+      setData(null);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [id]);
+
   useEffect(() => {
     let isCancelled = false;
 
-    const loadTrustProfile = async () => {
-      if (!id) {
-        setError("Missing profile id.");
-        setIsLoading(false);
+    const run = async () => {
+      await loadTrustProfile();
+      if (isCancelled) {
         return;
-      }
-
-      setIsLoading(true);
-      setError(null);
-
-      try {
-        const response = await getTrustProfile(id);
-        if (!isCancelled) {
-          setData(response);
-        }
-      } catch (loadError: unknown) {
-        if (isCancelled) {
-          return;
-        }
-
-        const message =
-          (loadError as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-          "Failed to load trust profile.";
-        setError(message);
-        setData(null);
-      } finally {
-        if (!isCancelled) {
-          setIsLoading(false);
-        }
       }
     };
 
-    void loadTrustProfile();
+    void run();
 
     return () => {
       isCancelled = true;
     };
-  }, [id]);
+  }, [loadTrustProfile]);
 
   if (isLoading) {
     return (
@@ -103,7 +102,11 @@ export function TrustProfilePage() {
       <TrustProfileSection
         user={data.user}
         reviews={data.reviews || []}
+        projectHistory={data.projectHistory || []}
         currentUserId={currentUser?.id}
+        onReviewUpdated={() => {
+          void loadTrustProfile();
+        }}
       />
 
       <ProjectHistorySection items={data.projectHistory || []} />

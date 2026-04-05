@@ -66,6 +66,7 @@ export const NotificationDropdown = ({
     <DropdownMenu open={open} onOpenChange={handleOpenChange}>
       <DropdownMenuTrigger asChild>
         <button
+          data-testid="notification-trigger"
           className={cn(
             "p-2 text-gray-500 hover:bg-gray-100 rounded-full transition-colors relative",
             buttonClassName,
@@ -74,19 +75,26 @@ export const NotificationDropdown = ({
         >
           <Bell className="w-5 h-5" />
           {unreadCount > 0 && (
-            <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 rounded-full border border-white text-[10px] text-white flex items-center justify-center">
+            <span
+              data-testid="notification-unread-count"
+              className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] bg-red-500 rounded-full border border-white text-[10px] text-white flex items-center justify-center"
+            >
               {unreadCount > 9 ? "9+" : unreadCount}
             </span>
           )}
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className={cn("w-96 p-0", panelClassName)}>
+      <DropdownMenuContent
+        className={cn("w-96 p-0", panelClassName)}
+        data-testid="notification-panel"
+      >
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
           <DropdownMenuLabel className="p-0 text-sm font-semibold text-slate-900">
             Notifications
           </DropdownMenuLabel>
           <button
             onClick={handleMarkAllRead}
+            data-testid="mark-all-notifications-read"
             className="text-xs text-teal-600 hover:text-teal-700"
           >
             Mark all read
@@ -105,6 +113,7 @@ export const NotificationDropdown = ({
             notifications.map((item) => (
               <div key={item.id}>
                 <DropdownMenuItem
+                  data-testid={`notification-item-${item.id}`}
                   onSelect={(event) => {
                     event.preventDefault();
                     void handleSelect(item);

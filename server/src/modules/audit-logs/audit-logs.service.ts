@@ -33,6 +33,44 @@ export type AuditEventCategory =
   | 'ERROR'
   | 'AUTH'
   | 'EXPORT';
+export type AuditOutcome = 'SUCCESS' | 'FAILURE';
+export type AuditIncidentSeverity = 'HIGH' | 'CRITICAL' | 'SEVERE';
+export type AuditIncidentCategory =
+  | 'HTTP_5XX'
+  | 'SCHEDULER'
+  | 'INTEGRATION'
+  | 'WEBSOCKET'
+  | 'STORAGE'
+  | 'PAYMENT'
+  | 'EMAIL';
+
+export interface AuditTargetContext {
+  type: string;
+  id: string;
+  label?: string;
+}
+
+export interface AuditIncidentContext {
+  scope: 'SYSTEM';
+  severity: AuditIncidentSeverity;
+  category: AuditIncidentCategory;
+  component: string;
+  operation: string;
+  fingerprint: string;
+}
+
+export interface AuditMetadataEnvelope {
+  actorType?: string;
+  module?: string;
+  operation?: string;
+  outcome?: AuditOutcome;
+  summary?: string;
+  target?: AuditTargetContext;
+  context?: Record<string, unknown>;
+  incident?: AuditIncidentContext;
+  securityAnalysis?: SecurityAnalysis;
+  [key: string]: unknown;
+}
 
 export interface ChangedField {
   path: string;
@@ -68,6 +106,42 @@ interface SecurityAnalysis {
   baseRiskLevel: RiskLevel;
   timestamp: string;
 }
+
+interface LogSystemIncidentInput {
+  actorId?: string | null;
+  req?: RequestContext;
+  entityType?: string;
+  entityId?: string;
+  component: string;
+  operation: string;
+  summary: string;
+  severity: AuditIncidentSeverity;
+  category: AuditIncidentCategory;
+  statusCode?: number;
+  error?: unknown;
+  errorCode?: string;
+  errorMessage?: string;
+  route?: string;
+  httpMethod?: string;
+  requestId?: string;
+  sessionId?: string;
+  target?: AuditTargetContext;
+  context?: Record<string, unknown>;
+  eventName?: string;
+  fingerprint?: string;
+}
+
+const SENSITIVE_AUDIT_KEYS = [
+  'password',
+  'passwordhash',
+  'otp',
+  'token',
+  'accesstoken',
+  'refreshtoken',
+  'authorization',
+  'cookie',
+  'secret',
+] as const;
 
 const ACTION_RISK_MAP: Record<string, RiskLevel> = {
   VIEW: 'LOW',
@@ -246,6 +320,57 @@ export class AuditLogsService {
     });
   }
 
+  async logSystemIncident(input: LogSystemIncidentInput) {
+    const fingerprint =
+      input.fingerprint ||
+      this.buildIncidentFingerprint(
+        input.category,
+        input.component,
+        input.operation,
+        input.errorCode,
+        input.errorMessage || this.resolveErrorMessage(input.error) || input.summary,
+      );
+
+    return this.log({
+      actorId: input.actorId ?? this.extractActorId(input.req),
+      action: 'ERROR',
+      entityType: input.entityType || input.target?.type || 'SystemIncident',
+      entityId: input.entityId || input.target?.id || fingerprint,
+      req: input.req,
+      source: 'SERVER',
+      eventCategory: 'ERROR',
+      eventName: input.eventName || `${input.component}-${input.operation}-failed`,
+      statusCode: input.statusCode,
+      route: input.route,
+      httpMethod: input.httpMethod,
+      requestId: input.requestId,
+      sessionId: input.sessionId,
+      errorCode: input.errorCode || this.resolveErrorCode(input.error),
+      errorMessage: input.errorMessage || this.resolveErrorMessage(input.error) || input.summary,
+      metadata: {
+        module: input.component,
+        operation: input.operation,
+        outcome: 'FAILURE',
+        summary: input.summary,
+        target:
+          input.target ||
+          ({
+            type: input.entityType || 'SystemIncident',
+            id: input.entityId || fingerprint,
+          } satisfies AuditTargetContext),
+        context: this.sanitizeMetadataContext(input.context),
+        incident: {
+          scope: 'SYSTEM',
+          severity: input.severity,
+          category: input.category,
+          component: input.component,
+          operation: input.operation,
+          fingerprint,
+        },
+      } satisfies AuditMetadataEnvelope,
+    });
+  }
+
   async logCustom(
     action: string,
     entityType: string,
@@ -332,7 +457,10 @@ export class AuditLogsService {
         securityFlags.push('SUSPICIOUS_USER_AGENT');
       }
 
-      if (SENSITIVE_ACTIONS.includes(action as (typeof SENSITIVE_ACTIONS)[number]) && payload.actorId) {
+      if (
+        SENSITIVE_ACTIONS.includes(action as (typeof SENSITIVE_ACTIONS)[number]) &&
+        payload.actorId
+      ) {
         const isNewIp = await this.checkIfIpIsNewForUser(payload.actorId, ip);
         if (isNewIp) {
           securityFlags.push('UNUSUAL_LOCATION');
@@ -358,11 +486,7 @@ export class AuditLogsService {
             : payload.req
               ? 'ANONYMOUS'
               : 'SYSTEM';
-      const metadata = {
-        ...(payload.metadata || {}),
-        actorType,
-        securityAnalysis,
-      };
+      const metadata = this.normalizeMetadata(payload, actorType, securityAnalysis);
 
       const logEntry = repository.create({
         actorId: payload.actorId,
@@ -376,7 +500,8 @@ export class AuditLogsService {
         statusCode: payload.statusCode ?? null,
         source: payload.source || 'SERVER',
         eventCategory: payload.eventCategory || this.resolveEventCategory(action),
-        eventName: payload.eventName || `${payload.entityType.toLowerCase()}-${action.toLowerCase()}`,
+        eventName:
+          payload.eventName || `${payload.entityType.toLowerCase()}-${action.toLowerCase()}`,
         journeyStep: payload.journeyStep || null,
         errorCode: payload.errorCode || null,
         errorMessage: payload.errorMessage || null,
@@ -448,7 +573,9 @@ export class AuditLogsService {
   }
 
   async getTimeline(id: string) {
-    const anchorEntity = await this.buildFilteredQuery({}).andWhere('log.id = :id', { id }).getOne();
+    const anchorEntity = await this.buildFilteredQuery({})
+      .andWhere('log.id = :id', { id })
+      .getOne();
 
     if (!anchorEntity) {
       throw new NotFoundException('Audit log not found');
@@ -554,9 +681,7 @@ export class AuditLogsService {
         ]),
       ];
 
-      const csv = rows
-        .map((row) => row.map((cell) => this.escapeCsv(cell)).join(','))
-        .join('\n');
+      const csv = rows.map((row) => row.map((cell) => this.escapeCsv(cell)).join(',')).join('\n');
 
       return {
         buffer: Buffer.from(csv, 'utf8'),
@@ -570,8 +695,7 @@ export class AuditLogsService {
       return {
         buffer: workbook,
         fileName: `audit-logs-${timestamp}.xlsx`,
-        contentType:
-          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
       };
     }
 
@@ -595,7 +719,9 @@ export class AuditLogsService {
     return req.user?.id || req.user?.sub || req.user?.userId || null;
   }
 
-  private buildFilteredQuery(queryDto: Partial<GetAuditLogsDto>): SelectQueryBuilder<AuditLogEntity> {
+  private buildFilteredQuery(
+    queryDto: Partial<GetAuditLogsDto>,
+  ): SelectQueryBuilder<AuditLogEntity> {
     const {
       userId,
       requestId,
@@ -610,6 +736,9 @@ export class AuditLogsService {
       eventCategory,
       statusCode,
       errorOnly,
+      incidentOnly,
+      component,
+      fingerprint,
     } = queryDto;
     const query = this.auditLogRepository.createQueryBuilder('log');
 
@@ -681,6 +810,28 @@ export class AuditLogsService {
       );
     }
 
+    if (incidentOnly) {
+      query.andWhere(
+        `(log.event_category = :incidentCategory AND log.metadata->'incident'->>'scope' = :incidentScope)`,
+        {
+          incidentCategory: 'ERROR',
+          incidentScope: 'SYSTEM',
+        },
+      );
+    }
+
+    if (component) {
+      query.andWhere(`COALESCE(log.metadata->'incident'->>'component', '') ILIKE :component`, {
+        component: `%${component}%`,
+      });
+    }
+
+    if (fingerprint) {
+      query.andWhere(`log.metadata->'incident'->>'fingerprint' = :fingerprint`, {
+        fingerprint,
+      });
+    }
+
     return query;
   }
 
@@ -695,7 +846,9 @@ export class AuditLogsService {
       return 'DB_CHANGE';
     }
 
-    if (['LOGIN', 'LOGOUT', 'REGISTRATION', 'CHANGE_PASSWORD', 'RESET_PASSWORD'].includes(upperAction)) {
+    if (
+      ['LOGIN', 'LOGOUT', 'REGISTRATION', 'CHANGE_PASSWORD', 'RESET_PASSWORD'].includes(upperAction)
+    ) {
       return 'AUTH';
     }
 
@@ -788,7 +941,10 @@ export class AuditLogsService {
       return false;
     }
 
-    return !recentLogs.map((log) => log.ipAddress).filter(Boolean).includes(currentIp);
+    return !recentLogs
+      .map((log) => log.ipAddress)
+      .filter(Boolean)
+      .includes(currentIp);
   }
 
   private buildChangedFields(
@@ -953,7 +1109,11 @@ export class AuditLogsService {
       { section: 'Summary', metric: 'Total Logs', value: insights.summary.totalLogs },
       { section: 'Summary', metric: 'High Risk', value: insights.summary.highRisk },
       { section: 'Summary', metric: 'Errors', value: insights.summary.errorCount },
-      { section: 'Summary', metric: 'Client Breadcrumbs', value: insights.summary.clientBreadcrumbs },
+      {
+        section: 'Summary',
+        metric: 'Client Breadcrumbs',
+        value: insights.summary.clientBreadcrumbs,
+      },
       { section: 'Summary', metric: 'Unique Actors', value: insights.summary.uniqueActors },
       {
         section: 'Summary',
@@ -992,7 +1152,9 @@ export class AuditLogsService {
     }));
 
     const timelineRows = [...data]
-      .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime())
+      .sort(
+        (left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime(),
+      )
       .map((entry) => ({
         timestamp: entry.timestamp,
         requestId: entry.requestId || '',
@@ -1083,6 +1245,9 @@ export class AuditLogsService {
       eventCategory: queryDto.eventCategory ?? null,
       statusCode: queryDto.statusCode ?? null,
       errorOnly: queryDto.errorOnly ?? false,
+      incidentOnly: queryDto.incidentOnly ?? false,
+      component: queryDto.component ?? null,
+      fingerprint: queryDto.fingerprint ?? null,
     };
   }
 
@@ -1109,7 +1274,8 @@ export class AuditLogsService {
     const afterData = entity.afterData as Record<string, unknown> | undefined;
     const securityAnalysis = afterData?._security_analysis as SecurityAnalysis | undefined;
     const riskLevel: RiskLevel = securityAnalysis?.riskLevel || 'NORMAL';
-    const actorType = String(entity.metadata?.actorType || '').toUpperCase();
+    const responseMetadata = this.buildResponseMetadata(entity, securityAnalysis);
+    const actorType = String(responseMetadata.actorType || '').toUpperCase();
     const fallbackActor =
       actorType === 'SYSTEM'
         ? { name: 'System', email: 'system@local' }
@@ -1135,7 +1301,8 @@ export class AuditLogsService {
       eventCategory:
         (entity.eventCategory as AuditEventCategory | null) ||
         this.resolveEventCategory(entity.action),
-      eventName: entity.eventName || `${entity.entityType.toLowerCase()}-${entity.action.toLowerCase()}`,
+      eventName:
+        entity.eventName || `${entity.entityType.toLowerCase()}-${entity.action.toLowerCase()}`,
       route: entity.route,
       httpMethod: entity.httpMethod,
       statusCode: entity.statusCode,
@@ -1147,13 +1314,336 @@ export class AuditLogsService {
       changedFields: (entity.changedFields as ChangedField[] | null) || [],
       beforeData: entity.beforeData,
       afterData: entity.afterData,
-      metadata: {
-        ...(entity.metadata || {}),
-        userAgent: entity.userAgent,
+      metadata: responseMetadata,
+    };
+  }
+
+  private normalizeMetadata(
+    payload: AuditLogPayload,
+    actorType: string,
+    securityAnalysis: SecurityAnalysis,
+  ): AuditMetadataEnvelope {
+    const input = (payload.metadata || {}) as AuditMetadataEnvelope;
+    const target = this.normalizeTarget(payload, input.target);
+    const outcome = this.normalizeOutcome(payload, input.outcome);
+    const moduleName = this.normalizeModuleName(payload, input.module);
+    const operation = this.normalizeOperation(payload, input.operation);
+    const incident = input.incident
+      ? {
+          ...input.incident,
+          fingerprint:
+            input.incident.fingerprint ||
+            this.buildIncidentFingerprint(
+              input.incident.category,
+              input.incident.component,
+              input.incident.operation,
+              payload.errorCode,
+              payload.errorMessage || input.summary || payload.eventName || payload.action,
+            ),
+        }
+      : undefined;
+
+    return {
+      ...input,
+      actorType,
+      module: moduleName,
+      operation,
+      outcome,
+      target,
+      summary: this.normalizeSummary(payload, input.summary, target, outcome),
+      context: this.sanitizeMetadataContext(input.context),
+      incident,
+      securityAnalysis,
+    };
+  }
+
+  private buildResponseMetadata(
+    entity: AuditLogEntity,
+    securityAnalysis?: SecurityAnalysis,
+  ): AuditMetadataEnvelope {
+    const raw = (entity.metadata || {}) as AuditMetadataEnvelope;
+    const incident = raw.incident
+      ? {
+          ...raw.incident,
+          fingerprint:
+            raw.incident.fingerprint ||
+            this.buildIncidentFingerprint(
+              raw.incident.category,
+              raw.incident.component,
+              raw.incident.operation,
+              entity.errorCode || undefined,
+              entity.errorMessage || raw.summary || entity.eventName || entity.action,
+            ),
+        }
+      : undefined;
+
+    const target =
+      raw.target ||
+      ({
+        type: entity.entityType,
+        id: entity.entityId,
+        label: this.resolveTargetLabel(entity.entityType, entity.afterData || entity.beforeData),
+      } satisfies AuditTargetContext);
+
+    const outcome = this.normalizeOutcome(
+      {
+        actorId: entity.actorId,
+        action: entity.action,
         entityType: entity.entityType,
         entityId: entity.entityId,
+        statusCode: entity.statusCode ?? undefined,
+        eventCategory: (entity.eventCategory as AuditEventCategory | null) || undefined,
+        eventName: entity.eventName || undefined,
+        errorCode: entity.errorCode || undefined,
+        errorMessage: entity.errorMessage || undefined,
+        metadata: raw,
       },
+      raw.outcome,
+    );
+
+    return {
+      ...raw,
+      actorType: raw.actorType || (entity.actorId ? 'USER' : 'SYSTEM'),
+      module: raw.module || entity.entityType,
+      operation: raw.operation || entity.eventName || entity.action.toLowerCase(),
+      outcome,
+      summary:
+        raw.summary ||
+        this.buildDefaultSummary(
+          entity.action,
+          entity.entityType,
+          target,
+          outcome,
+          entity.eventName || undefined,
+        ),
+      target,
+      context: this.sanitizeMetadataContext(raw.context),
+      incident,
+      securityAnalysis:
+        raw.securityAnalysis ||
+        securityAnalysis ||
+        ((entity.afterData as Record<string, unknown> | undefined)?._security_analysis as
+          | SecurityAnalysis
+          | undefined),
+      userAgent: entity.userAgent,
+      entityType: entity.entityType,
+      entityId: entity.entityId,
     };
+  }
+
+  private normalizeTarget(
+    payload: AuditLogPayload,
+    target?: AuditTargetContext,
+  ): AuditTargetContext {
+    return {
+      type: target?.type || payload.entityType,
+      id: target?.id || payload.entityId,
+      label:
+        target?.label ||
+        this.resolveTargetLabel(payload.entityType, payload.newData || payload.oldData),
+    };
+  }
+
+  private normalizeOutcome(
+    payload: Partial<AuditLogPayload>,
+    outcome?: AuditOutcome,
+  ): AuditOutcome {
+    if (outcome) {
+      return outcome;
+    }
+
+    if (
+      payload.eventCategory === 'ERROR' ||
+      Boolean(payload.errorMessage) ||
+      Boolean(payload.errorCode) ||
+      (payload.statusCode ?? 0) >= 400
+    ) {
+      return 'FAILURE';
+    }
+
+    return 'SUCCESS';
+  }
+
+  private normalizeModuleName(payload: AuditLogPayload, existing?: string): string {
+    if (existing) {
+      return existing;
+    }
+
+    if (payload.eventCategory === 'ERROR') {
+      return payload.entityType || 'System';
+    }
+
+    return payload.entityType;
+  }
+
+  private normalizeOperation(payload: AuditLogPayload, existing?: string): string {
+    if (existing) {
+      return existing;
+    }
+
+    return payload.eventName || payload.action.toLowerCase();
+  }
+
+  private normalizeSummary(
+    payload: AuditLogPayload,
+    existingSummary: string | undefined,
+    target: AuditTargetContext,
+    outcome: AuditOutcome,
+  ): string {
+    if (existingSummary) {
+      return existingSummary;
+    }
+
+    return this.buildDefaultSummary(
+      payload.action,
+      payload.entityType,
+      target,
+      outcome,
+      payload.eventName,
+    );
+  }
+
+  private buildDefaultSummary(
+    action: string,
+    entityType: string,
+    target: AuditTargetContext,
+    outcome: AuditOutcome,
+    eventName?: string,
+  ): string {
+    const normalizedAction = action.replace(/_/g, ' ').toLowerCase();
+    const normalizedEntity = entityType.replace(/([a-z])([A-Z])/g, '$1 $2');
+    const targetLabel = target.label || `${target.type} ${target.id}`;
+    const targetDescriptor =
+      targetLabel === `${target.type} ${target.id}` ? targetLabel : `${targetLabel}`;
+
+    return `${outcome === 'FAILURE' ? 'Failed to' : 'Completed'} ${normalizedAction} on ${normalizedEntity} ${targetDescriptor}`.replace(
+      /\s+/g,
+      ' ',
+    );
+  }
+
+  private resolveTargetLabel(
+    entityType: string,
+    source?: Record<string, unknown> | null,
+  ): string | undefined {
+    if (!source) {
+      return undefined;
+    }
+
+    const prioritizedKeys = ['title', 'name', 'fullName', 'email', 'subject', 'label'] as const;
+    for (const key of prioritizedKeys) {
+      const value = source[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim();
+      }
+    }
+
+    if (entityType === 'Session') {
+      const email = source['email'];
+      if (typeof email === 'string' && email.trim()) {
+        return email.trim();
+      }
+    }
+
+    return undefined;
+  }
+
+  private sanitizeMetadataContext(
+    value: Record<string, unknown> | undefined,
+  ): Record<string, unknown> | undefined {
+    if (!value) {
+      return undefined;
+    }
+
+    return this.sanitizeAuditValue(value) as Record<string, unknown>;
+  }
+
+  private sanitizeAuditValue(value: unknown, depth = 0, seen = new WeakSet<object>()): unknown {
+    if (depth > 6) {
+      return '[Truncated]';
+    }
+
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    if (Array.isArray(value)) {
+      return value.map((item) => this.sanitizeAuditValue(item, depth + 1, seen));
+    }
+
+    if (this.isPlainObject(value)) {
+      if (seen.has(value as object)) {
+        return '[Circular]';
+      }
+
+      seen.add(value as object);
+      const output: Record<string, unknown> = {};
+
+      Object.entries(value as Record<string, unknown>).forEach(([key, currentValue]) => {
+        const normalizedKey = key.replace(/[^a-zA-Z]/g, '').toLowerCase();
+        if (SENSITIVE_AUDIT_KEYS.some((sensitiveKey) => normalizedKey.includes(sensitiveKey))) {
+          output[key] = '[Redacted]';
+          return;
+        }
+
+        output[key] = this.sanitizeAuditValue(currentValue, depth + 1, seen);
+      });
+
+      return output;
+    }
+
+    return value;
+  }
+
+  private resolveErrorCode(error: unknown): string | undefined {
+    if (error instanceof Error) {
+      return error.name || 'Error';
+    }
+
+    return undefined;
+  }
+
+  private resolveErrorMessage(error: unknown): string | undefined {
+    if (error instanceof Error) {
+      return error.message;
+    }
+
+    if (typeof error === 'string') {
+      return error;
+    }
+
+    return undefined;
+  }
+
+  private buildIncidentFingerprint(
+    category: AuditIncidentCategory,
+    component: string,
+    operation: string,
+    errorCode?: string,
+    message?: string,
+  ): string {
+    const normalizedMessage = (message || '')
+      .toLowerCase()
+      .replace(/[0-9a-f]{8,}/g, ':id')
+      .replace(/\d+/g, ':n')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 120);
+
+    return [
+      category,
+      component,
+      operation,
+      errorCode || 'unknown',
+      normalizedMessage || 'no-message',
+    ]
+      .map((part) =>
+        part
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-+|-+$/g, ''),
+      )
+      .join(':');
   }
 
   private describeActor(actorId: string | null, req?: RequestContext): string {

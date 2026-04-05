@@ -45,6 +45,17 @@ import { UsersController } from 'src/modules/users/users.controller';
 import { UsersService } from 'src/modules/users/users.service';
 
 import {
+  buildCommonAuthPreconditions,
+  buildMissingTargetPreconditions,
+  buildTargetExistencePreconditions,
+  flattenInvocationInputs,
+  summarizeInputDelta,
+  summarizeReturnValue,
+  toRoleLabel,
+  toWorkbookInputMap,
+} from './case-catalog-utils';
+import type { WorkbookCaseDescriptor } from './case-catalog.types';
+import {
   ALT_UUID,
   THIRD_UUID,
   VALID_ISO,
@@ -58,6 +69,7 @@ import {
 import { resolveTaskEndpoints, type TaskEndpoint } from './task-manifest';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/modules/auth/guards/roles.guard';
+import { buildCaseLogMessageFromTitle } from './test-log-helpers';
 
 type SupportedGroup = 'leave' | 'reports' | 'reviews' | 'user-warnings' | 'users-admin';
 type Variant = 'happy' | 'edge-1' | 'edge-2';
@@ -601,6 +613,257 @@ const buildInvocation = (endpoint: TaskEndpoint, variant: Variant): InvocationPa
     body: buildBody(endpoint, variant),
     user: buildUser(endpoint.preferredRole, { id: VALID_UUID }),
   };
+};
+
+const buildValidationMessage = (endpoint: TaskEndpoint) => {
+  const config = validationConfig[endpoint.code];
+  if (!config) {
+    return `BadRequestException: Invalid ${endpoint.name} payload`;
+  }
+
+  if (config.kind === 'uuid') {
+    return `BadRequestException: ${config.field} must be a UUID`;
+  }
+  if (config.kind === 'int') {
+    return `BadRequestException: ${config.field} must be an integer`;
+  }
+  if (config.kind === 'bool') {
+    return `BadRequestException: ${config.field} must be a boolean`;
+  }
+
+  const [fieldName] = Object.keys(config.payload);
+  return `BadRequestException: ${fieldName} fails DTO validation`;
+};
+
+const buildUnauthorizedTitle = (endpoint: TaskEndpoint) => {
+  if (endpoint.securityMode === 'guarded-role' || endpoint.securityMode === 'guarded-auth') {
+    return `${endpoint.code} UTC07 security declares JwtAuthGuard on ${endpoint.methodName}`;
+  }
+
+  if (endpoint.code === 'EP-295' || endpoint.code === 'EP-296') {
+    return `${endpoint.code} UTC07 security handles missing user context for ${endpoint.methodName}`;
+  }
+
+  return `${endpoint.code} UTC07 security confirms ${endpoint.methodName} does not require JwtAuthGuard`;
+};
+
+const buildForbiddenTitle = (endpoint: TaskEndpoint) => {
+  if (endpoint.securityMode === 'guarded-role') {
+    return `${endpoint.code} UTC08 security restricts ${endpoint.methodName} to ${endpoint.roles.join(', ')} role metadata`;
+  }
+  if (endpoint.securityMode === 'guarded-auth') {
+    return `${endpoint.code} UTC08 security keeps ${endpoint.methodName} authentication-only without role metadata`;
+  }
+  if (endpoint.code === 'EP-292' || endpoint.code === 'EP-293' || endpoint.code === 'EP-294') {
+    return `${endpoint.code} UTC08 security falls back to system-scoped moderation handling when auth context is absent`;
+  }
+  return `${endpoint.code} UTC08 security confirms ${endpoint.methodName} has no role metadata restriction`;
+};
+
+const buildCaseTitle = (
+  endpoint: TaskEndpoint,
+  utcId: string,
+  kind: 'happy' | 'edge-1' | 'edge-2' | 'validation' | 'not-found' | 'unexpected' | 'unauthorized' | 'forbidden',
+) => {
+  if (kind === 'unauthorized') {
+    return buildUnauthorizedTitle(endpoint);
+  }
+  if (kind === 'forbidden') {
+    return buildForbiddenTitle(endpoint);
+  }
+
+  const happyInputs = flattenInvocationInputs(buildInvocation(endpoint, 'happy'));
+  const edgeInputs =
+    kind === 'edge-1' || kind === 'edge-2'
+      ? flattenInvocationInputs(buildInvocation(endpoint, kind))
+      : undefined;
+
+  switch (kind) {
+    case 'happy':
+      return `${endpoint.code} ${utcId} happy path executes ${endpoint.methodName} with valid business inputs`;
+    case 'edge-1':
+      return `${endpoint.code} ${utcId} edge case accepts alternate input set ${summarizeInputDelta(happyInputs, edgeInputs ?? {}, 'for boundary coverage')}`;
+    case 'edge-2':
+      return `${endpoint.code} ${utcId} edge case accepts secondary input set ${summarizeInputDelta(happyInputs, edgeInputs ?? {}, 'for optional fields')}`;
+    case 'validation':
+      return `${endpoint.code} ${utcId} validation rejects ${buildValidationMessage(endpoint).replace(/^BadRequestException:\s*/i, '').replace(/^ConflictException:\s*/i, '').replace(/^NotFoundException:\s*/i, '')}`;
+    case 'not-found':
+      return `${endpoint.code} ${utcId} validation returns not found when the target record is missing`;
+    case 'unexpected':
+      return `${endpoint.code} ${utcId} validation propagates ${endpoint.name.toLowerCase()} service failures`;
+    default:
+      return `${endpoint.code} ${utcId} ${kind} ${endpoint.methodName}`;
+  }
+};
+
+const buildSecurityCases = (endpoint: TaskEndpoint): WorkbookCaseDescriptor[] => {
+  const commonUnauthorized: WorkbookCaseDescriptor = {
+    utcId: 'UTC07',
+    testKey: `${endpoint.code} UTC07`,
+    title: buildUnauthorizedTitle(endpoint),
+    type: 'A',
+    preconditions: [`Caller is not authenticated for ${endpoint.controllerName}.${endpoint.methodName}`],
+    inputs: {},
+    returns: [],
+    exceptions: [],
+    logs: [buildCaseLogMessageFromTitle(buildUnauthorizedTitle(endpoint))],
+  };
+
+  const commonForbidden: WorkbookCaseDescriptor = {
+    utcId: 'UTC08',
+    testKey: `${endpoint.code} UTC08`,
+    title: buildForbiddenTitle(endpoint),
+    type: 'A',
+    preconditions: [
+      `Caller is authenticated as ${toRoleLabel(endpoint.disallowedRole)}`,
+      `Caller is not allowed to invoke ${endpoint.controllerName}.${endpoint.methodName}`,
+    ],
+    inputs: {},
+    returns: [],
+    exceptions: [],
+    logs: [buildCaseLogMessageFromTitle(buildForbiddenTitle(endpoint))],
+  };
+
+  if (endpoint.securityMode === 'guarded-role') {
+    commonUnauthorized.exceptions = ['401 Unauthorized'];
+    commonForbidden.exceptions = [
+      `403 Forbidden: ${toRoleLabel(endpoint.disallowedRole)} cannot access ${endpoint.methodName}`,
+    ];
+    return [commonUnauthorized, commonForbidden];
+  }
+
+  if (endpoint.securityMode === 'guarded-auth') {
+    commonUnauthorized.exceptions = ['401 Unauthorized'];
+    commonForbidden.returns = [
+      `${endpoint.methodName} declares authentication-only access without role metadata`,
+    ];
+    return [commonUnauthorized, commonForbidden];
+  }
+
+  if (endpoint.code === 'EP-295') {
+    commonUnauthorized.returns = ['returns flags = [] and hasWarning = false'];
+    commonForbidden.returns = ['returns includeResolved guest-safe response without role metadata'];
+    return [commonUnauthorized, commonForbidden];
+  }
+
+  if (endpoint.code === 'EP-296') {
+    commonUnauthorized.returns = ['returns error object with message = "User not authenticated"'];
+    commonForbidden.returns = ['returns public appeal handler without role metadata'];
+    return [commonUnauthorized, commonForbidden];
+  }
+
+  if (endpoint.code === 'EP-292' || endpoint.code === 'EP-293' || endpoint.code === 'EP-294') {
+    commonUnauthorized.returns = ['returns system-scoped moderation handling when user context is absent'];
+    commonForbidden.returns = ['returns public moderation fallback without role metadata'];
+    return [commonUnauthorized, commonForbidden];
+  }
+
+  commonUnauthorized.returns = [`${endpoint.methodName} does not declare JwtAuthGuard`];
+  commonForbidden.returns = [`${endpoint.methodName} does not declare role metadata`];
+  return [commonUnauthorized, commonForbidden];
+};
+
+export const buildServiceControllerCaseDefinitions = (
+  endpoint: TaskEndpoint,
+): WorkbookCaseDescriptor[] => {
+  const happyInvocation = buildInvocation(endpoint, 'happy');
+  const edgeOneInvocation = buildInvocation(endpoint, 'edge-1');
+  const edgeTwoInvocation = buildInvocation(endpoint, 'edge-2');
+  const happyInputs = flattenInvocationInputs(happyInvocation);
+  const edgeOneInputs = flattenInvocationInputs(edgeOneInvocation);
+  const edgeTwoInputs = flattenInvocationInputs(edgeTwoInvocation);
+  const returnSummary = summarizeReturnValue(endpoint.name, buildServiceReturn(endpoint, 'happy'));
+
+  const basePreconditions = [
+    ...buildCommonAuthPreconditions(
+      endpoint.preferredRole,
+      endpoint.controllerName,
+      endpoint.methodName,
+    ),
+    ...buildTargetExistencePreconditions(happyInputs),
+  ];
+
+  const cases: WorkbookCaseDescriptor[] = [
+    {
+      utcId: 'UTC01',
+      testKey: `${endpoint.code} UTC01`,
+      title: buildCaseTitle(endpoint, 'UTC01', 'happy'),
+      type: 'N',
+      preconditions: basePreconditions,
+      inputs: toWorkbookInputMap(happyInputs),
+      returns: [returnSummary],
+      exceptions: [],
+      logs: [buildCaseLogMessageFromTitle(buildCaseTitle(endpoint, 'UTC01', 'happy'))],
+    },
+    {
+      utcId: 'UTC02',
+      testKey: `${endpoint.code} UTC02`,
+      title: buildCaseTitle(endpoint, 'UTC02', 'edge-1'),
+      type: 'B',
+      preconditions: basePreconditions,
+      inputs: toWorkbookInputMap(edgeOneInputs),
+      returns: [summarizeReturnValue(endpoint.name, buildServiceReturn(endpoint, 'edge-1'))],
+      exceptions: [],
+      logs: [buildCaseLogMessageFromTitle(buildCaseTitle(endpoint, 'UTC02', 'edge-1'))],
+    },
+    {
+      utcId: 'UTC03',
+      testKey: `${endpoint.code} UTC03`,
+      title: buildCaseTitle(endpoint, 'UTC03', 'edge-2'),
+      type: 'B',
+      preconditions: basePreconditions,
+      inputs: toWorkbookInputMap(edgeTwoInputs),
+      returns: [summarizeReturnValue(endpoint.name, buildServiceReturn(endpoint, 'edge-2'))],
+      exceptions: [],
+      logs: [buildCaseLogMessageFromTitle(buildCaseTitle(endpoint, 'UTC03', 'edge-2'))],
+    },
+    {
+      utcId: 'UTC04',
+      testKey: `${endpoint.code} UTC04`,
+      title: buildCaseTitle(endpoint, 'UTC04', 'validation'),
+      type: 'A',
+      preconditions: buildCommonAuthPreconditions(
+        endpoint.preferredRole,
+        endpoint.controllerName,
+        endpoint.methodName,
+      ),
+      inputs: {},
+      returns: [],
+      exceptions: [buildValidationMessage(endpoint)],
+      logs: [buildCaseLogMessageFromTitle(buildCaseTitle(endpoint, 'UTC04', 'validation'))],
+    },
+    {
+      utcId: 'UTC05',
+      testKey: `${endpoint.code} UTC05`,
+      title: buildCaseTitle(endpoint, 'UTC05', 'not-found'),
+      type: 'A',
+      preconditions: [
+        ...buildCommonAuthPreconditions(
+          endpoint.preferredRole,
+          endpoint.controllerName,
+          endpoint.methodName,
+        ),
+        ...buildMissingTargetPreconditions(happyInputs),
+      ],
+      inputs: toWorkbookInputMap(happyInputs),
+      returns: [],
+      exceptions: [`NotFoundException: ${endpoint.name} target not found`],
+      logs: [buildCaseLogMessageFromTitle(buildCaseTitle(endpoint, 'UTC05', 'not-found'))],
+    },
+    {
+      utcId: 'UTC06',
+      testKey: `${endpoint.code} UTC06`,
+      title: buildCaseTitle(endpoint, 'UTC06', 'unexpected'),
+      type: 'A',
+      preconditions: basePreconditions,
+      inputs: toWorkbookInputMap(happyInputs),
+      returns: [],
+      exceptions: [`ConflictException: ${endpoint.name} service failed`],
+      logs: [buildCaseLogMessageFromTitle(buildCaseTitle(endpoint, 'UTC06', 'unexpected'))],
+    },
+  ];
+
+  return [...cases, ...buildSecurityCases(endpoint)];
 };
 
 const applyDefaultMocks = (

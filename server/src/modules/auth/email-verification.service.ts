@@ -5,6 +5,7 @@ import { UserEntity, UserStatus } from '../../database/entities/user.entity';
 import * as crypto from 'crypto';
 import * as nodemailer from 'nodemailer';
 import { ConfigService } from '@nestjs/config';
+import { normalizeAuthEmail } from './utils/email.utils';
 
 @Injectable()
 export class EmailVerificationService {
@@ -164,7 +165,8 @@ export class EmailVerificationService {
    * Resend verification email
    */
   async resendVerificationEmail(email: string): Promise<{ message: string }> {
-    const user = await this.userRepository.findOne({ where: { email } });
+    const normalizedEmail = normalizeAuthEmail(email);
+    const user = await this.userRepository.findOne({ where: { email: normalizedEmail } });
 
     if (!user) {
       throw new NotFoundException('User not found');

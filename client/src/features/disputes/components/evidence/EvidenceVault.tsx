@@ -233,7 +233,7 @@ export const EvidenceVault = ({
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="evidence-vault">
       <div className="flex items-center justify-between">
         <h3 className="text-lg font-medium text-slate-900">
           Evidence Vault
@@ -284,6 +284,7 @@ export const EvidenceVault = ({
             return (
               <div
                 key={file.id}
+                data-testid={`evidence-card-${file.id}`}
                 className={`group relative bg-white border rounded-xl overflow-hidden transition-shadow hover:shadow-md
                   ${file.isFlagged ? "border-red-200 bg-red-50/10" : !urlAvailable ? "border-amber-200" : "border-gray-200"}
                 `}
@@ -337,6 +338,7 @@ export const EvidenceVault = ({
                   {/* Hover overlay with action buttons */}
                   <div className="absolute inset-0 bg-slate-900/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-sm">
                     <button
+                      data-testid={`evidence-view-${file.id}`}
                       className="p-2 bg-white/10 text-white rounded-full hover:bg-white/20 disabled:opacity-40"
                       title={
                         canPreview(file.mimeType)
@@ -349,6 +351,7 @@ export const EvidenceVault = ({
                       <Eye className="w-5 h-5" />
                     </button>
                     <button
+                      data-testid={`evidence-download-${file.id}`}
                       className="p-2 bg-white/10 text-white rounded-full hover:bg-white/20 disabled:opacity-40"
                       title="Download"
                       onClick={() => handleDownload(file)}
@@ -362,6 +365,7 @@ export const EvidenceVault = ({
                     </button>
                     {canFlag && !file.isFlagged && (
                       <button
+                        data-testid={`evidence-flag-${file.id}`}
                         className="p-2 bg-red-500/80 text-white rounded-full hover:bg-red-600"
                         title="Flag as Inappropriate"
                         onClick={() => openFlagDialog(file)}
@@ -411,6 +415,7 @@ export const EvidenceVault = ({
 
           {canUpload ? (
             <button
+              data-testid="upload-evidence-trigger"
               onClick={handlePickFile}
               disabled={uploading}
               className="border-2 border-dashed border-gray-300 rounded-xl flex flex-col items-center justify-center p-6 text-gray-400 hover:border-teal-500 hover:text-teal-600 hover:bg-teal-50 transition-colors disabled:opacity-50"
@@ -434,6 +439,7 @@ export const EvidenceVault = ({
           ref={fileInputRef}
           type="file"
           className="hidden"
+          data-testid="upload-evidence-input"
           onChange={handleFileChange}
         />
       ) : null}
@@ -554,6 +560,7 @@ export const EvidenceVault = ({
           <textarea
             rows={3}
             value={flagReason}
+            data-testid="flag-evidence-reason"
             onChange={(event) => setFlagReason(event.target.value)}
             placeholder="Reason for flagging"
             className="w-full border border-gray-200 rounded-lg p-3 text-sm focus:ring-teal-500 focus:border-teal-500"
@@ -567,6 +574,7 @@ export const EvidenceVault = ({
               Cancel
             </button>
             <button
+              data-testid="flag-evidence-confirm"
               className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
               onClick={handleFlagSubmit}
               disabled={flagging}

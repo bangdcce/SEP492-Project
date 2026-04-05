@@ -1,56 +1,34 @@
-/**
- * TrustProfileSection Component
- * Complete, reusable trust profile display with reviews
- *
- * Features:
- * - Grid layout: Trust Score Card (4 cols) + Reviews (8 cols)
- * - Sticky trust card on scroll
- * - Built-in "See all reviews" functionality
- * - Automatic stats calculation
- * - Full-page reviews view
- * - Current user's review prioritized at top
- * - Edit functionality for own reviews
- *
- * Usage:
- * <TrustProfileSection
- *   user={userData}
- *   reviews={reviewsData}
- *   currentUserId="logged-in-user-id"
- * />
- */
-
-import { useState, useMemo } from "react";
-import type { Review, User } from "../types";
-import { TrustScoreCard } from "../components/review/TrustScoreCard";
+import { useMemo, useState } from "react";
+import type { ProjectHistoryItem, Review, User } from "../types";
+import { CreateReviewModal } from "../modals/CreateReviewModal";
 import { ReviewItem } from "../components/review/ReviewItem";
-import { StarRating } from "../components/ui/StarRating";
 import { ReviewsFullPage } from "../components/review/ReviewsFullPage";
+import { TrustScoreCard } from "../components/review/TrustScoreCard";
+import { StarRating } from "../components/ui/StarRating";
 
 interface TrustProfileSectionProps {
   user: User;
   reviews: Review[];
+  projectHistory: ProjectHistoryItem[];
   isLoading?: boolean;
-  /** Number of reviews to show initially (default: 3) */
   previewCount?: number;
-  /** Custom className for the container */
   className?: string;
-  /** Current logged-in user ID - used to prioritize own review and enable edit */
   currentUserId?: string;
-  /** Callback when review is updated (for refreshing data) */
   onReviewUpdated?: () => void;
 }
 
 export function TrustProfileSection({
   user,
   reviews,
+  projectHistory,
   previewCount = 3,
   className = "",
   currentUserId,
   onReviewUpdated,
 }: TrustProfileSectionProps) {
   const [isFullPageOpen, setIsFullPageOpen] = useState(false);
+  const [isCreateReviewOpen, setIsCreateReviewOpen] = useState(false);
 
-  // Calculate stats from reviews
   const stats = useMemo(() => {
     const totalReviews = reviews.length;
 
@@ -73,13 +51,13 @@ export function TrustProfileSection({
 
     const ratingDistribution = reviews.reduce(
       (acc, review) => {
-        const rating = review.rating as 1 | 2 | 3 | 4 | 5;
-        if (rating >= 1 && rating <= 5) {
-          acc[rating]++;
+        const value = review.rating as 1 | 2 | 3 | 4 | 5;
+        if (value >= 1 && value <= 5) {
+          acc[value] += 1;
         }
         return acc;
       },
-      { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } as Record<1 | 2 | 3 | 4 | 5, number>
+      { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } as Record<1 | 2 | 3 | 4 | 5, number>,
     );
 
     return {
@@ -89,68 +67,125 @@ export function TrustProfileSection({
     };
   }, [reviews]);
 
-  // Find current user's review (if exists)
-  const currentUserReview = useMemo(() => {
-    if (!currentUserId) return null;
-    return reviews.find((r) => r.reviewer.id === currentUserId) || null;
-  }, [reviews, currentUserId]);
+  const currentUserReviews = useMemo(() => {
+    if (!currentUserId) {
+      return [];
+    }
+    return reviews.filter((review) => review.reviewer.id === currentUserId);
+  }, [currentUserId, reviews]);
 
-  // Sort reviews: current user's review first, then by date (newest first)
   const sortedReviews = useMemo(() => {
     return [...reviews].sort((a, b) => {
-      // Current user's review always first
       if (currentUserId) {
         if (a.reviewer.id === currentUserId) return -1;
         if (b.reviewer.id === currentUserId) return 1;
       }
-      // Then sort by date (newest first)
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }, [reviews, currentUserId]);
+
+  const sharedReviewableProjects = useMemo(() => {
+    const isReviewableStatus = (status?: string | null) => {
+      const normalized = String(status || "").toUpperCase();
+      return normalized === "COMPLETED" || normalized === "PAID";
+    };
+
+    const includesUser = (
+      project: ProjectHistoryItem,
+      participantId?: string | null
+    ) => {
+      if (!participantId) {
+        return false;
+      }
+
+      return (
+        project.client?.id === participantId ||
+        project.broker?.id === participantId ||
+        project.freelancer?.id === participantId
+      );
+    };
+
+    return [...projectHistory]
+      .filter((project) => isReviewableStatus(project.status))
+      .filter((project) => includesUser(project, user.id))
+      .filter((project) => includesUser(project, currentUserId))
+      .sort(
+        (a, b) =>
+          new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime(),
+      );
+  }, [projectHistory, currentUserId, user.id]);
+
+  const latestPendingReviewProject = useMemo(() => {
+    return (
+      sharedReviewableProjects.find(
+        (project) =>
+          !currentUserReviews.some(
+            (review) => review.project.id === project.projectId,
+          ),
+      ) || null
+    );
+  }, [currentUserReviews, sharedReviewableProjects]);
+
+  const canCreateReview = Boolean(
+    currentUserId &&
+      currentUserId !== user.id &&
+      latestPendingReviewProject?.projectId,
+  );
 
   const previewReviews = sortedReviews.slice(0, previewCount);
 
   return (
     <>
-      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 ${className}`}>
-        {/* Left Column: Trust Score Card (4/12 - Sticky) */}
+      <div className={`grid grid-cols-1 gap-6 lg:grid-cols-12 ${className}`}>
         <div className="lg:col-span-4">
           <div className="lg:sticky lg:top-4">
             <TrustScoreCard user={user} />
           </div>
         </div>
 
-        {/* Right Column: Reviews Section (8/12) */}
-        <div className="lg:col-span-8 space-y-4">
-          {/* Reviews Header Card */}
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="space-y-4 lg:col-span-8" data-testid="trust-profile-reviews-section">
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="text-slate-900 text-xl">Reviews</h3>
-                <p className="text-sm text-gray-600 mt-1">
-                  {stats.totalReviews} total review
-                  {stats.totalReviews !== 1 ? "s" : ""}
+                <h3 className="text-xl text-slate-900">Reviews</h3>
+                <p className="mt-1 text-sm text-gray-600">
+                  {stats.totalReviews} total review{stats.totalReviews === 1 ? "" : "s"}
                 </p>
               </div>
 
-              {/* Average Rating Display - Compact */}
-              {stats.totalReviews > 0 && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-teal-50 border border-teal-200 rounded-lg">
-                  <div className="text-2xl text-slate-900">
-                    {stats.averageScore.toFixed(1)}
+              <div className="flex flex-col items-start gap-3 sm:items-end">
+                {stats.totalReviews > 0 ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2">
+                    <div className="text-2xl text-slate-900">{stats.averageScore.toFixed(1)}</div>
+                    <StarRating rating={stats.averageScore} />
                   </div>
-                  <StarRating rating={stats.averageScore} />
-                </div>
-              )}
+                ) : null}
+
+                {canCreateReview ? (
+                  <button
+                    type="button"
+                    data-testid="open-create-review"
+                    onClick={() => setIsCreateReviewOpen(true)}
+                    className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700"
+                  >
+                    Leave a Review
+                  </button>
+                ) : null}
+              </div>
             </div>
+
+          {canCreateReview && latestPendingReviewProject ? (
+              <p className="mt-3 text-xs text-slate-500">
+                Review will be linked to project <span className="font-medium">{latestPendingReviewProject.title}</span>.
+              </p>
+            ) : null}
           </div>
 
-          {/* Reviews List */}
           {stats.totalReviews === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-lg p-12 shadow-sm text-center">
-              <div className="text-gray-400 mb-2">
+            <div className="rounded-lg border border-gray-200 bg-white p-12 text-center shadow-sm">
+              <div className="mb-2 text-gray-400">
                 <svg
-                  className="w-16 h-16 mx-auto"
+                  className="mx-auto h-16 w-16"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -163,21 +198,20 @@ export function TrustProfileSection({
                   />
                 </svg>
               </div>
-              <h4 className="text-slate-900 mb-1">No reviews yet</h4>
-              <p className="text-sm text-gray-600">
-                This user hasn't received any reviews yet.
-              </p>
+              <h4 className="text-slate-900">No reviews yet</h4>
+              <p className="text-sm text-gray-600">This user has not received any reviews yet.</p>
             </div>
           ) : (
             <>
-              {/* Show "Your Review" badge if current user has reviewed */}
-              {currentUserReview && (
-                <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 mb-4">
+              {!canCreateReview &&
+              currentUserReviews.length > 0 &&
+              sharedReviewableProjects.length > 0 ? (
+                <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50 p-3">
                   <p className="text-sm text-teal-700">
-                    ✓ You have already reviewed this user
+                    You have already reviewed this user on every shared completed project.
                   </p>
                 </div>
-              )}
+              ) : null}
 
               <div className="space-y-4">
                 {previewReviews.map((review) => (
@@ -190,26 +224,21 @@ export function TrustProfileSection({
                 ))}
               </div>
 
-              {/* See All Reviews Button */}
-              {stats.totalReviews > previewCount && (
+              {stats.totalReviews > previewCount ? (
                 <button
+                  type="button"
                   onClick={() => setIsFullPageOpen(true)}
-                  className="
-                    w-full py-3 rounded-lg border-2 border-teal-500 
-                    text-teal-600 hover:bg-teal-50 transition-colors
-                    bg-white shadow-sm
-                  "
+                  className="w-full rounded-lg border-2 border-teal-500 bg-white py-3 text-teal-600 shadow-sm transition-colors hover:bg-teal-50"
                 >
                   See all {stats.totalReviews} reviews
                 </button>
-              )}
+              ) : null}
             </>
           )}
         </div>
       </div>
 
-      {/* Full Reviews Page Overlay */}
-      {isFullPageOpen && (
+      {isFullPageOpen ? (
         <ReviewsFullPage
           reviews={sortedReviews}
           stats={stats}
@@ -217,7 +246,23 @@ export function TrustProfileSection({
           currentUserId={currentUserId}
           onReviewUpdated={onReviewUpdated}
         />
-      )}
+      ) : null}
+
+      {canCreateReview && latestPendingReviewProject ? (
+        <CreateReviewModal
+          isOpen={isCreateReviewOpen}
+          onClose={() => setIsCreateReviewOpen(false)}
+          projectId={latestPendingReviewProject.projectId}
+          targetUser={{
+            id: user.id,
+            fullName: user.fullName,
+          }}
+          onSuccess={() => {
+            onReviewUpdated?.();
+            setIsCreateReviewOpen(false);
+          }}
+        />
+      ) : null}
     </>
   );
 }
