@@ -144,6 +144,30 @@ export class UserSubscriptionEntity {
   @Column({ type: 'varchar', length: 100, nullable: true, name: 'payment_reference' })
   paymentReference: string;
 
+  /**
+   * Provider used to activate the subscription (e.g. PAYPAL, MANUAL).
+   */
+  @Column({ type: 'varchar', length: 20, nullable: true, name: 'payment_provider' })
+  paymentProvider: string | null;
+
+  /**
+   * Currency captured by the payment provider.
+   */
+  @Column({ type: 'varchar', length: 3, nullable: true, name: 'payment_currency' })
+  paymentCurrency: string | null;
+
+  /**
+   * Amount captured by the payment provider in paymentCurrency.
+   */
+  @Column({
+    type: 'decimal',
+    precision: 12,
+    scale: 2,
+    nullable: true,
+    name: 'payment_captured_amount',
+  })
+  paymentCapturedAmount: number | null;
+
   @CreateDateColumn({ name: 'created_at' })
   createdAt: Date;
 

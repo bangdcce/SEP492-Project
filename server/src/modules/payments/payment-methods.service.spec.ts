@@ -209,13 +209,22 @@ describe('PaymentMethodsService', () => {
       type: PaymentMethodType.PAYPAL_ACCOUNT,
       displayName: 'Old PayPal',
       isDefault: false,
-      isVerified: false,
+      isVerified: true,
+      verifiedAt: new Date('2026-03-13T00:00:00.000Z'),
       paypalEmail: 'old@example.com',
       bankName: null,
       bankCode: null,
       accountNumber: null,
       accountHolderName: null,
       branchName: null,
+      metadata: {
+        paypalVault: {
+          customerId: 'cust-9',
+          payerEmail: 'old@example.com',
+          status: 'VAULTED',
+        },
+        source: 'subscription-checkout',
+      },
       createdAt: new Date('2026-03-13T00:00:00.000Z'),
       updatedAt: new Date('2026-03-13T00:00:00.000Z'),
     });
@@ -238,7 +247,15 @@ describe('PaymentMethodsService', () => {
       paypalEmail: 'new@example.com',
       displayName: 'Primary PayPal',
       isDefault: true,
+      isVerified: false,
+      fastCheckoutReady: false,
     });
+    expect(repoInTransaction.save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: { source: 'subscription-checkout' },
+        verifiedAt: null,
+      }),
+    );
   });
 
   it('keeps hidden bank account details when updating non-sensitive fields', async () => {

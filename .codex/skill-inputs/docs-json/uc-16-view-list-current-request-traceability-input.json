@@ -1,0 +1,79 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "UC-16",
+      "class_name": "ProjectRequestsController / ProjectRequestsService",
+      "function_name": "View List Current Request",
+      "sheet_name": "View List Current Request",
+      "test_requirement": "Cover GET /project-requests/drafts/mine for UC-16 View List Current Request with executed Jest evidence for controller forwarding, returned draft lists, empty-list behavior, hydrated attachments, and terminal log messages.",
+      "loc": 17,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Controller receives authenticated client id \"client-1\"",
+            "Draft list is returned by the service for client \"client-1\""
+          ],
+          "inputs": {
+            "clientId": "\"client-1\""
+          },
+          "returns": [
+            "returns draft request list from service"
+          ],
+          "exceptions": [],
+          "logs": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client \"client-1\" owns draft requests \"req-draft-2\" and \"req-draft-1\"",
+            "Draft request \"req-draft-2\" contains 1 attachment that is hydrated before return",
+            "Draft request list is ordered by createdAt DESC"
+          ],
+          "inputs": {
+            "clientId": "\"client-1\""
+          },
+          "returns": [
+            "returns draft request list ordered by createdAt DESC"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Find My Drafts Successful: 2 draft request(s)"
+          ]
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client \"client-1\" has no saved draft requests"
+          ],
+          "inputs": {
+            "clientId": "\"client-1\""
+          },
+          "returns": [
+            "returns empty draft request list"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Find My Drafts Successful: 0 draft request(s)"
+          ]
+        }
+      ]
+    }
+  ]
+}

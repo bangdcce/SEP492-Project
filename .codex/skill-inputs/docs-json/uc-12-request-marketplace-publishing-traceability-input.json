@@ -1,0 +1,133 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-27",
+    "version": "v1.1"
+  },
+  "functions": [
+    {
+      "function_code": "UC-12",
+      "class_name": "ProjectRequestsService",
+      "function_name": "Request Marketplace Publishing",
+      "sheet_name": "Request Marketplace Publishing",
+      "test_requirement": "Focus on marketplace visibility changes across ProjectRequestsService.publish and ProjectRequestsService.update: DRAFT and PRIVATE_DRAFT publication, PUBLIC_DRAFT to PRIVATE_DRAFT switching, PUBLIC_DRAFT idempotency, non-publishable status rejection, and the assigned-broker guard.",
+      "loc": 47,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Client owns the request",
+            "Request status is DRAFT",
+            "No broker is assigned"
+          ],
+          "inputs": {
+            "requestStatus": "DRAFT",
+            "brokerAssigned": false
+          },
+          "returns": [
+            "Publishes the request to PUBLIC_DRAFT and writes the status-change audit log"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Client owns the request",
+            "Request status is PRIVATE_DRAFT",
+            "No broker is assigned"
+          ],
+          "inputs": {
+            "requestStatus": "PRIVATE_DRAFT",
+            "brokerAssigned": false
+          },
+          "returns": [
+            "Publishes the request to PUBLIC_DRAFT and writes the status-change audit log"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Client owns the request",
+            "Request status is PUBLIC_DRAFT",
+            "There are pending broker proposals for the request"
+          ],
+          "inputs": {
+            "updateStatus": "PRIVATE_DRAFT",
+            "currentStatus": "PUBLIC_DRAFT",
+            "pendingBrokerProposals": 2
+          },
+          "returns": [
+            "Switches the request to PRIVATE_DRAFT",
+            "Rejects pending broker proposals while making the request private"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Client owns the request",
+            "Request status is already PUBLIC_DRAFT",
+            "No broker is assigned"
+          ],
+          "inputs": {
+            "requestStatus": "PUBLIC_DRAFT",
+            "brokerAssigned": false
+          },
+          "returns": [
+            "Returns the existing PUBLIC_DRAFT request without saving again"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Client owns the request",
+            "Request status is BROKER_ASSIGNED"
+          ],
+          "inputs": {
+            "requestStatus": "BROKER_ASSIGNED",
+            "brokerAssigned": true
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Request cannot be published from status \"BROKER_ASSIGNED\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Client owns the request",
+            "Request status is PRIVATE_DRAFT",
+            "A broker is already assigned"
+          ],
+          "inputs": {
+            "requestStatus": "PRIVATE_DRAFT",
+            "brokerAssigned": true
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Cannot publish a request that already has a broker assigned"
+          ]
+        }
+      ]
+    }
+  ]
+}

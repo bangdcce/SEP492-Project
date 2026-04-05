@@ -9,6 +9,8 @@ import { UserSubscriptionEntity } from '../../database/entities/user-subscriptio
 import { QuotaUsageLogEntity } from '../../database/entities/quota-usage-log.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { ProjectRequestEntity } from '../../database/entities/project-request.entity';
+import { PaymentMethodEntity } from '../../database/entities/payment-method.entity';
+import { PaymentsModule } from '../payments/payments.module';
 
 /**
  * Module for subscription management (UC-39, UC-40, UC-41).
@@ -38,12 +40,14 @@ import { ProjectRequestEntity } from '../../database/entities/project-request.en
  */
 @Module({
   imports: [
+    PaymentsModule,
     TypeOrmModule.forFeature([
       SubscriptionPlanEntity,
       UserSubscriptionEntity,
       QuotaUsageLogEntity,
       UserEntity,
       ProjectRequestEntity,
+      PaymentMethodEntity,
     ]),
   ],
   controllers: [SubscriptionsController],

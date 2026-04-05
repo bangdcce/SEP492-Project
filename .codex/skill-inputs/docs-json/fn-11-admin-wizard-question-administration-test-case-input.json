@@ -1,0 +1,227 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_FN11_Admin_Wizard_Question_Administration_Test_Case_v1.0",
+    "creator": "",
+    "reviewerApprover": "",
+    "issueDate": "26/03/2026",
+    "version": "v1.0",
+    "defaultTester": "",
+    "environment": [
+      "1. Draft documentation source: server/src/database/entities/wizard-question.entity.ts",
+      "2. Draft documentation source: server/src/database/entities/wizard-option.entity.ts",
+      "3. Draft documentation source: server/src/database/migrations/1766048596421-InitialSchema.ts",
+      "4. Supporting design reference: D:/GradProject/SEP492-Project/diagram/create-request-wizard-sequence.puml",
+      "5. Supporting design reference: D:/GradProject/SEP492-Project/Class Specifications Create Request"
+    ],
+    "notes": "Function 11 does not have an implemented controller, service, or automated tests in the current branch. This workbook is a draft-only test-case specification derived from the schema and design artifacts for wizard question and option management. All cases remain Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "26/03/2026",
+        "version": "v1.0",
+        "changeItem": "Function 11 Admin Wizard Question Administration",
+        "changeType": "A",
+        "description": "Initial draft workbook generated from wizard question entities, schema migration, and request-wizard design references because runtime implementation is not yet present.",
+        "reference": "server/src/database/entities/wizard-question.entity.ts, server/src/database/entities/wizard-option.entity.ts, server/src/database/migrations/1766048596421-InitialSchema.ts, diagram/create-request-wizard-sequence.puml"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "ADMIN-WIZARD-QUESTION-ADMIN",
+      "name": "Admin Wizard Question Administration",
+      "testRequirement": "Draft validation for admin management of wizard questions and options, including listing, creation, update, activation changes, and option maintenance with uniqueness and referential checks.",
+      "referenceDocument": [
+        "server/src/database/entities/wizard-question.entity.ts",
+        "server/src/database/entities/wizard-option.entity.ts",
+        "server/src/database/migrations/1766048596421-InitialSchema.ts",
+        "D:/GradProject/SEP492-Project/diagram/create-request-wizard-sequence.puml",
+        "D:/GradProject/SEP492-Project/Class Specifications Create Request"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 7,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Wizard Question Ordered Listing",
+          "description": "An admin retrieves wizard questions with their available options in the configured display order for downstream request-wizard use.",
+          "preCondition": "Wizard question and option records exist in the database.",
+          "relatedUseCases": [
+            "FN-11"
+          ],
+          "actor": "Admin",
+          "done": false
+        },
+        {
+          "name": "Wizard Question Creation",
+          "description": "An admin creates a new wizard question with a unique code, display label, input type, activation state, and sort order.",
+          "preCondition": "The submitted question code is not already used by another wizard question.",
+          "relatedUseCases": [
+            "FN-11"
+          ],
+          "actor": "Admin",
+          "done": false
+        },
+        {
+          "name": "Wizard Question Metadata Update",
+          "description": "An admin edits a question's label, help text, input type, and sort order without changing the immutable identity.",
+          "preCondition": "The targeted wizard question exists.",
+          "relatedUseCases": [
+            "FN-11"
+          ],
+          "actor": "Admin",
+          "done": false
+        },
+        {
+          "name": "Wizard Question Activation Toggle",
+          "description": "An admin activates or deactivates a wizard question while preserving its code and related options.",
+          "preCondition": "The targeted wizard question exists.",
+          "relatedUseCases": [
+            "FN-11"
+          ],
+          "actor": "Admin",
+          "done": false
+        },
+        {
+          "name": "Wizard Option Maintenance",
+          "description": "An admin manages ordered options under a wizard question using questionId-based ownership and cascading cleanup expectations.",
+          "preCondition": "The targeted wizard question exists and accepts option-based answers.",
+          "relatedUseCases": [
+            "FN-11"
+          ],
+          "actor": "Admin",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Wizard Question Ordered Listing",
+          "testCases": [
+            {
+              "id": "[FN11-LST-01]",
+              "description": "List wizard questions together with nested options in ascending sort order for admin maintenance.",
+              "procedure": "1. Authenticate as ADMIN.\n2. Open the wizard-question administration page or call the draft listing endpoint.\n3. Request all wizard questions with their options.\n4. Inspect the returned question and option ordering.",
+              "expectedResults": "1. Each question record includes code, label, helpText, inputType, isActive, and sortOrder.\n2. Related options are returned by questionId.\n3. Questions and options are ordered by sortOrder where defined.\n4. The dataset is suitable for the request wizard to consume.",
+              "dependencies": "Draft-only case derived from wizard question and option schema plus request-wizard design references.",
+              "useCaseRefs": [
+                "FN-11"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "No runtime endpoint exists in this branch; expected behavior is inferred from schema and sequence design."
+            }
+          ]
+        },
+        {
+          "title": "Wizard Question Creation",
+          "testCases": [
+            {
+              "id": "[FN11-CRT-01]",
+              "description": "Create a new wizard question successfully when the submitted code is unique.",
+              "procedure": "1. Authenticate as ADMIN.\n2. Submit a new question with code, label, helpText, inputType, isActive, and sortOrder.\n3. Query the wizard-question store after creation.",
+              "expectedResults": "1. A new wizard_questions row is inserted.\n2. code remains unique.\n3. The persisted row stores nullable helpText and sortOrder correctly.\n4. The created question can later own wizard options.",
+              "dependencies": "The submitted code is not already present in wizard_questions.",
+              "useCaseRefs": [
+                "FN-11"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Normal draft case inferred from the unique constraint on wizard_questions.code."
+            },
+            {
+              "id": "[FN11-CRT-02]",
+              "description": "Reject creation when the submitted question code already exists.",
+              "procedure": "1. Authenticate as ADMIN.\n2. Submit a new question using a code already stored in wizard_questions.\n3. Inspect the validation or persistence response.",
+              "expectedResults": "1. The unique constraint on code prevents duplicate creation.\n2. The system reports a conflict-style validation error.\n3. No duplicate row is inserted.\n4. Existing records remain unchanged.",
+              "dependencies": "A wizard question already exists with the requested code.",
+              "useCaseRefs": [
+                "FN-11"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Abnormal draft case inferred from the migration and entity uniqueness rule."
+            }
+          ]
+        },
+        {
+          "title": "Wizard Question Metadata Update",
+          "testCases": [
+            {
+              "id": "[FN11-UPD-01]",
+              "description": "Update question label, help text, input type, and move it to the first display position.",
+              "procedure": "1. Authenticate as ADMIN.\n2. Select an existing wizard question.\n3. Submit updated label, helpText, inputType, and sortOrder = 1.\n4. Reload the ordered question list.",
+              "expectedResults": "1. Editable fields are updated on the existing row.\n2. The same question id and code are preserved.\n3. The updated question appears first in ordered listings when sortOrder is smallest.\n4. Related options remain attached to the same questionId.",
+              "dependencies": "The targeted wizard question exists and other questions also have sortOrder values.",
+              "useCaseRefs": [
+                "FN-11"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Boundary case for ordering changes."
+            }
+          ]
+        },
+        {
+          "title": "Wizard Question Activation Toggle",
+          "testCases": [
+            {
+              "id": "[FN11-ACT-01]",
+              "description": "Deactivate or reactivate an existing wizard question without changing its identity.",
+              "procedure": "1. Authenticate as ADMIN.\n2. Select an existing wizard question.\n3. Toggle isActive.\n4. Reload the list used by the request wizard.",
+              "expectedResults": "1. Only isActive changes on the question row.\n2. code and id remain unchanged.\n3. The administration list reflects the new state.\n4. Downstream request-wizard consumers can filter on the active state.",
+              "dependencies": "The targeted wizard question exists.",
+              "useCaseRefs": [
+                "FN-11"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Normal draft case inferred from the isActive field and sequence diagram wording about active questions."
+            }
+          ]
+        },
+        {
+          "title": "Wizard Option Maintenance",
+          "testCases": [
+            {
+              "id": "[FN11-OPT-01]",
+              "description": "Create or replace ordered options for an existing wizard question.",
+              "procedure": "1. Authenticate as ADMIN.\n2. Select an existing wizard question.\n3. Submit one or more options with value, label, and sortOrder.\n4. Reload the question with nested options.",
+              "expectedResults": "1. Each option row stores the parent questionId.\n2. Options are retrievable through the question relation.\n3. Option ordering follows sortOrder.\n4. Deleting the parent question would cascade option cleanup per schema rules.",
+              "dependencies": "The targeted question exists and supports option-based input.",
+              "useCaseRefs": [
+                "FN-11"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Normal draft case inferred from wizard_options.questionId and cascade relation metadata."
+            },
+            {
+              "id": "[FN11-OPT-02]",
+              "description": "Reject option maintenance when the targeted question id does not exist.",
+              "procedure": "1. Authenticate as ADMIN.\n2. Submit option changes referencing an unknown questionId.\n3. Inspect the validation or persistence response.",
+              "expectedResults": "1. The system rejects the operation because the parent question does not exist.\n2. No orphaned wizard_options row is persisted.\n3. The response reports not-found or foreign-key failure behavior.\n4. Existing option data remains unchanged.",
+              "dependencies": "The referenced questionId is absent from wizard_questions.",
+              "useCaseRefs": [
+                "FN-11"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Abnormal draft case inferred from wizard_options.questionId foreign-key constraints."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

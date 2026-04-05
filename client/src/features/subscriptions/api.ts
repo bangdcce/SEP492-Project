@@ -9,6 +9,10 @@ import axiosClient from '@/lib/axiosClient';
 import type {
   SubscriptionPlan,
   MySubscriptionResponse,
+  SubscriptionPayPalConfigRequest,
+  SubscriptionPayPalCheckoutConfig,
+  CreatePayPalSubscriptionOrderRequest,
+  PayPalSubscriptionOrder,
   SubscribeRequest,
   SubscribeResponse,
   CancelSubscriptionRequest,
@@ -43,11 +47,34 @@ export async function getMySubscription(): Promise<MySubscriptionResponse> {
   return response.data?.data;
 }
 
+export async function getSubscriptionPayPalConfig(
+  request: SubscriptionPayPalConfigRequest,
+): Promise<SubscriptionPayPalCheckoutConfig> {
+  const query = new URLSearchParams({
+    planId: request.planId,
+    billingCycle: request.billingCycle,
+    paymentMethodId: request.paymentMethodId,
+  });
+  const response = await axiosClient.get(
+    `${SUBSCRIPTION_BASE_URL}/paypal/config?${query.toString()}`,
+  );
+  return response.data?.data;
+}
+
+export async function createPayPalSubscriptionOrder(
+  request: CreatePayPalSubscriptionOrderRequest,
+): Promise<PayPalSubscriptionOrder> {
+  const response = await axiosClient.post(
+    `${SUBSCRIPTION_BASE_URL}/paypal/order`,
+    request,
+  );
+  return response.data?.data;
+}
+
 /**
  * Subscribe to a premium plan.
  *
- * Activates the subscription immediately.
- * User selects a plan and billing cycle (monthly/quarterly/yearly).
+ * Captures an approved PayPal order and activates the subscription immediately.
  *
  * @param request - Subscribe parameters
  * @returns Subscribe response with new subscription details

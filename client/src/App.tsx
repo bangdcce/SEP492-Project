@@ -140,6 +140,9 @@ const KYCStatusPage = lazy(() => import("@/pages/KYCStatusPage"));
 const SubscriptionPage = lazy(() =>
   import("@/features/subscriptions/SubscriptionPage"),
 );
+const SubscriptionCheckoutPage = lazy(() =>
+  import("@/features/subscriptions/SubscriptionCheckoutPage"),
+);
 const BillingPage = lazy(() => import("@/features/payments/BillingPage"));
 const AdminFinancePage = lazy(() => import("@/features/payments/AdminFinancePage"));
 
@@ -498,11 +501,21 @@ function App() {
 
         {/* Freelancer Subscription */}
         <Route
-          path="/freelancer/subscription"
+          path={ROUTES.FREELANCER_SUBSCRIPTION}
           element={
             <RoleGuard allowedRoles={["FREELANCER"]}>
               <FreelancerDashboardLayout>
                 <SubscriptionPage />
+              </FreelancerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.FREELANCER_SUBSCRIPTION_CHECKOUT}
+          element={
+            <RoleGuard allowedRoles={["FREELANCER"]}>
+              <FreelancerDashboardLayout>
+                <SubscriptionCheckoutPage />
               </FreelancerDashboardLayout>
             </RoleGuard>
           }
@@ -703,11 +716,21 @@ function App() {
 
         {/* Client Subscription */}
         <Route
-          path="/client/subscription"
+          path={ROUTES.CLIENT_SUBSCRIPTION}
           element={
             <RoleGuard allowedRoles={["CLIENT"]}>
               <ClientDashboardLayout>
                 <SubscriptionPage />
+              </ClientDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.CLIENT_SUBSCRIPTION_CHECKOUT}
+          element={
+            <RoleGuard allowedRoles={["CLIENT"]}>
+              <ClientDashboardLayout>
+                <SubscriptionCheckoutPage />
               </ClientDashboardLayout>
             </RoleGuard>
           }
@@ -1052,11 +1075,21 @@ function App() {
 
         {/* Broker Subscription */}
         <Route
-          path="/broker/subscription"
+          path={ROUTES.BROKER_SUBSCRIPTION}
           element={
             <RoleGuard allowedRoles={["BROKER"]}>
               <BrokerDashboardLayout>
                 <SubscriptionPage />
+              </BrokerDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.BROKER_SUBSCRIPTION_CHECKOUT}
+          element={
+            <RoleGuard allowedRoles={["BROKER"]}>
+              <BrokerDashboardLayout>
+                <SubscriptionCheckoutPage />
               </BrokerDashboardLayout>
             </RoleGuard>
           }

@@ -1,0 +1,179 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "EP-267",
+      "class_name": "SubscriptionsController / SubscriptionsService",
+      "function_name": "Subscribe",
+      "sheet_name": "EP-267 Subscribe",
+      "test_requirement": "Cover POST /subscriptions/subscribe with executed Jest evidence for endpoint response mapping, each billing cycle, and all main failure branches: active subscription conflict, missing plan, missing user, and role mismatch.",
+      "loc": 86,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "User \"client-1\" exists",
+            "No active subscription exists for \"client-1\"",
+            "Plan \"plan-monthly\" exists and matches role \"CLIENT\""
+          ],
+          "inputs": {
+            "userId": "\"client-1\"",
+            "planId": "\"plan-monthly\"",
+            "billingCycle": "\"MONTHLY\"",
+            "paymentReference": "\"BANK_TRANSFER_001\""
+          },
+          "returns": [
+            "returns active subscription with selected billing cycle and calculated amountPaid"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Subscribe Successful: user=\"client-1\" plan=\"plan-monthly\" cycle=\"MONTHLY\""
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "User \"client-1\" exists",
+            "No active subscription exists for \"client-1\"",
+            "Plan \"plan-quarterly\" exists and matches role \"CLIENT\""
+          ],
+          "inputs": {
+            "userId": "\"client-1\"",
+            "planId": "\"plan-quarterly\"",
+            "billingCycle": "\"QUARTERLY\"",
+            "paymentReference": null
+          },
+          "returns": [
+            "returns active subscription with selected billing cycle and calculated amountPaid"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Subscribe Successful: user=\"client-1\" plan=\"plan-quarterly\" cycle=\"QUARTERLY\""
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "User \"client-1\" exists",
+            "No active subscription exists for \"client-1\"",
+            "Plan \"plan-yearly\" exists and matches role \"CLIENT\""
+          ],
+          "inputs": {
+            "userId": "\"client-1\"",
+            "planId": "\"plan-yearly\"",
+            "billingCycle": "\"YEARLY\"",
+            "paymentReference": null
+          },
+          "returns": [
+            "returns active subscription with selected billing cycle and calculated amountPaid"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Subscribe Successful: user=\"client-1\" plan=\"plan-yearly\" cycle=\"YEARLY\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "User \"client-1\" already has an active subscription"
+          ],
+          "inputs": {
+            "userId": "\"client-1\"",
+            "planId": "\"plan-client-premium\"",
+            "billingCycle": "\"MONTHLY\"",
+            "paymentReference": null
+          },
+          "returns": [],
+          "exceptions": [
+            "ConflictException: You already have an active subscription. Cancel it first before subscribing to a new plan."
+          ],
+          "logs": [
+            "Subscribe Failed: You already have an active subscription. Cancel it first before subscribing to a new plan."
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Requested plan \"plan-missing\" does not exist or is inactive"
+          ],
+          "inputs": {
+            "userId": "\"client-1\"",
+            "planId": "\"plan-missing\"",
+            "billingCycle": "\"MONTHLY\"",
+            "paymentReference": null
+          },
+          "returns": [],
+          "exceptions": [
+            "NotFoundException: Subscription plan not found or is no longer available."
+          ],
+          "logs": [
+            "Subscribe Failed: Subscription plan not found or is no longer available."
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "User \"client-1\" does not exist",
+            "Plan \"plan-client-premium\" exists and is active"
+          ],
+          "inputs": {
+            "userId": "\"client-1\"",
+            "planId": "\"plan-client-premium\"",
+            "billingCycle": "\"MONTHLY\"",
+            "paymentReference": null
+          },
+          "returns": [],
+          "exceptions": [
+            "NotFoundException: User not found"
+          ],
+          "logs": [
+            "Subscribe Failed: User not found"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "User \"client-1\" has role \"CLIENT\"",
+            "Plan \"plan-broker-premium\" exists for role \"BROKER\""
+          ],
+          "inputs": {
+            "userId": "\"client-1\"",
+            "planId": "\"plan-broker-premium\"",
+            "billingCycle": "\"MONTHLY\"",
+            "paymentReference": null
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: This plan is for BROKER users. Your role is CLIENT."
+          ],
+          "logs": [
+            "Subscribe Failed: This plan is for BROKER users. Your role is CLIENT."
+          ]
+        }
+      ]
+    }
+  ]
+}

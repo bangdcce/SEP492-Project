@@ -2,6 +2,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { PartialType } from '@nestjs/mapped-types';
 import {
   IsArray,
+  IsBoolean,
   IsIn,
   IsInt,
   IsNotEmpty,
@@ -96,6 +97,12 @@ export class CreateProjectRequestDto {
   @IsOptional()
   @IsString()
   status?: string;
+
+  @ApiPropertyOptional({ description: 'Legacy compatibility flag for saving as draft' })
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  isDraft?: boolean;
 
   @ApiPropertyOptional({ type: [ProjectRequestAttachmentDto] })
   @IsOptional()

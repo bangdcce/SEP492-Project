@@ -1,0 +1,239 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC08_Request_Creation_Wizard_Test_Case_v1.0",
+    "creator": "SonNT",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "defaultTester": "SonNT",
+    "environment": [
+      "1. Frontend: React request wizard flow",
+      "2. Backend: NestJS wizard and project-requests modules",
+      "3. Database: PostgreSQL via TypeORM",
+      "4. Evidence source: docs/Use_Cases_UC01_UC10.doc, Class Specifications Create Request, client/src/features/wizard/*, server/src/modules/wizard/*"
+    ],
+    "notes": "Strict feature-based workbook for UC-08 Request Creation Wizard. The repository provides implementation and use-case detail for the five-step wizard, but no executed integration evidence was captured for this flow during this run, so all cases remain Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "UC-08 Request Creation Wizard",
+        "changeType": "A",
+        "description": "Initial feature/function-based workbook generated from the documented use case and the implemented client/server wizard flow.",
+        "reference": "UC-08 use-case specification, wizard page implementation, and wizard service interfaces"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "REQ-WIZARD",
+      "name": "Request Creation Wizard",
+      "testRequirement": "Validate five-step wizard question loading, required step gating, backward navigation, attachment handling, KYC-gated submission, marketplace submission, and private invite-flow creation for UC-08 Request Creation Wizard.",
+      "referenceDocument": [
+        "docs/Use_Cases_UC01_UC10.doc",
+        "Class Specifications Create Request",
+        "client/src/features/wizard/WizardPage.tsx",
+        "client/src/features/wizard/components/StepB5.tsx",
+        "client/src/features/wizard/services/wizardService.ts",
+        "server/src/modules/wizard/wizard.controller.ts",
+        "server/src/modules/wizard/wizard.service.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 7,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Load Wizard Questions",
+          "description": "The wizard requests active questions from the backend and binds them to the five-step flow in sorted order.",
+          "preCondition": "Client is authenticated and the wizard questions endpoint is reachable.",
+          "relatedUseCases": [
+            "UC-08"
+          ],
+          "actor": "Client",
+          "done": false
+        },
+        {
+          "name": "Navigate Between Wizard Steps",
+          "description": "The client advances through Product Type, Industry, Budget and Timeline, Features, and Project Details with guarded navigation.",
+          "preCondition": "Wizard page has loaded and the user is interacting with the step controls.",
+          "relatedUseCases": [
+            "UC-08"
+          ],
+          "actor": "Client",
+          "done": false
+        },
+        {
+          "name": "Manage Reference Attachments",
+          "description": "The final wizard step uploads and deduplicates supporting files before submission.",
+          "preCondition": "Client has reached Step 5 and selected one or more valid files.",
+          "relatedUseCases": [
+            "UC-08"
+          ],
+          "actor": "Client",
+          "done": false
+        },
+        {
+          "name": "Submit Wizard Request",
+          "description": "The wizard converts the collected answers into a project request payload and submits either marketplace or private-draft creation.",
+          "preCondition": "Client has completed the required fields and, for submission, KYC is approved.",
+          "relatedUseCases": [
+            "UC-08",
+            "UC-09"
+          ],
+          "actor": "Client",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Load Wizard Questions",
+          "testCases": [
+            {
+              "id": "[UC08-LOAD-01]",
+              "description": "Load active wizard questions successfully when the request creation page opens.",
+              "procedure": "1. Sign in as a client and open the Request Creation Wizard page.\\n2. Wait for the initial page load to complete.\\n3. Observe the first step content and question-driven controls.",
+              "expectedResults": "1. The page calls GET /wizard/questions.\\n2. The backend returns active questions with options sorted by sortOrder.\\n3. Step 1 renders Product Type choices from the loaded question set.",
+              "actualResults": "Not executed in this run. Repository evidence shows WizardPage requests wizardService.getQuestions() on mount and the server returns active wizard questions ordered by question sortOrder and option sortOrder.",
+              "dependencies": "Authenticated client session and reachable wizard/questions endpoint.",
+              "useCaseRefs": [
+                "UC-08"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "SonNT",
+              "note": "Evidence source: WizardPage useEffect, wizardService.getQuestions(), WizardController.getQuestions(), WizardService.getWizardData()."
+            }
+          ]
+        },
+        {
+          "title": "Navigate Between Wizard Steps",
+          "testCases": [
+            {
+              "id": "[UC08-NAV-01]",
+              "description": "Allow forward navigation from Step 1 only after the client selects a product type.",
+              "procedure": "1. Open the wizard on Step 1.\\n2. Observe the Next button before selecting Product Type.\\n3. Select a product type and click Next.",
+              "expectedResults": "1. Next is disabled while Product Type is empty.\\n2. After a product type is selected, Next becomes enabled.\\n3. The wizard advances to Step 2 Industry.",
+              "actualResults": "Not executed in this run. Repository evidence shows the footer disables Next when currentStep is 1 and productType is empty, then increments currentStep after a valid selection.",
+              "dependencies": "Wizard questions loaded and Product Type question present.",
+              "useCaseRefs": [
+                "UC-08"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "SonNT",
+              "note": "Evidence source: WizardPage footer disable expression and handleNext()."
+            },
+            {
+              "id": "[UC08-NAV-02]",
+              "description": "Allow backward navigation so the client can revisit earlier steps and revise selections.",
+              "procedure": "1. Move from Step 1 to at least Step 3.\\n2. Click Back.\\n3. Continue clicking Back until returning to Step 1.",
+              "expectedResults": "1. Back decrements the current step one screen at a time.\\n2. The client can revisit previous inputs.\\n3. Back is disabled again on Step 1.",
+              "actualResults": "Not executed in this run. Repository evidence shows handleBack() decrements currentStep until 1 and the Back button is disabled when currentStep is 1.",
+              "dependencies": "Wizard page loaded and at least one prior step completed.",
+              "useCaseRefs": [
+                "UC-08"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "SonNT",
+              "note": "Evidence source: UC-08 alternative flow AF1 and WizardPage handleBack()."
+            }
+          ]
+        },
+        {
+          "title": "Manage Reference Attachments",
+          "testCases": [
+            {
+              "id": "[UC08-ATT-01]",
+              "description": "Upload supporting files on Step 5 and append the returned attachment metadata to the draft state.",
+              "procedure": "1. Reach Step 5 Project Details.\\n2. Choose one or more valid files from the file picker.\\n3. Wait for the upload request to complete.",
+              "expectedResults": "1. The client posts the selected files to /project-requests/upload as attachments.\\n2. Returned attachment metadata is appended to the local attachments list.\\n3. The attachment counter and file list update on screen.",
+              "actualResults": "Not executed in this run. Repository evidence shows StepB5 uploads files through wizardService.uploadFiles(files, 'attachments') and updates the attachment list with the returned payload.",
+              "dependencies": "Client has reached Step 5 and chosen valid attachment files.",
+              "useCaseRefs": [
+                "UC-08"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "SonNT",
+              "note": "Evidence source: StepB5 handleFileChange() and wizardService.uploadFiles()."
+            },
+            {
+              "id": "[UC08-ATT-02]",
+              "description": "Prevent duplicate attachment entries when the same uploaded file metadata is returned more than once.",
+              "procedure": "1. Reach Step 5 Project Details.\\n2. Upload the same file twice or receive duplicate attachment URLs in the upload response.\\n3. Inspect the attachments list.",
+              "expectedResults": "1. The attachments list is filtered by URL.\\n2. Each unique attachment appears once in the rendered list.",
+              "actualResults": "Not executed in this run. Repository evidence shows StepB5 filters the updated list so only the first occurrence of each attachment URL is retained.",
+              "dependencies": "Client has reached Step 5 and upload response contains duplicate URLs or repeated upload attempts occur.",
+              "useCaseRefs": [
+                "UC-08"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "SonNT",
+              "note": "Evidence source: StepB5 nextAttachments.filter(...) deduplication by attachment.url."
+            }
+          ]
+        },
+        {
+          "title": "Submit Wizard Request",
+          "testCases": [
+            {
+              "id": "[UC08-SUB-01]",
+              "description": "Post the completed wizard to the broker marketplace when KYC is approved.",
+              "procedure": "1. Complete all five wizard steps with valid Product Type, Industry, budget, timeline, features, title, and description.\\n2. Ensure the client KYC status is APPROVED.\\n3. Click Post to Market.",
+              "expectedResults": "1. The wizard builds a payload with status PUBLIC_DRAFT and wizardProgressStep.\\n2. Title and description are trimmed before submission.\\n3. The client posts the payload to /project-requests.\\n4. Success navigates to the client dashboard.",
+              "actualResults": "Not executed in this run. Repository evidence shows handleSubmit('marketplace') requires approved KYC, builds a PUBLIC_DRAFT payload, calls wizardService.submitRequest(payload), then navigates to ROUTES.CLIENT_DASHBOARD.",
+              "dependencies": "Approved KYC profile, completed wizard data, and reachable project-requests create endpoint.",
+              "useCaseRefs": [
+                "UC-08",
+                "UC-09"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "SonNT",
+              "note": "Evidence source: buildPayload(), handleSubmit('marketplace'), and UC-09 normal flow."
+            },
+            {
+              "id": "[UC08-SUB-02]",
+              "description": "Create a private request and continue into broker invitation flow when KYC is approved.",
+              "procedure": "1. Complete all five wizard steps with valid required data.\\n2. Ensure the client KYC status is APPROVED.\\n3. Click Find & Invite.",
+              "expectedResults": "1. The wizard builds a payload with status PRIVATE_DRAFT.\\n2. The payload is posted to /project-requests.\\n3. On success the client is redirected to /client/requests/{id}?tab=phase1.",
+              "actualResults": "Not executed in this run. Repository evidence shows handleSubmit('invite') creates a PRIVATE_DRAFT request through wizardService.submitRequest(payload) and navigates to the private request details phase.",
+              "dependencies": "Approved KYC profile, completed wizard data, and reachable project-requests create endpoint.",
+              "useCaseRefs": [
+                "UC-08",
+                "UC-09"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "SonNT",
+              "note": "Evidence source: buildPayload(), handleSubmit('invite'), and UC-09 trigger/postconditions."
+            },
+            {
+              "id": "[UC08-SUB-03]",
+              "description": "Block final submission actions when the client KYC status is not approved.",
+              "procedure": "1. Open the wizard as a client whose KYC is NOT_STARTED, REJECTED, or PENDING.\\n2. Complete the visible form fields until Step 5.\\n3. Observe the action buttons and attempt final submission.",
+              "expectedResults": "1. Post to Market and Find & Invite remain disabled when canPublish is false.\\n2. The warning banner explains that posting and invites are locked until KYC approval.\\n3. No submit request call is sent.",
+              "actualResults": "Not executed in this run. Repository evidence shows canPublish is derived from kycStatus === 'APPROVED', both final buttons are disabled when canPublish is false, and a status-specific banner is rendered.",
+              "dependencies": "A client account whose KYC status is not APPROVED.",
+              "useCaseRefs": [
+                "UC-08",
+                "UC-09"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "SonNT",
+              "note": "Evidence source: checkKycStatus(), canPublish, warning banner branch, and disabled submit buttons."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

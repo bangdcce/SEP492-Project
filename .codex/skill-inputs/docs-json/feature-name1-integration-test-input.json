@@ -1,0 +1,205 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_Integration_Test_Report_v1.0",
+    "creator": "SEP492 Graduation Project Team",
+    "issueDate": "20/03/2026",
+    "version": "v1.0",
+    "environment": [
+      "1. Frontend: Vite React client",
+      "2. Backend: NestJS API",
+      "3. Database: PostgreSQL"
+    ],
+    "notes": "Initial integration-test workbook generated from the provided feature table and reference template.",
+    "changeLog": [
+      {
+        "effectiveDate": "20/03/2026",
+        "version": "v1.0",
+        "changeItem": "Feature Name1",
+        "changeType": "A",
+        "description": "Create initial integration-test workbook for the graduation project.",
+        "reference": "User-provided feature table and Report5 reference workbook"
+      }
+    ]
+  },
+  "rounds": [
+    "Round 1"
+  ],
+  "features": [
+    {
+      "code": "F1",
+      "name": "Feature Name1",
+      "testRequirement": "Brief description about requirements which are tested in this sheet",
+      "statistics": {
+        "passed": 1,
+        "failed": 0,
+        "pending": 7,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Login",
+          "description": "Login-related integration scenarios.",
+          "preCondition": "Relevant account data exists when the scenario requires authentication.",
+          "ucId": "",
+          "actor": "",
+          "done": false
+        },
+        {
+          "name": "Function B",
+          "description": "Feature Name1 Function B scenarios.",
+          "preCondition": "",
+          "ucId": "",
+          "actor": "",
+          "done": false
+        },
+        {
+          "name": "Function C",
+          "description": "Feature Name1 Function C scenarios.",
+          "preCondition": "",
+          "ucId": "",
+          "actor": "",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Login (each function includes multiple test cases to check User Interface (GUI), Data Validation (GUI), Functionality, Non-Functionality,..)",
+          "testCases": [
+            {
+              "id": "Login - 1",
+              "description": "Kiểm thử đăng nhập thành công",
+              "procedure": "1. Truy cập vào website\n2. Click vào nút login.\n3. Điển username: huonglh\n4. Điền password: 123\n5. Click nút sign...",
+              "expectedResults": "1. Nhận được thông báo \"đăng nhập thành công\"\n2. Được chuyển sang trang chủ.",
+              "preConditions": "Tài khoản phải tồn tại và không bị deactive",
+              "rounds": [
+                {
+                  "result": "Passed",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Actual results matched expected results."
+            },
+            {
+              "id": "Login - 2",
+              "description": "<Test case 2>",
+              "procedure": "",
+              "expectedResults": "",
+              "preConditions": "",
+              "rounds": [
+                {
+                  "result": "Pending",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": ""
+            },
+            {
+              "id": "Login - 3",
+              "description": "<Test case 3>",
+              "procedure": "",
+              "expectedResults": "",
+              "preConditions": "",
+              "rounds": [
+                {
+                  "result": "Pending",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": ""
+            }
+          ]
+        },
+        {
+          "title": "Function B (each function includes multiple test cases to check User Interface (GUI), Data Validation (GUI), Functionality, Non-Functionality,..)",
+          "testCases": [
+            {
+              "id": "[Feature Name1-3]",
+              "description": "<Test case 4>",
+              "procedure": "",
+              "expectedResults": "",
+              "preConditions": "",
+              "rounds": [
+                {
+                  "result": "Pending",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": ""
+            },
+            {
+              "id": "[Feature Name1-4]",
+              "description": "<Test case 5>",
+              "procedure": "",
+              "expectedResults": "",
+              "preConditions": "",
+              "rounds": [
+                {
+                  "result": "Pending",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": ""
+            }
+          ]
+        },
+        {
+          "title": "Function C (each function includes multiple test cases to check User Interface (GUI), Data Validation (GUI), Functionality, Non-Functionality,..)",
+          "testCases": [
+            {
+              "id": "[Feature Name1-5]",
+              "description": "<Test case 6>",
+              "procedure": "",
+              "expectedResults": "",
+              "preConditions": "",
+              "rounds": [
+                {
+                  "result": "Pending",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": ""
+            },
+            {
+              "id": "[Feature Name1-6]",
+              "description": "<Test case 7>",
+              "procedure": "",
+              "expectedResults": "",
+              "preConditions": "",
+              "rounds": [
+                {
+                  "result": "Pending",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": ""
+            },
+            {
+              "id": "[Feature Name1-7]",
+              "description": "<Test case 8>",
+              "procedure": "",
+              "expectedResults": "",
+              "preConditions": "",
+              "rounds": [
+                {
+                  "result": "Pending",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": ""
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

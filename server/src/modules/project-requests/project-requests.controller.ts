@@ -293,20 +293,31 @@ export class ProjectRequestsController {
     },
   })
   async uploadFile(@UploadedFiles() files: UploadedFilesMap, @GetUser('id') userId: string) {
-    this.assertFilesAllowed([...(files.requirements || []), ...(files.attachments || [])]);
+    try {
+      this.assertFilesAllowed([...(files.requirements || []), ...(files.attachments || [])]);
 
-    return {
-      requirements: await Promise.all(
-        (files.requirements || []).map((file) =>
-          this.persistRequestUpload(file, 'requirements', userId),
+      const result = {
+        requirements: await Promise.all(
+          (files.requirements || []).map((file) =>
+            this.persistRequestUpload(file, 'requirements', userId),
+          ),
         ),
-      ),
-      attachments: await Promise.all(
-        (files.attachments || []).map((file) =>
-          this.persistRequestUpload(file, 'attachment', userId),
+        attachments: await Promise.all(
+          (files.attachments || []).map((file) =>
+            this.persistRequestUpload(file, 'attachment', userId),
+          ),
         ),
-      ),
-    };
+      };
+
+      console.log(
+        `Upload File Successful: requirements=${result.requirements.length} attachments=${result.attachments.length}`,
+      );
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Upload File Failed: ${message}`);
+      throw error;
+    }
   }
 
   @Post(':id/commercial-change-requests')
