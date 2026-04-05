@@ -124,7 +124,7 @@ export const AppealDialog = memo(function AppealDialog({
         onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" data-testid="appeal-dialog">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-lg">
             <Scale className="h-5 w-5 text-amber-600" />
@@ -151,6 +151,7 @@ export const AppealDialog = memo(function AppealDialog({
                 Detailed Reason <span className="text-rose-500">*</span>
               </label>
               <Textarea
+                data-testid="appeal-reason-input"
                 value={reason}
                 onChange={(event) => setReason(event.target.value)}
                 placeholder={copy.placeholder}
@@ -171,6 +172,8 @@ export const AppealDialog = memo(function AppealDialog({
 
             <div className="flex justify-end pt-1">
               <button
+                type="button"
+                data-testid="appeal-review-step"
                 onClick={() => setStep(2)}
                 disabled={!canProceed}
                 className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50"
@@ -203,6 +206,7 @@ export const AppealDialog = memo(function AppealDialog({
 
             <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
               <input
+                data-testid="appeal-disclaimer-checkbox"
                 type="checkbox"
                 checked={disclaimerAccepted}
                 onChange={(event) => setDisclaimerAccepted(event.target.checked)}
@@ -213,6 +217,8 @@ export const AppealDialog = memo(function AppealDialog({
 
             <div className="flex items-center justify-between pt-1">
               <button
+                type="button"
+                data-testid="appeal-back-step"
                 onClick={() => setStep(1)}
                 disabled={submitting}
                 className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 transition-colors hover:bg-slate-50"
@@ -221,6 +227,8 @@ export const AppealDialog = memo(function AppealDialog({
                 Back
               </button>
               <button
+                type="button"
+                data-testid="submit-appeal"
                 onClick={() => void handleSubmit()}
                 disabled={submitting || !canSubmit}
                 className="inline-flex items-center gap-1.5 rounded-md bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-500 disabled:opacity-50"

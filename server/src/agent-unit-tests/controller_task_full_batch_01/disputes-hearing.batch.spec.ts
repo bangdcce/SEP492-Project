@@ -1,4 +1,5 @@
 import {
+  buildDisputeCaseDefinitions,
   createDisputesGroupRuntime,
   loadDisputesEndpoints,
   runEdgeCase,
@@ -27,35 +28,37 @@ describe('Disputes cluster batch - hearing controller', () => {
 
   for (const endpoint of endpoints) {
     describe(`${endpoint.code} ${endpoint.requestMethod} ${endpoint.path}`, () => {
-      it(`${endpoint.code} UTC01 happy path returns ${endpoint.name} payload`, async () => {
+      const cases = buildDisputeCaseDefinitions(endpoint);
+
+      it(cases[0].title, async () => {
         await runHappyCase(runtime, endpoint);
       });
 
-      it(`${endpoint.code} UTC02 edge case accepts valid variant one`, async () => {
+      it(cases[1].title, async () => {
         await runEdgeCase(runtime, endpoint, 'edge-1');
       });
 
-      it(`${endpoint.code} UTC03 edge case accepts valid variant two`, async () => {
+      it(cases[2].title, async () => {
         await runEdgeCase(runtime, endpoint, 'edge-2');
       });
 
-      it(`${endpoint.code} UTC04 validation handles malformed input`, async () => {
+      it(cases[3].title, async () => {
         await runValidationCase(runtime, endpoint);
       });
 
-      it(`${endpoint.code} UTC05 validation propagates not-found flow`, async () => {
+      it(cases[4].title, async () => {
         await runNotFoundCase(runtime, endpoint);
       });
 
-      it(`${endpoint.code} UTC06 validation propagates unexpected service failures`, async () => {
+      it(cases[5].title, async () => {
         await runUnexpectedErrorCase(runtime, endpoint);
       });
 
-      it(`${endpoint.code} UTC07 security returns 401 for unauthenticated access`, async () => {
+      it(cases[6].title, async () => {
         await runUnauthorizedCase(runtime, endpoint);
       });
 
-      it(`${endpoint.code} UTC08 security returns 403 for forbidden access`, async () => {
+      it(cases[7].title, async () => {
         await runForbiddenCase(runtime, endpoint);
       });
     });

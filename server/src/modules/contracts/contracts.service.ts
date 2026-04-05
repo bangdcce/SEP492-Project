@@ -1128,11 +1128,18 @@ export class ContractsService {
     contract: ContractEntity,
   ): Promise<ContractEntity & { documentHash?: string }> {
     let selectedSpec: ProjectSpecEntity | null = null;
-    if (contract.project?.request?.specs) {
+    if (contract.project?.request?.specs?.length) {
       selectedSpec = this.selectSpecForContract(
         contract.project.request.specs,
         contract.sourceSpecId ?? null,
       );
+    } else {
+      selectedSpec = await this.resolveSpecForRead(contract);
+      if (contract.project?.request) {
+        contract.project.request.specs = selectedSpec ? [selectedSpec] : [];
+      }
+    }
+    if (contract.project?.request) {
       contract.project.request.spec = selectedSpec;
     }
 
@@ -1319,8 +1326,6 @@ export class ContractsService {
         'project.broker',
         'project.freelancer',
         'project.request',
-        'project.request.specs',
-        'project.request.specs.milestones',
         'signatures',
         'signatures.user',
       ],
@@ -1331,6 +1336,40 @@ export class ContractsService {
     }
 
     return contract;
+  }
+
+  private async resolveSpecForRead(contract: ContractEntity): Promise<ProjectSpecEntity | null> {
+    if (contract.sourceSpecId) {
+      const sourceSpec = await this.projectSpecsRepository.findOne({
+        where: { id: contract.sourceSpecId },
+        relations: ['milestones'],
+      });
+      if (sourceSpec) {
+        return sourceSpec;
+      }
+    }
+
+    const requestId = contract.project?.requestId ?? null;
+    if (!requestId) {
+      return null;
+    }
+
+    return this.projectSpecsRepository.findOne({
+      where: [
+        {
+          requestId,
+          status: ProjectSpecStatus.ALL_SIGNED,
+          specPhase: SpecPhase.FULL_SPEC,
+        },
+        {
+          requestId,
+          status: ProjectSpecStatus.APPROVED,
+          specPhase: SpecPhase.FULL_SPEC,
+        },
+      ],
+      relations: ['milestones'],
+      order: { createdAt: 'DESC' },
+    });
   }
 
   private async resolveSpecForLegacyActivation(

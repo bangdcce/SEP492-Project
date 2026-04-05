@@ -125,7 +125,10 @@ export function EditReviewModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      data-testid="edit-review-modal"
+    >
       {/* Backdrop with glass morphism */}
       <div
         className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm"
@@ -143,6 +146,7 @@ export function EditReviewModal({
           <button
             onClick={handleClose}
             disabled={isLoading}
+            data-testid="close-edit-review"
             className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
           >
             <X className="w-6 h-6" />
@@ -198,6 +202,7 @@ export function EditReviewModal({
               rating={rating}
               editable={editable}
               onChange={setRating}
+              testIdPrefix="edit-review-rating"
             />
           </div>
 
@@ -208,6 +213,7 @@ export function EditReviewModal({
             </label>
             <textarea
               id="comment"
+              data-testid="edit-review-comment"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               maxLength={MAX_COMMENT_LENGTH}
@@ -219,7 +225,7 @@ export function EditReviewModal({
             <div className="flex items-center justify-between text-sm">
               <span className="text-gray-500">
                 {hasChanges ? (
-                  <span className="text-teal-600">● Unsaved changes</span>
+                  <span className="text-teal-600">Unsaved changes</span>
                 ) : (
                   "No changes yet"
                 )}
@@ -274,6 +280,7 @@ export function EditReviewModal({
             type="button"
             onClick={handleClose}
             disabled={isLoading}
+            data-testid="cancel-edit-review"
             className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
@@ -282,6 +289,7 @@ export function EditReviewModal({
             type="submit"
             onClick={handleSubmit}
             disabled={isLoading || !hasChanges || !editable}
+            data-testid="submit-edit-review"
             className="px-6 py-2.5 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isLoading ? (

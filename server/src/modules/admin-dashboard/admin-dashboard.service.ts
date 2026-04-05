@@ -23,6 +23,15 @@ import { ASSIGNMENT_CONFIG } from '../disputes/services/staff-assignment.service
 type DashboardRange = '7d' | '30d' | '90d';
 type AdminActionFamily = 'exports' | 'approvals' | 'userModeration' | 'reviewAudit' | 'other';
 type AlertSeverity = 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE';
+type IncidentSeverity = 'HIGH' | 'CRITICAL' | 'SEVERE';
+type IncidentCategory =
+  | 'HTTP_5XX'
+  | 'SCHEDULER'
+  | 'INTEGRATION'
+  | 'WEBSOCKET'
+  | 'STORAGE'
+  | 'PAYMENT'
+  | 'EMAIL';
 
 const COMPLETED_PROJECT_STATUSES = [ProjectStatus.COMPLETED, ProjectStatus.PAID];
 const CLOSED_DISPUTE_STATUSES = [
@@ -45,6 +54,12 @@ const ADMIN_RISK_CONFIG = {
   followUpSchedulingFailureHigh: 1,
   auditHighRiskBurst: 3,
 } as const;
+const SYSTEM_INCIDENT_LOOKBACK_MS = 24 * 60 * 60 * 1000;
+const INCIDENT_SEVERITY_ORDER: Record<IncidentSeverity, number> = {
+  SEVERE: 3,
+  CRITICAL: 2,
+  HIGH: 1,
+};
 
 @Injectable()
 export class AdminDashboardService {
@@ -97,6 +112,7 @@ export class AdminDashboardService {
       autoClosedHearings,
       followUpSchedulingFailures,
       followUpManualRequired,
+      systemIncidentLogs,
     ] = await Promise.all([
       this.sumRevenueBetween(currentStart, now),
       this.sumRevenueBetween(previousStart, previousEnd),
@@ -184,6 +200,16 @@ export class AdminDashboardService {
           title: 'Follow-up hearing needs manual scheduling',
         },
       }),
+      this.auditLogRepository
+        .createQueryBuilder('log')
+        .where('log.createdAt >= :start', {
+          start: new Date(now.getTime() - SYSTEM_INCIDENT_LOOKBACK_MS),
+        })
+        .andWhere('log.event_category = :category', { category: 'ERROR' })
+        .andWhere(`log.metadata->'incident'->>'scope' = :scope`, { scope: 'SYSTEM' })
+        .orderBy('log.createdAt', 'DESC')
+        .take(200)
+        .getMany(),
     ]);
 
     const adminTeam = this.buildAdminTeam(adminUsers, adminLogs);
@@ -200,6 +226,7 @@ export class AdminDashboardService {
       followUpManualRequired,
     });
     const riskMethodology = this.buildRiskMethodology(criticalAlerts);
+    const systemIncidentHub = this.buildSystemIncidentHub(systemIncidentLogs);
 
     return {
       generatedAt: now.toISOString(),
@@ -247,6 +274,7 @@ export class AdminDashboardService {
         },
       },
       criticalAlerts,
+      systemIncidentHub,
       riskMethodology,
     };
   }
@@ -341,7 +369,11 @@ export class AdminDashboardService {
 
   private buildMetricSummary(current: number, previous: number, currency?: string) {
     const delta =
-      previous === 0 ? (current > 0 ? 100 : 0) : Math.round(((current - previous) / previous) * 10000) / 100;
+      previous === 0
+        ? current > 0
+          ? 100
+          : 0
+        : Math.round(((current - previous) / previous) * 10000) / 100;
 
     return {
       value: Math.round(current * 100) / 100,
@@ -499,13 +531,22 @@ export class AdminDashboardService {
         (left, right) => new Date(left.date).getTime() - new Date(right.date).getTime(),
       );
       const latestWorkload = workloads[workloads.length - 1];
-      const totalResolved = performances.reduce((sum, row) => sum + Number(row.totalDisputesResolved || 0), 0);
-      const totalAppealed = performances.reduce((sum, row) => sum + Number(row.totalAppealed || 0), 0);
+      const totalResolved = performances.reduce(
+        (sum, row) => sum + Number(row.totalDisputesResolved || 0),
+        0,
+      );
+      const totalAppealed = performances.reduce(
+        (sum, row) => sum + Number(row.totalAppealed || 0),
+        0,
+      );
       const totalOverturned = performances.reduce(
         (sum, row) => sum + Number(row.totalOverturnedByAdmin || 0),
         0,
       );
-      const totalFinalized = performances.reduce((sum, row) => sum + Number(row.totalCasesFinalized || 0), 0);
+      const totalFinalized = performances.reduce(
+        (sum, row) => sum + Number(row.totalCasesFinalized || 0),
+        0,
+      );
       const totalHearings = performances.reduce(
         (sum, row) => sum + Number(row.totalHearingsConducted || 0),
         0,
@@ -529,18 +570,23 @@ export class AdminDashboardService {
           ? Math.round(
               (performances.reduce(
                 (sum, row) =>
-                  sum + Number(row.avgResolutionTimeHours || 0) * Number(row.totalDisputesResolved || 0),
+                  sum +
+                  Number(row.avgResolutionTimeHours || 0) * Number(row.totalDisputesResolved || 0),
                 0,
               ) /
                 totalResolved) *
                 100,
             ) / 100
           : 0;
-      const appealRate = totalFinalized > 0 ? Math.round((totalAppealed / totalFinalized) * 10000) / 100 : 0;
-      const overturnRate = totalAppealed > 0 ? Math.round((totalOverturned / totalAppealed) * 10000) / 100 : 0;
+      const appealRate =
+        totalFinalized > 0 ? Math.round((totalAppealed / totalFinalized) * 10000) / 100 : 0;
+      const overturnRate =
+        totalAppealed > 0 ? Math.round((totalOverturned / totalAppealed) * 10000) / 100 : 0;
       const lastPerformance = performances[performances.length - 1];
       const lastActiveAt =
-        latestWorkload?.updatedAt?.toISOString() || lastPerformance?.updatedAt?.toISOString() || null;
+        latestWorkload?.updatedAt?.toISOString() ||
+        lastPerformance?.updatedAt?.toISOString() ||
+        null;
 
       return {
         id: staff.id,
@@ -569,21 +615,37 @@ export class AdminDashboardService {
 
     const divisor = (staffUsers ?? []).length || 1;
     const averages = {
-      resolvedCases: Math.round((members.reduce((sum, member) => sum + member.resolvedCases, 0) / divisor) * 100) / 100,
-      pendingCases: Math.round((members.reduce((sum, member) => sum + member.pendingCases, 0) / divisor) * 100) / 100,
+      resolvedCases:
+        Math.round(
+          (members.reduce((sum, member) => sum + member.resolvedCases, 0) / divisor) * 100,
+        ) / 100,
+      pendingCases:
+        Math.round(
+          (members.reduce((sum, member) => sum + member.pendingCases, 0) / divisor) * 100,
+        ) / 100,
       utilizationRate:
-        Math.round((members.reduce((sum, member) => sum + member.utilizationRate, 0) / divisor) * 100) / 100,
-      appealRate: Math.round((members.reduce((sum, member) => sum + member.appealRate, 0) / divisor) * 100) / 100,
+        Math.round(
+          (members.reduce((sum, member) => sum + member.utilizationRate, 0) / divisor) * 100,
+        ) / 100,
+      appealRate:
+        Math.round((members.reduce((sum, member) => sum + member.appealRate, 0) / divisor) * 100) /
+        100,
       overturnRate:
-        Math.round((members.reduce((sum, member) => sum + member.overturnRate, 0) / divisor) * 100) / 100,
+        Math.round(
+          (members.reduce((sum, member) => sum + member.overturnRate, 0) / divisor) * 100,
+        ) / 100,
       avgResolutionTimeHours:
         Math.round(
           (members.reduce((sum, member) => sum + member.avgResolutionTimeHours, 0) / divisor) * 100,
         ) / 100,
       hearingsConducted:
-        Math.round((members.reduce((sum, member) => sum + member.hearingsConducted, 0) / divisor) * 100) / 100,
+        Math.round(
+          (members.reduce((sum, member) => sum + member.hearingsConducted, 0) / divisor) * 100,
+        ) / 100,
       leaveMinutes:
-        Math.round((members.reduce((sum, member) => sum + member.leaveMinutes, 0) / divisor) * 100) / 100,
+        Math.round(
+          (members.reduce((sum, member) => sum + member.leaveMinutes, 0) / divisor) * 100,
+        ) / 100,
     };
 
     return {
@@ -617,7 +679,11 @@ export class AdminDashboardService {
       return 'userModeration';
     }
 
-    if (entityType.includes('REVIEW') || entityType.includes('SPEC') || entityType.includes('KYC')) {
+    if (
+      entityType.includes('REVIEW') ||
+      entityType.includes('SPEC') ||
+      entityType.includes('KYC')
+    ) {
       return 'reviewAudit';
     }
 
@@ -702,8 +768,7 @@ export class AdminDashboardService {
       input.followUpSchedulingFailures >= ADMIN_RISK_CONFIG.followUpSchedulingFailureHigh ||
       input.followUpManualRequired >= ADMIN_RISK_CONFIG.followUpSchedulingFailureHigh
     ) {
-      const totalFollowUpRisk =
-        input.followUpSchedulingFailures + input.followUpManualRequired;
+      const totalFollowUpRisk = input.followUpSchedulingFailures + input.followUpManualRequired;
       alerts.push({
         severity: input.followUpSchedulingFailures > 0 ? 'SEVERE' : 'HIGH',
         source: 'FOLLOW_UP_SCHEDULING',
@@ -745,10 +810,7 @@ export class AdminDashboardService {
       });
     }
 
-    if (
-      overloadedCount > 0 ||
-      backlogPendingCases >= ASSIGNMENT_CONFIG.SHORTAGE_THRESHOLD * 5
-    ) {
+    if (overloadedCount > 0 || backlogPendingCases >= ASSIGNMENT_CONFIG.SHORTAGE_THRESHOLD * 5) {
       alerts.push({
         severity: overloadedCount >= 2 ? 'CRITICAL' : 'HIGH',
         source: 'STAFF_CAPACITY',
@@ -777,8 +839,7 @@ export class AdminDashboardService {
     }
 
     return alerts.sort(
-      (left, right) =>
-        ALERT_SEVERITY_ORDER[right.severity] - ALERT_SEVERITY_ORDER[left.severity],
+      (left, right) => ALERT_SEVERITY_ORDER[right.severity] - ALERT_SEVERITY_ORDER[left.severity],
     );
   }
 
@@ -823,6 +884,123 @@ export class AdminDashboardService {
     };
   }
 
+  private buildSystemIncidentHub(systemIncidentLogs: AuditLogEntity[]) {
+    const grouped = new Map<
+      string,
+      {
+        fingerprint: string;
+        severity: IncidentSeverity;
+        category: IncidentCategory;
+        component: string;
+        operation: string;
+        message: string;
+        errorCode: string | null;
+        firstSeenAt: string;
+        lastSeenAt: string;
+        occurrences: number;
+        latestAuditLogId: string;
+        actionUrl: string;
+      }
+    >();
+
+    systemIncidentLogs.forEach((log) => {
+      const incident = this.extractIncidentMetadata(log);
+      if (!incident) {
+        return;
+      }
+
+      const existing = grouped.get(incident.fingerprint);
+      const createdAt = log.createdAt.toISOString();
+
+      if (!existing) {
+        grouped.set(incident.fingerprint, {
+          fingerprint: incident.fingerprint,
+          severity: incident.severity,
+          category: incident.category,
+          component: incident.component,
+          operation: incident.operation,
+          message:
+            log.errorMessage || this.extractIncidentSummary(log) || 'System incident detected',
+          errorCode: log.errorCode || null,
+          firstSeenAt: createdAt,
+          lastSeenAt: createdAt,
+          occurrences: 1,
+          latestAuditLogId: log.id,
+          actionUrl: `/admin/audit-logs?incidentOnly=true&fingerprint=${encodeURIComponent(incident.fingerprint)}`,
+        });
+        return;
+      }
+
+      existing.occurrences += 1;
+      if (new Date(createdAt).getTime() > new Date(existing.lastSeenAt).getTime()) {
+        existing.lastSeenAt = createdAt;
+        existing.latestAuditLogId = log.id;
+        existing.message = log.errorMessage || this.extractIncidentSummary(log) || existing.message;
+        existing.errorCode = log.errorCode || existing.errorCode;
+      }
+      if (new Date(createdAt).getTime() < new Date(existing.firstSeenAt).getTime()) {
+        existing.firstSeenAt = createdAt;
+      }
+      if (INCIDENT_SEVERITY_ORDER[incident.severity] > INCIDENT_SEVERITY_ORDER[existing.severity]) {
+        existing.severity = incident.severity;
+      }
+    });
+
+    const allItems = Array.from(grouped.values()).sort((left, right) => {
+      const severityDelta =
+        INCIDENT_SEVERITY_ORDER[right.severity] - INCIDENT_SEVERITY_ORDER[left.severity];
+      if (severityDelta !== 0) {
+        return severityDelta;
+      }
+
+      return new Date(right.lastSeenAt).getTime() - new Date(left.lastSeenAt).getTime();
+    });
+    const items = allItems.slice(0, 5);
+    const components = new Set(allItems.map((item) => item.component));
+    const severeCount = allItems.filter((item) => item.severity === 'SEVERE').length;
+    const criticalCount = allItems.filter((item) => item.severity === 'CRITICAL').length;
+
+    return {
+      summary: {
+        activeCount: allItems.length,
+        severeCount,
+        criticalCount,
+        affectedComponents: components.size,
+        lastOccurredAt: allItems[0]?.lastSeenAt || null,
+      },
+      items,
+    };
+  }
+
+  private extractIncidentMetadata(log: AuditLogEntity): {
+    fingerprint: string;
+    severity: IncidentSeverity;
+    category: IncidentCategory;
+    component: string;
+    operation: string;
+  } | null {
+    const metadata = (log.metadata || {}) as Record<string, any>;
+    const incident = metadata.incident as Record<string, any> | undefined;
+    if (!incident || incident.scope !== 'SYSTEM') {
+      return null;
+    }
+
+    return {
+      fingerprint: String(incident.fingerprint || log.id),
+      severity: (incident.severity || 'HIGH') as IncidentSeverity,
+      category: (incident.category || 'INTEGRATION') as IncidentCategory,
+      component: String(incident.component || metadata.module || log.entityType || 'System'),
+      operation: String(incident.operation || metadata.operation || log.eventName || log.action),
+    };
+  }
+
+  private extractIncidentSummary(log: AuditLogEntity): string | null {
+    const metadata = (log.metadata || {}) as Record<string, any>;
+    return typeof metadata.summary === 'string' && metadata.summary.trim()
+      ? metadata.summary.trim()
+      : null;
+  }
+
   private createBuckets(range: DashboardRange, start: Date, end: Date) {
     const useWeekly = range === '90d';
     const buckets: Array<{
@@ -856,7 +1034,10 @@ export class AdminDashboardService {
     return buckets;
   }
 
-  private findBucketForDate<T extends { start: Date; end: Date }>(buckets: T[], value?: Date | null) {
+  private findBucketForDate<T extends { start: Date; end: Date }>(
+    buckets: T[],
+    value?: Date | null,
+  ) {
     if (!value) {
       return null;
     }

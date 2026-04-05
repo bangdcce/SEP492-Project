@@ -18,6 +18,7 @@ import { HearingVerdictOrchestratorService } from './hearing-verdict-orchestrato
 import { HearingService } from './hearing.service';
 import { VerdictService } from './verdict.service';
 import { VerdictReadinessService } from './verdict-readiness.service';
+import { recordEvidence } from '../../../../test/fe16-fe18/evidence-recorder';
 
 describe('HearingVerdictOrchestratorService', () => {
   let service: HearingVerdictOrchestratorService;
@@ -248,6 +249,12 @@ describe('HearingVerdictOrchestratorService', () => {
     await expect(
       service.issueHearingVerdict('hearing-1', 'staff-2', UserRole.STAFF, baseDto()),
     ).rejects.toBeInstanceOf(ForbiddenException);
+    recordEvidence({
+      id: 'FE17-VER-01',
+      evidenceRef: 'hearing-verdict-orchestrator.service.spec.ts::forbids non-moderator',
+      actualResults:
+        'issueHearingVerdict rejected staff-2 with ForbiddenException when the hearing moderator remained staff-1, blocking verdict issuance before any payout logic ran.',
+    });
   });
 
   it('allows admins to issue a hearing verdict even when they are not the assigned moderator', async () => {
@@ -364,6 +371,12 @@ describe('HearingVerdictOrchestratorService', () => {
         }),
       }),
     );
+    recordEvidence({
+      id: 'FE17-VER-02',
+      evidenceRef: 'hearing-verdict-orchestrator.service.spec.ts::computes split verdict amounts',
+      actualResults:
+        'issueHearingVerdict computed amountToClient=40 and amountToFreelancer=60 from splitRatioClient, delegated those values to VerdictService.issueVerdict, and closed hearing-1 with status ENDED.',
+    });
   });
 
   it('uses explicitly provided payout amounts instead of recomputing the split', async () => {

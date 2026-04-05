@@ -28,7 +28,7 @@ describe('EmailVerificationService.verifyEmail', () => {
   });
 
   it('verifies the email when the token is valid and clears verification fields', async () => {
-    const expiresAt = new Date('2026-04-01T10:00:00.000Z');
+    const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
 
     userRepository.findOne.mockResolvedValue({
       id: 'user-1',
@@ -89,7 +89,7 @@ describe('EmailVerificationService.verifyEmail', () => {
       email: 'deleted@gmail.com',
       status: UserStatus.DELETED,
       emailVerifiedAt: null,
-      emailVerificationExpires: new Date('2026-04-01T10:00:00.000Z'),
+      emailVerificationExpires: new Date(Date.now() + 60 * 60 * 1000),
     });
 
     await expect(service.verifyEmail('deleted-token')).rejects.toBeInstanceOf(
@@ -121,7 +121,7 @@ describe('EmailVerificationService.verifyEmail', () => {
       email: 'expired@gmail.com',
       status: UserStatus.ACTIVE,
       emailVerifiedAt: null,
-      emailVerificationExpires: new Date('2026-03-01T10:00:00.000Z'),
+      emailVerificationExpires: new Date(Date.now() - 60 * 60 * 1000),
     });
 
     await expect(service.verifyEmail('expired-token')).rejects.toBeInstanceOf(
@@ -165,6 +165,26 @@ describe('EmailVerificationService.resendVerificationEmail', () => {
     expect(result).toEqual({
       message: 'Verification email sent. Please check your inbox.',
     });
+  });
+
+  it('normalizes email before attempting to resend verification mail', async () => {
+    userRepository.findOne.mockResolvedValue({
+      id: 'user-1',
+      email: 'member@gmail.com',
+      emailVerifiedAt: null,
+      emailVerificationExpires: null,
+    });
+
+    const sendVerificationEmailSpy = jest
+      .spyOn(service, 'sendVerificationEmail')
+      .mockResolvedValue(undefined);
+
+    await service.resendVerificationEmail('  MEMBER@GMAIL.COM  ');
+
+    expect(userRepository.findOne).toHaveBeenCalledWith({
+      where: { email: 'member@gmail.com' },
+    });
+    expect(sendVerificationEmailSpy).toHaveBeenCalledWith('user-1', 'member@gmail.com');
   });
 
   it('allows resend when the previous verification window is below the cooldown threshold', async () => {

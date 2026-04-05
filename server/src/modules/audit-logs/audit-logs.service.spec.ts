@@ -12,8 +12,16 @@ describe('AuditLogsService', () => {
     orderBy: jest.Mock;
     skip: jest.Mock;
     take: jest.Mock;
+    where: jest.Mock;
     getMany: jest.Mock;
     getManyAndCount: jest.Mock;
+    getOne: jest.Mock;
+  };
+  let repository: {
+    createQueryBuilder: jest.Mock;
+    create: jest.Mock;
+    save: jest.Mock;
+    find: jest.Mock;
   };
 
   beforeEach(async () => {
@@ -24,8 +32,17 @@ describe('AuditLogsService', () => {
       orderBy: jest.fn().mockReturnThis(),
       skip: jest.fn().mockReturnThis(),
       take: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
       getMany: jest.fn().mockResolvedValue([]),
       getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
+      getOne: jest.fn().mockResolvedValue(null),
+    };
+
+    repository = {
+      createQueryBuilder: jest.fn(() => builder),
+      create: jest.fn((input) => input),
+      save: jest.fn(async (input) => input),
+      find: jest.fn().mockResolvedValue([]),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -33,9 +50,7 @@ describe('AuditLogsService', () => {
         AuditLogsService,
         {
           provide: getRepositoryToken(AuditLogEntity),
-          useValue: {
-            createQueryBuilder: jest.fn(() => builder),
-          },
+          useValue: repository,
         },
       ],
     }).compile();
@@ -53,6 +68,82 @@ describe('AuditLogsService', () => {
     expect(service.extractActorId({ user: { id: 'user-1' } })).toBe('user-1');
   });
 
+  it('persists structured system incidents with normalized metadata', async () => {
+    const saved = await service.logSystemIncident({
+      component: 'TasksService',
+      operation: 'upload-file',
+      summary: 'Task attachment upload failed',
+      severity: 'HIGH',
+      category: 'STORAGE',
+      error: new Error('bucket unavailable'),
+      target: {
+        type: 'StorageBucket',
+        id: 'task-attachments',
+        label: 'task-attachments',
+      },
+      context: {
+        bucket: 'task-attachments',
+        authorization: 'secret-token',
+      },
+    });
+
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'ERROR',
+        entityType: 'StorageBucket',
+        eventCategory: 'ERROR',
+        errorMessage: 'bucket unavailable',
+        metadata: expect.objectContaining({
+          module: 'TasksService',
+          operation: 'upload-file',
+          outcome: 'FAILURE',
+          summary: 'Task attachment upload failed',
+          incident: expect.objectContaining({
+            scope: 'SYSTEM',
+            category: 'STORAGE',
+            component: 'TasksService',
+          }),
+          context: expect.objectContaining({
+            bucket: 'task-attachments',
+            authorization: '[Redacted]',
+          }),
+        }),
+      }),
+    );
+    expect(saved).toEqual(
+      expect.objectContaining({
+        action: 'ERROR',
+        entityType: 'StorageBucket',
+      }),
+    );
+  });
+
+  it('applies incident filters for drill-down queries', async () => {
+    await service.findAll({
+      incidentOnly: true,
+      component: 'WorkspaceChatGateway',
+      fingerprint: 'websocket:workspacechatgateway:send-project-message:error',
+      page: 1,
+      limit: 20,
+    });
+
+    expect(builder.andWhere).toHaveBeenCalledWith(
+      `(log.event_category = :incidentCategory AND log.metadata->'incident'->>'scope' = :incidentScope)`,
+      expect.objectContaining({
+        incidentCategory: 'ERROR',
+        incidentScope: 'SYSTEM',
+      }),
+    );
+    expect(builder.andWhere).toHaveBeenCalledWith(
+      `COALESCE(log.metadata->'incident'->>'component', '') ILIKE :component`,
+      { component: '%WorkspaceChatGateway%' },
+    );
+    expect(builder.andWhere).toHaveBeenCalledWith(
+      `log.metadata->'incident'->>'fingerprint' = :fingerprint`,
+      { fingerprint: 'websocket:workspacechatgateway:send-project-message:error' },
+    );
+  });
+
   it('exports JSON payloads with metadata', async () => {
     builder.getMany.mockResolvedValue([
       {
@@ -62,7 +153,6 @@ describe('AuditLogsService', () => {
         entityId: 'dispute-1',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-        riskLevel: 'LOW',
         beforeData: null,
         afterData: null,
         createdAt: new Date('2026-03-15T08:00:00.000Z'),
@@ -71,6 +161,9 @@ describe('AuditLogsService', () => {
           email: 'admin@example.com',
           fullName: 'Admin',
           role: 'ADMIN',
+        },
+        metadata: {
+          summary: 'Exported dispute audit payload',
         },
       },
     ]);
@@ -94,7 +187,6 @@ describe('AuditLogsService', () => {
         entityId: 'dispute-2',
         ipAddress: '127.0.0.1',
         userAgent: 'jest',
-        riskLevel: 'NORMAL',
         beforeData: null,
         afterData: null,
         createdAt: new Date('2026-03-15T09:00:00.000Z'),
@@ -130,16 +222,15 @@ describe('AuditLogsService', () => {
         route: '/admin/audit-logs/export',
         httpMethod: 'GET',
         statusCode: 200,
-        riskLevel: 'HIGH',
         requestId: 'req-1',
         sessionId: 'sess-1',
         source: 'SERVER',
         eventCategory: 'EXPORT',
         eventName: 'EXPORT_AUDIT_LOG',
-        changedFields: [{ field: 'status', before: 'OPEN', after: 'EXPORTED' }],
+        changedFields: [{ path: 'status', before: 'OPEN', after: 'EXPORTED' }],
         beforeData: null,
         afterData: null,
-        metadata: { userAgent: 'jest' },
+        metadata: { userAgent: 'jest', summary: 'Exported audit log workbook' },
         createdAt: new Date('2026-03-15T10:00:00.000Z'),
         actor: {
           id: 'admin-1',

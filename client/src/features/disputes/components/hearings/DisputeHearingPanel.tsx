@@ -134,8 +134,20 @@ export const DisputeHearingPanel = ({
     return getStoredJson<{ id?: string; role?: UserRole }>(STORAGE_KEYS.USER);
   }, []);
   const currentUserRole = currentUser?.role ?? null;
+  const hearingBasePath =
+    currentUserRole === UserRole.STAFF
+      ? "/staff"
+      : currentUserRole === UserRole.ADMIN
+        ? "/admin"
+        : currentUserRole === UserRole.BROKER
+          ? "/broker"
+          : currentUserRole === UserRole.FREELANCER
+            ? "/freelancer"
+            : "/client";
 
-  const canManageSchedule = !readOnly && currentUserRole === UserRole.ADMIN;
+  const canManageSchedule =
+    !readOnly &&
+    (currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF);
   const canModerate =
     !readOnly && (currentUserRole === UserRole.ADMIN || currentUserRole === UserRole.STAFF);
   const isDisputeTestToolsEnabled = useMemo(() => {
@@ -206,7 +218,7 @@ export const DisputeHearingPanel = ({
   };
 
   const handleOpenRoom = (hearingId: string) => {
-    navigate(`/staff/hearings/${hearingId}`);
+    navigate(`${hearingBasePath}/hearings/${hearingId}`);
   };
 
   const formatTimestamp = (value?: string | null) => {
@@ -265,6 +277,7 @@ export const DisputeHearingPanel = ({
     return (
       <div
         key={hearing.id}
+        data-testid={`hearing-card-${hearing.id}`}
         className="border border-gray-100 rounded-lg p-4 bg-gray-50"
       >
         <div className="flex items-start justify-between gap-4">
@@ -349,6 +362,7 @@ export const DisputeHearingPanel = ({
             <div className="flex items-center gap-2">
               {canModerate ? (
                 <button
+                  data-testid={`open-hearing-room-${hearing.id}`}
                   onClick={() => handleOpenRoom(hearing.id)}
                   className="px-2 py-1 text-xs rounded-md bg-slate-900 text-white hover:bg-slate-800"
                 >
@@ -357,6 +371,7 @@ export const DisputeHearingPanel = ({
               ) : null}
               {canModerate ? (
                 <button
+                  data-testid={`start-hearing-${hearing.id}`}
                   onClick={() => handleStart(hearing)}
                   disabled={!canStart || actionLoadingId === hearing.id}
                   className="px-2 py-1 text-xs rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50 flex items-center gap-1"
@@ -371,6 +386,7 @@ export const DisputeHearingPanel = ({
               ) : null}
               {canReschedule ? (
                 <button
+                  data-testid={`reschedule-hearing-${hearing.id}`}
                   onClick={() => handleRescheduleOpen(hearing)}
                   className="px-2 py-1 text-xs rounded-md border border-gray-200 text-gray-600 hover:bg-white flex items-center gap-1"
                 >
@@ -380,6 +396,7 @@ export const DisputeHearingPanel = ({
               ) : null}
               {canModerate ? (
                 <button
+                  data-testid={`open-end-hearing-${hearing.id}`}
                   onClick={() => handleEndOpen(hearing)}
                   disabled={!canEnd || actionLoadingId === hearing.id}
                   className="px-2 py-1 text-xs rounded-md border border-red-200 text-red-600 hover:bg-red-50 flex items-center gap-1 disabled:opacity-50"
@@ -667,7 +684,7 @@ export const DisputeHearingPanel = ({
   }, []);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" data-testid="dispute-hearing-panel">
       {schemaErrorMessage && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <p className="font-semibold">Server schema is not ready</p>
@@ -798,6 +815,7 @@ export const DisputeHearingPanel = ({
               </label>
               <input
                 type="datetime-local"
+                data-testid="schedule-hearing-at"
                 value={scheduleAt}
                 onChange={(event) => setScheduleAt(event.target.value)}
                 className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -812,6 +830,7 @@ export const DisputeHearingPanel = ({
                   type="number"
                   min={15}
                   max={240}
+                  data-testid="schedule-hearing-duration"
                   value={duration}
                   onChange={(event) => setDuration(Number(event.target.value))}
                   className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -822,6 +841,7 @@ export const DisputeHearingPanel = ({
               <label className="block text-xs text-gray-500 mb-1">Agenda</label>
               <textarea
                 rows={3}
+                data-testid="schedule-hearing-agenda"
                 value={agenda}
                 onChange={(event) => setAgenda(event.target.value)}
                 className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -833,6 +853,7 @@ export const DisputeHearingPanel = ({
                 Required documents (comma-separated)
               </label>
               <input
+                data-testid="schedule-hearing-required-docs"
                 value={requiredDocs}
                 onChange={(event) => setRequiredDocs(event.target.value)}
                 className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -844,6 +865,7 @@ export const DisputeHearingPanel = ({
                 Manual meeting link
               </label>
               <input
+                data-testid="schedule-hearing-meeting-link"
                 value={meetingLink}
                 onChange={(event) => setMeetingLink(event.target.value)}
                 className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -860,6 +882,7 @@ export const DisputeHearingPanel = ({
             <label className="flex items-center gap-2 text-sm text-gray-600">
               <input
                 type="checkbox"
+                data-testid="schedule-hearing-emergency"
                 checked={isEmergency}
                 onChange={(event) => setIsEmergency(event.target.checked)}
               />
@@ -868,6 +891,7 @@ export const DisputeHearingPanel = ({
             <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
               <input
                 type="checkbox"
+                data-testid="schedule-hearing-confirmed"
                 checked={scheduleConfirmed}
                 onChange={(event) => setScheduleConfirmed(event.target.checked)}
                 className="mt-0.5"
@@ -876,6 +900,7 @@ export const DisputeHearingPanel = ({
             </label>
             <div className="flex justify-end">
               <button
+                data-testid="schedule-hearing-submit"
                 onClick={handleSchedule}
                 disabled={scheduleLoading || !scheduleConfirmed}
                 className="px-4 py-2 bg-slate-900 text-white text-sm rounded-lg hover:bg-slate-800 disabled:opacity-50"
@@ -906,6 +931,7 @@ export const DisputeHearingPanel = ({
             </div>
             <input
               type="datetime-local"
+              data-testid="reschedule-hearing-at"
               value={rescheduleAt}
               onChange={(event) => setRescheduleAt(event.target.value)}
               className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -915,6 +941,7 @@ export const DisputeHearingPanel = ({
                 type="number"
                 min={15}
                 max={240}
+                data-testid="reschedule-hearing-duration"
                 value={rescheduleDuration}
                 onChange={(event) => setRescheduleDuration(Number(event.target.value))}
                 className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -923,12 +950,14 @@ export const DisputeHearingPanel = ({
             </div>
             <textarea
               rows={3}
+              data-testid="reschedule-hearing-agenda"
               value={rescheduleAgenda}
               onChange={(event) => setRescheduleAgenda(event.target.value)}
               className="w-full border border-gray-200 rounded-lg p-2 text-sm"
               placeholder="Agenda"
             />
             <input
+              data-testid="reschedule-hearing-required-docs"
               value={rescheduleDocs}
               onChange={(event) => setRescheduleDocs(event.target.value)}
               className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -939,6 +968,7 @@ export const DisputeHearingPanel = ({
                 Manual meeting link
               </label>
               <input
+                data-testid="reschedule-hearing-meeting-link"
                 value={rescheduleMeetingLink}
                 onChange={(event) => setRescheduleMeetingLink(event.target.value)}
                 className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -951,6 +981,7 @@ export const DisputeHearingPanel = ({
             <label className="flex items-center gap-2 text-sm text-gray-600">
               <input
                 type="checkbox"
+                data-testid="reschedule-hearing-emergency"
                 checked={rescheduleEmergency}
                 onChange={(event) => setRescheduleEmergency(event.target.checked)}
               />
@@ -959,6 +990,7 @@ export const DisputeHearingPanel = ({
             <label className="flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
               <input
                 type="checkbox"
+                data-testid="reschedule-hearing-confirmed"
                 checked={rescheduleConfirmed}
                 onChange={(event) => setRescheduleConfirmed(event.target.checked)}
                 className="mt-0.5"
@@ -974,6 +1006,7 @@ export const DisputeHearingPanel = ({
               Cancel
             </button>
             <button
+              data-testid="reschedule-hearing-submit"
               className="px-4 py-2 rounded-lg bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
               onClick={handleRescheduleSubmit}
               disabled={actionLoadingId === rescheduleHearingTarget?.id || !rescheduleConfirmed}
@@ -995,6 +1028,7 @@ export const DisputeHearingPanel = ({
           <div className="grid gap-3">
             <textarea
               rows={2}
+              data-testid="end-hearing-summary"
               value={endSummary}
               onChange={(event) => setEndSummary(event.target.value)}
               className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -1002,12 +1036,14 @@ export const DisputeHearingPanel = ({
             />
             <textarea
               rows={2}
+              data-testid="end-hearing-findings"
               value={endFindings}
               onChange={(event) => setEndFindings(event.target.value)}
               className="w-full border border-gray-200 rounded-lg p-2 text-sm"
               placeholder="Findings"
             />
             <input
+              data-testid="end-hearing-pending-actions"
               value={endPendingActions}
               onChange={(event) => setEndPendingActions(event.target.value)}
               className="w-full border border-gray-200 rounded-lg p-2 text-sm"
@@ -1022,6 +1058,7 @@ export const DisputeHearingPanel = ({
               Cancel
             </button>
             <button
+              data-testid="end-hearing-submit"
               className="px-4 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
               onClick={handleEndSubmit}
               disabled={actionLoadingId === endHearingTarget?.id}

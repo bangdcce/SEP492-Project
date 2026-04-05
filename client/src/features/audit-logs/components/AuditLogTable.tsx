@@ -12,10 +12,18 @@ export const AuditLogTable = ({
   return (
     <div className="overflow-hidden rounded-3xl border border-slate-200 bg-white">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1080px]">
+        <table className="w-full min-w-[1220px]">
           <thead className="border-b border-slate-200 bg-slate-50">
             <tr>
-              {["Actor", "Category", "Entity", "Route", "Correlation", "Time", "Risk"].map((label) => (
+              {[
+                "Actor",
+                "Summary",
+                "Target",
+                "Route",
+                "Correlation",
+                "Time",
+                "Risk",
+              ].map((label) => (
                 <th
                   key={label}
                   className="px-5 py-3 text-left text-xs uppercase tracking-[0.2em] text-slate-500"
@@ -34,7 +42,9 @@ export const AuditLogTable = ({
               >
                 <td className="px-5 py-4">
                   <div>
-                    <p className="text-sm font-medium text-slate-950">{log.actor.name}</p>
+                    <p className="text-sm font-medium text-slate-950">
+                      {log.actor.name}
+                    </p>
                     <p className="text-xs text-slate-500">{log.actor.email}</p>
                   </div>
                 </td>
@@ -50,19 +60,36 @@ export const AuditLogTable = ({
                     >
                       {log.source}
                     </Badge>
+                    {log.metadata?.incident ? (
+                      <Badge className="border-rose-200 bg-rose-50 text-rose-700">
+                        {log.metadata.incident.severity}
+                      </Badge>
+                    ) : null}
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">{log.eventName}</p>
+                  <p className="mt-2 text-sm text-slate-900">
+                    {log.metadata?.summary || log.eventName}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {log.metadata?.outcome || "SUCCESS"} •{" "}
+                    {log.metadata?.operation || log.action}
+                  </p>
                 </td>
                 <td className="px-5 py-4">
-                  <p className="text-sm text-slate-900">{log.entity}</p>
-                  <p className="mt-1 text-xs text-slate-500">{log.action}</p>
+                  <p className="text-sm text-slate-900">
+                    {log.metadata?.target?.label || log.entity}
+                  </p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    {log.metadata?.target?.type || log.entityType} •{" "}
+                    {log.metadata?.target?.id || log.entityId}
+                  </p>
                 </td>
                 <td className="px-5 py-4">
                   <p className="max-w-[220px] truncate text-sm text-slate-900">
                     {log.route || "No route"}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
-                    {log.httpMethod || "N/A"} {log.statusCode ? `• ${log.statusCode}` : ""}
+                    {log.httpMethod || "N/A"}{" "}
+                    {log.statusCode ? `• ${log.statusCode}` : ""}
                   </p>
                 </td>
                 <td className="px-5 py-4">
@@ -75,7 +102,9 @@ export const AuditLogTable = ({
                 </td>
                 <td className="px-5 py-4">
                   <p className="text-sm text-slate-900">
-                    {formatDistanceToNow(new Date(log.timestamp), { addSuffix: true })}
+                    {formatDistanceToNow(new Date(log.timestamp), {
+                      addSuffix: true,
+                    })}
                   </p>
                   <p className="mt-1 text-xs text-slate-500">
                     {new Date(log.timestamp).toLocaleString()}
