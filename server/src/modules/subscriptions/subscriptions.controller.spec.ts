@@ -10,6 +10,7 @@ describe('SubscriptionsController', () => {
   let controller: SubscriptionsController;
   let subscriptionsService: {
     getPlansForRole: jest.Mock;
+    getPlanDisplayPricing: jest.Mock;
     getMySubscription: jest.Mock;
     getPayPalCheckoutConfig: jest.Mock;
     createPayPalSubscriptionOrder: jest.Mock;
@@ -23,6 +24,7 @@ describe('SubscriptionsController', () => {
   beforeEach(() => {
     subscriptionsService = {
       getPlansForRole: jest.fn(),
+      getPlanDisplayPricing: jest.fn(),
       getMySubscription: jest.fn(),
       getPayPalCheckoutConfig: jest.fn(),
       createPayPalSubscriptionOrder: jest.fn(),
@@ -62,6 +64,14 @@ describe('SubscriptionsController', () => {
     ];
 
     subscriptionsService.getPlansForRole.mockResolvedValue(plans);
+    subscriptionsService.getPlanDisplayPricing.mockReturnValue({
+      displayCurrency: 'USD',
+      priceMonthlyDisplay: 3.96,
+      priceQuarterlyDisplay: 10.08,
+      priceYearlyDisplay: 33.28,
+      monthlyEquivalentDisplay: 3.96,
+      exchangeRateApplied: 25000,
+    });
 
     const result = await controller.getPlans(req);
 
@@ -74,6 +84,12 @@ describe('SubscriptionsController', () => {
           priceMonthly: 99000,
           priceQuarterly: 252000,
           priceYearly: 832000,
+          displayCurrency: 'USD',
+          priceMonthlyDisplay: 3.96,
+          priceQuarterlyDisplay: 10.08,
+          priceYearlyDisplay: 33.28,
+          monthlyEquivalentDisplay: 3.96,
+          exchangeRateApplied: 25000,
         },
       ],
     });

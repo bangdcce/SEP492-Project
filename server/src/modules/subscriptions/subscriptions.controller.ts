@@ -93,6 +93,7 @@ export class SubscriptionsController {
           priceMonthly: Number(plan.priceMonthly),
           priceQuarterly: Number(plan.priceQuarterly),
           priceYearly: Number(plan.priceYearly),
+          ...this.subscriptionsService.getPlanDisplayPricing(plan),
           perks: plan.perks,
         })),
       };
