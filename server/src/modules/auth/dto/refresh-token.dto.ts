@@ -2,13 +2,13 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class RefreshTokenResponseDto {
   @ApiProperty({
-    description: 'Access token mới',
+    description: 'New access token',
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
   accessToken: string;
 
   @ApiProperty({
-    description: 'Refresh token mới',
+    description: 'New refresh token',
     example: 'def456ghi789abc123...',
   })
   refreshToken: string;

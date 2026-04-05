@@ -285,7 +285,7 @@ export default function KYCStatusPage() {
           {/* Action Buttons */}
           {(isNotVerified || status === 'REJECTED') && (
             <Button
-              onClick={() => navigate(ROUTES.KYC_VERIFICATION)}
+              onClick={() => navigate(`${ROUTES.KYC_VERIFICATION}?from=status`)}
               className="w-full bg-teal-600 hover:bg-teal-700"
             >
               {status === 'REJECTED' ? 'Resubmit Verification' : 'Start Verification'}
@@ -295,7 +295,7 @@ export default function KYCStatusPage() {
 
           {status === 'APPROVED' && !hasPendingUpdate && (
             <Button
-              onClick={() => navigate(`${ROUTES.KYC_VERIFICATION}?mode=update`)}
+              onClick={() => navigate(`${ROUTES.KYC_VERIFICATION}?mode=update&from=status`)}
               className="w-full bg-teal-600 hover:bg-teal-700"
             >
               {hasRejectedUpdate ? 'Submit KYC Update Again' : 'Update Verification'}

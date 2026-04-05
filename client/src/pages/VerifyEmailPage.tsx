@@ -41,7 +41,7 @@ export function VerifyEmailPage() {
       setErrorMessage(errorMsg);
 
       // Check if token expired
-      if (errorMsg.toLowerCase().includes('expired') || errorMsg.toLowerCase().includes('hết hạn')) {
+      if (errorMsg.toLowerCase().includes('expired')) {
         setStatus('expired');
       } else {
         setStatus('error');
@@ -101,10 +101,7 @@ export function VerifyEmailPage() {
   }, [token, pendingEmail]);
 
   return (
-    <AuthLayout
-      title="Verify your email"
-      subtitle="Confirm your account to continue using the platform."
-    >
+    <AuthLayout>
       <div className="flex items-start justify-center min-h-[60vh] pt-8 px-4">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
