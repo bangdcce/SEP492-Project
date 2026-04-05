@@ -40,7 +40,7 @@ describe('UpdateProfileDto', () => {
       }),
     );
 
-    expect(messages).toContain('Số điện thoại phải là 10-11 chữ số');
+    expect(messages).toContain('Phone number must contain 10 to 11 digits');
   });
 
   it('rejects a bio longer than 500 characters', async () => {
@@ -50,7 +50,7 @@ describe('UpdateProfileDto', () => {
       }),
     );
 
-    expect(messages).toContain('Bio không được vượt quá 500 ký tự');
+    expect(messages).toContain('Bio must not exceed 500 characters');
   });
 
   it('accepts a bio exactly 500 characters long', async () => {

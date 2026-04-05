@@ -4,44 +4,44 @@ import { UserRole } from '../../../database/entities/user.entity';
 
 export class CompleteGoogleSignupDto {
   @ApiProperty({
-    description: 'Email từ Google OAuth',
+    description: 'Email returned by Google OAuth',
     example: 'user@example.com',
   })
-  @IsEmail({}, { message: 'Email không hợp lệ' })
-  @IsNotEmpty({ message: 'Email không được để trống' })
+  @IsEmail({}, { message: 'Invalid email format' })
+  @IsNotEmpty({ message: 'Email is required' })
   email: string;
 
   @ApiProperty({
-    description: 'Tên đầy đủ từ Google',
-    example: 'Nguyễn Văn A',
+    description: 'Full name returned by Google',
+    example: 'John Doe',
   })
   @IsString()
-  @IsNotEmpty({ message: 'Họ tên không được để trống' })
+  @IsNotEmpty({ message: 'Full name is required' })
   fullName: string;
 
   @ApiProperty({
-    description: 'Số điện thoại',
+    description: 'Phone number',
     example: '0987654321',
   })
   @IsString()
-  @IsNotEmpty({ message: 'Số điện thoại không được để trống' })
+  @IsNotEmpty({ message: 'Phone number is required' })
   @Matches(/^(0[3|5|7|8|9])+([0-9]{8})$/, {
     message:
-      'Số điện thoại phải là số điện thoại Việt Nam hợp lệ (10 số, bắt đầu bằng 03, 05, 07, 08 hoặc 09)',
+      'Phone number must be a valid Vietnamese mobile number (10 digits, starting with 03, 05, 07, 08, or 09)',
   })
   phoneNumber: string;
 
   @ApiProperty({
-    description: 'Vai trò người dùng',
+    description: 'User role',
     enum: UserRole,
     example: UserRole.CLIENT,
   })
-  @IsEnum(UserRole, { message: 'Role phải là CLIENT, BROKER hoặc FREELANCER' })
-  @IsNotEmpty({ message: 'Role không được để trống' })
+  @IsEnum(UserRole, { message: 'Role must be CLIENT, BROKER, or FREELANCER' })
+  @IsNotEmpty({ message: 'Role is required' })
   role: string;
 
   @ApiPropertyOptional({
-    description: 'Ảnh đại diện từ Google',
+    description: 'Avatar image returned by Google',
     example: 'https://lh3.googleusercontent.com/...',
   })
   @IsOptional()

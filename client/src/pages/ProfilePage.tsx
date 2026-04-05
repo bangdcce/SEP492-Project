@@ -696,7 +696,7 @@ export default function ProfilePage() {
                         </p>
                         <button
                           type="button"
-                          onClick={() => navigate(`${ROUTES.KYC_VERIFICATION}?mode=update`)}
+                          onClick={() => navigate(`${ROUTES.KYC_VERIFICATION}?mode=update&from=profile`)}
                           disabled={hasPendingKycUpdate}
                           className="w-full rounded-lg border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-700 transition-colors hover:bg-green-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
                         >
@@ -715,7 +715,7 @@ export default function ProfilePage() {
                         </p>
                         <button
                           type="button"
-                          onClick={() => navigate(ROUTES.KYC_VERIFICATION)}
+                          onClick={() => navigate(`${ROUTES.KYC_VERIFICATION}?from=profile`)}
                           className="mt-3 w-full rounded-lg border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-700 transition-colors hover:bg-green-100"
                         >
                           Start KYC Verification

@@ -7,7 +7,7 @@ import { Button } from "../shared/components/custom/Button";
 import { PasswordStrength } from '../shared/components/auth/PasswordStrength';
 import { CaptchaInput } from '../shared/components/auth/CaptchaInput';
 import { AuthLayout } from '../shared/components/layouts/AuthLayout';
-import { Eye, EyeOff, ArrowLeft, ArrowRight, Store, Briefcase, Laptop } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, ArrowRight, Store, Briefcase, Laptop, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { ROUTES } from '@/constants';
 import { signUp, getSkillDomains, getSkills, type SkillDomain, type Skill } from '@/features/auth';
@@ -84,7 +84,7 @@ export function SignUpPage({
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(email)) return false;
 
-    // Whitelist: Chỉ chấp nhận email từ các provider uy tín
+    // Whitelist: only allow trusted email providers
     const allowedDomains = [
       // Google
       'gmail.com', 'googlemail.com',
@@ -191,7 +191,7 @@ export function SignUpPage({
       await signUp(payload);
 
       toast.success(
-        "Đăng ký thành công. Vui lòng kiểm tra email để xác thực tài khoản.",
+        'Registration successful. Please check your email to verify your account.',
       );
 
       if (onSignUpSuccess) {
@@ -397,11 +397,11 @@ export function SignUpPage({
       return;
     }
 
-    // If Freelancer or Broker → go to Domain selection (Step 3)
+    // If Freelancer or Broker Ä‚Â¢Ă¢â‚¬Â Ă¢â‚¬â„¢ go to Domain selection (Step 3)
     if (formData.role === "freelancer" || formData.role === "broker") {
       setCurrentStep(3);
     } else {
-      // Client → submit immediately (only 2 steps: role + info)
+      // Client Ä‚Â¢Ă¢â‚¬Â Ă¢â‚¬â„¢ submit immediately (only 2 steps: role + info)
       await performSignUp();
     }
   };
@@ -419,7 +419,7 @@ export function SignUpPage({
       setErrors({ skills: "Please select at least one skill" });
       return;
     }
-    // All steps completed → submit
+    // All steps completed Ä‚Â¢Ă¢â‚¬Â Ă¢â‚¬â„¢ submit
     handleSubmit(new Event("submit") as any);
   };
 
@@ -542,7 +542,7 @@ export function SignUpPage({
                 transition: "all 0.3s ease",
               }}
             >
-              {currentStep > 1 ? "✓" : "1"}
+              {currentStep > 1 ? <Check className="h-4 w-4" /> : "1"}
             </div>
             <span
               style={{
@@ -586,7 +586,7 @@ export function SignUpPage({
                 transition: "all 0.3s ease",
               }}
             >
-              {currentStep > 2 ? "✓" : "2"}
+              {currentStep > 2 ? <Check className="h-4 w-4" /> : "2"}
             </div>
             <span
               style={{
@@ -631,7 +631,7 @@ export function SignUpPage({
                   transition: "all 0.3s ease",
                 }}
               >
-                {currentStep > 3 ? "✓" : "3"}
+                {currentStep > 3 ? <Check className="h-4 w-4" /> : "3"}
               </div>
               <span
                 style={{

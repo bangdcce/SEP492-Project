@@ -38,7 +38,7 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
       WalletEntity,
     ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
-    AuditLogsModule, // Import để dùng AuditLogsService
+    AuditLogsModule, // Imported to use AuditLogsService
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService): JwtModuleOptions => {
