@@ -1,0 +1,100 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "EP-265",
+      "class_name": "SubscriptionsController / SubscriptionsService",
+      "function_name": "Get Plans",
+      "sheet_name": "EP-265 Get Plans",
+      "test_requirement": "Cover GET /subscriptions/plans with executed Jest evidence for endpoint response mapping, empty-list handling, role-filtered plan lookup, and repository failure logging.",
+      "loc": 26,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated user \"client-1\" has role \"CLIENT\"",
+            "At least 1 active client plan is available"
+          ],
+          "inputs": {
+            "userId": "\"client-1\"",
+            "role": "\"CLIENT\""
+          },
+          "returns": [
+            "returns success response with available plan list"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Get Plans Endpoint Successful: user=\"client-1\" role=\"CLIENT\" count=1"
+          ]
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated user \"broker-1\" has role \"BROKER\"",
+            "No active broker plans are available"
+          ],
+          "inputs": {
+            "userId": "\"broker-1\"",
+            "role": "\"BROKER\""
+          },
+          "returns": [
+            "returns success response with empty plan list"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Get Plans Endpoint Successful: user=\"broker-1\" role=\"BROKER\" count=0"
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Active client plans exist in the subscription plan store"
+          ],
+          "inputs": {
+            "role": "\"CLIENT\""
+          },
+          "returns": [
+            "returns active plan list for role = CLIENT"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Get Plans Successful: role=\"CLIENT\" count=2"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Subscription plan repository is unavailable"
+          ],
+          "inputs": {
+            "role": "\"FREELANCER\""
+          },
+          "returns": [],
+          "exceptions": [
+            "Error: database unavailable"
+          ],
+          "logs": [
+            "Get Plans Failed: database unavailable"
+          ]
+        }
+      ]
+    }
+  ]
+}

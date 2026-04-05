@@ -34,6 +34,8 @@ export const ROUTES = {
   FREELANCER_PROFILE: "/freelancer/profile",
   FREELANCER_ONBOARDING: "/freelancer/onboarding",
   FREELANCER_KYC_STATUS: "/freelancer/kyc-status",
+  FREELANCER_SUBSCRIPTION: "/freelancer/subscription",
+  FREELANCER_SUBSCRIPTION_CHECKOUT: "/freelancer/subscription/checkout",
   FREELANCER_BILLING: "/freelancer/billing",
 
   // Broker Routes
@@ -45,6 +47,8 @@ export const ROUTES = {
   BROKER_DISPUTES: "/broker/disputes",
   BROKER_DISPUTE_DETAIL: "/broker/disputes/:disputeId",
   BROKER_KYC_STATUS: "/broker/kyc-status",
+  BROKER_SUBSCRIPTION: "/broker/subscription",
+  BROKER_SUBSCRIPTION_CHECKOUT: "/broker/subscription/checkout",
   BROKER_BILLING: "/broker/billing",
   PROJECT_REQUEST_DETAILS: "/broker/project-requests/:id",
 
@@ -61,6 +65,7 @@ export const ROUTES = {
   CLIENT_DISPUTE_DETAIL: "/client/disputes/:disputeId",
   CLIENT_KYC_STATUS: "/client/kyc-status",
   CLIENT_SUBSCRIPTION: "/client/subscription",
+  CLIENT_SUBSCRIPTION_CHECKOUT: "/client/subscription/checkout",
   CLIENT_BILLING: "/client/billing",
   
 

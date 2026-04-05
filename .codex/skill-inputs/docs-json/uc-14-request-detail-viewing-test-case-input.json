@@ -1,0 +1,182 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC14_Request_Detail_Viewing_Test_Case_v1.1",
+    "creator": "Codex",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.1",
+    "defaultTester": "Codex",
+    "environment": [
+      "1. Frontend: React RequestDetailPage routed through client request detail views",
+      "2. Backend: NestJS GET /project-requests/:id handled by ProjectRequestsController.getOne and ProjectRequestsService.findOne",
+      "3. Database: TypeORM request relations for answers, broker proposals, freelancer proposals, specs, linked contract summaries, and project summaries",
+      "4. Executed evidence: cmd /c npx jest src/modules/project-requests/project-requests.service.spec.ts --runInBand passed on 24/03/2026 in server workspace"
+    ],
+    "notes": "Strict feature-based workbook for UC-14 Request Detail Viewing. Only the broker marketplace-access request-detail scenarios are backed by executed Jest evidence in this workspace. The owning-client success path, missing-request path, and frontend rendering/error-handling paths remain derived from code inspection and are marked Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.1",
+        "changeItem": "UC-14 Request Detail Viewing",
+        "changeType": "U",
+        "description": "Regenerated the request-detail workbook with executed Jest evidence mapped to broker request-detail access cases and refreshed the remaining unexecuted scenarios from the implemented read-model and page flow.",
+        "reference": "server/src/modules/project-requests/project-requests.service.spec.ts, server/src/modules/project-requests/project-requests.service.ts, server/src/modules/project-requests/project-requests.controller.ts, client/src/features/requests/RequestDetailPage.tsx"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "UC-14",
+      "name": "Request Detail Viewing",
+      "testRequirement": "Validate the request detail read-model, broker-specific masking and access guards, and the client request detail page success and failure handling for UC-14 Request Detail Viewing.",
+      "referenceDocument": [
+        "server/src/modules/project-requests/project-requests.controller.ts",
+        "server/src/modules/project-requests/project-requests.service.ts",
+        "server/src/modules/project-requests/project-requests.service.spec.ts",
+        "client/src/features/requests/RequestDetailPage.tsx",
+        "client/src/features/wizard/services/wizardService.ts",
+        "client/src/features/requests/README.md"
+      ],
+      "statistics": {
+        "passed": 2,
+        "failed": 0,
+        "untested": 5,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Request Detail API Read Model",
+          "description": "The backend loads the request with related entities, enforces role-based visibility, masks client contact data for marketplace brokers, and returns the read-model consumed by the detail page.",
+          "preCondition": "A request id is supplied and the caller is authenticated unless the negative case intentionally checks forbidden or missing-resource behavior.",
+          "relatedUseCases": [
+            "UC-14"
+          ],
+          "actor": "Client, Broker",
+          "done": false
+        },
+        {
+          "name": "Client Request Detail Page Rendering",
+          "description": "The React detail page loads request data with wizardService.getRequestById, derives the current workflow phase, renders request panels, and switches to an error state when the load fails.",
+          "preCondition": "The client can open the request detail route and the request-detail API is reachable unless the scenario intentionally simulates a failure.",
+          "relatedUseCases": [
+            "UC-14"
+          ],
+          "actor": "Client",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Request Detail API Read Model",
+          "testCases": [
+            {
+              "id": "[UC14-API-01]",
+              "description": "Return the request detail read-model for the owning client.",
+              "procedure": "1. Authenticate as the client who owns the request.\n2. Call GET /project-requests/:id with a valid request id.\n3. Inspect the response returned by ProjectRequestsService.findOne.",
+              "expectedResults": "1. The API returns HTTP 200.\n2. The response contains the request plus related answers, broker proposals, freelancer proposals, specs, flowSnapshot, requestProgress, marketVisibility, and viewerPermissions.\n3. The detail payload is suitable for RequestDetailPage rendering.",
+              "dependencies": "A persisted request exists and the caller owns it.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from ProjectRequestsController.getOne and ProjectRequestsService.findOne/buildRequestReadModel."
+            },
+            {
+              "id": "[UC14-API-02]",
+              "description": "Return HTTP 404 when the request id does not exist.",
+              "procedure": "1. Authenticate as a valid user.\n2. Call GET /project-requests/:id with a request id that is not present.\n3. Observe the API response.",
+              "expectedResults": "1. findOneEntity throws NotFoundException.\n2. The API returns HTTP 404.\n3. No request detail payload is exposed.",
+              "dependencies": "An authenticated user and a non-existent request id.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "The controller and service path support this outcome, but no direct executed request-detail spec covered it in this run."
+            },
+            {
+              "id": "[UC14-API-03]",
+              "description": "Mask client contact data and hide other broker applications when a broker opens a public marketplace request detail.",
+              "procedure": "1. Run cmd /c npx jest src/modules/project-requests/project-requests.service.spec.ts --runInBand in the server workspace.\n2. Inspect the broker marketplace access case that calls service.findOne for a PUBLIC_DRAFT request.\n3. Verify the returned read-model fields.",
+              "expectedResults": "1. The spec passes.\n2. result.client.email and result.client.phoneNumber are masked as ********.\n3. viewerPermissions.canApplyAsBroker is true and viewerPermissions.canViewSpecs is false.\n4. brokerApplicationSummary includes only the current broker application rather than other brokers' applications.",
+              "dependencies": "server/node_modules is available and the service spec executes successfully.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Passed",
+              "testDate": "03/24",
+              "tester": "Codex",
+              "note": "Executed evidence from project-requests.service.spec.ts describe('broker marketplace access') first test."
+            },
+            {
+              "id": "[UC14-API-04]",
+              "description": "Reject a broker attempting to view a request assigned to another broker.",
+              "procedure": "1. Run cmd /c npx jest src/modules/project-requests/project-requests.service.spec.ts --runInBand in the server workspace.\n2. Inspect the broker marketplace access case that calls service.findOne for a BROKER_ASSIGNED request owned by another broker.\n3. Observe the thrown error.",
+              "expectedResults": "1. The spec passes.\n2. service.findOne throws ForbiddenException.\n3. The broker does not receive the request detail payload.",
+              "dependencies": "server/node_modules is available and the service spec executes successfully.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Passed",
+              "testDate": "03/24",
+              "tester": "Codex",
+              "note": "Executed evidence from project-requests.service.spec.ts describe('broker marketplace access') second test."
+            }
+          ]
+        },
+        {
+          "title": "Client Request Detail Page Rendering",
+          "testCases": [
+            {
+              "id": "[UC14-UI-01]",
+              "description": "Render the request detail page after a successful request payload fetch.",
+              "procedure": "1. Navigate to the client request detail route with a valid request id.\n2. Let RequestDetailPage.fetchData call wizardService.getRequestById.\n3. Wait for loading to finish and inspect the rendered view.",
+              "expectedResults": "1. The page shows a loading state first.\n2. After the request succeeds, the page renders the title, status, workflow phase, and available detail panels.\n3. The page derives the active tab from resolveRequestFlowSnapshot and loads broker or freelancer match data when appropriate.",
+              "dependencies": "The request-detail API returns a valid payload and the route is reachable.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from fetchData, resolveRequestFlowSnapshot, and the success rendering branches in RequestDetailPage.tsx."
+            },
+            {
+              "id": "[UC14-UI-02]",
+              "description": "Show the request detail page error state when loading the request fails.",
+              "procedure": "1. Navigate to the client request detail route.\n2. Force wizardService.getRequestById to reject.\n3. Observe the page after the failed load.",
+              "expectedResults": "1. The page clears the loading spinner.\n2. getApiErrorDetails resolves the message and loadError is set.\n3. A toast error is shown and the detail content is not rendered.",
+              "dependencies": "The request detail route is reachable and the API request fails.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the catch branch in RequestDetailPage.fetchData."
+            },
+            {
+              "id": "[UC14-UI-03]",
+              "description": "Fallback to the existing broker application summary when broker match lookup fails after the main request detail fetch.",
+              "procedure": "1. Navigate to the client request detail route for a request whose payload already contains brokerApplicationSummary.items.\n2. Let wizardService.getRequestById succeed.\n3. Force wizardService.getBrokerMatchesQuick to reject.\n4. Observe the broker matches shown on the page.",
+              "expectedResults": "1. The warning from the broker match fetch is handled without breaking the page.\n2. setMatches uses brokerApplicationSummary.items from the request payload.\n3. The request detail view remains usable even though the secondary broker match lookup fails.",
+              "dependencies": "The request payload includes brokerApplicationSummary.items and the secondary broker match request fails.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the canViewBrokerMatches / getBrokerMatchesQuick fallback branch in RequestDetailPage.fetchData."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

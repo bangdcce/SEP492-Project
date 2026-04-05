@@ -1,0 +1,319 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC02_Public_Landing_Content_Test_Case_v1.0",
+    "creator": "Bao",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "defaultTester": "Bao",
+    "environment": [
+      "1. Frontend: React LandingPage route and figma landing component",
+      "2. Routing: react-router-dom root, /login, and /register paths",
+      "3. UI libraries: Framer Motion, lucide-react, Tailwind utility classes",
+      "4. Evidence source: code inspection of UC-Des.html, client/src/App.tsx, client/src/constants/index.ts, client/src/pages/LandingPage.tsx, and client/src/shared/components/figma/landing.tsx"
+    ],
+    "notes": "Strict feature-based workbook for UC-02 Public Landing Content. The repository does not include an executable integration spec or captured execution evidence for this flow, so the cases below are derived from implementation behavior and remain Untested. App.tsx currently declares both LANDING and HOME as '/' so root-route behavior should be confirmed during execution.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "UC-02 Public Landing Content",
+        "changeType": "A",
+        "description": "Initial feature/function-based workbook generated from the public landing page route, component structure, and use-case description.",
+        "reference": "UC-Des.html, client/src/App.tsx, client/src/constants/index.ts, client/src/pages/LandingPage.tsx, client/src/shared/components/figma/landing.tsx"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "PUBLIC",
+      "name": "Public Landing Content",
+      "testRequirement": "Validate the public landing page root route, static marketing content rendering, section anchor navigation, authentication CTA navigation, and responsive mobile-menu behavior for UC-02 Public Landing Content.",
+      "referenceDocument": [
+        "UC-Des.html",
+        "client/src/App.tsx",
+        "client/src/constants/index.ts",
+        "client/src/pages/LandingPage.tsx",
+        "client/src/shared/components/figma/landing.tsx"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 8,
+        "pending": 8,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Landing Page Rendering",
+          "description": "The root public route renders the marketing landing page with hero, platform features, role-specific sections, process steps, CTA block, and footer branding.",
+          "preCondition": "The frontend application is reachable in a browser and the landing route can be opened without authentication.",
+          "relatedUseCases": [
+            "UC-02"
+          ],
+          "actor": "Guest",
+          "done": false
+        },
+        {
+          "name": "Landing Page Navigation CTAs",
+          "description": "Desktop and hero CTA actions navigate guests from the landing page to the sign-in and registration pages, while section links target in-page anchors.",
+          "preCondition": "The landing page has loaded successfully and the browser can evaluate client-side route changes and anchor jumps.",
+          "relatedUseCases": [
+            "UC-02"
+          ],
+          "actor": "Guest",
+          "done": false
+        },
+        {
+          "name": "Responsive Mobile Menu",
+          "description": "The mobile landing header exposes a collapsible navigation menu with the same section links and authentication actions available on smaller screens.",
+          "preCondition": "The landing page is opened at a mobile viewport width where the hamburger menu is visible.",
+          "relatedUseCases": [
+            "UC-02"
+          ],
+          "actor": "Guest",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Landing Page Rendering",
+          "testCases": [
+            {
+              "id": "[UC02-LANDING-01]",
+              "description": "Render the public landing page successfully when a guest opens the root URL.",
+              "procedure": "1. Open the application at '/'.\\n2. Wait for the route to resolve and the page to finish rendering.\\n3. Observe the initial screen structure.",
+              "expectedResults": "1. The guest can access the page without authentication.\\n2. The landing page layout is rendered instead of an authenticated dashboard.\\n3. The header, hero copy, and primary CTA buttons are visible above the fold.",
+              "actualResults": "",
+              "dependencies": "Frontend build is running and the root route resolves to the LandingPage component.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Derived from the duplicated '/' route declarations in App.tsx plus the lazy LandingPage route."
+            },
+            {
+              "id": "[UC02-LANDING-02]",
+              "description": "Display the expected public marketing sections and content blocks on the landing page.",
+              "procedure": "1. Open the landing page as a guest.\\n2. Scroll from top to bottom through the full page.\\n3. Inspect the visible content sections.",
+              "expectedResults": "1. The page shows the hero section, Features section, Roles section, How It Works section, CTA section, and footer.\\n2. The Features section shows four feature cards.\\n3. The Roles section shows Business Owners, Brokers, and Freelancers content blocks.",
+              "actualResults": "",
+              "dependencies": "Landing page component renders without runtime errors and static section arrays load successfully.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Covers the static features[] and roles[] arrays inside shared/components/figma/landing.tsx."
+            },
+            {
+              "id": "[UC02-LANDING-03]",
+              "description": "Render branding, logo, and footer informational groups consistently across the landing page.",
+              "procedure": "1. Open the landing page.\\n2. Inspect the navigation bar and footer areas.\\n3. Review the displayed branding and grouped links.",
+              "expectedResults": "1. The logo image is displayed in the header and footer.\\n2. The footer shows Platform, Company, and Legal group headings.\\n3. Copyright text for 2026 InterDev is visible at the bottom.",
+              "actualResults": "",
+              "dependencies": "The public logo asset is available at /assets/logo/Logo.png and the footer renders normally.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "The company/legal footer links currently use placeholder href values, so execution should confirm whether static clickability alone is acceptable."
+            }
+          ]
+        },
+        {
+          "title": "Landing Page Navigation CTAs",
+          "testCases": [
+            {
+              "id": "[UC02-NAV-01]",
+              "description": "Navigate from the desktop header Sign In action to the login page.",
+              "procedure": "1. Open the landing page on a desktop viewport.\\n2. Click the header Sign In button.\\n3. Observe the resulting route.",
+              "expectedResults": "1. The onNavigateToSignIn handler is invoked.\\n2. The router navigates to '/login'.\\n3. The sign-in page is rendered.",
+              "actualResults": "",
+              "dependencies": "The landing page is loaded in desktop mode and the SignInPage route is registered.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Derived from handleNavigateToSignIn in pages/LandingPage.tsx and ROUTES.LOGIN."
+            },
+            {
+              "id": "[UC02-NAV-02]",
+              "description": "Navigate from the desktop header Get Started action to the registration page.",
+              "procedure": "1. Open the landing page on a desktop viewport.\\n2. Click the header Get Started button.\\n3. Observe the resulting route.",
+              "expectedResults": "1. The onNavigateToSignUp handler is invoked.\\n2. The router navigates to '/register'.\\n3. The sign-up page is rendered.",
+              "actualResults": "",
+              "dependencies": "The landing page is loaded in desktop mode and the SignUpPage route is registered.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Derived from handleNavigateToSignUp in pages/LandingPage.tsx and ROUTES.REGISTER."
+            },
+            {
+              "id": "[UC02-NAV-03]",
+              "description": "Use hero and CTA buttons to route guests to authentication flows.",
+              "procedure": "1. Open the landing page.\\n2. Click Start For Free in the hero section.\\n3. Return to the landing page and click the hero Sign In button.\\n4. Return again and click Create Free Account in the CTA section.",
+              "expectedResults": "1. Start For Free navigates to '/register'.\\n2. Hero Sign In navigates to '/login'.\\n3. Create Free Account navigates to '/register'.\\n4. Each click triggers a client-side route transition without requiring authentication first.",
+              "actualResults": "",
+              "dependencies": "The hero and CTA sections are rendered and router navigation is functioning.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Covers repeated sign-up and sign-in buttons wired directly to the shared navigation callbacks."
+            },
+            {
+              "id": "[UC02-NAV-04]",
+              "description": "Jump to in-page content sections by using the public anchor links.",
+              "procedure": "1. Open the landing page.\\n2. Click Features, For You, and How It Works in the desktop navigation or footer.\\n3. Observe the page position after each interaction.",
+              "expectedResults": "1. The browser jumps to the matching section id for each anchor.\\n2. The guest remains on the public landing page.\\n3. No authentication prompt or route change is triggered.",
+              "actualResults": "",
+              "dependencies": "The section ids '#features', '#roles', and '#how-it-works' exist in the rendered DOM.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Anchors are implemented with direct href values instead of router navigation."
+            }
+          ]
+        },
+        {
+          "title": "Responsive Mobile Menu",
+          "testCases": [
+            {
+              "id": "[UC02-MOBILE-01]",
+              "description": "Open and close the mobile menu from the landing-page header.",
+              "procedure": "1. Open the landing page at a mobile viewport width.\\n2. Tap the hamburger menu button.\\n3. Tap the close control or the menu button again.",
+              "expectedResults": "1. The mobile menu panel expands when opened.\\n2. Section links plus Sign In and Get Started actions become visible.\\n3. The menu closes when the toggle is triggered again.",
+              "actualResults": "",
+              "dependencies": "Viewport width is below the md breakpoint so the mobile menu button is shown.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Derived from the mobileMenuOpen state and animated motion.div in landing.tsx."
+            },
+            {
+              "id": "[UC02-MOBILE-02]",
+              "description": "Close the mobile menu automatically after choosing an in-page section link.",
+              "procedure": "1. Open the landing page in mobile view.\\n2. Open the mobile menu.\\n3. Tap Features, For You, or How It Works.",
+              "expectedResults": "1. The browser jumps to the selected section anchor.\\n2. setMobileMenuOpen(false) closes the mobile menu after the link is selected.\\n3. The guest stays on the public landing page.",
+              "actualResults": "",
+              "dependencies": "Mobile menu is open and the selected target section exists on the page.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Applies to the mobile anchor links that explicitly close the menu on click."
+            },
+            {
+              "id": "[UC02-MOBILE-03]",
+              "description": "Navigate to sign-in and registration from the mobile menu actions.",
+              "procedure": "1. Open the landing page in mobile view.\\n2. Open the mobile menu.\\n3. Tap Sign In.\\n4. Return to the landing page, reopen the menu, and tap Get Started.",
+              "expectedResults": "1. Sign In navigates to '/login'.\\n2. Get Started navigates to '/register'.\\n3. The mobile navigation exposes the same authentication destinations as the desktop header.",
+              "actualResults": "",
+              "dependencies": "Mobile menu is accessible and the login/register routes are available in the router configuration.",
+              "useCaseRefs": [
+                "UC-02"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "rounds": [
+                {
+                  "result": "Untested",
+                  "testDate": "",
+                  "tester": ""
+                }
+              ],
+              "note": "Verifies parity between the mobile menu actions and the desktop CTA callbacks."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

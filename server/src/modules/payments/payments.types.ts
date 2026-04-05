@@ -188,6 +188,13 @@ export interface PayPalCheckoutConfigView {
   userIdToken: string | null;
 }
 
+export interface PayPalSubscriptionCheckoutConfigView extends PayPalCheckoutConfigView {
+  chargeAmount: number;
+  chargeCurrency: string;
+  displayAmountVnd: number;
+  exchangeRateApplied: number;
+}
+
 export interface FundingTransactionsView {
   depositTransactionId: string;
   holdTransactionId: string;
@@ -213,6 +220,13 @@ export interface PayPalMilestoneOrderView {
   orderId: string;
   status: string;
   vaultRequested: boolean;
+}
+
+export interface PayPalSubscriptionOrderView extends PayPalMilestoneOrderView {
+  chargeAmount: number;
+  chargeCurrency: string;
+  displayAmountVnd: number;
+  exchangeRateApplied: number;
 }
 
 export interface MilestoneReleaseRecipientView {

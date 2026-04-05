@@ -1,0 +1,255 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_FN34_Partner_Matching_Discovery_Test_Case_v1.0",
+    "creator": "Codex",
+    "reviewerApprover": "",
+    "issueDate": "25/03/2026",
+    "version": "v1.0",
+    "defaultTester": "Codex",
+    "environment": [
+      "1. Backend: NestJS matching module under server/src/modules/matching",
+      "2. Entry point: GET /matching/:requestId in matching.controller.ts",
+      "3. Executed tests: matching.controller.spec.ts, matching.service.spec.ts, and tag-scorer.service.spec.ts",
+      "4. Evidence source: code inspection of matching.controller.ts, matching.service.ts, tag-scorer.service.ts, hard-filter.service.ts, ai-ranker.service.ts, classifier.service.ts, and matching module README"
+    ],
+    "notes": "Function 34 Partner Matching Discovery was selected because docs currently contain no exported test-case or traceability workbook for this feature. In the repository README the same module is described as UC-25 View List Available Partner, but this export uses FN-34 to match the user-provided numbering. Executed evidence covers controller term extraction, matching orchestration, and tag scoring. HardFilterService.filter, AiRankerService.rank, and ClassifierService.classify were scanned but not given dedicated Passed rows in this run because there is no directly passing spec for them; classifier.service.spec currently fails against a stale method name.",
+    "changeLog": [
+      {
+        "effectiveDate": "25/03/2026",
+        "version": "v1.0",
+        "changeItem": "FN-34 Partner Matching Discovery",
+        "changeType": "A",
+        "description": "Initial feature-based unit test workbook generated from the implemented matching module and current Jest evidence.",
+        "reference": "server/src/modules/matching/matching.controller.ts, server/src/modules/matching/matching.service.ts, server/src/modules/matching/tag-scorer.service.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "FN-34",
+      "name": "Partner Matching Discovery",
+      "testRequirement": "Validate request-term extraction, excluded-candidate handling, deterministic and AI-enabled matching orchestration, and tag overlap scoring for partner discovery.",
+      "referenceDocument": [
+        "server/src/modules/matching/README.md",
+        "server/src/modules/matching/matching.controller.ts",
+        "server/src/modules/matching/matching.service.ts",
+        "server/src/modules/matching/tag-scorer.service.ts",
+        "server/src/modules/matching/hard-filter.service.ts",
+        "server/src/modules/matching/ai-ranker.service.ts",
+        "server/src/modules/matching/classifier.service.ts"
+      ],
+      "statistics": {
+        "passed": 9,
+        "failed": 0,
+        "untested": 0,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "MatchingController.findMatches",
+          "description": "Load the request, extract searchable terms from tech preferences and selected answers, exclude already proposed partners, and forward the normalized input into the matching pipeline.",
+          "preCondition": "A project request exists and the matching endpoint receives requestId, role, enableAi, and topN parameters.",
+          "relatedUseCases": [
+            "FN-34"
+          ],
+          "actor": "Client or Staff User",
+          "done": true
+        },
+        {
+          "name": "MatchingService.findMatches",
+          "description": "Coordinate hard filtering, deterministic tag scoring, optional AI ranking, and top-N classification output for the requested partner role.",
+          "preCondition": "The controller has already built a valid MatchingInput object and the matching collaborators are available.",
+          "relatedUseCases": [
+            "FN-34"
+          ],
+          "actor": "System",
+          "done": true
+        },
+        {
+          "name": "TagScorerService.scoreAll",
+          "description": "Compute overlap scores from structured skills, aliases, domains, raw profile tags, and recency/history boosts.",
+          "preCondition": "Eligible candidates and required request terms are available.",
+          "relatedUseCases": [
+            "FN-34"
+          ],
+          "actor": "System",
+          "done": true
+        },
+        {
+          "name": "HardFilterService.filter",
+          "description": "Scanned only in this run; no dedicated passing unit test was executed for this workbook export.",
+          "preCondition": "User repository and profile relations are available.",
+          "relatedUseCases": [
+            "FN-34"
+          ],
+          "actor": "System",
+          "done": false
+        },
+        {
+          "name": "AiRankerService.rank / ClassifierService.classify",
+          "description": "Scanned only in this run; classifier.service.spec currently fails because it targets a stale classifyAll API instead of the current classify method.",
+          "preCondition": "AI configuration and classifier inputs are available.",
+          "relatedUseCases": [
+            "FN-34"
+          ],
+          "actor": "System",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "MatchingController.findMatches",
+          "testCases": [
+            {
+              "id": "[FN34-CTL-01]",
+              "description": "Include request tech preferences and INDUSTRY answer terms when building the partner matching input for freelancer discovery.",
+              "procedure": "1. Load a request containing techPreferences = React, NestJS and an INDUSTRY answer value FinTech.\n2. Call MatchingController.findMatches with role = FREELANCER, enableAi = false, and topN = 10.\n3. Inspect the MatchingService.findMatches invocation.",
+              "expectedResults": "1. The controller resolves the request and proposal exclusions.\n2. requiredTechStack contains React, NestJS, and FinTech.\n3. excludeUserIds contains already proposed freelancer ids.\n4. The controller forwards role = FREELANCER, enableAi = false, and topN = 10.",
+              "actualResults": "Observed by executed Jest spec: matching.controller.spec.ts passed.",
+              "dependencies": "server/src/modules/matching/matching.controller.ts and repository mocks for request and freelancer proposals.",
+              "useCaseRefs": [
+                "FN-34"
+              ],
+              "result": "Passed",
+              "testDate": "03/25",
+              "tester": "Codex",
+              "note": "Maps to the executed test includes industry answers in quick-match request terms for freelancer matching."
+            }
+          ]
+        },
+        {
+          "title": "MatchingService.findMatches",
+          "testCases": [
+            {
+              "id": "[FN34-SVC-01]",
+              "description": "Return an empty result immediately when hard filtering finds no eligible candidates.",
+              "procedure": "1. Mock HardFilterService.filter to return an empty array.\n2. Call MatchingService.findMatches with enableAi = false.\n3. Observe downstream collaborator usage and returned results.",
+              "expectedResults": "1. HardFilterService.filter receives requestId and excludeUserIds.\n2. The service returns an empty array.\n3. TagScorerService.score is not called.",
+              "actualResults": "Observed by executed Jest spec: matching.service.spec.ts passed.",
+              "dependencies": "Mocked HardFilterService with no eligible candidates.",
+              "useCaseRefs": [
+                "FN-34"
+              ],
+              "result": "Passed",
+              "testDate": "03/25",
+              "tester": "Codex",
+              "note": "Boundary behavior for an empty eligible partner pool."
+            },
+            {
+              "id": "[FN34-SVC-02]",
+              "description": "Bypass AI ranking and classify the deterministic candidate pool when AI is disabled.",
+              "procedure": "1. Mock eligible candidates and tag scores.\n2. Call MatchingService.findMatches with enableAi = false.\n3. Inspect classifier input and final result.",
+              "expectedResults": "1. AiRankerService.rank is not called.\n2. Candidates are annotated with aiRelevanceScore = null and fallback reasoning.\n3. ClassifierService.classify receives the deterministic pool with aiEnabled = false.\n4. The service returns the classified result set.",
+              "actualResults": "Observed by executed Jest spec: matching.service.spec.ts passed.",
+              "dependencies": "Mocked tag-scorer and classifier collaborators.",
+              "useCaseRefs": [
+                "FN-34"
+              ],
+              "result": "Passed",
+              "testDate": "03/25",
+              "tester": "Codex",
+              "note": "Normal deterministic path for partner discovery without AI."
+            },
+            {
+              "id": "[FN34-SVC-03]",
+              "description": "Use a wider AI shortlist than the final topN and slice the classified results after ranking.",
+              "procedure": "1. Mock 12 eligible candidates with descending deterministic scores.\n2. Call MatchingService.findMatches with enableAi = true and topN = 2.\n3. Inspect the AI shortlist and returned results.",
+              "expectedResults": "1. The service sorts candidates by deterministic score before AI ranking.\n2. AiRankerService.rank receives the top 10 candidates, not only the final top 2.\n3. Classifier output is sliced to 2 items after ranking.\n4. The returned results preserve the highest match scores.",
+              "actualResults": "Observed by executed Jest spec: matching.service.spec.ts passed.",
+              "dependencies": "Mocked hard-filter, tag-scorer, AI ranker, and classifier collaborators.",
+              "useCaseRefs": [
+                "FN-34"
+              ],
+              "result": "Passed",
+              "testDate": "03/25",
+              "tester": "Codex",
+              "note": "Normal AI-enabled orchestration path."
+            }
+          ]
+        },
+        {
+          "title": "TagScorerService.scoreAll",
+          "testCases": [
+            {
+              "id": "[FN34-TAG-01]",
+              "description": "Return zero overlap when the request does not provide any required tags.",
+              "procedure": "1. Call TagScorerService.scoreAll with an empty requiredTechStack.\n2. Provide one candidate record.\n3. Inspect the scored output.",
+              "expectedResults": "1. tagOverlapScore is 0.\n2. matchedSkills is empty.\n3. No crash occurs when required terms are absent.",
+              "actualResults": "Observed by executed Jest spec: tag-scorer.service.spec.ts passed.",
+              "dependencies": "A candidate object with no special skill data is sufficient.",
+              "useCaseRefs": [
+                "FN-34"
+              ],
+              "result": "Passed",
+              "testDate": "03/25",
+              "tester": "Codex",
+              "note": "Boundary behavior for empty request terms."
+            },
+            {
+              "id": "[FN34-TAG-02]",
+              "description": "Match a requested tag through a structured skill alias and return the canonical skill label.",
+              "procedure": "1. Provide a candidate with skill name ReactJS and alias React.\n2. Call TagScorerService.scoreAll with required tag React.\n3. Inspect score and matched labels.",
+              "expectedResults": "1. tagOverlapScore is above 80.\n2. matchedSkills contains ReactJS.\n3. Alias matching contributes to the overlap score.",
+              "actualResults": "Observed by executed Jest spec: tag-scorer.service.spec.ts passed.",
+              "dependencies": "Candidate contains a structured skill alias mapping.",
+              "useCaseRefs": [
+                "FN-34"
+              ],
+              "result": "Passed",
+              "testDate": "03/25",
+              "tester": "Codex",
+              "note": "Normal alias-resolution path."
+            },
+            {
+              "id": "[FN34-TAG-03]",
+              "description": "Match a domain request term through a structured skill that belongs to that domain.",
+              "procedure": "1. Provide a candidate whose Banking skill belongs to the FinTech domain.\n2. Call TagScorerService.scoreAll with required tag FinTech.\n3. Inspect score and matched labels.",
+              "expectedResults": "1. tagOverlapScore is at least 75.\n2. matchedSkills contains Banking (FinTech).\n3. Domain matching is recognized even when the request term is not the exact skill name.",
+              "actualResults": "Observed by executed Jest spec: tag-scorer.service.spec.ts passed.",
+              "dependencies": "Candidate contains a structured skill with domain metadata.",
+              "useCaseRefs": [
+                "FN-34"
+              ],
+              "result": "Passed",
+              "testDate": "03/25",
+              "tester": "Codex",
+              "note": "Normal domain-expansion path."
+            },
+            {
+              "id": "[FN34-TAG-04]",
+              "description": "Use raw profile tags as a fallback when structured skills are unavailable.",
+              "procedure": "1. Provide a candidate with raw profile skills PostgreSQL DB and AWS CloudServices but no structured skills.\n2. Call TagScorerService.scoreAll with required tags PostgreSQL and AWS.\n3. Inspect score and matched labels.",
+              "expectedResults": "1. tagOverlapScore is greater than 40.\n2. matchedSkills contains PostgreSQL DB and AWS CloudServices.\n3. Raw profile tags contribute to matching when structured skills are missing.",
+              "actualResults": "Observed by executed Jest spec: tag-scorer.service.spec.ts passed.",
+              "dependencies": "Candidate contains rawProfileSkills but no structured skills.",
+              "useCaseRefs": [
+                "FN-34"
+              ],
+              "result": "Passed",
+              "testDate": "03/25",
+              "tester": "Codex",
+              "note": "Fallback matching path."
+            },
+            {
+              "id": "[FN34-TAG-05]",
+              "description": "Boost candidates with stronger recency and project history signals for the same matched domain.",
+              "procedure": "1. Provide two candidates with the same Banking skill in the FinTech domain.\n2. Give one candidate stronger experience, more completed projects, primary priority, and more recent usage.\n3. Call TagScorerService.scoreAll with required tag FinTech.\n4. Compare result ordering and scores.",
+              "expectedResults": "1. The stronger candidate ranks ahead of the weaker candidate.\n2. The stronger candidate receives the higher tagOverlapScore.\n3. Experience, project history, primary status, and recency all contribute to scoring.",
+              "actualResults": "Observed by executed Jest spec: tag-scorer.service.spec.ts passed.",
+              "dependencies": "Two domain-matching candidates with different history signals.",
+              "useCaseRefs": [
+                "FN-34"
+              ],
+              "result": "Passed",
+              "testDate": "03/25",
+              "tester": "Codex",
+              "note": "Ranking-strength comparison path."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

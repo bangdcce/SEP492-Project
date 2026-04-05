@@ -1,0 +1,205 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "UC-30",
+      "class_name": "ProjectRequestsController / ProjectRequestsService",
+      "function_name": "Invite Partner",
+      "sheet_name": "Invite Partner",
+      "test_requirement": "Cover broker invitations from the client side and freelancer recommendations from the assigned broker side, including duplicate, ownership, client-spec, and existing-association failures with executed Jest evidence.",
+      "loc": 102,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-invite-1\"",
+            "Request \"req-invite-1\" has no assigned broker",
+            "Broker \"broker-1\" has no existing application or invitation on request \"req-invite-1\""
+          ],
+          "inputs": {
+            "requestId": "\"req-invite-1\"",
+            "inviterId": "\"client-1\"",
+            "brokerId": "\"broker-1\"",
+            "message": "\"Please review this request.\""
+          },
+          "returns": [
+            "returns broker invitation with status = INVITED"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Invite Broker Successful: \"req-invite-1\" -> \"broker-1\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-invite-2\" already has assigned broker \"broker-2\""
+          ],
+          "inputs": {
+            "requestId": "\"req-invite-2\"",
+            "inviterId": "\"client-1\"",
+            "brokerId": "\"broker-1\"",
+            "message": "\"Please join this project.\""
+          },
+          "returns": [],
+          "exceptions": [
+            "Error: Request already has a broker assigned"
+          ],
+          "logs": [
+            "Invite Broker Failed: Request already has a broker assigned"
+          ]
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Broker \"broker-1\" already has an existing invitation on request \"req-invite-3\""
+          ],
+          "inputs": {
+            "requestId": "\"req-invite-3\"",
+            "inviterId": "\"client-1\"",
+            "brokerId": "\"broker-1\"",
+            "message": "\"Reminder invite.\""
+          },
+          "returns": [],
+          "exceptions": [
+            "Error: Broker already invited"
+          ],
+          "logs": [
+            "Invite Broker Failed: Broker already invited"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Broker \"broker-1\" already has a pending application on request \"req-invite-4\""
+          ],
+          "inputs": {
+            "requestId": "\"req-invite-4\"",
+            "inviterId": "\"client-1\"",
+            "brokerId": "\"broker-1\"",
+            "message": "\"Please join this request.\""
+          },
+          "returns": [],
+          "exceptions": [
+            "Error: Broker has already applied"
+          ],
+          "logs": [
+            "Invite Broker Failed: Broker has already applied"
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in freelancer recommendation phase \"FREELANCER_SELECTION\"",
+            "Assigned broker \"broker-1\" is acting on request \"req-1\"",
+            "Latest client spec for request \"req-1\" is \"CLIENT_APPROVED\"",
+            "No freelancer has been selected for request \"req-1\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerId": "\"freelancer-1\"",
+            "message": "\"Strong frontend portfolio.\"",
+            "actorId": "\"broker-1\"",
+            "actorRole": "\"BROKER\""
+          },
+          "returns": [
+            "returns freelancer recommendation with status = PENDING_CLIENT_APPROVAL"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Invite Freelancer Successful: \"req-1\" -> \"freelancer-1\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in freelancer recommendation phase \"FREELANCER_SELECTION\"",
+            "Authenticated broker \"broker-1\" is not the assigned broker for request \"req-1\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerId": "\"freelancer-1\"",
+            "message": "\"Strong frontend portfolio.\"",
+            "actorId": "\"broker-1\"",
+            "actorRole": "\"BROKER\""
+          },
+          "returns": [],
+          "exceptions": [
+            "ForbiddenException: Only the assigned broker or internal staff can recommend freelancers."
+          ],
+          "logs": [
+            "Invite Freelancer Failed: Only the assigned broker or internal staff can recommend freelancers."
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" already has assigned broker \"broker-1\"",
+            "Latest client spec for request \"req-1\" is not yet \"CLIENT_APPROVED\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerId": "\"freelancer-1\"",
+            "message": "\"Strong frontend portfolio.\"",
+            "actorId": "\"broker-1\"",
+            "actorRole": "\"BROKER\""
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Freelancer recommendations are only available after the client approves the client spec."
+          ],
+          "logs": [
+            "Invite Freelancer Failed: Freelancer recommendations are only available after the client approves the client spec."
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Request \"req-1\" is in freelancer recommendation phase \"FREELANCER_SELECTION\"",
+            "Latest client spec for request \"req-1\" is \"CLIENT_APPROVED\"",
+            "Freelancer \"freelancer-1\" is already associated with request \"req-1\" in status \"INVITED\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "freelancerId": "\"freelancer-1\"",
+            "message": "\"Strong frontend portfolio.\"",
+            "actorId": "\"broker-1\"",
+            "actorRole": "\"BROKER\""
+          },
+          "returns": [],
+          "exceptions": [
+            "Error: Freelancer already associated with this request (Status: INVITED)"
+          ],
+          "logs": [
+            "Invite Freelancer Failed: Freelancer already associated with this request (Status: INVITED)"
+          ]
+        }
+      ]
+    }
+  ]
+}

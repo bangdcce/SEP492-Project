@@ -1,0 +1,253 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC05_Profile_Editing_Test_Case_v1.0",
+    "creator": "",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "environment": [
+      "1. Frontend: client/src/pages/ProfilePage.tsx edit-profile workflow and client/src/features/auth/api.ts",
+      "2. Backend: server/src/modules/auth/auth.controller.ts and server/src/modules/auth/auth.service.ts",
+      "3. Validation: server/src/modules/auth/dto/update-profile.dto.ts with NestJS request validation",
+      "4. Data model: server/src/database/entities/profile.entity.ts and users/profile persistence"
+    ],
+    "notes": "Feature workbook for UC-05 Profile Editing. The repository does not include executed specs for this path, so the cases are derived from the implemented frontend edit flow, DTO validation rules, and backend profile upsert behavior and remain Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "UC-05 Profile Editing",
+        "changeType": "A",
+        "description": "Initial workbook generated from the implemented profile page edit flow, auth API endpoint, DTO constraints, and backend profile upsert logic.",
+        "reference": "client/src/pages/ProfilePage.tsx, client/src/features/auth/api.ts, server/src/modules/auth/auth.controller.ts, server/src/modules/auth/auth.service.ts, server/src/modules/auth/dto/update-profile.dto.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "PROFILE-EDITING",
+      "name": "Profile Editing",
+      "testRequirement": "Validate avatar file checks, authenticated profile update submission, storage synchronization, DTO-based payload validation, missing-profile creation, existing-profile partial updates, and error handling for UC-05 Profile Editing.",
+      "referenceDocument": [
+        "client/src/pages/ProfilePage.tsx",
+        "client/src/features/auth/api.ts",
+        "server/src/modules/auth/auth.controller.ts",
+        "server/src/modules/auth/auth.service.ts",
+        "server/src/modules/auth/dto/update-profile.dto.ts",
+        "server/src/database/entities/profile.entity.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 9,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Avatar File Selection Validation",
+          "description": "ProfilePage.handleAvatarChange accepts only image files up to 5MB and prepares a preview for saving.",
+          "preCondition": "The profile page is in edit mode and the user interacts with the avatar upload input.",
+          "relatedUseCases": [
+            "UC-05"
+          ],
+          "actor": "Registered User",
+          "done": false
+        },
+        {
+          "name": "Profile Form Submission And Sync",
+          "description": "ProfilePage.handleSubmit sends the edited payload, reloads the profile, and synchronizes cached user header data.",
+          "preCondition": "The authenticated user is editing their own profile and can call PUT /auth/profile.",
+          "relatedUseCases": [
+            "UC-05"
+          ],
+          "actor": "Registered User",
+          "done": false
+        },
+        {
+          "name": "Auth Profile Update Endpoint",
+          "description": "AuthController.updateProfile accepts an authenticated request, delegates to AuthService.updateProfile, and wraps the updated DTO in a success response.",
+          "preCondition": "JwtAuthGuard has attached req.user and the request body is validated against UpdateProfileDto.",
+          "relatedUseCases": [
+            "UC-05"
+          ],
+          "actor": "Registered User",
+          "done": false
+        },
+        {
+          "name": "AuthService Profile Upsert",
+          "description": "AuthService.updateProfile updates user core fields, creates a profile when missing, or partially updates an existing profile before returning the refreshed mapped user response.",
+          "preCondition": "The authenticated user exists and AuthController has delegated a valid UpdateProfileDto payload.",
+          "relatedUseCases": [
+            "UC-05"
+          ],
+          "actor": "Registered User",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Avatar File Selection Validation",
+          "testCases": [
+            {
+              "id": "[UC05-UI-01]",
+              "description": "Reject avatar selection when the chosen file is not an image.",
+              "procedure": "1. Open ProfilePage in edit mode.\n2. Trigger the avatar file input with a non-image file such as PDF or DOCX.\n3. Observe the handler outcome.",
+              "expectedResults": "1. handleAvatarChange checks file.type and detects that it does not start with image/.\n2. toast.error('Please select an image file') is shown.\n3. avatarFile and avatarPreview are not updated.",
+              "dependencies": "The user can access the edit profile page and choose a local file.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the first validation guard in ProfilePage.handleAvatarChange."
+            },
+            {
+              "id": "[UC05-UI-02]",
+              "description": "Reject avatar selection when the chosen image exceeds the 5MB size limit.",
+              "procedure": "1. Open ProfilePage in edit mode.\n2. Trigger the avatar file input with an image larger than 5MB.\n3. Observe the handler outcome.",
+              "expectedResults": "1. handleAvatarChange checks file.size against 5 * 1024 * 1024.\n2. toast.error('Image size must not exceed 5MB') is shown.\n3. avatarFile and avatarPreview remain unchanged.",
+              "dependencies": "The selected file is an image but its byte size is greater than the configured limit.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the file-size boundary guard in ProfilePage.handleAvatarChange."
+            }
+          ]
+        },
+        {
+          "title": "Profile Form Submission And Sync",
+          "testCases": [
+            {
+              "id": "[UC05-UI-03]",
+              "description": "Submit edited full name, phone number, bio, and avatar, then sync the refreshed profile into page state and cached user storage.",
+              "procedure": "1. Open ProfilePage in edit mode.\n2. Change fullName, phoneNumber, bio, and choose a valid image avatar.\n3. Submit the form.\n4. Let updateProfile succeed and loadProfile refetch the latest profile.",
+              "expectedResults": "1. handleSubmit assembles avatarUrl from avatarPreview when a new avatarFile exists.\n2. client/src/features/auth/api.ts sends PUT /auth/profile with fullName, phoneNumber, bio, and avatarUrl.\n3. toast.success('Profile updated successfully') is shown and isEditing becomes false.\n4. loadProfile refreshes the latest profile data and STORAGE_KEYS.USER is updated with the latest fullName and avatarUrl.",
+              "dependencies": "The authenticated API call succeeds and the selected avatar passes client-side validation.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from ProfilePage.handleSubmit, updateProfile(), and loadProfile()."
+            },
+            {
+              "id": "[UC05-UI-04]",
+              "description": "Submit profile edits without choosing a new avatar so the existing avatarUrl is preserved.",
+              "procedure": "1. Open ProfilePage for a user who already has avatarUrl.\n2. Edit fullName, phoneNumber, or bio without selecting a new file.\n3. Submit the form and inspect the request payload and refreshed UI.",
+              "expectedResults": "1. handleSubmit reuses profile?.avatarUrl because avatarFile is null.\n2. The update request still succeeds for the changed text fields.\n3. The refreshed profile keeps the previous avatar image while showing the updated text fields.",
+              "dependencies": "An existing avatarUrl is present and the API update request succeeds.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the branch that preserves avatarUrl when no replacement file is chosen."
+            },
+            {
+              "id": "[UC05-UI-05]",
+              "description": "Surface backend update failures to the user and keep the form in editable state.",
+              "procedure": "1. Open ProfilePage in edit mode.\n2. Submit a payload that causes updateProfile to reject, such as a server validation or network error.\n3. Observe the UI after the promise rejects.",
+              "expectedResults": "1. handleSubmit catches the error.\n2. toast.error is shown using error.response?.data?.message when available or the default failure message.\n3. saving is reset to false in finally and the user remains on the edit form without a success reload.",
+              "dependencies": "The PUT /auth/profile request fails because of validation, transport, or server-side rejection.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the catch/finally path in ProfilePage.handleSubmit."
+            }
+          ]
+        },
+        {
+          "title": "Auth Profile Update Endpoint",
+          "testCases": [
+            {
+              "id": "[UC05-API-01]",
+              "description": "Accept an authenticated PUT /auth/profile request with a valid payload and return the updated AuthResponseDto inside the success wrapper.",
+              "procedure": "1. Authenticate as an existing user.\n2. Send PUT /auth/profile with valid fullName, phoneNumber, bio, avatarUrl, and optional profile fields.\n3. Inspect the HTTP response.",
+              "expectedResults": "1. JwtAuthGuard allows the request and req.user.id is used as the target account.\n2. AuthController.updateProfile delegates the payload to AuthService.updateProfile.\n3. The response body returns message = success text and data = updated AuthResponseDto.",
+              "dependencies": "The caller holds a valid authenticated session and the request body satisfies UpdateProfileDto constraints.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from AuthController.updateProfile and the shared auth response shape."
+            },
+            {
+              "id": "[UC05-API-02]",
+              "description": "Reject invalid profile-editing payloads that violate UpdateProfileDto rules.",
+              "procedure": "1. Authenticate as an existing user.\n2. Send PUT /auth/profile with an invalid body, such as a phoneNumber outside 10-11 digits or a fullName with unsupported characters.\n3. Observe the response.",
+              "expectedResults": "1. NestJS validation rejects the request before AuthService.updateProfile mutates data.\n2. The response reports the DTO validation failure for the invalid field.\n3. No user or profile repository update is performed.",
+              "dependencies": "Global request validation is active for the auth controller path.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the request-validation guard declared by UpdateProfileDto."
+            },
+            {
+              "id": "[UC05-API-03]",
+              "description": "Accept a bio value at the 500-character backend limit and continue the authenticated update flow.",
+              "procedure": "1. Authenticate as an existing user.\n2. Send PUT /auth/profile with bio containing exactly 500 characters and otherwise valid fields.\n3. Inspect the HTTP response.",
+              "expectedResults": "1. UpdateProfileDto accepts bio because it does not exceed MaxLength(500).\n2. AuthController.updateProfile calls the service normally.\n3. The response returns the updated profile data with the stored bio value.",
+              "dependencies": "The request uses a valid authenticated session and every other field is valid.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Boundary case for the backend bio-length constraint."
+            }
+          ]
+        },
+        {
+          "title": "AuthService Profile Upsert",
+          "testCases": [
+            {
+              "id": "[UC05-SVC-01]",
+              "description": "Create a missing profile row while updating user core fields for the authenticated account.",
+              "procedure": "1. Call AuthService.updateProfile for a user who exists but has no related profile row.\n2. Provide valid fullName, phoneNumber, avatarUrl, bio, companyName, skills, and portfolioLinks.\n3. Inspect repository calls and the returned response.",
+              "expectedResults": "1. userRepository.update persists any provided fullName, phoneNumber, and timeZone values.\n2. profileRepository.findOne returns null, so profileRepository.create and save are used to create the new profile.\n3. findUserWithProfile reloads the profile relation and mapToAuthResponse returns the merged updated user payload.",
+              "dependencies": "The target user exists and profileRepository.findOne resolves null for the supplied userId.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the create-on-missing branch inside AuthService.updateProfile."
+            },
+            {
+              "id": "[UC05-SVC-02]",
+              "description": "Partially update an existing profile row and only persist fields that are explicitly defined.",
+              "procedure": "1. Call AuthService.updateProfile for a user who already has a profile row.\n2. Provide only a subset of fields such as bio, linkedinUrl, and cvUrl.\n3. Inspect repository calls and the returned mapped response.",
+              "expectedResults": "1. profileRepository.findOne resolves the existing row.\n2. AuthService.updateProfile builds updateProfileData only from properties whose values are not undefined.\n3. profileRepository.update writes only the defined fields, preserving untouched profile properties.\n4. The final response comes from a fresh findUserWithProfile reload mapped through mapToAuthResponse.",
+              "dependencies": "The user and related profile row already exist.",
+              "useCaseRefs": [
+                "UC-05"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the partial-update branch for an existing profile record."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

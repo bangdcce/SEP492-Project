@@ -1,0 +1,181 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "EP-210",
+      "class_name": "ProjectRequestsController / ProjectRequestsService",
+      "function_name": "Respond To Invitation",
+      "sheet_name": "EP-210 Respond Invite",
+      "test_requirement": "Cover PATCH /project-requests/invitations/:id/respond with executed Jest evidence for broker and freelancer accept/reject flows, not-found/invalid-status handling, and exact terminal log output.",
+      "loc": 168,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Broker invitation \"invite-broker-1\" belongs to broker \"broker-1\"",
+            "Broker invitation \"invite-broker-1\" is currently \"INVITED\"",
+            "Request \"req-1\" has no assigned broker"
+          ],
+          "inputs": {
+            "invitationId": "\"invite-broker-1\"",
+            "userId": "\"broker-1\"",
+            "role": "\"BROKER\"",
+            "status": "\"ACCEPTED\""
+          },
+          "returns": [
+            "returns broker invitation with updated status"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Respond To Invitation Successful: role=\"BROKER\" invitation=\"invite-broker-1\" status=\"ACCEPTED\""
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Broker invitation \"invite-broker-3\" belongs to broker \"broker-1\"",
+            "Broker invitation \"invite-broker-3\" is currently \"INVITED\""
+          ],
+          "inputs": {
+            "invitationId": "\"invite-broker-3\"",
+            "userId": "\"broker-1\"",
+            "role": "\"BROKER\"",
+            "status": "\"REJECTED\""
+          },
+          "returns": [
+            "returns broker invitation with updated status"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Respond To Invitation Successful: role=\"BROKER\" invitation=\"invite-broker-3\" status=\"REJECTED\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Broker invitation \"invite-missing\" does not exist for broker \"broker-1\""
+          ],
+          "inputs": {
+            "invitationId": "\"invite-missing\"",
+            "userId": "\"broker-1\"",
+            "role": "\"BROKER\"",
+            "status": "\"ACCEPTED\""
+          },
+          "returns": [],
+          "exceptions": [
+            "Error: Invitation not found"
+          ],
+          "logs": [
+            "Respond To Invitation Failed: Invitation not found"
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Broker invitation \"invite-broker-5\" belongs to broker \"broker-1\"",
+            "Broker invitation \"invite-broker-5\" is currently \"INVITED\"",
+            "Another broker is already assigned to request \"req-1\""
+          ],
+          "inputs": {
+            "invitationId": "\"invite-broker-5\"",
+            "userId": "\"broker-1\"",
+            "role": "\"BROKER\"",
+            "status": "\"ACCEPTED\""
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: Another broker has already been assigned to this request."
+          ],
+          "logs": [
+            "Respond To Invitation Failed: Another broker has already been assigned to this request."
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Freelancer invitation \"invite-freelancer-1\" belongs to freelancer \"freelancer-1\"",
+            "Freelancer invitation \"invite-freelancer-1\" is currently \"INVITED\"",
+            "Client has already approved the broker draft for request \"req-1\""
+          ],
+          "inputs": {
+            "invitationId": "\"invite-freelancer-1\"",
+            "userId": "\"freelancer-1\"",
+            "role": "\"FREELANCER\"",
+            "status": "\"ACCEPTED\""
+          },
+          "returns": [
+            "returns freelancer invitation with updated status"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Respond To Invitation Successful: role=\"FREELANCER\" invitation=\"invite-freelancer-1\" status=\"ACCEPTED\""
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Freelancer invitation \"invite-freelancer-2\" belongs to freelancer \"freelancer-1\"",
+            "Freelancer invitation \"invite-freelancer-2\" is currently \"INVITED\""
+          ],
+          "inputs": {
+            "invitationId": "\"invite-freelancer-2\"",
+            "userId": "\"freelancer-1\"",
+            "role": "\"FREELANCER\"",
+            "status": "\"REJECTED\""
+          },
+          "returns": [
+            "returns freelancer invitation with updated status"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Respond To Invitation Successful: role=\"FREELANCER\" invitation=\"invite-freelancer-2\" status=\"REJECTED\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Freelancer invitation \"invite-freelancer-4\" belongs to freelancer \"freelancer-1\"",
+            "Freelancer invitation \"invite-freelancer-4\" is currently \"INVITED\"",
+            "Another freelancer was already accepted for request \"req-1\""
+          ],
+          "inputs": {
+            "invitationId": "\"invite-freelancer-4\"",
+            "userId": "\"freelancer-1\"",
+            "role": "\"FREELANCER\"",
+            "status": "\"ACCEPTED\""
+          },
+          "returns": [],
+          "exceptions": [
+            "BadRequestException: A freelancer has already been accepted for this request"
+          ],
+          "logs": [
+            "Respond To Invitation Failed: A freelancer has already been accepted for this request"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -15,6 +15,7 @@ import {
 import {
   PayPalCheckoutConfigView,
   PayPalMilestoneOrderView,
+  PayPalSubscriptionOrderView,
 } from './payments.types';
 
 interface PayPalTokenResponse {
@@ -62,6 +63,21 @@ export interface CreatePayPalMilestoneOrderInput {
   milestoneTitle: string;
   amount: number;
   currency: string;
+  source?: string | null;
+  returnUrl?: string | null;
+  cancelUrl?: string | null;
+}
+
+export interface CreatePayPalSubscriptionOrderInput {
+  planId: string;
+  payerId: string;
+  paymentMethodId: string;
+  planDisplayName: string;
+  billingCycle: string;
+  amount: number;
+  currency: string;
+  exchangeRateApplied: number;
+  displayAmountVnd: number;
   source?: string | null;
   returnUrl?: string | null;
   cancelUrl?: string | null;
@@ -122,43 +138,53 @@ export class PayPalCheckoutService {
     input: CreatePayPalMilestoneOrderInput,
   ): Promise<PayPalMilestoneOrderView> {
     const method = await this.findUserPayPalMethod(input.payerId, input.paymentMethodId);
-
-    if (!this.isConfigured()) {
-      throw new ServiceUnavailableException(
-        'PayPal Vault checkout requires PAYPAL_CLIENT_SECRET on the backend.',
-      );
-    }
-
-    const accessToken = await this.fetchAccessToken();
-    const orderPayload = this.buildMilestoneOrderPayload(input, method);
-    const response = await fetch(`${this.getBaseUrl()}/v2/checkout/orders`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-        Prefer: 'return=representation',
-        'PayPal-Request-Id': `milestone-${input.milestoneId}-${randomUUID()}`,
+    return this.createOrder(
+      {
+        payerId: input.payerId,
+        paymentMethodId: input.paymentMethodId,
+        requestIdPrefix: `milestone-${input.milestoneId}`,
+        amount: input.amount,
+        currency: input.currency,
+        source: input.source,
+        returnUrl: input.returnUrl,
+        cancelUrl: input.cancelUrl,
       },
-      body: JSON.stringify(orderPayload),
-    });
+      {
+        custom_id: input.milestoneId,
+        description: `Milestone funding: ${input.milestoneTitle}`,
+      },
+      method,
+    );
+  }
 
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new ServiceUnavailableException(
-        `Unable to create PayPal order (${response.status}): ${errorBody.slice(0, 500)}`,
-      );
-    }
-
-    const payload = (await response.json()) as PayPalOrderResponse;
-    if (!payload.id) {
-      throw new ServiceUnavailableException('PayPal order response was missing id');
-    }
+  async createSubscriptionOrder(
+    input: CreatePayPalSubscriptionOrderInput,
+  ): Promise<PayPalSubscriptionOrderView> {
+    const method = await this.findUserPayPalMethod(input.payerId, input.paymentMethodId);
+    const order = await this.createOrder(
+      {
+        payerId: input.payerId,
+        paymentMethodId: input.paymentMethodId,
+        requestIdPrefix: `subscription-${input.planId}`,
+        amount: input.amount,
+        currency: input.currency,
+        source: input.source,
+        returnUrl: input.returnUrl,
+        cancelUrl: input.cancelUrl,
+      },
+      {
+        custom_id: input.planId,
+        description: `Premium subscription: ${input.planDisplayName} (${input.billingCycle})`,
+      },
+      method,
+    );
 
     return {
-      orderId: payload.id,
-      status: payload.status ?? 'CREATED',
-      vaultRequested: this.shouldStoreInVault(input.source),
+      ...order,
+      chargeAmount: input.amount,
+      chargeCurrency: input.currency,
+      displayAmountVnd: input.displayAmountVnd,
+      exchangeRateApplied: input.exchangeRateApplied,
     };
   }
 
@@ -331,25 +357,31 @@ export class PayPalCheckoutService {
   }
 
   private buildMilestoneOrderPayload(
-    input: CreatePayPalMilestoneOrderInput,
+    input: {
+      amount: number;
+      currency: string;
+      source?: string | null;
+      returnUrl?: string | null;
+      cancelUrl?: string | null;
+    },
+    purchaseUnit: Record<string, unknown>,
     method: PaymentMethodEntity,
   ): Record<string, unknown> {
     const amountValue = new Decimal(input.amount)
       .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
       .toFixed(2);
 
-    const purchaseUnit = {
-      custom_id: input.milestoneId,
-      description: `Milestone funding: ${input.milestoneTitle}`,
-      amount: {
-        currency_code: input.currency,
-        value: amountValue,
-      },
-    };
-
     const payload: Record<string, unknown> = {
       intent: 'CAPTURE',
-      purchase_units: [purchaseUnit],
+      purchase_units: [
+        {
+          ...purchaseUnit,
+          amount: {
+            currency_code: input.currency,
+            value: amountValue,
+          },
+        },
+      ],
     };
 
     if (this.shouldStoreInVault(input.source)) {
@@ -381,7 +413,10 @@ export class PayPalCheckoutService {
   }
 
   private buildExperienceContext(
-    input: CreatePayPalMilestoneOrderInput,
+    input: {
+      returnUrl?: string | null;
+      cancelUrl?: string | null;
+    },
   ): Record<string, unknown> | null {
     const returnUrl = input.returnUrl?.trim();
     const cancelUrl = input.cancelUrl?.trim();
@@ -478,5 +513,58 @@ export class PayPalCheckoutService {
     }
 
     return (await response.json()) as PayPalTokenResponse;
+  }
+
+  private async createOrder(
+    input: {
+      payerId: string;
+      paymentMethodId: string;
+      requestIdPrefix: string;
+      amount: number;
+      currency: string;
+      source?: string | null;
+      returnUrl?: string | null;
+      cancelUrl?: string | null;
+    },
+    purchaseUnit: Record<string, unknown>,
+    method: PaymentMethodEntity,
+  ): Promise<PayPalMilestoneOrderView> {
+    if (!this.isConfigured()) {
+      throw new ServiceUnavailableException(
+        'PayPal Vault checkout requires PAYPAL_CLIENT_SECRET on the backend.',
+      );
+    }
+
+    const accessToken = await this.fetchAccessToken();
+    const orderPayload = this.buildMilestoneOrderPayload(input, purchaseUnit, method);
+    const response = await fetch(`${this.getBaseUrl()}/v2/checkout/orders`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        Prefer: 'return=representation',
+        'PayPal-Request-Id': `${input.requestIdPrefix}-${randomUUID()}`,
+      },
+      body: JSON.stringify(orderPayload),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      throw new ServiceUnavailableException(
+        `Unable to create PayPal order (${response.status}): ${errorBody.slice(0, 500)}`,
+      );
+    }
+
+    const payload = (await response.json()) as PayPalOrderResponse;
+    if (!payload.id) {
+      throw new ServiceUnavailableException('PayPal order response was missing id');
+    }
+
+    return {
+      orderId: payload.id,
+      status: payload.status ?? 'CREATED',
+      vaultRequested: this.shouldStoreInVault(input.source),
+    };
   }
 }

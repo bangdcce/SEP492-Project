@@ -1,0 +1,158 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC01_Register_Account_Test_Case_v1.0",
+    "creator": "Bao",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "environment": [
+      "1. Backend: NestJS auth module",
+      "2. Database: PostgreSQL via TypeORM entities and repositories",
+      "3. API entry point: POST /auth/register guarded by CaptchaGuard and ValidationPipe",
+      "4. Evidence source: code inspection of auth.controller.ts, auth.service.ts, register.dto.ts, captcha.guard.ts, and email-verification.service.ts"
+    ],
+    "notes": "Strict feature-based workbook for UC-01 Register Account. The repo does not include an executable auth registration spec, so the cases below are derived from implementation and DTO rules and are currently marked Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "UC-01 Register Account",
+        "changeType": "A",
+        "description": "Initial feature/function-based workbook generated from repository auth registration flow and validation rules.",
+        "reference": "auth.controller.ts, auth.service.ts, register.dto.ts, captcha.guard.ts, email-verification.service.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "AUTH",
+      "name": "User Authentication",
+      "testRequirement": "Validate account registration creation, legal consent enforcement, role-based broker skill persistence, duplicate-email protection, CAPTCHA gate behavior, and DTO validation for the UC-01 Register Account flow.",
+      "referenceDocument": [
+        "docs/Use_Cases_UC01_UC10.doc",
+        "server/src/modules/auth/auth.controller.ts",
+        "server/src/modules/auth/auth.service.ts",
+        "server/src/modules/auth/dto/register.dto.ts",
+        "server/src/modules/auth/email-verification.service.ts",
+        "server/src/common/guards/captcha.guard.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 6,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Register Account",
+          "description": "Guest users self-register as CLIENT, BROKER, or FREELANCER through the guarded /auth/register endpoint.",
+          "preCondition": "The email is not already used, required fields are valid, legal consent is accepted, and CAPTCHA passes when enabled.",
+          "relatedUseCases": [
+            "UC-01"
+          ],
+          "actor": "Guest",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Register Account",
+          "testCases": [
+            {
+              "id": "[UC01-REG-01]",
+              "description": "Create a CLIENT account successfully with valid data and accepted legal consent.",
+              "procedure": "1. Submit POST /auth/register with a unique email, valid password, full name, phone number, CLIENT role, and acceptTerms = true plus acceptPrivacy = true.\\n2. Include a valid recaptchaToken when CAPTCHA is enabled.\\n3. Observe the response payload and persisted user state.",
+              "expectedResults": "1. The API returns HTTP 201 with a registration success message.\\n2. A new user is created with role CLIENT.\\n3. Password is stored as a bcrypt hash.\\n4. isVerified remains false and email verification is initiated.\\n5. termsAcceptedAt, privacyAcceptedAt, registrationIp, registrationUserAgent, and currentTrustScore = 2.5 are stored.",
+              "actualResults": "",
+              "dependencies": "Registration endpoint is reachable, email is unique, and CAPTCHA is either disabled or solved successfully.",
+              "useCaseRefs": [
+                "UC-01"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from AuthController.register and AuthService.register implementation."
+            },
+            {
+              "id": "[UC01-REG-02]",
+              "description": "Create a BROKER or FREELANCER account and persist selected domains and skills.",
+              "procedure": "1. Submit POST /auth/register with role BROKER or FREELANCER.\\n2. Provide valid domainIds and skillIds arrays.\\n3. Observe registration completion and follow-up repository writes.",
+              "expectedResults": "1. The user account is created successfully.\\n2. Domain link rows are saved into UserSkillDomainEntity.\\n3. Skill link rows are saved into UserSkillEntity with priority SECONDARY and verificationStatus SELF_DECLARED.\\n4. Registration still returns the created auth response.",
+              "actualResults": "",
+              "dependencies": "Valid role is BROKER or FREELANCER and the referenced domainIds and skillIds exist.",
+              "useCaseRefs": [
+                "UC-01"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers role-specific persistence path in AuthService.register."
+            },
+            {
+              "id": "[UC01-REG-03]",
+              "description": "Reject registration when the submitted email is already in use.",
+              "procedure": "1. Ensure a user already exists with the target email address.\\n2. Submit POST /auth/register again with the same email and otherwise valid data.",
+              "expectedResults": "1. The service throws ConflictException.\\n2. No duplicate user record is created.\\n3. No legal-consent timestamps or email-verification work is persisted for the duplicate attempt.",
+              "actualResults": "",
+              "dependencies": "An existing account already uses the submitted email address.",
+              "useCaseRefs": [
+                "UC-01"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Duplicate-email guard occurs before user creation."
+            },
+            {
+              "id": "[UC01-REG-04]",
+              "description": "Reject registration when Terms of Service or Privacy Policy consent is missing.",
+              "procedure": "1. Submit POST /auth/register with valid identity fields but set acceptTerms = false or acceptPrivacy = false.\\n2. Observe the API response and persistence outcome.",
+              "expectedResults": "1. The service throws ConflictException.\\n2. No user record is created.\\n3. Registration stops before password hashing and verification-email processing complete the flow.",
+              "actualResults": "",
+              "dependencies": "Registration payload is otherwise valid so the consent guard is the failing condition.",
+              "useCaseRefs": [
+                "UC-01"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Legal-consent enforcement is implemented inside AuthService.register."
+            },
+            {
+              "id": "[UC01-REG-05]",
+              "description": "Reject registration when CAPTCHA is required but the recaptchaToken is missing or invalid.",
+              "procedure": "1. Enable RECAPTCHA_ENABLED = true.\\n2. Submit POST /auth/register without recaptchaToken or with a token that fails verification.\\n3. Observe the guard response before controller execution.",
+              "expectedResults": "1. CaptchaGuard blocks the request with BadRequestException.\\n2. The register controller action is not executed.\\n3. No user record is created.",
+              "actualResults": "",
+              "dependencies": "reCAPTCHA enforcement is enabled in configuration.",
+              "useCaseRefs": [
+                "UC-01"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Behavior comes from CaptchaGuard.canActivate."
+            },
+            {
+              "id": "[UC01-REG-06]",
+              "description": "Reject malformed registration payloads that fail DTO validation.",
+              "procedure": "1. Submit POST /auth/register with one invalid field such as malformed email, weak password, unsupported role, invalid phone format, or missing required values.\\n2. Observe the validation response.",
+              "expectedResults": "1. ValidationPipe rejects the request with HTTP 400.\\n2. Clear validation errors are returned for the invalid fields.\\n3. No user record is created.",
+              "actualResults": "",
+              "dependencies": "Endpoint uses ValidationPipe with RegisterDto rules.",
+              "useCaseRefs": [
+                "UC-01"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers DTO rules for email, password, fullName, phoneNumber, role, and consent flags."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,77 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "UC-57",
+      "class_name": "ProjectRequestsController / ProjectRequestsService",
+      "function_name": "View List Assigned Request",
+      "sheet_name": "View List Assigned Request",
+      "test_requirement": "Cover GET /project-requests/freelancer/requests/my for UC-57 View List Assigned Request with executed Jest evidence for controller forwarding, returned accessible-request lists, empty-list behavior, and asserted terminal log messages.",
+      "loc": 11,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Controller receives authenticated freelancer id \"freelancer-1\""
+          ],
+          "inputs": {
+            "userId": "\"freelancer-1\""
+          },
+          "returns": [
+            "returns freelancer request access list from service"
+          ],
+          "exceptions": [],
+          "logs": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated freelancer \"freelancer-1\" has request access records in visible statuses",
+            "Accessible request results are ordered by createdAt DESC"
+          ],
+          "inputs": {
+            "userId": "\"freelancer-1\""
+          },
+          "returns": [
+            "returns freelancer request access list"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Get Freelancer Request Access List Successful: 2 request(s)"
+          ]
+        },
+        {
+          "type": "B",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated freelancer \"freelancer-1\" has no request access records in statuses \"INVITED\", \"ACCEPTED\", or \"PENDING\""
+          ],
+          "inputs": {
+            "userId": "\"freelancer-1\""
+          },
+          "returns": [
+            "returns empty freelancer request access list"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Get Freelancer Request Access List Successful: 0 request(s)"
+          ]
+        }
+      ]
+    }
+  ]
+}

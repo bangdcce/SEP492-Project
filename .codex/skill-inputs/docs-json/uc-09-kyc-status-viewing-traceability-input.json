@@ -1,0 +1,295 @@
+{
+  "sheetName": "UC-09 Traceability",
+  "columnWidths": [
+    18,
+    28,
+    46,
+    12,
+    12,
+    12,
+    12,
+    12,
+    12
+  ],
+  "rows": [
+    [
+      "Function Code",
+      "UC-09",
+      "",
+      "Function Name",
+      "KYC Status Viewing"
+    ],
+    [
+      "Created By",
+      "Bao",
+      "",
+      "Executed By",
+      ""
+    ],
+    [
+      "Lines of code",
+      "Scoped backend and frontend units (1 endpoint, 1 service method, 1 status page, 1 polling branch)",
+      "",
+      "Lack of test cases",
+      "0"
+    ],
+    [
+      "Test requirement",
+      "Cover authenticated KYC status retrieval, redacted user-facing response fields, and UI rendering for not-started, approved, rejected, pending, and failed-fetch states."
+    ],
+    [
+      "Passed",
+      "Failed",
+      "Untested",
+      "",
+      "N",
+      "A",
+      "B",
+      "",
+      "Total Test Cases"
+    ],
+    [
+      "0",
+      "0",
+      "6",
+      "",
+      "4",
+      "1",
+      "1",
+      "",
+      "6"
+    ],
+    [],
+    [
+      "",
+      "",
+      "",
+      "UTCID01",
+      "UTCID02",
+      "UTCID03",
+      "UTCID04",
+      "UTCID05",
+      "UTCID06"
+    ],
+    [
+      "Condition",
+      "Precondition",
+      "Authenticated user accesses the KYC status flow",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O",
+      "O"
+    ],
+    [
+      "Condition",
+      "Precondition",
+      "No KYC verification record exists for the user",
+      "O",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Condition",
+      "Precondition",
+      "A latest KYC verification record exists for the user",
+      "",
+      "O",
+      "O",
+      "",
+      "O",
+      "O"
+    ],
+    [
+      "Condition",
+      "Action",
+      "Call GET /kyc/me",
+      "O",
+      "O",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Condition",
+      "Action",
+      "Open KYCStatusPage and complete fetchKYCStatus",
+      "",
+      "",
+      "O",
+      "O",
+      "O",
+      "O"
+    ],
+    [
+      "Condition",
+      "Action",
+      "Click the manual refresh button while status is pending",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "O"
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "Returned status = APPROVED with reviewedAt present",
+      "",
+      "",
+      "O",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "Returned status = REJECTED with rejectionReason present",
+      "",
+      "",
+      "",
+      "",
+      "O",
+      ""
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "Returned status = PENDING",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "O"
+    ],
+    [
+      "Condition",
+      "Input Variable",
+      "The fetch fails or returns a non-OK response",
+      "",
+      "",
+      "",
+      "O",
+      "",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Service returns NOT_STARTED with explanatory message",
+      "O",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Service returns signed URLs plus redacted sensitive fields",
+      "",
+      "O",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Approved badge, success panel, submitted date, and verified date render",
+      "",
+      "",
+      "O",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Unverified fallback state and Start Verification CTA render",
+      "",
+      "",
+      "",
+      "O",
+      "",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Rejection reason and Resubmit Verification CTA render",
+      "",
+      "",
+      "",
+      "",
+      "O",
+      ""
+    ],
+    [
+      "Confirm",
+      "Return",
+      "Pending message, manual refresh, and 10-second polling remain active",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "O"
+    ],
+    [
+      "Result",
+      "Type(N : Normal, A : Abnormal, B : Boundary)",
+      "",
+      "N",
+      "N",
+      "N",
+      "A",
+      "N",
+      "B"
+    ],
+    [
+      "Result",
+      "Passed/Failed",
+      "",
+      "Untested",
+      "Untested",
+      "Untested",
+      "Untested",
+      "Untested",
+      "Untested"
+    ],
+    [
+      "Result",
+      "Executed Date",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    [
+      "Result",
+      "Defect ID",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ]
+  ]
+}

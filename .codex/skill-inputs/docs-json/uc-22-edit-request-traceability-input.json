@@ -1,0 +1,128 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-29",
+    "version": "v1.3"
+  },
+  "functions": [
+    {
+      "function_code": "UC-22",
+      "class_name": "ProjectRequestsController / ProjectRequestsService",
+      "function_name": "Edit Request",
+      "sheet_name": "Edit Request",
+      "test_requirement": "Cover UC-22 Edit Request through PATCH /project-requests/:id with executed Jest evidence for controller forwarding, field updates, visibility changes, forbidden edits, and asserted success and failure logs.",
+      "loc": 66,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Controller receives request id \"req-1\", edit payload, authenticated viewer \"client-1\", and request context"
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "title": "\"Updated request title\"",
+            "description": "\"Updated description\"",
+            "budgetRange": "\"$10,000 - $15,000\""
+          },
+          "returns": [
+            "returns updated request from service"
+          ],
+          "exceptions": [],
+          "logs": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "title": "\"Updated request title\"",
+            "description": "\"Updated description\"",
+            "budgetRange": "\"$10,000 - $15,000\"",
+            "intendedTimeline": "\"12 weeks\"",
+            "techPreferences": "\"NestJS, Vue\"",
+            "attachments": "\"1 normalized attachment row\"",
+            "answers": "\"1 answer row\""
+          },
+          "returns": [
+            "returns updated request with status = DRAFT"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Update Request Successful: \"req-1\" -> \"DRAFT\""
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" is currently \"PUBLIC_DRAFT\"",
+            "Request \"req-1\" has 2 pending broker applications"
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "status": "\"PRIVATE_DRAFT\""
+          },
+          "returns": [
+            "returns updated request with status = PRIVATE_DRAFT"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Update Request Successful: \"req-1\" -> \"PRIVATE_DRAFT\""
+          ]
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client does not own request \"req-1\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "title": "\"Unauthorized edit\""
+          },
+          "returns": [],
+          "exceptions": [
+            "ForbiddenException: Forbidden: You cannot update this request"
+          ],
+          "logs": [
+            "Update Request Failed: Forbidden: You cannot update this request"
+          ]
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-29",
+          "preconditions": [
+            "Authenticated client owns request \"req-1\"",
+            "Request \"req-1\" is currently \"PRIVATE_DRAFT\""
+          ],
+          "inputs": {
+            "requestId": "\"req-1\"",
+            "status": "\"PUBLIC_DRAFT\""
+          },
+          "returns": [
+            "returns updated request with status = PUBLIC_DRAFT"
+          ],
+          "exceptions": [],
+          "logs": [
+            "Update Request Successful: \"req-1\" -> \"PUBLIC_DRAFT\""
+          ]
+        }
+      ]
+    }
+  ]
+}

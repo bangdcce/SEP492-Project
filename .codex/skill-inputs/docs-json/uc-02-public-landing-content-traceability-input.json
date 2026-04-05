@@ -1,0 +1,309 @@
+﻿{
+    "sheetName":  "UC-02 Traceability",
+    "columnWidths":  [
+                         18,
+                         28,
+                         44,
+                         12,
+                         12,
+                         12,
+                         12,
+                         12,
+                         12,
+                         12
+                     ],
+    "rows":  [
+                 [
+                     "Function Code",
+                     "UC-02",
+                     "",
+                     "Function Name",
+                     "Public Landing Content"
+                 ],
+                 [
+                     "Created By",
+                     "Bao",
+                     "",
+                     "Executed By",
+                     ""
+                 ],
+                 [
+                     "Lines of code",
+                     "Scoped frontend units (2 components, 2 navigation handlers, 1 UI state branch)",
+                     "",
+                     "Lack of test cases",
+                     "0"
+                 ],
+                 [
+                     "Test requirement",
+                     "Cover landing route rendering, static public section visibility, sign-in navigation, sign-up navigation, mobile menu opening, mobile anchor close behavior, and guest accessibility for the implemented UC-02 flow."
+                 ],
+                 [
+                     "Passed",
+                     "Failed",
+                     "Untested",
+                     "",
+                     "N",
+                     "A",
+                     "B",
+                     "",
+                     "Total Test Cases"
+                 ],
+                 [
+                     "0",
+                     "0",
+                     "6",
+                     "",
+                     "4",
+                     "1",
+                     "1",
+                     "",
+                     "6"
+                 ],
+                 [
+
+                 ],
+                 [
+                     "",
+                     "",
+                     "",
+                     "UTCID01",
+                     "UTCID02",
+                     "UTCID03",
+                     "UTCID04",
+                     "UTCID05",
+                     "UTCID06"
+                 ],
+                 [
+                     "Condition",
+                     "Precondition",
+                     "Guest accesses the root route",
+                     "O",
+                     "O",
+                     "O",
+                     "O",
+                     "O",
+                     "O"
+                 ],
+                 [
+                     "Condition",
+                     "Precondition",
+                     "Landing wrapper has navigate from react-router-dom",
+                     "",
+                     "O",
+                     "O",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Precondition",
+                     "Landing component receives sign-in and sign-up callbacks",
+                     "O",
+                     "O",
+                     "O",
+                     "O",
+                     "O",
+                     "O"
+                 ],
+                 [
+                     "Condition",
+                     "Action",
+                     "Render landing page",
+                     "O",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O"
+                 ],
+                 [
+                     "Condition",
+                     "Action",
+                     "Click Sign In action",
+                     "",
+                     "O",
+                     "",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Action",
+                     "Click Sign Up action",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Action",
+                     "Toggle mobile menu open",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Action",
+                     "Click mobile anchor item",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Input Variable",
+                     "Mobile menu initially closed",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     "O",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Input Variable",
+                     "Anchor item is one of Features/For You/How It Works",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     ""
+                 ],
+                 [
+                     "Condition",
+                     "Input Variable",
+                     "No required backend API response is available",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O"
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "Public landing sections are rendered",
+                     "O",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O"
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "navigate(ROUTES.LOGIN) is invoked",
+                     "",
+                     "O",
+                     "",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "navigate(ROUTES.REGISTER) is invoked",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "mobileMenuOpen becomes true and menu is shown",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "mobileMenuOpen becomes false after anchor click",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O",
+                     ""
+                 ],
+                 [
+                     "Confirm",
+                     "Return",
+                     "guest can browse without auth redirect or fetch dependency",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "O"
+                 ],
+                 [
+                     "Result",
+                     "Type(N : Normal, A : Abnormal, B : Boundary)",
+                     "",
+                     "N",
+                     "N",
+                     "N",
+                     "N",
+                     "B",
+                     "A"
+                 ],
+                 [
+                     "Result",
+                     "Passed/Failed",
+                     "",
+                     "Untested",
+                     "Untested",
+                     "Untested",
+                     "Untested",
+                     "Untested",
+                     "Untested"
+                 ],
+                 [
+                     "Result",
+                     "Executed Date",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     ""
+                 ],
+                 [
+                     "Result",
+                     "Defect ID",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     "",
+                     ""
+                 ]
+             ]
+}
