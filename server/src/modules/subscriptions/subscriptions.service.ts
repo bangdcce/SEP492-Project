@@ -75,6 +75,15 @@ interface SubscriptionChargeSummary {
   exchangeRateApplied: number;
 }
 
+interface SubscriptionPlanDisplayPricing {
+  displayCurrency: string;
+  exchangeRateApplied: number;
+  priceMonthlyDisplay: number;
+  priceQuarterlyDisplay: number;
+  priceYearlyDisplay: number;
+  monthlyEquivalentDisplay: number;
+}
+
 interface PreparedSubscriptionCheckoutContext {
   user: UserEntity;
   plan: SubscriptionPlanEntity;
@@ -199,6 +208,7 @@ export class SubscriptionsService {
                     priceMonthly: Number(subscription.plan.priceMonthly),
                     priceQuarterly: Number(subscription.plan.priceQuarterly),
                     priceYearly: Number(subscription.plan.priceYearly),
+                    ...this.getPlanDisplayPricing(subscription.plan),
                     perks: subscription.plan.perks,
                   }
                 : null,
@@ -238,6 +248,21 @@ export class SubscriptionsService {
       this.logger.error(`Get Plans Failed: ${message}`);
       throw error;
     }
+  }
+
+  getPlanDisplayPricing(plan: SubscriptionPlanEntity): SubscriptionPlanDisplayPricing {
+    const monthly = this.buildChargeSummary(plan, BillingCycle.MONTHLY);
+    const quarterly = this.buildChargeSummary(plan, BillingCycle.QUARTERLY);
+    const yearly = this.buildChargeSummary(plan, BillingCycle.YEARLY);
+
+    return {
+      displayCurrency: monthly.chargeCurrency,
+      exchangeRateApplied: monthly.exchangeRateApplied,
+      priceMonthlyDisplay: monthly.chargeAmount,
+      priceQuarterlyDisplay: quarterly.chargeAmount,
+      priceYearlyDisplay: yearly.chargeAmount,
+      monthlyEquivalentDisplay: this.calculateMonthlyEquivalentDisplay(plan),
+    };
   }
 
   async getPayPalCheckoutConfig(
@@ -579,6 +604,24 @@ export class SubscriptionsService {
       default:
         return Number(plan.priceMonthly);
     }
+  }
+
+  private calculateMonthlyEquivalentDisplay(plan: SubscriptionPlanEntity): number {
+    const monthly = this.buildChargeSummary(plan, BillingCycle.MONTHLY).chargeAmount;
+    const quarterly = new Decimal(
+      this.buildChargeSummary(plan, BillingCycle.QUARTERLY).chargeAmount,
+    )
+      .div(3)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toNumber();
+    const yearly = new Decimal(
+      this.buildChargeSummary(plan, BillingCycle.YEARLY).chargeAmount,
+    )
+      .div(12)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toNumber();
+
+    return monthly || quarterly || yearly;
   }
 
   private calculatePeriodEnd(startAt: Date, billingCycle: BillingCycle): Date {
