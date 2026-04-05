@@ -175,6 +175,26 @@ describe('AuthService.register', () => {
     );
   });
 
+  it('normalizes email before checking duplicates and persisting a new account', async () => {
+    userRepository.findOne.mockResolvedValue(null);
+
+    await service.register(
+      createRegisterDto({
+        email: '  New.User@GMAIL.com  ',
+      }) as any,
+    );
+
+    expect(userRepository.findOne).toHaveBeenCalledWith({
+      where: { email: 'new.user@gmail.com' },
+      select: ['id', 'email', 'passwordHash', 'fullName', 'role', 'phoneNumber', 'isVerified'],
+    });
+    expect(userRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: 'new.user@gmail.com',
+      }),
+    );
+  });
+
   it('persists selected domains and skills for a freelancer registration', async () => {
     const domainRepository = {
       save: jest.fn().mockResolvedValue(undefined),
@@ -508,6 +528,28 @@ describe('AuthService.login', () => {
     );
     expect(result.user.email).toBe('member@gmail.com');
     expect(result.user.timeZone).toBe('Asia/Bangkok');
+  });
+
+  it('normalizes login email before loading the account', async () => {
+    const user = createLoginUser();
+    userRepository.findOne.mockResolvedValue(user);
+    userRepository.update.mockResolvedValue(undefined);
+    jest.spyOn(service as any, 'createAuthSession').mockResolvedValue(undefined);
+
+    await service.login(
+      {
+        email: '  MEMBER@GMAIL.COM  ',
+        password: 'SecurePass123!',
+      } as any,
+      'Chrome',
+      '203.0.113.10',
+    );
+
+    expect(userRepository.findOne).toHaveBeenCalledWith({
+      where: { email: 'member@gmail.com' },
+      relations: ['profile'],
+    });
+    expect(mockedCompare).toHaveBeenCalledWith('SecurePass123!', 'stored-password-hash');
   });
 
   it('throws unauthorized when the email does not exist', async () => {

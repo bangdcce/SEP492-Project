@@ -37,6 +37,7 @@ import {
 } from './dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { normalizeAuthEmail } from './utils/email.utils';
 
 @Injectable()
 export class AuthService {
@@ -77,11 +78,12 @@ export class AuthService {
       acceptTerms,
       acceptPrivacy,
     } = registerDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     // Ki盻ノ tra email ﾄ妥｣ t盻渡 t蘯｡i
     // Ch盻・select cﾃ｡c c盻冲 c蘯ｧn thi蘯ｿt ﾄ黛ｻ・trﾃ｡nh l盻擁 n蘯ｿu cﾃｳ c盻冲 chﾆｰa t盻渡 t蘯｡i
     const existingUser = await this.userRepository.findOne({
-      where: { email },
+      where: { email: normalizedEmail },
       select: ['id', 'email', 'passwordHash', 'fullName', 'role', 'phoneNumber', 'isVerified'],
     });
 
@@ -103,7 +105,7 @@ export class AuthService {
     // T蘯｡o user m盻嬖 v盻嬖 legal consent timestamps
     const now = new Date();
     const newUser = this.userRepository.create({
-      email,
+      email: normalizedEmail,
       passwordHash,
       fullName,
       phoneNumber,
@@ -175,10 +177,11 @@ export class AuthService {
     timeZone?: string,
   ): Promise<LoginResponseDto> {
     const { email, password } = loginDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     // Tﾃｬm user theo email v盻嬖 profile relation
     const user = await this.userRepository.findOne({
-      where: { email },
+      where: { email: normalizedEmail },
       relations: ['profile'],
     });
 
@@ -499,15 +502,16 @@ export class AuthService {
    */
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto> {
     const { email } = forgotPasswordDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     // 1. Find user by email
     const user = await this.userRepository.findOne({
-      where: { email },
+      where: { email: normalizedEmail },
     });
 
     // Reject non-existent, deleted, or banned accounts immediately
     if (!user || user.status === UserStatus.DELETED || user.isBanned) {
-      this.logger.warn(`ForgotPassword: User not found or inactive for email=${email}`);
+      this.logger.warn(`ForgotPassword: User not found or inactive for email=${normalizedEmail}`);
       throw new BadRequestException('Email does not exist');
     }
 
@@ -523,15 +527,15 @@ export class AuthService {
 
     // 4. Send OTP via Email
     try {
-      await this.emailService.sendOTP(email, otp);
+      await this.emailService.sendOTP(user.email, otp);
     } catch (error) {
-      this.logger.error(`ForgotPassword: Failed to send OTP to ${email}: ${error.message}`);
+      this.logger.error(`ForgotPassword: Failed to send OTP to ${user.email}: ${error.message}`);
       // Continue execution even if email fails - user can resend or check logs
     }
 
     return {
       message: 'OTP code has been sent to your email',
-      email: this.emailService.maskEmail(email),
+      email: this.emailService.maskEmail(user.email),
       expiresIn: 300, // 5 minutes in seconds
     };
   }
@@ -541,9 +545,10 @@ export class AuthService {
    */
   async verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<VerifyOtpResponseDto> {
     const { email, otp } = verifyOtpDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     const user = await this.userRepository.findOne({
-      where: { email },
+      where: { email: normalizedEmail },
     });
 
     // Return generic error for deleted/banned/non-existent accounts
@@ -582,6 +587,7 @@ export class AuthService {
    */
   async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<ResetPasswordResponseDto> {
     const { email, otp, newPassword, confirmPassword } = resetPasswordDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     // 1. Validate password confirmation
     if (newPassword !== confirmPassword) {
@@ -590,7 +596,7 @@ export class AuthService {
 
     // 2. Tﾃｬm user theo email
     const user = await this.userRepository.findOne({
-      where: { email },
+      where: { email: normalizedEmail },
     });
 
     // Return generic error for deleted/banned/non-existent accounts

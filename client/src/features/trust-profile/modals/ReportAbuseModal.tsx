@@ -1,12 +1,7 @@
-/**
- * ReportAbuseModal Component
- * Modal for reporting review violations
- */
-
 import { useState } from "react";
-import { X, AlertCircle, Flag, CheckCircle } from "lucide-react";
+import { AlertCircle, CheckCircle, Flag, X } from "lucide-react";
 import { createReport } from "../api";
-import type { Review, ReportReason } from "../types";
+import type { ReportReason, Review } from "../types";
 
 interface ReportAbuseModalProps {
   isOpen: boolean;
@@ -23,27 +18,27 @@ const REPORT_REASONS: {
   {
     value: "SPAM",
     label: "Spam",
-    description: "Nội dung quảng cáo, link không liên quan",
+    description: "Advertising, repetitive content, or unrelated links.",
   },
   {
     value: "HARASSMENT",
-    label: "Quấy rối / Lăng mạ",
-    description: "Ngôn ngữ xúc phạm, đe dọa, phân biệt đối xử",
+    label: "Harassment",
+    description: "Abusive language, threats, or discriminatory remarks.",
   },
   {
     value: "DOXING",
-    label: "Lộ thông tin cá nhân",
-    description: "Tiết lộ SĐT, địa chỉ, thông tin riêng tư",
+    label: "Privacy leak",
+    description: "Sharing personal data such as phone numbers or addresses.",
   },
   {
     value: "FAKE_REVIEW",
-    label: "Đánh giá giả",
-    description: "Review không dựa trên làm việc thực tế",
+    label: "Fake review",
+    description: "Feedback that does not reflect a real working relationship.",
   },
   {
     value: "OTHER",
-    label: "Khác",
-    description: "Lý do khác (mô tả bên dưới)",
+    label: "Other",
+    description: "Anything else that still requires moderator review.",
   },
 ];
 
@@ -53,9 +48,7 @@ export function ReportAbuseModal({
   review,
   onSuccess,
 }: ReportAbuseModalProps) {
-  const [selectedReason, setSelectedReason] = useState<ReportReason | null>(
-    null
-  );
+  const [selectedReason, setSelectedReason] = useState<ReportReason | null>(null);
   const [description, setDescription] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -63,17 +56,17 @@ export function ReportAbuseModal({
 
   const MAX_DESCRIPTION_LENGTH = 500;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
     setError(null);
 
     if (!selectedReason) {
-      setError("Vui lòng chọn lý do report");
+      setError("Please choose a report reason.");
       return;
     }
 
     if (selectedReason === "OTHER" && !description.trim()) {
-      setError("Vui lòng mô tả lý do report");
+      setError("Please add details for the report.");
       return;
     }
 
@@ -87,30 +80,28 @@ export function ReportAbuseModal({
       });
 
       setIsSuccess(true);
-
-      // Auto close after 2 seconds
       setTimeout(() => {
         onSuccess?.();
         handleClose();
-      }, 2000);
-    } catch (err: unknown) {
-      const error = err as {
+      }, 1500);
+    } catch (rawError: unknown) {
+      const errorResponse = rawError as {
         response?: { data?: { message?: string }; status?: number };
       };
-      const errorMessage = error.response?.data?.message || "";
+      const message = errorResponse.response?.data?.message || "";
 
-      if (error.response?.status === 400) {
-        if (errorMessage.includes("đã report")) {
-          setError("Bạn đã report review này rồi");
-        } else if (errorMessage.includes("chính mình")) {
-          setError("Bạn không thể report review của chính mình");
+      if (errorResponse.response?.status === 400) {
+        if (message.includes("đã report")) {
+          setError("You have already reported this review.");
+        } else if (message.includes("chính mình")) {
+          setError("You cannot report your own review.");
         } else {
-          setError(errorMessage || "Yêu cầu không hợp lệ");
+          setError("You have already reported this review.");
         }
-      } else if (error.response?.status === 404) {
-        setError("Review không tồn tại");
+      } else if (errorResponse.response?.status === 404) {
+        setError("The selected review could not be found.");
       } else {
-        setError("Đã xảy ra lỗi. Vui lòng thử lại sau.");
+        setError(message || "Failed to submit the report. Please try again.");
       }
     } finally {
       setIsLoading(false);
@@ -118,90 +109,87 @@ export function ReportAbuseModal({
   };
 
   const handleClose = () => {
-    if (!isLoading) {
-      setSelectedReason(null);
-      setDescription("");
-      setError(null);
-      setIsSuccess(false);
-      onClose();
+    if (isLoading) {
+      return;
     }
+    setSelectedReason(null);
+    setDescription("");
+    setError(null);
+    setIsSuccess(false);
+    onClose();
   };
 
-  if (!isOpen) return null;
+  if (!isOpen) {
+    return null;
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      {/* Backdrop */}
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      data-testid="report-review-modal"
+    >
       <div
         className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm"
         onClick={handleClose}
       />
 
-      {/* Modal */}
-      <div className="relative bg-white rounded-lg shadow-lg border border-gray-200 w-full max-w-lg max-h-[90vh] overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between p-6 border-b border-gray-200 bg-red-50">
+      <div className="relative max-h-[90vh] w-full max-w-lg overflow-hidden rounded-lg border border-gray-200 bg-white shadow-lg">
+        <div className="flex items-center justify-between border-b border-gray-200 bg-red-50 p-6">
           <div className="flex items-center gap-3">
-            <Flag className="w-6 h-6 text-red-600" />
+            <Flag className="h-6 w-6 text-red-600" />
             <h2 className="text-xl text-slate-900">Report Review</h2>
           </div>
           <button
+            type="button"
+            data-testid="close-report-review"
             onClick={handleClose}
             disabled={isLoading}
-            className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+            className="text-gray-400 transition-colors hover:text-gray-600 disabled:opacity-50"
           >
-            <X className="w-6 h-6" />
+            <X className="h-6 w-6" />
           </button>
         </div>
 
-        {/* Body */}
         {isSuccess ? (
           <div className="p-8 text-center">
-            <CheckCircle className="w-16 h-16 text-teal-500 mx-auto mb-4" />
-            <h3 className="text-xl text-slate-900 mb-2">Report đã được gửi</h3>
+            <CheckCircle className="mx-auto mb-4 h-16 w-16 text-teal-500" />
+            <h3 className="mb-2 text-xl text-slate-900">Report submitted</h3>
             <p className="text-gray-600">
-              Cảm ơn bạn đã báo cáo. Đội ngũ Admin sẽ xem xét trong thời gian
-              sớm nhất.
+              Moderators have received your report and will review it shortly.
             </p>
           </div>
         ) : (
           <form
             onSubmit={handleSubmit}
-            className="p-6 space-y-6 overflow-y-auto max-h-[calc(90vh-180px)]"
+            className="max-h-[calc(90vh-180px)] space-y-6 overflow-y-auto p-6"
           >
-            {/* Error Alert */}
-            {error && (
-              <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
-                <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            {error ? (
+              <div className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4">
+                <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-red-600" />
                 <p className="text-red-700">{error}</p>
               </div>
-            )}
+            ) : null}
 
-            {/* Review Preview */}
-            <div className="bg-gray-50 rounded-lg p-4 border border-gray-200">
-              <div className="text-sm text-gray-500 mb-1">Review từ:</div>
-              <div className="font-medium text-slate-900">
-                {review.reviewer.fullName}
-              </div>
-              <div className="text-sm text-gray-600 mt-2 line-clamp-2">
-                {review.comment}
-              </div>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+              <div className="mb-1 text-sm text-gray-500">Review author</div>
+              <div className="font-medium text-slate-900">{review.reviewer.fullName}</div>
+              <div className="mt-2 line-clamp-2 text-sm text-gray-600">{review.comment}</div>
             </div>
 
-            {/* Reason Selection */}
             <div className="space-y-3">
-              <label className="block text-slate-900 font-medium">
-                Lý do report <span className="text-red-500">*</span>
+              <label className="block font-medium text-slate-900">
+                Report reason <span className="text-red-500">*</span>
               </label>
               <div className="space-y-2">
                 {REPORT_REASONS.map((reason) => (
                   <label
                     key={reason.value}
-                    className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    className={`flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors ${
                       selectedReason === reason.value
                         ? "border-red-500 bg-red-50"
                         : "border-gray-200 hover:border-gray-300"
                     }`}
+                    data-testid={`report-reason-${reason.value.toLowerCase()}`}
                   >
                     <input
                       type="radio"
@@ -212,37 +200,27 @@ export function ReportAbuseModal({
                       className="mt-1"
                     />
                     <div>
-                      <div className="font-medium text-slate-900">
-                        {reason.label}
-                      </div>
-                      <div className="text-sm text-gray-500">
-                        {reason.description}
-                      </div>
+                      <div className="font-medium text-slate-900">{reason.label}</div>
+                      <div className="text-sm text-gray-500">{reason.description}</div>
                     </div>
                   </label>
                 ))}
               </div>
             </div>
 
-            {/* Description */}
             <div className="space-y-2">
-              <label
-                htmlFor="description"
-                className="block text-slate-900 font-medium"
-              >
-                Mô tả chi tiết{" "}
-                {selectedReason === "OTHER" && (
-                  <span className="text-red-500">*</span>
-                )}
+              <label htmlFor="report-description" className="block font-medium text-slate-900">
+                Additional details {selectedReason === "OTHER" ? <span className="text-red-500">*</span> : null}
               </label>
               <textarea
-                id="description"
+                id="report-description"
+                data-testid="report-review-description"
                 value={description}
-                onChange={(e) => setDescription(e.target.value)}
+                onChange={(event) => setDescription(event.target.value)}
                 maxLength={MAX_DESCRIPTION_LENGTH}
                 rows={4}
-                placeholder="Cung cấp thêm thông tin để Admin xem xét..."
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent resize-none text-slate-900"
+                placeholder="Add the context moderators need to review this report."
+                className="w-full resize-none rounded-lg border border-gray-300 px-4 py-3 text-slate-900 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-red-500"
               />
               <div className="text-right text-sm text-gray-500">
                 {description.length}/{MAX_DESCRIPTION_LENGTH}
@@ -251,37 +229,38 @@ export function ReportAbuseModal({
           </form>
         )}
 
-        {/* Footer */}
-        {!isSuccess && (
-          <div className="flex items-center justify-end gap-3 p-6 border-t border-gray-200 bg-gray-50">
+        {!isSuccess ? (
+          <div className="flex items-center justify-end gap-3 border-t border-gray-200 bg-gray-50 p-6">
             <button
               type="button"
+              data-testid="cancel-report-review"
               onClick={handleClose}
               disabled={isLoading}
-              className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
+              className="rounded-lg border border-gray-300 px-6 py-2.5 text-gray-700 transition-colors hover:bg-gray-100 disabled:opacity-50"
             >
-              Hủy
+              Cancel
             </button>
             <button
               type="submit"
+              data-testid="submit-report-review"
               onClick={handleSubmit}
               disabled={isLoading || !selectedReason}
-              className="px-6 py-2.5 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 flex items-center gap-2"
+              className="flex items-center gap-2 rounded-lg bg-red-600 px-6 py-2.5 text-white transition-colors hover:bg-red-700 disabled:opacity-50"
             >
               {isLoading ? (
                 <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Đang gửi...
+                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                  Submitting...
                 </>
               ) : (
                 <>
-                  <Flag className="w-4 h-4" />
-                  Gửi Report
+                  <Flag className="h-4 w-4" />
+                  Submit Report
                 </>
               )}
             </button>
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

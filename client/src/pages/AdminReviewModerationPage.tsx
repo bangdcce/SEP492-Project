@@ -670,6 +670,7 @@ export default function AdminReviewModerationPage() {
           filteredReviews.map((review) => (
             <div
               key={review.id}
+              data-testid={`moderation-review-${review.id}`}
               className={`bg-white border rounded-lg p-6 shadow-sm ${
                 review.status === "FLAGGED"
                   ? "border-yellow-300 bg-yellow-50/30"
@@ -725,6 +726,7 @@ export default function AdminReviewModerationPage() {
                 <div className="flex flex-wrap justify-end gap-2">
                   {!review.lockStatus?.isOpened && (
                     <button
+                      data-testid={`moderation-open-case-${review.id}`}
                       onClick={() => handleOpenCase(review)}
                       disabled={queueActionReviewId === review.id}
                       className="px-4 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
@@ -734,6 +736,7 @@ export default function AdminReviewModerationPage() {
                     </button>
                   )}
                   <button
+                    data-testid={`moderation-take-ownership-${review.id}`}
                     onClick={() => handleTakeOwnership(review)}
                     disabled={queueActionReviewId === review.id}
                     className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
@@ -747,6 +750,7 @@ export default function AdminReviewModerationPage() {
                   </button>
                   {availableAssignees.length > 1 && (
                     <button
+                      data-testid={`moderation-reassign-${review.id}`}
                       onClick={() => openReassignDialog(review)}
                       disabled={queueActionReviewId === review.id}
                       className="px-4 py-2 bg-violet-600 text-white rounded-lg hover:bg-violet-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
@@ -757,6 +761,7 @@ export default function AdminReviewModerationPage() {
                   )}
                   {review.status === "SOFT_DELETED" ? (
                     <button
+                      data-testid={`moderation-restore-${review.id}`}
                       onClick={() => {
                         setSelectedReview(review);
                         setShowRestoreModal(true);
@@ -770,6 +775,7 @@ export default function AdminReviewModerationPage() {
                     <>
                       {review.reportInfo && (
                         <button
+                          data-testid={`moderation-dismiss-${review.id}`}
                           onClick={() => setDismissTargetReview(review)}
                           disabled={queueActionReviewId === review.id}
                           className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
@@ -779,6 +785,7 @@ export default function AdminReviewModerationPage() {
                         </button>
                       )}
                       <button
+                        data-testid={`moderation-soft-delete-${review.id}`}
                         onClick={() => {
                           setSelectedReview(review);
                           setShowDeleteModal(true);

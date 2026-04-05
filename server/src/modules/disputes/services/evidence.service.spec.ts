@@ -12,6 +12,7 @@ import {
   DisputePartyEntity,
 } from 'src/database/entities';
 import { EvidenceService } from './evidence.service';
+import { recordEvidence } from '../../../../test/fe16-fe18/evidence-recorder';
 
 describe('EvidenceService', () => {
   let service: EvidenceService;
@@ -61,11 +62,23 @@ describe('EvidenceService', () => {
     it('accepts valid png file', () => {
       const result = service.validateFileUpload('proof.png', 1024 * 1024, 'image/png');
       expect(result.isValid).toBe(true);
+      recordEvidence({
+        id: 'FE17-EVD-01',
+        evidenceRef: 'evidence.service.spec.ts::accepts valid png file',
+        actualResults:
+          'EvidenceService.validateFileUpload accepted proof.png with mime type image/png and a 1 MB size limit check, returning isValid=true.',
+      });
     });
 
     it('rejects unsupported file type', () => {
       const result = service.validateFileUpload('virus.exe', 1000, 'application/x-msdownload');
       expect(result.isValid).toBe(false);
+      recordEvidence({
+        id: 'FE17-EVD-02',
+        evidenceRef: 'evidence.service.spec.ts::rejects unsupported file type',
+        actualResults:
+          'EvidenceService.validateFileUpload rejected virus.exe with mime type application/x-msdownload by returning isValid=false before any upload/persistence step.',
+      });
     });
   });
 });

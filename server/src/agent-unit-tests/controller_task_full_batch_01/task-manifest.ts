@@ -53,6 +53,7 @@ export type TaskEndpoint = TaskRow & {
   group: ControllerTaskGroup;
   controllerClass: any;
   controllerName: string;
+  sourceFilePath: string;
   methodName: string;
   functionDisplayName: string;
   roles: UserRole[];
@@ -64,25 +65,78 @@ export type TaskEndpoint = TaskRow & {
 type RegistryEntry = {
   group: ControllerTaskGroup;
   controllerClass: any;
+  sourceFilePath: string;
 };
 
 const repoRoot = path.resolve(__dirname, '../../../..');
 const taskFilePath = path.join(repoRoot, 'docs', 'Test-Unit-task.txt');
 
 const registry: RegistryEntry[] = [
-  { group: 'admin-dashboard', controllerClass: AdminDashboardController },
-  { group: 'audit-logs', controllerClass: AuditLogsController },
-  { group: 'calendar', controllerClass: CalendarController },
-  { group: 'disputes-main', controllerClass: DisputesController },
-  { group: 'disputes-evidence', controllerClass: EvidenceController },
-  { group: 'disputes-hearing', controllerClass: HearingController },
-  { group: 'disputes-settlement', controllerClass: SettlementController },
-  { group: 'disputes-staff', controllerClass: StaffAssignmentController },
-  { group: 'leave', controllerClass: LeaveController },
-  { group: 'reports', controllerClass: ReportController },
-  { group: 'reviews', controllerClass: ReviewController },
-  { group: 'user-warnings', controllerClass: UserWarningController },
-  { group: 'users-admin', controllerClass: UsersController },
+  {
+    group: 'admin-dashboard',
+    controllerClass: AdminDashboardController,
+    sourceFilePath: 'server/src/modules/admin-dashboard/admin-dashboard.controller.ts',
+  },
+  {
+    group: 'audit-logs',
+    controllerClass: AuditLogsController,
+    sourceFilePath: 'server/src/modules/audit-logs/audit-logs.controller.ts',
+  },
+  {
+    group: 'calendar',
+    controllerClass: CalendarController,
+    sourceFilePath: 'server/src/modules/calendar/calendar.controller.ts',
+  },
+  {
+    group: 'disputes-main',
+    controllerClass: DisputesController,
+    sourceFilePath: 'server/src/modules/disputes/disputes.controller.ts',
+  },
+  {
+    group: 'disputes-evidence',
+    controllerClass: EvidenceController,
+    sourceFilePath: 'server/src/modules/disputes/controllers/evidence.controller.ts',
+  },
+  {
+    group: 'disputes-hearing',
+    controllerClass: HearingController,
+    sourceFilePath: 'server/src/modules/disputes/controllers/hearing.controller.ts',
+  },
+  {
+    group: 'disputes-settlement',
+    controllerClass: SettlementController,
+    sourceFilePath: 'server/src/modules/disputes/controllers/settlement.controller.ts',
+  },
+  {
+    group: 'disputes-staff',
+    controllerClass: StaffAssignmentController,
+    sourceFilePath: 'server/src/modules/disputes/controllers/staff-assignment.controller.ts',
+  },
+  {
+    group: 'leave',
+    controllerClass: LeaveController,
+    sourceFilePath: 'server/src/modules/leave/leave.controller.ts',
+  },
+  {
+    group: 'reports',
+    controllerClass: ReportController,
+    sourceFilePath: 'server/src/modules/report/report.controller.ts',
+  },
+  {
+    group: 'reviews',
+    controllerClass: ReviewController,
+    sourceFilePath: 'server/src/modules/review/review.controller.ts',
+  },
+  {
+    group: 'user-warnings',
+    controllerClass: UserWarningController,
+    sourceFilePath: 'server/src/modules/user-warning/user-warning.controller.ts',
+  },
+  {
+    group: 'users-admin',
+    controllerClass: UsersController,
+    sourceFilePath: 'server/src/modules/users/users.controller.ts',
+  },
 ];
 
 const userWarningAdminCodes = new Set([
@@ -229,6 +283,7 @@ export const resolveTaskEndpoints = (): TaskEndpoint[] => {
       group: match.group,
       controllerClass: match.controllerClass,
       controllerName: match.controllerClass.name,
+      sourceFilePath: match.sourceFilePath,
       methodName: match.route.methodName,
       functionDisplayName: toFunctionDisplayName(match.route.methodName),
       roles: match.route.roles,

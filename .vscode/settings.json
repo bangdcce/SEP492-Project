@@ -3,6 +3,19 @@
   "editor.formatOnPaste": false,
   "editor.formatOnType": false,
   "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "git.repositoryScanIgnoredFolders": [
+    ".codex-worktrees"
+  ],
+  "files.exclude": {
+    "**/.codex-worktrees": true,
+    "**/server/uploads": true,
+    "**/server/backups": true
+  },
+  "search.exclude": {
+    "**/.codex-worktrees": true,
+    "**/server/uploads": true,
+    "**/server/backups": true
+  },
   "editor.codeActionsOnSave": {
     "source.fixAll": "explicit"
   },

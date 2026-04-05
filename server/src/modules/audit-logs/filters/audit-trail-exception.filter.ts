@@ -33,25 +33,72 @@ export class AuditTrailExceptionFilter implements ExceptionFilter {
     );
 
     if (!shouldSkipExpectedSession401) {
-      await this.auditLogsService.log({
-        actorId: this.auditLogsService.extractActorId(request),
-        action: 'ERROR',
-        entityType: 'HttpRequest',
-        entityId:
-          ((request.headers['x-request-id'] as string | undefined) || (request as any).requestId || '') ||
-          `${request.method}:${request.originalUrl || request.url}`,
-        req: request,
-        source: 'SERVER',
-        eventCategory: 'ERROR',
-        eventName: 'request-failed',
-        statusCode: status,
-        errorCode: payload.code,
-        errorMessage: payload.message,
-        metadata: {
-          exceptionName: exception instanceof Error ? exception.name : 'UnknownError',
-          path: request.originalUrl || request.url,
-        },
-      });
+      if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+        await this.auditLogsService.logSystemIncident({
+          actorId: this.auditLogsService.extractActorId(request),
+          req: request,
+          entityType: 'HttpRequest',
+          entityId:
+            (request.headers['x-request-id'] as string | undefined) ||
+            (request as any).requestId ||
+            '' ||
+            `${request.method}:${request.originalUrl || request.url}`,
+          component: 'HttpExceptionFilter',
+          operation: 'request-failed',
+          summary: `HTTP ${status} ${request.method} ${request.originalUrl || request.url} failed`,
+          severity: status >= 503 ? 'SEVERE' : 'CRITICAL',
+          category: 'HTTP_5XX',
+          statusCode: status,
+          route: request.originalUrl || request.url,
+          httpMethod: request.method,
+          requestId:
+            (request.headers['x-request-id'] as string | undefined) ||
+            (request as any).requestId ||
+            undefined,
+          sessionId:
+            (request.headers['x-session-id'] as string | undefined) ||
+            (request as any).sessionId ||
+            undefined,
+          error: exception,
+          errorCode: payload.code,
+          errorMessage: payload.message,
+          target: {
+            type: 'HttpRequest',
+            id:
+              (request.headers['x-request-id'] as string | undefined) ||
+              (request as any).requestId ||
+              '' ||
+              `${request.method}:${request.originalUrl || request.url}`,
+            label: `${request.method} ${request.originalUrl || request.url}`,
+          },
+          context: {
+            exceptionName: exception instanceof Error ? exception.name : 'UnknownError',
+            path: request.originalUrl || request.url,
+          },
+        });
+      } else {
+        await this.auditLogsService.log({
+          actorId: this.auditLogsService.extractActorId(request),
+          action: 'ERROR',
+          entityType: 'HttpRequest',
+          entityId:
+            (request.headers['x-request-id'] as string | undefined) ||
+            (request as any).requestId ||
+            '' ||
+            `${request.method}:${request.originalUrl || request.url}`,
+          req: request,
+          source: 'SERVER',
+          eventCategory: 'ERROR',
+          eventName: 'request-failed',
+          statusCode: status,
+          errorCode: payload.code,
+          errorMessage: payload.message,
+          metadata: {
+            exceptionName: exception instanceof Error ? exception.name : 'UnknownError',
+            path: request.originalUrl || request.url,
+          },
+        });
+      }
     }
 
     if (response.headersSent) {

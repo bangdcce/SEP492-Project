@@ -1,17 +1,33 @@
-import { useDeferredValue, useEffect, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
   Calendar,
   Download,
   FileSpreadsheet,
+  Fingerprint,
   Loader2,
   Search,
+  ServerCrash,
   ShieldAlert,
   Workflow,
 } from "lucide-react";
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Line,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { auditLogsApi } from "./api";
-import type { AuditLogEntry, AuditLogFilters, AuditLogTimelineResponse } from "./types";
+import type {
+  AuditLogEntry,
+  AuditLogFilters,
+  AuditLogTimelineResponse,
+} from "./types";
 import { AuditLogTable } from "./components/AuditLogTable";
 import { AuditLogDetailModal } from "./components/AuditLogDetailModal";
 import { sendAuditBreadcrumbs } from "@/shared/api/audit-trace";
@@ -30,7 +46,11 @@ import {
   DialogTitle,
   Input,
 } from "@/shared/components/ui";
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/shared/components/ui/chart";
+import {
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from "@/shared/components/ui/chart";
 
 const activityChartConfig = {
   total: { label: "Total activity", color: "#0f766e" },
@@ -42,10 +62,29 @@ const riskChartConfig = {
   highRisk: { label: "High risk", color: "#ea580c" },
 };
 
+const DEFAULT_FILTERS: AuditLogFilters = {
+  searchAction: "",
+  requestId: "",
+  sessionId: "",
+  dateFrom: "",
+  dateTo: "",
+  riskLevel: "ALL",
+  source: "ALL",
+  eventCategory: "ALL",
+  errorOnly: false,
+  incidentOnly: false,
+  component: "",
+  fingerprint: "",
+};
+
 export const AuditLogPage = () => {
+  const location = useLocation();
+  const navigate = useNavigate();
   const [logs, setLogs] = useState<AuditLogEntry[]>([]);
   const [selectedLog, setSelectedLog] = useState<AuditLogEntry | null>(null);
-  const [timeline, setTimeline] = useState<AuditLogTimelineResponse | null>(null);
+  const [timeline, setTimeline] = useState<AuditLogTimelineResponse | null>(
+    null,
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [exportOpen, setExportOpen] = useState(false);
@@ -73,19 +112,13 @@ export const AuditLogPage = () => {
     total: 0,
     totalPages: 0,
   });
-  const [filters, setFilters] = useState<AuditLogFilters>({
-    searchAction: "",
-    requestId: "",
-    sessionId: "",
-    dateFrom: "",
-    dateTo: "",
-    riskLevel: "ALL",
-    source: "ALL",
-    eventCategory: "ALL",
-    errorOnly: false,
-  });
+  const [filters, setFilters] = useState<AuditLogFilters>(() =>
+    parseFiltersFromSearch(location.search),
+  );
 
   const deferredSearch = useDeferredValue(filters.searchAction || "");
+  const deferredComponent = useDeferredValue(filters.component || "");
+  const deferredFingerprint = useDeferredValue(filters.fingerprint || "");
 
   useEffect(() => {
     void sendAuditBreadcrumbs([
@@ -96,6 +129,36 @@ export const AuditLogPage = () => {
       },
     ]);
   }, []);
+
+  useEffect(() => {
+    const nextFilters = parseFiltersFromSearch(location.search);
+    setFilters((current) =>
+      JSON.stringify(current) === JSON.stringify(nextFilters)
+        ? current
+        : nextFilters,
+    );
+  }, [location.search]);
+
+  useEffect(() => {
+    const search = buildSearchFromFilters(filters);
+    const normalizedCurrent = location.search.startsWith("?")
+      ? location.search.slice(1)
+      : location.search;
+
+    if (normalizedCurrent === search) {
+      return;
+    }
+
+    startTransition(() => {
+      navigate(
+        {
+          pathname: location.pathname,
+          search: search ? `?${search}` : "",
+        },
+        { replace: true },
+      );
+    });
+  }, [filters, location.pathname, location.search, navigate]);
 
   useEffect(() => {
     const fetchLogs = async () => {
@@ -110,11 +173,15 @@ export const AuditLogPage = () => {
           sessionId: filters.sessionId || undefined,
           dateFrom: filters.dateFrom || undefined,
           dateTo: filters.dateTo || undefined,
-          riskLevel: filters.riskLevel !== "ALL" ? filters.riskLevel : undefined,
+          riskLevel:
+            filters.riskLevel !== "ALL" ? filters.riskLevel : undefined,
           source: filters.source !== "ALL" ? filters.source : undefined,
           eventCategory:
             filters.eventCategory !== "ALL" ? filters.eventCategory : undefined,
           errorOnly: filters.errorOnly || undefined,
+          incidentOnly: filters.incidentOnly || undefined,
+          component: deferredComponent || undefined,
+          fingerprint: deferredFingerprint || undefined,
         });
 
         setLogs(response.data);
@@ -138,6 +205,8 @@ export const AuditLogPage = () => {
     pagination.page,
     pagination.limit,
     deferredSearch,
+    deferredComponent,
+    deferredFingerprint,
     filters.requestId,
     filters.sessionId,
     filters.dateFrom,
@@ -146,12 +215,15 @@ export const AuditLogPage = () => {
     filters.source,
     filters.eventCategory,
     filters.errorOnly,
+    filters.incidentOnly,
   ]);
 
   useEffect(() => {
     setPagination((prev) => ({ ...prev, page: 1 }));
   }, [
     deferredSearch,
+    deferredComponent,
+    deferredFingerprint,
     filters.requestId,
     filters.sessionId,
     filters.dateFrom,
@@ -160,6 +232,7 @@ export const AuditLogPage = () => {
     filters.source,
     filters.eventCategory,
     filters.errorOnly,
+    filters.incidentOnly,
   ]);
 
   const handleOpenLog = async (log: AuditLogEntry) => {
@@ -172,7 +245,11 @@ export const AuditLogPage = () => {
           eventName: "audit-log-detail-open",
           journeyStep: "timeline-drilldown",
           route: "/admin/audit-logs",
-          metadata: { logId: log.id, requestId: log.requestId, sessionId: log.sessionId },
+          metadata: {
+            logId: log.id,
+            requestId: log.requestId,
+            sessionId: log.sessionId,
+          },
         },
       ]);
     } catch (err) {
@@ -195,6 +272,9 @@ export const AuditLogPage = () => {
         eventCategory:
           filters.eventCategory !== "ALL" ? filters.eventCategory : undefined,
         errorOnly: filters.errorOnly || undefined,
+        incidentOnly: filters.incidentOnly || undefined,
+        component: deferredComponent || undefined,
+        fingerprint: deferredFingerprint || undefined,
       });
 
       const blob = response.data;
@@ -207,15 +287,6 @@ export const AuditLogPage = () => {
       link.download = fileName;
       link.click();
       window.URL.revokeObjectURL(url);
-
-      void sendAuditBreadcrumbs([
-        {
-          eventName: "audit-log-export",
-          journeyStep: "export",
-          route: "/admin/audit-logs",
-          metadata: { format },
-        },
-      ]);
 
       setExportOpen(false);
     } catch (err) {
@@ -230,48 +301,121 @@ export const AuditLogPage = () => {
       <section className="overflow-hidden rounded-[2rem] border border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(224,231,255,0.95),_transparent_35%),linear-gradient(135deg,_#ffffff,_#f8fafc_55%,_#eff6ff)]">
         <div className="grid gap-6 p-6 xl:grid-cols-[1.15fr_0.95fr] xl:p-8">
           <div className="space-y-4">
-            <Badge className="border-0 bg-slate-900 text-white">UC-86 Audit Export</Badge>
+            <Badge className="border-0 bg-slate-900 text-white">
+              Admin audit workspace
+            </Badge>
             <div>
               <h1 className="text-3xl font-semibold tracking-tight text-slate-950">
-                Trace user journeys, risky changes, and failure context before things break
+                Investigate failures, risky changes, and correlated user
+                activity
               </h1>
               <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
-                Correlated request IDs, browser session breadcrumbs, DB-change diffs, and export
-                flows now live in one audit workspace.
+                Incident-driven filtering, request/session correlation, and
+                domain context are all in one audit workspace.
               </p>
             </div>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">
-            <SummaryTile label="Total Logs" value={summary.totalLogs} icon={Workflow} tone="teal" />
-            <SummaryTile label="High Risk" value={summary.highRisk} icon={ShieldAlert} tone="amber" />
-            <SummaryTile label="Errors" value={summary.errorCount} icon={AlertTriangle} tone="rose" />
-            <SummaryTile label="Breadcrumbs" value={summary.clientBreadcrumbs} icon={Search} tone="slate" />
+            <SummaryTile
+              label="Total Logs"
+              value={summary.totalLogs}
+              icon={Workflow}
+              tone="teal"
+            />
+            <SummaryTile
+              label="High Risk"
+              value={summary.highRisk}
+              icon={ShieldAlert}
+              tone="amber"
+            />
+            <SummaryTile
+              label="Errors"
+              value={summary.errorCount}
+              icon={AlertTriangle}
+              tone="rose"
+            />
+            <SummaryTile
+              label="Breadcrumbs"
+              value={summary.clientBreadcrumbs}
+              icon={Search}
+              tone="slate"
+            />
           </div>
         </div>
       </section>
+
+      {filters.incidentOnly ? (
+        <Card className="border-rose-200 bg-rose-50">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-rose-900">
+              <ServerCrash className="h-5 w-5" />
+              System incident drill-down
+            </CardTitle>
+            <CardDescription className="text-rose-700">
+              Filtering to system incidents only
+              {filters.component ? ` • component: ${filters.component}` : ""}
+              {filters.fingerprint
+                ? ` • fingerprint: ${filters.fingerprint}`
+                : ""}
+              .
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[1.2fr_1fr]">
         <Card className="border-slate-200">
           <CardHeader>
             <CardTitle className="text-slate-950">Activity Curve</CardTitle>
-            <CardDescription>Total activity volume and captured user breadcrumbs.</CardDescription>
+            <CardDescription>
+              Total activity volume and captured user breadcrumbs.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={activityChartConfig} className="h-[280px] rounded-2xl bg-slate-50 p-3">
+            <ChartContainer
+              config={activityChartConfig}
+              className="h-[280px] rounded-2xl bg-slate-50 p-3"
+            >
               <AreaChart data={series}>
                 <defs>
-                  <linearGradient id="auditActivityFill" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="var(--color-total)" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="var(--color-total)" stopOpacity={0.04} />
+                  <linearGradient
+                    id="auditActivityFill"
+                    x1="0"
+                    x2="0"
+                    y1="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="0%"
+                      stopColor="var(--color-total)"
+                      stopOpacity={0.35}
+                    />
+                    <stop
+                      offset="100%"
+                      stopColor="var(--color-total)"
+                      stopOpacity={0.04}
+                    />
                   </linearGradient>
                 </defs>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} />
                 <YAxis tickLine={false} axisLine={false} />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Area type="monotone" dataKey="total" stroke="var(--color-total)" fill="url(#auditActivityFill)" strokeWidth={2.5} />
-                <Line type="monotone" dataKey="breadcrumbs" stroke="var(--color-breadcrumbs)" strokeWidth={2.5} dot={false} />
+                <Area
+                  type="monotone"
+                  dataKey="total"
+                  stroke="var(--color-total)"
+                  fill="url(#auditActivityFill)"
+                  strokeWidth={2.5}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="breadcrumbs"
+                  stroke="var(--color-breadcrumbs)"
+                  strokeWidth={2.5}
+                  dot={false}
+                />
               </AreaChart>
             </ChartContainer>
           </CardContent>
@@ -279,18 +423,33 @@ export const AuditLogPage = () => {
 
         <Card className="border-slate-200">
           <CardHeader>
-            <CardTitle className="text-slate-950">Error & Risk Pressure</CardTitle>
-            <CardDescription>Where faults and risky actions concentrate over time.</CardDescription>
+            <CardTitle className="text-slate-950">
+              Error & Risk Pressure
+            </CardTitle>
+            <CardDescription>
+              Where faults and risky actions concentrate over time.
+            </CardDescription>
           </CardHeader>
           <CardContent>
-            <ChartContainer config={riskChartConfig} className="h-[280px] rounded-2xl bg-rose-50/40 p-3">
+            <ChartContainer
+              config={riskChartConfig}
+              className="h-[280px] rounded-2xl bg-rose-50/40 p-3"
+            >
               <BarChart data={series}>
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
                 <XAxis dataKey="label" tickLine={false} axisLine={false} />
                 <YAxis tickLine={false} axisLine={false} />
                 <ChartTooltip content={<ChartTooltipContent />} />
-                <Bar dataKey="errors" fill="var(--color-errors)" radius={[8, 8, 0, 0]} />
-                <Bar dataKey="highRisk" fill="var(--color-highRisk)" radius={[8, 8, 0, 0]} />
+                <Bar
+                  dataKey="errors"
+                  fill="var(--color-errors)"
+                  radius={[8, 8, 0, 0]}
+                />
+                <Bar
+                  dataKey="highRisk"
+                  fill="var(--color-highRisk)"
+                  radius={[8, 8, 0, 0]}
+                />
               </BarChart>
             </ChartContainer>
           </CardContent>
@@ -300,7 +459,10 @@ export const AuditLogPage = () => {
       <Card className="border-slate-200">
         <CardHeader className="border-b">
           <CardTitle className="text-slate-950">Filters & Export</CardTitle>
-          <CardDescription>Search across actors, route, request/session correlation, and risk.</CardDescription>
+          <CardDescription>
+            Search across correlation IDs, incident fingerprints, route, actor,
+            and source.
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 pt-6">
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -308,29 +470,73 @@ export const AuditLogPage = () => {
               icon={Search}
               placeholder="Action, route, user, request..."
               value={filters.searchAction || ""}
-              onChange={(value) => setFilters((prev) => ({ ...prev, searchAction: value }))}
+              onChange={(value) =>
+                setFilters((prev) => ({ ...prev, searchAction: value }))
+              }
             />
             <FilterInput
               icon={Workflow}
               placeholder="Request ID"
               value={filters.requestId || ""}
-              onChange={(value) => setFilters((prev) => ({ ...prev, requestId: value }))}
+              onChange={(value) =>
+                setFilters((prev) => ({ ...prev, requestId: value }))
+              }
             />
             <FilterInput
               icon={Workflow}
               placeholder="Session ID"
               value={filters.sessionId || ""}
-              onChange={(value) => setFilters((prev) => ({ ...prev, sessionId: value }))}
+              onChange={(value) =>
+                setFilters((prev) => ({ ...prev, sessionId: value }))
+              }
             />
             <div className="flex gap-2">
               <DateInput
                 value={filters.dateFrom || ""}
-                onChange={(value) => setFilters((prev) => ({ ...prev, dateFrom: value }))}
+                onChange={(value) =>
+                  setFilters((prev) => ({ ...prev, dateFrom: value }))
+                }
               />
               <DateInput
                 value={filters.dateTo || ""}
-                onChange={(value) => setFilters((prev) => ({ ...prev, dateTo: value }))}
+                onChange={(value) =>
+                  setFilters((prev) => ({ ...prev, dateTo: value }))
+                }
               />
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <FilterInput
+              icon={ServerCrash}
+              placeholder="Incident component"
+              value={filters.component || ""}
+              onChange={(value) =>
+                setFilters((prev) => ({ ...prev, component: value }))
+              }
+            />
+            <FilterInput
+              icon={Fingerprint}
+              placeholder="Incident fingerprint"
+              value={filters.fingerprint || ""}
+              onChange={(value) =>
+                setFilters((prev) => ({ ...prev, fingerprint: value }))
+              }
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant={filters.incidentOnly ? "default" : "outline"}
+                onClick={() =>
+                  setFilters((prev) => ({
+                    ...prev,
+                    incidentOnly: !prev.incidentOnly,
+                  }))
+                }
+                className="w-full"
+              >
+                <ServerCrash className="mr-2 h-4 w-4" />
+                System incidents only
+              </Button>
             </div>
           </div>
 
@@ -340,7 +546,10 @@ export const AuditLogPage = () => {
                 key={item}
                 variant={filters.riskLevel === item ? "default" : "outline"}
                 onClick={() =>
-                  setFilters((prev) => ({ ...prev, riskLevel: item as AuditLogFilters["riskLevel"] }))
+                  setFilters((prev) => ({
+                    ...prev,
+                    riskLevel: item as AuditLogFilters["riskLevel"],
+                  }))
                 }
               >
                 {item === "ALL" ? "All risk" : item}
@@ -351,16 +560,28 @@ export const AuditLogPage = () => {
                 key={item}
                 variant={filters.source === item ? "secondary" : "outline"}
                 onClick={() =>
-                  setFilters((prev) => ({ ...prev, source: item as AuditLogFilters["source"] }))
+                  setFilters((prev) => ({
+                    ...prev,
+                    source: item as AuditLogFilters["source"],
+                  }))
                 }
               >
                 {item}
               </Button>
             ))}
-            {["ALL", "ERROR", "DB_CHANGE", "UI_BREADCRUMB", "AUTH", "EXPORT"].map((item) => (
+            {[
+              "ALL",
+              "ERROR",
+              "DB_CHANGE",
+              "UI_BREADCRUMB",
+              "AUTH",
+              "EXPORT",
+            ].map((item) => (
               <Button
                 key={item}
-                variant={filters.eventCategory === item ? "secondary" : "outline"}
+                variant={
+                  filters.eventCategory === item ? "secondary" : "outline"
+                }
                 onClick={() =>
                   setFilters((prev) => ({
                     ...prev,
@@ -373,11 +594,17 @@ export const AuditLogPage = () => {
             ))}
             <Button
               variant={filters.errorOnly ? "default" : "outline"}
-              onClick={() => setFilters((prev) => ({ ...prev, errorOnly: !prev.errorOnly }))}
+              onClick={() =>
+                setFilters((prev) => ({ ...prev, errorOnly: !prev.errorOnly }))
+              }
             >
               Errors only
             </Button>
-            <Button variant="default" className="ml-auto" onClick={() => setExportOpen(true)}>
+            <Button
+              variant="default"
+              className="ml-auto"
+              onClick={() => setExportOpen(true)}
+            >
               <Download className="mr-2 h-4 w-4" />
               Export
             </Button>
@@ -393,7 +620,9 @@ export const AuditLogPage = () => {
       ) : error ? (
         <Card className="border-rose-200 bg-rose-50">
           <CardHeader>
-            <CardTitle className="text-rose-900">Failed to load audit logs</CardTitle>
+            <CardTitle className="text-rose-900">
+              Failed to load audit logs
+            </CardTitle>
             <CardDescription className="text-rose-700">{error}</CardDescription>
           </CardHeader>
         </Card>
@@ -404,19 +633,24 @@ export const AuditLogPage = () => {
             <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
               <p className="text-sm text-slate-600">
                 Showing {(pagination.page - 1) * pagination.limit + 1} to{" "}
-                {Math.min(pagination.page * pagination.limit, pagination.total)} of {pagination.total}
+                {Math.min(pagination.page * pagination.limit, pagination.total)}{" "}
+                of {pagination.total}
               </p>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
-                  onClick={() => setPagination((prev) => ({ ...prev, page: prev.page - 1 }))}
+                  onClick={() =>
+                    setPagination((prev) => ({ ...prev, page: prev.page - 1 }))
+                  }
                   disabled={pagination.page === 1}
                 >
                   Previous
                 </Button>
                 <Button
                   variant="outline"
-                  onClick={() => setPagination((prev) => ({ ...prev, page: prev.page + 1 }))}
+                  onClick={() =>
+                    setPagination((prev) => ({ ...prev, page: prev.page + 1 }))
+                  }
                   disabled={pagination.page === pagination.totalPages}
                 >
                   Next
@@ -441,12 +675,20 @@ export const AuditLogPage = () => {
           <DialogHeader>
             <DialogTitle>Export audit workspace</DialogTitle>
             <DialogDescription>
-              Server-side export includes filters, flattened logs, and timeline context.
+              Server-side export includes filters, flattened logs, and timeline
+              context.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-3">
-            <Button onClick={() => void handleExport("csv")} disabled={Boolean(exporting)}>
-              {exporting === "csv" ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+            <Button
+              onClick={() => void handleExport("csv")}
+              disabled={Boolean(exporting)}
+            >
+              {exporting === "csv" ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <Download className="mr-2 h-4 w-4" />
+              )}
               Export CSV
             </Button>
             <Button
@@ -490,7 +732,9 @@ const SummaryTile = ({
     <div className="rounded-[1.5rem] border border-white/70 bg-white/90 p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">{label}</p>
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+            {label}
+          </p>
           <p className="mt-3 text-2xl font-semibold text-slate-950">{value}</p>
         </div>
         <div className={`rounded-2xl border p-3 ${tones[tone]}`}>
@@ -532,6 +776,54 @@ const DateInput = ({
 }) => (
   <div className="relative flex-1">
     <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-    <Input type="date" value={value} onChange={(event) => onChange(event.target.value)} className="pl-9" />
+    <Input
+      type="date"
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      className="pl-9"
+    />
   </div>
 );
+
+const parseFiltersFromSearch = (search: string): AuditLogFilters => {
+  const params = new URLSearchParams(search);
+  return {
+    ...DEFAULT_FILTERS,
+    searchAction: params.get("action") || "",
+    requestId: params.get("requestId") || "",
+    sessionId: params.get("sessionId") || "",
+    dateFrom: params.get("dateFrom") || "",
+    dateTo: params.get("dateTo") || "",
+    riskLevel:
+      (params.get("riskLevel") as AuditLogFilters["riskLevel"]) || "ALL",
+    source: (params.get("source") as AuditLogFilters["source"]) || "ALL",
+    eventCategory:
+      (params.get("eventCategory") as AuditLogFilters["eventCategory"]) ||
+      "ALL",
+    errorOnly: params.get("errorOnly") === "true",
+    incidentOnly: params.get("incidentOnly") === "true",
+    component: params.get("component") || "",
+    fingerprint: params.get("fingerprint") || "",
+  };
+};
+
+const buildSearchFromFilters = (filters: AuditLogFilters) => {
+  const params = new URLSearchParams();
+  if (filters.searchAction) params.set("action", filters.searchAction);
+  if (filters.requestId) params.set("requestId", filters.requestId);
+  if (filters.sessionId) params.set("sessionId", filters.sessionId);
+  if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+  if (filters.dateTo) params.set("dateTo", filters.dateTo);
+  if (filters.riskLevel && filters.riskLevel !== "ALL")
+    params.set("riskLevel", filters.riskLevel);
+  if (filters.source && filters.source !== "ALL")
+    params.set("source", filters.source);
+  if (filters.eventCategory && filters.eventCategory !== "ALL") {
+    params.set("eventCategory", filters.eventCategory);
+  }
+  if (filters.errorOnly) params.set("errorOnly", "true");
+  if (filters.incidentOnly) params.set("incidentOnly", "true");
+  if (filters.component) params.set("component", filters.component);
+  if (filters.fingerprint) params.set("fingerprint", filters.fingerprint);
+  return params.toString();
+};

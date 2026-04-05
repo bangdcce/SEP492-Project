@@ -71,6 +71,18 @@ export class GetAuditLogsDto {
   errorOnly?: boolean;
 
   @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  incidentOnly?: boolean;
+
+  @IsOptional()
+  @IsString()
+  component?: string;
+
+  @IsOptional()
+  @IsString()
+  fingerprint?: string;
+
+  @IsOptional()
   @IsString()
   @IsIn(['json', 'csv', 'xlsx'])
   format?: 'json' | 'csv' | 'xlsx';

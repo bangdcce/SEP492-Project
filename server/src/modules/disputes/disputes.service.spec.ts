@@ -5,6 +5,7 @@ import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   ContractEntity,
   DisputeActivityEntity,
+  DisputeCategory,
   DisputeEntity,
   DisputeEvidenceEntity,
   DisputeHearingEntity,
@@ -22,6 +23,7 @@ import {
   HearingParticipantEntity,
   HearingQuestionEntity,
   MilestoneEntity,
+  MilestoneStatus,
   ProjectEntity,
   TaskEntity,
   TransactionEntity,
@@ -40,6 +42,8 @@ import { VerdictReadinessService } from './services/verdict-readiness.service';
 import { StaffAssignmentService } from './services/staff-assignment.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { DisputesService } from './disputes.service';
+import { DISPUTE_DISCLAIMER_VERSION } from './dispute-legal';
+import { recordEvidence } from '../../../test/fe16-fe18/evidence-recorder';
 
 describe('DisputesService', () => {
   let service: DisputesService;
@@ -251,6 +255,28 @@ describe('DisputesService', () => {
     });
   });
 
+  describe('post-delivery dispute status gates', () => {
+    it('allows communication disputes for completed milestones', () => {
+      const statuses = (service as any).getAllowedMilestoneStatusesForDispute(
+        DisputeCategory.COMMUNICATION,
+      );
+
+      expect(statuses).toEqual(
+        expect.arrayContaining([MilestoneStatus.COMPLETED, MilestoneStatus.PAID]),
+      );
+    });
+
+    it('allows quality disputes for paid milestones', () => {
+      const statuses = (service as any).getAllowedMilestoneStatusesForDispute(
+        DisputeCategory.QUALITY,
+      );
+
+      expect(statuses).toEqual(
+        expect.arrayContaining([MilestoneStatus.COMPLETED, MilestoneStatus.PAID]),
+      );
+    });
+  });
+
   describe('getVerdict', () => {
     it('normalizes missing reasoning fields for legacy verdict records', async () => {
       verdictService.getVerdictByDisputeId.mockResolvedValue({
@@ -432,6 +458,12 @@ describe('DisputesService', () => {
           },
         ],
       });
+      recordEvidence({
+        id: 'FE17-DIS-01',
+        evidenceRef: 'disputes.service.spec.ts::createGroup success',
+        actualResults:
+          'DisputesService.createGroup created two grouped disputes in one transaction, committed once, and returned rootDisputeId=d-1 with createdCount=2.',
+      });
     });
 
     it('returns 400 when request contains duplicate defendant ids', async () => {
@@ -445,6 +477,12 @@ describe('DisputesService', () => {
           defendantIds: ['def-1', 'def-1'],
         }),
       ).rejects.toBeInstanceOf(BadRequestException);
+      recordEvidence({
+        id: 'FE17-DIS-02',
+        evidenceRef: 'disputes.service.spec.ts::duplicate defendant ids',
+        actualResults:
+          'DisputesService.createGroup rejected duplicate defendant ids with BadRequestException before any transactional grouped-dispute creation started.',
+      });
     });
 
     it('returns conflict when defendant already has active dispute in milestone', async () => {
@@ -514,6 +552,12 @@ describe('DisputesService', () => {
       expect(queryRunner.rollbackTransaction).toHaveBeenCalledTimes(1);
       expect(postCreateSpy).not.toHaveBeenCalled();
       expect(queryRunner.release).toHaveBeenCalledTimes(1);
+      recordEvidence({
+        id: 'FE17-DIS-03',
+        evidenceRef: 'disputes.service.spec.ts::createGroup rollback',
+        actualResults:
+          'When the second grouped defendant insert failed, createGroup rolled back the query runner transaction once, skipped post-create side effects, and released the runner.',
+      });
     });
   });
 
@@ -669,7 +713,7 @@ describe('DisputesService', () => {
         reason: 'A'.repeat(220),
         additionalEvidence: ['extra-proof'],
         disclaimerAccepted: true,
-        disclaimerVersion: '2026-03-dispute-fairness-v1',
+        disclaimerVersion: DISPUTE_DISCLAIMER_VERSION,
       });
 
       expect(verdictService.appealVerdict).toHaveBeenCalledWith(
@@ -677,7 +721,7 @@ describe('DisputesService', () => {
         'raiser-1',
         'A'.repeat(220),
         expect.objectContaining({
-          termsVersion: '2026-03-dispute-fairness-v1',
+          termsVersion: DISPUTE_DISCLAIMER_VERSION,
         }),
       );
       expect(disputeRepo.save).toHaveBeenCalledWith(
@@ -688,6 +732,12 @@ describe('DisputesService', () => {
       expect(activityRepo.save).toHaveBeenCalled();
       expect(hearingService.scheduleHearing).not.toHaveBeenCalled();
       expect(result).toEqual(updatedDispute);
+      recordEvidence({
+        id: 'FE17-APL-01',
+        evidenceRef: 'disputes.service.spec.ts::submitAppeal',
+        actualResults:
+          'submitAppeal delegated to VerdictService.appealVerdict, merged extra-proof into the dispute evidence array, saved activity logs, and returned the APPEALED dispute state.',
+      });
     });
 
     it('rejects appeal resolution for non-admin staff', async () => {
@@ -711,6 +761,12 @@ describe('DisputesService', () => {
           overrideReason: 'Detailed appeal review outcome',
         }),
       ).rejects.toBeInstanceOf(ForbiddenException);
+      recordEvidence({
+        id: 'FE17-APL-02',
+        evidenceRef: 'disputes.service.spec.ts::resolveAppeal forbidden for staff',
+        actualResults:
+          'resolveAppeal rejected a STAFF caller with ForbiddenException before delegating to VerdictService.issueAppealVerdict.',
+      });
     });
 
     it('delegates resolveAppeal to verdict service for admins', async () => {
@@ -764,6 +820,12 @@ describe('DisputesService', () => {
           status: DisputeStatus.RESOLVED,
         }),
       );
+      recordEvidence({
+        id: 'FE17-APL-03',
+        evidenceRef: 'disputes.service.spec.ts::resolveAppeal admin',
+        actualResults:
+          'resolveAppeal delegated the final appeal payload to VerdictService.issueAppealVerdict, saved appeal activity logs, and returned dispute d-1 in RESOLVED status.',
+      });
     });
   });
 

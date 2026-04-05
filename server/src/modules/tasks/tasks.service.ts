@@ -6,9 +6,10 @@ import {
   Logger,
   InternalServerErrorException,
   Optional,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import sanitizeHtml from 'sanitize-html';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as path from 'path';
@@ -32,9 +33,10 @@ import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { ReviewSubmissionDto } from './dto/review-submission.dto';
 import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 import { TasksRealtimeBridge } from './tasks.realtime';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 
-  /**
-   * Response type for submission review
+/**
+ * Response type for submission review
  */
 export interface SubmissionReviewResult {
   submission: TaskSubmissionEntity;
@@ -229,7 +231,7 @@ const TASK_WORKSPACE_RELATIONS = [
 ] as const;
 
 @Injectable()
-export class TasksService {
+export class TasksService implements OnModuleInit {
   private readonly logger = new Logger(TasksService.name);
   private supabase: SupabaseClient | null = null;
 
@@ -254,9 +256,35 @@ export class TasksService {
     private readonly taskLinkRepository: Repository<TaskLinkEntity>,
     @InjectRepository(TaskSubmissionEntity)
     private readonly submissionRepository: Repository<TaskSubmissionEntity>,
+    private readonly dataSource: DataSource,
+    private readonly auditLogsService: AuditLogsService,
     @Optional()
     private readonly workspaceChatService?: WorkspaceChatService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.ensureTaskQueryIndexes();
+  }
+
+  private async ensureTaskQueryIndexes(): Promise<void> {
+    const statements = [
+      `CREATE INDEX IF NOT EXISTS "IDX_task_comments_taskId_createdAt" ON "task_comments" ("taskId", "createdAt" DESC)`,
+      `CREATE INDEX IF NOT EXISTS "IDX_task_comments_actorId" ON "task_comments" ("actorId")`,
+      `CREATE INDEX IF NOT EXISTS "IDX_task_submissions_taskId_version" ON "task_submissions" ("taskId", "version" DESC)`,
+      `CREATE INDEX IF NOT EXISTS "IDX_task_attachments_taskId" ON "task_attachments" ("taskId")`,
+      `CREATE INDEX IF NOT EXISTS "IDX_task_attachments_taskId_url" ON "task_attachments" ("taskId", "url")`,
+    ];
+
+    for (const statement of statements) {
+      try {
+        await this.dataSource.query(statement);
+      } catch (error) {
+        this.logger.warn(
+          `Task query index bootstrap skipped: ${error instanceof Error ? error.message : 'unknown error'}`,
+        );
+      }
+    }
+  }
 
   private async recordWorkspaceSystemMessage(
     projectId: string,
@@ -292,6 +320,19 @@ export class TasksService {
       process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
+      void this.auditLogsService.logSystemIncident({
+        component: 'TasksService',
+        operation: 'get-supabase-client',
+        summary: 'Task attachment storage is unavailable because Supabase configuration is missing',
+        severity: 'CRITICAL',
+        category: 'STORAGE',
+        errorCode: 'SUPABASE_CONFIG_MISSING',
+        target: {
+          type: 'StorageBucket',
+          id: ATTACHMENT_BUCKET,
+          label: ATTACHMENT_BUCKET,
+        },
+      });
       throw new InternalServerErrorException('Supabase configuration missing');
     }
 
@@ -330,6 +371,25 @@ export class TasksService {
 
     if (error) {
       this.logger.error(`Supabase upload failed: ${error.message}`);
+      await this.auditLogsService.logSystemIncident({
+        component: 'TasksService',
+        operation: 'upload-file',
+        summary: 'Task attachment upload failed',
+        severity: 'HIGH',
+        category: 'STORAGE',
+        error,
+        target: {
+          type: 'StorageBucket',
+          id: ATTACHMENT_BUCKET,
+          label: ATTACHMENT_BUCKET,
+        },
+        context: {
+          bucket: ATTACHMENT_BUCKET,
+          storagePath,
+          fileName: file.originalname || 'attachment',
+          mimeType: file.mimetype || 'application/octet-stream',
+        },
+      });
       throw new InternalServerErrorException('Failed to upload attachment');
     }
 
@@ -418,20 +478,24 @@ export class TasksService {
   }
 
   private async findHydratedComment(commentId: string): Promise<TaskCommentEntity | null> {
-    return this.commentRepository.findOne({
-      where: { id: commentId },
-      relations: ['actor', 'actor.profile'],
-    });
+    return this.commentRepository
+      .createQueryBuilder('comment')
+      .leftJoinAndSelect('comment.actor', 'actor')
+      .leftJoinAndSelect('actor.profile', 'profile')
+      .where('comment.id = :commentId', { commentId })
+      .getOne();
   }
 
   async getCommentsByTask(taskId: string): Promise<TaskCommentItem[]> {
     await this.ensureTaskExists(taskId);
 
-    const comments = await this.commentRepository.find({
-      where: { taskId },
-      relations: ['actor', 'actor.profile'],
-      order: { createdAt: 'DESC' },
-    });
+    const comments = await this.commentRepository
+      .createQueryBuilder('comment')
+      .leftJoinAndSelect('comment.actor', 'actor')
+      .leftJoinAndSelect('actor.profile', 'profile')
+      .where('comment.taskId = :taskId', { taskId })
+      .orderBy('comment.createdAt', 'DESC')
+      .getMany();
 
     return comments.map((comment) => this.mapTaskComment(comment));
   }
@@ -703,13 +767,15 @@ export class TasksService {
       throw new NotFoundException('Task not found');
     }
 
-    const { max } = await this.submissionRepository
+    const latestSubmission = await this.submissionRepository
       .createQueryBuilder('submission')
-      .select('MAX(submission.version)', 'max')
+      .select(['submission.id', 'submission.version'])
       .where('submission.taskId = :taskId', { taskId })
-      .getRawOne<{ max: string | null }>();
+      .orderBy('submission.version', 'DESC')
+      .limit(1)
+      .getOne();
 
-    const nextVersion = (Number(max) || 0) + 1;
+    const nextVersion = (latestSubmission?.version ?? 0) + 1;
 
     const submission = this.submissionRepository.create({
       taskId,
@@ -1143,9 +1209,7 @@ export class TasksService {
       });
 
       if (approvedSubmissionCount === 0) {
-        throw new BadRequestException(
-          'Cannot move to DONE without an approved submission.',
-        );
+        throw new BadRequestException('Cannot move to DONE without an approved submission.');
       }
     }
 
@@ -1200,7 +1264,6 @@ export class TasksService {
       completedTasks,
     };
   }
-
 
   /**
    * Calculate milestone progress based on completed tasks
@@ -1260,9 +1323,11 @@ export class TasksService {
     if (progress >= 100) {
       if (
         submittedAt &&
-        [MilestoneStatus.SUBMITTED, MilestoneStatus.PENDING_STAFF_REVIEW, MilestoneStatus.PENDING_CLIENT_APPROVAL].includes(
-          milestone.status,
-        )
+        [
+          MilestoneStatus.SUBMITTED,
+          MilestoneStatus.PENDING_STAFF_REVIEW,
+          MilestoneStatus.PENDING_CLIENT_APPROVAL,
+        ].includes(milestone.status)
       ) {
         milestone.submittedAt = submittedAt;
         shouldSave = true;
@@ -1497,6 +1562,23 @@ export class TasksService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`Failed to sync task to calendar: ${errorMessage}`, errorStack);
+      await this.auditLogsService.logSystemIncident({
+        component: 'TasksService',
+        operation: 'sync-task-to-calendar',
+        summary: 'Task-to-calendar sync failed',
+        severity: 'HIGH',
+        category: 'INTEGRATION',
+        error,
+        target: {
+          type: 'Task',
+          id: task.id,
+          label: task.title,
+        },
+        context: {
+          projectId: task.projectId,
+          milestoneId: task.milestoneId,
+        },
+      });
       return null;
     }
   }
