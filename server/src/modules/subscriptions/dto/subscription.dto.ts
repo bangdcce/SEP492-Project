@@ -129,6 +129,24 @@ export class SubscriptionPlanResponseDto {
   @ApiProperty({ description: 'Yearly price in VND (30% discount)', example: 832000 })
   priceYearly: number;
 
+  @ApiProperty({ description: 'Display currency used for PayPal checkout pricing', example: 'USD' })
+  displayCurrency: string;
+
+  @ApiProperty({ description: 'Monthly price shown to the user in the PayPal settlement currency', example: 3.96 })
+  priceMonthlyDisplay: number;
+
+  @ApiProperty({ description: 'Quarterly price shown to the user in the PayPal settlement currency', example: 10.08 })
+  priceQuarterlyDisplay: number;
+
+  @ApiProperty({ description: 'Yearly price shown to the user in the PayPal settlement currency', example: 33.28 })
+  priceYearlyDisplay: number;
+
+  @ApiProperty({ description: 'Monthly equivalent shown to the user in the PayPal settlement currency', example: 3.36 })
+  monthlyEquivalentDisplay: number;
+
+  @ApiProperty({ description: 'Configured VND conversion rate used to compute PayPal display pricing', example: 25000 })
+  exchangeRateApplied: number;
+
   @ApiProperty({ description: 'Premium perks and limits' })
   perks: Record<string, number | boolean>;
 }

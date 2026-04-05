@@ -58,6 +58,12 @@ export interface SubscriptionPlan {
   priceMonthly: number;
   priceQuarterly: number;
   priceYearly: number;
+  displayCurrency: string;
+  priceMonthlyDisplay: number;
+  priceQuarterlyDisplay: number;
+  priceYearlyDisplay: number;
+  monthlyEquivalentDisplay: number;
+  exchangeRateApplied: number;
   perks: PlanPerks;
 }
 
@@ -283,6 +289,22 @@ export function formatCurrency(amount: number, currency: string): string {
   }).format(amount);
 }
 
+export function getPlanDisplayAmount(
+  plan: SubscriptionPlan,
+  cycle: BillingCycle,
+): number {
+  switch (cycle) {
+    case BillingCycle.MONTHLY:
+      return plan.priceMonthlyDisplay;
+    case BillingCycle.QUARTERLY:
+      return plan.priceQuarterlyDisplay;
+    case BillingCycle.YEARLY:
+      return plan.priceYearlyDisplay;
+    default:
+      return plan.priceMonthlyDisplay;
+  }
+}
+
 /**
  * Calculate savings percentage between two prices.
  */
@@ -316,12 +338,12 @@ export function getMonthlyEquivalent(
 ): number {
   switch (cycle) {
     case BillingCycle.MONTHLY:
-      return plan.priceMonthly;
+      return plan.priceMonthlyDisplay;
     case BillingCycle.QUARTERLY:
-      return Math.round(plan.priceQuarterly / 3);
+      return Number((getPlanDisplayAmount(plan, cycle) / 3).toFixed(2));
     case BillingCycle.YEARLY:
-      return Math.round(plan.priceYearly / 12);
+      return Number((getPlanDisplayAmount(plan, cycle) / 12).toFixed(2));
     default:
-      return plan.priceMonthly;
+      return plan.priceMonthlyDisplay;
   }
 }

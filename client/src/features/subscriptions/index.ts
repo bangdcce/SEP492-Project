@@ -46,10 +46,10 @@ export {
   QuotaAction,
   QUOTA_ACTION_LABELS,
   PERK_LABELS,
-  formatVND,
   formatCurrency,
   formatPerkValue,
   getBillingCycleLabel,
+  getPlanDisplayAmount,
   getMonthlyEquivalent,
   calculateSavings,
 } from './types';
