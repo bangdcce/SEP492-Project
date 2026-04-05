@@ -36,6 +36,7 @@ export default function KYCPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const isUpdateMode = searchParams.get('mode') === 'update';
+  const source = searchParams.get('from');
 
   const [currentStep, setCurrentStep] = useState(1);
   const [submissionStatus, setSubmissionStatus] = useState<'idle' | 'processing' | 'approved' | 'rejected'>('idle');
@@ -206,23 +207,32 @@ export default function KYCPage() {
     }
   };
 
-  const handleBackToProfile = () => {
+  const getRoleSpecificRoute = (type: 'profile' | 'status') => {
     const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
     const role = user?.role?.toUpperCase();
 
-    let profileRoute: string = ROUTES.CLIENT_PROFILE;
+    let route: string = type === 'status' ? ROUTES.CLIENT_KYC_STATUS : ROUTES.CLIENT_PROFILE;
 
     if (role === 'FREELANCER') {
-      profileRoute = ROUTES.FREELANCER_PROFILE;
+      route = type === 'status' ? ROUTES.FREELANCER_KYC_STATUS : ROUTES.FREELANCER_PROFILE;
     } else if (role === 'BROKER') {
-      profileRoute = ROUTES.BROKER_PROFILE;
+      route = type === 'status' ? ROUTES.BROKER_KYC_STATUS : ROUTES.BROKER_PROFILE;
     } else if (role === 'ADMIN') {
-      profileRoute = ROUTES.ADMIN_PROFILE;
+      route = type === 'status' ? ROUTES.ADMIN_DASHBOARD : ROUTES.ADMIN_PROFILE;
     } else if (role === 'STAFF') {
-      profileRoute = ROUTES.STAFF_PROFILE;
+      route = type === 'status' ? ROUTES.ADMIN_DASHBOARD : ROUTES.STAFF_PROFILE;
     }
 
-    navigate(profileRoute);
+    return route;
+  };
+
+  const handleBackToSource = () => {
+    if (source === 'status') {
+      navigate(getRoleSpecificRoute('status'));
+      return;
+    }
+
+    navigate(getRoleSpecificRoute('profile'));
   };
 
   const handleSubmit = async () => {
@@ -339,6 +349,8 @@ export default function KYCPage() {
     setSubmissionStatus('idle');
     setCurrentStep(1);
   };
+
+  const initialBackLabel = source === 'status' ? 'Back to KYC status' : 'Back to profile';
 
   if (submissionStatus !== 'idle') {
     const isProcessing = submissionStatus === 'processing';
@@ -699,12 +711,12 @@ export default function KYCPage() {
           <div className="flex items-center justify-between mt-8 pt-6 border-t">
             <Button
               variant="outline"
-              onClick={currentStep === 1 ? handleBackToProfile : handleBack}
+              onClick={currentStep === 1 ? handleBackToSource : handleBack}
               disabled={loading}
               className="flex items-center gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
-              {currentStep === 1 ? 'Back to profile' : 'Back'}
+              {currentStep === 1 ? initialBackLabel : 'Back'}
             </Button>
             
             <Button
