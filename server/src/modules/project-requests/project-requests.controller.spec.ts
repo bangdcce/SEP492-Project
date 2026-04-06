@@ -2,6 +2,8 @@ import { BadRequestException } from '@nestjs/common';
 jest.mock('./project-requests.service', () => ({
   ProjectRequestsService: class ProjectRequestsService {},
 }));
+import { UserRole } from '../../database/entities/user.entity';
+import { ROLES_KEY } from '../auth/guards/roles.guard';
 import { ProjectRequestsController } from './project-requests.controller';
 
 describe('ProjectRequestsController', () => {
@@ -219,6 +221,32 @@ describe('ProjectRequestsController', () => {
 
     expect(projectRequestsService.findOne).toHaveBeenCalledWith('req-1', user);
     expect(result).toEqual(detail);
+  });
+
+  it('applies explicit role metadata to the operational project-request endpoints that previously leaked pending staff', () => {
+    expect(Reflect.getMetadata(ROLES_KEY, controller.getProjectRequests)).toEqual([
+      UserRole.CLIENT,
+      UserRole.BROKER,
+      UserRole.ADMIN,
+      UserRole.STAFF,
+    ]);
+    expect(Reflect.getMetadata(ROLES_KEY, controller.getOne)).toEqual([
+      UserRole.CLIENT,
+      UserRole.BROKER,
+      UserRole.FREELANCER,
+      UserRole.ADMIN,
+      UserRole.STAFF,
+    ]);
+    expect(Reflect.getMetadata(ROLES_KEY, controller.inviteBroker)).toEqual([
+      UserRole.CLIENT,
+      UserRole.ADMIN,
+      UserRole.STAFF,
+    ]);
+    expect(Reflect.getMetadata(ROLES_KEY, controller.releaseBrokerSlot)).toEqual([
+      UserRole.CLIENT,
+      UserRole.ADMIN,
+      UserRole.STAFF,
+    ]);
   });
 
   it('UC24-ASN-CTRL-01 forwards PATCH /project-requests/:id/assign to ProjectRequestsService.assignBroker with the request id, broker id, and request context', async () => {

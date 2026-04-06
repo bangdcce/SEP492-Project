@@ -7,7 +7,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { KycVerificationEntity, KycStatus } from '../../database/entities/kyc-verification.entity';
-import { UserEntity } from '../../database/entities/user.entity';
+import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
 import { SubmitKycDto, RejectKycDto } from './dto';
 import {
@@ -44,6 +44,19 @@ export class KycService {
       selfie: MulterFile;
     },
   ) {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+      select: ['id', 'role'],
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.role === UserRole.STAFF) {
+      throw new ForbiddenException('Staff accounts do not require self-KYC verification');
+    }
+
     // Only one active pending submission is allowed at a time.
     const latestKyc = await this.kycRepo.findOne({
       where: { userId },

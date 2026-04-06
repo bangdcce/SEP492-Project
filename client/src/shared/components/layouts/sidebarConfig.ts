@@ -4,7 +4,7 @@
  */
 
 import type { LucideIcon } from "lucide-react";
-import { LayoutDashboard, ScrollText, Shield, UserCheck, Users, Search, Briefcase } from "lucide-react";
+import { LayoutDashboard, ScrollText, Shield, ShieldCheck, UserCheck, Users, Search, Briefcase } from "lucide-react";
 
 export interface SidebarMenuItem {
   id: string;
@@ -57,6 +57,13 @@ export const adminMenuItems: SidebarMenuItem[] = [
     icon: Users,
     path: "/admin/users",
     description: "Manage users, ban/unban",
+  },
+  {
+    id: "staff-applications",
+    label: "Staff Applications",
+    icon: ShieldCheck,
+    path: "/admin/staff-applications",
+    description: "Review pending staff registrations",
   },
 ];
 

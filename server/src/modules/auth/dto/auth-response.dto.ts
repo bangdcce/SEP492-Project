@@ -1,4 +1,5 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { StaffApplicationStatus } from '../../../database/entities/staff-application.entity';
 
 export enum BadgeType {
   NEW = 'NEW',
@@ -131,6 +132,26 @@ export class AuthResponseDto {
 
   @ApiProperty({ description: 'Whether the email is verified', example: true })
   isEmailVerified: boolean;
+
+  @ApiPropertyOptional({
+    description: 'Staff application approval status when the account role is STAFF',
+    enum: StaffApplicationStatus,
+  })
+  staffApprovalStatus?: StaffApplicationStatus;
+
+  @ApiPropertyOptional({
+    description: 'When the staff application was reviewed',
+    example: '2026-04-06T10:00:00.000Z',
+    nullable: true,
+  })
+  staffApplicationReviewedAt?: Date | null;
+
+  @ApiPropertyOptional({
+    description: 'Rejection reason for a staff application',
+    example: 'Not a fit for the current staff openings',
+    nullable: true,
+  })
+  staffRejectionReason?: string | null;
 
   @ApiProperty({ description: 'Current trust score', example: 5.0 })
   currentTrustScore: number;

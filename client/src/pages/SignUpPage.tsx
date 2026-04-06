@@ -7,7 +7,7 @@ import { Button } from "../shared/components/custom/Button";
 import { PasswordStrength } from '../shared/components/auth/PasswordStrength';
 import { CaptchaInput } from '../shared/components/auth/CaptchaInput';
 import { AuthLayout } from '../shared/components/layouts/AuthLayout';
-import { Eye, EyeOff, ArrowLeft, ArrowRight, Store, Briefcase, Laptop, Check } from 'lucide-react';
+import { Eye, EyeOff, ArrowLeft, ArrowRight, Store, Briefcase, Laptop, ShieldCheck, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { ROUTES } from '@/constants';
 import { signUp, getSkillDomains, getSkills, type SkillDomain, type Skill } from '@/features/auth';
@@ -17,7 +17,7 @@ interface SignUpPageProps {
   onSignUpSuccess?: () => void;
 }
 
-type UserRole = 'client' | 'broker' | 'freelancer';
+type UserRole = 'client' | 'broker' | 'freelancer' | 'staff';
 
 export function SignUpPage({
   onNavigateToSignIn,
@@ -67,9 +67,14 @@ export function SignUpPage({
 
   // Fetch skills when entering step 4
   useEffect(() => {
-    if (currentStep === 4 && availableSkills?.length === 0) {
+    if (currentStep === 4) {
       setLoadingSkills(true);
-      const role = formData.role === "freelancer" ? "FREELANCER" : "BROKER";
+      const role =
+        formData.role === "freelancer"
+          ? "FREELANCER"
+          : formData.role === "broker"
+            ? "BROKER"
+            : "STAFF";
       getSkills(role)
         .then((skills) => setAvailableSkills(skills || []))
         .catch((err) => {
@@ -182,8 +187,11 @@ export function SignUpPage({
         acceptPrivacy: formData.acceptPrivacy,
       };
 
-      // Add domains and skills only for FREELANCER and BROKER
-      if (formData.role === 'freelancer' || formData.role === 'broker') {
+      if (
+        formData.role === 'freelancer' ||
+        formData.role === 'broker' ||
+        formData.role === 'staff'
+      ) {
         if (formData.domains.length > 0) payload.domainIds = formData.domains;
         if (formData.skills.length > 0) payload.skillIds = formData.skills;
       }
@@ -322,6 +330,8 @@ export function SignUpPage({
         return 'Broker (Project Consultant)';
       case 'freelancer':
         return 'Freelancer (Developer)';
+      case 'staff':
+        return 'Staff (Internal Reviewer)';
     }
   };
 
@@ -333,6 +343,8 @@ export function SignUpPage({
         return 'I help translate business needs into technical requirements';
       case 'freelancer':
         return 'I build software and deliver projects';
+      case 'staff':
+        return 'I want to apply for an internal staff role and review platform work';
     }
   };
 
@@ -344,6 +356,8 @@ export function SignUpPage({
         return Briefcase;
       case "freelancer":
         return Laptop;
+      case "staff":
+        return ShieldCheck;
     }
   };
   const handleRoleSelect = (role: UserRole) => {
@@ -398,7 +412,11 @@ export function SignUpPage({
     }
 
     // If Freelancer or Broker Ä‚Â¢Ă¢â‚¬Â Ă¢â‚¬â„¢ go to Domain selection (Step 3)
-    if (formData.role === "freelancer" || formData.role === "broker") {
+    if (
+      formData.role === "freelancer" ||
+      formData.role === "broker" ||
+      formData.role === "staff"
+    ) {
       setCurrentStep(3);
     } else {
       // Client Ä‚Â¢Ă¢â‚¬Â Ă¢â‚¬â„¢ submit immediately (only 2 steps: role + info)
@@ -481,7 +499,11 @@ export function SignUpPage({
   };
 
   const totalSteps =
-    formData.role === "freelancer" || formData.role === "broker" ? 4 : 2;
+    formData.role === "freelancer" ||
+    formData.role === "broker" ||
+    formData.role === "staff"
+      ? 4
+      : 2;
 
   return (
     <AuthLayout title={getStepTitle()} subtitle={getStepSubtitle()}>
@@ -729,7 +751,7 @@ export function SignUpPage({
                   <span style={{ color: "var(--auth-error)" }}>*</span>
                 </label>
                 <div className="space-y-3">
-                  {(['client', 'broker', 'freelancer'] as UserRole[]).map((role) => (
+                  {(['client', 'broker', 'freelancer', 'staff'] as UserRole[]).map((role) => (
                     <motion.button
                       key={role}
                       type="button"
@@ -1086,7 +1108,9 @@ export function SignUpPage({
                 className="w-full py-3 text-base font-medium justify-center"
                 disabled={loading || !isStep2Valid()}
               >
-                {formData.role === "freelancer" || formData.role === "broker"
+                {formData.role === "freelancer" ||
+                formData.role === "broker" ||
+                formData.role === "staff"
                   ? "Next"
                   : loading
                     ? "Creating account..."

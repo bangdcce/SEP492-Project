@@ -19,6 +19,10 @@ export interface User {
     fullName: string;
     role: UserRole;
     isVerified: boolean;
+    isEmailVerified?: boolean;
+    staffApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+    staffApplicationReviewedAt?: string | null;
+    staffRejectionReason?: string | null;
     currentTrustScore: number;
     createdAt: string;
     profile?: UserProfile;
