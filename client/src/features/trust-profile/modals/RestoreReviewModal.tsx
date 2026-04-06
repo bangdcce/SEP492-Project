@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { X, RotateCcw, CheckCircle2 } from "lucide-react";
+import { toast } from "sonner";
 import type { AdminReview } from "../types";
 
 interface RestoreReviewModalProps {
@@ -40,7 +41,7 @@ export function RestoreReviewModal({
 
   const handleConfirm = () => {
     if (!reason.trim()) {
-      alert("Please provide a reason for restoration");
+      toast.error("Please provide a reason for restoration.");
       return;
     }
 

@@ -33,8 +33,8 @@ export function TrustProfilePage() {
       setData(response);
     } catch (loadError: unknown) {
       const message =
-        (loadError as { response?: { data?: { message?: string } } })?.response?.data?.message ||
-        "Failed to load trust profile.";
+        (loadError as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message || "Failed to load trust profile.";
       setError(message);
       setData(null);
     } finally {
@@ -79,7 +79,9 @@ export function TrustProfilePage() {
           <div className="flex items-start gap-3">
             <AlertCircle className="mt-0.5 h-5 w-5" />
             <div>
-              <h1 className="text-lg font-semibold">Unable to load trust profile</h1>
+              <h1 className="text-lg font-semibold">
+                Unable to load trust profile
+              </h1>
               <p className="mt-1 text-sm">{error || "Unknown error."}</p>
             </div>
           </div>
@@ -103,6 +105,7 @@ export function TrustProfilePage() {
         user={data.user}
         reviews={data.reviews || []}
         projectHistory={data.projectHistory || []}
+        reviewEligibility={data.reviewEligibility}
         currentUserId={currentUser?.id}
         onReviewUpdated={() => {
           void loadTrustProfile();

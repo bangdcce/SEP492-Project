@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { buildPublicUploadUrl, extractUploadStoragePath } from '../../common/utils/public-upload-url.util';
+import {
+  buildPublicUploadUrl,
+  extractUploadStoragePath,
+} from '../../common/utils/public-upload-url.util';
 import {
   extractRequestChatStoragePath,
   getRequestChatSignedUrl,
@@ -60,6 +63,10 @@ export interface RequestChatMessage {
 }
 
 type RequestChatActor = Pick<UserEntity, 'id' | 'role' | 'isVerified' | 'staffApplication'>;
+export interface RequestSystemMessageOptions {
+  skipNotificationUserIds?: string[];
+  notificationTitle?: string;
+}
 
 @Injectable()
 export class RequestChatService {
@@ -84,10 +91,7 @@ export class RequestChatService {
     return request;
   }
 
-  private isAcceptedFreelancerParticipant(
-    request: ProjectRequestEntity,
-    userId: string,
-  ): boolean {
+  private isAcceptedFreelancerParticipant(request: ProjectRequestEntity, userId: string): boolean {
     return Boolean(
       request.proposals?.some(
         (proposal) =>
@@ -160,7 +164,9 @@ export class RequestChatService {
       .filter((item): item is WorkspaceMessageAttachment => Boolean(item));
   }
 
-  private async resolveAttachmentUrl(attachment: Partial<WorkspaceMessageAttachment>): Promise<string> {
+  private async resolveAttachmentUrl(
+    attachment: Partial<WorkspaceMessageAttachment>,
+  ): Promise<string> {
     const objectStoragePath =
       extractRequestChatStoragePath(attachment?.storagePath) ||
       extractRequestChatStoragePath(attachment?.url);
@@ -369,7 +375,10 @@ export class RequestChatService {
     const participants = await this.getParticipantIds(request);
     const preview =
       trimmedContent ||
-      normalizedAttachments.map((attachment) => attachment.name).join(', ').slice(0, 120);
+      normalizedAttachments
+        .map((attachment) => attachment.name)
+        .join(', ')
+        .slice(0, 120);
 
     await this.notificationsService.createMany(
       participants
@@ -386,7 +395,11 @@ export class RequestChatService {
     return hydrated;
   }
 
-  async createSystemMessage(requestId: string, content: string): Promise<RequestChatMessage> {
+  async createSystemMessage(
+    requestId: string,
+    content: string,
+    options?: RequestSystemMessageOptions,
+  ): Promise<RequestChatMessage> {
     const request = await this.getRequestAccessContext(requestId);
     const trimmedContent = String(content || '').trim();
     if (!trimmedContent) {
@@ -411,15 +424,22 @@ export class RequestChatService {
 
     RequestChatRealtimeBridge.emitMessage(hydrated);
 
-    await this.notificationsService.createMany(
-      (await this.getParticipantIds(request)).map((participantId) => ({
-        userId: participantId,
-        title: 'Request update',
-        body: `${request.title}: ${trimmedContent.slice(0, 180)}`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      })),
+    const skipIds = new Set((options?.skipNotificationUserIds || []).filter(Boolean));
+    const participants = (await this.getParticipantIds(request)).filter(
+      (participantId) => !skipIds.has(participantId),
     );
+
+    if (participants.length > 0) {
+      await this.notificationsService.createMany(
+        participants.map((participantId) => ({
+          userId: participantId,
+          title: options?.notificationTitle || 'Request update',
+          body: `${request.title}: ${trimmedContent.slice(0, 180)}`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        })),
+      );
+    }
 
     return hydrated;
   }

@@ -28,6 +28,15 @@ describe('ProjectSpecsService', () => {
   let dataSource: DataSource;
   let queryRunner: QueryRunner;
 
+  beforeAll(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-03-01T00:00:00.000Z'));
+  });
+
+  afterAll(() => {
+    jest.useRealTimers();
+  });
+
   const mockProjectSpecsRepo = {
     find: jest.fn(),
     findOne: jest.fn(),
@@ -424,10 +433,15 @@ describe('ProjectSpecsService', () => {
       jest.spyOn(service, 'findOne').mockResolvedValue(existingSpec);
 
       await expect(
-        service.updateFullSpec(mockUser, 'full-spec-uuid', {
-          ...fullSpecDto,
-          totalBudget: 1000,
-        }, {}),
+        service.updateFullSpec(
+          mockUser,
+          'full-spec-uuid',
+          {
+            ...fullSpecDto,
+            totalBudget: 1000,
+          },
+          {},
+        ),
       ).rejects.toThrow(/locked by contract/i);
     });
 
@@ -524,6 +538,62 @@ describe('ProjectSpecsService', () => {
     });
   });
 
+  describe('milestone sequencing guardrails', () => {
+    it('rejects milestones that start on the same day the previous milestone ends', () => {
+      const milestones = [
+        {
+          title: 'Phase 1',
+          description: 'Setup',
+          amount: 300,
+          retentionAmount: 0,
+          sortOrder: 1,
+          startDate: '2099-01-01',
+          dueDate: '2099-01-10',
+        },
+        {
+          title: 'Phase 2',
+          description: 'Build',
+          amount: 700,
+          retentionAmount: 0,
+          sortOrder: 2,
+          startDate: '2099-01-10',
+          dueDate: '2099-01-20',
+        },
+      ] as any;
+
+      expect(() => (service as any).validateMilestoneStructure(milestones)).toThrow(
+        /must start after the previous milestone due date/i,
+      );
+    });
+  });
+
+  describe('approved feature mapping guardrails', () => {
+    it('rejects duplicate approved feature assignments across milestones', () => {
+      const approvedClientFeatures = [
+        {
+          id: 'feature-dashboard',
+          title: 'Workspace Dashboard',
+          description: 'Dashboard feature',
+          priority: 'MUST_HAVE',
+        },
+      ] as any;
+      const milestones = [
+        {
+          title: 'Phase 1',
+          approvedClientFeatureIds: ['feature-dashboard'],
+        },
+        {
+          title: 'Phase 2',
+          approvedClientFeatureIds: ['feature-dashboard'],
+        },
+      ] as any;
+
+      expect(() =>
+        (service as any).validateApprovedFeatureCoverage([], milestones, approvedClientFeatures),
+      ).toThrow(/cannot be assigned to multiple milestones/i);
+    });
+  });
+
   describe('requestFullSpecChanges', () => {
     it('returns a final-review full spec to REJECTED and clears collected signatures', async () => {
       const fullSpec = {
@@ -545,7 +615,8 @@ describe('ProjectSpecsService', () => {
         ],
       } as unknown as ProjectSpecEntity;
 
-      jest.spyOn(service, 'findOne')
+      jest
+        .spyOn(service, 'findOne')
         .mockResolvedValueOnce(fullSpec)
         .mockResolvedValueOnce({
           ...fullSpec,
@@ -559,9 +630,7 @@ describe('ProjectSpecsService', () => {
         ...fullSpec,
         request: fullSpec.request,
       });
-      (queryRunner.manager.save as jest.Mock).mockImplementation((value) =>
-        Promise.resolve(value),
-      );
+      (queryRunner.manager.save as jest.Mock).mockImplementation((value) => Promise.resolve(value));
       (queryRunner.manager.delete as jest.Mock).mockResolvedValue({ affected: 2 });
 
       const result = await service.requestFullSpecChanges(

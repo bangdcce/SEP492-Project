@@ -25,6 +25,7 @@ import {
   updateSpeakerControl,
   getDisputeVerdict,
   submitAppeal,
+  acceptDisputeVerdict,
 } from "@/features/hearings/api";
 import type {
   HearingParticipantRole,
@@ -83,6 +84,7 @@ import { RoleGuideBanner } from "./hearing-room/RoleGuideBanner";
 import { VerdictAnnouncement } from "./hearing-room/VerdictAnnouncement";
 import { PreviousVerdictBanner } from "./hearing-room/PreviousVerdictBanner";
 import { AppealDialog } from "./hearing-room/AppealDialog";
+import { AcceptVerdictDialog } from "./hearing-room/AcceptVerdictDialog";
 import { EvidenceUploadDialog } from "./hearing-room/EvidenceUploadDialog";
 import { InHearingVerdictPanel } from "./hearing-room/InHearingVerdictPanel";
 import { VerdictReadinessCard } from "./hearing-room/VerdictReadinessCard";
@@ -137,6 +139,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   const [verdict, setVerdict] = useState<VerdictSummary | null>(null);
   const [appealDialogOpen, setAppealDialogOpen] = useState(false);
   const [appealLoading, setAppealLoading] = useState(false);
+  const [acceptVerdictDialogOpen, setAcceptVerdictDialogOpen] = useState(false);
+  const [acceptVerdictLoading, setAcceptVerdictLoading] = useState(false);
 
   /* ── layout ── */
   const [mobilePane, setMobilePane] = useState<MobilePane>("main");
@@ -360,6 +364,28 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         toast.error(err?.response?.data?.message || "Failed to submit appeal");
       } finally {
         setAppealLoading(false);
+      }
+    },
+    [fetchVerdict, hearing?.disputeId, refreshWorkspace],
+  );
+
+  const handleAcceptVerdictSubmit = useCallback(
+    async (input: {
+      disclaimerAccepted: boolean;
+      waiveAppealRights: boolean;
+      disclaimerVersion?: string;
+    }) => {
+      if (!hearing?.disputeId) return;
+      setAcceptVerdictLoading(true);
+      try {
+        await acceptDisputeVerdict(hearing.disputeId, input);
+        toast.success("Verdict accepted");
+        setAcceptVerdictDialogOpen(false);
+        await Promise.all([fetchVerdict(), refreshWorkspace(true)]);
+      } catch (err: any) {
+        toast.error(err?.response?.data?.message || "Failed to accept verdict");
+      } finally {
+        setAcceptVerdictLoading(false);
       }
     },
     [fetchVerdict, hearing?.disputeId, refreshWorkspace],
@@ -1288,6 +1314,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               appealDeadlinePassed={appealDeadlinePassed}
               onAppeal={() => setAppealDialogOpen(true)}
               appealLoading={appealLoading}
+              onAccept={() => setAcceptVerdictDialogOpen(true)}
+              acceptLoading={acceptVerdictLoading}
             />
           </div>
         )}
@@ -1556,6 +1584,11 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         onOpenChange={setAppealDialogOpen}
         onSubmit={handleAppealSubmit}
         deadlineText={appealDeadlineText}
+      />
+      <AcceptVerdictDialog
+        open={acceptVerdictDialogOpen}
+        onOpenChange={setAcceptVerdictDialogOpen}
+        onSubmit={handleAcceptVerdictSubmit}
       />
       <EvidenceUploadDialog
         open={evidenceUploadDialogOpen}

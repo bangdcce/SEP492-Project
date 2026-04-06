@@ -30,6 +30,7 @@ import { AddNoteDto } from './dto/add-note.dto';
 import { DefendantResponseDto } from './dto/defendant-response.dto';
 import { AppealDto } from './dto/appeal.dto';
 import { AppealRejectionDto } from './dto/appeal-rejection.dto';
+import { AcceptVerdictDto } from './dto/accept-verdict.dto';
 import { ReviewRequestDto } from './dto/review-request.dto';
 import { RequestDisputeInfoDto } from './dto/request-info.dto';
 import { ResolveRejectionAppealDto } from './dto/resolve-rejection-appeal.dto';
@@ -590,6 +591,16 @@ export class DisputesController {
     @GetUser() user: UserEntity,
   ) {
     return await this.disputesService.getVerdict(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/verdict/accept')
+  async acceptVerdict(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AcceptVerdictDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.acceptVerdict(user.id, user.role, id, dto);
   }
 
   @UseGuards(JwtAuthGuard)

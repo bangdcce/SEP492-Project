@@ -56,16 +56,31 @@ export function CreateReviewModal({
       onClose();
       resetForm();
     } catch (err: any) {
-      // Error Handling - Map Vietnamese errors to English
-      const errorMessage = err.response?.data?.message || "";
+      const errorMessage = String(err.response?.data?.message || "");
+      const normalizedMessage = errorMessage.toLowerCase();
 
       if (err.response?.status === 400) {
-        if (errorMessage.includes("đã đánh giá")) {
+        if (
+          normalizedMessage.includes("đã đánh giá") ||
+          normalizedMessage.includes("already reviewed")
+        ) {
           setError("You have already reviewed this user.");
-        } else if (errorMessage.includes("chưa hoàn thành")) {
+        } else if (
+          normalizedMessage.includes("chưa hoàn thành") ||
+          normalizedMessage.includes("completed") ||
+          normalizedMessage.includes("paid project")
+        ) {
           setError("Project must be completed before submitting a review.");
+        } else if (
+          normalizedMessage.includes("không phải thành viên") ||
+          normalizedMessage.includes("not a member")
+        ) {
+          setError("You can only review users from shared completed projects.");
         } else {
-          setError("You have already reviewed this user.");
+          setError(
+            errorMessage ||
+              "Review can only be created for shared completed projects.",
+          );
         }
       } else if (err.response?.status === 403) {
         if (errorMessage.includes("không phải thành viên")) {
@@ -77,7 +92,7 @@ export function CreateReviewModal({
         setError("Project or user not found.");
       } else {
         setError(
-          errorMessage || "Failed to submit review. Please try again later."
+          errorMessage || "Failed to submit review. Please try again later.",
         );
       }
     } finally {
@@ -139,7 +154,7 @@ export function CreateReviewModal({
           {/* Error Alert */}
           {error && (
             <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-red-700">{error}</p>
               </div>
@@ -190,7 +205,7 @@ export function CreateReviewModal({
 
           {/* Warning Note */}
           <div className="flex items-start gap-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-yellow-800 text-sm">
                 <strong>Important:</strong> Reviews cannot be edited after 72

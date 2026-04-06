@@ -1,10 +1,12 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Get,
   HttpCode,
   HttpStatus,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Query,
@@ -45,8 +47,11 @@ export class ReportController {
   @UseGuards(RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: '[ADMIN] Lấy danh sách reports chờ xử lý' })
-  async findPending(@Query('page') page: string = '1', @Query('limit') limit: string = '20') {
-    return this.reportService.findPending(parseInt(page), parseInt(limit));
+  async findPending(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(20), ParseIntPipe) limit: number,
+  ) {
+    return this.reportService.findPending(page, limit);
   }
 
   /**

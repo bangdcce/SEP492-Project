@@ -8,6 +8,7 @@ import { FreelancerSidebar } from "./FreelancerSidebar";
 import { ClientHeader } from "../client/ClientHeader";
 import { ClientFooter } from "../client/ClientFooter";
 import { useCaptureMode } from "@/shared/hooks";
+import { useMyInvitationsRealtime } from "@/shared/hooks/useMyInvitationsRealtime";
 
 interface FreelancerDashboardLayoutProps {
   children: React.ReactNode;
@@ -21,6 +22,9 @@ export const FreelancerDashboardLayout: React.FC<
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const isCaptureMode = useCaptureMode();
+  const { pendingCount: pendingInvitationCount } = useMyInvitationsRealtime({
+    pollIntervalMs: 45_000,
+  });
 
   const handleToggleSidebar = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
@@ -46,6 +50,7 @@ export const FreelancerDashboardLayout: React.FC<
         <FreelancerSidebar
           isCollapsed={isSidebarCollapsed}
           onToggleCollapse={handleToggleSidebar}
+          pendingInvitationCount={pendingInvitationCount}
         />
       </div>
 
@@ -56,7 +61,10 @@ export const FreelancerDashboardLayout: React.FC<
             onClick={handleMobileMenuToggle}
           />
           <div className="lg:hidden fixed inset-y-0 left-0 z-50">
-            <FreelancerSidebar className="flex" />
+            <FreelancerSidebar
+              className="flex"
+              pendingInvitationCount={pendingInvitationCount}
+            />
           </div>
         </>
       )}

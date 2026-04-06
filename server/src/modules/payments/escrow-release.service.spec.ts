@@ -315,6 +315,345 @@ describe('EscrowReleaseService', () => {
     expect(escrow.clientApproved).toBe(true);
   });
 
+  it('releases only payable-now amount and keeps retention funded in escrow', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      title: 'Kickoff',
+      projectId: 'project-1',
+      status: MilestoneStatus.COMPLETED,
+      retentionAmount: 10,
+    } as MilestoneEntity;
+    const escrow = {
+      id: 'escrow-1',
+      milestoneId: 'milestone-1',
+      projectId: 'project-1',
+      status: EscrowStatus.FUNDED,
+      totalAmount: 100,
+      fundedAmount: 100,
+      releasedAmount: 0,
+      developerShare: 85,
+      brokerShare: 10,
+      platformFee: 5,
+      currency: 'USD',
+      clientApproved: false,
+      releaseTransactionIds: [],
+    } as EscrowEntity;
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      currency: 'USD',
+    } as ProjectEntity;
+    const clientWallet = {
+      id: 'wallet-client',
+      userId: 'client-1',
+      balance: 0,
+      pendingBalance: 0,
+      heldBalance: 100,
+      totalDeposited: 100,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+    const freelancerWallet = {
+      id: 'wallet-freelancer',
+      userId: 'freelancer-1',
+      balance: 0,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+    const brokerWallet = {
+      id: 'wallet-broker',
+      userId: 'broker-1',
+      balance: 0,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+    const platformWallet = {
+      id: 'wallet-platform',
+      userId: 'admin-1',
+      balance: 0,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+
+    milestoneRepository.createQueryBuilder.mockReturnValue(createQueryBuilderMock(milestone));
+    escrowRepository.createQueryBuilder.mockReturnValue(createQueryBuilderMock(escrow));
+    projectRepository.findOne.mockResolvedValue(project);
+    userRepository.findOne.mockResolvedValue({
+      id: 'admin-1',
+      email: 'admin@example.com',
+      role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
+      createdAt: new Date('2026-03-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-12T00:00:00.000Z'),
+    } as UserEntity);
+    walletService.getOrCreateWallet.mockImplementation((userId: string) => {
+      if (userId === 'client-1') return clientWallet;
+      if (userId === 'freelancer-1') return freelancerWallet;
+      if (userId === 'broker-1') return brokerWallet;
+      if (userId === 'admin-1') return platformWallet;
+      throw new Error(`Unexpected wallet lookup for ${userId}`);
+    });
+    walletService.toWalletSnapshot.mockImplementation((wallet: WalletEntity) => ({
+      id: wallet.id,
+      userId: wallet.userId,
+      availableBalance: wallet.balance,
+      pendingBalance: wallet.pendingBalance,
+      heldBalance: wallet.heldBalance,
+      totalDeposited: wallet.totalDeposited,
+      totalWithdrawn: wallet.totalWithdrawn,
+      totalEarned: wallet.totalEarned,
+      totalSpent: wallet.totalSpent,
+      currency: wallet.currency,
+      status: wallet.status,
+      createdAt: wallet.createdAt,
+      updatedAt: wallet.updatedAt,
+    }));
+    walletRepository.save.mockImplementation((wallet: WalletEntity) => wallet);
+    transactionRepository.save.mockImplementation((transaction: Partial<TransactionEntity>) => {
+      if (!transaction.id) {
+        if (transaction.walletId === 'wallet-client') {
+          return { ...transaction, id: 'tx-client' };
+        }
+        if (transaction.walletId === 'wallet-freelancer') {
+          return { ...transaction, id: 'tx-freelancer' };
+        }
+        if (transaction.walletId === 'wallet-platform') {
+          return { ...transaction, id: 'tx-platform' };
+        }
+        return { ...transaction, id: 'tx-broker' };
+      }
+      return transaction;
+    });
+    escrowRepository.save.mockImplementation((value: EscrowEntity) => value);
+
+    const result = await service.releaseForApprovedMilestone(
+      'milestone-1',
+      'client-1',
+      manager as never,
+    );
+
+    expect(result).toMatchObject({
+      milestoneId: 'milestone-1',
+      escrowId: 'escrow-1',
+      escrowStatus: EscrowStatus.FUNDED,
+      releasedAmount: 90,
+      releaseTransactionIds: ['tx-client', 'tx-freelancer', 'tx-broker', 'tx-platform'],
+    });
+    expect(clientWallet.heldBalance).toBe(10);
+    expect(clientWallet.totalSpent).toBe(90);
+    expect(freelancerWallet.balance).toBe(76.5);
+    expect(brokerWallet.balance).toBe(9);
+    expect(platformWallet.balance).toBe(4.5);
+    expect(escrow.status).toBe(EscrowStatus.FUNDED);
+    expect(escrow.fundedAmount).toBe(10);
+    expect(escrow.releasedAmount).toBe(90);
+  });
+
+  it('releases retained escrow balance when retention release is requested', async () => {
+    const milestone = {
+      id: 'milestone-1',
+      title: 'Kickoff',
+      projectId: 'project-1',
+      status: MilestoneStatus.PAID,
+      retentionAmount: 10,
+      createdAt: new Date('2026-02-01T00:00:00.000Z'),
+    } as MilestoneEntity;
+    const escrow = {
+      id: 'escrow-1',
+      milestoneId: 'milestone-1',
+      projectId: 'project-1',
+      status: EscrowStatus.FUNDED,
+      totalAmount: 100,
+      fundedAmount: 10,
+      releasedAmount: 90,
+      releasedAt: new Date('2026-02-10T00:00:00.000Z'),
+      developerShare: 85,
+      brokerShare: 10,
+      platformFee: 5,
+      currency: 'USD',
+      clientApproved: true,
+      releaseTransactionIds: ['tx-prev'],
+    } as EscrowEntity;
+    const project = {
+      id: 'project-1',
+      clientId: 'client-1',
+      brokerId: 'broker-1',
+      freelancerId: 'freelancer-1',
+      currency: 'USD',
+    } as ProjectEntity;
+    const clientWallet = {
+      id: 'wallet-client',
+      userId: 'client-1',
+      balance: 0,
+      pendingBalance: 0,
+      heldBalance: 10,
+      totalDeposited: 100,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 90,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+    const freelancerWallet = {
+      id: 'wallet-freelancer',
+      userId: 'freelancer-1',
+      balance: 76.5,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 76.5,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+    const brokerWallet = {
+      id: 'wallet-broker',
+      userId: 'broker-1',
+      balance: 9,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 9,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+    const platformWallet = {
+      id: 'wallet-platform',
+      userId: 'admin-1',
+      balance: 4.5,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 4.5,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity;
+
+    milestoneRepository.createQueryBuilder.mockReturnValue(createQueryBuilderMock(milestone));
+    escrowRepository.createQueryBuilder.mockReturnValue(createQueryBuilderMock(escrow));
+    projectRepository.findOne.mockResolvedValue(project);
+    userRepository.findOne.mockResolvedValue({
+      id: 'admin-1',
+      email: 'admin@example.com',
+      role: UserRole.ADMIN,
+      status: UserStatus.ACTIVE,
+      createdAt: new Date('2026-03-12T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-12T00:00:00.000Z'),
+    } as UserEntity);
+    walletService.getOrCreateWallet.mockImplementation((userId: string) => {
+      if (userId === 'client-1') return clientWallet;
+      if (userId === 'freelancer-1') return freelancerWallet;
+      if (userId === 'broker-1') return brokerWallet;
+      if (userId === 'admin-1') return platformWallet;
+      throw new Error(`Unexpected wallet lookup for ${userId}`);
+    });
+    walletService.toWalletSnapshot.mockImplementation((wallet: WalletEntity) => ({
+      id: wallet.id,
+      userId: wallet.userId,
+      availableBalance: wallet.balance,
+      pendingBalance: wallet.pendingBalance,
+      heldBalance: wallet.heldBalance,
+      totalDeposited: wallet.totalDeposited,
+      totalWithdrawn: wallet.totalWithdrawn,
+      totalEarned: wallet.totalEarned,
+      totalSpent: wallet.totalSpent,
+      currency: wallet.currency,
+      status: wallet.status,
+      createdAt: wallet.createdAt,
+      updatedAt: wallet.updatedAt,
+    }));
+    walletRepository.save.mockImplementation((wallet: WalletEntity) => wallet);
+    transactionRepository.save.mockImplementation((transaction: Partial<TransactionEntity>) => {
+      if (!transaction.id) {
+        if (transaction.walletId === 'wallet-client') {
+          return { ...transaction, id: 'tx-client-retention' };
+        }
+        if (transaction.walletId === 'wallet-freelancer') {
+          return { ...transaction, id: 'tx-freelancer-retention' };
+        }
+        if (transaction.walletId === 'wallet-platform') {
+          return { ...transaction, id: 'tx-platform-retention' };
+        }
+        return { ...transaction, id: 'tx-broker-retention' };
+      }
+      return transaction;
+    });
+    escrowRepository.save.mockImplementation((value: EscrowEntity) => value);
+
+    const result = await service.releaseRetentionForMilestone(
+      'milestone-1',
+      'client-1',
+      { bypassWarranty: true },
+      manager as never,
+    );
+
+    expect(result).toMatchObject({
+      milestoneId: 'milestone-1',
+      escrowId: 'escrow-1',
+      escrowStatus: EscrowStatus.RELEASED,
+      releasedAmount: 10,
+      releaseTransactionIds: [
+        'tx-prev',
+        'tx-client-retention',
+        'tx-freelancer-retention',
+        'tx-broker-retention',
+        'tx-platform-retention',
+      ],
+    });
+    expect(clientWallet.heldBalance).toBe(0);
+    expect(clientWallet.totalSpent).toBe(100);
+    expect(freelancerWallet.balance).toBe(85);
+    expect(brokerWallet.balance).toBe(10);
+    expect(platformWallet.balance).toBe(5);
+    expect(escrow.status).toBe(EscrowStatus.RELEASED);
+    expect(escrow.fundedAmount).toBe(0);
+    expect(escrow.releasedAmount).toBe(100);
+  });
+
   it('refunds a funded escrow back to the client wallet when a project is cancelled', async () => {
     const project = {
       id: 'project-1',

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   AlertTriangle,
   Ban,
+  CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
@@ -23,6 +24,8 @@ interface VerdictAnnouncementProps {
   appealDeadlinePassed?: boolean;
   onAppeal?: () => void;
   appealLoading?: boolean;
+  onAccept?: () => void;
+  acceptLoading?: boolean;
 }
 
 const RESULT_DISPLAY: Record<
@@ -113,6 +116,8 @@ export const VerdictAnnouncement = ({
   appealDeadlinePassed,
   onAppeal,
   appealLoading,
+  onAccept,
+  acceptLoading,
 }: VerdictAnnouncementProps) => {
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
 
@@ -152,6 +157,9 @@ export const VerdictAnnouncement = ({
   }, [reasoning]);
 
   const canAppeal = useMemo(() => {
+    if (typeof verdict.acceptance?.currentUserCanAppeal === "boolean") {
+      return verdict.acceptance.currentUserCanAppeal;
+    }
     if (typeof canAppealOverride === "boolean") {
       return canAppealOverride;
     }
@@ -165,7 +173,13 @@ export const VerdictAnnouncement = ({
     appealDeadlinePassed,
     verdict.isAppealVerdict,
     verdict.isAppealed,
+    verdict.acceptance?.currentUserCanAppeal,
   ]);
+  const canAccept = Boolean(verdict.acceptance?.currentUserCanAccept);
+  const currentUserAccepted = Boolean(verdict.acceptance?.currentUserAccepted);
+  const acceptedCount = verdict.acceptance?.acceptedCount ?? 0;
+  const requiredPartyCount = verdict.acceptance?.requiredPartyCount ?? 0;
+  const allPartiesAccepted = Boolean(verdict.acceptance?.allPartiesAccepted);
 
   const totalAmount =
     (verdict.amountToClient ?? 0) + (verdict.amountToFreelancer ?? 0);
@@ -224,6 +238,26 @@ export const VerdictAnnouncement = ({
                 ? `Submitted ${appealedAtText}`
                 : "The original verdict is under appeal review."}
             </span>
+          </div>
+        ) : null}
+
+        {!verdict.isAppealVerdict && (acceptedCount > 0 || currentUserAccepted) ? (
+          <div className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+            <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="space-y-0.5">
+              <div className="font-semibold">
+                {allPartiesAccepted
+                  ? "All dispute parties accepted this verdict"
+                  : `${acceptedCount}/${requiredPartyCount || 2} party accepted this verdict`}
+              </div>
+              <div className="text-emerald-700">
+                {allPartiesAccepted
+                  ? "Appeal rights are closed and verdict funds can be released to internal wallets."
+                  : currentUserAccepted
+                    ? "You accepted this verdict. The remaining party may still appeal until the window closes."
+                    : "Funds stay pending until the other party accepts or the appeal window expires."}
+              </div>
+            </div>
           </div>
         ) : null}
 
@@ -496,17 +530,30 @@ export const VerdictAnnouncement = ({
                   </span>
                 </span>
               </div>
-              {canAppeal && onAppeal ? (
-                <button
-                  type="button"
-                  onClick={onAppeal}
-                  disabled={appealLoading}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
-                >
-                  <Scale className="h-3.5 w-3.5" />
-                  {appealLoading ? "Submitting..." : "Appeal Verdict"}
-                </button>
-              ) : null}
+              <div className="flex items-center gap-2">
+                {canAccept && onAccept ? (
+                  <button
+                    type="button"
+                    onClick={onAccept}
+                    disabled={acceptLoading}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-emerald-300 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-800 transition-colors hover:bg-emerald-100 disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" />
+                    {acceptLoading ? "Submitting..." : "Accept Verdict"}
+                  </button>
+                ) : null}
+                {canAppeal && onAppeal ? (
+                  <button
+                    type="button"
+                    onClick={onAppeal}
+                    disabled={appealLoading}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100 disabled:opacity-50"
+                  >
+                    <Scale className="h-3.5 w-3.5" />
+                    {appealLoading ? "Submitting..." : "Appeal Verdict"}
+                  </button>
+                ) : null}
+              </div>
             </div>
             {verdict.isAppealed && !verdict.isAppealVerdict ? (
               <p className="mt-1 text-xs text-amber-700">
@@ -514,9 +561,18 @@ export const VerdictAnnouncement = ({
                 {appealedAtText ? ` since ${appealedAtText}.` : "."}
               </p>
             ) : null}
+            {currentUserAccepted ? (
+              <p className="mt-1 text-xs text-emerald-700">
+                You accepted this verdict and waived your own appeal rights.
+              </p>
+            ) : null}
             {!canAppeal && !appealDeadlinePassed ? (
               <p className="mt-1 text-xs text-slate-400">
-                {verdict.isAppealed
+                {currentUserAccepted
+                  ? "You already accepted this verdict."
+                  : allPartiesAccepted
+                    ? "Both parties already accepted this verdict."
+                    : verdict.isAppealed
                   ? "An appeal has already been filed for this verdict."
                   : "Only dispute parties may file an appeal."}
               </p>

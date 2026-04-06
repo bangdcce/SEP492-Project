@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback, useMemo } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   Shield,
   Flag,
@@ -11,7 +12,6 @@ import {
   RotateCcw,
   AlertTriangle,
   CheckCircle2,
-  XCircle,
   Filter,
   Search,
   Clock,
@@ -31,7 +31,6 @@ import { RestoreReviewModal } from "../features/trust-profile/modals/RestoreRevi
 import {
   softDeleteReview,
   restoreReview,
-  dismissReport,
   getReviewsForModeration,
   getModerationAssignees,
   openModerationCase,
@@ -41,20 +40,10 @@ import {
   type ModerationAssigneeOption,
 } from "../features/trust-profile/api/adminReviewService";
 import { toast } from "sonner";
-import { STORAGE_KEYS } from "@/constants";
+import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
 import { connectSocket } from "@/shared/realtime/socket";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/shared/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -145,6 +134,7 @@ interface ServerReviewData {
 type FilterTab = "ALL" | "ACTIVE" | "FLAGGED" | "SOFT_DELETED";
 
 export default function AdminReviewModerationPage() {
+  const navigate = useNavigate();
   const [reviews, setReviews] = useState<AdminReview[]>([]);
   const [activeTab, setActiveTab] = useState<FilterTab>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
@@ -157,7 +147,6 @@ export default function AdminReviewModerationPage() {
   const [isDataLoading, setIsDataLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [queueActionReviewId, setQueueActionReviewId] = useState<string | null>(null);
-  const [dismissTargetReview, setDismissTargetReview] = useState<AdminReview | null>(null);
   const [reassignTargetReview, setReassignTargetReview] = useState<AdminReview | null>(null);
   const [availableAssignees, setAvailableAssignees] = useState<ModerationAssigneeOption[]>([]);
   const [selectedAssigneeId, setSelectedAssigneeId] = useState("");
@@ -367,21 +356,6 @@ export default function AdminReviewModerationPage() {
     }
   };
 
-  const handleDismissReport = async (reviewId: string) => {
-    setQueueActionReviewId(reviewId);
-    try {
-      await dismissReport(reviewId, "False report - content is acceptable");
-      await fetchReviews();
-      setDismissTargetReview(null);
-      toast.success("Reports dismissed successfully.");
-    } catch (error) {
-      console.error("Failed to dismiss report:", error);
-      toast.error(getApiErrorDetails(error, "Failed to dismiss report.").message);
-    } finally {
-      setQueueActionReviewId(null);
-    }
-  };
-
   const handleTakeOwnership = async (review: AdminReview) => {
     setQueueActionReviewId(review.id);
     try {
@@ -587,12 +561,20 @@ export default function AdminReviewModerationPage() {
           <div>
             <h1 className="text-3xl text-slate-900">Review Moderation</h1>
             <p className="text-gray-600">
-              Manage reported reviews and moderate content
+              Moderate review content outside the report-resolution inbox
             </p>
             <p className="text-xs text-slate-500">
               Signed in as {currentAdmin?.fullName || currentAdmin?.id || "Admin"}
             </p>
           </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            to={ROUTES.ADMIN_REPORTS}
+            className="rounded-lg border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Open report inbox
+          </Link>
         </div>
       </div>
 
@@ -604,8 +586,8 @@ export default function AdminReviewModerationPage() {
             <h3 className="text-red-900 mb-1">Admin Access Only</h3>
             <p className="text-red-800 text-sm">
               This page is restricted to administrators. All moderation actions
-              are logged and auditable. Use soft delete to hide inappropriate
-              content - reviews can be restored later if needed.
+              are logged and auditable. Resolve user-submitted abuse reports from
+              the dedicated report inbox so reporter outcomes remain traceable.
             </p>
           </div>
         </div>
@@ -775,27 +757,33 @@ export default function AdminReviewModerationPage() {
                     <>
                       {review.reportInfo && (
                         <button
-                          data-testid={`moderation-dismiss-${review.id}`}
-                          onClick={() => setDismissTargetReview(review)}
+                          data-testid={`moderation-open-reports-${review.id}`}
+                          onClick={() =>
+                            navigate(
+                              `${ROUTES.ADMIN_REPORTS}?reviewId=${review.id}`,
+                            )
+                          }
                           disabled={queueActionReviewId === review.id}
                           className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <XCircle className="w-4 h-4" />
-                          Dismiss
+                          <Flag className="w-4 h-4" />
+                          Open Reports
                         </button>
                       )}
-                      <button
-                        data-testid={`moderation-soft-delete-${review.id}`}
-                        onClick={() => {
-                          setSelectedReview(review);
-                          setShowDeleteModal(true);
-                        }}
-                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
-                        disabled={queueActionReviewId === review.id}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                        Soft Delete
-                      </button>
+                      {!review.reportInfo ? (
+                        <button
+                          data-testid={`moderation-soft-delete-${review.id}`}
+                          onClick={() => {
+                            setSelectedReview(review);
+                            setShowDeleteModal(true);
+                          }}
+                          className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60"
+                          disabled={queueActionReviewId === review.id}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          Soft Delete
+                        </button>
+                      ) : null}
                     </>
                   )}
                 </div>
@@ -886,6 +874,20 @@ export default function AdminReviewModerationPage() {
                             </div>
                           </div>
                         )}
+                      <div className="mt-4">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate(
+                              `${ROUTES.ADMIN_REPORTS}?reviewId=${review.id}`,
+                            )
+                          }
+                          className="inline-flex items-center gap-2 rounded-lg border border-yellow-300 bg-white px-3 py-2 text-xs font-medium text-yellow-900 hover:bg-yellow-100"
+                        >
+                          <Flag className="h-3.5 w-3.5" />
+                          Resolve from report inbox
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -926,38 +928,6 @@ export default function AdminReviewModerationPage() {
           ))
         )}
       </div>
-
-      {/* Modals */}
-      <AlertDialog
-        open={Boolean(dismissTargetReview)}
-        onOpenChange={(open) => {
-          if (!open) setDismissTargetReview(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Dismiss all pending reports?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will clear the current pending reports for{" "}
-              <span className="font-medium text-slate-900">
-                {dismissTargetReview?.reviewer.fullName || "this review"}
-              </span>
-              . Use this only when the review content is acceptable and the reports are invalid.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={queueActionReviewId === dismissTargetReview?.id}>
-              Cancel
-            </AlertDialogCancel>
-            <AlertDialogAction
-              disabled={queueActionReviewId === dismissTargetReview?.id}
-              onClick={() => dismissTargetReview && handleDismissReport(dismissTargetReview.id)}
-            >
-              {queueActionReviewId === dismissTargetReview?.id ? "Dismissing..." : "Dismiss Reports"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <Dialog
         open={Boolean(reassignTargetReview)}

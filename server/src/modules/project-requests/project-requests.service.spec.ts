@@ -44,9 +44,7 @@ const createRepoMock = () => ({
   createQueryBuilder: jest.fn(),
 });
 
-const makeRequest = (
-  overrides: Partial<ProjectRequestEntity> = {},
-): ProjectRequestEntity =>
+const makeRequest = (overrides: Partial<ProjectRequestEntity> = {}): ProjectRequestEntity =>
   ({
     id: 'req-1',
     clientId: 'client-1',
@@ -84,7 +82,11 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
   let quotaService: { checkQuota: jest.Mock; incrementUsage: jest.Mock };
   let notificationsService: { createMany: jest.Mock };
   let contractsService: { initializeContract: jest.Mock };
-  let requestChatService: { createSystemMessage: jest.Mock; assertRequestReadAccess: jest.Mock; assertRequestWriteAccess: jest.Mock };
+  let requestChatService: {
+    createSystemMessage: jest.Mock;
+    assertRequestReadAccess: jest.Mock;
+    assertRequestWriteAccess: jest.Mock;
+  };
   let eventEmitter: { emit: jest.Mock };
   let projectHistoryQueryBuilder: {
     select: jest.Mock;
@@ -236,10 +238,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
 
       const result = await service.create('client-1', dto as any, {} as any);
 
-      expect(quotaService.checkQuota).toHaveBeenCalledWith(
-        'client-1',
-        QuotaAction.CREATE_REQUEST,
-      );
+      expect(quotaService.checkQuota).toHaveBeenCalledWith('client-1', QuotaAction.CREATE_REQUEST);
       expect(requestRepo.create).toHaveBeenCalledWith(
         expect.objectContaining({
           clientId: 'client-1',
@@ -253,9 +252,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         QuotaAction.CREATE_REQUEST,
         { requestId: createdRequest.id },
       );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Create Request Successful: PUBLIC_DRAFT',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('Create Request Successful: PUBLIC_DRAFT');
       expect(result).toEqual(hydratedRequest);
     });
 
@@ -357,9 +354,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
           ],
         }),
       );
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Create Request Successful: PUBLIC_DRAFT',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('Create Request Successful: PUBLIC_DRAFT');
     });
 
     it('UC14-CRT-04 stops request creation when quota validation rejects the submission', async () => {
@@ -385,9 +380,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(requestRepo.create).not.toHaveBeenCalled();
       expect(requestRepo.save).not.toHaveBeenCalled();
       expect(answerRepo.create).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Create Request Failed: Quota exceeded',
-      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Create Request Failed: Quota exceeded');
     });
 
     it('UC14-CRT-05 returns the created request when audit logging fails and logs the failure message', async () => {
@@ -418,9 +411,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
 
       expect(result).toEqual(createdRequest);
       expect(consoleErrorSpy).toHaveBeenCalledWith('Create Request Audit Log Failed');
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Create Request Successful: PUBLIC_DRAFT',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('Create Request Successful: PUBLIC_DRAFT');
       expect(quotaService.incrementUsage).toHaveBeenCalledWith(
         'client-1',
         QuotaAction.CREATE_REQUEST,
@@ -517,14 +508,8 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         relations: ['answers', 'answers.question', 'answers.option'],
         order: { createdAt: 'DESC' },
       });
-      expect(hydrateAttachmentsSpy).toHaveBeenNthCalledWith(
-        1,
-        latestDraft.attachments,
-      );
-      expect(hydrateAttachmentsSpy).toHaveBeenNthCalledWith(
-        2,
-        olderDraft.attachments,
-      );
+      expect(hydrateAttachmentsSpy).toHaveBeenNthCalledWith(1, latestDraft.attachments);
+      expect(hydrateAttachmentsSpy).toHaveBeenNthCalledWith(2, olderDraft.attachments);
       expect(result).toEqual([
         {
           ...latestDraft,
@@ -543,9 +528,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
           attachments: [],
         },
       ]);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Find My Drafts Successful: 2 draft request(s)',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('Find My Drafts Successful: 2 draft request(s)');
     });
 
     it('UC16-DRF-02 returns an empty draft request list when the client has no saved drafts', async () => {
@@ -563,9 +546,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       });
       expect(hydrateAttachmentsSpy).not.toHaveBeenCalled();
       expect(result).toEqual([]);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Find My Drafts Successful: 0 draft request(s)',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('Find My Drafts Successful: 0 draft request(s)');
     });
   });
 
@@ -649,11 +630,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(brokerProposalRepo.find).toHaveBeenCalledWith({
         where: {
           brokerId: 'broker-1',
-          status: In([
-            ProposalStatus.INVITED,
-            ProposalStatus.PENDING,
-            ProposalStatus.ACCEPTED,
-          ]),
+          status: In([ProposalStatus.INVITED, ProposalStatus.PENDING, ProposalStatus.ACCEPTED]),
         },
         relations: ['request', 'request.client'],
         order: { createdAt: 'DESC' },
@@ -681,10 +658,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
 
       freelancerProposalRepo.find.mockResolvedValue(freelancerInvitations);
 
-      const result = await service.getInvitationsForUser(
-        'freelancer-1',
-        UserRole.FREELANCER,
-      );
+      const result = await service.getInvitationsForUser('freelancer-1', UserRole.FREELANCER);
 
       expect(freelancerProposalRepo.find).toHaveBeenCalledWith({
         where: { freelancerId: 'freelancer-1', status: 'INVITED' },
@@ -795,10 +769,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         }),
       );
 
-      const result = await service.findOne(
-        'req-1',
-        { id: 'client-1', role: UserRole.CLIENT } as UserEntity,
-      );
+      const result = await service.findOne('req-1', {
+        id: 'client-1',
+        role: UserRole.CLIENT,
+      } as UserEntity);
 
       expect(result.id).toBe('req-1');
       expect(result.client?.email).toBe('client@example.com');
@@ -829,9 +803,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       await expect(
         service.findOne('req-404', { id: 'client-1', role: UserRole.CLIENT } as UserEntity),
       ).rejects.toThrow(NotFoundException);
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Get Request Detail Failed: Request not found',
-      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Get Request Detail Failed: Request not found');
     });
 
     it('UC17-DET-06 returns request detail for an invited freelancer', async () => {
@@ -849,10 +821,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         }),
       );
 
-      const result = await service.findOne(
-        'req-1',
-        { id: 'freelancer-1', role: UserRole.FREELANCER } as UserEntity,
-      );
+      const result = await service.findOne('req-1', {
+        id: 'freelancer-1',
+        role: UserRole.FREELANCER,
+      } as UserEntity);
 
       expect(result.id).toBe('req-1');
       expect(consoleLogSpy).toHaveBeenCalledWith('Get Request Detail Successful: "req-1"');
@@ -897,10 +869,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
 
       const result = await service.findMatches('req-match-1', 'client-1');
 
-      expect(quotaService.checkQuota).toHaveBeenCalledWith(
-        'client-1',
-        QuotaAction.AI_MATCH_SEARCH,
-      );
+      expect(quotaService.checkQuota).toHaveBeenCalledWith('client-1', QuotaAction.AI_MATCH_SEARCH);
       expect(matchingService.findMatches).toHaveBeenCalledWith(
         {
           requestId: 'req-match-1',
@@ -989,9 +958,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       requestRepo.findOne.mockResolvedValue(null);
 
       await expect(service.findMatches('req-match-404')).rejects.toThrow(NotFoundException);
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Find Matches Failed: Request not found',
-      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Find Matches Failed: Request not found');
     });
   });
 
@@ -1081,9 +1048,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         valueText: 'Updated answer',
       });
       expect(result).toEqual(updatedRequest);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Update Request Successful: "req-1" -> "DRAFT"',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('Update Request Successful: "req-1" -> "DRAFT"');
     });
 
     it('UC22-UPD-03 rejects request editing from a different client owner', async () => {
@@ -1192,9 +1157,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         expect.objectContaining({ title: 'Admin adjusted request' }),
       );
       expect(result).toEqual(updatedRequest);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Update Request Successful: "req-1" -> "DRAFT"',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('Update Request Successful: "req-1" -> "DRAFT"');
     });
 
     it('UC22-UPD-06 allows the assigned broker to update the request details', async () => {
@@ -1526,9 +1489,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       ).rejects.toThrow('Broker already invited');
 
       expect(brokerProposalRepo.save).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Invite Broker Failed: Broker already invited',
-      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Invite Broker Failed: Broker already invited');
     });
 
     it('UC30-INV-04 rejects inviting a broker who has already applied to the request', async () => {
@@ -1705,9 +1666,9 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         brokerId: 'broker-1',
       });
 
-      await expect(
-        service.applyToRequest('req-1', 'broker-1', 'duplicate'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.applyToRequest('req-1', 'broker-1', 'duplicate')).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(quotaService.checkQuota).not.toHaveBeenCalled();
       expect(brokerProposalRepo.create).not.toHaveBeenCalled();
@@ -1722,9 +1683,9 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
 
       requestRepo.findOne.mockResolvedValue(privateRequest);
 
-      await expect(
-        service.applyToRequest('req-1', 'broker-1', 'not public'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.applyToRequest('req-1', 'broker-1', 'not public')).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(brokerProposalRepo.findOne).not.toHaveBeenCalled();
       expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -1736,12 +1697,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
       requestRepo.findOne.mockResolvedValue(null);
 
-      await expect(
-        service.applyToRequest('req-404', 'broker-1', 'missing'),
-      ).rejects.toThrow(NotFoundException);
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Apply To Request Failed: Request not found',
+      await expect(service.applyToRequest('req-404', 'broker-1', 'missing')).rejects.toThrow(
+        NotFoundException,
       );
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Apply To Request Failed: Request not found');
     });
 
     it('UC62-APL-05 rejects applications when the request already has an assigned broker', async () => {
@@ -1753,9 +1712,9 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         }),
       );
 
-      await expect(
-        service.applyToRequest('req-1', 'broker-1', 'already assigned'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.applyToRequest('req-1', 'broker-1', 'already assigned')).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(brokerProposalRepo.findOne).not.toHaveBeenCalled();
       expect(quotaService.checkQuota).not.toHaveBeenCalled();
@@ -1771,9 +1730,9 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
       brokerProposalRepo.count.mockResolvedValueOnce(10);
 
-      await expect(
-        service.applyToRequest('req-1', 'broker-1', 'cap reached'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.applyToRequest('req-1', 'broker-1', 'cap reached')).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(brokerProposalRepo.findOne).not.toHaveBeenCalled();
       expect(quotaService.checkQuota).not.toHaveBeenCalled();
@@ -1790,15 +1749,13 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       brokerProposalRepo.findOne.mockResolvedValue(null);
       quotaService.checkQuota.mockRejectedValueOnce(new BadRequestException('Quota exceeded'));
 
-      await expect(
-        service.applyToRequest('req-1', 'broker-1', 'quota blocked'),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.applyToRequest('req-1', 'broker-1', 'quota blocked')).rejects.toThrow(
+        BadRequestException,
+      );
 
       expect(brokerProposalRepo.create).not.toHaveBeenCalled();
       expect(quotaService.incrementUsage).not.toHaveBeenCalled();
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Apply To Request Failed: Quota exceeded',
-      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Apply To Request Failed: Quota exceeded');
     });
   });
 
@@ -1840,10 +1797,16 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
           status: ProposalStatus.REJECTED,
         }),
       );
-      expect(result).toEqual(finalRequest);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Accept Broker Successful: "req-1" -> "broker-1"',
+      expect(requestChatService.createSystemMessage).toHaveBeenCalledWith(
+        'req-1',
+        'Client selected a broker for this request.',
+        {
+          skipNotificationUserIds: ['broker-1', 'client-1'],
+          notificationTitle: 'Broker assignment update',
+        },
       );
+      expect(result).toEqual(finalRequest);
+      expect(consoleLogSpy).toHaveBeenCalledWith('Accept Broker Successful: "req-1" -> "broker-1"');
     });
 
     it('EP-206-SVC-02 rejects broker acceptance from a client who does not own the request', async () => {
@@ -1911,11 +1874,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       brokerProposalRepo.findOne.mockResolvedValue(proposal);
       brokerProposalRepo.save.mockResolvedValue({ ...proposal, status: ProposalStatus.REJECTED });
 
-      const result = await service.releaseBrokerSlot(
-        'req-1',
-        'application-1',
-        { id: 'client-1', role: UserRole.CLIENT } as UserEntity,
-      );
+      const result = await service.releaseBrokerSlot('req-1', 'application-1', {
+        id: 'client-1',
+        role: UserRole.CLIENT,
+      } as UserEntity);
 
       expect(brokerProposalRepo.save).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1924,9 +1886,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         }),
       );
       expect(result).toEqual(refreshedRequest);
-      expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Release Broker Slot Successful: "application-1"',
-      );
+      expect(consoleLogSpy).toHaveBeenCalledWith('Release Broker Slot Successful: "application-1"');
     });
 
     it('EP-207-SVC-02 rejects releasing a broker slot from an inactive application status', async () => {
@@ -1947,11 +1907,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       });
 
       await expect(
-        service.releaseBrokerSlot(
-          'req-1',
-          'application-1',
-          { id: 'client-1', role: UserRole.CLIENT } as UserEntity,
-        ),
+        service.releaseBrokerSlot('req-1', 'application-1', {
+          id: 'client-1',
+          role: UserRole.CLIENT,
+        } as UserEntity),
       ).rejects.toThrow(BadRequestException);
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -1971,11 +1930,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
 
       await expect(
-        service.releaseBrokerSlot(
-          'req-1',
-          'application-1',
-          { id: 'client-2', role: UserRole.CLIENT } as UserEntity,
-        ),
+        service.releaseBrokerSlot('req-1', 'application-1', {
+          id: 'client-2',
+          role: UserRole.CLIENT,
+        } as UserEntity),
       ).rejects.toThrow(ForbiddenException);
 
       expect(brokerProposalRepo.findOne).not.toHaveBeenCalled();
@@ -2344,12 +2302,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
 
       await expect(
-        service.inviteFreelancer(
-          'req-1',
-          'freelancer-1',
-          'Strong frontend portfolio.',
-          { id: 'broker-1', role: UserRole.BROKER } as UserEntity,
-        ),
+        service.inviteFreelancer('req-1', 'freelancer-1', 'Strong frontend portfolio.', {
+          id: 'broker-1',
+          role: UserRole.BROKER,
+        } as UserEntity),
       ).rejects.toThrow(ForbiddenException);
 
       expect(consoleErrorSpy).toHaveBeenCalledWith(
@@ -2368,12 +2324,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
 
       await expect(
-        service.inviteFreelancer(
-          'req-1',
-          'freelancer-1',
-          'Strong frontend portfolio.',
-          { id: 'broker-1', role: UserRole.BROKER } as UserEntity,
-        ),
+        service.inviteFreelancer('req-1', 'freelancer-1', 'Strong frontend portfolio.', {
+          id: 'broker-1',
+          role: UserRole.BROKER,
+        } as UserEntity),
       ).rejects.toThrow(BadRequestException);
 
       expect(freelancerProposalRepo.findOne).not.toHaveBeenCalled();
@@ -2399,12 +2353,10 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       });
 
       await expect(
-        service.inviteFreelancer(
-          'req-1',
-          'freelancer-1',
-          'Strong frontend portfolio.',
-          { id: 'broker-1', role: UserRole.BROKER } as UserEntity,
-        ),
+        service.inviteFreelancer('req-1', 'freelancer-1', 'Strong frontend portfolio.', {
+          id: 'broker-1',
+          role: UserRole.BROKER,
+        } as UserEntity),
       ).rejects.toThrow('Freelancer already associated with this request (Status: INVITED)');
 
       expect(freelancerProposalRepo.save).not.toHaveBeenCalled();
@@ -2907,9 +2859,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
   describe('assignBroker', () => {
     it('UC24-ASN-01 rejects broker self-assignment and requires client selection instead', async () => {
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      await expect(service.assignBroker('req-1', 'broker-1')).rejects.toThrow(
-        ForbiddenException,
-      );
+      await expect(service.assignBroker('req-1', 'broker-1')).rejects.toThrow(ForbiddenException);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         'Assign Broker Failed: Brokers cannot assign marketplace requests to themselves. Apply to the request and wait for the client to select you.',
       );
@@ -2998,9 +2948,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         NotFoundException,
       );
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Delete Request Failed: Request not found',
-      );
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Delete Request Failed: Request not found');
     });
   });
 

@@ -32,6 +32,10 @@ type IncidentCategory =
   | 'STORAGE'
   | 'PAYMENT'
   | 'EMAIL';
+type SeriesAggregatePoint = {
+  occurredAt: Date;
+  value: number;
+};
 
 const COMPLETED_PROJECT_STATUSES = [ProjectStatus.COMPLETED, ProjectStatus.PAID];
 const CLOSED_DISPUTE_STATUSES = [
@@ -101,9 +105,9 @@ export class AdminDashboardService {
       previousActiveStaff,
       adminUsers,
       staffUsers,
-      revenueRows,
-      userRows,
-      projectRows,
+      revenueSeriesPoints,
+      newUserSeriesPoints,
+      completedProjectSeriesPoints,
       adminLogs,
       performanceRows,
       workloadRows,
@@ -131,26 +135,9 @@ export class AdminDashboardService {
         where: { role: UserRole.STAFF },
         select: ['id', 'fullName', 'email', 'createdAt', 'updatedAt'],
       }),
-      this.escrowRepository.find({
-        where: {
-          status: EscrowStatus.RELEASED,
-          releasedAt: Between(currentStart, now),
-        },
-        select: ['id', 'releasedAt', 'platformFee', 'currency'],
-      }),
-      this.userRepository.find({
-        where: {
-          createdAt: Between(currentStart, now),
-        },
-        select: ['id', 'createdAt'],
-      }),
-      this.projectRepository.find({
-        where: {
-          status: In(COMPLETED_PROJECT_STATUSES),
-          updatedAt: Between(currentStart, now),
-        },
-        select: ['id', 'updatedAt'],
-      }),
+      this.getRevenueSeriesPoints(currentStart, now),
+      this.getNewUserSeriesPoints(currentStart, now),
+      this.getCompletedProjectSeriesPoints(currentStart, now),
       this.auditLogRepository
         .createQueryBuilder('log')
         .leftJoinAndSelect('log.actor', 'actor')
@@ -241,7 +228,14 @@ export class AdminDashboardService {
         activeAdmins: this.buildMetricSummary(currentActiveAdmins, previousActiveAdmins),
         activeStaff: this.buildMetricSummary(currentActiveStaff, previousActiveStaff),
       },
-      series: this.buildSeries(range, currentStart, now, revenueRows, userRows, projectRows),
+      series: this.buildSeries(
+        range,
+        currentStart,
+        now,
+        revenueSeriesPoints,
+        newUserSeriesPoints,
+        completedProjectSeriesPoints,
+      ),
       adminTeam,
       staffTeam,
       riskHighlights: {
@@ -383,34 +377,119 @@ export class AdminDashboardService {
     };
   }
 
+  private normalizeAggregateTimestamp(value: unknown): Date | null {
+    if (!value) {
+      return null;
+    }
+
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime()) ? null : value;
+    }
+
+    if (typeof value === 'string') {
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    }
+
+    return null;
+  }
+
+  private async getRevenueSeriesPoints(start: Date, end: Date): Promise<SeriesAggregatePoint[]> {
+    const rows = await this.escrowRepository
+      .createQueryBuilder('escrow')
+      .select("DATE_TRUNC('day', escrow.releasedAt)", 'occurredAt')
+      .addSelect('COALESCE(SUM(escrow.platformFee), 0)', 'value')
+      .where('escrow.status = :status', { status: EscrowStatus.RELEASED })
+      .andWhere('escrow.releasedAt BETWEEN :start AND :end', { start, end })
+      .groupBy("DATE_TRUNC('day', escrow.releasedAt)")
+      .orderBy("DATE_TRUNC('day', escrow.releasedAt)", 'ASC')
+      .getRawMany<{ occurredAt: Date | string; value: string }>();
+
+    return rows
+      .map((row) => {
+        const occurredAt = this.normalizeAggregateTimestamp(row.occurredAt);
+        return {
+          occurredAt,
+          value: Number(row.value || 0),
+        };
+      })
+      .filter((row): row is SeriesAggregatePoint => Boolean(row.occurredAt));
+  }
+
+  private async getNewUserSeriesPoints(start: Date, end: Date): Promise<SeriesAggregatePoint[]> {
+    const rows = await this.userRepository
+      .createQueryBuilder('user')
+      .select("DATE_TRUNC('day', user.createdAt)", 'occurredAt')
+      .addSelect('COUNT(user.id)', 'value')
+      .where('user.createdAt BETWEEN :start AND :end', { start, end })
+      .groupBy("DATE_TRUNC('day', user.createdAt)")
+      .orderBy("DATE_TRUNC('day', user.createdAt)", 'ASC')
+      .getRawMany<{ occurredAt: Date | string; value: string }>();
+
+    return rows
+      .map((row) => {
+        const occurredAt = this.normalizeAggregateTimestamp(row.occurredAt);
+        return {
+          occurredAt,
+          value: Number(row.value || 0),
+        };
+      })
+      .filter((row): row is SeriesAggregatePoint => Boolean(row.occurredAt));
+  }
+
+  private async getCompletedProjectSeriesPoints(
+    start: Date,
+    end: Date,
+  ): Promise<SeriesAggregatePoint[]> {
+    const rows = await this.projectRepository
+      .createQueryBuilder('project')
+      .select("DATE_TRUNC('day', project.updatedAt)", 'occurredAt')
+      .addSelect('COUNT(project.id)', 'value')
+      .where('project.status IN (:...statuses)', { statuses: COMPLETED_PROJECT_STATUSES })
+      .andWhere('project.updatedAt BETWEEN :start AND :end', { start, end })
+      .groupBy("DATE_TRUNC('day', project.updatedAt)")
+      .orderBy("DATE_TRUNC('day', project.updatedAt)", 'ASC')
+      .getRawMany<{ occurredAt: Date | string; value: string }>();
+
+    return rows
+      .map((row) => {
+        const occurredAt = this.normalizeAggregateTimestamp(row.occurredAt);
+        return {
+          occurredAt,
+          value: Number(row.value || 0),
+        };
+      })
+      .filter((row): row is SeriesAggregatePoint => Boolean(row.occurredAt));
+  }
+
   private buildSeries(
     range: DashboardRange,
     start: Date,
     end: Date,
-    revenueRows: EscrowEntity[],
-    userRows: Pick<UserEntity, 'id' | 'createdAt'>[],
-    projectRows: Pick<ProjectEntity, 'id' | 'updatedAt'>[],
+    revenuePoints: SeriesAggregatePoint[],
+    newUserPoints: SeriesAggregatePoint[],
+    completedProjectPoints: SeriesAggregatePoint[],
   ) {
     const buckets = this.createBuckets(range, start, end);
 
-    revenueRows.forEach((row) => {
-      const bucket = this.findBucketForDate(buckets, row.releasedAt);
+    revenuePoints.forEach((point) => {
+      const bucket = this.findBucketForDate(buckets, point.occurredAt);
       if (bucket) {
-        bucket.revenue += Number(row.platformFee || 0);
+        bucket.revenue += point.value;
       }
     });
 
-    userRows.forEach((row) => {
-      const bucket = this.findBucketForDate(buckets, row.createdAt);
+    newUserPoints.forEach((point) => {
+      const bucket = this.findBucketForDate(buckets, point.occurredAt);
       if (bucket) {
-        bucket.newUsers += 1;
+        bucket.newUsers += point.value;
       }
     });
 
-    projectRows.forEach((row) => {
-      const bucket = this.findBucketForDate(buckets, row.updatedAt);
+    completedProjectPoints.forEach((point) => {
+      const bucket = this.findBucketForDate(buckets, point.occurredAt);
       if (bucket) {
-        bucket.completedProjects += 1;
+        bucket.completedProjects += point.value;
       }
     });
 
@@ -427,6 +506,9 @@ export class AdminDashboardService {
 
     (adminLogs ?? []).forEach((log) => {
       const actorId = log.actorId;
+      if (!actorId) {
+        return;
+      }
       const current = logMap.get(actorId) || [];
       current.push(log);
       logMap.set(actorId, current);
@@ -979,7 +1061,7 @@ export class AdminDashboardService {
     component: string;
     operation: string;
   } | null {
-    const metadata = (log.metadata || {}) as Record<string, any>;
+    const metadata = log.metadata || {};
     const incident = metadata.incident as Record<string, any> | undefined;
     if (!incident || incident.scope !== 'SYSTEM') {
       return null;
@@ -995,7 +1077,7 @@ export class AdminDashboardService {
   }
 
   private extractIncidentSummary(log: AuditLogEntity): string | null {
-    const metadata = (log.metadata || {}) as Record<string, any>;
+    const metadata = log.metadata || {};
     return typeof metadata.summary === 'string' && metadata.summary.trim()
       ? metadata.summary.trim()
       : null;

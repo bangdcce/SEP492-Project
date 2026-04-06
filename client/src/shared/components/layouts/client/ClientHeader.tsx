@@ -78,6 +78,20 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
     () => resolveRoleBasePath(user.role || userRole),
     [user.role, userRole],
   );
+  const homePath = useMemo(() => {
+    switch (roleBasePath) {
+      case "/admin":
+        return ROUTES.ADMIN_DASHBOARD;
+      case "/broker":
+        return ROUTES.BROKER_DASHBOARD;
+      case "/freelancer":
+        return ROUTES.FREELANCER_DASHBOARD;
+      case "/staff":
+        return "/staff/dashboard";
+      default:
+        return ROUTES.CLIENT_DASHBOARD;
+    }
+  }, [roleBasePath]);
 
   const handleLogout = async () => {
     try {
@@ -124,17 +138,25 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
           navigate(`/staff/caseload?disputeId=${item.relatedId}`);
           return;
         }
-        if (roleBasePath === "/admin") {
-          navigate("/admin/dashboard");
-          return;
-        }
         navigate(`${roleBasePath}/disputes/${item.relatedId}`);
         return;
       }
 
       if (item.relatedType === "DisputeHearing") {
+        if (roleBasePath === "/staff") {
+          navigate(
+            item.relatedId
+              ? `/staff/hearings/${item.relatedId}`
+              : "/staff/hearings",
+          );
+          return;
+        }
         if (roleBasePath === "/admin") {
-          navigate("/admin/dashboard");
+          navigate(
+            item.relatedId
+              ? `/admin/hearings/${item.relatedId}`
+              : ROUTES.ADMIN_HEARINGS,
+          );
           return;
         }
         navigate(`${roleBasePath}/hearings`);
@@ -164,7 +186,7 @@ export const ClientHeader: React.FC<ClientHeaderProps> = ({
 
             {/* Logo for mobile */}
             <Link
-              to="/client/dashboard"
+              to={homePath}
               className="lg:hidden flex items-center"
             >
               <Logo size="sm" />

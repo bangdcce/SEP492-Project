@@ -21,8 +21,12 @@ import { DisputeHearingPanel } from "../hearings/DisputeHearingPanel";
 import { VerdictWizard } from "../wizard/VerdictWizard";
 import { useDisputeRealtime } from "@/features/disputes/hooks/useDisputeRealtime";
 import { AppealDialog } from "@/features/hearings/components/hearing-room/AppealDialog";
+import { AcceptVerdictDialog } from "@/features/hearings/components/hearing-room/AcceptVerdictDialog";
 import { VerdictAnnouncement } from "@/features/hearings/components/hearing-room/VerdictAnnouncement";
-import { getDisputeVerdict } from "@/features/hearings/api";
+import {
+  acceptDisputeVerdict,
+  getDisputeVerdict,
+} from "@/features/hearings/api";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { triggerBlobDownload } from "@/shared/utils/download";
@@ -195,6 +199,8 @@ export const DisputeDetailHub = ({
   const [verdict, setVerdict] = useState<VerdictSummary | null>(null);
   const [appealDialogOpen, setAppealDialogOpen] = useState(false);
   const [appealLoading, setAppealLoading] = useState(false);
+  const [acceptVerdictDialogOpen, setAcceptVerdictDialogOpen] = useState(false);
+  const [acceptVerdictLoading, setAcceptVerdictLoading] = useState(false);
   const [appealWizardOpen, setAppealWizardOpen] = useState(false);
   const [dossierExporting, setDossierExporting] = useState(false);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
@@ -408,6 +414,9 @@ export const DisputeDetailHub = ({
   }, [appealDeadlineSource]);
 
   const canSubmitVerdictAppeal = useMemo(() => {
+    if (typeof verdict?.acceptance?.currentUserCanAppeal === "boolean") {
+      return verdict.acceptance.currentUserCanAppeal;
+    }
     if (allowedActions.includes("SUBMIT_APPEAL")) {
       return true;
     }
@@ -528,6 +537,32 @@ export const DisputeDetailHub = ({
       }
     },
     [appealDialogMode, disputeId, handleRealtimeRefresh],
+  );
+
+  const handleAcceptVerdictSubmit = useCallback(
+    async (input: {
+      disclaimerAccepted: boolean;
+      waiveAppealRights: boolean;
+      disclaimerVersion?: string;
+    }) => {
+      if (!disputeId) return;
+      try {
+        setAcceptVerdictLoading(true);
+        await acceptDisputeVerdict(disputeId, input);
+        invalidateDisputesCache();
+        invalidateDisputeDetailCache(disputeId);
+        toast.success("Verdict accepted");
+        setAcceptVerdictDialogOpen(false);
+        handleRealtimeRefresh();
+      } catch (error: any) {
+        toast.error(
+          error?.response?.data?.message || "Failed to accept verdict",
+        );
+      } finally {
+        setAcceptVerdictLoading(false);
+      }
+    },
+    [disputeId, handleRealtimeRefresh],
   );
 
   const handleReviewRequestSubmit = useCallback(async () => {
@@ -1313,6 +1348,12 @@ export const DisputeDetailHub = ({
                       : undefined
                   }
                   appealLoading={appealLoading}
+                  onAccept={
+                    verdict.acceptance?.currentUserCanAccept
+                      ? () => setAcceptVerdictDialogOpen(true)
+                      : undefined
+                  }
+                  acceptLoading={acceptVerdictLoading}
                 />
               </div>
             ) : null}
@@ -1779,6 +1820,11 @@ export const DisputeDetailHub = ({
         mode={appealDialogMode}
         onSubmit={handleAppealSubmit}
         deadlineText={appealDeadlineText}
+      />
+      <AcceptVerdictDialog
+        open={acceptVerdictDialogOpen}
+        onOpenChange={setAcceptVerdictDialogOpen}
+        onSubmit={handleAcceptVerdictSubmit}
       />
     </div>
   );

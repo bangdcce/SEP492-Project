@@ -4,6 +4,8 @@ const ROLE_BASE_PATH: Record<string, string> = {
   [UserRole.CLIENT]: "/client",
   [UserRole.BROKER]: "/broker",
   [UserRole.FREELANCER]: "/freelancer",
+  [UserRole.STAFF]: "/staff",
+  [UserRole.ADMIN]: "/admin",
 };
 
 export const resolveRoleBasePath = (role?: string) => {
@@ -36,6 +38,10 @@ export const resolveRoleLabel = (role?: string) => {
       return "Broker";
     case UserRole.FREELANCER:
       return "Freelancer";
+    case UserRole.STAFF:
+      return "Staff";
+    case UserRole.ADMIN:
+      return "Admin";
     default:
       return role;
   }

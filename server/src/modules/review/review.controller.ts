@@ -1,12 +1,14 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   HttpCode,
   HttpStatus,
   NotFoundException,
   Param,
+  ParseIntPipe,
   Patch,
   Post,
   Query,
@@ -46,8 +48,8 @@ export class ReviewController {
   @ApiOperation({ summary: '[DEV] Test endpoint - Get reviews for moderation without auth' })
   async testGetReviewsForModeration(
     @Query('status') status?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number = 1,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number = 50,
   ) {
     this.assertDevOnlyRoute();
     return this.reviewService.getReviewsForModeration({ status, page, limit });
@@ -194,8 +196,8 @@ export class ReviewController {
   @ApiOperation({ summary: '[ADMIN] Lấy danh sách reviews để moderation' })
   async getReviewsForModeration(
     @Query('status') status?: string,
-    @Query('page') page?: number,
-    @Query('limit') limit?: number,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number = 1,
+    @Query('limit', new DefaultValuePipe(50), ParseIntPipe) limit: number = 50,
   ) {
     return this.reviewService.getReviewsForModeration({ status, page, limit });
   }

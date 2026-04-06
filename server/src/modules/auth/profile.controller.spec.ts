@@ -26,6 +26,12 @@ const createRepositoryMock = () => ({
   delete: jest.fn(),
 });
 
+const mockSigningCredentialsService = {
+  getCredentialStatus: jest.fn(),
+  initializeCredential: jest.fn(),
+  rotateCredential: jest.fn(),
+};
+
 describe('ProfileController.getCV', () => {
   let controller: ProfileController;
   let profileRepo: ReturnType<typeof createRepositoryMock>;
@@ -43,6 +49,7 @@ describe('ProfileController.getCV', () => {
       profileRepo as any,
       userSkillRepo as any,
       skillRepo as any,
+      mockSigningCredentialsService as any,
     );
   });
 
@@ -163,6 +170,7 @@ describe('ProfileController.getMySkills', () => {
       profileRepo as any,
       userSkillRepo as any,
       skillRepo as any,
+      mockSigningCredentialsService as any,
     );
   });
 
@@ -261,6 +269,7 @@ describe('ProfileController.deleteCV', () => {
       profileRepo as any,
       userSkillRepo as any,
       skillRepo as any,
+      mockSigningCredentialsService as any,
     );
   });
 
@@ -360,6 +369,7 @@ describe('ProfileController.updateBio', () => {
       profileRepo as any,
       userSkillRepo as any,
       skillRepo as any,
+      mockSigningCredentialsService as any,
     );
   });
 
@@ -370,10 +380,9 @@ describe('ProfileController.updateBio', () => {
       bio: 'Refined bio',
     });
 
-    const result = await controller.updateBio(
-      { user: { id: 'user-1' } } as any,
-      { bio: '  Refined bio  ' },
-    );
+    const result = await controller.updateBio({ user: { id: 'user-1' } } as any, {
+      bio: '  Refined bio  ',
+    });
 
     expect(profileRepo.create).toHaveBeenCalledWith({
       userId: 'user-1',
@@ -390,10 +399,9 @@ describe('ProfileController.updateBio', () => {
       bio: 'Old bio',
     });
 
-    const result = await controller.updateBio(
-      { user: { id: 'user-1' } } as any,
-      { bio: '  Updated bio  ' },
-    );
+    const result = await controller.updateBio({ user: { id: 'user-1' } } as any, {
+      bio: '  Updated bio  ',
+    });
 
     expect(profileRepo.update).toHaveBeenCalledWith({ userId: 'user-1' }, { bio: 'Updated bio' });
     expect(result).toEqual({ message: 'Bio updated successfully' });
@@ -401,19 +409,13 @@ describe('ProfileController.updateBio', () => {
 
   it('rejects empty bio content', async () => {
     await expect(
-      controller.updateBio(
-        { user: { id: 'user-1' } } as any,
-        { bio: '   ' },
-      ),
+      controller.updateBio({ user: { id: 'user-1' } } as any, { bio: '   ' }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects bio values longer than one thousand characters', async () => {
     await expect(
-      controller.updateBio(
-        { user: { id: 'user-1' } } as any,
-        { bio: 'a'.repeat(1001) },
-      ),
+      controller.updateBio({ user: { id: 'user-1' } } as any, { bio: 'a'.repeat(1001) }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
@@ -433,54 +435,42 @@ describe('ProfileController.updateSkills', () => {
       profileRepo as any,
       userSkillRepo as any,
       skillRepo as any,
+      mockSigningCredentialsService as any,
     );
   });
 
   it('rejects requests when skillIds is not an array', async () => {
     await expect(
-      controller.updateSkills(
-        { user: { id: 'user-1' } } as any,
-        { skillIds: 'skill-1' as any },
-      ),
+      controller.updateSkills({ user: { id: 'user-1' } } as any, { skillIds: 'skill-1' as any }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects requests when the skill list is empty', async () => {
     await expect(
-      controller.updateSkills(
-        { user: { id: 'user-1' } } as any,
-        { skillIds: [] },
-      ),
+      controller.updateSkills({ user: { id: 'user-1' } } as any, { skillIds: [] }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('rejects requests when one or more submitted skill ids are invalid', async () => {
-    skillRepo.find.mockResolvedValue([
-      { id: 'skill-1' },
-    ]);
+    skillRepo.find.mockResolvedValue([{ id: 'skill-1' }]);
 
     await expect(
-      controller.updateSkills(
-        { user: { id: 'user-1' } } as any,
-        { skillIds: ['skill-1', 'missing-skill'] },
-      ),
+      controller.updateSkills({ user: { id: 'user-1' } } as any, {
+        skillIds: ['skill-1', 'missing-skill'],
+      }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('replaces the skill set and returns the added and removed counts', async () => {
-    skillRepo.find.mockResolvedValue([
-      { id: 'skill-1' },
-      { id: 'skill-2' },
-    ]);
+    skillRepo.find.mockResolvedValue([{ id: 'skill-1' }, { id: 'skill-2' }]);
     userSkillRepo.find.mockResolvedValue([
       { userId: 'user-1', skillId: 'skill-2' },
       { userId: 'user-1', skillId: 'skill-3' },
     ]);
 
-    const result = await controller.updateSkills(
-      { user: { id: 'user-1' } } as any,
-      { skillIds: ['skill-1', 'skill-2'] },
-    );
+    const result = await controller.updateSkills({ user: { id: 'user-1' } } as any, {
+      skillIds: ['skill-1', 'skill-2'],
+    });
 
     expect(userSkillRepo.delete).toHaveBeenCalled();
     expect(userSkillRepo.save).toHaveBeenCalledWith([
@@ -499,19 +489,15 @@ describe('ProfileController.updateSkills', () => {
   });
 
   it('returns zero added and removed counts when the submitted skills already match', async () => {
-    skillRepo.find.mockResolvedValue([
-      { id: 'skill-1' },
-      { id: 'skill-2' },
-    ]);
+    skillRepo.find.mockResolvedValue([{ id: 'skill-1' }, { id: 'skill-2' }]);
     userSkillRepo.find.mockResolvedValue([
       { userId: 'user-1', skillId: 'skill-1' },
       { userId: 'user-1', skillId: 'skill-2' },
     ]);
 
-    const result = await controller.updateSkills(
-      { user: { id: 'user-1' } } as any,
-      { skillIds: ['skill-1', 'skill-2'] },
-    );
+    const result = await controller.updateSkills({ user: { id: 'user-1' } } as any, {
+      skillIds: ['skill-1', 'skill-2'],
+    });
 
     expect(userSkillRepo.delete).not.toHaveBeenCalled();
     expect(userSkillRepo.save).not.toHaveBeenCalled();

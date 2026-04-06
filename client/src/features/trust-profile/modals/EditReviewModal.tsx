@@ -27,6 +27,7 @@ export function EditReviewModal({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasChanges, setHasChanges] = useState(false);
+  const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
 
   const MAX_COMMENT_LENGTH = 1000;
   const remainingChars = MAX_COMMENT_LENGTH - comment.length;
@@ -48,6 +49,12 @@ export function EditReviewModal({
       rating !== review.rating || comment.trim() !== review.comment.trim();
     setHasChanges(changed);
   }, [rating, comment, review]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setShowDiscardConfirm(false);
+    }
+  }, [isOpen]);
 
   // Handle form submission
   const handleSubmit = async (e: React.FormEvent) => {
@@ -86,13 +93,13 @@ export function EditReviewModal({
         setError(errorMessage || "Invalid request. Please check your input.");
       } else if (error.response?.status === 403) {
         setError(
-          "You do not have permission to edit this review or the 72-hour window has expired."
+          "You do not have permission to edit this review or the 72-hour window has expired.",
         );
       } else if (error.response?.status === 404) {
         setError("Review not found.");
       } else {
         setError(
-          errorMessage || "Failed to update review. Please try again later."
+          errorMessage || "Failed to update review. Please try again later.",
         );
       }
     } finally {
@@ -112,14 +119,18 @@ export function EditReviewModal({
   const handleClose = () => {
     if (!isLoading) {
       if (hasChanges) {
-        const confirmed = confirm(
-          "You have unsaved changes. Are you sure you want to close?"
-        );
-        if (!confirmed) return;
+        setShowDiscardConfirm(true);
+        return;
       }
       onClose();
       resetForm();
     }
+  };
+
+  const handleDiscardChanges = () => {
+    setShowDiscardConfirm(false);
+    onClose();
+    resetForm();
   };
 
   if (!isOpen) return null;
@@ -303,6 +314,38 @@ export function EditReviewModal({
           </button>
         </div>
       </div>
+
+      {showDiscardConfirm && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-slate-900/35"
+            onClick={() => setShowDiscardConfirm(false)}
+          />
+          <div className="relative w-full max-w-md rounded-xl border border-gray-200 bg-white p-6 shadow-xl">
+            <h3 className="text-lg text-slate-900">Discard unsaved changes?</h3>
+            <p className="mt-2 text-sm text-gray-600">
+              You have unsaved changes. If you close now, your edits will be
+              lost.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setShowDiscardConfirm(false)}
+                className="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
+              >
+                Keep editing
+              </button>
+              <button
+                type="button"
+                onClick={handleDiscardChanges}
+                className="rounded-lg bg-red-600 px-4 py-2 text-sm text-white hover:bg-red-700"
+              >
+                Discard changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
