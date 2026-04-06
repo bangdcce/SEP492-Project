@@ -39,8 +39,12 @@ describe('ProjectsService', () => {
   const disputeRepository = {};
   const reviewRepository = {};
   const milestoneRepository = {
+    create: jest.fn((value) => value),
+    count: jest.fn(),
     findOne: jest.fn(),
     save: jest.fn(),
+    find: jest.fn(),
+    remove: jest.fn(),
   };
   const escrowRepository = {
     findOne: jest.fn(),
@@ -54,6 +58,7 @@ describe('ProjectsService', () => {
   };
   const milestoneLockPolicyService = {
     findLatestActivatedContract: jest.fn(),
+    assertCanMutateMilestoneStructure: jest.fn(),
   };
   const escrowReleaseService = {
     releaseForApprovedMilestone: jest.fn(),
@@ -225,6 +230,356 @@ describe('ProjectsService', () => {
     await expect(
       service.requestMilestoneReview('milestone-1', 'freelancer-1'),
     ).rejects.toThrow('Fund this milestone first');
+  });
+
+  describe('createMilestone', () => {
+    it('creates a milestone and validates the project budget after save', async () => {
+      const project = {
+        id: 'project-1',
+        brokerId: 'broker-1',
+        status: ProjectStatus.IN_PROGRESS,
+        totalBudget: 1000,
+      } as ProjectEntity;
+
+      projectRepository.findOne.mockResolvedValue(project);
+      milestoneLockPolicyService.assertCanMutateMilestoneStructure = jest
+        .fn()
+        .mockResolvedValue(undefined);
+      milestoneRepository.count.mockResolvedValue(1);
+
+      const createdMilestone = {
+        id: 'milestone-2',
+        projectId: 'project-1',
+        title: 'Implementation',
+        description: 'Build the feature',
+        amount: 250,
+        retentionAmount: 25,
+        deliverableType: DeliverableType.SOURCE_CODE,
+        acceptanceCriteria: ['Feature is implemented'],
+        startDate: new Date('2026-04-01T00:00:00.000Z'),
+        dueDate: new Date('2026-04-10T00:00:00.000Z'),
+        sortOrder: 2,
+        status: MilestoneStatus.PENDING,
+      } as MilestoneEntity;
+
+      milestoneRepository.save.mockResolvedValue(createdMilestone);
+      milestoneRepository.find.mockResolvedValue([createdMilestone]);
+
+      const result = await service.createMilestone('project-1', 'broker-1', {
+        title: 'Implementation',
+        description: 'Build the feature',
+        amount: 250,
+        retentionAmount: 25,
+        deliverableType: DeliverableType.SOURCE_CODE,
+        acceptanceCriteria: ['Feature is implemented'],
+        startDate: '2026-04-01',
+        dueDate: '2026-04-10',
+      });
+
+      expect(projectRepository.findOne).toHaveBeenCalledWith({ where: { id: 'project-1' } });
+      expect(milestoneRepository.count).toHaveBeenCalledWith({ where: { projectId: 'project-1' } });
+      expect(milestoneRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          projectId: 'project-1',
+          title: 'Implementation',
+          amount: 250,
+          retentionAmount: 25,
+          deliverableType: DeliverableType.SOURCE_CODE,
+          sortOrder: 2,
+          status: MilestoneStatus.PENDING,
+        }),
+      );
+      expect(result).toBe(createdMilestone);
+    });
+
+    it('removes the saved milestone when the budget check fails', async () => {
+      const project = {
+        id: 'project-1',
+        brokerId: 'broker-1',
+        status: ProjectStatus.IN_PROGRESS,
+        totalBudget: 100,
+      } as ProjectEntity;
+
+      projectRepository.findOne.mockResolvedValue(project);
+      milestoneLockPolicyService.assertCanMutateMilestoneStructure = jest
+        .fn()
+        .mockResolvedValue(undefined);
+      milestoneRepository.count.mockResolvedValue(0);
+      const savedMilestone = {
+        id: 'milestone-1',
+        projectId: 'project-1',
+        title: 'Too expensive',
+        amount: 120,
+        retentionAmount: 0,
+      } as MilestoneEntity;
+      milestoneRepository.save.mockResolvedValue(savedMilestone);
+      milestoneRepository.find.mockResolvedValue([savedMilestone]);
+
+      await expect(
+        service.createMilestone('project-1', 'broker-1', {
+          title: 'Too expensive',
+          amount: 120,
+        }),
+      ).rejects.toThrow('Milestone total exceeds project budget');
+
+      expect(milestoneRepository.remove).toHaveBeenCalledWith(savedMilestone);
+    });
+
+    it('rejects milestones whose retention exceeds the amount', async () => {
+      const project = {
+        id: 'project-1',
+        brokerId: 'broker-1',
+        status: ProjectStatus.IN_PROGRESS,
+        totalBudget: 1000,
+      } as ProjectEntity;
+
+      projectRepository.findOne.mockResolvedValue(project);
+      milestoneLockPolicyService.assertCanMutateMilestoneStructure = jest
+        .fn()
+        .mockResolvedValue(undefined);
+      milestoneRepository.count.mockResolvedValue(0);
+
+      await expect(
+        service.createMilestone('project-1', 'broker-1', {
+          title: 'Invalid retention',
+          amount: 100,
+          retentionAmount: 120,
+        }),
+      ).rejects.toThrow('Milestone retentionAmount cannot exceed milestone amount');
+
+      expect(milestoneRepository.save).not.toHaveBeenCalled();
+      expect(milestoneRepository.remove).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateMilestoneStructure', () => {
+    it('updates a milestone and returns the saved structure when budget remains valid', async () => {
+      const milestone = {
+        id: 'milestone-1',
+        projectId: 'project-1',
+        title: 'Discovery',
+        description: 'Old description',
+        amount: 100,
+        retentionAmount: 10,
+        sortOrder: 1,
+        deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+        acceptanceCriteria: ['Old criteria'],
+      } as MilestoneEntity;
+      const project = {
+        id: 'project-1',
+        brokerId: 'broker-1',
+        status: ProjectStatus.IN_PROGRESS,
+        totalBudget: 500,
+      } as ProjectEntity;
+
+      milestoneRepository.findOne.mockResolvedValue(milestone);
+      projectRepository.findOne.mockResolvedValue(project);
+      milestoneLockPolicyService.assertCanMutateMilestoneStructure = jest
+        .fn()
+        .mockResolvedValue(undefined);
+      milestoneRepository.find.mockResolvedValue([
+        {
+          ...milestone,
+          title: 'Updated milestone',
+          description: null,
+          amount: 120,
+          retentionAmount: 0,
+          sortOrder: 2,
+          deliverableType: DeliverableType.SOURCE_CODE,
+          acceptanceCriteria: ['Updated criteria'],
+        },
+      ]);
+
+      const updatedMilestone = {
+        ...milestone,
+        title: 'Updated milestone',
+        description: null,
+        amount: 120,
+        retentionAmount: 0,
+        sortOrder: 2,
+        deliverableType: DeliverableType.SOURCE_CODE,
+        acceptanceCriteria: ['Updated criteria'],
+      } as MilestoneEntity;
+      milestoneRepository.save.mockImplementation(async (value) => value);
+
+      const result = await service.updateMilestoneStructure('milestone-1', 'broker-1', {
+        title: 'Updated milestone',
+        description: null,
+        amount: 120,
+        sortOrder: 2,
+        deliverableType: DeliverableType.SOURCE_CODE,
+        retentionAmount: 0,
+        acceptanceCriteria: ['Updated criteria'],
+      });
+
+      expect(milestoneRepository.findOne).toHaveBeenCalledWith({ where: { id: 'milestone-1' } });
+      expect(milestoneRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'milestone-1',
+          title: 'Updated milestone',
+          description: null,
+          amount: 120,
+          retentionAmount: 0,
+          sortOrder: 2,
+          deliverableType: DeliverableType.SOURCE_CODE,
+        }),
+      );
+      expect(result).toEqual(updatedMilestone);
+    });
+
+    it('rejects an update when no milestone structure fields are provided', async () => {
+      milestoneRepository.findOne.mockResolvedValue({
+        id: 'milestone-1',
+        projectId: 'project-1',
+      } as MilestoneEntity);
+      projectRepository.findOne.mockResolvedValue({
+        id: 'project-1',
+        brokerId: 'broker-1',
+        status: ProjectStatus.IN_PROGRESS,
+        totalBudget: 500,
+      } as ProjectEntity);
+      milestoneLockPolicyService.assertCanMutateMilestoneStructure = jest
+        .fn()
+        .mockResolvedValue(undefined);
+
+      await expect(service.updateMilestoneStructure('milestone-1', 'broker-1', {})).rejects.toThrow(
+        'No milestone structure fields provided to update',
+      );
+
+      expect(milestoneRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('restores the previous milestone state if the budget check fails', async () => {
+      const milestone = {
+        id: 'milestone-1',
+        projectId: 'project-1',
+        title: 'Discovery',
+        amount: 100,
+        retentionAmount: 0,
+      } as MilestoneEntity;
+      const project = {
+        id: 'project-1',
+        brokerId: 'broker-1',
+        status: ProjectStatus.IN_PROGRESS,
+        totalBudget: 50,
+      } as ProjectEntity;
+
+      milestoneRepository.findOne.mockResolvedValue(milestone);
+      projectRepository.findOne.mockResolvedValue(project);
+      milestoneLockPolicyService.assertCanMutateMilestoneStructure = jest
+        .fn()
+        .mockResolvedValue(undefined);
+      milestoneRepository.save.mockImplementation(async (value) => value);
+      milestoneRepository.find.mockResolvedValue([
+        {
+          ...milestone,
+          amount: 100,
+          retentionAmount: 0,
+        },
+      ]);
+
+      await expect(
+        service.updateMilestoneStructure('milestone-1', 'broker-1', { amount: 100 }),
+      ).rejects.toThrow('Milestone total exceeds project budget');
+
+      expect(milestoneRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'milestone-1',
+          amount: 100,
+        }),
+      );
+      expect(milestoneRepository.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'milestone-1',
+          projectId: 'project-1',
+          title: 'Discovery',
+          amount: 100,
+          retentionAmount: 0,
+        }),
+      );
+    });
+  });
+
+  describe('deleteMilestoneStructure', () => {
+    it('deletes a milestone when the remaining project budget is still valid', async () => {
+      const milestone = {
+        id: 'milestone-1',
+        projectId: 'project-1',
+        title: 'Discovery',
+        amount: 100,
+        retentionAmount: 10,
+      } as MilestoneEntity;
+      const project = {
+        id: 'project-1',
+        brokerId: 'broker-1',
+        status: ProjectStatus.IN_PROGRESS,
+        totalBudget: 500,
+      } as ProjectEntity;
+
+      milestoneRepository.findOne.mockResolvedValue(milestone);
+      projectRepository.findOne.mockResolvedValue(project);
+      milestoneLockPolicyService.assertCanMutateMilestoneStructure = jest
+        .fn()
+        .mockResolvedValue(undefined);
+      milestoneRepository.find.mockResolvedValue([]);
+      milestoneRepository.remove.mockResolvedValue(milestone);
+
+      await expect(service.deleteMilestoneStructure('milestone-1', 'broker-1')).resolves.toBeUndefined();
+
+      expect(milestoneRepository.remove).toHaveBeenCalledWith(milestone);
+      expect(milestoneRepository.save).not.toHaveBeenCalled();
+    });
+
+    it('restores the milestone if deleting it causes the project budget to fail', async () => {
+      const milestone = {
+        id: 'milestone-1',
+        projectId: 'project-1',
+        title: 'Discovery',
+        amount: 300,
+        retentionAmount: 10,
+      } as MilestoneEntity;
+      const project = {
+        id: 'project-1',
+        brokerId: 'broker-1',
+        status: ProjectStatus.IN_PROGRESS,
+        totalBudget: 200,
+      } as ProjectEntity;
+
+      milestoneRepository.findOne.mockResolvedValue(milestone);
+      projectRepository.findOne.mockResolvedValue(project);
+      milestoneLockPolicyService.assertCanMutateMilestoneStructure = jest
+        .fn()
+        .mockResolvedValue(undefined);
+      milestoneRepository.remove.mockResolvedValue(milestone);
+      milestoneRepository.find.mockResolvedValue([
+        {
+          id: 'milestone-2',
+          projectId: 'project-1',
+          amount: 250,
+          retentionAmount: 0,
+        } as MilestoneEntity,
+      ]);
+
+      await expect(service.deleteMilestoneStructure('milestone-1', 'broker-1')).rejects.toThrow(
+        'Milestone total exceeds project budget',
+      );
+
+      expect(milestoneRepository.remove).toHaveBeenCalledWith(milestone);
+      expect(milestoneRepository.save).toHaveBeenCalledWith(milestone);
+    });
+
+    it('rejects deleting a milestone that is not linked to a project', async () => {
+      milestoneRepository.findOne.mockResolvedValue({
+        id: 'milestone-1',
+        projectId: null,
+      } as MilestoneEntity);
+
+      await expect(service.deleteMilestoneStructure('milestone-1', 'broker-1')).rejects.toThrow(
+        'Milestone is not linked to a project',
+      );
+
+      expect(milestoneRepository.remove).not.toHaveBeenCalled();
+    });
   });
 
   it('allows the assigned broker to complete the intermediate milestone review', async () => {

@@ -29,14 +29,18 @@ describe('ProjectSpecsService', () => {
   let queryRunner: QueryRunner;
 
   const mockProjectSpecsRepo = {
+    find: jest.fn(),
     findOne: jest.fn(),
     save: jest.fn(),
+    createQueryBuilder: jest.fn(),
   };
   const mockMilestonesRepo = {};
   const mockProjectRequestsRepo = {
+    findOne: jest.fn(),
     save: jest.fn(),
   };
   const mockProjectSpecSignaturesRepo = {
+    create: jest.fn((value) => value),
     findOne: jest.fn(),
     find: jest.fn(),
     save: jest.fn(),
@@ -614,7 +618,398 @@ describe('ProjectSpecsService', () => {
     });
   });
 
+  describe('client spec lifecycle', () => {
+    const baseClientSpecDto = {
+      requestId: 'request-uuid',
+      title: 'Client-facing scope',
+      description: 'A clear and concise client spec',
+      estimatedBudget: 1000,
+      agreedDeliveryDeadline: '2026-05-15',
+      projectCategory: 'CUSTOM_SOFTWARE',
+      clientFeatures: [
+        {
+          title: 'Login',
+          description: 'Password and OTP login support',
+          priority: 'MUST_HAVE',
+        },
+      ],
+      referenceLinks: [],
+      richContentJson: null,
+      changeSummary: 'Initial client spec',
+    } as never;
+
+    it('creates a client spec draft and returns warnings from the saved read model', async () => {
+      const request = buildRequest({
+        brokerId: mockUser.id,
+        broker: mockUser,
+        requestScopeBaseline: {
+          ...buildRequest().requestScopeBaseline!,
+          requestedDeadline: '2026-05-15',
+        },
+      });
+      const savedSpec = {
+        id: 'client-spec-uuid',
+        requestId: request.id,
+        specPhase: SpecPhase.CLIENT_SPEC,
+        status: ProjectSpecStatus.DRAFT,
+      } as ProjectSpecEntity;
+      const hydratedSpec = {
+        ...savedSpec,
+        request,
+      } as ProjectSpecEntity;
+
+      (queryRunner.manager.findOne as jest.Mock)
+        .mockResolvedValueOnce(request)
+        .mockResolvedValueOnce(null);
+      (queryRunner.manager.create as jest.Mock).mockImplementation((_, data) => data);
+      (queryRunner.manager.save as jest.Mock).mockResolvedValue(savedSpec);
+      jest.spyOn(service, 'findOne').mockResolvedValue(hydratedSpec);
+
+      const result = await service.createClientSpec(mockUser, baseClientSpecDto, {});
+
+      expect(queryRunner.commitTransaction).toHaveBeenCalled();
+      expect(queryRunner.manager.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: request.id,
+          specPhase: SpecPhase.CLIENT_SPEC,
+          status: ProjectSpecStatus.DRAFT,
+        }),
+      );
+      expect(mockAuditLogsService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'CREATE_CLIENT_SPEC' }),
+      );
+      expect(result.spec.id).toBe('client-spec-uuid');
+      expect(result.warnings).toHaveLength(0);
+    });
+
+    it('rejects client spec creation when the request does not belong to the broker', async () => {
+      const request = buildRequest({ brokerId: 'another-broker' });
+      (queryRunner.manager.findOne as jest.Mock).mockResolvedValueOnce(request);
+
+      await expect(service.createClientSpec(mockUser, baseClientSpecDto, {})).rejects.toThrow(
+        /not authorized to create a spec/i,
+      );
+
+      expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
+      expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
+    });
+
+    it('updates an editable client spec and preserves rejected status until resubmission', async () => {
+      const existingSpec = {
+        id: 'client-spec-uuid',
+        specPhase: SpecPhase.CLIENT_SPEC,
+        status: ProjectSpecStatus.REJECTED,
+        requestId: 'request-uuid',
+        request: buildRequest({ brokerId: mockUser.id }),
+      } as ProjectSpecEntity;
+      const updatedSpec = {
+        ...existingSpec,
+        title: 'Client-facing scope',
+        status: ProjectSpecStatus.REJECTED,
+      } as ProjectSpecEntity;
+
+      jest.spyOn(service, 'findOne').mockResolvedValueOnce(existingSpec).mockResolvedValueOnce(updatedSpec);
+      (mockProjectRequestsRepo.findOne as jest.Mock).mockResolvedValue(buildRequest());
+      (mockProjectSpecsRepo.save as jest.Mock).mockResolvedValue(updatedSpec);
+
+      const result = await service.updateClientSpec(mockUser, 'client-spec-uuid', baseClientSpecDto, {});
+
+      expect(mockProjectSpecsRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'client-spec-uuid',
+          title: 'Client-facing scope',
+          status: ProjectSpecStatus.REJECTED,
+        }),
+      );
+      expect(mockAuditLogsService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'UPDATE_CLIENT_SPEC' }),
+      );
+      expect(result.spec.id).toBe('client-spec-uuid');
+    });
+
+    it('rejects client spec updates when the spec is not a client-spec draft', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'full-spec-uuid',
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.DRAFT,
+      } as ProjectSpecEntity);
+
+      await expect(
+        service.updateClientSpec(mockUser, 'full-spec-uuid', baseClientSpecDto, {}),
+      ).rejects.toThrow(/Only client specs can be edited/i);
+    });
+
+    it('submits a client spec for review and notifies the client and broker', async () => {
+      const request = buildRequest({ brokerId: mockUser.id });
+      const spec = {
+        id: 'client-spec-uuid',
+        requestId: request.id,
+        specPhase: SpecPhase.CLIENT_SPEC,
+        status: ProjectSpecStatus.DRAFT,
+        title: 'Client-facing scope',
+        clientFeatures: [{ id: 'feature-1', title: 'Login', description: 'Secure login' }],
+        request,
+      } as ProjectSpecEntity;
+
+      jest.spyOn(service, 'findOne').mockResolvedValue(spec);
+      (mockProjectRequestsRepo.save as jest.Mock).mockImplementation((value) => value);
+
+      const result = await service.submitForClientReview(mockUser, 'client-spec-uuid', {});
+
+      expect(result.status).toBe(ProjectSpecStatus.CLIENT_REVIEW);
+      expect(mockProjectRequestsRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RequestStatus.SPEC_SUBMITTED }),
+      );
+      expect(mockNotificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: request.clientId }),
+      );
+      expect(mockAuditLogsService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'SUBMIT_CLIENT_SPEC_FOR_REVIEW' }),
+      );
+    });
+
+    it('rejects client spec submission when no feature has been provided', async () => {
+      const request = buildRequest({ brokerId: mockUser.id });
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'client-spec-uuid',
+        requestId: request.id,
+        specPhase: SpecPhase.CLIENT_SPEC,
+        status: ProjectSpecStatus.DRAFT,
+        clientFeatures: [],
+        request,
+      } as ProjectSpecEntity);
+
+      await expect(service.submitForClientReview(mockUser, 'client-spec-uuid', {})).rejects.toThrow(
+        /must have at least one feature/i,
+      );
+    });
+
+    it('approves a client spec and transitions the request to SPEC_APPROVED', async () => {
+      const request = buildRequest({ clientId: 'client-uuid', brokerId: mockUser.id });
+      const spec = {
+        id: 'client-spec-uuid',
+        requestId: request.id,
+        specPhase: SpecPhase.CLIENT_SPEC,
+        status: ProjectSpecStatus.CLIENT_REVIEW,
+        title: 'Client-facing scope',
+        request,
+      } as ProjectSpecEntity;
+
+      jest.spyOn(service, 'findOne').mockResolvedValue(spec);
+      (mockProjectRequestsRepo.save as jest.Mock).mockImplementation((value) => value);
+      (mockProjectSpecsRepo.save as jest.Mock).mockImplementation((value) => value);
+
+      const result = await service.clientReviewSpec(
+        { id: 'client-uuid', role: UserRole.CLIENT } as UserEntity,
+        'client-spec-uuid',
+        'APPROVE',
+        null,
+        {},
+      );
+
+      expect(result.status).toBe(ProjectSpecStatus.CLIENT_APPROVED);
+      expect(mockProjectRequestsRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ status: RequestStatus.SPEC_APPROVED }),
+      );
+      expect(mockNotificationsService.create).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: mockUser.id }),
+      );
+      expect(mockAuditLogsService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'CLIENT_APPROVE_SPEC' }),
+      );
+    });
+
+    it('rejects a client-spec rejection reason that is too short', async () => {
+      const request = buildRequest({ clientId: 'client-uuid', brokerId: mockUser.id });
+      jest.spyOn(service, 'findOne').mockResolvedValue({
+        id: 'client-spec-uuid',
+        requestId: request.id,
+        specPhase: SpecPhase.CLIENT_SPEC,
+        status: ProjectSpecStatus.CLIENT_REVIEW,
+        request,
+      } as ProjectSpecEntity);
+
+      await expect(
+        service.clientReviewSpec(
+          { id: 'client-uuid', role: UserRole.CLIENT } as UserEntity,
+          'client-spec-uuid',
+          'REJECT',
+          'too short',
+          {},
+        ),
+      ).rejects.toThrow(/at least 10 characters/i);
+    });
+  });
+
+  describe('full spec review flow', () => {
+    const validMilestones = [
+      {
+        title: 'Design',
+        description: 'Design stage',
+        amount: 300,
+        startDate: '2026-04-01',
+        dueDate: '2026-04-10',
+        deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+        retentionAmount: 0,
+        sortOrder: 1,
+      },
+      {
+        title: 'Build',
+        description: 'Implementation stage',
+        amount: 700,
+        startDate: '2026-04-11',
+        dueDate: '2026-05-15',
+        deliverableType: DeliverableType.SOURCE_CODE,
+        retentionAmount: 0,
+        sortOrder: 2,
+      },
+    ];
+
+    const makeValidFullSpec = (overrides: Partial<ProjectSpecEntity> = {}) =>
+      ({
+        id: 'full-spec-uuid',
+        requestId: 'request-uuid',
+        specPhase: SpecPhase.FULL_SPEC,
+        status: ProjectSpecStatus.DRAFT,
+        title: 'Detailed Full Spec',
+        totalBudget: 1000,
+        milestones: validMilestones,
+        features: [],
+        request: buildRequest({
+          brokerId: mockUser.id,
+          requestedDeadline: '2026-05-15',
+          activeCommercialChangeRequest: null,
+        }),
+        parentSpecId: null,
+        ...overrides,
+      }) as unknown as ProjectSpecEntity;
+
+    it('submits a full spec for final review and notifies all required reviewers', async () => {
+      const spec = makeValidFullSpec();
+      jest.spyOn(service, 'findOne').mockResolvedValue(spec);
+      (mockProjectRequestProposalsRepo.find as jest.Mock).mockResolvedValue([
+        { freelancerId: 'freelancer-uuid' },
+      ]);
+      (mockProjectRequestsRepo.save as jest.Mock).mockImplementation((value) => value);
+      (mockProjectSpecsRepo.save as jest.Mock).mockImplementation((value) => value);
+
+      const result = await service.submitForFinalReview(
+        mockUser,
+        'full-spec-uuid',
+        {},
+      );
+
+      expect(result.status).toBe(ProjectSpecStatus.FINAL_REVIEW);
+      expect(mockNotificationsService.create).toHaveBeenCalledTimes(2);
+      expect(mockNotificationsService.create).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ userId: spec.request.clientId }),
+      );
+      expect(mockNotificationsService.create).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ userId: 'freelancer-uuid' }),
+      );
+      expect(mockAuditLogsService.log).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'SUBMIT_FULL_SPEC_FOR_REVIEW' }),
+      );
+    });
+
+    it('rejects full spec submission when no freelancer has accepted the request', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(makeValidFullSpec());
+      (mockProjectRequestProposalsRepo.find as jest.Mock).mockResolvedValue([]);
+
+      await expect(service.submitForFinalReview(mockUser, 'full-spec-uuid', {})).rejects.toThrow(
+        /Freelancer must accept invitation/i,
+      );
+    });
+
+    it('allows an eligible signer to sign the full spec and record a signature', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(
+        makeValidFullSpec({ status: ProjectSpecStatus.FINAL_REVIEW }),
+      );
+      (mockProjectRequestProposalsRepo.find as jest.Mock).mockResolvedValue([]);
+      (mockProjectSpecSignaturesRepo.findOne as jest.Mock).mockResolvedValue(null);
+      (mockProjectSpecSignaturesRepo.find as jest.Mock).mockResolvedValue([
+        { userId: 'client-uuid' } as ProjectSpecSignatureEntity,
+      ]);
+      (mockProjectSpecSignaturesRepo.save as jest.Mock).mockImplementation((value) => value);
+      (mockProjectSpecSignaturesRepo.create as jest.Mock).mockImplementation((value) => value);
+
+      const result = await service.signSpec(
+        { id: 'client-uuid', role: UserRole.CLIENT } as UserEntity,
+        'full-spec-uuid',
+        {},
+      );
+
+      expect(mockProjectSpecSignaturesRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({ specId: 'full-spec-uuid', userId: 'client-uuid' }),
+      );
+      expect(mockNotificationsService.createMany).toHaveBeenCalled();
+      expect(result.id).toBe('full-spec-uuid');
+    });
+
+    it('rejects signSpec for an ineligible signer', async () => {
+      jest.spyOn(service, 'findOne').mockResolvedValue(
+        makeValidFullSpec({ status: ProjectSpecStatus.FINAL_REVIEW }),
+      );
+      (mockProjectRequestProposalsRepo.find as jest.Mock).mockResolvedValue([]);
+
+      await expect(
+        service.signSpec(
+          { id: 'staff-uuid', role: UserRole.STAFF } as UserEntity,
+          'full-spec-uuid',
+          {},
+        ),
+      ).rejects.toThrow(/not an eligible signer/i);
+    });
+  });
+
   describe('query authorization', () => {
+    it('returns pending approval and pending audit specs for staff review', async () => {
+      const pendingSpecs = [
+        { id: 'spec-pending-1', status: ProjectSpecStatus.PENDING_APPROVAL },
+        { id: 'spec-pending-2', status: ProjectSpecStatus.PENDING_AUDIT },
+      ] as ProjectSpecEntity[];
+      mockProjectSpecsRepo.find.mockResolvedValue(pendingSpecs);
+
+      const result = await service.findPendingSpecs();
+
+      expect(mockProjectSpecsRepo.find).toHaveBeenCalledWith({
+        where: [
+          { status: ProjectSpecStatus.PENDING_APPROVAL },
+          { status: ProjectSpecStatus.PENDING_AUDIT },
+        ],
+        relations: ['request', 'request.client', 'request.broker'],
+        order: { createdAt: 'DESC' },
+      });
+      expect(result).toEqual(pendingSpecs);
+    });
+
+    it('queries pending client-review specs for the authenticated client id', async () => {
+      const queryBuilder = {
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([{ id: 'spec-review-1', status: 'CLIENT_REVIEW' }]),
+      };
+      mockProjectSpecsRepo.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      const result = await service.findPendingClientReview('client-uuid');
+
+      expect(mockProjectSpecsRepo.createQueryBuilder).toHaveBeenCalledWith('spec');
+      expect(queryBuilder.where).toHaveBeenCalledWith('spec.specPhase = :phase', {
+        phase: SpecPhase.CLIENT_SPEC,
+      });
+      expect(queryBuilder.andWhere).toHaveBeenNthCalledWith(1, 'spec.status = :status', {
+        status: ProjectSpecStatus.CLIENT_REVIEW,
+      });
+      expect(queryBuilder.andWhere).toHaveBeenNthCalledWith(2, 'request.clientId = :clientId', {
+        clientId: 'client-uuid',
+      });
+      expect(result).toEqual([{ id: 'spec-review-1', status: 'CLIENT_REVIEW' }]);
+    });
+
     it('allows a contract-side freelancer to view a spec for the request', async () => {
       const freelancer = {
         id: 'freelancer-uuid',

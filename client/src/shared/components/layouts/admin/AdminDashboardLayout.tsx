@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import { AdminSidebar } from "./AdminSidebar";
 import { ClientHeader } from "../client/ClientHeader";
 import { ClientFooter } from "../client/ClientFooter";
+import { useCaptureMode } from "@/shared/hooks";
 
 interface AdminDashboardLayoutProps {
   children: React.ReactNode;
@@ -19,6 +20,7 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
 }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const isCaptureMode = useCaptureMode();
 
   const handleToggleSidebar = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
@@ -59,7 +61,7 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
         />
         <main className="flex min-w-0 flex-1 flex-col p-6">
           <div className="max-w-7xl mx-auto w-full flex-1">{children}</div>
-          {showFooter && <ClientFooter />}
+          {showFooter && !isCaptureMode && <ClientFooter />}
         </main>
       </div>
     </div>

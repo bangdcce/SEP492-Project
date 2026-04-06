@@ -11,6 +11,7 @@
     "seed:dispute-fixtures": "node scripts/seed-dispute-project-fixtures.js",
     "seed:review-smoke-fixtures": "node scripts/ensure-review-moderation-smoke-fixtures.js",
     "seed:payment-demo": "node scripts/seed-payment-demo-fixtures.js",
+    "seed:client-showcase": "node scripts/seed-client-showcase-fixtures.js",
     "smoke:runtime": "node scripts/smoke-runtime-modules.js",
     "generate:keys": "node scripts/generate-keys.js",
     "generate:ssl": "ts-node src/scripts/generate-ssl.ts",

@@ -7,6 +7,7 @@ import React, { useState } from "react";
 import { FreelancerSidebar } from "./FreelancerSidebar";
 import { ClientHeader } from "../client/ClientHeader";
 import { ClientFooter } from "../client/ClientFooter";
+import { useCaptureMode } from "@/shared/hooks";
 
 interface FreelancerDashboardLayoutProps {
   children: React.ReactNode;
@@ -19,6 +20,7 @@ export const FreelancerDashboardLayout: React.FC<
 > = ({ children, showFooter = true, contentMode = "default" }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const isCaptureMode = useCaptureMode();
 
   const handleToggleSidebar = () => {
     setIsSidebarCollapsed(!isSidebarCollapsed);
@@ -66,7 +68,7 @@ export const FreelancerDashboardLayout: React.FC<
         />
         <main className={mainClass}>
           <div className={contentContainerClass}>{children}</div>
-          {showFooter && <ClientFooter />}
+          {showFooter && !isCaptureMode && <ClientFooter />}
         </main>
       </div>
     </div>

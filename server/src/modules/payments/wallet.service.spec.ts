@@ -192,6 +192,102 @@ describe('WalletService', () => {
     });
   });
 
+  it('normalizes invalid paging input and applies the requested range filter', async () => {
+    walletRepository.findOne.mockResolvedValueOnce({
+      id: 'wallet-1',
+      userId: 'user-1',
+      balance: 10,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 100,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity);
+    transactionRepository.findAndCount.mockResolvedValueOnce([[], 0]);
+
+    const result = await service.listTransactions('user-1', 0, 250, '30d');
+
+    expect(transactionRepository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 0,
+        take: 100,
+        where: expect.objectContaining({
+          walletId: 'wallet-1',
+          createdAt: expect.anything(),
+        }),
+      }),
+    );
+    expect(result.page).toBe(1);
+    expect(result.limit).toBe(100);
+  });
+
+  it('normalizes invalid pagination inputs before querying wallet transactions', async () => {
+    walletRepository.findOne.mockResolvedValueOnce({
+      id: 'wallet-1',
+      userId: 'user-1',
+      balance: 10,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity);
+    transactionRepository.findAndCount.mockResolvedValueOnce([[], 0]);
+
+    const result = await service.listTransactions('user-1', 0, 999);
+
+    expect(transactionRepository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        skip: 0,
+        take: 100,
+      }),
+    );
+    expect(result.page).toBe(1);
+    expect(result.limit).toBe(100);
+  });
+
+  it('applies the requested date range when listing wallet transactions', async () => {
+    walletRepository.findOne.mockResolvedValueOnce({
+      id: 'wallet-1',
+      userId: 'user-1',
+      balance: 10,
+      pendingBalance: 0,
+      heldBalance: 0,
+      totalDeposited: 0,
+      totalWithdrawn: 0,
+      totalEarned: 0,
+      totalSpent: 0,
+      currency: 'USD',
+      status: WalletStatus.ACTIVE,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    } as WalletEntity);
+    transactionRepository.findAndCount.mockResolvedValueOnce([[], 0]);
+
+    await service.listTransactions('user-1', 2, 20, '30d');
+
+    expect(transactionRepository.findAndCount).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          walletId: 'wallet-1',
+          createdAt: expect.anything(),
+        }),
+        skip: 20,
+        take: 20,
+      }),
+    );
+  });
+
   it('returns the platform treasury wallet using the earliest active admin/staff owner', async () => {
     userRepository.findOne.mockResolvedValueOnce({
       id: 'admin-1',

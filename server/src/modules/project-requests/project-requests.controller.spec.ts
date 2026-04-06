@@ -25,6 +25,8 @@ describe('ProjectRequestsController', () => {
     acceptBroker: jest.Mock;
     releaseBrokerSlot: jest.Mock;
     respondToInvitation: jest.Mock;
+    approveSpecs: jest.Mock;
+    convertToProject: jest.Mock;
   };
 
   beforeEach(() => {
@@ -47,6 +49,8 @@ describe('ProjectRequestsController', () => {
       acceptBroker: jest.fn(),
       releaseBrokerSlot: jest.fn(),
       respondToInvitation: jest.fn(),
+      approveSpecs: jest.fn(),
+      convertToProject: jest.fn(),
     };
 
     controller = new ProjectRequestsController(
@@ -106,6 +110,7 @@ describe('ProjectRequestsController', () => {
       {},
     );
   });
+
 
   it('UC16-DRF-CTRL-01 forwards GET /project-requests/drafts/mine to ProjectRequestsService.findDraftsByClient with the authenticated client id', async () => {
     const clientId = 'client-1';
@@ -582,5 +587,52 @@ describe('ProjectRequestsController', () => {
       'FREELANCER',
       'REJECTED',
     );
+  });
+  it('approves finalized specs for a request', async () => {
+    projectRequestsService.approveSpecs.mockResolvedValue({
+      id: 'request-1',
+      status: 'SPECS_APPROVED',
+    });
+
+    const result = await controller.approveSpecs('request-1');
+
+    expect(projectRequestsService.approveSpecs).toHaveBeenCalledWith('request-1');
+    expect(result).toEqual({
+      id: 'request-1',
+      status: 'SPECS_APPROVED',
+    });
+  });
+
+  it('propagates approve-specs failures', async () => {
+    projectRequestsService.approveSpecs.mockRejectedValue(new Error('approve failed'));
+
+    await expect(controller.approveSpecs('request-1')).rejects.toThrow('approve failed');
+
+    expect(projectRequestsService.approveSpecs).toHaveBeenCalledWith('request-1');
+  });
+
+  it('converts a finalized request to a project', async () => {
+    projectRequestsService.convertToProject.mockResolvedValue({
+      id: 'project-1',
+      requestId: 'request-1',
+    });
+
+    const user = { id: 'broker-1' } as any;
+    const result = await controller.convertToProject('request-1', user);
+
+    expect(projectRequestsService.convertToProject).toHaveBeenCalledWith('request-1', user);
+    expect(result).toEqual({
+      id: 'project-1',
+      requestId: 'request-1',
+    });
+  });
+
+  it('propagates project-conversion failures', async () => {
+    const user = { id: 'broker-1' } as any;
+    projectRequestsService.convertToProject.mockRejectedValue(new Error('convert failed'));
+
+    await expect(controller.convertToProject('request-1', user)).rejects.toThrow('convert failed');
+
+    expect(projectRequestsService.convertToProject).toHaveBeenCalledWith('request-1', user);
   });
 });

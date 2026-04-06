@@ -7,10 +7,11 @@ const crypto = require('crypto');
 const SEED_KEY = 'codex-dispute-project-fixtures-v1';
 const UUID_NAMESPACE = '4ca389c4-fd3d-4cdd-b525-7048ac391f7a';
 const EMAILS = {
-  staff: 'staff.test.new@example.com',
-  client: 'client.test.new@example.com',
-  freelancer: 'freelancer.test.new@example.com',
-  broker: 'broker.test.new@example.com',
+  staff: process.env.SHOWCASE_STAFF_EMAIL || 'staff.test.new@example.com',
+  client: process.env.SHOWCASE_CLIENT_EMAIL || 'client.test.new@example.com',
+  freelancer:
+    process.env.SHOWCASE_FREELANCER_EMAIL || 'freelancer.test.new@example.com',
+  broker: process.env.SHOWCASE_BROKER_EMAIL || 'broker.test.new@example.com',
 };
 
 const runtime = resolveDatabaseRuntimeConfig(process.env);

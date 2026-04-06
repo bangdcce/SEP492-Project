@@ -136,6 +136,14 @@ describe('PaymentMethodsService', () => {
     expect(result[0]).not.toHaveProperty('accountHolderName');
   });
 
+  it('returns an empty list when the user has no saved payment methods', async () => {
+    paymentMethodRepository.find.mockResolvedValue([]);
+
+    const result = await service.listForUser('user-1');
+
+    expect(result).toEqual([]);
+  });
+
   it('falls back to the vaulted payer email when paypalEmail is empty', () => {
     const result = service.toPaymentMethodView({
       id: 'method-vault-1',
