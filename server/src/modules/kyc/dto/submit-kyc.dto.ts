@@ -68,7 +68,7 @@ class IsFutureDateConstraint implements ValidatorConstraintInterface {
 
 export class SubmitKycDto {
   @ApiProperty({
-    description: 'Họ và tên đầy đủ trên CCCD',
+    description: 'Full name shown on the identity document',
     example: 'Nguyen Van A',
   })
   @IsString()
@@ -76,7 +76,7 @@ export class SubmitKycDto {
   fullNameOnDocument: string;
 
   @ApiProperty({
-    description: 'Số CCCD/Passport',
+    description: 'Identity document number or passport number',
     example: '001234567890',
   })
   @IsString()
@@ -84,7 +84,7 @@ export class SubmitKycDto {
   documentNumber: string;
 
   @ApiProperty({
-    description: 'Loại giấy tờ',
+    description: 'Document type',
     enum: ['CCCD', 'PASSPORT', 'DRIVER_LICENSE'],
     example: 'CCCD',
   })
@@ -92,7 +92,7 @@ export class SubmitKycDto {
   documentType: DocumentType;
 
   @ApiProperty({
-    description: 'Ngày sinh (phải ít nhất 18 tuổi)',
+    description: 'Date of birth (must be at least 18 years old)',
     example: '1990-01-01',
   })
   @IsDateString()
@@ -101,7 +101,7 @@ export class SubmitKycDto {
   dateOfBirth: string;
 
   @ApiPropertyOptional({
-    description: 'Ngày hết hạn CCCD (phải còn hiệu lực)',
+    description: 'Document expiry date (must still be valid)',
     example: '2035-01-01',
   })
   @IsDateString()
@@ -110,7 +110,7 @@ export class SubmitKycDto {
   documentExpiryDate?: string;
 
   @ApiPropertyOptional({
-    description: 'Địa chỉ thường trú',
+    description: 'Permanent address',
     example: '123 Street, Ward, District, City',
   })
   @IsString()

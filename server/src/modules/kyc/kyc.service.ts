@@ -1,11 +1,11 @@
-import {
+﻿import {
   Injectable,
   BadRequestException,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, In, Not } from 'typeorm';
 import { KycVerificationEntity, KycStatus } from '../../database/entities/kyc-verification.entity';
 import { UserEntity } from '../../database/entities/user.entity';
 import { AuditLogEntity } from '../../database/entities/audit-log.entity';
@@ -17,7 +17,7 @@ import {
 } from '../../common/utils/supabase-storage.util';
 import { hashDocumentNumber } from '../../common/utils/encryption.util';
 import { FptAiService } from '../../common/services/fpt-ai.service';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 
 @Injectable()
 export class KycService {
@@ -33,7 +33,7 @@ export class KycService {
 
   /**
    * User submit KYC verification
-   * Flow: AI Verification → Upload to Supabase → Auto-approve/reject/review
+   * Flow: AI verification -> upload to Supabase -> auto-approve/reject/review
    */
   async submitKyc(
     userId: string,
@@ -64,6 +64,28 @@ export class KycService {
       throw new BadRequestException('All documents are required: ID card front, back, and selfie');
     }
 
+    const frontFingerprint = this.getFileFingerprint(files.idCardFront.buffer);
+    const backFingerprint = this.getFileFingerprint(files.idCardBack.buffer);
+
+    if (frontFingerprint === backFingerprint) {
+      throw new BadRequestException('ID card front and back images must be different');
+    }
+
+    const documentNumberHash = hashDocumentNumber(dto.documentNumber);
+    const existingDocumentOwner = await this.kycRepo.findOne({
+      where: {
+        userId: Not(userId),
+        documentNumber: documentNumberHash,
+        documentType: dto.documentType,
+        status: In([KycStatus.PENDING, KycStatus.APPROVED]),
+      },
+      select: ['id', 'userId', 'status'],
+    });
+
+    if (existingDocumentOwner) {
+      throw new BadRequestException('This identity document is already used by another account');
+    }
+
     // Step 1: AI Verification BEFORE uploading
     const aiVerification = await this.fptAiService.verifyKyc(
       files.idCardFront.buffer,
@@ -87,7 +109,7 @@ export class KycService {
     // Critical mismatch = auto-reject or manual review
     if (dataValidation.criticalMismatch) {
       kycStatus = KycStatus.PENDING; // Send to admin for review
-      allIssues.unshift('⚠️ CRITICAL: User-entered data does not match ID card');
+      allIssues.unshift('CRITICAL: User-entered data does not match ID card');
     } else if (aiVerification.decision === 'AUTO_APPROVED' && dataValidation.matchScore >= 0.8) {
       // Only auto-approve if both AI and data match are good
       kycStatus = KycStatus.APPROVED;
@@ -105,8 +127,6 @@ export class KycService {
       uploadEncryptedFile(files.selfie.buffer, userId, 'selfie', files.selfie.mimetype),
     ]);
 
-    // Hash document number for privacy
-    const documentNumberHash = hashDocumentNumber(dto.documentNumber);
 
     // Step 4: Create KYC record (store hashed document number + Supabase paths + AI results)
     const kyc = this.kycRepo.create({
@@ -236,7 +256,6 @@ export class KycService {
       fullNameOnDocument: kyc.fullNameOnDocument ? '[SUBMITTED]' : undefined,
       documentNumber: kyc.documentNumber ? '[SUBMITTED]' : undefined,
       dateOfBirth: kyc.dateOfBirth ? '[SUBMITTED]' : undefined,
-      address: kyc.address ? '[SUBMITTED]' : undefined,
       // Include non-sensitive metadata
       rejectionReason: kyc.rejectionReason,
       createdAt: kyc.createdAt,
@@ -271,6 +290,10 @@ export class KycService {
     await this.kycRepo.save(staleApprovedKycs);
   }
 
+
+  private getFileFingerprint(buffer: Buffer): string {
+    return createHash('sha256').update(buffer).digest('hex');
+  }
   /**
    * Admin: Get all KYC submissions with filters
    * Generate fresh signed URLs for each item
@@ -542,8 +565,8 @@ export class KycService {
     return str
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '') // Remove Vietnamese accents
-      .replace(/đ/g, 'd') // Vietnamese đ → d
-      .replace(/Đ/g, 'd') // Vietnamese Đ → d
+      .replace(/Ä‘/g, 'd') // Vietnamese d with stroke -> d
+      .replace(/Ä/g, 'd') // Vietnamese capital d with stroke -> d
       .toLowerCase()
       .replace(/[^a-z0-9]/g, '') // Remove special chars
       .trim();
@@ -760,3 +783,4 @@ export class KycService {
     return { issues, matchScore, criticalMismatch };
   }
 }
+

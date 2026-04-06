@@ -1,4 +1,4 @@
-﻿import {
+import {
   Controller,
   Post,
   Body,
@@ -90,26 +90,26 @@ export class AuthController {
   @UseGuards(CaptchaGuard)
   @Throttle({ default: { limit: 3, ttl: 60000 } }) // 3 requests per minute per IP
   @ApiOperation({
-    summary: 'ﾄ斉ハg kﾃｽ tﾃi kho蘯｣n m盻嬖',
+    summary: 'Register a new account',
     description:
-      'T蘯｡o tﾃi kho蘯｣n m盻嬖 v盻嬖 thﾃｴng tin cﾆ｡ b蘯｣n. Yﾃｪu c蘯ｧu CAPTCHA vﾃ gi盻嬖 h蘯｡n 3 l蘯ｧn/phﾃｺt. Ch盻・cho phﾃｩp 3 lo蘯｡i role: CLIENT, BROKER, FREELANCER',
+      'Create a new account with user-supplied information. Requires CAPTCHA and is limited to 3 requests per minute. Self-registration supports CLIENT, BROKER, and FREELANCER roles only.',
   })
   @ApiBody({ type: RegisterDto })
   @ApiResponse({
     status: HttpStatus.CREATED,
-    description: 'ﾄ斉ハg kﾃｽ thﾃnh cﾃｴng',
+    description: 'Registration completed successfully',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'ﾄ斉ハg kﾃｽ thﾃnh cﾃｴng' },
+        message: { type: 'string', example: 'Registration completed successfully' },
         data: { $ref: '#/components/schemas/AuthResponseDto' },
       },
     },
   })
   @ApiBadRequestResponse({
-    description: 'D盻ｯ li盻㎡ ﾄ黛ｺｧu vﾃo khﾃｴng h盻｣p l盻・ho蘯ｷc CAPTCHA sai',
+    description: 'Invalid input data or CAPTCHA verification failed',
   })
-  @ApiConflictResponse({ description: 'Email ﾄ妥｣ ﾄ柁ｰ盻｣c s盻ｭ d盻･ng' })
+  @ApiConflictResponse({ description: 'Email already in use' })
   async register(
     @Body(ValidationPipe) registerDto: RegisterDto,
     @Ip() ip: string,
@@ -122,8 +122,7 @@ export class AuthController {
     const user = await this.authService.register(registerDto, ip, userAgent);
 
     return {
-      message:
-        'ﾄ斉ハg kﾃｽ thﾃnh cﾃｴng. Vui lﾃｲng ki盻ノ tra email ﾄ黛ｻ・xﾃ｡c th盻ｱc tﾃi kho蘯｣n.',
+      message: 'Registration completed successfully. Please check your email to verify the account.',
       data: user,
     };
   }
@@ -131,12 +130,12 @@ export class AuthController {
   @Get('verify-email')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Xﾃ｡c th盻ｱc email',
-    description: 'Xﾃ｡c th盻ｱc ﾄ黛ｻ蟻 ch盻・email b蘯ｱng token ﾄ柁ｰ盻｣c g盻ｭi qua email',
+    summary: 'Verify email address',
+    description: 'Verify the user email address using the token sent by email',
   })
   @ApiQuery({ name: 'token', description: 'Email verification token', required: true })
   @ApiOkResponse({
-    description: 'Email ﾄ妥｣ ﾄ柁ｰ盻｣c xﾃ｡c th盻ｱc thﾃnh cﾃｴng',
+    description: 'Email verified successfully',
     schema: {
       type: 'object',
       properties: {
@@ -145,7 +144,7 @@ export class AuthController {
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
+  @ApiBadRequestResponse({ description: 'Token is invalid or has expired' })
   async verifyEmail(@Query('token') token: string) {
     return this.emailVerificationService.verifyEmail(token);
   }
@@ -154,8 +153,8 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 2, ttl: 300000 } }) // 2 requests per 5 minutes
   @ApiOperation({
-    summary: 'G盻ｭi l蘯｡i email xﾃ｡c th盻ｱc',
-    description: 'G盻ｭi l蘯｡i email xﾃ｡c th盻ｱc cho ngﾆｰ盻拱 dﾃｹng chﾆｰa xﾃ｡c th盻ｱc email',
+    summary: 'Resend verification email',
+    description: 'Send a new verification email to a user whose email is not yet verified',
   })
   @ApiBody({
     schema: {
@@ -165,9 +164,9 @@ export class AuthController {
       },
     },
   })
-  @ApiOkResponse({ description: 'Email xﾃ｡c th盻ｱc ﾄ妥｣ ﾄ柁ｰ盻｣c g盻ｭi l蘯｡i' })
+  @ApiOkResponse({ description: 'Verification email sent again successfully' })
   @ApiBadRequestResponse({
-    description: 'Email ﾄ妥｣ ﾄ柁ｰ盻｣c xﾃ｡c th盻ｱc ho蘯ｷc yﾃｪu c蘯ｧu quﾃ｡ nhanh',
+    description: 'Email is already verified or the resend request is too frequent',
   })
   async resendVerification(@Body('email') email: string) {
     return this.emailVerificationService.resendVerificationEmail(email);
@@ -176,23 +175,23 @@ export class AuthController {
   @Post('login')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'ﾄ斉ハg nh蘯ｭp vﾃo h盻・th盻創g',
+    summary: 'Sign in to the platform',
     description:
-      'Xﾃ｡c th盻ｱc ngﾆｰ盻拱 dﾃｹng b蘯ｱng email vﾃ m蘯ｭt kh蘯ｩu, tr蘯｣ v盻・access token vﾃ refresh token',
+      'Authenticate a user with email and password, then issue access and refresh tokens',
   })
   @ApiBody({ type: LoginDto })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'ﾄ斉ハg nh蘯ｭp thﾃnh cﾃｴng',
+    description: 'Login successful',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'ﾄ斉ハg nh蘯ｭp thﾃnh cﾃｴng' },
+        message: { type: 'string', example: 'Login successful' },
         data: { $ref: '#/components/schemas/LoginResponseDto' },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'Email ho蘯ｷc m蘯ｭt kh蘯ｩu khﾃｴng ﾄ妥ｺng' })
+  @ApiUnauthorizedResponse({ description: 'Email or password is incorrect' })
   @ApiBadRequestResponse({ description: 'Invalid login payload' })
   async login(
     @Body(ValidationPipe) loginDto: LoginDto,
@@ -202,7 +201,7 @@ export class AuthController {
     message: string;
     data: SecureLoginResponseDto;
   }> {
-    // L蘯･y thﾃｴng tin thi蘯ｿt b盻・t盻ｫ request headers
+    // Read device metadata from request headers.
     const userAgent = req.headers['user-agent'] || 'Unknown Device';
     const ipAddress = req.ip || req.connection?.remoteAddress || 'Unknown IP';
 
@@ -217,7 +216,7 @@ export class AuthController {
     const { refreshToken, accessToken, ...dataWithoutTokens } = result;
 
     return {
-      message: 'ﾄ斉ハg nh蘯ｭp thﾃnh cﾃｴng',
+      message: 'Login successful',
       data: dataWithoutTokens,
     };
   }
@@ -227,22 +226,22 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
-    summary: 'ﾄ斉ハg xu蘯･t kh盻淑 h盻・th盻創g',
+    summary: 'Sign out of the platform',
     description:
-      'H盻ｧy b盻・session hi盻㌻ t蘯｡i. Refresh token s蘯ｽ ﾄ柁ｰ盻｣c ﾄ黛ｻ皇 t盻ｫ httpOnly cookie',
+      'Terminate the current session. The refresh token is read from the httpOnly cookie.',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'ﾄ斉ハg xu蘯･t thﾃnh cﾃｴng',
+    description: 'Logout successful',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'ﾄ斉ハg xu蘯･t thﾃnh cﾃｴng' },
+        message: { type: 'string', example: 'Logout successful' },
         data: { type: 'null', example: null },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'Token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
+  @ApiUnauthorizedResponse({ description: 'Token is invalid or has expired' })
   async logout(
     @Req() req: AuthRequest,
     @Res({ passthrough: true }) response: Response,
@@ -250,7 +249,7 @@ export class AuthController {
     message: string;
     data: null;
   }> {
-    // L蘯･y refresh token t盻ｫ cookie
+    // Read the refresh token from cookies.
     const refreshToken = req.cookies?.refreshToken;
 
     const result = await this.authService.logout(req.user.id, refreshToken);
@@ -268,21 +267,21 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth('access-token')
   @ApiOperation({
-    summary: 'L蘯･y thﾃｴng tin tﾃi kho蘯｣n hi盻㌻ t蘯｡i',
-    description: 'Tr蘯｣ v盻・thﾃｴng tin chi ti蘯ｿt c盻ｧa ngﾆｰ盻拱 dﾃｹng ﾄ疎ng ﾄ惰ハg nh蘯ｭp',
+    summary: 'Get current account information',
+    description: 'Return the full profile of the currently signed-in user',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'L蘯･y thﾃｴng tin thﾃnh cﾃｴng',
+    description: 'Account information retrieved successfully',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'L蘯･y thﾃｴng tin tﾃi kho蘯｣n thﾃnh cﾃｴng' },
+        message: { type: 'string', example: 'Account information retrieved successfully' },
         data: { $ref: '#/components/schemas/AuthResponseDto' },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'Token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
+  @ApiUnauthorizedResponse({ description: 'Token is invalid or has expired' })
   async getProfile(@Req() req: AuthRequest): Promise<{
     message: string;
     data: AuthResponseDto;
@@ -297,7 +296,7 @@ export class AuthController {
       });
     }
 
-    // Service method ﾄ黛ｻ・map user entity thﾃnh response DTO
+    // Map the entity into the public auth response DTO.
     const certifications = Array.isArray(userWithProfile?.profile?.bankInfo?.certifications)
       ? userWithProfile.profile.bankInfo.certifications
       : undefined;
@@ -331,7 +330,7 @@ export class AuthController {
     };
 
     return {
-      message: 'L蘯･y thﾃｴng tin tﾃi kho蘯｣n thﾃnh cﾃｴng',
+      message: 'Account information retrieved successfully',
       data: userResponse,
     };
   }
@@ -339,18 +338,18 @@ export class AuthController {
   @Put('profile')
   @UseGuards(JwtAuthGuard)
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'C蘯ｭp nh蘯ｭt thﾃｴng tin profile' })
+  @ApiOperation({ summary: 'Update profile information' })
   @ApiOkResponse({
-    description: 'C蘯ｭp nh蘯ｭt thﾃnh cﾃｴng',
+    description: 'Profile updated successfully',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'C蘯ｭp nh蘯ｭt thﾃｴng tin thﾃnh cﾃｴng' },
+        message: { type: 'string', example: 'Profile updated successfully' },
         data: { type: 'object' },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'Token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
+  @ApiUnauthorizedResponse({ description: 'Token is invalid or has expired' })
   async updateProfile(
     @Req() req: AuthRequest,
     @Body() updateProfileDto: UpdateProfileDto,
@@ -361,7 +360,7 @@ export class AuthController {
     const updatedUser = await this.authService.updateProfile(req.user.id, updateProfileDto);
 
     return {
-      message: 'C蘯ｭp nh蘯ｭt thﾃｴng tin thﾃnh cﾃｴng',
+      message: 'Profile updated successfully',
       data: updatedUser,
     };
   }
@@ -398,16 +397,16 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Lﾃm m盻嬖 access token',
-    description: 'S盻ｭ d盻･ng refresh token t盻ｫ httpOnly cookie ﾄ黛ｻ・l蘯･y access token m盻嬖',
+    summary: 'Refresh access token',
+    description: 'Use the refresh token from the httpOnly cookie to issue a new access token',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'Lﾃm m盻嬖 token thﾃnh cﾃｴng',
+    description: 'Token refreshed successfully',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'Lﾃm m盻嬖 token thﾃnh cﾃｴng' },
+        message: { type: 'string', example: 'Token refreshed successfully' },
         data: {
           type: 'object',
           properties: {
@@ -418,7 +417,7 @@ export class AuthController {
     },
   })
   @ApiUnauthorizedResponse({
-    description: 'Refresh token khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n',
+    description: 'Refresh token is invalid or has expired',
   })
   async refreshToken(
     @Req() req: Request,
@@ -465,16 +464,16 @@ export class AuthController {
   @Post('forgot-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'G盻ｭi OTP reset password qua SMS',
-    description: 'G盻ｭi mﾃ｣ OTP 6 s盻・ﾄ黛ｺｿn s盻・ﾄ訴盻㌻ tho蘯｡i ﾄ妥｣ ﾄ惰ハg kﾃｽ',
+    summary: 'Send password-reset OTP',
+    description: 'Send a 6-digit OTP to the registered email address for password reset',
   })
   @ApiBody({
     type: ForgotPasswordDto,
-    description: 'S盻・ﾄ訴盻㌻ tho蘯｡i c盻ｧa tﾃi kho蘯｣n c蘯ｧn reset password',
+    description: 'Email address of the account that needs a password reset',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'OTP ﾄ妥｣ ﾄ柁ｰ盻｣c g盻ｭi qua SMS',
+    description: 'OTP sent successfully',
     schema: {
       type: 'object',
       properties: {
@@ -482,15 +481,15 @@ export class AuthController {
         data: {
           type: 'object',
           properties: {
-            message: { type: 'string', example: 'OTP code has been sent to your phone number' },
-            phoneNumber: { type: 'string', example: '0123***789' },
+            message: { type: 'string', example: 'OTP code has been sent to your email' },
+            email: { type: 'string', example: 'us***@example.com' },
             expiresIn: { type: 'number', example: 300 },
           },
         },
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Invalid phone number payload' })
+  @ApiBadRequestResponse({ description: 'Invalid email payload' })
   async forgotPassword(@Body(ValidationPipe) forgotPasswordDto: ForgotPasswordDto): Promise<{
     message: string;
     data: ForgotPasswordResponseDto;
@@ -506,16 +505,16 @@ export class AuthController {
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Xﾃ｡c th盻ｱc mﾃ｣ OTP',
-    description: 'Ki盻ノ tra mﾃ｣ OTP cﾃｳ h盻｣p l盻・khﾃｴng (optional, cﾃｳ th盻・b盻・qua)',
+    summary: 'Verify OTP code',
+    description: 'Check whether the OTP code is valid before resetting the password',
   })
   @ApiBody({
     type: VerifyOtpDto,
-    description: 'S盻・ﾄ訴盻㌻ tho蘯｡i vﾃ mﾃ｣ OTP',
+    description: 'Email address and OTP code',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'K蘯ｿt qu蘯｣ xﾃ｡c th盻ｱc OTP',
+    description: 'OTP verification result',
   })
   async verifyOtp(@Body(ValidationPipe) verifyOtpDto: VerifyOtpDto): Promise<{
     message: string;
@@ -532,33 +531,33 @@ export class AuthController {
   @Post('reset-password')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu v盻嬖 OTP',
-    description: 'S盻ｭ d盻･ng mﾃ｣ OTP ﾄ黛ｻ・ﾄ黛ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu m盻嬖',
+    summary: 'Reset password with OTP',
+    description: 'Use the OTP code to set a new password',
   })
   @ApiBody({
     type: ResetPasswordDto,
-    description: 'S盻・ﾄ訴盻㌻ tho蘯｡i, OTP vﾃ m蘯ｭt kh蘯ｩu m盻嬖',
+    description: 'Email address, OTP code, and the new password',
   })
   @ApiResponse({
     status: HttpStatus.OK,
-    description: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng',
+    description: 'Password reset completed successfully',
     schema: {
       type: 'object',
       properties: {
-        message: { type: 'string', example: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng' },
+        message: { type: 'string', example: 'Password reset completed successfully' },
         data: {
           type: 'object',
           properties: {
             message: {
               type: 'string',
-              example: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng. Vui lﾃｲng ﾄ惰ハg nh蘯ｭp l蘯｡i.',
+              example: 'Password reset successful. Please login again.',
             },
           },
         },
       },
     },
   })
-  @ApiUnauthorizedResponse({ description: 'OTP khﾃｴng h盻｣p l盻・ho蘯ｷc ﾄ妥｣ h蘯ｿt h蘯｡n' })
+  @ApiUnauthorizedResponse({ description: 'OTP is invalid or has expired' })
   @ApiBadRequestResponse({ description: 'Invalid reset password payload' })
   async resetPassword(@Body(ValidationPipe) resetPasswordDto: ResetPasswordDto): Promise<{
     message: string;
@@ -567,7 +566,7 @@ export class AuthController {
     const result = await this.authService.resetPassword(resetPasswordDto);
 
     return {
-      message: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng',
+      message: 'Password reset completed successfully',
       data: result,
     };
   }
@@ -692,7 +691,7 @@ export class AuthController {
   @ApiBody({ type: CompleteGoogleSignupDto })
   @ApiResponse({
     status: HttpStatus.CREATED,
-    description: 'Hoﾃn t蘯･t ﾄ惰ハg kﾃｽ Google OAuth thﾃnh cﾃｴng',
+    description: 'Google OAuth signup completed successfully',
     type: LoginResponseDto,
   })
   async completeGoogleSignup(

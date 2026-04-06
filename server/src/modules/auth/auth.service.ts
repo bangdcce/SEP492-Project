@@ -78,21 +78,21 @@ export class AuthService {
       acceptPrivacy,
     } = registerDto;
 
-    // Ki盻ノ tra email ﾄ妥｣ t盻渡 t蘯｡i
-    // Ch盻・select cﾃ｡c c盻冲 c蘯ｧn thi蘯ｿt ﾄ黛ｻ・trﾃ｡nh l盻擁 n蘯ｿu cﾃｳ c盻冲 chﾆｰa t盻渡 t蘯｡i
+    // Check whether the email already exists.
+    // Select only the fields we need to avoid issues when optional relations are missing.
     const existingUser = await this.userRepository.findOne({
       where: { email },
       select: ['id', 'email', 'passwordHash', 'fullName', 'role', 'phoneNumber', 'isVerified'],
     });
 
     if (existingUser) {
-      throw new ConflictException('Email ﾄ妥｣ ﾄ柁ｰ盻｣c s盻ｭ d盻･ng');
+      throw new ConflictException('Email already in use');
     }
 
     // Validate legal consent
     if (!acceptTerms || !acceptPrivacy) {
       throw new ConflictException(
-        'B蘯｡n ph蘯｣i ch蘯･p nh蘯ｭn ﾄ進盻「 kho蘯｣n D盻議h v盻･ vﾃ Chﾃｭnh sﾃ｡ch B蘯｣o m蘯ｭt',
+        'You must accept the Terms of Service and Privacy Policy',
       );
     }
 
@@ -100,7 +100,7 @@ export class AuthService {
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    // T蘯｡o user m盻嬖 v盻嬖 legal consent timestamps
+    // Create the user and store legal-consent timestamps.
     const now = new Date();
     const newUser = this.userRepository.create({
       email,
@@ -118,13 +118,13 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(newUser);
 
-    // N蘯ｿu lﾃ BROKER ho蘯ｷc FREELANCER 竊・Lﾆｰu domains vﾃ skills
+    // If the role is BROKER or FREELANCER, persist selected domains and skills.
     if ((role === UserRole.BROKER || role === UserRole.FREELANCER) && (domainIds || skillIds)) {
       const userSkillDomainRepo =
         this.userRepository.manager.getRepository('UserSkillDomainEntity');
       const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
 
-      // Lﾆｰu domains
+      // Save domains.
       if (domainIds && domainIds.length > 0) {
         const domainRecords = domainIds.map((domainId) => ({
           userId: savedUser.id,
@@ -133,7 +133,7 @@ export class AuthService {
         await userSkillDomainRepo.save(domainRecords);
       }
 
-      // Lﾆｰu skills
+      // Save skills.
       if (skillIds && skillIds.length > 0) {
         const skillRecords = skillIds.map((skillId) => ({
           userId: savedUser.id,
@@ -164,7 +164,7 @@ export class AuthService {
       })
       .catch(() => {});
 
-    // Return user data (khﾃｴng bao g盻杜 password)
+    // Return public user data without any password fields.
     return this.mapToAuthResponse(savedUser);
   }
 
@@ -176,7 +176,7 @@ export class AuthService {
   ): Promise<LoginResponseDto> {
     const { email, password } = loginDto;
 
-    // Tﾃｬm user theo email v盻嬖 profile relation
+    // Find the user by email together with the profile relation.
     const user = await this.userRepository.findOne({
       where: { email },
       relations: ['profile'],
@@ -218,7 +218,7 @@ export class AuthService {
       user.timeZone = timeZone;
     }
 
-    // T蘯｡o JWT tokens
+    // Create JWT tokens.
     const payload: JwtPayload = {
       sub: user.id,
       email: user.email,
@@ -228,7 +228,7 @@ export class AuthService {
     const accessToken = this.jwtService.sign(payload);
     const refreshToken = randomBytes(64).toString('hex');
 
-    // Lﾆｰu auth session v盻嬖 thﾃｴng tin thi蘯ｿt b盻・
+    // Store the auth session together with device information.
     await this.createAuthSession(user.id, refreshToken, userAgent, ipAddress);
 
     // Ghi Audit Log cho LOGIN
@@ -265,12 +265,12 @@ export class AuthService {
           { isRevoked: true, revokedAt: new Date() },
         );
       } else {
-        // Tﾃｬm t蘯･t c蘯｣ sessions c盻ｧa user vﾃ ki盻ノ tra refreshToken b蘯ｱng bcrypt.compare
+        // Scan active user sessions and compare the refresh token with bcrypt.
         const userSessions = await this.authSessionRepository.find({
           where: { userId, isRevoked: false },
         });
 
-        // So sﾃ｡nh refreshToken v盻嬖 t盻ｫng session hash
+        // Compare the refresh token against each session hash.
         for (const session of userSessions) {
           const isMatch = await bcrypt.compare(refreshToken, session.refreshTokenHash);
           if (isMatch) {
@@ -281,7 +281,7 @@ export class AuthService {
               );
             }
 
-            // Revoke session tﾃｬm th蘯･y
+            // Revoke the matched session.
             await this.authSessionRepository.update(
               { id: session.id },
               { isRevoked: true, revokedAt: new Date() },
@@ -291,7 +291,7 @@ export class AuthService {
         }
       }
     } else {
-      // Revoke t蘯･t c蘯｣ sessions c盻ｧa user
+      // Revoke all active sessions for this user.
       await this.authSessionRepository.update(
         { userId, isRevoked: false },
         { isRevoked: true, revokedAt: new Date() },
@@ -299,7 +299,7 @@ export class AuthService {
     }
 
     return {
-      message: 'ﾄ斉ハg xu蘯･t thﾃnh cﾃｴng',
+      message: 'Logout successful',
     };
   }
 
@@ -427,7 +427,7 @@ export class AuthService {
     userAgent?: string,
     ipAddress?: string,
   ): Promise<void> {
-    // Ch盻・revoke session cﾃｹng userAgent (cﾃｹng thi蘯ｿt b盻・, khﾃｴng revoke t蘯･t c蘯｣
+    // Revoke sessions for the same device only; do not revoke every session.
     if (userAgent) {
       await this.authSessionRepository.update(
         {
@@ -439,21 +439,21 @@ export class AuthService {
       );
     }
 
-    // D盻肱 d蘯ｹp sessions h蘯ｿt h蘯｡n c盻ｧa user nﾃy
+    // Clean up expired sessions for this user.
     await this.cleanupExpiredSessions(userId);
 
-    // Hash refresh token v盻嬖 salt rounds th蘯･p hﾆ｡n cho session
+    // Hash the refresh token with a lower cost suitable for session storage.
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
     const refreshTokenFingerprint = this.buildRefreshTokenFingerprint(refreshToken);
 
-    // T蘯｡o session m盻嬖 v盻嬖 thﾃｴng tin thi蘯ｿt b盻・
+    // Create a new session with device metadata.
     const authSession = this.authSessionRepository.create({
       userId,
       refreshTokenHash,
       refreshTokenFingerprint,
       userAgent: userAgent || 'Unknown Device',
       ipAddress: ipAddress || 'Unknown IP',
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 ngﾃy
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days
       isRevoked: false,
       lastUsedAt: new Date(),
     });
@@ -462,16 +462,16 @@ export class AuthService {
   }
 
   /**
-   * D盻肱 d蘯ｹp cﾃ｡c sessions h蘯ｿt h蘯｡n ho蘯ｷc quﾃ｡ nhi盻「 sessions c盻ｧa user
+   * Clean up expired sessions and cap the number of active sessions per user.
    */
   private async cleanupExpiredSessions(userId: string): Promise<void> {
-    // Xﾃｳa sessions h蘯ｿt h蘯｡n
+    // Delete expired sessions.
     await this.authSessionRepository.delete({
       userId,
       expiresAt: LessThan(new Date()),
     });
 
-    // Gi盻嬖 h蘯｡n t盻訴 ﾄ疎 5 sessions active per user (ﾄ黛ｻ・trﾃ｡nh t蘯･n cﾃｴng)
+    // Limit each user to at most 5 active sessions.
     const activeSessions = await this.authSessionRepository.find({
       where: {
         userId,
@@ -481,9 +481,9 @@ export class AuthService {
       order: { createdAt: 'DESC' },
     });
 
-    // N蘯ｿu cﾃｳ nhi盻「 hﾆ｡n 5 sessions, revoke nh盻ｯng sessions cﾅｩ nh蘯･t
+    // If there are more than 5 sessions, revoke the oldest ones.
     if (activeSessions.length >= 5) {
-      const sessionsToRevoke = activeSessions.slice(4); // Gi盻ｯ 4 sessions m盻嬖 nh蘯･t
+      const sessionsToRevoke = activeSessions.slice(4); // Keep the 4 newest sessions.
 
       for (const session of sessionsToRevoke) {
         await this.authSessionRepository.update(session.id, {
@@ -588,7 +588,7 @@ export class AuthService {
       throw new UnauthorizedException('Password confirmation does not match');
     }
 
-    // 2. Tﾃｬm user theo email
+    // 2. Find the user by email.
     const user = await this.userRepository.findOne({
       where: { email },
     });
@@ -617,7 +617,7 @@ export class AuthService {
     // 5. Hash new password
     const hashedNewPassword = await bcrypt.hash(newPassword, 10);
 
-    // 6. Update password vﾃ clear OTP
+    // 6. Update the password and clear the OTP fields.
     await this.userRepository.update(user.id, {
       passwordHash: hashedNewPassword,
       resetPasswordOtp: undefined,
@@ -707,7 +707,7 @@ export class AuthService {
     });
 
     if (existingUser) {
-      throw new ConflictException('Email ﾄ妥｣ ﾄ柁ｰ盻｣c s盻ｭ d盻･ng');
+      throw new ConflictException('Email already in use');
     }
 
     // Create new user (no password needed for Google OAuth users)
@@ -775,7 +775,7 @@ export class AuthService {
     userId: string,
     updateProfileDto: UpdateProfileDto,
   ): Promise<AuthResponseDto> {
-    // C蘯ｭp nh蘯ｭt thﾃｴng tin User
+    // Update core user information.
     const updateUserData: Partial<UserEntity> = {};
     if (updateProfileDto.fullName) updateUserData.fullName = updateProfileDto.fullName;
     if (updateProfileDto.phoneNumber) updateUserData.phoneNumber = updateProfileDto.phoneNumber;
@@ -785,7 +785,7 @@ export class AuthService {
       await this.userRepository.update({ id: userId }, updateUserData);
     }
 
-    // Tﾃｬm ho蘯ｷc t蘯｡o Profile
+    // Find or create the profile record.
     let profile = await this.profileRepository.findOne({ where: { userId } });
 
     if (!profile) {
@@ -794,7 +794,7 @@ export class AuthService {
           ? { certifications: updateProfileDto.certifications }
           : undefined;
 
-      // T蘯｡o profile m盻嬖 n蘯ｿu chﾆｰa cﾃｳ
+      // Create a new profile if one does not exist.
       profile = this.profileRepository.create({
         userId,
         avatarUrl: updateProfileDto.avatarUrl,
@@ -808,7 +808,7 @@ export class AuthService {
       });
       await this.profileRepository.save(profile);
     } else {
-      // C蘯ｭp nh蘯ｭt profile
+      // Update the existing profile.
       const updateProfileData: Partial<ProfileEntity> = {};
       if (updateProfileDto.avatarUrl !== undefined)
         updateProfileData.avatarUrl = updateProfileDto.avatarUrl;
@@ -835,7 +835,7 @@ export class AuthService {
       }
     }
 
-    // L蘯･y l蘯｡i user v盻嬖 profile
+    // Reload the user together with the profile.
     const updatedUser = await this.findUserWithProfile(userId);
     if (!updatedUser) {
       throw new Error('User not found after update');
@@ -1017,8 +1017,8 @@ export class AuthService {
       isVerified: user.isVerified,
       isEmailVerified: !!user.emailVerifiedAt,
       currentTrustScore: user.currentTrustScore,
-      badge: user.badge, // T盻ｫ virtual property c盻ｧa Entity
-      stats: user.stats, // T盻ｫ virtual property c盻ｧa Entity
+      badge: user.badge, // Virtual property exposed by the entity.
+      stats: user.stats, // Virtual property exposed by the entity.
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
