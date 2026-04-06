@@ -3,7 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class ApproveKycDto {
   @ApiPropertyOptional({
-    description: 'Ghi chú khi duyệt',
+    description: 'Review note',
   })
   @IsString()
   @IsOptional()
@@ -12,8 +12,8 @@ export class ApproveKycDto {
 
 export class RejectKycDto {
   @ApiProperty({
-    description: 'Lý do từ chối',
-    example: 'Ảnh CCCD không rõ ràng',
+    description: 'Rejection reason',
+    example: 'The ID card image is unclear',
   })
   @IsString()
   @IsNotEmpty()
