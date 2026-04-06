@@ -30,6 +30,7 @@ import { RequestChatService } from '../request-chat/request-chat.service';
 import { QuotaService } from '../subscriptions/quota.service';
 import { ProjectRequestsService } from './project-requests.service';
 import { ProjectSpecStatus, SpecPhase } from '../../database/entities/project-spec.entity';
+import { StaffApplicationStatus } from '../../database/entities/staff-application.entity';
 
 const createRepoMock = () => ({
   count: jest.fn(),
@@ -565,6 +566,53 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(
         'Find My Drafts Successful: 0 draft request(s)',
       );
+    });
+  });
+
+  describe('staff approval compatibility', () => {
+    it('blocks pending staff from opening project request details before approval', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+      jest.spyOn(service as any, 'findOneEntity').mockResolvedValue(makeRequest());
+
+      await expect(
+        service.findOne('req-1', {
+          id: 'staff-1',
+          role: UserRole.STAFF,
+          isVerified: false,
+          staffApplication: {
+            status: StaffApplicationStatus.PENDING,
+          },
+        } as any),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Get Request Detail Failed: Forbidden: Staff operational access requires admin approval.',
+      );
+    });
+
+    it('keeps approved staff access to project request details', async () => {
+      const request = makeRequest({
+        status: RequestStatus.PUBLIC_DRAFT,
+      });
+      const readModel = {
+        id: 'req-1',
+        title: request.title,
+        status: request.status,
+      };
+
+      jest.spyOn(service as any, 'findOneEntity').mockResolvedValue(request);
+      jest.spyOn(service as any, 'buildRequestReadModel').mockResolvedValue(readModel);
+
+      const result = await service.findOne('req-1', {
+        id: 'staff-1',
+        role: UserRole.STAFF,
+        isVerified: true,
+        staffApplication: {
+          status: StaffApplicationStatus.APPROVED,
+        },
+      } as any);
+
+      expect(result).toEqual(readModel);
     });
   });
 
@@ -1785,6 +1833,78 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(brokerProposalRepo.findOne).not.toHaveBeenCalled();
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         'Release Broker Slot Failed: Only the client or internal staff can release a broker slot.',
+      );
+    });
+
+    it('blocks pending staff from releasing broker slots before approval', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+      jest.spyOn(service as any, 'findOneEntity').mockResolvedValue(
+        makeRequest({
+          id: 'req-1',
+          clientId: 'client-1',
+          status: RequestStatus.PUBLIC_DRAFT,
+          brokerId: null,
+        }),
+      );
+
+      await expect(
+        service.releaseBrokerSlot(
+          'req-1',
+          'application-1',
+          {
+            id: 'staff-1',
+            role: UserRole.STAFF,
+            isVerified: false,
+            staffApplication: {
+              status: StaffApplicationStatus.PENDING,
+            },
+          } as any,
+        ),
+      ).rejects.toThrow(ForbiddenException);
+
+      expect(brokerProposalRepo.findOne).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Release Broker Slot Failed: Only the client or internal staff can release a broker slot.',
+      );
+    });
+
+    it('keeps approved staff access to release broker slots', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      const request = makeRequest({
+        id: 'req-1',
+        clientId: 'client-1',
+        status: RequestStatus.PUBLIC_DRAFT,
+        brokerId: null,
+      });
+      const refreshedRequest = makeRequest({
+        id: 'req-1',
+        clientId: 'client-1',
+        status: RequestStatus.PUBLIC_DRAFT,
+      });
+      const proposal = {
+        id: 'application-1',
+        requestId: 'req-1',
+        brokerId: 'broker-1',
+        status: ProposalStatus.PENDING,
+      };
+
+      jest.spyOn(service as any, 'findOneEntity').mockResolvedValue(request);
+      jest.spyOn(service, 'findOne').mockResolvedValue(refreshedRequest as any);
+      brokerProposalRepo.findOne.mockResolvedValue(proposal);
+      brokerProposalRepo.save.mockResolvedValue({ ...proposal, status: ProposalStatus.REJECTED });
+
+      const result = await service.releaseBrokerSlot('req-1', 'application-1', {
+        id: 'staff-1',
+        role: UserRole.STAFF,
+        isVerified: true,
+        staffApplication: {
+          status: StaffApplicationStatus.APPROVED,
+        },
+      } as any);
+
+      expect(result).toEqual(refreshedRequest);
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        'Release Broker Slot Successful: "application-1"',
       );
     });
   });

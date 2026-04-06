@@ -26,6 +26,7 @@ import { Type } from 'class-transformer';
 import {
   UserEntity,
   UserRole,
+  StaffApplicationStatus,
   type WorkspaceMessageAttachment,
 } from 'src/database/entities';
 import { RequestChatService } from './request-chat.service';
@@ -66,6 +67,10 @@ const parseWsCorsOrigins = (): string[] => {
 type WsUser = {
   id: string;
   role: UserRole;
+  isVerified: boolean;
+  staffApplication: {
+    status: StaffApplicationStatus;
+  } | null;
   email?: string;
 };
 
@@ -179,7 +184,7 @@ export class RequestChatGateway
   ): Promise<{ joined: boolean; room: string }> {
     try {
       const user = await this.resolveUser(client);
-      await this.requestChatService.assertRequestReadAccess(data.requestId, user.id, user.role);
+      await this.requestChatService.assertRequestReadAccess(data.requestId, user);
       const room = this.requestRoom(data.requestId);
       await client.join(room);
       return { joined: true, room };
@@ -260,16 +265,22 @@ export class RequestChatGateway
 
     const user = await this.userRepo.findOne({
       where: { id: payload.sub },
-      select: ['id', 'role', 'email'],
+      relations: ['staffApplication'],
     });
 
-    if (!user) {
+    if (!user || user.isBanned) {
       throw new WsException('User not found');
     }
 
     return {
       id: user.id,
       role: user.role,
+      isVerified: user.isVerified,
+      staffApplication: user.staffApplication
+        ? {
+            status: user.staffApplication.status,
+          }
+        : null,
       email: user.email,
     };
   }

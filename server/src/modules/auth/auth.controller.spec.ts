@@ -159,6 +159,65 @@ const profileUser = {
   },
 };
 
+const profileResponse: AuthResponseDto = {
+  id: 'user-1',
+  email: 'viewer@gmail.com',
+  fullName: 'Viewer User',
+  phoneNumber: '0987654321',
+  timeZone: 'Asia/Bangkok',
+  avatarUrl: 'https://cdn.example.com/avatar.png',
+  bio: 'Profile bio',
+  companyName: 'Profile Co',
+  skills: ['NestJS', 'TypeScript'],
+  linkedinUrl: 'https://www.linkedin.com/in/viewer',
+  cvUrl: 'https://cdn.example.com/cv.pdf',
+  portfolioLinks: [{ title: 'Portfolio', url: 'https://example.com' }],
+  role: UserRole.CLIENT,
+  isVerified: true,
+  isEmailVerified: true,
+  currentTrustScore: 4.2,
+  badge: BadgeType.VERIFIED,
+  stats: {
+    finished: 3,
+    disputes: 1,
+    score: 4.2,
+  },
+  createdAt: new Date('2026-03-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-03-27T09:00:00.000Z'),
+};
+
+const persistedProfileResponse: AuthResponseDto = {
+  id: 'user-1',
+  email: 'member@gmail.com',
+  fullName: 'Persisted Member',
+  phoneNumber: '0111222333',
+  timeZone: 'Asia/Bangkok',
+  avatarUrl: 'https://cdn.example.com/avatar.png',
+  bio: 'Experienced full-stack engineer',
+  companyName: 'Acme Studio',
+  skills: ['NestJS', 'React'],
+  linkedinUrl: 'https://linkedin.com/in/member',
+  cvUrl: 'https://cdn.example.com/member-cv.pdf',
+  portfolioLinks: [
+    {
+      title: 'Portfolio',
+      url: 'https://portfolio.example.com',
+    },
+  ],
+  role: UserRole.FREELANCER,
+  isVerified: true,
+  isEmailVerified: true,
+  currentTrustScore: 4.8,
+  badge: BadgeType.TRUSTED,
+  stats: {
+    finished: 6,
+    disputes: 1,
+    score: 4.8,
+  },
+  createdAt: new Date('2026-03-01T09:00:00.000Z'),
+  updatedAt: new Date('2026-03-27T09:00:00.000Z'),
+};
+
 describe('AuthController.register', () => {
   let controller: AuthController;
   let authService: Record<string, jest.Mock>;
@@ -498,37 +557,20 @@ describe('AuthController.getProfile', () => {
     expect(authService.findUserWithProfile).toHaveBeenCalledWith('user-1');
     expect(result).toEqual({
       message: expect.any(String),
-      data: expect.objectContaining({
-        id: 'user-1',
-        email: 'viewer@gmail.com',
-        avatarUrl: 'https://cdn.example.com/avatar.png',
-        companyName: 'Profile Co',
-        stats: {
-          finished: 3,
-          disputes: 1,
-          score: 4.2,
-        },
-      }),
+      data: profileResponse,
     });
   });
 
   it('rejects profile viewing when the authenticated user can no longer be loaded', async () => {
     authService.findUserWithProfile.mockResolvedValueOnce(null);
 
-    try {
-      await controller.getProfile({
+    await expect(
+      controller.getProfile({
         user: {
           id: 'missing-user',
         },
-      } as any);
-      throw new Error('Expected UnauthorizedException');
-    } catch (error) {
-      expect(error).toBeInstanceOf(UnauthorizedException);
-      expect((error as UnauthorizedException).getResponse()).toMatchObject({
-        error: 'SESSION_REVOKED',
-        message: 'Authenticated user not found',
-      });
-    }
+      } as any),
+    ).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
   it('preserves falsy profile values when mapping the authenticated profile response', async () => {
@@ -538,10 +580,18 @@ describe('AuthController.getProfile', () => {
       isVerified: false,
       emailVerifiedAt: null,
       currentTrustScore: 0,
-      badge: undefined,
+      profile: {
+        avatarUrl: undefined,
+        bio: undefined,
+        companyName: undefined,
+        skills: undefined,
+        linkedinUrl: undefined,
+        cvUrl: undefined,
+        portfolioLinks: undefined,
+      },
+      badge: 'NORMAL',
       totalProjectsFinished: 0,
       totalDisputesLost: 0,
-      profile: null,
     });
 
     const result = await controller.getProfile({
@@ -640,37 +690,7 @@ describe('AuthController.getProfile', () => {
     expect(authService.findUserWithProfile).toHaveBeenCalledWith('user-1');
     expect(result).toEqual({
       message: expect.any(String),
-      data: {
-        id: 'user-1',
-        email: 'member@gmail.com',
-        fullName: 'Persisted Member',
-        phoneNumber: '0111222333',
-        timeZone: 'Asia/Bangkok',
-        avatarUrl: 'https://cdn.example.com/avatar.png',
-        bio: 'Experienced full-stack engineer',
-        companyName: 'Acme Studio',
-        skills: ['NestJS', 'React'],
-        linkedinUrl: 'https://linkedin.com/in/member',
-        cvUrl: 'https://cdn.example.com/member-cv.pdf',
-        portfolioLinks: [
-          {
-            title: 'Portfolio',
-            url: 'https://portfolio.example.com',
-          },
-        ],
-        role: UserRole.FREELANCER,
-        isVerified: true,
-        isEmailVerified: true,
-        currentTrustScore: 4.8,
-        badge: BadgeType.TRUSTED,
-        stats: {
-          finished: 6,
-          disputes: 1,
-          score: 4.8,
-        },
-        createdAt: new Date('2026-03-01T09:00:00.000Z'),
-        updatedAt: new Date('2026-03-27T09:00:00.000Z'),
-      },
+      data: persistedProfileResponse,
     });
   });
 

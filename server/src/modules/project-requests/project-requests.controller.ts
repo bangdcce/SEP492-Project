@@ -168,6 +168,7 @@ export class ProjectRequestsController {
   }
 
   @Get()
+  @Roles(UserRole.CLIENT, UserRole.BROKER, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Get all project requests (Admin/Broker) or My Requests (Client)' })
   @ApiQuery({ name: 'status', enum: RequestStatus, required: false })
   async getProjectRequests(@GetUser() user: UserEntity, @Query('status') status?: string) {
@@ -207,6 +208,13 @@ export class ProjectRequestsController {
   }
 
   @Get(':id')
+  @Roles(
+    UserRole.CLIENT,
+    UserRole.BROKER,
+    UserRole.FREELANCER,
+    UserRole.ADMIN,
+    UserRole.STAFF,
+  )
   @ApiOperation({ summary: 'Get a single project request by ID' })
   @ApiResponse({ status: 200, description: 'Return the project request details' })
   @ApiResponse({ status: 404, description: 'Project request not found' })
@@ -354,6 +362,7 @@ export class ProjectRequestsController {
   }
 
   @Post(':id/invite/broker')
+  @Roles(UserRole.CLIENT, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Invite a broker to a project request' })
   @ApiResponse({ status: 201, description: 'Invitation sent' })
   async inviteBroker(
@@ -426,6 +435,7 @@ export class ProjectRequestsController {
   }
 
   @Post(':id/release-broker-slot')
+  @Roles(UserRole.CLIENT, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Release an active broker application slot for this request' })
   async releaseBrokerSlot(
     @Param('id') id: string,

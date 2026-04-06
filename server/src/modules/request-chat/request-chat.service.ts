@@ -21,6 +21,7 @@ import {
   type WorkspaceMessageEditHistoryEntry,
 } from 'src/database/entities';
 import { NotificationsService } from '../notifications/notifications.service';
+import { hasOperationalStaffAccess } from '../auth/utils/role.utils';
 import { RequestChatRealtimeBridge } from './request-chat.realtime';
 
 export interface RequestChatReplySummary {
@@ -57,6 +58,8 @@ export interface RequestChatMessage {
   } | null;
   replyTo: RequestChatReplySummary | null;
 }
+
+type RequestChatActor = Pick<UserEntity, 'id' | 'role' | 'isVerified' | 'staffApplication'>;
 
 @Injectable()
 export class RequestChatService {
@@ -96,33 +99,31 @@ export class RequestChatService {
 
   private canReadRequestChat(
     request: ProjectRequestEntity,
-    userId: string,
-    role: UserRole,
+    actor: RequestChatActor,
   ): boolean {
-    if (role === UserRole.ADMIN || role === UserRole.STAFF) {
+    if (hasOperationalStaffAccess(actor)) {
       return true;
     }
 
     return (
-      request.clientId === userId ||
-      request.brokerId === userId ||
-      this.isAcceptedFreelancerParticipant(request, userId)
+      request.clientId === actor.id ||
+      request.brokerId === actor.id ||
+      this.isAcceptedFreelancerParticipant(request, actor.id)
     );
   }
 
   private canWriteRequestChat(
     request: ProjectRequestEntity,
-    userId: string,
-    role: UserRole,
+    actor: RequestChatActor,
   ): boolean {
-    if (role === UserRole.ADMIN || role === UserRole.STAFF) {
+    if (actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF) {
       return false;
     }
 
     return (
-      request.clientId === userId ||
-      request.brokerId === userId ||
-      this.isAcceptedFreelancerParticipant(request, userId)
+      request.clientId === actor.id ||
+      request.brokerId === actor.id ||
+      this.isAcceptedFreelancerParticipant(request, actor.id)
     );
   }
 
@@ -286,16 +287,16 @@ export class RequestChatService {
     return Array.from(ids);
   }
 
-  async assertRequestReadAccess(requestId: string, userId: string, role: UserRole): Promise<void> {
+  async assertRequestReadAccess(requestId: string, actor: RequestChatActor): Promise<void> {
     const request = await this.getRequestAccessContext(requestId);
-    if (!this.canReadRequestChat(request, userId, role)) {
+    if (!this.canReadRequestChat(request, actor)) {
       throw new ForbiddenException('You do not have access to this request chat');
     }
   }
 
-  async assertRequestWriteAccess(requestId: string, userId: string, role: UserRole): Promise<void> {
+  async assertRequestWriteAccess(requestId: string, actor: RequestChatActor): Promise<void> {
     const request = await this.getRequestAccessContext(requestId);
-    if (!this.canWriteRequestChat(request, userId, role)) {
+    if (!this.canWriteRequestChat(request, actor)) {
       throw new ForbiddenException('You do not have write access to this request chat');
     }
   }
@@ -304,10 +305,9 @@ export class RequestChatService {
     requestId: string,
     limit: number,
     offset: number,
-    userId: string,
-    role: UserRole,
+    actor: RequestChatActor,
   ): Promise<RequestChatMessage[]> {
-    await this.assertRequestReadAccess(requestId, userId, role);
+    await this.assertRequestReadAccess(requestId, actor);
 
     const messages = await this.requestMessageRepo.find({
       where: { requestId },
@@ -322,12 +322,12 @@ export class RequestChatService {
 
   async saveMessage(
     requestId: string,
-    sender: Pick<UserEntity, 'id' | 'role'>,
+    sender: RequestChatActor,
     content: string,
     attachments?: WorkspaceMessageAttachment[],
     replyToId?: string,
   ): Promise<RequestChatMessage> {
-    await this.assertRequestWriteAccess(requestId, sender.id, sender.role);
+    await this.assertRequestWriteAccess(requestId, sender);
 
     const trimmedContent = String(content || '').trim();
     const normalizedAttachments = this.normalizeAttachmentsForPersistence(attachments);

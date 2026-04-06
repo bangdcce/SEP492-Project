@@ -19,9 +19,14 @@ export interface User {
   email: string;
   fullName: string;
   role: UserRole;
+  isVerified?: boolean;
+  isEmailVerified?: boolean;
   timeZone?: string;
   businessName?: string;
   profilePicture?: string;
+  staffApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  staffApplicationReviewedAt?: string | null;
+  staffRejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }

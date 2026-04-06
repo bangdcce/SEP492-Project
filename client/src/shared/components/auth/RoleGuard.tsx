@@ -5,22 +5,41 @@ import { useCurrentUser } from "@/shared/hooks/useCurrentUser";
 interface RoleGuardProps {
   children: React.ReactNode;
   allowedRoles: string[];
+  allowPendingStaff?: boolean;
 }
 
-export const RoleGuard: React.FC<RoleGuardProps> = ({ children, allowedRoles }) => {
+export const RoleGuard: React.FC<RoleGuardProps> = ({
+  children,
+  allowedRoles,
+  allowPendingStaff = false,
+}) => {
   const location = useLocation();
-  const user = useCurrentUser<{ role?: string }>();
+  const user = useCurrentUser<{
+    role?: string;
+    isVerified?: boolean;
+    staffApprovalStatus?: "PENDING" | "APPROVED" | "REJECTED";
+  }>();
 
-  const resolveRoleHome = (role?: string) => {
-    switch (role?.toUpperCase()) {
+  const resolveRoleHome = (currentUser?: {
+    role?: string;
+    isVerified?: boolean;
+    staffApprovalStatus?: "PENDING" | "APPROVED" | "REJECTED";
+  }) => {
+    switch (currentUser?.role?.toUpperCase()) {
       case "ADMIN":
         return ROUTES.ADMIN_DASHBOARD;
       case "BROKER":
         return ROUTES.BROKER_DASHBOARD;
       case "FREELANCER":
         return ROUTES.FREELANCER_DASHBOARD;
-      case "STAFF":
-        return "/staff/dashboard";
+      case "STAFF": {
+        const isApproved =
+          currentUser?.staffApprovalStatus === "APPROVED" ||
+          (!currentUser?.staffApprovalStatus && currentUser?.isVerified === true);
+        return isApproved
+          ? ROUTES.STAFF_DASHBOARD
+          : ROUTES.STAFF_APPLICATION_STATUS;
+      }
       case "CLIENT":
         return ROUTES.CLIENT_DASHBOARD;
       default:
@@ -40,7 +59,16 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({ children, allowedRoles }) 
   const hasAccess = allowedRoles.some((role) => role.toUpperCase() === userRole);
 
   if (!hasAccess) {
-    return <Navigate to={resolveRoleHome(user.role)} replace />;
+    return <Navigate to={resolveRoleHome(user)} replace />;
+  }
+
+  const isApprovedStaff =
+    userRole === "STAFF" &&
+    (user.staffApprovalStatus === "APPROVED" ||
+      (!user.staffApprovalStatus && user.isVerified === true));
+
+  if (userRole === "STAFF" && !allowPendingStaff && !isApprovedStaff) {
+    return <Navigate to={ROUTES.STAFF_APPLICATION_STATUS} replace />;
   }
 
   // Render children if authorized

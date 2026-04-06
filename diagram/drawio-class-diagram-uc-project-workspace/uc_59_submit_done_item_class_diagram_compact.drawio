@@ -1,0 +1,143 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" compressed="false" version="29.6.6">
+  <diagram id="3aba078d5c6e" name="uc_59_submit_done_item_class_diagram_compact">
+    <mxGraphModel dx="4029" dy="2357" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2667" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskDetailModal&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- submissions: TaskSubmission[]&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- submissionError: string | null&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ handleSubmitSubmission(): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="88" width="282.2" x="377.29999999999995" as="geometry" />
+        </mxCell>
+        <mxCell id="4" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;createTaskSubmission&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ createTaskSubmission(taskId: string, payload:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;any): Promise&amp;lt;TaskSubmission&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="88" width="319.4" y="188" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;uploadImageToServer&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ uploadImageToServer(file: File): Promise&amp;lt;string&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="74" width="338" x="340" y="195" as="geometry" />
+        </mxCell>
+        <mxCell id="6" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;ApiClient&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- client: AxiosInstance&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ post&amp;lt;T&amp;gt;(url: string, body?: unknown): Promise&amp;lt;T&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- setupInterceptors()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- isRefreshEndpoint(url?: string): boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- isPublicAuthEndpoint(url?: string): boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- refreshAccessTokenSingleFlight(): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- getAuthErrorCode(error: unknown): string | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- shouldAttemptSessionReconcile(error: unknown):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- reconcileSessionSingleFlight(): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- handleAuthFailure(suppressRedirect: boolean =&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;false)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ bootstrapSession(): Promise&amp;lt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="242" width="338" x="332.9046502057613" y="370" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TasksController&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitWork(id: string, dto: CreateSubmissionDto,&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;req: AuthenticatedRequest)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ uploadAttachment(file: Express.Multer.File)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getBoard(@Param(&amp;#x27;projectId&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskHistory(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskComments(@Param(&amp;#x27;taskId&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskLinks(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskSubmissions(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ addTaskLink(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ deleteTaskLink(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getSubtasks(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="228" width="338" x="340.003950617284" y="670" as="geometry" />
+        </mxCell>
+        <mxCell id="8" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;CreateSubmissionDto&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ content: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ attachments: string[]&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="88" width="170.6" x="196.39999999999998" y="1214" as="geometry" />
+        </mxCell>
+        <mxCell id="9" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TasksService&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitWork(taskId: string, dto:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;CreateSubmissionDto, submitterId?: string):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;TaskSubmissionEntity&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ uploadFile(file: Express.Multer.File): Promise&amp;lt;{&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;url: string }&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- getSupabaseClient(): SupabaseClient&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- buildAttachmentPath(fileName: string): string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskHistory(taskId: string):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;TaskHistoryEntity[]&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- sanitizeCommentContent(content: string): string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- ensureTaskExists(taskId: string): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- mapTaskComment(comment: TaskCommentEntity):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;TaskCommentItem&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- findHydratedComment(commentId: string):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;TaskCommentEntity | null&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getCommentsByTask(taskId: string):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;TaskCommentItem[]&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="312" width="338" x="410" y="990" as="geometry" />
+        </mxCell>
+        <mxCell id="10" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;Repository&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ findOne(options: any): Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ save(entity: any): Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ update(criteria: any, partialEntity: any):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="116" width="300.8" x="131.29999999999995" y="1410" as="geometry" />
+        </mxCell>
+        <mxCell id="11" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskSubmission&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ taskId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ content: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ attachments: string[]&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ version: number&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ status: TaskSubmissionStatus&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="144" width="214" x="717.4" y="188" as="geometry" />
+        </mxCell>
+        <mxCell id="12" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskSubmissionEntity&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ taskId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ content: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ attachments: string[]&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ version: number&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ status: TaskSubmissionStatus&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitterId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ reviewNote: string | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ reviewerId: string | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ reviewedAt: Date | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="214" width="214" x="472" y="1380" as="geometry" />
+        </mxCell>
+        <mxCell id="13" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskEntity&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ status: TaskStatus&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submittedAt: Date&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ milestoneId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ projectId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ parentTaskId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ title: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ description: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ assignedTo: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ dueDate: Date&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="214" width="164.4" x="710" y="1440" as="geometry" />
+        </mxCell>
+        <mxCell id="14" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskSubmissionStatus&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;PENDING&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;APPROVED&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;REJECTED&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;REQUEST_CHANGES&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="94" width="152" x="457.9" y="1660" as="geometry" />
+        </mxCell>
+        <mxCell id="15" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="4" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="427.66666666666663" y="100" />
+              <mxPoint x="159.7" y="176" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="16" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="5" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="518.4" y="102" />
+              <mxPoint x="518.4" y="176" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="17" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="11" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="609.1333333333333" y="100" />
+              <mxPoint x="824.4" y="176" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="18" edge="1" parent="1" source="4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;entryX=0.347;entryY=-0.006;entryDx=0;entryDy=0;entryPerimeter=0;" target="6" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="160" y="290" />
+              <mxPoint x="300" y="330" />
+            </Array>
+            <mxPoint x="240" y="380" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="19" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="520" y="300" />
+            </Array>
+            <mxPoint x="520" y="368" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="20" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="510" y="670" />
+            </Array>
+            <mxPoint x="510" y="670" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="21" edge="1" parent="1" source="7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="8" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="321.08395061728396" y="1014" />
+              <mxPoint x="281.7" y="1090" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="22" edge="1" parent="1" source="7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" value="association">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="485" y="940" />
+              <mxPoint x="485" y="960" />
+            </Array>
+            <mxPoint x="540" y="990" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="23" edge="1" parent="1" source="9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;entryX=0.56;entryY=0.022;entryDx=0;entryDy=0;entryPerimeter=0;" target="10" value="association">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="457" y="1320" />
+              <mxPoint x="420" y="1340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="24" edge="1" parent="1" source="9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;entryX=0.5;entryY=0;entryDx=0;entryDy=0;" target="12" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="566" y="1330" />
+              <mxPoint x="570" y="1340" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="25" edge="1" parent="1" source="9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;entryX=0.445;entryY=-0.01;entryDx=0;entryDy=0;entryPerimeter=0;" target="13" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="700" y="1360" />
+            </Array>
+            <mxPoint x="770" y="1320" as="targetPoint" />
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="26" edge="1" parent="1" source="12" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;endArrow=none;noEdgeStyle=1;orthogonal=1;" target="14" value="association">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="534" y="1630" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
