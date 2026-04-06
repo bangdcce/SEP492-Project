@@ -1,8 +1,37 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import { Mail, Phone, MapPin, Edit2, Shield, ExternalLink, FileText, Download, ArrowLeft, Briefcase, X, TrendingUp, Trash2, Plus } from 'lucide-react';
+import {
+  Mail,
+  Phone,
+  MapPin,
+  Edit2,
+  Shield,
+  ExternalLink,
+  FileText,
+  Download,
+  ArrowLeft,
+  Briefcase,
+  X,
+  TrendingUp,
+  Trash2,
+  Plus,
+} from "lucide-react";
 import { toast } from "sonner";
-import { getProfile, updateProfile } from "@/features/auth/api";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
+import {
+  getProfile,
+  getSigningCredentialStatus,
+  initializeSigningCredential,
+  rotateSigningCredential,
+  updateProfile,
+} from "@/features/auth/api";
 import { CVUpload, SkillsDisplay } from "@/features/auth";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { TrustScoreCard } from "@/features/trust-profile/components";
@@ -27,9 +56,8 @@ const MONTH_OPTIONS = [
   "Dec",
 ];
 
-const YEAR_OPTIONS = Array.from(
-  { length: 51 },
-  (_, index) => String(new Date().getFullYear() - index)
+const YEAR_OPTIONS = Array.from({ length: 51 }, (_, index) =>
+  String(new Date().getFullYear() - index),
 );
 
 const createEmptyCertificateDraft = () => ({
@@ -77,12 +105,33 @@ interface KycProfileSummary {
   message?: string;
 }
 
+interface SigningCredentialStatus {
+  initialized: boolean;
+  keyFingerprint?: string;
+  keyAlgorithm?: string;
+  keyVersion?: number;
+  lockedUntil?: string | null;
+  rotatedAt?: string | null;
+  createdAt?: string | null;
+}
+
 export default function ProfilePage() {
   const navigate = useNavigate();
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [kycSummary, setKycSummary] = useState<KycProfileSummary | null>(null);
+  const [signingCredentialStatus, setSigningCredentialStatus] =
+    useState<SigningCredentialStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [securityActionBusy, setSecurityActionBusy] = useState(false);
+  const [showInitializeSigningDialog, setShowInitializeSigningDialog] =
+    useState(false);
+  const [showRotateSigningDialog, setShowRotateSigningDialog] = useState(false);
+  const [initializePinInput, setInitializePinInput] = useState("");
+  const [rotatePinInput, setRotatePinInput] = useState({
+    oldPin: "",
+    newPin: "",
+  });
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
 
@@ -92,12 +141,16 @@ export default function ProfilePage() {
     bio: "",
     certifications: [] as Certification[],
   });
-  const [certificateForm, setCertificateForm] = useState(createEmptyCertificateDraft);
+  const [certificateForm, setCertificateForm] = useState(
+    createEmptyCertificateDraft,
+  );
 
   const [avatarPreview, setAvatarPreview] = useState<string>("");
   const [avatarFile, setAvatarFile] = useState<File | null>(null);
 
-  const normalizeCertifications = (certifications: unknown): Certification[] => {
+  const normalizeCertifications = (
+    certifications: unknown,
+  ): Certification[] => {
     if (!Array.isArray(certifications)) return [];
 
     return certifications
@@ -118,7 +171,12 @@ export default function ProfilePage() {
       })
       .filter((item): item is Certification => {
         return Boolean(
-          item && item.name && item.issuingOrganization && item.issueMonth && item.issueYear && item.credentialUrl
+          item &&
+          item.name &&
+          item.issuingOrganization &&
+          item.issueMonth &&
+          item.issueYear &&
+          item.credentialUrl,
         );
       });
   };
@@ -160,7 +218,7 @@ export default function ProfilePage() {
         setStoredJsonAuto(STORAGE_KEYS.USER, user);
         window.dispatchEvent(new Event("userDataUpdated"));
       }
-    } catch (error: any) {
+    } catch {
       toast.error("Failed to load profile information");
     } finally {
       setLoading(false);
@@ -176,10 +234,77 @@ export default function ProfilePage() {
     }
   }, []);
 
+  const loadSigningCredentialStatus = useCallback(async () => {
+    try {
+      const status = await getSigningCredentialStatus();
+      setSigningCredentialStatus(status);
+    } catch {
+      setSigningCredentialStatus(null);
+    }
+  }, []);
+
   useEffect(() => {
     loadProfile();
     loadKycSummary();
-  }, [loadProfile, loadKycSummary]);
+    loadSigningCredentialStatus();
+  }, [loadProfile, loadKycSummary, loadSigningCredentialStatus]);
+
+  const normalizePinInput = (value: string) =>
+    value.replace(/\D/g, "").slice(0, 8);
+  const isValidSigningPin = (value: string) => /^\d{4,8}$/.test(value.trim());
+
+  const handleInitializeSigningCredential = async () => {
+    const pin = initializePinInput.trim();
+    if (!isValidSigningPin(pin)) {
+      toast.error("PIN must be 4 to 8 numeric digits");
+      return;
+    }
+
+    try {
+      setSecurityActionBusy(true);
+      await initializeSigningCredential(pin);
+      await loadSigningCredentialStatus();
+      setInitializePinInput("");
+      setShowInitializeSigningDialog(false);
+      toast.success("Mini CA signing key initialized");
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message || "Failed to initialize signing key",
+      );
+    } finally {
+      setSecurityActionBusy(false);
+    }
+  };
+
+  const handleRotateSigningCredential = async () => {
+    const oldPin = rotatePinInput.oldPin.trim();
+    const newPin = rotatePinInput.newPin.trim();
+
+    if (!isValidSigningPin(oldPin)) {
+      toast.error("Current PIN must be 4 to 8 numeric digits");
+      return;
+    }
+
+    if (!isValidSigningPin(newPin)) {
+      toast.error("New PIN must be 4 to 8 numeric digits");
+      return;
+    }
+
+    try {
+      setSecurityActionBusy(true);
+      await rotateSigningCredential(oldPin, newPin);
+      await loadSigningCredentialStatus();
+      setRotatePinInput({ oldPin: "", newPin: "" });
+      setShowRotateSigningDialog(false);
+      toast.success("Mini CA signing key rotated successfully");
+    } catch (error: any) {
+      toast.error(
+        error?.response?.data?.message || "Failed to rotate signing key",
+      );
+    } finally {
+      setSecurityActionBusy(false);
+    }
+  };
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -214,7 +339,7 @@ export default function ProfilePage() {
       // Warning about base64 - should use cloud storage in production
       if (avatarFile && avatarPreview.length > 100000) {
         toast.warning(
-          "Large avatar size detected. Consider using cloud storage for production."
+          "Large avatar size detected. Consider using cloud storage for production.",
         );
       }
 
@@ -229,9 +354,15 @@ export default function ProfilePage() {
           issueMonth: item.issueMonth,
           issueYear: item.issueYear,
           credentialUrl: item.credentialUrl.trim(),
-          ...(item.credentialId?.trim() ? { credentialId: item.credentialId.trim() } : {}),
-          ...(item.expirationMonth ? { expirationMonth: item.expirationMonth } : {}),
-          ...(item.expirationYear ? { expirationYear: item.expirationYear } : {}),
+          ...(item.credentialId?.trim()
+            ? { credentialId: item.credentialId.trim() }
+            : {}),
+          ...(item.expirationMonth
+            ? { expirationMonth: item.expirationMonth }
+            : {}),
+          ...(item.expirationYear
+            ? { expirationYear: item.expirationYear }
+            : {}),
         })),
       });
 
@@ -276,8 +407,16 @@ export default function ProfilePage() {
     const issuingOrganization = certificateForm.issuingOrganization.trim();
     const credentialUrl = certificateForm.credentialUrl.trim();
 
-    if (!name || !issuingOrganization || !certificateForm.issueMonth || !certificateForm.issueYear || !credentialUrl) {
-      toast.error("Please complete certificate name, organization, issue date, and credential URL");
+    if (
+      !name ||
+      !issuingOrganization ||
+      !certificateForm.issueMonth ||
+      !certificateForm.issueYear ||
+      !credentialUrl
+    ) {
+      toast.error(
+        "Please complete certificate name, organization, issue date, and credential URL",
+      );
       return;
     }
 
@@ -366,11 +505,15 @@ export default function ProfilePage() {
 
   const getRoleSummary = (role: string) => {
     const summaries: Record<string, string> = {
-      ADMIN: "You manage platform operations, compliance flows, and system-wide configurations.",
-      CLIENT: "You can create requests, manage projects, and collaborate with brokers or freelancers.",
+      ADMIN:
+        "You manage platform operations, compliance flows, and system-wide configurations.",
+      CLIENT:
+        "You can create requests, manage projects, and collaborate with brokers or freelancers.",
       SME: "You can create requests, manage projects, and collaborate with brokers or freelancers.",
-      FREELANCER: "You can showcase skills, submit proposals, and deliver work across active projects.",
-      BROKER: "You can connect clients with talent, coordinate delivery, and support project matching.",
+      FREELANCER:
+        "You can showcase skills, submit proposals, and deliver work across active projects.",
+      BROKER:
+        "You can connect clients with talent, coordinate delivery, and support project matching.",
     };
 
     return (
@@ -381,7 +524,11 @@ export default function ProfilePage() {
 
   const formatTrustScore = (value: unknown) => {
     const numericValue =
-      typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
+      typeof value === "number"
+        ? value
+        : typeof value === "string"
+          ? Number(value)
+          : NaN;
 
     return Number.isFinite(numericValue) ? numericValue.toFixed(1) : "0.0";
   };
@@ -402,14 +549,16 @@ export default function ProfilePage() {
     );
   }
 
-  const supportsKycUpdates = ['CLIENT', 'FREELANCER', 'BROKER'].includes(profile.role);
+  const supportsKycUpdates = ["CLIENT", "FREELANCER", "BROKER"].includes(
+    profile.role,
+  );
   const hasPendingKycUpdate = !!kycSummary?.hasPendingUpdate;
   const hasRejectedKycUpdate = !!kycSummary?.hasRejectedUpdate;
   const updateSubmittedLabel = kycSummary?.updateSubmittedAt
-    ? new Date(kycSummary.updateSubmittedAt).toLocaleDateString('en-US', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
+    ? new Date(kycSummary.updateSubmittedAt).toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
       })
     : null;
 
@@ -471,7 +620,7 @@ export default function ProfilePage() {
               {/* Role Badge */}
               <div
                 className={`mt-2 px-4 py-1.5 rounded-full flex items-center gap-2 ${getRoleBadgeStyle(
-                  profile.role
+                  profile.role,
                 )}`}
               >
                 <Briefcase className="w-4 h-4" />
@@ -657,7 +806,8 @@ export default function ProfilePage() {
                     </p>
                     <div className="mt-auto pt-4">
                       <div className="inline-flex items-center rounded-full bg-white/80 px-3 py-1 text-xs font-medium text-blue-700">
-                        Trust score: {formatTrustScore(profile.currentTrustScore)}
+                        Trust score:{" "}
+                        {formatTrustScore(profile.currentTrustScore)}
                       </div>
                     </div>
                   </div>
@@ -674,7 +824,8 @@ export default function ProfilePage() {
                     </p>
                     {!supportsKycUpdates && (
                       <p className="mt-3 text-sm leading-6 text-gray-600">
-                        Your verification status is managed by the platform and reflected across protected workflows.
+                        Your verification status is managed by the platform and
+                        reflected across protected workflows.
                       </p>
                     )}
                     {supportsKycUpdates && profile.isVerified && (
@@ -684,38 +835,45 @@ export default function ProfilePage() {
                             hasPendingKycUpdate
                               ? "text-amber-700"
                               : hasRejectedKycUpdate
-                              ? "text-red-700"
-                              : "text-gray-600"
+                                ? "text-red-700"
+                                : "text-gray-600"
                           }`}
                         >
                           {hasPendingKycUpdate
                             ? `A KYC update submitted${updateSubmittedLabel ? ` on ${updateSubmittedLabel}` : ""} is under review. Your current verification remains active.`
                             : hasRejectedKycUpdate
-                            ? "Your latest KYC update was rejected. Your current verification still remains active."
-                            : "Need to replace an ID document or correct your identity details? Submit a new KYC package for review."}
+                              ? "Your latest KYC update was rejected. Your current verification still remains active."
+                              : "Need to replace an ID document or correct your identity details? Submit a new KYC package for review."}
                         </p>
                         <button
                           type="button"
-                          onClick={() => navigate(`${ROUTES.KYC_VERIFICATION}?mode=update&from=profile`)}
+                          onClick={() =>
+                            navigate(
+                              `${ROUTES.KYC_VERIFICATION}?mode=update&from=profile`,
+                            )
+                          }
                           disabled={hasPendingKycUpdate}
                           className="w-full rounded-lg border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-700 transition-colors hover:bg-green-100 disabled:cursor-not-allowed disabled:border-gray-200 disabled:bg-gray-100 disabled:text-gray-400"
                         >
                           {hasPendingKycUpdate
                             ? "KYC Update In Review"
                             : hasRejectedKycUpdate
-                            ? "Submit KYC Update Again"
-                            : "Update KYC"}
+                              ? "Submit KYC Update Again"
+                              : "Update KYC"}
                         </button>
                       </div>
                     )}
                     {supportsKycUpdates && !profile.isVerified && (
                       <div className="mt-3">
                         <p className="text-sm leading-6 text-gray-600">
-                          Complete KYC verification to unlock protected workflows and build trust with other users.
+                          Complete KYC verification to unlock protected
+                          workflows and build trust with other users.
                         </p>
                         <button
                           type="button"
-                          onClick={() => navigate(`${ROUTES.KYC_VERIFICATION}?from=profile`)}
+                          onClick={() =>
+                            navigate(`${ROUTES.KYC_VERIFICATION}?from=profile`)
+                          }
                           className="mt-3 w-full rounded-lg border border-green-300 bg-white px-3 py-2 text-sm font-medium text-green-700 transition-colors hover:bg-green-100"
                         >
                           Start KYC Verification
@@ -726,24 +884,101 @@ export default function ProfilePage() {
                 </div>
               </div>
 
+              <div className="border-t pt-6">
+                <h4 className="text-lg font-bold text-gray-900 mb-4">
+                  Contract Signing Security
+                </h4>
+                <div className="rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">
+                        Mini CA Credential
+                      </p>
+                      <p className="mt-1 text-sm text-gray-600">
+                        {signingCredentialStatus?.initialized
+                          ? "Initialized. Contract signatures now use your personal keypair and PIN unlock."
+                          : "Not initialized yet. Initialize once before signing contracts with Mini CA."}
+                      </p>
+                      {signingCredentialStatus?.initialized && (
+                        <div className="mt-3 space-y-1 text-xs text-gray-600">
+                          <p>
+                            Algorithm:{" "}
+                            {signingCredentialStatus.keyAlgorithm || "N/A"} |
+                            Version:{" "}
+                            {signingCredentialStatus.keyVersion ?? "N/A"}
+                          </p>
+                          <p>
+                            Fingerprint:{" "}
+                            {signingCredentialStatus.keyFingerprint || "N/A"}
+                          </p>
+                          <p>
+                            Locked until:{" "}
+                            {signingCredentialStatus.lockedUntil
+                              ? new Date(
+                                  signingCredentialStatus.lockedUntil,
+                                ).toLocaleString()
+                              : "Not locked"}
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {!signingCredentialStatus?.initialized ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setInitializePinInput("");
+                            setShowInitializeSigningDialog(true);
+                          }}
+                          disabled={securityActionBusy}
+                          className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {securityActionBusy
+                            ? "Initializing..."
+                            : "Initialize Mini CA Key"}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setRotatePinInput({ oldPin: "", newPin: "" });
+                            setShowRotateSigningDialog(true);
+                          }}
+                          disabled={securityActionBusy}
+                          className="rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm font-medium text-indigo-700 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {securityActionBusy ? "Rotating..." : "Rotate Key"}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {/* Professional Information - For Freelancer and Broker */}
-              {['FREELANCER', 'BROKER'].includes(profile.role) && (
+              {["FREELANCER", "BROKER"].includes(profile.role) && (
                 <div className="border-t pt-6">
-                  <h4 className="text-lg font-bold text-gray-900 mb-4">Professional Information</h4>
-                  
+                  <h4 className="text-lg font-bold text-gray-900 mb-4">
+                    Professional Information
+                  </h4>
+
                   {/* CV Section */}
                   {isEditing ? (
-                    <CVUpload 
-                      currentCvUrl={profile.cvUrl} 
+                    <CVUpload
+                      currentCvUrl={profile.cvUrl}
                       onCVUpdated={loadProfile}
                     />
                   ) : (
                     <div className="mb-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">CV/Resume</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        CV/Resume
+                      </label>
                       {profile.cvUrl ? (
                         <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
                           <FileText className="w-5 h-5 text-blue-600" />
-                          <span className="text-sm text-gray-700 flex-1">CV uploaded</span>
+                          <span className="text-sm text-gray-700 flex-1">
+                            CV uploaded
+                          </span>
                           <div className="flex gap-2">
                             <a
                               href={profile.cvUrl}
@@ -766,7 +1001,9 @@ export default function ProfilePage() {
                         </div>
                       ) : (
                         <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                          <span className="text-sm text-gray-500">No CV uploaded</span>
+                          <span className="text-sm text-gray-500">
+                            No CV uploaded
+                          </span>
                         </div>
                       )}
                     </div>
@@ -804,7 +1041,8 @@ export default function ProfilePage() {
 
                           <div>
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Issuing Organization <span className="text-red-500">*</span>
+                              Issuing Organization{" "}
+                              <span className="text-red-500">*</span>
                             </label>
                             <input
                               type="text"
@@ -926,7 +1164,8 @@ export default function ProfilePage() {
 
                           <div className="md:col-span-2">
                             <label className="block text-sm font-medium text-gray-700 mb-2">
-                              Credential URL <span className="text-red-500">*</span>
+                              Credential URL{" "}
+                              <span className="text-red-500">*</span>
                             </label>
                             <input
                               type="url"
@@ -960,19 +1199,35 @@ export default function ProfilePage() {
                       <div className="space-y-3">
                         {certificationsToRender.map((item, index) => (
                           <div
-                            key={item.id || `${item.name}-${item.issueYear}-${index}`}
+                            key={
+                              item.id ||
+                              `${item.name}-${item.issueYear}-${index}`
+                            }
                             className="p-4 border border-gray-200 rounded-lg bg-white"
                           >
                             <div className="flex items-start justify-between gap-4">
                               <div>
-                                <p className="font-semibold text-gray-900">{item.name}</p>
-                                <p className="text-sm text-gray-600">{item.issuingOrganization}</p>
-                                <p className="text-sm text-gray-600 mt-1">
-                                  Issued {formatMonthYear(item.issueMonth, item.issueYear)}
+                                <p className="font-semibold text-gray-900">
+                                  {item.name}
                                 </p>
-                                {(item.expirationMonth || item.expirationYear) && (
+                                <p className="text-sm text-gray-600">
+                                  {item.issuingOrganization}
+                                </p>
+                                <p className="text-sm text-gray-600 mt-1">
+                                  Issued{" "}
+                                  {formatMonthYear(
+                                    item.issueMonth,
+                                    item.issueYear,
+                                  )}
+                                </p>
+                                {(item.expirationMonth ||
+                                  item.expirationYear) && (
                                   <p className="text-sm text-gray-500">
-                                    Expires {formatMonthYear(item.expirationMonth, item.expirationYear)}
+                                    Expires{" "}
+                                    {formatMonthYear(
+                                      item.expirationMonth,
+                                      item.expirationYear,
+                                    )}
                                   </p>
                                 )}
                                 {item.credentialId && (
@@ -985,7 +1240,9 @@ export default function ProfilePage() {
                               <div className="flex items-center gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => openCredential(item.credentialUrl)}
+                                  onClick={() =>
+                                    openCredential(item.credentialUrl)
+                                  }
                                   className="inline-flex items-center gap-2 px-3 py-2 border border-blue-300 text-blue-700 hover:bg-blue-50 rounded-lg text-sm transition-colors"
                                 >
                                   <ExternalLink className="w-4 h-4" />
@@ -995,7 +1252,9 @@ export default function ProfilePage() {
                                 {isEditing && item.id && (
                                   <button
                                     type="button"
-                                    onClick={() => handleRemoveCertificate(item.id as string)}
+                                    onClick={() =>
+                                      handleRemoveCertificate(item.id as string)
+                                    }
                                     className="inline-flex items-center gap-2 px-3 py-2 border border-red-300 text-red-600 hover:bg-red-50 rounded-lg text-sm transition-colors"
                                   >
                                     <Trash2 className="w-4 h-4" />
@@ -1009,18 +1268,25 @@ export default function ProfilePage() {
                       </div>
                     ) : (
                       <div className="p-4 border border-dashed border-gray-300 rounded-lg bg-gray-50">
-                        <p className="text-sm text-gray-500">No certificates added yet.</p>
+                        <p className="text-sm text-gray-500">
+                          No certificates added yet.
+                        </p>
                       </div>
                     )}
                   </div>
 
                   {/* Skills Display */}
-                  <SkillsDisplay isEditing={isEditing} userRole={profile.role} />
+                  <SkillsDisplay
+                    isEditing={isEditing}
+                    userRole={profile.role}
+                  />
 
                   {/* LinkedIn */}
                   {profile.linkedinUrl && (
                     <div className="mt-4">
-                      <label className="block text-sm font-medium text-gray-700 mb-2">LinkedIn Profile</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        LinkedIn Profile
+                      </label>
                       <a
                         href={profile.linkedinUrl}
                         target="_blank"
@@ -1064,8 +1330,168 @@ export default function ProfilePage() {
       <DeleteAccountModal
         isOpen={showDeleteModal}
         onClose={() => setShowDeleteModal(false)}
-        userEmail={profile?.email || ''}
+        userEmail={profile?.email || ""}
       />
+
+      <Dialog
+        open={showInitializeSigningDialog}
+        onOpenChange={(open) => {
+          if (securityActionBusy) {
+            return;
+          }
+          setShowInitializeSigningDialog(open);
+          if (!open) {
+            setInitializePinInput("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Initialize Mini CA key</DialogTitle>
+            <DialogDescription>
+              Create a 4-8 digit PIN to encrypt and unlock your signing private
+              key.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label htmlFor="mini-ca-init-pin" className="text-sm text-gray-700">
+              Signing PIN
+            </label>
+            <input
+              id="mini-ca-init-pin"
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={8}
+              value={initializePinInput}
+              onChange={(event) => {
+                setInitializePinInput(normalizePinInput(event.target.value));
+              }}
+              placeholder="4-8 digits"
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+            />
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setShowInitializeSigningDialog(false)}
+              disabled={securityActionBusy}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void handleInitializeSigningCredential();
+              }}
+              disabled={
+                securityActionBusy || initializePinInput.trim().length < 4
+              }
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {securityActionBusy ? "Initializing..." : "Initialize key"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={showRotateSigningDialog}
+        onOpenChange={(open) => {
+          if (securityActionBusy) {
+            return;
+          }
+          setShowRotateSigningDialog(open);
+          if (!open) {
+            setRotatePinInput({ oldPin: "", newPin: "" });
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rotate Mini CA key</DialogTitle>
+            <DialogDescription>
+              Enter your current PIN and a new PIN to rotate your signing
+              keypair.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-2">
+              <label
+                htmlFor="mini-ca-old-pin"
+                className="text-sm text-gray-700"
+              >
+                Current PIN
+              </label>
+              <input
+                id="mini-ca-old-pin"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={8}
+                value={rotatePinInput.oldPin}
+                onChange={(event) => {
+                  setRotatePinInput((prev) => ({
+                    ...prev,
+                    oldPin: normalizePinInput(event.target.value),
+                  }));
+                }}
+                placeholder="4-8 digits"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+            <div className="space-y-2">
+              <label
+                htmlFor="mini-ca-new-pin"
+                className="text-sm text-gray-700"
+              >
+                New PIN
+              </label>
+              <input
+                id="mini-ca-new-pin"
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={8}
+                value={rotatePinInput.newPin}
+                onChange={(event) => {
+                  setRotatePinInput((prev) => ({
+                    ...prev,
+                    newPin: normalizePinInput(event.target.value),
+                  }));
+                }}
+                placeholder="4-8 digits"
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <button
+              type="button"
+              onClick={() => setShowRotateSigningDialog(false)}
+              disabled={securityActionBusy}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                void handleRotateSigningCredential();
+              }}
+              disabled={
+                securityActionBusy ||
+                rotatePinInput.oldPin.trim().length < 4 ||
+                rotatePinInput.newPin.trim().length < 4
+              }
+              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
+            >
+              {securityActionBusy ? "Rotating..." : "Rotate key"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

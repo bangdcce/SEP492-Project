@@ -571,6 +571,23 @@ export interface VerdictReasoning {
   trustPenaltyRationale?: string;
 }
 
+export interface VerdictAcceptanceParty {
+  userId: string;
+  role: string;
+  signedAt: string;
+}
+
+export interface VerdictAcceptanceSummary {
+  acceptedBy: VerdictAcceptanceParty[];
+  acceptedPartyIds: string[];
+  acceptedCount: number;
+  requiredPartyCount: number;
+  allPartiesAccepted: boolean;
+  currentUserAccepted: boolean;
+  currentUserCanAccept: boolean;
+  currentUserCanAppeal: boolean;
+}
+
 export interface VerdictSummary {
   id: string;
   disputeId: string;
@@ -599,6 +616,7 @@ export interface VerdictSummary {
   appealResolution?: string | null;
   disputeStatus?: string | null;
   currentTier?: number | null;
+  acceptance?: VerdictAcceptanceSummary;
   issuedAt: string;
   adjudicator?: {
     id: string;
@@ -610,6 +628,12 @@ export interface VerdictSummary {
 export interface AppealInput {
   reason: string;
   disclaimerAccepted: boolean;
+  disclaimerVersion?: string;
+}
+
+export interface AcceptVerdictInput {
+  disclaimerAccepted: boolean;
+  waiveAppealRights: boolean;
   disclaimerVersion?: string;
 }
 

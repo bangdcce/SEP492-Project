@@ -403,6 +403,7 @@ export class DisputeNotificationListener {
   async handleAppealSubmitted(payload: {
     disputeId?: string;
     userId?: string;
+    appellantId?: string;
   }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -414,7 +415,9 @@ export class DisputeNotificationListener {
     }
 
     await this.createNotifications(
-      audience.userIds.filter((userId) => userId !== payload.userId),
+      audience.userIds.filter(
+        (userId) => userId !== (payload.userId || payload.appellantId),
+      ),
       'Appeal submitted',
       'A formal appeal was filed and the dispute is now in appeal review.',
       'Dispute',

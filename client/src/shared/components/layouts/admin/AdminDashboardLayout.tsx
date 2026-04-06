@@ -11,11 +11,13 @@ import { ClientFooter } from "../client/ClientFooter";
 interface AdminDashboardLayoutProps {
   children: React.ReactNode;
   showFooter?: boolean;
+  contentMode?: "default" | "hearing-room";
 }
 
 export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
   children,
   showFooter = true,
+  contentMode = "default",
 }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -27,6 +29,16 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
   const handleMobileMenuToggle = () => {
     setIsMobileMenuOpen(!isMobileMenuOpen);
   };
+
+  const contentContainerClass =
+    contentMode === "hearing-room"
+      ? "w-full flex-1"
+      : "max-w-7xl mx-auto w-full flex-1";
+
+  const mainClass =
+    contentMode === "hearing-room"
+      ? "flex min-w-0 flex-1 flex-col px-[2.5%] py-3"
+      : "flex min-w-0 flex-1 flex-col p-6";
 
   return (
     <div className="flex min-h-screen bg-slate-50/50">
@@ -57,8 +69,8 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
         />
-        <main className="flex min-w-0 flex-1 flex-col p-6">
-          <div className="max-w-7xl mx-auto w-full flex-1">{children}</div>
+        <main className={mainClass}>
+          <div className={contentContainerClass}>{children}</div>
           {showFooter && <ClientFooter />}
         </main>
       </div>

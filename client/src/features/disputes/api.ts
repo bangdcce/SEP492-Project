@@ -382,7 +382,11 @@ export const updateDisputePhase = async (
   disputeId: string,
   phase: DisputePhase,
 ) => {
-  return await apiClient.patch(`/disputes/${disputeId}/phase`, { phase });
+  void disputeId;
+  void phase;
+  throw new Error(
+    "Dispute phase control moved to hearing scope. Use transitionHearingPhase(hearingId, phase) instead.",
+  );
 };
 
 export const getDisputeActivities = async (
@@ -855,5 +859,9 @@ export const resolveDispute = async (
     warningMessage?: string;
   },
 ) => {
-  return await apiClient.post(`/disputes/${disputeId}/resolve`, input);
+  void disputeId;
+  void input;
+  throw new Error(
+    "Initial verdict issuance moved to Hearing Room. Use issueHearingVerdict(hearingId, payload) instead.",
+  );
 };

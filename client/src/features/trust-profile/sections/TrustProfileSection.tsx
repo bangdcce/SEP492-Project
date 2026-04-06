@@ -1,5 +1,10 @@
-import { useMemo, useState } from "react";
-import type { ProjectHistoryItem, Review, User } from "../types";
+import { useEffect, useMemo, useState } from "react";
+import type {
+  ProjectHistoryItem,
+  Review,
+  TrustProfileReviewEligibility,
+  User,
+} from "../types";
 import { CreateReviewModal } from "../modals/CreateReviewModal";
 import { ReviewItem } from "../components/review/ReviewItem";
 import { ReviewsFullPage } from "../components/review/ReviewsFullPage";
@@ -14,6 +19,7 @@ interface TrustProfileSectionProps {
   previewCount?: number;
   className?: string;
   currentUserId?: string;
+  reviewEligibility?: TrustProfileReviewEligibility;
   onReviewUpdated?: () => void;
 }
 
@@ -24,10 +30,12 @@ export function TrustProfileSection({
   previewCount = 3,
   className = "",
   currentUserId,
+  reviewEligibility,
   onReviewUpdated,
 }: TrustProfileSectionProps) {
   const [isFullPageOpen, setIsFullPageOpen] = useState(false);
   const [isCreateReviewOpen, setIsCreateReviewOpen] = useState(false);
+  const [hasAutoPromptedReview, setHasAutoPromptedReview] = useState(false);
 
   const stats = useMemo(() => {
     const totalReviews = reviews.length;
@@ -92,7 +100,7 @@ export function TrustProfileSection({
 
     const includesUser = (
       project: ProjectHistoryItem,
-      participantId?: string | null
+      participantId?: string | null,
     ) => {
       if (!participantId) {
         return false;
@@ -111,26 +119,62 @@ export function TrustProfileSection({
       .filter((project) => includesUser(project, currentUserId))
       .sort(
         (a, b) =>
-          new Date(b.completedAt || 0).getTime() - new Date(a.completedAt || 0).getTime(),
+          new Date(b.completedAt || 0).getTime() -
+          new Date(a.completedAt || 0).getTime(),
       );
   }, [projectHistory, currentUserId, user.id]);
 
-  const latestPendingReviewProject = useMemo(() => {
-    return (
-      sharedReviewableProjects.find(
-        (project) =>
-          !currentUserReviews.some(
-            (review) => review.project.id === project.projectId,
-          ),
-      ) || null
+  const computedPendingReviewProjects = useMemo(() => {
+    return sharedReviewableProjects.filter(
+      (project) =>
+        !currentUserReviews.some(
+          (review) => review.project.id === project.projectId,
+        ),
     );
   }, [currentUserReviews, sharedReviewableProjects]);
 
-  const canCreateReview = Boolean(
-    currentUserId &&
+  const computedLatestPendingReviewProject = useMemo(() => {
+    return (
+      computedPendingReviewProjects.sort(
+        (a, b) =>
+          new Date(b.completedAt || 0).getTime() -
+          new Date(a.completedAt || 0).getTime(),
+      )[0] || null
+    );
+  }, [computedPendingReviewProjects]);
+
+  const latestPendingReviewProject = useMemo(() => {
+    return reviewEligibility?.nextProject || computedLatestPendingReviewProject;
+  }, [reviewEligibility?.nextProject, computedLatestPendingReviewProject]);
+
+  const pendingReviewCount =
+    reviewEligibility?.pendingReviewCount ??
+    computedPendingReviewProjects.length;
+
+  const canCreateReview =
+    reviewEligibility?.canCreateReview ??
+    Boolean(
+      currentUserId &&
       currentUserId !== user.id &&
       latestPendingReviewProject?.projectId,
-  );
+    );
+
+  useEffect(() => {
+    setHasAutoPromptedReview(false);
+  }, [user.id]);
+
+  useEffect(() => {
+    if (
+      !canCreateReview ||
+      !latestPendingReviewProject ||
+      hasAutoPromptedReview
+    ) {
+      return;
+    }
+
+    setIsCreateReviewOpen(true);
+    setHasAutoPromptedReview(true);
+  }, [canCreateReview, latestPendingReviewProject, hasAutoPromptedReview]);
 
   const previewReviews = sortedReviews.slice(0, previewCount);
 
@@ -143,20 +187,26 @@ export function TrustProfileSection({
           </div>
         </div>
 
-        <div className="space-y-4 lg:col-span-8" data-testid="trust-profile-reviews-section">
+        <div
+          className="space-y-4 lg:col-span-8"
+          data-testid="trust-profile-reviews-section"
+        >
           <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <h3 className="text-xl text-slate-900">Reviews</h3>
                 <p className="mt-1 text-sm text-gray-600">
-                  {stats.totalReviews} total review{stats.totalReviews === 1 ? "" : "s"}
+                  {stats.totalReviews} total review
+                  {stats.totalReviews === 1 ? "" : "s"}
                 </p>
               </div>
 
               <div className="flex flex-col items-start gap-3 sm:items-end">
                 {stats.totalReviews > 0 ? (
                   <div className="flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2">
-                    <div className="text-2xl text-slate-900">{stats.averageScore.toFixed(1)}</div>
+                    <div className="text-2xl text-slate-900">
+                      {stats.averageScore.toFixed(1)}
+                    </div>
                     <StarRating rating={stats.averageScore} />
                   </div>
                 ) : null}
@@ -168,15 +218,50 @@ export function TrustProfileSection({
                     onClick={() => setIsCreateReviewOpen(true)}
                     className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700"
                   >
-                    Leave a Review
+                    Leave Required Review
                   </button>
                 ) : null}
               </div>
             </div>
 
-          {canCreateReview && latestPendingReviewProject ? (
+            {canCreateReview && latestPendingReviewProject ? (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                Trust data required: Please review this user for completed
+                project{" "}
+                <span className="font-medium">
+                  {latestPendingReviewProject.title}
+                </span>
+                .
+                {pendingReviewCount > 1
+                  ? ` You still have ${pendingReviewCount} completed shared projects pending review.`
+                  : ""}
+              </div>
+            ) : null}
+
+            {!canCreateReview &&
+            reviewEligibility?.reason === "NO_SHARED_COMPLETED_PROJECT" ? (
               <p className="mt-3 text-xs text-slate-500">
-                Review will be linked to project <span className="font-medium">{latestPendingReviewProject.title}</span>.
+                You can only review this profile after completing at least one
+                shared project.
+              </p>
+            ) : null}
+
+            {!canCreateReview &&
+            reviewEligibility?.reason ===
+              "ALREADY_REVIEWED_ALL_SHARED_PROJECTS" ? (
+              <p className="mt-3 text-xs text-slate-500">
+                You have already reviewed this user for every completed shared
+                project.
+              </p>
+            ) : null}
+
+            {canCreateReview && latestPendingReviewProject ? (
+              <p className="mt-3 text-xs text-slate-500">
+                Review will be linked to project{" "}
+                <span className="font-medium">
+                  {latestPendingReviewProject.title}
+                </span>
+                .
               </p>
             ) : null}
           </div>
@@ -199,7 +284,9 @@ export function TrustProfileSection({
                 </svg>
               </div>
               <h4 className="text-slate-900">No reviews yet</h4>
-              <p className="text-sm text-gray-600">This user has not received any reviews yet.</p>
+              <p className="text-sm text-gray-600">
+                This user has not received any reviews yet.
+              </p>
             </div>
           ) : (
             <>
@@ -208,7 +295,8 @@ export function TrustProfileSection({
               sharedReviewableProjects.length > 0 ? (
                 <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50 p-3">
                   <p className="text-sm text-teal-700">
-                    You have already reviewed this user on every shared completed project.
+                    You have already reviewed this user on every shared
+                    completed project.
                   </p>
                 </div>
               ) : null}

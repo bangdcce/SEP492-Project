@@ -2,12 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
   ProjectEntity,
+  ProjectStatus,
   ReviewEntity,
   UserEntity,
   UserStatus,
 } from 'src/database/entities';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { ProfileEntity } from '../../database/entities/profile.entity';
+
+const REVIEWABLE_PROJECT_STATUSES = [ProjectStatus.COMPLETED, ProjectStatus.PAID];
 
 type TrustProfileUserResponse = {
   id: string;
@@ -69,10 +72,33 @@ type TrustProfileProjectHistoryResponse = {
   totalBudget: number;
   completedAt: string;
   targetRoleInProject: string;
-  viewerRoleInProject: null;
+  viewerRoleInProject: string | null;
   client: { id: string; fullName: string } | null;
   broker: { id: string; fullName: string } | null;
   freelancer: { id: string; fullName: string } | null;
+};
+
+type TrustProfileReviewEligibilityReason =
+  | 'ELIGIBLE'
+  | 'SELF_PROFILE'
+  | 'VIEWER_NOT_AVAILABLE'
+  | 'NO_SHARED_COMPLETED_PROJECT'
+  | 'ALREADY_REVIEWED_ALL_SHARED_PROJECTS';
+
+type TrustProfileReviewCandidateProject = {
+  projectId: string;
+  title: string;
+  status: string;
+  completedAt: string;
+  targetRoleInProject: string;
+  viewerRoleInProject: string | null;
+};
+
+type TrustProfileReviewEligibilityResponse = {
+  canCreateReview: boolean;
+  reason: TrustProfileReviewEligibilityReason;
+  pendingReviewCount: number;
+  nextProject: TrustProfileReviewCandidateProject | null;
 };
 
 @Injectable()
@@ -86,7 +112,7 @@ export class TrustProfilesService {
     private readonly projectRepo: Repository<ProjectEntity>,
   ) {}
 
-  async getTrustProfile(userId: string) {
+  async getTrustProfile(userId: string, viewerUserId?: string | null) {
     const user = await this.userRepo.findOne({
       where: {
         id: userId,
@@ -99,7 +125,7 @@ export class TrustProfilesService {
       throw new NotFoundException('User not found');
     }
 
-    const [reviews, projectHistory] = await Promise.all([
+    const [reviews, projectHistory, reviewEligibility] = await Promise.all([
       this.reviewRepo.find({
         where: { targetUserId: userId },
         relations: ['reviewer', 'reviewer.profile', 'project', 'project.categories'],
@@ -111,12 +137,106 @@ export class TrustProfilesService {
         order: { updatedAt: 'DESC' },
         take: 25,
       }),
+      this.computeReviewEligibility(userId, viewerUserId),
     ]);
 
     return {
       user: this.mapUser(user, user.profile ?? null),
       reviews: reviews.map((review) => this.mapReview(review)),
-      projectHistory: projectHistory.map((project) => this.mapProjectHistory(project, userId)),
+      projectHistory: projectHistory.map((project) =>
+        this.mapProjectHistory(project, userId, viewerUserId),
+      ),
+      reviewEligibility,
+    };
+  }
+
+  private async computeReviewEligibility(
+    targetUserId: string,
+    viewerUserId?: string | null,
+  ): Promise<TrustProfileReviewEligibilityResponse> {
+    if (!viewerUserId) {
+      return {
+        canCreateReview: false,
+        reason: 'VIEWER_NOT_AVAILABLE',
+        pendingReviewCount: 0,
+        nextProject: null,
+      };
+    }
+
+    if (viewerUserId === targetUserId) {
+      return {
+        canCreateReview: false,
+        reason: 'SELF_PROFILE',
+        pendingReviewCount: 0,
+        nextProject: null,
+      };
+    }
+
+    const sharedProjects = await this.projectRepo
+      .createQueryBuilder('project')
+      .where('project.status IN (:...statuses)', {
+        statuses: REVIEWABLE_PROJECT_STATUSES,
+      })
+      .andWhere(
+        '(project.clientId = :viewerUserId OR project.brokerId = :viewerUserId OR project.freelancerId = :viewerUserId)',
+        {
+          viewerUserId,
+        },
+      )
+      .andWhere(
+        '(project.clientId = :targetUserId OR project.brokerId = :targetUserId OR project.freelancerId = :targetUserId)',
+        {
+          targetUserId,
+        },
+      )
+      .orderBy('COALESCE(project.endDate, project.updatedAt, project.createdAt)', 'DESC')
+      .getMany();
+
+    if (sharedProjects.length === 0) {
+      return {
+        canCreateReview: false,
+        reason: 'NO_SHARED_COMPLETED_PROJECT',
+        pendingReviewCount: 0,
+        nextProject: null,
+      };
+    }
+
+    const sharedProjectIds = sharedProjects.map((project) => project.id);
+    const existingReviews = await this.reviewRepo.find({
+      where: {
+        reviewerId: viewerUserId,
+        targetUserId,
+        projectId: In(sharedProjectIds),
+      },
+      select: ['projectId'],
+    });
+    const reviewedProjectIds = new Set(existingReviews.map((review) => review.projectId));
+
+    const pendingProjects: TrustProfileReviewCandidateProject[] = sharedProjects
+      .filter((project) => !reviewedProjectIds.has(project.id))
+      .map((project) => ({
+        projectId: project.id,
+        title: project.title,
+        status: project.status,
+        completedAt: (project.endDate ?? project.updatedAt ?? project.createdAt).toISOString(),
+        targetRoleInProject: this.resolveUserRoleInProject(project, targetUserId),
+        viewerRoleInProject: this.resolveUserRoleInProject(project, viewerUserId),
+      }));
+
+    if (pendingProjects.length === 0) {
+      return {
+        canCreateReview: false,
+        reason: 'ALREADY_REVIEWED_ALL_SHARED_PROJECTS',
+        pendingReviewCount: 0,
+        nextProject: null,
+      };
+    }
+
+    return {
+      canCreateReview: true,
+      reason: 'ELIGIBLE',
+      pendingReviewCount: pendingProjects.length,
+      nextProject: pendingProjects[0],
     };
   }
 
@@ -144,7 +264,9 @@ export class TrustProfilesService {
   private mapReview(review: ReviewEntity): TrustProfileReviewResponse {
     const reviewer = review.reviewer as (UserEntity & { profile?: ProfileEntity | null }) | null;
     const reviewerProfile = reviewer?.profile ?? null;
-    const project = review.project as (ProjectEntity & { categories?: Array<{ name?: string | null }> }) | null;
+    const project = review.project as
+      | (ProjectEntity & { categories?: Array<{ name?: string | null }> })
+      | null;
 
     return {
       id: review.id,
@@ -189,16 +311,18 @@ export class TrustProfilesService {
   private mapProjectHistory(
     project: ProjectEntity,
     targetUserId: string,
+    viewerUserId?: string | null,
   ): TrustProfileProjectHistoryResponse {
     return {
       projectId: project.id,
       title: project.title,
       status: project.status,
       totalBudget: Number(project.totalBudget ?? 0),
-      completedAt:
-        (project.endDate ?? project.updatedAt ?? project.createdAt).toISOString(),
-      targetRoleInProject: this.resolveTargetRoleInProject(project, targetUserId),
-      viewerRoleInProject: null,
+      completedAt: (project.endDate ?? project.updatedAt ?? project.createdAt).toISOString(),
+      targetRoleInProject: this.resolveUserRoleInProject(project, targetUserId),
+      viewerRoleInProject: viewerUserId
+        ? this.resolveUserRoleInProject(project, viewerUserId)
+        : null,
       client: project.client
         ? {
             id: project.client.id,
@@ -220,16 +344,16 @@ export class TrustProfilesService {
     };
   }
 
-  private resolveTargetRoleInProject(project: ProjectEntity, targetUserId: string): string {
-    if (project.clientId === targetUserId) {
+  private resolveUserRoleInProject(project: ProjectEntity, userId: string): string {
+    if (project.clientId === userId) {
       return 'CLIENT';
     }
 
-    if (project.brokerId === targetUserId) {
+    if (project.brokerId === userId) {
       return 'BROKER';
     }
 
-    if (project.freelancerId === targetUserId) {
+    if (project.freelancerId === userId) {
       return 'FREELANCER';
     }
 

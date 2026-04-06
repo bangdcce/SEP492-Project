@@ -6,6 +6,7 @@ export * from './create-stripe-checkout-session.dto';
 export * from './complete-paypal-milestone.dto';
 export * from './complete-stripe-milestone.dto';
 export * from './fund-milestone.dto';
+export * from './release-retention.dto';
 export * from './wallet-transactions-query.dto';
 export * from './payout-requests-query.dto';
 export * from './reject-payout-request.dto';

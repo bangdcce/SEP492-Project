@@ -3,6 +3,7 @@ export { UserEntity, UserRole, UserStatus, BadgeType } from './user.entity';
 export { StaffApplicationEntity, StaffApplicationStatus } from './staff-application.entity';
 export { SocialAccountEntity } from './social-account.entity';
 export { ProfileEntity } from './profile.entity';
+export { UserSigningCredentialEntity } from './user-signing-credential.entity';
 export { SavedFreelancerEntity } from './saved-freelancer.entity';
 export { AuthSessionEntity } from './auth-session.entity';
 export { UserTokenEntity, UserTokenType, UserTokenStatus } from './user-token.entity';
@@ -45,11 +46,7 @@ export { WalletEntity, WalletStatus } from './wallet.entity';
 export { TransactionEntity, TransactionType, TransactionStatus } from './transaction.entity';
 export { EscrowEntity, EscrowStatus } from './escrow.entity';
 export { PaymentMethodEntity, PaymentMethodType } from './payment-method.entity';
-export {
-  FundingIntentEntity,
-  FundingGateway,
-  FundingIntentStatus,
-} from './funding-intent.entity';
+export { FundingIntentEntity, FundingGateway, FundingIntentStatus } from './funding-intent.entity';
 export { PayoutMethodEntity, PayoutMethodType } from './payout-method.entity';
 export { FeeConfigEntity, FeeType } from './fee-config.entity';
 export { PayoutRequestEntity, PayoutStatus } from './payout-request.entity';

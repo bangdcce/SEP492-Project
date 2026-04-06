@@ -20,6 +20,16 @@ describe('AdminDashboardService', () => {
     getMany: jest.fn().mockResolvedValue(logs),
   });
 
+  const createSeriesQb = (rows: unknown[]) => ({
+    select: jest.fn().mockReturnThis(),
+    addSelect: jest.fn().mockReturnThis(),
+    where: jest.fn().mockReturnThis(),
+    andWhere: jest.fn().mockReturnThis(),
+    groupBy: jest.fn().mockReturnThis(),
+    orderBy: jest.fn().mockReturnThis(),
+    getRawMany: jest.fn().mockResolvedValue(rows),
+  });
+
   afterEach(() => {
     jest.useRealTimers();
     jest.clearAllMocks();
@@ -30,6 +40,12 @@ describe('AdminDashboardService', () => {
 
     const userRepository = {
       count: jest.fn().mockResolvedValueOnce(2).mockResolvedValueOnce(1),
+      createQueryBuilder: jest.fn().mockReturnValueOnce(
+        createSeriesQb([
+          { occurredAt: '2026-03-15T00:00:00.000Z', value: '1' },
+          { occurredAt: '2026-03-18T00:00:00.000Z', value: '1' },
+        ]),
+      ),
       find: jest
         .fn()
         .mockResolvedValueOnce([
@@ -63,41 +79,33 @@ describe('AdminDashboardService', () => {
             createdAt: new Date('2026-01-20T00:00:00.000Z'),
             updatedAt: fixedNow,
           },
-        ])
-        .mockResolvedValueOnce([
-          { id: 'user-1', createdAt: new Date('2026-03-15T08:00:00.000Z') },
-          { id: 'user-2', createdAt: new Date('2026-03-18T10:00:00.000Z') },
         ]),
     };
 
     const projectRepository = {
       count: jest.fn().mockResolvedValueOnce(3).mockResolvedValueOnce(1),
-      find: jest.fn().mockResolvedValue([
-        { id: 'project-1', updatedAt: new Date('2026-03-14T10:00:00.000Z') },
-        { id: 'project-2', updatedAt: new Date('2026-03-17T13:00:00.000Z') },
-        { id: 'project-3', updatedAt: new Date('2026-03-18T18:00:00.000Z') },
-      ]),
+      createQueryBuilder: jest.fn().mockReturnValueOnce(
+        createSeriesQb([
+          { occurredAt: '2026-03-14T00:00:00.000Z', value: '1' },
+          { occurredAt: '2026-03-17T00:00:00.000Z', value: '1' },
+          { occurredAt: '2026-03-18T00:00:00.000Z', value: '1' },
+        ]),
+      ),
+      find: jest.fn(),
     };
 
     const escrowRepository = {
       createQueryBuilder: jest
         .fn()
         .mockReturnValueOnce(createValueQb('75'))
-        .mockReturnValueOnce(createValueQb('25')),
-      find: jest.fn().mockResolvedValue([
-        {
-          id: 'escrow-1',
-          platformFee: 50,
-          currency: 'USD',
-          releasedAt: new Date('2026-03-14T09:00:00.000Z'),
-        },
-        {
-          id: 'escrow-2',
-          platformFee: 25,
-          currency: 'USD',
-          releasedAt: new Date('2026-03-18T14:00:00.000Z'),
-        },
-      ]),
+        .mockReturnValueOnce(createValueQb('25'))
+        .mockReturnValueOnce(
+          createSeriesQb([
+            { occurredAt: '2026-03-14T00:00:00.000Z', value: '50' },
+            { occurredAt: '2026-03-18T00:00:00.000Z', value: '25' },
+          ]),
+        ),
+      find: jest.fn(),
     };
 
     const adminLogs = [
