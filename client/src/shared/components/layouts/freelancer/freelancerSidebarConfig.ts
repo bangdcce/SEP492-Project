@@ -6,10 +6,7 @@
 import type { LucideIcon } from "lucide-react";
 import {
   LayoutGrid,
-  Search,
-  FileText,
   Inbox,
-  CheckSquare,
   Briefcase,
   User,
   Video,
@@ -17,8 +14,10 @@ import {
   ShieldCheck,
   FileSignature,
   FolderOpen,
+  WalletCards,
   CreditCard,
 } from "lucide-react";
+import { ROUTES } from "@/constants";
 
 export interface FreelancerSidebarMenuItem {
   id: string;
@@ -27,6 +26,8 @@ export interface FreelancerSidebarMenuItem {
   path: string;
   badge?: string;
   description?: string;
+  activePatterns?: string[];
+  activeExclusions?: string[];
   section?: "main" | "workspace" | "account";
 }
 
@@ -35,17 +36,9 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     id: "dashboard",
     label: "Dashboard",
     icon: LayoutGrid,
-    path: "/freelancer/dashboard",
+    path: ROUTES.FREELANCER_DASHBOARD,
     description: "Your overview",
     section: "main",
-  },
-  {
-    id: "find-work",
-    label: "Find Work",
-    icon: Search,
-    path: "/freelancer/find-work",
-    description: "Discover new projects",
-    section: "workspace",
   },
   {
     id: "invitations",
@@ -57,33 +50,17 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
   },
   {
     id: "invited-requests",
-    label: "Invited Requests",
+    label: "Requests",
     icon: FolderOpen,
     path: "/freelancer/requests",
-    description: "Return to request workflow before contract",
-    section: "workspace",
-  },
-  {
-    id: "proposals",
-    label: "My Proposals",
-    icon: FileText,
-    path: "/freelancer/proposals",
-    description: "Your submissions",
-    section: "workspace",
-  },
-  {
-    id: "jobs",
-    label: "My Jobs",
-    icon: CheckSquare,
-    path: "/freelancer/jobs",
-    description: "Active engagements",
+    description: "Open invited requests and continue workflow",
     section: "workspace",
   },
   {
     id: "projects",
     label: "My Projects",
     icon: Briefcase,
-    path: "/freelancer/projects",
+    path: ROUTES.FREELANCER_PROJECTS,
     description: "Manage your projects",
     section: "workspace",
   },
@@ -99,7 +76,7 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     id: "disputes",
     label: "Disputes",
     icon: Scale,
-    path: "/freelancer/disputes",
+    path: ROUTES.FREELANCER_DISPUTES,
     description: "Track dispute history, verdicts, and appeals",
     section: "workspace",
   },
@@ -115,7 +92,7 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     id: "profile",
     label: "Profile",
     icon: User,
-    path: "/freelancer/profile",
+    path: ROUTES.FREELANCER_PROFILE,
     description: "Manage your profile",
     section: "account",
   },
@@ -123,15 +100,23 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     id: "kyc-status",
     label: "KYC Status",
     icon: ShieldCheck,
-    path: "/freelancer/kyc-status",
+    path: ROUTES.FREELANCER_KYC_STATUS,
     description: "Verify your identity",
+    section: "account",
+  },
+  {
+    id: "billing",
+    label: "Earnings Wallet",
+    icon: WalletCards,
+    path: ROUTES.FREELANCER_BILLING,
+    description: "Track released earnings and wallet history",
     section: "account",
   },
   {
     id: "subscription",
     label: "Subscription",
     icon: CreditCard,
-    path: "/freelancer/subscription",
+    path: ROUTES.FREELANCER_SUBSCRIPTION,
     description: "Manage your premium plan",
     section: "account",
   },

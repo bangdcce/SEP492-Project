@@ -4,7 +4,8 @@ description: Generate comprehensive unit tests and traceability documentation fr
 ---
 
 # Test Case Documentation and Unit Test Handling
-- Use xlsx file in D:\GradProject\SEP492-Project\docs\template\unit-test for reference, this file is from another project, but we could use it as a referene point to our doc
+- Use the reference workbook in `docs/template/unit-test/` for layout guidance.
+- Primary deliverable is **one** `.xlsx` file under `docs/unit/` (no companion JSON inputs or extra sidecar files).
 ## Core behavior
 - Support two starting points: direct code input or requirement / use-case input.
 - Treat provided code as the source of truth when the user gives code directly.
@@ -44,10 +45,13 @@ description: Generate comprehensive unit tests and traceability documentation fr
 ## Documentation workflow
 - After writing or locating the tests, create the traceability documentation as a real `.xlsx` workbook by default.
 - Do not create companion Markdown, JSON, TXT, or other note files unless the user explicitly asks for them.
-- If a helper JSON file is needed to build the workbook, treat it as temporary and delete it after generation.
+- If a helper JSON payload is needed to build the workbook, prefer piping it via stdin. If a temp file is used, delete it after generation.
 - When the user provides a matrix example/template, match that structure and wording as closely as possible, even if it implies a single consolidated use-case sheet instead of one sheet per function.
 - For unit-test traceability matrices, keep the workbook content limited to the matrix itself plus the normal header/summary rows.
 - Only output raw unit test code, discovery summaries, assumptions, or implementation-gap prose when the user explicitly asks for them.
+- Default to one workbook file for the whole requested scope, with multiple tabs inside that file when multiple functions are involved.
+- Keep `Cover`, `Function List`, `Test Report`, and the function tabs in that same file unless the user explicitly asks for a stripped workbook.
+- Do not create cumulative versioned workbook chains unless the user explicitly asks for that older workflow again.
 
 ## Function-first rules
 - When the user gives a feature or a use case, first identify how many directly relevant logic-bearing functions implement it.
@@ -56,6 +60,8 @@ description: Generate comprehensive unit tests and traceability documentation fr
 - Default to `1 sheet = 1 function`.
 - It is acceptable for one workbook to contain many functions from multiple use cases when they belong to the same feature or requested scope.
 - Thin wrappers with no meaningful business logic may be documented as scanned and skipped instead of getting a dedicated sheet.
+- For unit-test requests, use the actual method name as the function identity. Route text is supporting context, not the function name.
+- When a human-readable label is needed, split the method name into title case, for example `processRescheduleRequest` -> `Process Reschedule Request`.
 
 ## Matrix rules
 - Create one UTCID per test case: `UTCID01`, `UTCID02`, `UTCID03`, and so on.
@@ -81,8 +87,21 @@ description: Generate comprehensive unit tests and traceability documentation fr
 
 ## Matrix rows
 - Under `Condition`, include required preconditions and one row per distinct input value or state used in the tests.
+- Write `Precondition` rows in a detailed matrix style: one concrete setup fact per row, not one broad summary sentence.
+- Split actor/auth facts, ownership facts, current status facts, assignment facts, and related-record existence into separate rows when they independently matter.
+- Prefer explicit wording such as `Authenticated client owns request "req-1"` and `Request "req-1" is currently "DRAFT"` over vague text such as `valid editable request exists`.
+- Reuse the exact same row text across UTC columns when the same precondition is shared, so the mark matrix stays aligned and readable.
+- Use exact IDs, role names, and enum/state values in precondition rows when the branch depends on them.
+- Treat `Request` / `Input Variable` rows as the actual values passed into the function under test, not the route template.
+- Prefer rows such as `id = "audit-1"`, `requestId = "req-1"`, `page = 2`, `limit = 20`, and `reason = "Need reconsideration"` over rows that repeat `/audit-logs/:id` or `POST /leave/requests`.
+- For DTO/object inputs, list the meaningful body/query fields that the executed test actually uses instead of one vague `request` or `body` row.
 - Under `Condition`, prefer only `Precondition`, `Action`, `Request status` or `State`, and `Input Variable`.
 - Under `Confirm`, include only expected returns and exceptions.
+- Write `Exception` rows with the concrete failure reason when the code enforces a business rule. Prefer `Dispute "dispute-1" cannot be closed while hearing is pending` or `Email "staff@company.test" already exists` over generic labels such as `Bad Request` or `Unprocessable Entity`.
+- Use plain HTTP/status-only labels only for framework-level validation failures when no more precise application message exists.
+- Keep each materially different failure reason on a separate exception row so reviewers can distinguish validation errors, not-found branches, permission denials, and business-state violations.
+- When useful, include the exception class together with the business message, for example `ConflictException: Email "staff@company.test" already exists`.
+- When the matrix format includes `Log message`, populate it with specific quoted messages. Prefer real asserted logger output; otherwise use deterministic executed-case messages that clearly describe the branch outcome.
 - Do not add `Side effect`, `Message`, `Log`, `Audit`, `Quota`, `Notification`, or other collaborator/internal rows unless the user explicitly asks for them.
 - Put failure outcomes under `Exception`, not under `Return`.
 - Use `Return` only for successful or direct returned values and primary state outputs. When a use case mainly changes status, values like `status = PUBLIC_DRAFT` are valid `Return` rows.
@@ -95,24 +114,46 @@ description: Generate comprehensive unit tests and traceability documentation fr
 ## Workbook workflow
 - When the workspace is writable, create a real `.xlsx` workbook as the primary output whenever the user asks for documentation, a matrix, Excel output, or a template like an `.xlsx` screenshot.
 - Use the bundled script at `scripts/generate_traceability_xlsx.ps1` to build the workbook from a rectangular row matrix serialized as JSON.
+- Default output location: `docs/unit/fn-XX-<function-slug>-unit-test.xlsx` (or a feature-scoped name when the request covers many functions).
+- Prefer in-memory JSON to avoid creating `*-input.json` artifacts:
+
+```powershell
+$json = @'
+{ "sheetName": "FN-01 Traceability", "rows": [ ["..."], ["..."] ] }
+'@
+& .codex/skills/test-case-documentation-and-unit-test-handling/scripts/generate_traceability_xlsx.ps1 -InputJsonText $json -OutputPath <output.xlsx> -Overwrite
+```
+
 - Default workbook location:
-  1. `<workspace>/docs/<function-code-or-usecase>-traceability.xlsx` when a `docs` folder exists
-  2. otherwise `<workspace>/<function-code-or-usecase>-traceability.xlsx`
+  1. `<workspace>/docs/unit/<function-code>-unit-test.xlsx` when a `docs/unit` folder exists
+  2. otherwise `<workspace>/<function-code>-unit-test.xlsx`
 - Default workbook shape:
   1. one workbook for the requested feature or scope when multiple functions are involved
   2. one sheet per function by default
   3. use one-sheet-per-use-case when the user explicitly asks for that layout or provides a concrete single-sheet example/template to follow
   4. extra workbooks are only needed when the user explicitly asks for separate files
+- When the workbook contains multiple function tabs, keep them together in that one file instead of generating many sibling workbooks.
+- Preserve `Cover`, `Function List`, and `Test Report` in the same workbook by default.
 - Do not leave helper build artifacts or companion explanation files in the workspace unless the user explicitly asks for them.
 - If PowerShell execution policy blocks the script, rerun it with `powershell -NoProfile -ExecutionPolicy Bypass -File ...`.
 - Always mention the absolute workbook path in the final response.
 - If workbook creation is impossible, explain why briefly and still provide the CSV or Markdown matrix in the response.
+- Read a real sample tab from the target workbook/template first and preserve its column widths, hidden columns, merged cells, row heights, print area, margins, and orientation. Do not improvise a new sheet geometry.
+- Keep the used range compact. Do not paint styles into hundreds of blank rows or extra columns, because that creates empty space and page-width issues when the user opens the file.
+- Preserve hidden spacer columns from the sample tab instead of turning them into visible colored columns.
+- Avoid introducing stray fill colors or spacing blocks that are not present in the source tab.
+- Populate header/summary cells fully:
+  - `Lines of code` may be approximate but must not be blank
+  - `Lack of test cases` should normally be `0` for a complete batch
+  - `Passed`, `Failed`, `Untested`, `N/A/B`, and `Total Test Cases` should prefer Excel formulas like `COUNTIF`, `COUNTA`, and `SUM` over hardcoded counts
+- If the template uses sheet formulas to pull `Function Code` or `Function Name` from `Function List`, preserve that formula style.
 
 ## Output defaults
 - Honor requests for only tests or only documentation when the user explicitly asks for that.
-- When the user asks for documentation or a workbook, default to the `.xlsx` workbook only.
-- Otherwise return both.
+- Default to returning only the `.xlsx` workbook path (and nothing else) unless the user explicitly asks for unit test code, raw matrices, or helper artifacts.
+- **Pass stage (completion gate):** the final answer returns only the absolute path to the `.xlsx` workbook under `docs/unit/`, and no helper files (JSON inputs, scratch notes) are left in `docs/`.
 - When the user gives a requirement or use case, do not ask for code first if the repository is available. Search the codebase, find the relevant implementation, scan the flow, and proceed.
 - When the user gives a requirement or use case and relevant test files already exist, run the closest matching test scope before finalizing the workbook so the result rows reflect actual execution.
 - When the user gives a requirement or use case, default to deep coverage across all directly relevant methods and functions that implement the flow, then document them function by function.
 - When no implementation can be found, say what is missing and provide only the highest-confidence documentation draft instead of inventing runnable tests. If the user requested Excel output, create a clearly marked draft workbook only when the assumptions are explicit.
+- If the user clarifies that they want unit tests rather than integration tests, prefer direct method-level tests with mocks and metadata/pipe checks. Do not default to `supertest` route execution unless the user explicitly asks to validate routing behavior.

@@ -168,6 +168,7 @@ export class ProjectRequestsController {
   }
 
   @Get()
+  @Roles(UserRole.CLIENT, UserRole.BROKER, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Get all project requests (Admin/Broker) or My Requests (Client)' })
   @ApiQuery({ name: 'status', enum: RequestStatus, required: false })
   async getProjectRequests(@GetUser() user: UserEntity, @Query('status') status?: string) {
@@ -207,6 +208,13 @@ export class ProjectRequestsController {
   }
 
   @Get(':id')
+  @Roles(
+    UserRole.CLIENT,
+    UserRole.BROKER,
+    UserRole.FREELANCER,
+    UserRole.ADMIN,
+    UserRole.STAFF,
+  )
   @ApiOperation({ summary: 'Get a single project request by ID' })
   @ApiResponse({ status: 200, description: 'Return the project request details' })
   @ApiResponse({ status: 404, description: 'Project request not found' })
@@ -293,20 +301,31 @@ export class ProjectRequestsController {
     },
   })
   async uploadFile(@UploadedFiles() files: UploadedFilesMap, @GetUser('id') userId: string) {
-    this.assertFilesAllowed([...(files.requirements || []), ...(files.attachments || [])]);
+    try {
+      this.assertFilesAllowed([...(files.requirements || []), ...(files.attachments || [])]);
 
-    return {
-      requirements: await Promise.all(
-        (files.requirements || []).map((file) =>
-          this.persistRequestUpload(file, 'requirements', userId),
+      const result = {
+        requirements: await Promise.all(
+          (files.requirements || []).map((file) =>
+            this.persistRequestUpload(file, 'requirements', userId),
+          ),
         ),
-      ),
-      attachments: await Promise.all(
-        (files.attachments || []).map((file) =>
-          this.persistRequestUpload(file, 'attachment', userId),
+        attachments: await Promise.all(
+          (files.attachments || []).map((file) =>
+            this.persistRequestUpload(file, 'attachment', userId),
+          ),
         ),
-      ),
-    };
+      };
+
+      console.log(
+        `Upload File Successful: requirements=${result.requirements.length} attachments=${result.attachments.length}`,
+      );
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Upload File Failed: ${message}`);
+      throw error;
+    }
   }
 
   @Post(':id/commercial-change-requests')
@@ -343,6 +362,7 @@ export class ProjectRequestsController {
   }
 
   @Post(':id/invite/broker')
+  @Roles(UserRole.CLIENT, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Invite a broker to a project request' })
   @ApiResponse({ status: 201, description: 'Invitation sent' })
   async inviteBroker(
@@ -415,6 +435,7 @@ export class ProjectRequestsController {
   }
 
   @Post(':id/release-broker-slot')
+  @Roles(UserRole.CLIENT, UserRole.ADMIN, UserRole.STAFF)
   @ApiOperation({ summary: 'Release an active broker application slot for this request' })
   async releaseBrokerSlot(
     @Param('id') id: string,

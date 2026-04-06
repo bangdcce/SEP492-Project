@@ -7,7 +7,9 @@
     "dev": "node ./node_modules/vite/bin/vite.js",
     "build": "node ./node_modules/typescript/bin/tsc -b && node ./node_modules/vite/bin/vite.js build",
     "lint": "node ./node_modules/eslint/bin/eslint.js .",
-    "preview": "node ./node_modules/vite/bin/vite.js preview"
+    "preview": "node ./node_modules/vite/bin/vite.js preview",
+    "test:fe16-fe18": "node ./node_modules/@playwright/test/cli.js test -c playwright.fe16-fe18.config.ts",
+    "report:fe16-fe18": "python ./e2e/fe16-fe18/generate_report5_workbook.py"
   },
   "dependencies": {
     "@fullcalendar/core": "^6.1.20",
@@ -88,6 +90,7 @@
     "react-google-recaptcha": "^3.1.0",
     "react-hook-form": "^7.71.1",
     "react-hot-toast": "^2.6.0",
+    "react-is": "^19.2.0",
     "react-resizable-panels": "^4.2.2",
     "react-router-dom": "^7.10.1",
     "recharts": "^3.7.0",
@@ -102,6 +105,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@playwright/test": "^1.58.2",
     "@rollup/rollup-win32-x64-msvc": "^4.59.0",
     "@tailwindcss/oxide-win32-x64-msvc": "^4.2.2",
     "@types/node": "^24.10.4",

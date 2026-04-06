@@ -8,6 +8,7 @@ import {
   Logger,
   HttpCode,
   HttpStatus,
+  Query,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -22,8 +23,12 @@ import { QuotaService } from './quota.service';
 import {
   SubscribeDto,
   CancelSubscriptionDto,
+  CreatePayPalSubscriptionOrderDto,
   MySubscriptionResponseDto,
+  PayPalSubscriptionOrderResponseDto,
   SubscriptionPlanResponseDto,
+  SubscriptionPayPalConfigQueryDto,
+  SubscriptionPayPalConfigResponseDto,
 } from './dto/subscription.dto';
 
 /**
@@ -74,23 +79,34 @@ export class SubscriptionsController {
   async getPlans(@Request() req: any) {
     const user = req.user;
     this.logger.debug(`User ${user.id} requesting plans for role ${user.role}`);
+    try {
+      const plans = await this.subscriptionsService.getPlansForRole(user.role);
 
-    const plans = await this.subscriptionsService.getPlansForRole(user.role);
+      const response = {
+        success: true,
+        data: plans.map((plan) => ({
+          id: plan.id,
+          name: plan.name,
+          displayName: plan.displayName,
+          description: plan.description,
+          role: plan.role,
+          priceMonthly: Number(plan.priceMonthly),
+          priceQuarterly: Number(plan.priceQuarterly),
+          priceYearly: Number(plan.priceYearly),
+          ...this.subscriptionsService.getPlanDisplayPricing(plan),
+          perks: plan.perks,
+        })),
+      };
 
-    return {
-      success: true,
-      data: plans.map((plan) => ({
-        id: plan.id,
-        name: plan.name,
-        displayName: plan.displayName,
-        description: plan.description,
-        role: plan.role,
-        priceMonthly: Number(plan.priceMonthly),
-        priceQuarterly: Number(plan.priceQuarterly),
-        priceYearly: Number(plan.priceYearly),
-        perks: plan.perks,
-      })),
-    };
+      this.logger.log(
+        `Get Plans Endpoint Successful: user="${user.id}" role="${user.role}" count=${response.data.length}`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Get Plans Endpoint Failed: ${message}`);
+      throw error;
+    }
   }
 
   /**
@@ -123,33 +139,140 @@ export class SubscriptionsController {
   async getMySubscription(@Request() req: any) {
     const user = req.user;
     this.logger.debug(`User ${user.id} viewing subscription status`);
+    try {
+      const subscriptionData = await this.subscriptionsService.getMySubscription(
+        user.id,
+      );
 
-    const subscriptionData = await this.subscriptionsService.getMySubscription(
-      user.id,
+      // Enrich with quota usage summary
+      const usage = await this.quotaService.getUsageSummary(user.id, user.role);
+
+      const response = {
+        success: true,
+        data: {
+          ...subscriptionData,
+          usage,
+        },
+      };
+
+      this.logger.log(
+        `Get My Subscription Endpoint Successful: user="${user.id}" premium=${response.data.isPremium}`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Get My Subscription Endpoint Failed: ${message}`);
+      throw error;
+    }
+  }
+
+  @ApiOperation({
+    summary: 'Load PayPal config for subscription checkout',
+    description:
+      'Returns the PayPal SDK configuration and converted charge quote for the selected subscription plan and billing cycle.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'PayPal checkout configuration and quoted subscription charge',
+    type: SubscriptionPayPalConfigResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Invalid plan, billing cycle, or payment method' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Plan, user, or payment method not found' })
+  @ApiResponse({
+    status: 409,
+    description: 'User already has an active subscription',
+  })
+  @Get('paypal/config')
+  async getPayPalConfig(
+    @Request() req: any,
+    @Query() dto: SubscriptionPayPalConfigQueryDto,
+  ) {
+    const user = req.user;
+    this.logger.debug(
+      `User ${user.id} requesting PayPal subscription config for plan ${dto.planId} (${dto.billingCycle})`,
     );
+    try {
+      const config = await this.subscriptionsService.getPayPalCheckoutConfig(
+        user.id,
+        dto,
+      );
 
-    // Enrich with quota usage summary
-    const usage = await this.quotaService.getUsageSummary(user.id, user.role);
+      const response = {
+        success: true,
+        data: config,
+      };
 
-    return {
-      success: true,
-      data: {
-        ...subscriptionData,
-        usage,
-      },
-    };
+      this.logger.log(
+        `Get PayPal Subscription Config Endpoint Successful: user="${user.id}" plan="${dto.planId}" cycle="${dto.billingCycle}"`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Get PayPal Subscription Config Endpoint Failed: ${message}`);
+      throw error;
+    }
+  }
+
+  @ApiOperation({
+    summary: 'Create a PayPal order for subscription checkout',
+    description:
+      'Creates a PayPal order for the selected premium plan. The returned order id is approved in the PayPal SDK and then finalized by POST /subscriptions/subscribe.',
+  })
+  @ApiBody({ type: CreatePayPalSubscriptionOrderDto })
+  @ApiResponse({
+    status: 201,
+    description: 'PayPal subscription order created successfully',
+    type: PayPalSubscriptionOrderResponseDto,
+  })
+  @ApiResponse({ status: 400, description: 'Invalid plan, billing cycle, or payment method' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 404, description: 'Plan, user, or payment method not found' })
+  @ApiResponse({
+    status: 409,
+    description: 'User already has an active subscription',
+  })
+  @Post('paypal/order')
+  async createPayPalOrder(
+    @Request() req: any,
+    @Body() dto: CreatePayPalSubscriptionOrderDto,
+  ) {
+    const user = req.user;
+    this.logger.log(
+      `User ${user.id} creating PayPal subscription order for plan ${dto.planId} (${dto.billingCycle})`,
+    );
+    try {
+      const order = await this.subscriptionsService.createPayPalSubscriptionOrder(
+        user.id,
+        dto,
+      );
+
+      const response = {
+        success: true,
+        data: order,
+      };
+
+      this.logger.log(
+        `Create PayPal Subscription Order Endpoint Successful: user="${user.id}" order="${order.orderId}"`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Create PayPal Subscription Order Endpoint Failed: ${message}`);
+      throw error;
+    }
   }
 
   /**
    * Subscribe to a premium plan (UC-40).
    *
-   * Creates a new subscription with immediate activation.
-   * The user selects a plan and billing cycle (monthly/quarterly/yearly).
+   * Captures an approved PayPal order and activates the subscription immediately.
    *
    * Business rules:
    * - User must not have an existing active subscription
    * - Plan must exist and be active
    * - Plan must match the user's role
+   * - Order must be approved and captured through PayPal first
    *
    * @param req - Express request with JWT user
    * @param dto - Subscribe parameters
@@ -158,14 +281,13 @@ export class SubscriptionsController {
   @ApiOperation({
     summary: 'Subscribe to a premium plan',
     description:
-      'Subscribe to a premium plan. The subscription is activated immediately. ' +
-      'Choose a billing cycle (MONTHLY, QUARTERLY, YEARLY) for different pricing. ' +
-      'Quarterly saves 15%, yearly saves 30%.',
+      'Captures an approved PayPal order and activates the premium subscription immediately. ' +
+      'Choose a billing cycle (MONTHLY, QUARTERLY, YEARLY) for different pricing before creating the PayPal order.',
   })
   @ApiBody({ type: SubscribeDto })
   @ApiResponse({
     status: 201,
-    description: 'Subscription created successfully',
+    description: 'Subscription created successfully after PayPal capture',
   })
   @ApiResponse({ status: 400, description: 'Plan role mismatch or invalid data' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -180,24 +302,46 @@ export class SubscriptionsController {
     this.logger.log(
       `User ${user.id} subscribing to plan ${dto.planId} (${dto.billingCycle})`,
     );
+    try {
+      const subscription = await this.subscriptionsService.subscribe(
+        user.id,
+        dto,
+      );
 
-    const subscription = await this.subscriptionsService.subscribe(
-      user.id,
-      dto,
-    );
+      const response = {
+        success: true,
+        message: 'Successfully subscribed to Premium! Enjoy your new perks.',
+        data: {
+          id: subscription.id,
+          status: subscription.status,
+          billingCycle: subscription.billingCycle,
+          currentPeriodStart: subscription.currentPeriodStart,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          amountPaid: Number(subscription.amountPaid),
+          payment: subscription.paymentProvider
+            ? {
+                provider: subscription.paymentProvider,
+                reference: subscription.paymentReference ?? null,
+                capturedAmount:
+                  subscription.paymentCapturedAmount !== null
+                  && subscription.paymentCapturedAmount !== undefined
+                    ? Number(subscription.paymentCapturedAmount)
+                    : null,
+                currency: subscription.paymentCurrency ?? null,
+              }
+            : null,
+        },
+      };
 
-    return {
-      success: true,
-      message: 'Successfully subscribed to Premium! Enjoy your new perks.',
-      data: {
-        id: subscription.id,
-        status: subscription.status,
-        billingCycle: subscription.billingCycle,
-        currentPeriodStart: subscription.currentPeriodStart,
-        currentPeriodEnd: subscription.currentPeriodEnd,
-        amountPaid: Number(subscription.amountPaid),
-      },
-    };
+      this.logger.log(
+        `Subscribe Endpoint Successful: user="${user.id}" subscription="${subscription.id}"`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Subscribe Endpoint Failed: ${message}`);
+      throw error;
+    }
   }
 
   /**
@@ -241,19 +385,29 @@ export class SubscriptionsController {
   ) {
     const user = req.user;
     this.logger.log(`User ${user.id} cancelling subscription`);
+    try {
+      const subscription = await this.subscriptionsService.cancel(user.id, dto);
 
-    const subscription = await this.subscriptionsService.cancel(user.id, dto);
+      const response = {
+        success: true,
+        message: `Subscription cancelled. Your premium perks will remain active until ${subscription.currentPeriodEnd.toISOString().split('T')[0]}.`,
+        data: {
+          id: subscription.id,
+          status: subscription.status,
+          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+          currentPeriodEnd: subscription.currentPeriodEnd,
+          cancelledAt: subscription.cancelledAt,
+        },
+      };
 
-    return {
-      success: true,
-      message: `Subscription cancelled. Your premium perks will remain active until ${subscription.currentPeriodEnd.toISOString().split('T')[0]}.`,
-      data: {
-        id: subscription.id,
-        status: subscription.status,
-        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-        currentPeriodEnd: subscription.currentPeriodEnd,
-        cancelledAt: subscription.cancelledAt,
-      },
-    };
+      this.logger.log(
+        `Cancel Subscription Endpoint Successful: user="${user.id}" subscription="${subscription.id}"`,
+      );
+      return response;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(`Cancel Subscription Endpoint Failed: ${message}`);
+      throw error;
+    }
   }
 }

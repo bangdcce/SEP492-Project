@@ -9,29 +9,16 @@ import {
   FileSignature,
   MessageSquare,
   PlusCircle,
-  Loader2,
+  WalletCards,
   ShieldCheck,
-  UserPlus,
 } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
-import {
-  Button,
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/shared/components/ui";
-import { STORAGE_KEYS } from "@/constants";
+import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { toast } from "sonner";
+import { completeStripeMilestoneFunding } from "@/features/payments/api";
 import {
   fetchBoard,
   updateTaskStatus,
@@ -40,10 +27,8 @@ import {
   createMilestone,
   approveMilestone,
   fetchProject,
-  fetchStaffCandidates,
-  inviteProjectStaff,
   requestMilestoneReview,
-  reviewMilestoneAsStaff,
+  reviewMilestoneAsBroker,
   type WorkspaceProject,
 } from "./api";
 import type {
@@ -51,7 +36,6 @@ import type {
   KanbanColumnKey,
   Milestone,
   ProjectTaskRealtimeEvent,
-  StaffSummary,
   Task,
 } from "./types";
 import { KanbanColumn } from "./components/board/KanbanColumn";
@@ -64,6 +48,8 @@ import { MilestoneTabs } from "./components/milestone/MilestoneTabs";
 import { CreateMilestoneModal } from "./components/milestone/CreateMilestoneModal";
 import { CalendarView } from "./components/calendar/CalendarView";
 import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
+import { MilestoneFundingCard } from "./components/milestone/MilestoneFundingCard";
+import { ProjectReviewActionsCard } from "./components/review/ProjectReviewActionsCard";
 import { ProjectOverview } from "./components/overview/ProjectOverview";
 import { WorkspaceChatDrawer } from "./components/chat/WorkspaceChatDrawer";
 import { calculateProgress, getLatestApprovedSubmission } from "./utils";
@@ -76,6 +62,12 @@ import {
 import { contractsApi } from "@/features/contracts/api";
 import type { Contract as ContractDetail } from "@/features/contracts/types";
 import { DeliverableType } from "@/features/project-specs/types";
+import type { MilestoneFundingResult } from "@/features/payments/types";
+import {
+  normalizeSupportedBillingRole,
+  resolveBillingLabel,
+  resolveBillingRoute,
+} from "@/features/payments/roleRoutes";
 
 const initialBoard: KanbanBoard = {
   TODO: [],
@@ -84,6 +76,15 @@ const initialBoard: KanbanBoard = {
   DONE: [],
 };
 const WORKSPACE_CHAT_NAMESPACE = "/ws/workspace";
+type WorkspaceViewMode = "summary" | "board" | "calendar";
+
+const parseWorkspaceViewMode = (value: string | null): WorkspaceViewMode => {
+  if (value === "board" || value === "calendar") {
+    return value;
+  }
+
+  return "summary";
+};
 const TASKS_REALTIME_NAMESPACE = "/ws/tasks";
 const BOARD_COLUMNS: KanbanColumnKey[] = [
   "TODO",
@@ -102,6 +103,23 @@ const TASK_CREATION_LOCK_MESSAGE =
 const normalizeMilestoneKey = (value?: string | null) =>
   value == null ? null : String(value);
 
+const formatMilestoneRuntimeStatus = (status?: string | null) => {
+  switch (status?.toUpperCase()) {
+    case "PENDING_STAFF_REVIEW":
+      return "Broker review";
+    case "PENDING_CLIENT_APPROVAL":
+      return "Waiting for client approval";
+    case "PAID":
+      return "Paid & released";
+    case "REVISIONS_REQUIRED":
+      return "Revisions required";
+    case "IN_PROGRESS":
+      return "In progress";
+    default:
+      return status ?? "PENDING";
+  }
+};
+
 type ProjectWorkspaceMember = {
   id: string;
   name: string;
@@ -116,7 +134,7 @@ const getCurrentUser = (): { id: string; role?: string } | null => {
 };
 
 export function ProjectWorkspace() {
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [board, setBoard] = useState<KanbanBoard>(initialBoard);
   const [project, setProject] = useState<WorkspaceProject | null>(null);
   const [contractDetail, setContractDetail] = useState<ContractDetail | null>(
@@ -124,12 +142,6 @@ export function ProjectWorkspace() {
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isStaffInviteDialogOpen, setIsStaffInviteDialogOpen] = useState(false);
-  const [staffCandidates, setStaffCandidates] = useState<StaffSummary[]>([]);
-  const [selectedStaffId, setSelectedStaffId] = useState("");
-  const [isLoadingStaffCandidates, setIsLoadingStaffCandidates] =
-    useState(false);
-  const [isInvitingStaff, setIsInvitingStaff] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
@@ -153,12 +165,6 @@ export function ProjectWorkspace() {
   ] = useState("");
   const [isMilestoneSubmitting, setIsMilestoneSubmitting] = useState(false);
   const [milestones, setMilestones] = useState<Milestone[]>([]);
-  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string | null>(
-    null,
-  );
-  const [viewMode, setViewMode] = useState<"summary" | "board" | "calendar">(
-    "summary",
-  );
   const [isDisputeModalOpen, setIsDisputeModalOpen] = useState(false);
   const [disputeMilestone, setDisputeMilestone] = useState<Milestone | null>(
     null,
@@ -166,6 +172,7 @@ export function ProjectWorkspace() {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const isChatOpenRef = useRef(false);
+  const processedStripeSessionIdsRef = useRef<Set<string>>(new Set());
 
   // Filter State
   const [searchQuery, setSearchQuery] = useState("");
@@ -179,6 +186,76 @@ export function ProjectWorkspace() {
   const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
 
   const { projectId } = useParams();
+  const location = useLocation();
+
+  const viewMode = useMemo<WorkspaceViewMode>(
+    () => parseWorkspaceViewMode(searchParams.get("view")),
+    [searchParams],
+  );
+  const requestedMilestoneId = useMemo(
+    () => normalizeMilestoneKey(searchParams.get("milestone")),
+    [searchParams],
+  );
+  const selectedMilestoneId = useMemo(() => {
+    if (milestones.length === 0) {
+      return null;
+    }
+
+    const requestedMilestoneExists = Boolean(
+      requestedMilestoneId &&
+        milestones.some(
+          (milestone) => normalizeMilestoneKey(milestone.id) === requestedMilestoneId,
+        ),
+    );
+
+    if (requestedMilestoneId && requestedMilestoneExists) {
+      return requestedMilestoneId;
+    }
+
+    return milestones[0]?.id ?? null;
+  }, [milestones, requestedMilestoneId]);
+
+  const updateWorkspaceSearchParams = useCallback(
+    ({
+      nextViewMode,
+      nextMilestoneId,
+    }: {
+      nextViewMode?: WorkspaceViewMode;
+      nextMilestoneId?: string | null;
+    }) => {
+      const resolvedViewMode = nextViewMode ?? viewMode;
+      const resolvedMilestoneId =
+        nextMilestoneId === undefined ? selectedMilestoneId : nextMilestoneId;
+      const nextSearchParams = new URLSearchParams(searchParams);
+
+      nextSearchParams.set("view", resolvedViewMode);
+
+      if (resolvedMilestoneId) {
+        nextSearchParams.set("milestone", resolvedMilestoneId);
+      } else {
+        nextSearchParams.delete("milestone");
+      }
+
+      if (nextSearchParams.toString() !== searchParams.toString()) {
+        setSearchParams(nextSearchParams, { replace: true });
+      }
+    },
+    [searchParams, selectedMilestoneId, setSearchParams, viewMode],
+  );
+
+  const setSelectedMilestoneId = useCallback(
+    (id: string | null) => {
+      updateWorkspaceSearchParams({ nextMilestoneId: id });
+    },
+    [updateWorkspaceSearchParams],
+  );
+
+  const setViewMode = useCallback(
+    (nextViewMode: WorkspaceViewMode) => {
+      updateWorkspaceSearchParams({ nextViewMode });
+    },
+    [updateWorkspaceSearchParams],
+  );
 
   // Get current user for role-based UI restrictions
   const [currentUser, setCurrentUser] = useState<{
@@ -254,21 +331,14 @@ export function ProjectWorkspace() {
   }, [project]);
 
   const currentRole = currentUser?.role?.toUpperCase();
-  const isClient = currentRole === "CLIENT";
+  const billingRole = normalizeSupportedBillingRole(currentRole);
   const isBroker = currentRole === "BROKER";
   const isFreelancer = currentRole === "FREELANCER";
-  const isStaff = currentRole === "STAFF";
   const isAssignedBroker = Boolean(
     isBroker && currentUser?.id && project?.brokerId === currentUser.id,
   );
-  const isAssignedStaff = Boolean(
-    isStaff &&
-    currentUser?.id &&
-    project?.staffId === currentUser.id &&
-    project?.staffInviteStatus === "ACCEPTED",
-  );
 
-  // Clients, staff reviewers, and disputed projects are read-only for task mutations.
+  // Clients, internal reviewers, and disputed projects are read-only for task mutations.
   const isReadOnly = useMemo(() => {
     return (
       currentRole === "CLIENT" || currentRole === "STAFF" || isProjectDisputed
@@ -279,25 +349,21 @@ export function ProjectWorkspace() {
     return currentRole === "CLIENT" && !isProjectDisputed;
   }, [currentRole, isProjectDisputed]);
 
-  const canInviteStaff = useMemo(() => {
-    return isClient && !project?.staffId && !isProjectDisputed;
-  }, [isClient, isProjectDisputed, project?.staffId]);
-
-  const hasAcceptedStaff = Boolean(
-    project?.staffId && project?.staffInviteStatus === "ACCEPTED",
+  const hasBrokerReviewStep = Boolean(
+    project?.brokerId && project?.brokerId !== project?.clientId,
   );
 
   const canReviewTaskSubmissions = useMemo(() => {
-    return currentRole === "CLIENT" || isAssignedStaff;
-  }, [currentRole, isAssignedStaff]);
+    return currentRole === "CLIENT" || isAssignedBroker;
+  }, [currentRole, isAssignedBroker]);
 
-  const assignedStaffLabel = useMemo(() => {
-    if (!project?.staffId) {
+  const assignedBrokerLabel = useMemo(() => {
+    if (!project?.brokerId) {
       return null;
     }
 
-    return project.staff?.fullName || `Staff (${project.staffId.slice(0, 6)})`;
-  }, [project?.staff?.fullName, project?.staffId]);
+    return project.broker?.fullName || `Broker (${project.brokerId.slice(0, 6)})`;
+  }, [project?.broker?.fullName, project?.brokerId]);
 
   const isMilestoneStructureLocked = useMemo(() => {
     return Boolean(
@@ -508,11 +574,6 @@ export function ProjectWorkspace() {
         setMilestones(milestoneData || []);
         setProject(projectData);
         setContractDetail(contractData);
-        setSelectedMilestoneId(
-          milestoneData && milestoneData.length > 0
-            ? milestoneData[0].id
-            : null,
-        );
         setBoard({
           TODO: boardData?.TODO || [],
           IN_PROGRESS: boardData?.IN_PROGRESS || [],
@@ -531,47 +592,11 @@ export function ProjectWorkspace() {
   }, [projectId]);
 
   useEffect(() => {
-    if (!isStaffInviteDialogOpen || !isClient) {
+    if (loading) {
       return;
     }
-
-    let isCancelled = false;
-    setIsLoadingStaffCandidates(true);
-    setSelectedStaffId("");
-
-    fetchStaffCandidates()
-      .then((staffList) => {
-        if (isCancelled) {
-          return;
-        }
-
-        setStaffCandidates(staffList);
-        if (staffList.length > 0) {
-          setSelectedStaffId(staffList[0].id);
-        }
-      })
-      .catch((err: unknown) => {
-        if (isCancelled) {
-          return;
-        }
-
-        const errorMessage =
-          err instanceof Error
-            ? err.message
-            : "Failed to load staff candidates";
-        setError(errorMessage);
-        toast.error(errorMessage);
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setIsLoadingStaffCandidates(false);
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [isClient, isStaffInviteDialogOpen]);
+    updateWorkspaceSearchParams({});
+  }, [loading, updateWorkspaceSearchParams]);
 
   const columns = useMemo<
     { key: KanbanColumnKey; title: string; description: string }[]
@@ -778,6 +803,7 @@ export function ProjectWorkspace() {
       ? tasksByMilestone[selectedMilestoneKey]
       : [];
   const activeProgress = calculateProgress(activeTasks);
+  const activeMilestoneStatus = activeMilestone?.status?.toUpperCase() ?? null;
   const canCreateTasksForSelectedMilestone = useMemo(() => {
     if (isReadOnly || !activeMilestone) {
       return false;
@@ -804,6 +830,41 @@ export function ProjectWorkspace() {
 
     return TASK_CREATION_LOCK_MESSAGE;
   }, [activeMilestone, currentRole, isProjectDisputed]);
+
+  const contractHref =
+    project?.contracts?.[0]?.id && currentUser?.role
+      ? `/${currentUser.role.toLowerCase()}/contracts/${project.contracts[0].id}`
+      : null;
+
+  const workspaceBillingHref = useMemo(() => {
+    const billingBaseRoute = resolveBillingRoute(currentRole);
+
+    if (!projectId) {
+      return billingBaseRoute;
+    }
+
+    const workspaceRoutePattern =
+      currentRole === "BROKER"
+        ? ROUTES.BROKER_WORKSPACE
+        : currentRole === "FREELANCER"
+          ? ROUTES.FREELANCER_WORKSPACE
+          : ROUTES.CLIENT_WORKSPACE;
+    const workspacePath = workspaceRoutePattern.replace(":projectId", projectId);
+    const returnParams = new URLSearchParams();
+    returnParams.set("view", viewMode);
+    if (selectedMilestoneId) {
+      returnParams.set("milestone", selectedMilestoneId);
+    }
+
+    const billingParams = new URLSearchParams();
+    billingParams.set("returnTo", `${workspacePath}?${returnParams.toString()}`);
+
+    if (activeMilestone?.title) {
+      billingParams.set("milestoneTitle", activeMilestone.title);
+    }
+
+    return `${billingBaseRoute}?${billingParams.toString()}`;
+  }, [activeMilestone?.title, currentRole, projectId, selectedMilestoneId, viewMode]);
 
   // Get all tasks in a flat array for calendar view
   const allTasks = useMemo(() => {
@@ -1133,17 +1194,48 @@ export function ProjectWorkspace() {
 
       // Update the milestone status in local state
       setMilestones((prev) =>
-        prev.map((m) =>
-          m.id === milestoneId ? { ...m, ...result.milestone } : m,
-        ),
+        prev.map((milestone) => {
+          if (milestone.id !== milestoneId) {
+            return milestone;
+          }
+
+          const nextMilestone: Milestone = {
+            ...milestone,
+            ...result.milestone,
+          };
+
+          if (!nextMilestone.escrow) {
+            return nextMilestone;
+          }
+
+          return {
+            ...nextMilestone,
+            escrow: {
+              ...nextMilestone.escrow,
+              status: result.fundsReleased
+                ? "RELEASED"
+                : nextMilestone.escrow.status,
+              releasedAmount: result.fundsReleased
+                ? Number(
+                    nextMilestone.escrow.totalAmount ||
+                      nextMilestone.amount ||
+                      0,
+                  )
+                : nextMilestone.escrow.releasedAmount,
+              releasedAt: result.fundsReleased
+                ? new Date().toISOString()
+                : nextMilestone.escrow.releasedAt,
+              updatedAt: new Date().toISOString(),
+            },
+          };
+        }),
       );
 
       console.log(
         `[Milestone] "${result.milestone.title}" approved. Funds released: ${result.fundsReleased}`,
       );
 
-      // Show success message (you could use a toast here)
-      alert(result.message);
+      toast.success(result.message);
     } catch (err: unknown) {
       const errorMessage =
         err instanceof Error ? err.message : "Failed to approve milestone";
@@ -1151,6 +1243,109 @@ export function ProjectWorkspace() {
       throw err; // Re-throw so the modal can handle it
     }
   };
+
+  const handleFundingSuccess = useCallback((result: MilestoneFundingResult) => {
+    const now = new Date().toISOString();
+
+    setMilestones((prev) =>
+      prev.map((milestone) =>
+        milestone.id === result.milestoneId
+          ? {
+              ...milestone,
+              escrow: milestone.escrow
+                ? {
+                    ...milestone.escrow,
+                    status: result.escrowStatus,
+                    fundedAmount: milestone.escrow.totalAmount,
+                    fundedAt: now,
+                    updatedAt: now,
+                  }
+                : {
+                    id: result.escrowId,
+                    status: result.escrowStatus,
+                    totalAmount: milestone.amount,
+                    fundedAmount: milestone.amount,
+                    releasedAmount: 0,
+                    developerShare: milestone.amount,
+                    brokerShare: 0,
+                    platformFee: 0,
+                    currency: result.walletSnapshot.currency,
+                    fundedAt: now,
+                    releasedAt: null,
+                    refundedAt: null,
+                    updatedAt: now,
+                  },
+            }
+          : milestone,
+      ),
+    );
+  }, []);
+
+  useEffect(() => {
+    const stripeCheckoutState = searchParams.get("stripeCheckout");
+    const stripeSessionId = searchParams.get("stripeSessionId");
+    const stripePaymentMethodId = searchParams.get("stripePaymentMethodId");
+
+    const clearStripeCheckoutParams = () => {
+      const nextSearchParams = new URLSearchParams(searchParams);
+      nextSearchParams.delete("stripeCheckout");
+      nextSearchParams.delete("stripeSessionId");
+      nextSearchParams.delete("stripePaymentMethodId");
+      setSearchParams(nextSearchParams, { replace: true });
+    };
+
+    if (stripeCheckoutState === "cancel") {
+      toast.message("Stripe checkout was cancelled.");
+      clearStripeCheckoutParams();
+      return;
+    }
+
+    if (
+      stripeCheckoutState !== "success" ||
+      !requestedMilestoneId ||
+      !stripeSessionId ||
+      !stripePaymentMethodId
+    ) {
+      return;
+    }
+
+    if (processedStripeSessionIdsRef.current.has(stripeSessionId)) {
+      return;
+    }
+
+    processedStripeSessionIdsRef.current.add(stripeSessionId);
+    let active = true;
+
+    const syncStripeCheckout = async () => {
+      try {
+        const result = await completeStripeMilestoneFunding(requestedMilestoneId, {
+          paymentMethodId: stripePaymentMethodId,
+          sessionId: stripeSessionId,
+        });
+        if (!active) return;
+        handleFundingSuccess(result);
+        toast.success("Card payment completed and escrow funded");
+      } catch (error: unknown) {
+        if (!active) return;
+        const message =
+          error instanceof Error
+            ? error.message
+            : "Stripe Checkout completed, but the app could not sync the escrow state.";
+        setError(message);
+        toast.error(message);
+      } finally {
+        if (active) {
+          clearStripeCheckoutParams();
+        }
+      }
+    };
+
+    void syncStripeCheckout();
+
+    return () => {
+      active = false;
+    };
+  }, [handleFundingSuccess, requestedMilestoneId, searchParams, setSearchParams]);
 
   const handleRequestMilestoneReview = async (milestoneId: string) => {
     if (isProjectDisputed) {
@@ -1167,7 +1362,11 @@ export function ProjectWorkspace() {
             : milestone,
         ),
       );
-      toast.success("Milestone review request sent.");
+      toast.success(
+        updatedMilestone.status === "PENDING_STAFF_REVIEW"
+          ? "Milestone sent to broker review."
+          : "Milestone sent to client approval.",
+      );
     } catch (err: unknown) {
       const errorMessage =
         err instanceof Error
@@ -1178,7 +1377,7 @@ export function ProjectWorkspace() {
     }
   };
 
-  const handleStaffReviewMilestone = async (
+  const handleBrokerReviewMilestone = async (
     milestoneId: string,
     payload: { recommendation: "ACCEPT" | "REJECT"; note: string },
   ) => {
@@ -1188,7 +1387,7 @@ export function ProjectWorkspace() {
 
     try {
       setError(null);
-      const updatedMilestone = await reviewMilestoneAsStaff(
+      const updatedMilestone = await reviewMilestoneAsBroker(
         milestoneId,
         payload,
       );
@@ -1209,37 +1408,6 @@ export function ProjectWorkspace() {
         err instanceof Error ? err.message : "Failed to review milestone";
       setError(errorMessage);
       throw err;
-    }
-  };
-
-  const handleInviteStaff = async () => {
-    if (!projectId) {
-      setError("No project selected. Please choose a project from the list.");
-      return;
-    }
-
-    if (!selectedStaffId) {
-      setError("Please select a staff reviewer.");
-      return;
-    }
-
-    try {
-      setIsInvitingStaff(true);
-      setError(null);
-      const updatedProject = await inviteProjectStaff(
-        projectId,
-        selectedStaffId,
-      );
-      setProject(updatedProject);
-      setIsStaffInviteDialogOpen(false);
-      toast.success("Staff invite sent.");
-    } catch (err: unknown) {
-      const errorMessage =
-        err instanceof Error ? err.message : "Failed to invite staff";
-      setError(errorMessage);
-      toast.error(errorMessage);
-    } finally {
-      setIsInvitingStaff(false);
     }
   };
 
@@ -1445,42 +1613,37 @@ export function ProjectWorkspace() {
             Project ID:{" "}
             <span className="font-mono text-sky-600">{projectId || "N/A"}</span>
           </p>
-          {project?.staffInviteStatus === "PENDING" && (
+          {activeMilestoneStatus === "PENDING_STAFF_REVIEW" && assignedBrokerLabel && (
             <p className="mt-2 inline-flex rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-              Dang cho Staff xac nhan...
+              Waiting for broker review · {assignedBrokerLabel}
             </p>
           )}
-          {project?.staffInviteStatus === "ACCEPTED" && assignedStaffLabel && (
+          {activeMilestoneStatus === "PENDING_CLIENT_APPROVAL" && assignedBrokerLabel && (
             <p className="mt-2 inline-flex items-center gap-2 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-medium text-emerald-700">
               <ShieldCheck className="h-3.5 w-3.5" />
-              Staff: {assignedStaffLabel}
+              Broker reviewed · {assignedBrokerLabel}
             </p>
           )}
         </div>
         <div className="flex items-center gap-3">
-          {canInviteStaff && (
-            <button
-              onClick={() => setIsStaffInviteDialogOpen(true)}
-              className="flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-700 transition-colors hover:bg-sky-100"
-            >
-              <UserPlus className="h-4 w-4" />
-              Invite Staff
-            </button>
-          )}
           {/* View Contract Button */}
-          {project && project.contracts && project.contracts.length > 0 && (
-            <button
-              onClick={() => {
-                const contractId = project?.contracts?.[0].id;
-                if (!contractId) return;
-                const role = currentUser?.role?.toLowerCase();
-                navigate(`/${role}/contracts/${contractId}`);
-              }}
-              className="flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-50 text-blue-700 hover:bg-blue-100 transition-colors border border-blue-200"
+          {contractHref && (
+            <Link
+              to={contractHref}
+              className="flex items-center gap-2 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
             >
               <FileSignature className="h-4 w-4" />
               Contract
-            </button>
+            </Link>
+          )}
+          {(billingRole === "CLIENT" || billingRole === "BROKER" || billingRole === "FREELANCER") && (
+            <Link
+              to={workspaceBillingHref}
+              className="flex items-center gap-2 rounded-md border border-teal-200 bg-teal-50 px-3 py-2 text-sm font-medium text-teal-700 transition-colors hover:bg-teal-100"
+            >
+              <WalletCards className="h-4 w-4" />
+              {resolveBillingLabel(currentRole)}
+            </Link>
           )}
 
           {/* View Switcher */}
@@ -1629,7 +1792,7 @@ export function ProjectWorkspace() {
                     {currencyFormatter.format(Number(entry.amount || 0))}
                   </div>
                   <div className="text-xs text-slate-600 sm:text-right">
-                    {runtimeStatus}
+                    {formatMilestoneRuntimeStatus(runtimeStatus)}
                   </div>
                 </div>
               );
@@ -1676,23 +1839,51 @@ export function ProjectWorkspace() {
           {activeMilestone &&
             activeProgress === 100 &&
             activeMilestone.status !== "COMPLETED" &&
-            activeMilestone.status !== "PAID" && (
+            activeMilestone.status !== "PAID" &&
+            (!activeMilestone.escrow ||
+              activeMilestone.escrow.status === "FUNDED") && (
               <MilestoneApprovalCard
                 milestone={activeMilestone}
                 tasks={activeTasks}
                 progress={activeProgress}
                 currentRole={currentRole}
-                isAssignedStaff={isAssignedStaff}
-                hasAcceptedStaff={hasAcceptedStaff}
-                assignedStaffLabel={assignedStaffLabel}
+                isAssignedReviewer={isAssignedBroker}
+                hasIntermediateReviewer={hasBrokerReviewStep}
+                assignedReviewerLabel={assignedBrokerLabel}
                 onApprove={handleApproveMilestone}
                 onRequestReview={handleRequestMilestoneReview}
-                onStaffReview={handleStaffReviewMilestone}
+                onReviewerDecision={handleBrokerReviewMilestone}
                 onRaiseDispute={handleRaiseDispute}
                 canApprove={canApproveMilestone}
                 currency={project?.currency ?? "USD"}
               />
             )}
+
+          {activeMilestone && (
+            <MilestoneFundingCard
+              milestone={activeMilestone}
+              progress={activeProgress}
+              currentUserRole={currentRole}
+              currency={project?.currency ?? "USD"}
+              billingSetupHref={workspaceBillingHref}
+              onFunded={handleFundingSuccess}
+            />
+          )}
+
+          {project &&
+          activeMilestone &&
+          ["COMPLETED", "PAID"].includes(String(project.status || "").toUpperCase()) &&
+          activeMilestone.escrow?.status === "RELEASED" ? (
+            <ProjectReviewActionsCard
+              project={project}
+              currentUserId={currentUser?.id}
+              currentUserRole={currentRole}
+              pathname={location.pathname}
+              milestoneTitle={activeMilestone.title}
+              canRaiseDispute={!isProjectDisputed}
+              onRaiseDispute={() => handleRaiseDispute(activeMilestone.id)}
+            />
+          ) : null}
 
           {viewMode !== "summary" && (
             <MilestoneTabs
@@ -1707,7 +1898,6 @@ export function ProjectWorkspace() {
               }
             />
           )}
-
           {activeMilestone && viewMode === "board" && (
             <div className="border border-gray-200 bg-white rounded-xl p-4 shadow-sm">
               <div className="flex items-center justify-between mb-2">
@@ -1718,6 +1908,8 @@ export function ProjectWorkspace() {
                   <span>{activeProgress}%</span>
                   {canRaiseDisputeForMilestone(activeMilestone.status) && (
                     <button
+                      type="button"
+                      data-testid={`raise-dispute-${activeMilestone.id}`}
                       onClick={() => handleRaiseDispute(activeMilestone.id)}
                       className="ml-2 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-100"
                     >
@@ -1945,82 +2137,6 @@ export function ProjectWorkspace() {
         </>
       )}
 
-      <Dialog
-        open={isStaffInviteDialogOpen}
-        onOpenChange={setIsStaffInviteDialogOpen}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Invite Staff</DialogTitle>
-            <DialogDescription>
-              Chon mot staff reviewer de giam sat milestone review cho du an
-              nay.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-3">
-            <label className="text-sm font-medium text-slate-700">
-              Staff reviewer
-            </label>
-            <Select
-              value={selectedStaffId}
-              onValueChange={setSelectedStaffId}
-              disabled={
-                isLoadingStaffCandidates || staffCandidates.length === 0
-              }
-            >
-              <SelectTrigger>
-                <SelectValue
-                  placeholder={
-                    isLoadingStaffCandidates
-                      ? "Dang tai staff..."
-                      : "Chon staff reviewer"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {staffCandidates.map((staff) => (
-                  <SelectItem key={staff.id} value={staff.id}>
-                    {staff.fullName} - {staff.email}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            {staffCandidates.length === 0 && !isLoadingStaffCandidates && (
-              <p className="text-sm text-slate-500">
-                Hien chua co staff reviewer kha dung.
-              </p>
-            )}
-          </div>
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setIsStaffInviteDialogOpen(false)}
-              disabled={isInvitingStaff}
-            >
-              Huy
-            </Button>
-            <Button
-              type="button"
-              onClick={handleInviteStaff}
-              disabled={isInvitingStaff || !selectedStaffId}
-            >
-              {isInvitingStaff ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Dang gui...
-                </>
-              ) : (
-                "Gui loi moi"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <CreateMilestoneModal
         open={isMilestoneModalOpen}
         title={newMilestoneTitle}
@@ -2069,7 +2185,7 @@ export function ProjectWorkspace() {
         task={selectedTask}
         specFeatures={specFeatureOptions}
         canReviewSubmissions={canReviewTaskSubmissions}
-        allowTaskStatusEditing={!isReadOnly && !isStaff}
+        allowTaskStatusEditing={!isReadOnly}
         onClose={handleCloseTaskDetail}
         onUpdate={handleTaskUpdate}
       />

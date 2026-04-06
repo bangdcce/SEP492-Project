@@ -1,7 +1,7 @@
 import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { UserRole } from '../../../database/entities/user.entity';
-import { hasAnyUserRole } from '../utils/role.utils';
+import { hasAnyUserRole, isApprovedStaff } from '../utils/role.utils';
 
 export const ROLES_KEY = 'roles';
 
@@ -21,11 +21,19 @@ export class RolesGuard implements CanActivate {
 
     const { user } = context.switchToHttp().getRequest();
 
-    // Kiểm tra user có tồn tại không (trường hợp bypass JwtAuthGuard hoặc user không được set)
+    // Ensure the user exists in case JwtAuthGuard is bypassed or req.user is missing.
     if (!user) {
       return false;
     }
 
-    return hasAnyUserRole(user.role, requiredRoles);
+    if (!hasAnyUserRole(user.role, requiredRoles)) {
+      return false;
+    }
+
+    if (user.role !== UserRole.STAFF) {
+      return true;
+    }
+
+    return isApprovedStaff(user);
   }
 }

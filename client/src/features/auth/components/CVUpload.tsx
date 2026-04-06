@@ -2,10 +2,27 @@
  * CVUpload Component
  * Allows users to upload, view, and delete their CV (PDF or DOCX)
  */
-import { useState, useRef, useEffect } from 'react';
-import { FileText, Upload, Download, Trash2, ExternalLink, Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
-import { uploadCV, getCV, deleteCV } from '../api';
+import { useState, useRef, useEffect } from "react";
+import {
+  FileText,
+  Upload,
+  Download,
+  Trash2,
+  ExternalLink,
+  Loader2,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/shared/components/ui/alert-dialog";
+import { uploadCV, getCV, deleteCV } from "../api";
 
 interface CVUploadProps {
   currentCvUrl?: string | null;
@@ -16,6 +33,7 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
   const [cvUrl, setCvUrl] = useState<string | null>(currentCvUrl || null);
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Sync local state with prop changes (e.g., after profile reload)
@@ -28,16 +46,19 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
     if (!file) return;
 
     // Validate file type
-    const allowedTypes = ['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    const allowedTypes = [
+      "application/pdf",
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ];
     if (!allowedTypes.includes(file.type)) {
-      toast.error('Only PDF and DOCX files are allowed');
+      toast.error("Only PDF and DOCX files are allowed");
       return;
     }
 
     // Validate file size (5MB)
     const maxSize = 5 * 1024 * 1024;
     if (file.size > maxSize) {
-      toast.error('File size must not exceed 5MB');
+      toast.error("File size must not exceed 5MB");
       return;
     }
 
@@ -45,16 +66,19 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
       setUploading(true);
       const response = await uploadCV(file);
       setCvUrl(response.cvUrl);
-      toast.success('CV uploaded successfully');
+      toast.success("CV uploaded successfully");
       onCVUpdated?.();
     } catch (error: any) {
-      const errorMessage = error?.response?.data?.message || error?.message || 'Failed to upload CV';
+      const errorMessage =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to upload CV";
       toast.error(errorMessage);
     } finally {
       setUploading(false);
       // Reset file input
       if (fileInputRef.current) {
-        fileInputRef.current.value = '';
+        fileInputRef.current.value = "";
       }
     }
   };
@@ -64,32 +88,34 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
 
     try {
       // If it's a Supabase public URL, just open it
-      if (cvUrl.startsWith('http')) {
-        window.open(cvUrl, '_blank');
+      if (cvUrl.startsWith("http")) {
+        window.open(cvUrl, "_blank");
       } else {
         // Otherwise, fetch signed URL from API
         const response = await getCV();
         if (response.cvUrl) {
-          window.open(response.cvUrl, '_blank');
+          window.open(response.cvUrl, "_blank");
         }
       }
-      toast.success('Opening CV...');
+      toast.success("Opening CV...");
     } catch (error) {
-      toast.error('Failed to open CV');
+      toast.error("Failed to open CV");
     }
   };
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete your CV?')) return;
-
     try {
       setDeleting(true);
       await deleteCV();
       setCvUrl(null);
-      toast.success('CV deleted successfully');
+      setShowDeleteConfirm(false);
+      toast.success("CV deleted successfully");
       onCVUpdated?.();
     } catch (error: any) {
-      const errorMessage = error?.response?.data?.message || error?.message || 'Failed to delete CV';
+      const errorMessage =
+        error?.response?.data?.message ||
+        error?.message ||
+        "Failed to delete CV";
       toast.error(errorMessage);
     } finally {
       setDeleting(false);
@@ -97,40 +123,22 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
   };
 
   const getCVFileName = () => {
-    if (!cvUrl) return 'CV.pdf';
+    if (!cvUrl) return "CV.pdf";
     try {
       const url = new URL(cvUrl);
-      const pathParts = url.pathname.split('/');
-      return pathParts[pathParts.length - 1] || 'CV.pdf';
+      const pathParts = url.pathname.split("/");
+      return pathParts[pathParts.length - 1] || "CV.pdf";
     } catch {
-      return 'CV.pdf';
+      return "CV.pdf";
     }
   };
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h4 className="text-lg font-semibold text-gray-900">Curriculum Vitae (CV)</h4>
-        {!cvUrl && (
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {uploading ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                Uploading...
-              </>
-            ) : (
-              <>
-                <Upload className="w-4 h-4" />
-                Upload CV
-              </>
-            )}
-          </button>
-        )}
+        <h4 className="text-lg font-semibold text-gray-900">
+          Curriculum Vitae (CV)
+        </h4>
       </div>
 
       <input
@@ -151,7 +159,9 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
               </div>
               <div>
                 <p className="font-medium text-gray-900">{getCVFileName()}</p>
-                <p className="text-sm text-gray-600">Your professional resume</p>
+                <p className="text-sm text-gray-600">
+                  Your professional resume
+                </p>
               </div>
             </div>
             <div className="flex gap-2">
@@ -189,7 +199,7 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
               </button>
               <button
                 type="button"
-                onClick={handleDelete}
+                onClick={() => setShowDeleteConfirm(true)}
                 disabled={deleting}
                 className="flex items-center gap-2 px-3 py-2 border border-red-300 hover:bg-red-50 text-red-600 rounded-lg transition-colors disabled:opacity-50 text-sm"
                 title="Delete CV"
@@ -225,8 +235,40 @@ export function CVUpload({ currentCvUrl, onCVUpdated }: CVUploadProps) {
       )}
 
       <p className="text-xs text-gray-500">
-        💡 Tip: A well-formatted CV helps the AI Matching system find the best projects for you
+        💡 Tip: A well-formatted CV helps the AI Matching system find the best
+        projects for you
       </p>
+
+      <AlertDialog
+        open={showDeleteConfirm}
+        onOpenChange={(open) => {
+          if (!deleting) {
+            setShowDeleteConfirm(open);
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete CV?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove your uploaded CV from your profile. You can
+              upload a new file later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                void handleDelete();
+              }}
+              disabled={deleting}
+            >
+              {deleting ? "Deleting..." : "Delete"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

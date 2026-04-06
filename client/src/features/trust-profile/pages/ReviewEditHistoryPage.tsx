@@ -56,7 +56,10 @@ export function ReviewEditHistoryPage({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-gray-50 overflow-y-auto">
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-gray-50"
+      data-testid="review-edit-history-page"
+    >
       {/* Fixed Header */}
       <div className="sticky top-0 z-20 bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-5xl mx-auto px-6 py-4">
@@ -123,7 +126,11 @@ export function ReviewEditHistoryPage({
                   previousEntry && entry.comment !== previousEntry.comment;
 
                 return (
-                  <div key={entry.id} className="relative pl-20">
+                  <div
+                    key={entry.id}
+                    className="relative pl-20"
+                    data-testid={`history-entry-${entry.id}`}
+                  >
                     {/* Timeline Dot */}
                     <div
                       className={`absolute left-6 w-5 h-5 rounded-full border-2 flex items-center justify-center ${

@@ -1,0 +1,84 @@
+{
+  "meta": {
+    "project_name": "SEP492-Project",
+    "project_code": "SEP492",
+    "creator": "Codex",
+    "reviewer": "",
+    "issue_date": "2026-03-27",
+    "version": "v1.1"
+  },
+  "functions": [
+    {
+      "function_code": "UC-25, UC-26",
+      "class_name": "MatchingController",
+      "function_name": "Get Partner - View Partner",
+      "sheet_name": "Get Partner - View Partner",
+      "test_requirement": "Cover partner list and partner detail retrieval through the matching endpoint, including role-specific search terms, exclusion of already-associated users, returned profile detail, and missing-request handling.",
+      "loc": 99,
+      "created_by": "Codex",
+      "executed_by": "Codex",
+      "cases": [
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Request request-2 exists",
+            "The request contains tech preferences React, NestJS and an INDUSTRY answer FinTech",
+            "Broker broker-1 already has a proposal on request-2"
+          ],
+          "inputs": {
+            "requestId": "\"request-2\"",
+            "role": "\"BROKER\"",
+            "enableAi": true,
+            "topN": 5
+          },
+          "returns": [
+            "Builds broker search terms that include React, NestJS, and FinTech",
+            "Excludes broker-1 from the broker candidate search",
+            "Returns the ranked partner list with candidateProfile detail such as companyName, domains, and portfolioLinks"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "N",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "Request request-1 exists",
+            "The request contains tech preferences React, NestJS and an INDUSTRY answer FinTech",
+            "Freelancer freelancer-1 already has a proposal on request-1"
+          ],
+          "inputs": {
+            "requestId": "\"request-1\"",
+            "role": "\"FREELANCER\"",
+            "enableAi": false,
+            "topN": 10
+          },
+          "returns": [
+            "Builds freelancer search terms from technical fields only",
+            "Excludes FinTech from the freelancer search terms",
+            "Excludes freelancer-1 from the freelancer candidate search"
+          ],
+          "exceptions": []
+        },
+        {
+          "type": "A",
+          "status": "P",
+          "executed_date": "2026-03-27",
+          "preconditions": [
+            "No request matches request-404",
+            "The caller omits role, enableAi, and topN query parameters"
+          ],
+          "inputs": {
+            "requestId": "\"request-404\""
+          },
+          "returns": [
+            "Returns an empty partner list"
+          ],
+          "exceptions": []
+        }
+      ]
+    }
+  ]
+}

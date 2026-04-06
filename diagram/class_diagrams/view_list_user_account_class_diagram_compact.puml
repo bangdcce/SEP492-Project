@@ -64,6 +64,9 @@ class UsersService {
     - userRepo: Repository
     --
     + getUsers(filters: any): any
+    - parseSkillFilter(input?: string | string[]): string[]
+    - buildRequestMatchText(request: ProjectRequestEntity): string
+    - getCommercialFeatures(request: ProjectRequestEntity): ProjectRequestCommercialFeature[]
     + getAllUsers(filters: UserFilterDto)
     + getUserDetail(userId: string)
     + banUser(userId: string, adminId: string, dto: BanUserDto)
@@ -94,13 +97,6 @@ class UserEntity {
     + warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE'
 }
 
-enum UserRole {
-    ADMIN
-    STAFF
-    BROKER
-    CLIENT
-    FREELANCER
-}
 
 AdminUsersPage ..> ApiClient
 ApiClient ..> UsersController

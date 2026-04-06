@@ -65,7 +65,7 @@ describe('MatchingController', () => {
     );
   });
 
-  it('includes industry answers in quick-match request terms for broker matching', async () => {
+  it('returns broker matches with partner detail payload and includes industry answers for broker matching', async () => {
     requestRepo.findOne.mockResolvedValue({
       id: 'request-2',
       description: 'Need a payment platform',
@@ -81,10 +81,38 @@ describe('MatchingController', () => {
       ],
     });
     brokerProposalRepo.find.mockResolvedValue([{ brokerId: 'broker-1' }]);
-    matchingService.findMatches.mockResolvedValue([]);
+    matchingService.findMatches.mockResolvedValue([
+      {
+        userId: 'broker-2',
+        fullName: 'Broker Two',
+        matchScore: 91,
+        tagOverlapScore: 88,
+        aiRelevanceScore: 93,
+        normalizedTrust: 84,
+        classificationLabel: 'POTENTIAL',
+        reasoning: 'Strong fintech marketplace experience.',
+        matchedSkills: ['React', 'NestJS', 'FinTech'],
+        candidateProfile: {
+          companyName: 'Broker Studio',
+          bio: 'Delivered fintech discovery projects.',
+          portfolioLinks: ['https://portfolio.example/broker-2'],
+          domains: ['FinTech'],
+        },
+      },
+    ] as any);
 
-    await controller.findMatches('request-2', 'BROKER', 'false', '10');
+    const result = await controller.findMatches('request-2', 'BROKER', 'true', '5');
 
+    expect(result).toEqual([
+      expect.objectContaining({
+        userId: 'broker-2',
+        fullName: 'Broker Two',
+        candidateProfile: expect.objectContaining({
+          companyName: 'Broker Studio',
+          domains: ['FinTech'],
+        }),
+      }),
+    ]);
     expect(matchingService.findMatches).toHaveBeenCalledWith(
       expect.objectContaining({
         requestId: 'request-2',
@@ -93,9 +121,20 @@ describe('MatchingController', () => {
       }),
       {
         role: 'BROKER',
-        enableAi: false,
-        topN: 10,
+        enableAi: true,
+        topN: 5,
       },
     );
+  });
+
+  it('returns an empty partner list when the request does not exist', async () => {
+    requestRepo.findOne.mockResolvedValue(null);
+
+    const result = await controller.findMatches('request-404');
+
+    expect(result).toEqual([]);
+    expect(brokerProposalRepo.find).not.toHaveBeenCalled();
+    expect(freelancerProposalRepo.find).not.toHaveBeenCalled();
+    expect(matchingService.findMatches).not.toHaveBeenCalled();
   });
 });

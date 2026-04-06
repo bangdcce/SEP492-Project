@@ -46,6 +46,24 @@ coverage
 *.temp
 .cache
 docs/
+__pycache__/
+*.pyc
+tmpclaude-*-cwd
+client/test-artifacts/
+server/test-artifacts/
+tmp-render-test.png
+tmp_userguide.zip
+tmp_userguide_extract/
+user_manual_section_3.html
 
 # AI/Agent skills (local only)
 .agent/
+
+# Local Codex desktop state
+.codex/config.toml
+.codex/environments/
+
+# Local scratch outputs
+test-results/
+tmp/
+figma/BrokerDashboard-Figma-Spec.md

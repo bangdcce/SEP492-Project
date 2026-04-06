@@ -1,6 +1,9 @@
 param(
-  [Parameter(Mandatory = $true)]
+  [Parameter(Mandatory = $true, ParameterSetName = 'path')]
   [string]$InputJson,
+
+  [Parameter(Mandatory = $true, ParameterSetName = 'text')]
+  [string]$InputJsonText,
 
   [Parameter(Mandatory = $true)]
   [string]$OutputPath,
@@ -170,79 +173,142 @@ function Get-SafeSheetName {
   return $sanitized
 }
 
-if (-not (Test-Path $InputJson)) {
-  throw "Input JSON file not found: $InputJson"
-}
-
 if ((Test-Path $OutputPath) -and -not $Overwrite) {
   throw "Output file already exists: $OutputPath. Use -Overwrite to replace it."
 }
 
-$jsonText = Get-Content -Path $InputJson -Raw
-$payload = $jsonText | ConvertFrom-Json
+function Get-NormalizedSheets {
+  param(
+    [object]$Payload,
+    [string]$FallbackWorksheetName
+  )
 
-$rowsSource = $null
-if ($payload -is [System.Array]) {
-  $rowsSource = $payload
+  if ($Payload -is [System.Array]) {
+    return @(
+      [pscustomobject]@{
+        sheetName = $FallbackWorksheetName
+        rows = $Payload
+        columnWidths = $null
+      }
+    )
+  }
+
+  if ($Payload.PSObject.Properties.Name -contains 'sheets') {
+    $result = @()
+    $index = 0
+    foreach ($sheet in $Payload.sheets) {
+      $index += 1
+      $name = $null
+      if ($sheet.PSObject.Properties.Name -contains 'sheetName') { $name = $sheet.sheetName }
+      elseif ($sheet.PSObject.Properties.Name -contains 'name') { $name = $sheet.name }
+
+      if (-not $name) { $name = "Sheet $index" }
+
+      if (-not ($sheet.PSObject.Properties.Name -contains 'rows')) {
+        throw "Each sheets[] item must include a rows property. Missing on sheet index $index."
+      }
+
+      $result += [pscustomobject]@{
+        sheetName = [string]$name
+        rows = $sheet.rows
+        columnWidths = if ($sheet.PSObject.Properties.Name -contains 'columnWidths') { $sheet.columnWidths } else { $null }
+      }
+    }
+
+    if ($result.Count -eq 0) {
+      throw 'At least one sheet is required to generate a workbook.'
+    }
+
+    return $result
+  }
+
+  if ($Payload.PSObject.Properties.Name -contains 'rows') {
+    $name = $FallbackWorksheetName
+    if ($Payload.PSObject.Properties.Name -contains 'sheetName') {
+      $name = [string]$Payload.sheetName
+    }
+
+    return @(
+      [pscustomobject]@{
+        sheetName = $name
+        rows = $Payload.rows
+        columnWidths = if ($Payload.PSObject.Properties.Name -contains 'columnWidths') { $Payload.columnWidths } else { $null }
+      }
+    )
+  }
+
+  throw 'Input JSON must be either an array of rows, an object with a rows property, or an object with a sheets array.'
 }
-elseif ($payload.PSObject.Properties.Name -contains 'rows') {
-  $rowsSource = $payload.rows
+
+$jsonText = $null
+if ($PSCmdlet.ParameterSetName -eq 'text') {
+  $jsonText = $InputJsonText
+}
+elseif ($InputJson -eq '-') {
+  $jsonText = [Console]::In.ReadToEnd()
 }
 else {
-  throw 'Input JSON must be either an array of rows or an object with a rows property.'
-}
-
-$sheetName = $WorksheetName
-if ($payload -isnot [System.Array] -and ($payload.PSObject.Properties.Name -contains 'sheetName')) {
-  $sheetName = [string]$payload.sheetName
-}
-$sheetName = Get-SafeSheetName -Name $sheetName
-
-$rows = New-Object System.Collections.Generic.List[object[]]
-foreach ($row in $rowsSource) {
-  [void]$rows.Add((ConvertTo-RowArray -Row $row))
-}
-
-if ($rows.Count -eq 0) {
-  throw 'At least one row is required to generate a workbook.'
-}
-
-$maxColumns = 1
-foreach ($row in $rows) {
-  $rowCount = Get-ItemCount -Value $row
-  if ($rowCount -gt $maxColumns) {
-    $maxColumns = $rowCount
+  if (-not (Test-Path $InputJson)) {
+    throw "Input JSON file not found: $InputJson"
   }
+  $jsonText = Get-Content -Path $InputJson -Raw
 }
 
-$columnWidths = @()
-if ($payload -isnot [System.Array] -and ($payload.PSObject.Properties.Name -contains 'columnWidths')) {
-  foreach ($width in $payload.columnWidths) {
-    $columnWidths += [string]$width
+$payload = $jsonText | ConvertFrom-Json
+
+$sheetPayloads = @(Get-NormalizedSheets -Payload $payload -FallbackWorksheetName $WorksheetName)
+
+$sheetInfos = New-Object System.Collections.Generic.List[object]
+for ($sheetIndex = 0; $sheetIndex -lt $sheetPayloads.Count; $sheetIndex++) {
+  $sheetPayload = $sheetPayloads[$sheetIndex]
+  $rawSheetName = [string]$sheetPayload.sheetName
+  $safeSheetName = Get-SafeSheetName -Name $rawSheetName
+
+  $rows = New-Object System.Collections.Generic.List[object[]]
+  foreach ($row in $sheetPayload.rows) {
+    [void]$rows.Add((ConvertTo-RowArray -Row $row))
   }
-}
-if ((Get-ItemCount -Value $columnWidths) -lt $maxColumns) {
-  $columnWidths = Get-DefaultColumnWidths -Rows $rows.ToArray() -MaxColumns $maxColumns
-}
 
-$rowXml = for ($i = 0; $i -lt $rows.Count; $i++) {
-  New-RowXml -RowIndex ($i + 1) -Values $rows[$i] -MaxColumns $maxColumns
-}
+  if ($rows.Count -eq 0) {
+    throw "At least one row is required to generate a workbook (sheet: $rawSheetName)."
+  }
 
-$colXmlParts = New-Object System.Collections.Generic.List[string]
-for ($columnIndex = 1; $columnIndex -le $maxColumns; $columnIndex++) {
-  $width = [string]$columnWidths[$columnIndex - 1]
-  $colXml = [string]::Format(
-    '<col min="{0}" max="{0}" width="{1}" customWidth="1"/>',
-    $columnIndex,
-    $width
-  )
-  [void]$colXmlParts.Add($colXml)
-}
+  $maxColumns = 1
+  foreach ($row in $rows) {
+    $rowCount = Get-ItemCount -Value $row
+    if ($rowCount -gt $maxColumns) {
+      $maxColumns = $rowCount
+    }
+  }
 
-$dimension = 'A1:{0}{1}' -f (Get-ColumnName -Index $maxColumns), $rows.Count
+  $columnWidths = @()
+  if ($null -ne $sheetPayload.columnWidths) {
+    foreach ($width in $sheetPayload.columnWidths) {
+      $columnWidths += [string]$width
+    }
+  }
+  if ((Get-ItemCount -Value $columnWidths) -lt $maxColumns) {
+    $columnWidths = Get-DefaultColumnWidths -Rows $rows.ToArray() -MaxColumns $maxColumns
+  }
 
-$sheetXml = @"
+  $rowXml = for ($i = 0; $i -lt $rows.Count; $i++) {
+    New-RowXml -RowIndex ($i + 1) -Values $rows[$i] -MaxColumns $maxColumns
+  }
+
+  $colXmlParts = New-Object System.Collections.Generic.List[string]
+  for ($columnIndex = 1; $columnIndex -le $maxColumns; $columnIndex++) {
+    $width = [string]$columnWidths[$columnIndex - 1]
+    $colXml = [string]::Format(
+      '<col min="{0}" max="{0}" width="{1}" customWidth="1"/>',
+      $columnIndex,
+      $width
+    )
+    [void]$colXmlParts.Add($colXml)
+  }
+
+  $dimension = 'A1:{0}{1}' -f (Get-ColumnName -Index $maxColumns), $rows.Count
+
+  $sheetXml = @"
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
   <dimension ref="$dimension"/>
@@ -259,25 +325,53 @@ $sheetXml = @"
 </worksheet>
 "@
 
+  $sheetId = $sheetIndex + 1
+  $relId = "rId$sheetId"
+  $fileName = "sheet$sheetId.xml"
+
+  [void]$sheetInfos.Add([pscustomobject]@{
+      Name = $safeSheetName
+      RelId = $relId
+      SheetId = $sheetId
+      FileName = $fileName
+      Xml = $sheetXml
+    })
+}
+
+$escapedSheetRows = $sheetInfos | ForEach-Object {
+  $escapedName = Escape-Xml -Value $_.Name
+  "    <sheet name=`"$escapedName`" sheetId=`"$($_.SheetId)`" r:id=`"$($_.RelId)`"/>"
+}
+
 $workbookXml = @"
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"
           xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
   <sheets>
-    <sheet name="$sheetName" sheetId="1" r:id="rId1"/>
+$($escapedSheetRows -join "`n")
   </sheets>
 </workbook>
 "@
 
+$stylesRelId = "rId$($sheetInfos.Count + 1)"
+$workbookRelsLines = New-Object System.Collections.Generic.List[string]
+foreach ($sheet in $sheetInfos) {
+  $workbookRelsLines.Add(@"
+  <Relationship Id="$($sheet.RelId)"
+                Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
+                Target="worksheets/$($sheet.FileName)"/>
+"@.TrimEnd())
+}
+$workbookRelsLines.Add(@"
+  <Relationship Id="$stylesRelId"
+                Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
+                Target="styles.xml"/>
+"@.TrimEnd())
+
 $workbookRelsXml = @"
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1"
-                Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"
-                Target="worksheets/sheet1.xml"/>
-  <Relationship Id="rId2"
-                Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles"
-                Target="styles.xml"/>
+$($workbookRelsLines -join "`n")
 </Relationships>
 "@
 
@@ -326,8 +420,11 @@ $contentTypesXml = @"
   <Default Extension="xml" ContentType="application/xml"/>
   <Override PartName="/xl/workbook.xml"
             ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
-  <Override PartName="/xl/worksheets/sheet1.xml"
-            ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+$(
+  ($sheetInfos | ForEach-Object {
+    "  <Override PartName=`"/xl/worksheets/$($_.FileName)`"`n            ContentType=`"application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml`"/>"
+  }) -join "`n"
+)
   <Override PartName="/xl/styles.xml"
             ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
   <Override PartName="/docProps/core.xml"
@@ -353,6 +450,7 @@ $rootRelsXml = @"
 "@
 
 $utcTimestamp = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+$workbookTitle = Escape-Xml -Value $sheetInfos[0].Name
 
 $coreXml = @"
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -361,13 +459,16 @@ $coreXml = @"
                    xmlns:dcterms="http://purl.org/dc/terms/"
                    xmlns:dcmitype="http://purl.org/dc/dcmitype/"
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-  <dc:title>$sheetName</dc:title>
+  <dc:title>$workbookTitle</dc:title>
   <dc:creator>Codex</dc:creator>
   <cp:lastModifiedBy>Codex</cp:lastModifiedBy>
   <dcterms:created xsi:type="dcterms:W3CDTF">$utcTimestamp</dcterms:created>
   <dcterms:modified xsi:type="dcterms:W3CDTF">$utcTimestamp</dcterms:modified>
 </cp:coreProperties>
 "@
+
+$sheetCount = $sheetInfos.Count
+$titles = ($sheetInfos | ForEach-Object { "      <vt:lpstr>$([string](Escape-Xml -Value $_.Name))</vt:lpstr>" }) -join "`n"
 
 $appXml = @"
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
@@ -382,13 +483,13 @@ $appXml = @"
         <vt:lpstr>Worksheets</vt:lpstr>
       </vt:variant>
       <vt:variant>
-        <vt:i4>1</vt:i4>
+        <vt:i4>$sheetCount</vt:i4>
       </vt:variant>
     </vt:vector>
   </HeadingPairs>
   <TitlesOfParts>
-    <vt:vector size="1" baseType="lpstr">
-      <vt:lpstr>$sheetName</vt:lpstr>
+    <vt:vector size="$sheetCount" baseType="lpstr">
+$titles
     </vt:vector>
   </TitlesOfParts>
   <Company></Company>
@@ -421,7 +522,9 @@ Write-Utf8File -Path (Join-Path $packageRoot 'docProps\app.xml') -Content $appXm
 Write-Utf8File -Path (Join-Path $packageRoot 'xl\workbook.xml') -Content $workbookXml
 Write-Utf8File -Path (Join-Path $packageRoot 'xl\_rels\workbook.xml.rels') -Content $workbookRelsXml
 Write-Utf8File -Path (Join-Path $packageRoot 'xl\styles.xml') -Content $stylesXml
-Write-Utf8File -Path (Join-Path $packageRoot 'xl\worksheets\sheet1.xml') -Content $sheetXml
+foreach ($sheet in $sheetInfos) {
+  Write-Utf8File -Path (Join-Path $packageRoot ("xl\\worksheets\\" + $sheet.FileName)) -Content $sheet.Xml
+}
 
 $zipPath = [System.IO.Path]::ChangeExtension($OutputPath, '.zip')
 if (Test-Path $zipPath) {

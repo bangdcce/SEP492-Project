@@ -41,6 +41,7 @@ import { EvidenceService } from './evidence.service';
 import { HearingPresenceService } from './hearing-presence.service';
 import { HearingService } from './hearing.service';
 import { RescheduleHearingDto, ScheduleHearingDto } from '../dto/hearing.dto';
+import { recordEvidence } from '../../../../test/fe16-fe18/evidence-recorder';
 
 describe('HearingService', () => {
   let service: HearingService;
@@ -525,6 +526,12 @@ describe('HearingService', () => {
 
       expect(result.map((item) => item.id)).toEqual(['h-active']);
       expect(result[0]).toEqual(expect.objectContaining({ lifecycle: 'ACTIVE' }));
+      recordEvidence({
+        id: 'FE17-HEA-01',
+        evidenceRef: 'hearing.service.spec.ts::active lifecycle filter',
+        actualResults:
+          'getHearingsForDispute(..., lifecycle=active) returned only h-active with lifecycle=ACTIVE and filtered out both the completed hearing and the tier-1 hearing frozen by appeal flow.',
+      });
     });
   });
 
@@ -533,7 +540,7 @@ describe('HearingService', () => {
       const dto = plainToInstance(ScheduleHearingDto, {
         disputeId: '7f4fb56b-f167-4b40-a4ee-2842f0d6a6d1',
         scheduledAt: '2026-03-20T10:00:00.000Z',
-        externalMeetingLink: 'https://meet.google.com/demo-hearing',
+        externalMeetingLink: 'not a valid meeting link',
       });
 
       const errors = await validate(dto);
@@ -639,6 +646,12 @@ describe('HearingService', () => {
           skipActionableCheck: true,
         }),
       );
+      recordEvidence({
+        id: 'FE17-HEA-02',
+        evidenceRef: 'hearing.service.spec.ts::autoCloseOverdueHearings',
+        actualResults:
+          'autoCloseOverdueHearings checked one overdue session, closed exactly h-overdue via finalizeHearingEnd, and left h-not-due untouched with failed=0.',
+      });
     });
   });
 

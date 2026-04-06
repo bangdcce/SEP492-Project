@@ -23,7 +23,8 @@ import { IsNotDisposableEmail } from '../../../common/validators/disposable-emai
 export type RegisterableRole =
   | UserRole.CLIENT
   | UserRole.BROKER
-  | UserRole.FREELANCER;
+  | UserRole.FREELANCER
+  | UserRole.STAFF;
 
 /**
  * Object containing only the registerable roles for validation
@@ -32,6 +33,7 @@ export const REGISTERABLE_ROLES = {
   CLIENT: UserRole.CLIENT,
   BROKER: UserRole.BROKER,
   FREELANCER: UserRole.FREELANCER,
+  STAFF: UserRole.STAFF,
 } as const;
 
 export class RegisterDto {
@@ -88,11 +90,11 @@ export class RegisterDto {
   phoneNumber: string;
 
   @ApiProperty({
-    description: 'User role in the system (only CLIENT, BROKER, FREELANCER allowed)',
+    description: 'User role in the system (only CLIENT, BROKER, FREELANCER, STAFF allowed)',
     enum: REGISTERABLE_ROLES,
     example: UserRole.CLIENT,
   })
-  @IsEnum(REGISTERABLE_ROLES, { message: 'Role must be CLIENT, BROKER, or FREELANCER' })
+  @IsEnum(REGISTERABLE_ROLES, { message: 'Role must be CLIENT, BROKER, FREELANCER, or STAFF' })
   @IsNotEmpty({ message: 'Role is required' })
   role: RegisterableRole;
 
@@ -105,7 +107,7 @@ export class RegisterDto {
   recaptchaToken?: string;
 
   @ApiPropertyOptional({
-    description: 'Domain IDs (UUIDs) for BROKER and FREELANCER',
+    description: 'Domain IDs (UUIDs) for BROKER, FREELANCER, and STAFF',
     example: ['uuid-1', 'uuid-2'],
     type: [String],
   })
@@ -115,7 +117,7 @@ export class RegisterDto {
   domainIds?: string[];
 
   @ApiPropertyOptional({
-    description: 'Skill IDs (UUIDs) for BROKER and FREELANCER',
+    description: 'Skill IDs (UUIDs) for BROKER, FREELANCER, and STAFF',
     example: ['uuid-1', 'uuid-2', 'uuid-3'],
     type: [String],
   })

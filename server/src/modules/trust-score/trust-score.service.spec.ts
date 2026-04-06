@@ -3,6 +3,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { IsNull } from 'typeorm';
 import { ReviewEntity, TrustScoreHistoryEntity, UserEntity } from 'src/database/entities';
 import { TrustScoreService } from './trust-score.service';
+import { recordEvidence } from '../../../test/fe16-fe18/evidence-recorder';
 
 const repoMock = () => ({
   findOne: jest.fn(),
@@ -77,6 +78,13 @@ describe('TrustScoreService', () => {
         oldScore: 2.5,
       }),
     );
+    recordEvidence({
+      id: 'FE16-TS-01',
+      evidenceRef: 'trust-score.service.spec.ts::recalculates trust score',
+      actualResults:
+        'TrustScoreService.calculateTrustScore loaded only active reviews via deletedAt IS NULL, saved the refreshed user score, and inserted one trust score history entry for user-1.',
+      note: 'Service-level evidence complements the guarded HTTP calculation case.',
+    });
   });
 
   it('handles committed review mutation events by recalculating trust score', async () => {

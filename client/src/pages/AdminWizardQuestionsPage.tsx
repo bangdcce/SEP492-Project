@@ -1,16 +1,30 @@
-import { useState, useEffect } from 'react';
-import { Edit, Trash2, Plus, Eye, ChevronUp, ChevronDown, Save, X } from 'lucide-react';
-import { toast } from 'sonner';
-import { wizardService } from '@/features/wizard/services/wizardService';
-import type { WizardQuestion, WizardOption } from '@/features/wizard/services/wizardService';
+import { useState, useEffect } from "react";
+import {
+  Edit,
+  Trash2,
+  Eye,
+  ChevronUp,
+  ChevronDown,
+  Save,
+  X,
+  Plus,
+} from "lucide-react";
+import { toast } from "sonner";
+import { wizardService } from "@/features/wizard/services/wizardService";
+import type {
+  WizardQuestion,
+  WizardOption,
+} from "@/features/wizard/services/wizardService";
 
 export default function AdminWizardQuestionsPage() {
   const [questions, setQuestions] = useState<WizardQuestion[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedQuestion, setSelectedQuestion] = useState<WizardQuestion | null>(null);
+  const [selectedQuestion, setSelectedQuestion] =
+    useState<WizardQuestion | null>(null);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editingQuestion, setEditingQuestion] = useState<Partial<WizardQuestion> | null>(null);
+  const [editingQuestion, setEditingQuestion] =
+    useState<Partial<WizardQuestion> | null>(null);
 
   useEffect(() => {
     fetchQuestions();
@@ -22,7 +36,7 @@ export default function AdminWizardQuestionsPage() {
       const data = await wizardService.getAllQuestionsForAdmin();
       setQuestions(data);
     } catch (error: any) {
-      toast.error(error.message || 'Failed to load questions');
+      toast.error(error.message || "Failed to load questions");
     } finally {
       setLoading(false);
     }
@@ -30,38 +44,26 @@ export default function AdminWizardQuestionsPage() {
 
   const handleViewDetail = async (question: WizardQuestion) => {
     try {
-      const detail = await wizardService.getQuestionDetailForAdmin(Number(question.id));
+      const detail = await wizardService.getQuestionDetailForAdmin(
+        Number(question.id),
+      );
       setSelectedQuestion(detail);
       setShowDetailModal(true);
     } catch (error: any) {
-      toast.error(error.message || 'Failed to load question details');
+      toast.error(error.message || "Failed to load question details");
     }
   };
 
   const handleEdit = async (question: WizardQuestion) => {
     try {
-      const detail = await wizardService.getQuestionDetailForAdmin(Number(question.id));
+      const detail = await wizardService.getQuestionDetailForAdmin(
+        Number(question.id),
+      );
       setEditingQuestion(detail);
       setShowEditModal(true);
     } catch (error: any) {
-      toast.error(error.message || 'Failed to load question for editing');
+      toast.error(error.message || "Failed to load question for editing");
     }
-  };
-
-  const handleAddQuestion = () => {
-    const nextSortOrder =
-      (questions.length > 0 ? questions[questions.length - 1].sortOrder : 0) + 1;
-
-    setEditingQuestion({
-      code: '',
-      label: '',
-      helpText: '',
-      inputType: 'SELECT',
-      sortOrder: nextSortOrder,
-      isActive: true,
-      options: [],
-    } as Partial<WizardQuestion>);
-    setShowEditModal(true);
   };
 
   const handleSaveEdit = async () => {
@@ -70,17 +72,26 @@ export default function AdminWizardQuestionsPage() {
     // Validate options
     if (editingQuestion.options) {
       const invalidOptions = editingQuestion.options.filter(
-        opt => !opt.value?.trim() || !opt.label?.trim()
+        (opt) => !opt.value?.trim() || !opt.label?.trim(),
       );
-      
+
       if (invalidOptions.length > 0) {
-        toast.error('All options must have both value and label filled in');
+        toast.error("All options must have both value and label filled in");
         return;
       }
     }
 
     try {
-      const { id, code, label, helpText, inputType, isActive, sortOrder, options } = editingQuestion;
+      const {
+        id,
+        code,
+        label,
+        helpText,
+        inputType,
+        isActive,
+        sortOrder,
+        options,
+      } = editingQuestion;
 
       // Build payload with only fields allowed by UpdateWizardQuestionDto
       const cleanedPayload = {
@@ -90,58 +101,47 @@ export default function AdminWizardQuestionsPage() {
         inputType,
         isActive,
         sortOrder,
-        options: options?.map(opt => ({
+        options: options?.map((opt) => ({
           id: opt.id,
           value: opt.value.trim(),
           label: opt.label.trim(),
           sortOrder: Number(opt.sortOrder) || 0,
         })),
       };
-      
+
       if (id) {
         await wizardService.updateWizardQuestion(Number(id), cleanedPayload);
-        toast.success('Question updated successfully');
+        toast.success("Question updated successfully");
       } else {
         await wizardService.createWizardQuestion(cleanedPayload);
-        toast.success('Question created successfully');
+        toast.success("Question created successfully");
       }
       setShowEditModal(false);
       setEditingQuestion(null);
       fetchQuestions();
     } catch (error: any) {
-      console.error('[AdminWizardQuestionsPage] Update error:', error);
-      console.error('[AdminWizardQuestionsPage] Error response:', error.response?.data);
-      toast.error(error.response?.data?.message || error.message || 'Failed to update question');
-    }
-  };
-
-  const handleDelete = async (question: WizardQuestion) => {
-    if (!confirm(`Are you sure you want to delete question "${question.label}"?`)) return;
-
-    try {
-      const result: any = await wizardService.deleteWizardQuestion(Number(question.id));
-      
-      if (result.deactivated) {
-        toast.warning(result.message || 'Question has been deactivated (has linked data)');
-      } else {
-        toast.success(result.message || 'Question deleted successfully');
-      }
-      
-      fetchQuestions();
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to delete question');
+      console.error("[AdminWizardQuestionsPage] Update error:", error);
+      console.error(
+        "[AdminWizardQuestionsPage] Error response:",
+        error.response?.data,
+      );
+      toast.error(
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to update question",
+      );
     }
   };
 
   const updateEditingField = (field: string, value: any) => {
-    setEditingQuestion(prev => prev ? { ...prev, [field]: value } : null);
+    setEditingQuestion((prev) => (prev ? { ...prev, [field]: value } : null));
   };
 
   const addOption = () => {
     if (!editingQuestion) return;
     const newOption: Partial<WizardOption> = {
-      value: '',
-      label: '',
+      value: "",
+      label: "",
       sortOrder: (editingQuestion.options?.length || 0) + 1,
     };
     setEditingQuestion({
@@ -175,18 +175,13 @@ export default function AdminWizardQuestionsPage() {
     <div className="container mx-auto p-6">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Wizard Questions Management</h1>
+          <h1 className="text-3xl font-bold text-gray-900">
+            Wizard Questions Management
+          </h1>
           <p className="text-gray-600 mt-1">
             Manage questions in the Project Request creation flow
           </p>
         </div>
-        <button
-          onClick={handleAddQuestion}
-          className="inline-flex items-center px-4 py-2 rounded-md bg-blue-600 text-white text-sm font-medium shadow hover:bg-blue-700"
-        >
-          <Plus className="h-4 w-4 mr-2" />
-          Add Question
-        </button>
       </div>
 
       {/* Questions Table */}
@@ -255,7 +250,9 @@ export default function AdminWizardQuestionsPage() {
                 <p className="text-xs font-medium uppercase tracking-[0.2em] text-gray-400">
                   Wizard Question
                 </p>
-                <h2 className="mt-1 text-2xl font-semibold text-gray-900">Question Details</h2>
+                <h2 className="mt-1 text-2xl font-semibold text-gray-900">
+                  Question Details
+                </h2>
               </div>
               <button
                 onClick={() => setShowDetailModal(false)}
@@ -289,7 +286,7 @@ export default function AdminWizardQuestionsPage() {
                   Help Text
                 </label>
                 <p className="mt-2 text-sm text-gray-600 leading-relaxed bg-gray-50 rounded-xl px-3 py-2">
-                  {selectedQuestion.helpText || 'N/A'}
+                  {selectedQuestion.helpText || "N/A"}
                 </p>
               </div>
 
@@ -310,9 +307,12 @@ export default function AdminWizardQuestionsPage() {
                           {index + 1}
                         </span>
                         <div>
-                          <p className="text-sm font-medium text-gray-900">{option.label}</p>
+                          <p className="text-sm font-medium text-gray-900">
+                            {option.label}
+                          </p>
                           <p className="text-xs text-gray-500 font-mono">
-                            Value: <span className="font-normal">{option.value}</span>
+                            Value:{" "}
+                            <span className="font-normal">{option.value}</span>
                           </p>
                         </div>
                       </div>
@@ -334,7 +334,9 @@ export default function AdminWizardQuestionsPage() {
                 <p className="text-xs font-medium uppercase tracking-[0.2em] text-gray-400">
                   Wizard Question
                 </p>
-                <h2 className="mt-1 text-2xl font-semibold text-gray-900">Edit Question</h2>
+                <h2 className="mt-1 text-2xl font-semibold text-gray-900">
+                  Edit Question
+                </h2>
               </div>
               <button
                 onClick={() => setShowEditModal(false)}
@@ -346,30 +348,38 @@ export default function AdminWizardQuestionsPage() {
 
             <div className="space-y-5">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Code</label>
+                <label className="block text-sm font-medium text-gray-700">
+                  Code
+                </label>
                 <input
                   type="text"
-                  value={editingQuestion.code || ''}
-                  onChange={(e) => updateEditingField('code', e.target.value)}
+                  value={editingQuestion.code || ""}
+                  onChange={(e) => updateEditingField("code", e.target.value)}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Question</label>
+                <label className="block text-sm font-medium text-gray-700">
+                  Question
+                </label>
                 <textarea
-                  value={editingQuestion.label || ''}
-                  onChange={(e) => updateEditingField('label', e.target.value)}
+                  value={editingQuestion.label || ""}
+                  onChange={(e) => updateEditingField("label", e.target.value)}
                   rows={3}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700">Help Text</label>
+                <label className="block text-sm font-medium text-gray-700">
+                  Help Text
+                </label>
                 <textarea
-                  value={editingQuestion.helpText || ''}
-                  onChange={(e) => updateEditingField('helpText', e.target.value)}
+                  value={editingQuestion.helpText || ""}
+                  onChange={(e) =>
+                    updateEditingField("helpText", e.target.value)
+                  }
                   rows={2}
                   className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
                 />
@@ -392,20 +402,27 @@ export default function AdminWizardQuestionsPage() {
 
                 <div className="space-y-3">
                   {editingQuestion.options?.map((option, index) => (
-                    <div key={index} className="flex items-start space-x-2 p-3 bg-gray-50 rounded">
+                    <div
+                      key={index}
+                      className="flex items-start space-x-2 p-3 bg-gray-50 rounded"
+                    >
                       <div className="flex-1 space-y-2">
                         <input
                           type="text"
                           placeholder="Value"
-                          value={option.value || ''}
-                          onChange={(e) => updateOption(index, 'value', e.target.value)}
+                          value={option.value || ""}
+                          onChange={(e) =>
+                            updateOption(index, "value", e.target.value)
+                          }
                           className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                         />
                         <input
                           type="text"
                           placeholder="Label"
-                          value={option.label || ''}
-                          onChange={(e) => updateOption(index, 'label', e.target.value)}
+                          value={option.label || ""}
+                          onChange={(e) =>
+                            updateOption(index, "label", e.target.value)
+                          }
                           className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                         />
                       </div>
@@ -413,7 +430,13 @@ export default function AdminWizardQuestionsPage() {
                         type="number"
                         placeholder="Order"
                         value={option.sortOrder || 0}
-                        onChange={(e) => updateOption(index, 'sortOrder', Number(e.target.value))}
+                        onChange={(e) =>
+                          updateOption(
+                            index,
+                            "sortOrder",
+                            Number(e.target.value),
+                          )
+                        }
                         className="w-20 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm"
                       />
                       <button

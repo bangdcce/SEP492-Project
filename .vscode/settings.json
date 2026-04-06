@@ -2,9 +2,54 @@
   "editor.formatOnSave": false,
   "editor.formatOnPaste": false,
   "editor.formatOnType": false,
-  "editor.defaultFormatter": "esbenp.prettier-vscode",
+  "editor.defaultFormatter": "vscode.typescript-language-features",
+  "prettier.enable": false,
+  "eslint.format.enable": false,
+  "git.repositoryScanIgnoredFolders": [
+    ".codex-worktrees"
+  ],
+  "git.detectWorktrees": false,
+  "scm.repositories.selectionMode": "single",
+  "scm.alwaysShowRepositories": false,
+  "files.exclude": {
+    "**/.codex-worktrees": true,
+    "**/server/uploads": true,
+    "**/server/backups": true
+  },
+  "search.exclude": {
+    "**/.codex-worktrees": true,
+    "**/server/uploads": true,
+    "**/server/backups": true
+  },
+  "files.encoding": "utf8",
+  "files.autoGuessEncoding": false,
   "editor.codeActionsOnSave": {
-    "source.fixAll": "explicit"
+    "source.fixAll": "never",
+    "source.organizeImports": "never"
+  },
+  "[typescript]": {
+    "editor.formatOnSave": false,
+    "editor.formatOnPaste": false,
+    "editor.formatOnType": false,
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "[typescriptreact]": {
+    "editor.formatOnSave": false,
+    "editor.formatOnPaste": false,
+    "editor.formatOnType": false,
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "[javascript]": {
+    "editor.formatOnSave": false,
+    "editor.formatOnPaste": false,
+    "editor.formatOnType": false,
+    "editor.defaultFormatter": "vscode.typescript-language-features"
+  },
+  "[javascriptreact]": {
+    "editor.formatOnSave": false,
+    "editor.formatOnPaste": false,
+    "editor.formatOnType": false,
+    "editor.defaultFormatter": "vscode.typescript-language-features"
   },
   "terminal.integrated.accessibleViewFocusOnCommandExecution": false,
   "google.antigravity.terminal.executionPolicy": "turbo",

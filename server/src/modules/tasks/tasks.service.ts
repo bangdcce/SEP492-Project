@@ -6,18 +6,17 @@ import {
   Logger,
   InternalServerErrorException,
   Optional,
+  OnModuleInit,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, IsNull, Repository } from 'typeorm';
+import { DataSource, In, IsNull, Repository } from 'typeorm';
 import sanitizeHtml from 'sanitize-html';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as path from 'path';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
-import {
-  ProjectEntity,
-  ProjectStaffInviteStatus,
-} from '../../database/entities/project.entity';
+import { EscrowEntity } from '../../database/entities/escrow.entity';
+import { ProjectEntity } from '../../database/entities/project.entity';
 import { UserRole } from '../../database/entities/user.entity';
 import {
   CalendarEventEntity,
@@ -34,6 +33,7 @@ import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { ReviewSubmissionDto } from './dto/review-submission.dto';
 import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
 import { TasksRealtimeBridge } from './tasks.realtime';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 
 /**
  * Response type for submission review
@@ -54,9 +54,29 @@ export interface KanbanBoard {
   DONE: TaskEntity[];
 }
 
+export interface WorkspaceMilestoneEscrowSummary {
+  id: string;
+  status: string;
+  totalAmount: number;
+  fundedAmount: number;
+  releasedAmount: number;
+  developerShare: number;
+  brokerShare: number;
+  platformFee: number;
+  currency: string;
+  fundedAt: Date | null;
+  releasedAt: Date | null;
+  refundedAt: Date | null;
+  updatedAt: Date;
+}
+
+export interface WorkspaceMilestoneView extends MilestoneEntity {
+  escrow: WorkspaceMilestoneEscrowSummary | null;
+}
+
 export interface BoardWithMilestones {
   tasks: KanbanBoard;
-  milestones: MilestoneEntity[];
+  milestones: WorkspaceMilestoneView[];
 }
 
 export type KanbanStatus =
@@ -94,6 +114,20 @@ export interface ProjectRecentActivityItem {
     title: string;
     status: TaskStatus;
   };
+}
+
+export interface TaskCommentItem {
+  id: string;
+  taskId: string;
+  actorId: string;
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
+  actor: {
+    id: string;
+    fullName: string;
+    avatarUrl?: string | null;
+  } | null;
 }
 
 export interface ProjectTaskRealtimeEvent {
@@ -197,7 +231,7 @@ const TASK_WORKSPACE_RELATIONS = [
 ] as const;
 
 @Injectable()
-export class TasksService {
+export class TasksService implements OnModuleInit {
   private readonly logger = new Logger(TasksService.name);
   private supabase: SupabaseClient | null = null;
 
@@ -206,6 +240,8 @@ export class TasksService {
     private readonly taskRepository: Repository<TaskEntity>,
     @InjectRepository(MilestoneEntity)
     private readonly milestoneRepository: Repository<MilestoneEntity>,
+    @InjectRepository(EscrowEntity)
+    private readonly escrowRepository: Repository<EscrowEntity>,
     @InjectRepository(ProjectEntity)
     private readonly projectRepository: Repository<ProjectEntity>,
     @InjectRepository(CalendarEventEntity)
@@ -220,9 +256,35 @@ export class TasksService {
     private readonly taskLinkRepository: Repository<TaskLinkEntity>,
     @InjectRepository(TaskSubmissionEntity)
     private readonly submissionRepository: Repository<TaskSubmissionEntity>,
+    private readonly dataSource: DataSource,
+    private readonly auditLogsService: AuditLogsService,
     @Optional()
     private readonly workspaceChatService?: WorkspaceChatService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.ensureTaskQueryIndexes();
+  }
+
+  private async ensureTaskQueryIndexes(): Promise<void> {
+    const statements = [
+      `CREATE INDEX IF NOT EXISTS "IDX_task_comments_taskId_createdAt" ON "task_comments" ("taskId", "createdAt" DESC)`,
+      `CREATE INDEX IF NOT EXISTS "IDX_task_comments_actorId" ON "task_comments" ("actorId")`,
+      `CREATE INDEX IF NOT EXISTS "IDX_task_submissions_taskId_version" ON "task_submissions" ("taskId", "version" DESC)`,
+      `CREATE INDEX IF NOT EXISTS "IDX_task_attachments_taskId" ON "task_attachments" ("taskId")`,
+      `CREATE INDEX IF NOT EXISTS "IDX_task_attachments_taskId_url" ON "task_attachments" ("taskId", "url")`,
+    ];
+
+    for (const statement of statements) {
+      try {
+        await this.dataSource.query(statement);
+      } catch (error) {
+        this.logger.warn(
+          `Task query index bootstrap skipped: ${error instanceof Error ? error.message : 'unknown error'}`,
+        );
+      }
+    }
+  }
 
   private async recordWorkspaceSystemMessage(
     projectId: string,
@@ -258,6 +320,19 @@ export class TasksService {
       process.env.SUPABASE_SERVICE_ROLE_KEY;
 
     if (!supabaseUrl || !supabaseKey) {
+      void this.auditLogsService.logSystemIncident({
+        component: 'TasksService',
+        operation: 'get-supabase-client',
+        summary: 'Task attachment storage is unavailable because Supabase configuration is missing',
+        severity: 'CRITICAL',
+        category: 'STORAGE',
+        errorCode: 'SUPABASE_CONFIG_MISSING',
+        target: {
+          type: 'StorageBucket',
+          id: ATTACHMENT_BUCKET,
+          label: ATTACHMENT_BUCKET,
+        },
+      });
       throw new InternalServerErrorException('Supabase configuration missing');
     }
 
@@ -296,6 +371,25 @@ export class TasksService {
 
     if (error) {
       this.logger.error(`Supabase upload failed: ${error.message}`);
+      await this.auditLogsService.logSystemIncident({
+        component: 'TasksService',
+        operation: 'upload-file',
+        summary: 'Task attachment upload failed',
+        severity: 'HIGH',
+        category: 'STORAGE',
+        error,
+        target: {
+          type: 'StorageBucket',
+          id: ATTACHMENT_BUCKET,
+          label: ATTACHMENT_BUCKET,
+        },
+        context: {
+          bucket: ATTACHMENT_BUCKET,
+          storagePath,
+          fileName: file.originalname || 'attachment',
+          mimeType: file.mimetype || 'application/octet-stream',
+        },
+      });
       throw new InternalServerErrorException('Failed to upload attachment');
     }
 
@@ -352,17 +446,62 @@ export class TasksService {
     }));
   }
 
-  async getTaskComments(taskId: string): Promise<TaskCommentEntity[]> {
-    const comments = await this.commentRepository.find({
-      where: { taskId },
-      relations: ['actor'],
-      order: { createdAt: 'DESC' },
-    });
+  private sanitizeCommentContent(content: string): string {
+    return sanitizeHtml(content, COMMENT_SANITIZE_OPTIONS).trim();
+  }
 
-    return comments.map((comment) => ({
-      ...comment,
-      content: sanitizeHtml(comment.content, COMMENT_SANITIZE_OPTIONS).trim(),
-    }));
+  private async ensureTaskExists(taskId: string): Promise<void> {
+    const task = await this.taskRepository.findOne({ where: { id: taskId } });
+    if (!task) {
+      throw new NotFoundException('Task not found');
+    }
+  }
+
+  private mapTaskComment(comment: TaskCommentEntity): TaskCommentItem {
+    const actorProfile = comment.actor?.profile as { avatarUrl?: string | null } | undefined;
+
+    return {
+      id: comment.id,
+      taskId: comment.taskId,
+      actorId: comment.actorId,
+      content: this.sanitizeCommentContent(comment.content),
+      createdAt: comment.createdAt,
+      updatedAt: comment.updatedAt,
+      actor: comment.actor
+        ? {
+            id: comment.actor.id,
+            fullName: comment.actor.fullName,
+            avatarUrl: actorProfile?.avatarUrl ?? null,
+          }
+        : null,
+    };
+  }
+
+  private async findHydratedComment(commentId: string): Promise<TaskCommentEntity | null> {
+    return this.commentRepository
+      .createQueryBuilder('comment')
+      .leftJoinAndSelect('comment.actor', 'actor')
+      .leftJoinAndSelect('actor.profile', 'profile')
+      .where('comment.id = :commentId', { commentId })
+      .getOne();
+  }
+
+  async getCommentsByTask(taskId: string): Promise<TaskCommentItem[]> {
+    await this.ensureTaskExists(taskId);
+
+    const comments = await this.commentRepository
+      .createQueryBuilder('comment')
+      .leftJoinAndSelect('comment.actor', 'actor')
+      .leftJoinAndSelect('actor.profile', 'profile')
+      .where('comment.taskId = :taskId', { taskId })
+      .orderBy('comment.createdAt', 'DESC')
+      .getMany();
+
+    return comments.map((comment) => this.mapTaskComment(comment));
+  }
+
+  async getTaskComments(taskId: string): Promise<TaskCommentItem[]> {
+    return this.getCommentsByTask(taskId);
   }
 
   async getTaskLinks(taskId: string): Promise<TaskLinkEntity[]> {
@@ -514,8 +653,10 @@ export class TasksService {
     return linked;
   }
 
-  async addComment(taskId: string, content: string, actorId: string): Promise<TaskCommentEntity> {
-    const sanitizedContent = sanitizeHtml(content, COMMENT_SANITIZE_OPTIONS).trim();
+  async createComment(taskId: string, actorId: string, content: string): Promise<TaskCommentItem> {
+    await this.ensureTaskExists(taskId);
+
+    const sanitizedContent = this.sanitizeCommentContent(content);
     if (!sanitizedContent) {
       throw new BadRequestException('Content is required');
     }
@@ -530,12 +671,7 @@ export class TasksService {
     this.logger.log(`[Adding Comment] Saving at UTC: ${comment.createdAt.toISOString()}`);
     const saved = await this.commentRepository.save(comment);
 
-    // Return with actor relation
-    // Return with actor relation
-    const fullComment = await this.commentRepository.findOne({
-      where: { id: saved.id },
-      relations: ['actor'],
-    });
+    const fullComment = await this.findHydratedComment(saved.id);
 
     if (!fullComment) {
       throw new NotFoundException('Comment not found after creation');
@@ -548,7 +684,77 @@ export class TasksService {
       this.logger.warn(`Failed to extract task attachments: ${message}`);
     }
 
-    return fullComment;
+    return this.mapTaskComment(fullComment);
+  }
+
+  async addComment(taskId: string, content: string, actorId: string): Promise<TaskCommentItem> {
+    return this.createComment(taskId, actorId, content);
+  }
+
+  async updateComment(
+    commentId: string,
+    actorId: string,
+    content: string,
+  ): Promise<TaskCommentItem> {
+    const sanitizedContent = this.sanitizeCommentContent(content);
+    if (!sanitizedContent) {
+      throw new BadRequestException('Content is required');
+    }
+
+    const comment = await this.commentRepository.findOne({
+      where: { id: commentId },
+    });
+
+    if (!comment) {
+      throw new NotFoundException('Comment not found');
+    }
+
+    if (comment.actorId !== actorId) {
+      throw new ForbiddenException('You can only edit your own comments');
+    }
+
+    if (comment.content !== sanitizedContent) {
+      comment.content = sanitizedContent;
+      await this.commentRepository.save(comment);
+    }
+
+    try {
+      await this.createAttachmentsFromComment(comment.taskId, actorId, sanitizedContent);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown error';
+      this.logger.warn(`Failed to extract task attachments: ${message}`);
+    }
+
+    const fullComment = await this.findHydratedComment(comment.id);
+    if (!fullComment) {
+      throw new NotFoundException('Comment not found after update');
+    }
+
+    return this.mapTaskComment(fullComment);
+  }
+
+  async deleteComment(
+    commentId: string,
+    actorId: string,
+    actorRole?: UserRole | string,
+  ): Promise<void> {
+    const comment = await this.commentRepository.findOne({
+      where: { id: commentId },
+    });
+
+    if (!comment) {
+      throw new NotFoundException('Comment not found');
+    }
+
+    const normalizedActorRole = String(actorRole || '').toUpperCase();
+    const isAdmin = normalizedActorRole === UserRole.ADMIN;
+    const isAuthor = comment.actorId === actorId;
+
+    if (!isAuthor && !isAdmin) {
+      throw new ForbiddenException('You can only delete your own comments unless you are an admin');
+    }
+
+    await this.commentRepository.remove(comment);
   }
 
   async submitWork(
@@ -561,13 +767,15 @@ export class TasksService {
       throw new NotFoundException('Task not found');
     }
 
-    const { max } = await this.submissionRepository
+    const latestSubmission = await this.submissionRepository
       .createQueryBuilder('submission')
-      .select('MAX(submission.version)', 'max')
+      .select(['submission.id', 'submission.version'])
       .where('submission.taskId = :taskId', { taskId })
-      .getRawOne<{ max: string | null }>();
+      .orderBy('submission.version', 'DESC')
+      .limit(1)
+      .getOne();
 
-    const nextVersion = (Number(max) || 0) + 1;
+    const nextVersion = (latestSubmission?.version ?? 0) + 1;
 
     const submission = this.submissionRepository.create({
       taskId,
@@ -590,12 +798,12 @@ export class TasksService {
 
   /**
    * Review a task submission (Approve or Request Changes)
-   * Only CLIENT or STAFF users can review submissions
-   * 
+   * Only CLIENT or BROKER users can review submissions
+   *
    * Business Logic:
    * - If APPROVED: Task status → DONE
    * - If REQUEST_CHANGES: Task status → IN_PROGRESS (sent back to freelancer)
-   * 
+   *
    * @param taskId - Task ID
    * @param submissionId - Submission ID to review
    * @param dto - ReviewSubmissionDto with status and optional reviewNote
@@ -647,19 +855,15 @@ export class TasksService {
       if (project.clientId !== reviewerId) {
         throw new ForbiddenException('Only the project client can review submissions');
       }
-    } else if (normalizedReviewerRole === UserRole.STAFF) {
-      const isAssignedStaff =
-        project.staffId === reviewerId &&
-        project.staffInviteStatus === ProjectStaffInviteStatus.ACCEPTED;
-
-      if (!isAssignedStaff) {
+    } else if (normalizedReviewerRole === UserRole.BROKER) {
+      if (project.brokerId !== reviewerId) {
         throw new ForbiddenException(
-          'Only the assigned staff reviewer can review submissions for this project',
+          'Only the assigned broker can review submissions for this project',
         );
       }
     } else {
       throw new ForbiddenException(
-        'Only the project client or assigned staff reviewer can review submissions',
+        'Only the project client or assigned broker can review submissions',
       );
     }
 
@@ -679,9 +883,7 @@ export class TasksService {
 
     if (dto.status === TaskSubmissionStatus.APPROVED) {
       newTaskStatus = TaskStatus.DONE;
-      this.logger.log(
-        `Submission ${submissionId} APPROVED → Task ${taskId} marked as DONE`,
-      );
+      this.logger.log(`Submission ${submissionId} APPROVED → Task ${taskId} marked as DONE`);
     } else {
       // REQUEST_CHANGES - send back to freelancer
       newTaskStatus = TaskStatus.IN_PROGRESS;
@@ -697,13 +899,7 @@ export class TasksService {
 
     // Step 6: Record history
     if (previousTaskStatus !== newTaskStatus) {
-      await this.createHistory(
-        taskId,
-        'status',
-        previousTaskStatus,
-        newTaskStatus,
-        reviewerId,
-      );
+      await this.createHistory(taskId, 'status', previousTaskStatus, newTaskStatus, reviewerId);
     }
 
     // Step 7: Refetch updated task
@@ -925,6 +1121,16 @@ export class TasksService {
       order: { startDate: 'ASC', sortOrder: 'ASC', createdAt: 'ASC' },
     });
 
+    const escrows =
+      milestones.length > 0
+        ? await this.escrowRepository.find({
+            where: { milestoneId: In(milestones.map((milestone) => milestone.id)) },
+          })
+        : [];
+    const escrowMap = new Map(
+      escrows.map((escrow) => [escrow.milestoneId, this.toMilestoneEscrowSummary(escrow)]),
+    );
+
     // Group tasks by status
     const board: KanbanBoard = {
       TODO: [],
@@ -948,7 +1154,28 @@ export class TasksService {
 
     return {
       tasks: board,
-      milestones,
+      milestones: milestones.map((milestone) => ({
+        ...milestone,
+        escrow: escrowMap.get(milestone.id) ?? null,
+      })),
+    };
+  }
+
+  private toMilestoneEscrowSummary(escrow: EscrowEntity): WorkspaceMilestoneEscrowSummary {
+    return {
+      id: escrow.id,
+      status: escrow.status,
+      totalAmount: Number(escrow.totalAmount || 0),
+      fundedAmount: Number(escrow.fundedAmount || 0),
+      releasedAmount: Number(escrow.releasedAmount || 0),
+      developerShare: Number(escrow.developerShare || 0),
+      brokerShare: Number(escrow.brokerShare || 0),
+      platformFee: Number(escrow.platformFee || 0),
+      currency: escrow.currency,
+      fundedAt: escrow.fundedAt || null,
+      releasedAt: escrow.releasedAt || null,
+      refundedAt: escrow.refundedAt || null,
+      updatedAt: escrow.updatedAt,
     };
   }
 
@@ -982,9 +1209,7 @@ export class TasksService {
       });
 
       if (approvedSubmissionCount === 0) {
-        throw new BadRequestException(
-          'Cannot move to DONE without an approved submission.',
-        );
+        throw new BadRequestException('Cannot move to DONE without an approved submission.');
       }
     }
 
@@ -1039,7 +1264,6 @@ export class TasksService {
       completedTasks,
     };
   }
-
 
   /**
    * Calculate milestone progress based on completed tasks
@@ -1099,9 +1323,11 @@ export class TasksService {
     if (progress >= 100) {
       if (
         submittedAt &&
-        [MilestoneStatus.SUBMITTED, MilestoneStatus.PENDING_STAFF_REVIEW, MilestoneStatus.PENDING_CLIENT_APPROVAL].includes(
-          milestone.status,
-        )
+        [
+          MilestoneStatus.SUBMITTED,
+          MilestoneStatus.PENDING_STAFF_REVIEW,
+          MilestoneStatus.PENDING_CLIENT_APPROVAL,
+        ].includes(milestone.status)
       ) {
         milestone.submittedAt = submittedAt;
         shouldSave = true;
@@ -1336,6 +1562,23 @@ export class TasksService {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       const errorStack = error instanceof Error ? error.stack : undefined;
       this.logger.error(`Failed to sync task to calendar: ${errorMessage}`, errorStack);
+      await this.auditLogsService.logSystemIncident({
+        component: 'TasksService',
+        operation: 'sync-task-to-calendar',
+        summary: 'Task-to-calendar sync failed',
+        severity: 'HIGH',
+        category: 'INTEGRATION',
+        error,
+        target: {
+          type: 'Task',
+          id: task.id,
+          label: task.title,
+        },
+        context: {
+          projectId: task.projectId,
+          milestoneId: task.milestoneId,
+        },
+      });
       return null;
     }
   }

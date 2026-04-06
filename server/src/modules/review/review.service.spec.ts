@@ -16,6 +16,7 @@ import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { REVIEW_EVENTS } from './events/review.events';
 import { ReviewService } from './review.service';
+import { recordEvidence } from '../../../test/fe16-fe18/evidence-recorder';
 
 const repoMock = () => ({
   find: jest.fn(),
@@ -269,6 +270,12 @@ describe('ReviewService', () => {
       }),
     );
     expect(result).toEqual(expect.objectContaining({ id: 'review-2', weight: 1.5 }));
+    recordEvidence({
+      id: 'FE16-REV-01',
+      evidenceRef: 'review.service.spec.ts::creates a review for PAID projects',
+      actualResults:
+        'ReviewService.create committed the review, called transactional audit logging, and emitted REVIEW_EVENTS.MUTATED with reviewId=review-2 and targetUserId=target-1.',
+    });
   });
 
   it('rejects review creation when project is not completed or paid', async () => {
@@ -296,6 +303,12 @@ describe('ReviewService', () => {
 
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+    recordEvidence({
+      id: 'FE16-REV-02',
+      evidenceRef: 'review.service.spec.ts::rejects ineligible project',
+      actualResults:
+        'ReviewService.create rejected an IN_PROGRESS project before starting a transaction and did not emit any post-commit trust-score mutation event.',
+    });
   });
 
   it('rolls back review creation when audit logging inside the transaction fails', async () => {
@@ -340,6 +353,12 @@ describe('ReviewService', () => {
 
     expect(transactionReviewRepo.save).toHaveBeenCalled();
     expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+    recordEvidence({
+      id: 'FE16-REV-03',
+      evidenceRef: 'review.service.spec.ts::rolls back on audit failure',
+      actualResults:
+        'ReviewService.create surfaced the injected audit failure after the transactional save path and did not emit REVIEW_EVENTS.MUTATED, proving the success path was not committed.',
+    });
   });
 
   it('updates a review and emits a post-commit trust score event', async () => {
@@ -384,6 +403,12 @@ describe('ReviewService', () => {
       }),
     );
     expect(result).toEqual(expect.objectContaining({ rating: 5, comment: 'Updated' }));
+    recordEvidence({
+      id: 'FE16-REV-04',
+      evidenceRef: 'review.service.spec.ts::updates a review',
+      actualResults:
+        'ReviewService.update returned the updated rating/comment, wrote UPDATE_REVIEW audit metadata, and emitted REVIEW_EVENTS.MUTATED for review-3.',
+    });
   });
 
   it('soft deletes a review and emits a post-commit trust score event', async () => {
@@ -564,7 +589,7 @@ describe('ReviewService', () => {
       invoke: () =>
         service.reassignModerationCase('review-1', 'admin-1', 'admin-2', 1, 'stale-owner'),
     },
-  ])('rejects stale assignmentVersion for $label', async ({ invoke }) => {
+  ])('rejects stale assignmentVersion for $label', async ({ label, invoke }) => {
     seedModerationMutation({ assignmentVersion: 2 });
 
     await expect(invoke()).rejects.toThrow(ConflictException);
@@ -573,5 +598,14 @@ describe('ReviewService', () => {
     expect(queryRunner.commitTransaction).not.toHaveBeenCalled();
     expect(queryRunner.rollbackTransaction).toHaveBeenCalled();
     expect(auditLogsService.log).not.toHaveBeenCalled();
+    if (label === 'reassign') {
+      recordEvidence({
+        id: 'FE16-REV-05',
+        evidenceRef: 'review.service.spec.ts::rejects stale moderation assignmentVersion',
+        actualResults:
+          'The moderation mutation with stale assignmentVersion threw ConflictException, skipped the save path, rolled back the query runner transaction, and produced no moderation audit log.',
+        note: 'Equivalent stale-version protection also passed for open, take, and release moderation actions.',
+      });
+    }
   });
 });

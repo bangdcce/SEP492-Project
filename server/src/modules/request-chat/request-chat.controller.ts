@@ -154,8 +154,7 @@ export class RequestChatController {
       requestId,
       limit,
       offset,
-      user.id,
-      user.role,
+      user,
     );
 
     return {
@@ -199,7 +198,7 @@ export class RequestChatController {
     @GetUser() user: UserEntity,
     @UploadedFiles() files: MulterFile[],
   ) {
-    await this.requestChatService.assertRequestWriteAccess(requestId, user.id, user.role);
+    await this.requestChatService.assertRequestWriteAccess(requestId, user);
     this.assertFilesAllowed(files || []);
 
     return {

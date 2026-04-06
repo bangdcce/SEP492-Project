@@ -25,17 +25,11 @@ class KYCFormData {
     + idCardFront: File | null
     + idCardBack: File | null
     + selfiePhoto: File | null
-    ...
-}
-
-class KYCPreviewState {
-    + idCardFront: string
-    + idCardBack: string
-    + selfiePhoto: string
-    ...
+    --
 }
 
 class StorageUtil {
+    --
     + getStoredItem(key: string): string | null
     + setStoredItem(key: string, value: string, remember: boolean): void
     + setStoredItemAuto(key: string, value: string): void
@@ -43,12 +37,10 @@ class StorageUtil {
     + getStoredJson<T>(key: string): T | null
     + setStoredJson(key: string, value: any, remember: boolean): void
     + setStoredJsonAuto(key: string, value: any): void
-    ...
 }
 
 class KYCPage {
     - navigate: any
-
     - currentStep: number
     - setCurrentStep: any
     - submissionStatus: 'idle' | 'processing' | 'approved' | 'rejected'
@@ -57,16 +49,15 @@ class KYCPage {
     - setRejectionReason: any
     - formData: KYCFormData
     - setFormData: any
-    - previews: KYCPreviewState
+    - previews: { idCardFront: string; idCardBack: string; selfiePhoto: string }
     - setPreviews: any
     - errors: Record<string, string>
     - setErrors: any
     - loading: boolean
     - setLoading: any
     - baseUrl: string
-
     - steps: { number: number; title: string; icon: any }[]
-
+    --
     + handleFileChange(field: 'idCardFront' | 'idCardBack' | 'selfiePhoto', file: File | null): void
     + handleDragOver(e: any): void
     + handleDrop(e: any, field: 'idCardFront' | 'idCardBack' | 'selfiePhoto'): void
@@ -80,18 +71,17 @@ class KYCPage {
     + handleBackToDashboard(): void
     + handleRetry(): void
     + renderUploadBox(field: 'idCardFront' | 'idCardBack' | 'selfiePhoto', label: string, icon: any): any
-    ...
 }
 
 class JwtAuthGuard {
+    --
     + canActivate(context: any): boolean | Promise<boolean> | any
-    ...
 }
 
 class RolesGuard {
     - reflector: any
+    --
     + canActivate(context: any): boolean | Promise<boolean>
-    ...
 }
 
 class SubmitKycDto {
@@ -101,39 +91,25 @@ class SubmitKycDto {
     + dateOfBirth: string
     + documentExpiryDate?: string
     + address?: string
-    ...
+    --
 }
 
 class RejectKycDto {
     + rejectionReason: string
-    ...
+    --
 }
 
 class KycController {
     - kycService: KycService
+    --
     + KycController(kycService: KycService)
-    + submitKyc(userId: string, dto: SubmitKycDto, files: KycMultipartFiles): Promise<any>
+    + submitKyc(userId: string, dto: SubmitKycDto, files: { idCardFront?: MulterFile[]; idCardBack?: MulterFile[]; selfie?: MulterFile[] }): Promise<any>
     + getMyKyc(userId: string): Promise<any>
     + getAllKyc(status?: string, page?: number, limit?: number): Promise<any>
     + getKycById(id: string): Promise<any>
     + getKycByIdWithWatermark(id: string, user: any, req: any, reason?: string, reasonDetails?: string): Promise<any>
     + approveKyc(id: string, adminId: string): Promise<any>
     + rejectKyc(id: string, dto: RejectKycDto, adminId: string): Promise<any>
-    ...
-}
-
-class KycMultipartFiles {
-    + idCardFront?: MulterFile[]
-    + idCardBack?: MulterFile[]
-    + selfie?: MulterFile[]
-    ...
-}
-
-class KycFiles {
-    + idCardFront: MulterFile
-    + idCardBack: MulterFile
-    + selfie: MulterFile
-    ...
 }
 
 class MulterFile {
@@ -146,16 +122,15 @@ class MulterFile {
     + filename: string
     + path: string
     + buffer: Buffer
-    ...
+    --
 }
 
 class FptAiService {
     - logger: any
     - apiUrl: string
     - apiKey: string
-
+    --
     + verifyKyc(idCardFront: Buffer, idCardBack: Buffer, selfie: Buffer): Promise<FptAiVerificationResult>
-
     - ocrIdCard(imageBuffer: Buffer, side: 'front' | 'back'): Promise<any>
     - compareFaces(selfie: Buffer, idCardFront: Buffer): Promise<any>
     - calculateConfidenceOcrOnly(frontOcr: any, backOcr: any): number
@@ -165,12 +140,6 @@ class FptAiService {
     - detectIssuesOcrOnly(frontOcr: any, backOcr: any): string[]
     - normalizeOcrData(ocr: any): Record<string, any>
     - mapKeyValueArray(items: any[]): Record<string, any>
-    - normalizeKey(value: string): string
-    - getOcrField(data: any, keys: string[]): string | undefined
-    - getOcrConfidence(data: any): number | null
-    - estimateConfidence(frontData: any, backData: any): number
-    - detectIssues(frontOcr: any, backOcr: any, faceMatch: any): string[]
-    - mockVerification(): FptAiVerificationResult
     ...
 }
 
@@ -182,17 +151,17 @@ class FptAiVerificationResult {
     + faceMatch?: { matched: boolean; similarity: number }
     + issues?: string[]
     + rawResponse?: any
-    ...
+    --
 }
 
 class SupabaseStorageUtil {
+    --
     + uploadEncryptedFile(fileBuffer: Buffer, userId: string, fileType: string, mimeType: string): Promise<string>
     + downloadEncryptedFile(storagePath: string): Promise<Buffer>
     + downloadWithWatermark(storagePath: string, watermarkOptions: WatermarkOptions): Promise<Buffer>
     + getSignedUrl(storagePath: string, expiresIn?: number): Promise<string>
     + deleteFile(storagePath: string): Promise<void>
     + listUserFiles(userId: string): Promise<string[]>
-    ...
 }
 
 class WatermarkOptions {
@@ -202,30 +171,24 @@ class WatermarkOptions {
     + sessionId: string
     + timestamp: Date
     + kycId: string
-    ...
+    --
 }
 
 class EncryptionUtil {
-    - ALGORITHM: string
-    - IV_LENGTH: number
-    - AUTH_TAG_LENGTH: number
-    - SALT_LENGTH: number
-    - getEncryptionKey(): Buffer
-
+    --
     + encryptFile(buffer: Buffer): Buffer
     + decryptFile(encryptedBuffer: Buffer): Buffer
     + generateEncryptionKey(): string
     + hashDocumentNumber(documentNumber: string): string
-    ...
 }
 
 class Repository {
+    --
     + findOne(options: any): Promise<any>
     + create(data: any): any
     + save(entity: any): Promise<any>
     + update(id: string, partial: any): Promise<any>
     + createQueryBuilder(alias: string): any
-    ...
 }
 
 class KycService {
@@ -233,10 +196,9 @@ class KycService {
     - userRepo: Repository
     - auditLogRepo: Repository
     - fptAiService: FptAiService
-
+    --
     + KycService(kycRepo: Repository, userRepo: Repository, auditLogRepo: Repository, fptAiService: FptAiService)
-
-    + submitKyc(userId: string, dto: SubmitKycDto, files: KycFiles): Promise<any>
+    + submitKyc(userId: string, dto: SubmitKycDto, files: { idCardFront: MulterFile; idCardBack: MulterFile; selfie: MulterFile }): Promise<any>
     + getMyKyc(userId: string): Promise<any>
     + getAllKyc(status?: KycStatus, page?: number, limit?: number): Promise<any>
     + getKycByIdWithWatermark(id: string, reviewerId: string, reviewerEmail: string, reviewerRole: 'ADMIN' | 'STAFF', ipAddress: string, sessionId: string, userAgent: string, reason?: string, reasonDetails?: string): Promise<any>
@@ -244,34 +206,11 @@ class KycService {
     + approveKyc(id: string, adminId: string): Promise<any>
     + rejectKyc(id: string, adminId: string, dto: RejectKycDto): Promise<any>
     + hasVerifiedKyc(userId: string): Promise<boolean>
-
     - normalizeString(str: string | undefined | null): string
-    - levenshteinDistance(str1: string, str2: string): number
-    - calculateSimilarity(str1: string, str2: string): number
-    - normalizeDateString(dateStr: string | undefined | null): string
-    - validateDataMatch(dto: SubmitKycDto, extractedData: any): DataValidationResult
     ...
 }
 
-class DataValidationResult {
-    + matchScore: number
-    + criticalMismatch: boolean
-    + issues: string[]
-    ...
-}
 
-enum KycStatus {
-    PENDING
-    APPROVED
-    REJECTED
-    EXPIRED
-}
-
-enum DocumentType {
-    CCCD
-    PASSPORT
-    DRIVER_LICENSE
-}
 
 class KycVerificationEntity {
     + id: string
@@ -284,15 +223,8 @@ class KycVerificationEntity {
     + documentFrontUrl: string
     + documentBackUrl: string
     + selfieUrl: string
-    + status: KycStatus
-    + rejectionReason: string
-    + reviewedBy: string
-    + reviewedAt: Date
-    + createdAt: Date
-    + updatedAt: Date
-    + user: any
-    + reviewer: any
     ...
+    --
 }
 
 class AuditLogEntity {
@@ -306,8 +238,8 @@ class AuditLogEntity {
     + beforeData: Record<string, any>
     + afterData: Record<string, any>
     + createdAt: Date
-    + actor: UserEntity
     ...
+    --
 }
 
 class UserEntity {
@@ -319,81 +251,19 @@ class UserEntity {
     + phoneNumber: string
     + timeZone: string
     + isVerified: boolean
-
     + totalProjectsFinished: number
     + totalProjectsCancelled: number
-    + totalDisputesLost: number
-    + totalLateProjects: number
-    + currentTrustScore: number
-
-    + resetPasswordOtp: string
-    + resetPasswordOtpExpires: Date
-
-    + emailVerificationToken: string
-    + emailVerificationExpires: Date
-    + emailVerifiedAt: Date
-
-    + termsAcceptedAt: Date
-    + privacyAcceptedAt: Date
-
-    + registrationIp: string
-    + registrationUserAgent: string
-
-    + isBanned: boolean
-    + banReason: string
-    + bannedAt: Date
-    + bannedBy: string
-
-    + status: UserStatus
-    + deletedAt: Date
-    + deletedReason: string
-    + createdAt: Date
-    + updatedAt: Date
-
-    + profile: any
-    + socialAccounts: any[]
-    + authSessions: any[]
-    + userTokens: any[]
-    + savedFreelancers: any[]
-    + clientRequests: any[]
-    + brokerRequests: any[]
-    + freelancerProposals: any[]
-    + brokerProposals: any[]
-    + clientProjects: any[]
-    + brokerProjects: any[]
-    + freelancerProjects: any[]
-    + flags: any[]
-    + userSkills: any[]
-
+    ...
+    --
     + badge(): BadgeType
     + stats(): any
     + warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE'
-    ...
 }
 
-enum UserRole {
-    ADMIN
-    STAFF
-    BROKER
-    CLIENT
-    FREELANCER
-}
 
-enum UserStatus {
-    ACTIVE
-    DELETED
-}
 
-enum BadgeType {
-    NEW
-    VERIFIED
-    TRUSTED
-    WARNING
-    NORMAL
-}
 
 KYCPage *-- KYCFormData
-KYCPage *-- KYCPreviewState
 KYCPage ..> StorageUtil
 KYCPage ..> KycController : dependency
 KycController ..> JwtAuthGuard
@@ -401,10 +271,7 @@ KycController ..> RolesGuard
 KycController --> KycService
 KycController ..> SubmitKycDto
 KycController ..> RejectKycDto
-KycController ..> KycMultipartFiles
-KycController ..> KycFiles
-KycMultipartFiles *-- MulterFile
-KycFiles *-- MulterFile
+KycController ..> MulterFile
 KycService --> Repository
 KycService ..> KycVerificationEntity
 KycService ..> UserEntity
@@ -412,8 +279,7 @@ KycService ..> AuditLogEntity
 KycService --> FptAiService
 KycService ..> SupabaseStorageUtil
 KycService ..> EncryptionUtil
-KycService ..> KycFiles
-KycService ..> DataValidationResult
+KycService ..> MulterFile
 FptAiService ..> FptAiVerificationResult
 SupabaseStorageUtil ..> EncryptionUtil
 SupabaseStorageUtil ..> WatermarkOptions

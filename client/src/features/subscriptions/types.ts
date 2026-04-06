@@ -58,6 +58,12 @@ export interface SubscriptionPlan {
   priceMonthly: number;
   priceQuarterly: number;
   priceYearly: number;
+  displayCurrency: string;
+  priceMonthlyDisplay: number;
+  priceQuarterlyDisplay: number;
+  priceYearlyDisplay: number;
+  monthlyEquivalentDisplay: number;
+  exchangeRateApplied: number;
   perks: PlanPerks;
 }
 
@@ -101,7 +107,17 @@ export interface UserSubscription {
   currentPeriodEnd: string;
   cancelAtPeriodEnd: boolean;
   amountPaid: number;
+  payment?: SubscriptionPayment | null;
   plan: SubscriptionPlan;
+}
+
+export interface SubscriptionPayment {
+  provider: string;
+  reference?: string | null;
+  capturedAmount?: number | null;
+  currency?: string | null;
+  displayAmountVnd: number;
+  exchangeRateApplied?: number | null;
 }
 
 /**
@@ -122,13 +138,44 @@ export interface MySubscriptionResponse {
   usage: Record<string, QuotaUsage>;
 }
 
+export interface SubscriptionPayPalConfigRequest {
+  planId: string;
+  billingCycle: BillingCycle;
+  paymentMethodId: string;
+}
+
+export interface SubscriptionPayPalCheckoutConfig {
+  clientId: string;
+  environment: "sandbox" | "live";
+  vaultEnabled: boolean;
+  userIdToken: string | null;
+  chargeAmount: number;
+  chargeCurrency: string;
+  displayAmountVnd: number;
+  exchangeRateApplied: number;
+}
+
+export interface CreatePayPalSubscriptionOrderRequest
+  extends SubscriptionPayPalConfigRequest {
+  source?: string;
+  returnUrl?: string;
+  cancelUrl?: string;
+}
+
+export interface PayPalSubscriptionOrder extends SubscriptionPayPalCheckoutConfig {
+  orderId: string;
+  status: string;
+  vaultRequested: boolean;
+}
+
 /**
  * Subscribe request body for POST /subscriptions/subscribe.
  */
 export interface SubscribeRequest {
   planId: string;
   billingCycle: BillingCycle;
-  paymentReference?: string;
+  paymentMethodId: string;
+  orderId: string;
 }
 
 /**
@@ -151,6 +198,12 @@ export interface SubscribeResponse {
     currentPeriodStart: string;
     currentPeriodEnd: string;
     amountPaid: number;
+    payment?: {
+      provider: string;
+      reference?: string | null;
+      capturedAmount?: number | null;
+      currency?: string | null;
+    } | null;
   };
 }
 
@@ -228,6 +281,30 @@ export function formatVND(amount: number): string {
   }).format(amount);
 }
 
+export function formatCurrency(amount: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: currency === 'VND' ? 0 : 2,
+  }).format(amount);
+}
+
+export function getPlanDisplayAmount(
+  plan: SubscriptionPlan,
+  cycle: BillingCycle,
+): number {
+  switch (cycle) {
+    case BillingCycle.MONTHLY:
+      return plan.priceMonthlyDisplay;
+    case BillingCycle.QUARTERLY:
+      return plan.priceQuarterlyDisplay;
+    case BillingCycle.YEARLY:
+      return plan.priceYearlyDisplay;
+    default:
+      return plan.priceMonthlyDisplay;
+  }
+}
+
 /**
  * Calculate savings percentage between two prices.
  */
@@ -261,12 +338,12 @@ export function getMonthlyEquivalent(
 ): number {
   switch (cycle) {
     case BillingCycle.MONTHLY:
-      return plan.priceMonthly;
+      return plan.priceMonthlyDisplay;
     case BillingCycle.QUARTERLY:
-      return Math.round(plan.priceQuarterly / 3);
+      return Number((getPlanDisplayAmount(plan, cycle) / 3).toFixed(2));
     case BillingCycle.YEARLY:
-      return Math.round(plan.priceYearly / 12);
+      return Number((getPlanDisplayAmount(plan, cycle) / 12).toFixed(2));
     default:
-      return plan.priceMonthly;
+      return plan.priceMonthlyDisplay;
   }
 }

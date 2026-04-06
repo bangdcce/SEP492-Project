@@ -5,24 +5,25 @@ interface StarRatingProps {
   rating: number;
   editable?: boolean;
   onChange?: (rating: number) => void;
+  testIdPrefix?: string;
 }
 
 export function StarRating({
   rating,
   editable = false,
   onChange,
+  testIdPrefix,
 }: StarRatingProps) {
   const [hoverRating, setHoverRating] = useState<number | null>(null);
 
   const handleClick = (index: number) => {
     if (editable && onChange) {
-      // Editable mode: Only whole numbers (1, 2, 3, 4, 5)
       onChange(index + 1);
     }
   };
+
   const handleMouseMove = (index: number) => {
     if (editable) {
-      // Editable mode: Only show full star on hover
       setHoverRating(index + 1);
     }
   };
@@ -38,30 +39,32 @@ export function StarRating({
   const renderStar = (index: number) => {
     const starValue = index + 1;
     const isFullFilled = displayRating >= starValue;
-
-    // Calculate partial fill percentage for read-only mode
     const partialFill =
       !editable && displayRating > starValue - 1 && displayRating < starValue
         ? (displayRating - (starValue - 1)) * 100
         : 0;
+    const starTestId = testIdPrefix ? `${testIdPrefix}-star-${starValue}` : undefined;
+
     if (isFullFilled) {
-      // Full star
       return (
         <Star
           key={index}
-          className={`w-5 h-5 transition-colors $ {editable ? 'cursor-pointer': ''} fill-yellow-400 text-yellow-400`}
+          data-testid={starTestId}
+          aria-label={editable ? `Rate ${starValue} star${starValue === 1 ? "" : "s"}` : undefined}
+          className={`w-5 h-5 transition-colors ${
+            editable ? "cursor-pointer" : ""
+          } fill-yellow-400 text-yellow-400`}
           onClick={() => handleClick(index)}
           onMouseEnter={() => handleMouseMove(index)}
           onMouseLeave={handleMouseLeave}
         />
       );
-    } else if (partialFill > 0) {
-      // Partial star (only for read-only mode) - displays any percentage from 0-100%
+    }
+
+    if (partialFill > 0) {
       return (
-        <div key={index} className="relative">
-          {/* Layer 1: Sao rỗng (nền xám) */}
+        <div key={index} className="relative" data-testid={starTestId}>
           <Star className="w-5 h-5 fill-none text-gray-300" />
-          {/* Layer 2: Sao vàng bị cắt theo % */}
           <div
             className="absolute inset-0 overflow-hidden"
             style={{ width: `${partialFill}%` }}
@@ -70,23 +73,28 @@ export function StarRating({
           </div>
         </div>
       );
-    } else {
-      // Empty star
-      return (
-        <Star
-          key={index}
-          className={`w-5 h-5 transition-colors ${
-            editable ? "cursor-pointer" : ""
-          } fill-none text-gray-300`}
-          onClick={() => handleClick(index)}
-          onMouseEnter={() => handleMouseMove(index)}
-          onMouseLeave={handleMouseLeave}
-        />
-      );
     }
+
+    return (
+      <Star
+        key={index}
+        data-testid={starTestId}
+        aria-label={editable ? `Rate ${starValue} star${starValue === 1 ? "" : "s"}` : undefined}
+        className={`w-5 h-5 transition-colors ${
+          editable ? "cursor-pointer" : ""
+        } fill-none text-gray-300`}
+        onClick={() => handleClick(index)}
+        onMouseEnter={() => handleMouseMove(index)}
+        onMouseLeave={handleMouseLeave}
+      />
+    );
   };
+
   return (
-    <div className="flex items-center gap-1">
+    <div
+      className="flex items-center gap-1"
+      data-testid={testIdPrefix ? `${testIdPrefix}-widget` : undefined}
+    >
       {[...Array(5)].map((_, index) => renderStar(index))}
       <span className="ml-2 text-gray-600">{displayRating.toFixed(1)}/5.0</span>
     </div>

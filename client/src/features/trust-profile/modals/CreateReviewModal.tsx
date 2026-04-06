@@ -56,16 +56,31 @@ export function CreateReviewModal({
       onClose();
       resetForm();
     } catch (err: any) {
-      // Error Handling - Map Vietnamese errors to English
-      const errorMessage = err.response?.data?.message || "";
+      const errorMessage = String(err.response?.data?.message || "");
+      const normalizedMessage = errorMessage.toLowerCase();
 
       if (err.response?.status === 400) {
-        if (errorMessage.includes("đã đánh giá")) {
+        if (
+          normalizedMessage.includes("đã đánh giá") ||
+          normalizedMessage.includes("already reviewed")
+        ) {
           setError("You have already reviewed this user.");
-        } else if (errorMessage.includes("chưa hoàn thành")) {
+        } else if (
+          normalizedMessage.includes("chưa hoàn thành") ||
+          normalizedMessage.includes("completed") ||
+          normalizedMessage.includes("paid project")
+        ) {
           setError("Project must be completed before submitting a review.");
+        } else if (
+          normalizedMessage.includes("không phải thành viên") ||
+          normalizedMessage.includes("not a member")
+        ) {
+          setError("You can only review users from shared completed projects.");
         } else {
-          setError(errorMessage || "Invalid request. Please check your input.");
+          setError(
+            errorMessage ||
+              "Review can only be created for shared completed projects.",
+          );
         }
       } else if (err.response?.status === 403) {
         if (errorMessage.includes("không phải thành viên")) {
@@ -77,7 +92,7 @@ export function CreateReviewModal({
         setError("Project or user not found.");
       } else {
         setError(
-          errorMessage || "Failed to submit review. Please try again later."
+          errorMessage || "Failed to submit review. Please try again later.",
         );
       }
     } finally {
@@ -103,7 +118,10 @@ export function CreateReviewModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      data-testid="create-review-modal"
+    >
       {/* Backdrop with glass morphism */}
       <div
         className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm"
@@ -121,6 +139,7 @@ export function CreateReviewModal({
           <button
             onClick={handleClose}
             disabled={isLoading}
+            data-testid="close-create-review"
             className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
           >
             <X className="w-6 h-6" />
@@ -135,7 +154,7 @@ export function CreateReviewModal({
           {/* Error Alert */}
           {error && (
             <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+              <AlertCircle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="text-red-700">{error}</p>
               </div>
@@ -147,7 +166,12 @@ export function CreateReviewModal({
             <label className="block text-slate-900">
               Rating <span className="text-red-500">*</span>
             </label>
-            <StarRating rating={rating} editable={true} onChange={setRating} />
+            <StarRating
+              rating={rating}
+              editable={true}
+              onChange={setRating}
+              testIdPrefix="create-review-rating"
+            />
           </div>
 
           {/* Comment */}
@@ -157,6 +181,7 @@ export function CreateReviewModal({
             </label>
             <textarea
               id="comment"
+              data-testid="create-review-comment"
               value={comment}
               onChange={(e) => setComment(e.target.value)}
               maxLength={MAX_COMMENT_LENGTH}
@@ -180,7 +205,7 @@ export function CreateReviewModal({
 
           {/* Warning Note */}
           <div className="flex items-start gap-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-            <AlertCircle className="w-5 h-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+            <AlertCircle className="w-5 h-5 text-yellow-600 shrink-0 mt-0.5" />
             <div className="flex-1">
               <p className="text-yellow-800 text-sm">
                 <strong>Important:</strong> Reviews cannot be edited after 72
@@ -196,6 +221,7 @@ export function CreateReviewModal({
             type="button"
             onClick={handleClose}
             disabled={isLoading}
+            data-testid="cancel-create-review"
             className="px-6 py-2.5 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Cancel
@@ -204,6 +230,7 @@ export function CreateReviewModal({
             type="submit"
             onClick={handleSubmit}
             disabled={isLoading}
+            data-testid="submit-create-review"
             className="px-6 py-2.5 bg-teal-500 text-white rounded-lg hover:bg-teal-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
           >
             {isLoading ? (

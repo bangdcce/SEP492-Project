@@ -6,14 +6,19 @@
 import type { LucideIcon } from "lucide-react";
 import {
   CalendarDays,
+  Flag,
+  Gavel,
   LayoutDashboard,
   Scale,
   ScrollText,
   Shield,
+  ShieldCheck,
   UserCheck,
   Users,
   User,
   HelpCircle,
+  Video,
+  Wallet,
 } from "lucide-react";
 
 export interface AdminSidebarMenuItem {
@@ -23,6 +28,8 @@ export interface AdminSidebarMenuItem {
   path: string;
   badge?: string;
   description?: string;
+  activePatterns?: string[];
+  activeExclusions?: string[];
   section?: "main" | "management" | "account";
 }
 
@@ -36,6 +43,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     description: "Overview and statistics",
     section: "main",
   },
+  {
+    id: "finance",
+    label: "Finance",
+    icon: Wallet,
+    path: "/admin/finance",
+    description: "Platform revenue and treasury wallet",
+    section: "main",
+  },
   // Management
   {
     id: "audit-logs",
@@ -43,6 +58,25 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: ScrollText,
     path: "/admin/audit-logs",
     description: "View all system activities",
+    section: "management",
+  },
+  {
+    id: "disputes",
+    label: "Disputes",
+    icon: Gavel,
+    path: "/admin/disputes",
+    description: "Review queue intake, active caseload, and case records",
+    activePatterns: ["/admin/disputes"],
+    activeExclusions: ["/admin/disputes/appeals"],
+    section: "management",
+  },
+  {
+    id: "hearings",
+    label: "Hearings",
+    icon: Video,
+    path: "/admin/hearings",
+    description: "Monitor live, upcoming, and archived hearing schedules",
+    activePatterns: ["/admin/hearings"],
     section: "management",
   },
   {
@@ -59,6 +93,16 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: Scale,
     path: "/admin/disputes/appeals",
     description: "Review and route dispute appeals",
+    activePatterns: ["/admin/disputes/appeals"],
+    section: "management",
+  },
+  {
+    id: "review-reports",
+    label: "Review Reports",
+    icon: Flag,
+    path: "/admin/reports",
+    description: "Resolve abuse reports against reviews",
+    activePatterns: ["/admin/reports"],
     section: "management",
   },
   {
@@ -91,6 +135,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: Users,
     path: "/admin/users",
     description: "Manage users, ban/unban",
+    section: "management",
+  },
+  {
+    id: "staff-applications",
+    label: "Staff Applications",
+    icon: ShieldCheck,
+    path: "/admin/staff-applications",
+    description: "Review pending staff registrations",
     section: "management",
   },
   {

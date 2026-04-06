@@ -90,7 +90,10 @@ async function seedAdmin() {
     database: process.env.DB_DATABASE,
     synchronize: false,
     logging: false,
-    entities: [path.join(__dirname, '../database/entities/*.entity{.ts,.js}')],
+    entities: [
+      path.join(__dirname, '../database/entities/*.entity{.ts,.js}'),
+      path.join(__dirname, '../modules/**/entities/*.entity{.ts,.js}'),
+    ],
   });
 
   try {

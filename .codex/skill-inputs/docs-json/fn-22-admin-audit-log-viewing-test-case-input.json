@@ -1,0 +1,207 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_FN22_Admin_Audit_Log_Viewing_Test_Case_v1.0",
+    "creator": "Codex",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "defaultTester": "Codex",
+    "environment": [
+      "1. Frontend: React admin audit log screen in client/src/features/audit-logs/AuditLogPage.tsx",
+      "2. Frontend API: client/src/features/audit-logs/api.ts calling GET /audit-logs",
+      "3. Backend: NestJS AuditLogsController.findAll and AuditLogsService.findAll",
+      "4. Evidence source: code inspection only; matching Jest specs exist but were not executed because server/node_modules is absent in this workspace"
+    ],
+    "notes": "Admin Audit Log Viewing was selected because the repository contains implemented frontend and backend viewing logic plus placeholder audit-log specs, while docs did not yet contain an exported test-case workbook for this function. Cases below trace the implemented fetch, filter, pagination, risk derivation, response mapping, loading, error, and export behaviors. Since dependencies are not installed locally, all cases remain Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "FN-22 Admin Audit Log Viewing",
+        "changeType": "A",
+        "description": "Initial workbook generated from the implemented admin audit-log viewing flow.",
+        "reference": "client/src/features/audit-logs/AuditLogPage.tsx, client/src/features/audit-logs/api.ts, server/src/modules/audit-logs/audit-logs.controller.ts, server/src/modules/audit-logs/audit-logs.service.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "FN-22",
+      "name": "Admin Audit Log Viewing",
+      "testRequirement": "Validate admin audit-log retrieval, filter translation, backend query filtering, response transformation, loading and error handling, and client-side export behavior for the implemented audit-log viewing flow.",
+      "referenceDocument": [
+        "client/src/features/audit-logs/AuditLogPage.tsx",
+        "client/src/features/audit-logs/api.ts",
+        "client/src/features/audit-logs/components/AuditLogTable.tsx",
+        "client/src/features/audit-logs/components/AuditLogDetailModal.tsx",
+        "server/src/modules/audit-logs/audit-logs.controller.ts",
+        "server/src/modules/audit-logs/audit-logs.service.ts",
+        "server/src/modules/audit-logs/dto/get-audit-logs.dto.ts",
+        "server/src/modules/audit-logs/audit-logs.controller.spec.ts",
+        "server/src/modules/audit-logs/audit-logs.service.spec.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 7,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Audit Logs API Wrapper",
+          "description": "Build and issue audit-log listing requests from the frontend using translated filter parameters.",
+          "preCondition": "The admin UI is loaded and the shared API client can call the audit-log endpoint.",
+          "relatedUseCases": [
+            "FN-22"
+          ],
+          "actor": "Admin",
+          "done": false
+        },
+        {
+          "name": "Audit Log Query Retrieval",
+          "description": "Apply optional query filters, paginate results, and transform persisted audit-log entities into response DTOs.",
+          "preCondition": "Audit log rows exist and the backend repository can query actor relations and JSON risk metadata.",
+          "relatedUseCases": [
+            "FN-22"
+          ],
+          "actor": "Admin",
+          "done": false
+        },
+        {
+          "name": "Audit Log Page Rendering",
+          "description": "Load logs into the page, show loading or error state, render stats and table data, paginate, and export visible logs.",
+          "preCondition": "The admin can open the audit-log page and the browser supports Blob download APIs.",
+          "relatedUseCases": [
+            "FN-22"
+          ],
+          "actor": "Admin",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Audit Logs API Wrapper",
+          "testCases": [
+            {
+              "id": "[FN22-API-01]",
+              "description": "Translate page filters into the expected GET /audit-logs request parameters when the page fetches data.",
+              "procedure": "1. Render AuditLogPage.\n2. Set page = 1, limit = 20, searchAction = UPDATE, dateFrom, dateTo, and riskLevel = HIGH.\n3. Trigger fetchLogs and inspect the API call.",
+              "expectedResults": "1. AuditLogPage builds params from pagination and filters.\n2. auditLogsApi.getAll sends GET /audit-logs with page, limit, action, dateFrom, dateTo, and riskLevel.\n3. riskLevel is omitted only when the UI filter remains ALL.",
+              "actualResults": "",
+              "dependencies": "Mounted audit-log page and reachable frontend API module.",
+              "useCaseRefs": [
+                "FN-22"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from AuditLogPage.fetchLogs and client/src/features/audit-logs/api.ts."
+            },
+            {
+              "id": "[FN22-API-02]",
+              "description": "Reset pagination to page 1 whenever a search or date/risk filter changes.",
+              "procedure": "1. Render AuditLogPage while pagination.page is greater than 1.\n2. Change searchAction, dateFrom, dateTo, or riskLevel.\n3. Observe pagination state.",
+              "expectedResults": "1. The filter-dependent useEffect runs when any filter field changes.\n2. pagination.page is reset to 1.\n3. A fresh fetch uses the reset page value.",
+              "actualResults": "",
+              "dependencies": "AuditLogPage is mounted with stateful pagination and filter controls.",
+              "useCaseRefs": [
+                "FN-22"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the pagination reset branch tied to filter changes."
+            }
+          ]
+        },
+        {
+          "title": "Audit Log Query Retrieval",
+          "testCases": [
+            {
+              "id": "[FN22-SVC-01]",
+              "description": "Return paginated audit logs with joined actor identity fields and descending createdAt ordering.",
+              "procedure": "1. Call AuditLogsController.findAll with page and limit only.\n2. Let AuditLogsService.findAll execute against populated audit-log rows.\n3. Inspect the query result and meta block.",
+              "expectedResults": "1. AuditLogsController forwards GetAuditLogsDto to AuditLogsService.findAll.\n2. The query left-joins actor, selects log plus actor.id/email/fullName/role, orders by log.createdAt DESC, and applies skip/take pagination.\n3. The response includes data plus meta.total, meta.page, meta.limit, and meta.totalPages.",
+              "actualResults": "",
+              "dependencies": "Audit-log rows and related actor rows exist in the repository.",
+              "useCaseRefs": [
+                "FN-22"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from AuditLogsController.findAll and AuditLogsService.findAll."
+            },
+            {
+              "id": "[FN22-SVC-02]",
+              "description": "Apply action search, date range, and risk level filters to the backend audit-log query.",
+              "procedure": "1. Call findAll with action text, dateFrom, dateTo, and riskLevel.\n2. Inspect the generated query conditions.\n3. Verify the mapped response rows.",
+              "expectedResults": "1. action searches log.action, log.entity_type, log.entity_id, and actor.fullName using ILIKE.\n2. dateFrom filters createdAt from the start date, and dateTo is normalized to 23:59:59.999 before filtering.\n3. riskLevel filters JSONB after_data._security_analysis.riskLevel.\n4. transformToResponseDto maps riskLevel, actor fallback values, entity label, timestamp, and metadata fields for the client.",
+              "actualResults": "",
+              "dependencies": "Repository supports the requested filters and log rows contain security metadata.",
+              "useCaseRefs": [
+                "FN-22"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the optional query-branch logic and DTO transformation."
+            }
+          ]
+        },
+        {
+          "title": "Audit Log Page Rendering",
+          "testCases": [
+            {
+              "id": "[FN22-UI-01]",
+              "description": "Render loading, success, and stats states after audit logs are fetched successfully.",
+              "procedure": "1. Render AuditLogPage.\n2. Mock auditLogsApi.getAll to resolve a paginated response containing mixed risk levels and timestamps.\n3. Observe the UI after fetchLogs completes.",
+              "expectedResults": "1. The page initially shows the loading indicator.\n2. On success, logs are stored, loading becomes false, and error remains null.\n3. Stats cards show total logs, count HIGH risk rows, count today's rows by timestamp, and count unique actor emails.\n4. AuditLogTable renders the returned rows.",
+              "actualResults": "",
+              "dependencies": "The audit-log API call resolves successfully with at least one row.",
+              "useCaseRefs": [
+                "FN-22"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the fetchLogs success path and stats-card calculations."
+            },
+            {
+              "id": "[FN22-UI-02]",
+              "description": "Show an error panel and retry affordance when audit-log retrieval fails.",
+              "procedure": "1. Render AuditLogPage.\n2. Mock auditLogsApi.getAll to reject.\n3. Observe the UI after fetchLogs finishes.\n4. Click Try again.",
+              "expectedResults": "1. fetchLogs logs the failure and stores err.message or Failed to load audit logs in error state.\n2. loading is reset to false in finally.\n3. The page renders the red error panel and Try again button.\n4. Clicking Try again invokes fetchLogs again.",
+              "actualResults": "",
+              "dependencies": "The audit-log API call fails or rejects.",
+              "useCaseRefs": [
+                "FN-22"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Abnormal path derived from the catch/finally and error-retry branch."
+            },
+            {
+              "id": "[FN22-UI-03]",
+              "description": "Export the currently loaded visible audit logs as a JSON download from the page header.",
+              "procedure": "1. Render AuditLogPage with logs already loaded.\n2. Click the Export button.\n3. Inspect browser download behavior.",
+              "expectedResults": "1. handleExport serializes the current logs array to formatted JSON.\n2. A Blob URL is created, attached to an anchor element, and downloaded as audit-logs-<ISO timestamp>.json.\n3. The Blob URL is revoked after the click.",
+              "actualResults": "",
+              "dependencies": "At least one fetch completed and the browser supports Blob, URL.createObjectURL, and anchor click download.",
+              "useCaseRefs": [
+                "FN-22"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the implemented client-side export path, not the separate server export endpoint stub."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

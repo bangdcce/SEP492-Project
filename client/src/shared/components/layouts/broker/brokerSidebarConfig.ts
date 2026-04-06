@@ -10,9 +10,11 @@ import {
   Briefcase,
   User,
   FileSignature,
+  Scale,
   Video,
   ShieldCheck,
   Mail,
+  WalletCards,
   CreditCard,
 } from "lucide-react";
 
@@ -23,6 +25,8 @@ export interface BrokerSidebarMenuItem {
   path: string;
   badge?: string;
   description?: string;
+  activePatterns?: string[];
+  activeExclusions?: string[];
   section?: "main" | "workspace" | "account";
 }
 
@@ -75,6 +79,16 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: Video,
     path: "/broker/hearings",
     description: "Meetings, confirmations, and dispute hearings",
+    activePatterns: ["/broker/hearings"],
+    section: "workspace",
+  },
+  {
+    id: "disputes",
+    label: "Disputes",
+    icon: Scale,
+    path: "/broker/disputes",
+    description: "Track filings, verdicts, and appeal status",
+    activePatterns: ["/broker/disputes"],
     section: "workspace",
   },
   {
@@ -100,6 +114,14 @@ export const brokerSidebarMenuItems: BrokerSidebarMenuItem[] = [
     icon: ShieldCheck,
     path: "/broker/kyc-status",
     description: "Verify your identity",
+    section: "account",
+  },
+  {
+    id: "billing",
+    label: "Commission Wallet",
+    icon: WalletCards,
+    path: "/broker/billing",
+    description: "Track commission releases and wallet history",
     section: "account",
   },
   {

@@ -2,16 +2,31 @@
  * Auth Feature - Type Definitions
  */
 
-export type UserRole = 'client' | 'broker' | 'freelancer' | 'admin' | 'ADMIN' | 'CLIENT' | 'BROKER' | 'FREELANCER';
+export type UserRole =
+  | 'client'
+  | 'broker'
+  | 'freelancer'
+  | 'admin'
+  | 'staff'
+  | 'ADMIN'
+  | 'CLIENT'
+  | 'BROKER'
+  | 'FREELANCER'
+  | 'STAFF';
 
 export interface User {
   id: string;
   email: string;
   fullName: string;
   role: UserRole;
+  isVerified?: boolean;
+  isEmailVerified?: boolean;
   timeZone?: string;
   businessName?: string;
   profilePicture?: string;
+  staffApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  staffApplicationReviewedAt?: string | null;
+  staffRejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -19,6 +34,18 @@ export interface User {
 export interface PortfolioLink {
   title: string;
   url: string;
+}
+
+export interface Certification {
+  id?: string;
+  name: string;
+  issuingOrganization: string;
+  issueMonth: string;
+  issueYear: string;
+  credentialId?: string;
+  credentialUrl: string;
+  expirationMonth?: string;
+  expirationYear?: string;
 }
 
 // ============================================
@@ -45,8 +72,8 @@ export interface SignUpRequest {
   phoneNumber: string;
   role: UserRole;
   recaptchaToken?: string;
-  domainIds?: string[]; // UUID arrays thay vì slugs
-  skillIds?: string[]; // UUID arrays thay vì slugs
+  domainIds?: string[]; // UUID arrays instead of slugs
+  skillIds?: string[]; // UUID arrays instead of slugs
   acceptTerms: boolean;
   acceptPrivacy: boolean;
 }

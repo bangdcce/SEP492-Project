@@ -14,9 +14,13 @@ import {
   AlertTriangle,
   CheckCircle2,
   Download,
+  ExternalLink,
   FileText,
   Flag,
   Loader2,
+  Maximize2,
+  Minimize2,
+  Minus,
   MoreHorizontal,
   Paperclip,
   Pencil,
@@ -124,6 +128,7 @@ const FALLBACK_RISK_RULES = [
 ] as const;
 const IMAGE_ATTACHMENT_PATTERN = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
 const URL_PATTERN = /(https?:\/\/[^\s]+)/gi;
+const JITSI_URL_PATTERN = /https:\/\/meet\.jit\.si\/[^\s]+/i;
 const MENTION_HIGHLIGHT_CLASSNAME =
   "rounded bg-blue-50 px-1 font-semibold text-blue-700";
 const OWN_MENTION_HIGHLIGHT_CLASSNAME =
@@ -133,6 +138,14 @@ const SEARCH_HIGHLIGHT_CLASSNAME =
 const OWN_SEARCH_HIGHLIGHT_CLASSNAME =
   "rounded bg-amber-200/95 px-1 font-semibold text-slate-900";
 const VIDEO_CALL_MESSAGE_PREFIX = "Khởi tạo phòng họp trực tuyến:";
+
+type WorkspaceVideoCallMatch = {
+  url: string;
+  roomName: string;
+  beforeText: string;
+  afterText: string;
+  isExplicitVideoCall: boolean;
+};
 
 const getStoredCurrentUserId = (): string | undefined => {
   const user = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
@@ -150,6 +163,49 @@ const normalizeMentionSearchValue = (content: string): string => {
 
 const escapeRegex = (value: string): string =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const normalizeJitsiUrl = (value: string): string =>
+  value.trim().replace(/[),.;!?]+$/, "");
+
+const getJitsiRoomNameFromUrl = (url: string): string => {
+  try {
+    const parsedUrl = new URL(url);
+    const roomName = parsedUrl.pathname.replace(/^\/+/, "").split("/")[0] ?? "";
+    return decodeURIComponent(roomName || url);
+  } catch {
+    return url;
+  }
+};
+
+const extractWorkspaceVideoCall = (content: string): WorkspaceVideoCallMatch | null => {
+  if (!content) {
+    return null;
+  }
+
+  const urlMatch = content.match(JITSI_URL_PATTERN);
+  if (!urlMatch) {
+    return null;
+  }
+
+  const rawUrl = urlMatch[0] ?? "";
+  const url = normalizeJitsiUrl(rawUrl);
+  const matchIndex = urlMatch.index ?? 0;
+  const prefixIndex = content.indexOf(VIDEO_CALL_MESSAGE_PREFIX);
+  const isExplicitVideoCall = prefixIndex !== -1 && prefixIndex <= matchIndex;
+
+  let beforeText = content.slice(0, matchIndex);
+  if (isExplicitVideoCall) {
+    beforeText = beforeText.replace(VIDEO_CALL_MESSAGE_PREFIX, "").trimStart();
+  }
+
+  return {
+    url,
+    roomName: getJitsiRoomNameFromUrl(url),
+    beforeText,
+    afterText: content.slice(matchIndex + rawUrl.length),
+    isExplicitVideoCall,
+  };
+};
 
 const detectFallbackRiskFlags = (content: string): string[] => {
   const normalized = normalizeForRiskScan(content);
@@ -408,7 +464,11 @@ const renderTextWithLinksAndHighlight = (
         href={url}
         target="_blank"
         rel="noreferrer"
-        className={isOwnMessage ? "underline underline-offset-2 text-white" : "text-blue-600 underline underline-offset-2"}
+        className={
+          isOwnMessage
+            ? "whitespace-normal break-words underline underline-offset-2 [overflow-wrap:anywhere] text-white"
+            : "whitespace-normal break-words text-blue-600 underline underline-offset-2 [overflow-wrap:anywhere]"
+        }
       >
         {renderHighlightedText(
           url,
@@ -437,7 +497,7 @@ const renderTextWithLinksAndHighlight = (
   return segments.length > 0 ? segments : [text];
 };
 
-const renderMessageContent = (
+const renderStandardMessageContent = (
   content: string,
   members: WorkspaceChatMentionMember[],
   isOwnMessage: boolean,
@@ -525,6 +585,162 @@ const renderMessageContent = (
   }
 
   return segments;
+};
+
+type JitsiCallCardProps = {
+  callUrl: string;
+  roomName: string;
+  isOwnMessage: boolean;
+  searchTerm: string;
+  onJoinCall?: (url: string) => void;
+};
+
+const JitsiCallCard = ({
+  callUrl,
+  roomName,
+  isOwnMessage,
+  searchTerm,
+  onJoinCall,
+}: JitsiCallCardProps) => {
+  const cardClassName = isOwnMessage
+    ? "border-blue-100/90 bg-white/90 text-slate-900 shadow-[0_8px_24px_-20px_rgba(37,99,235,0.4)]"
+    : "border-slate-200 bg-white/95 text-slate-900 shadow-[0_8px_24px_-22px_rgba(15,23,42,0.18)]";
+  const iconShellClassName = isOwnMessage
+    ? "border-blue-100 bg-gradient-to-br from-blue-50 via-white to-blue-50/80 text-blue-700"
+    : "border-slate-200 bg-gradient-to-br from-slate-50 via-white to-blue-50/60 text-blue-700";
+  const badgeClassName = isOwnMessage
+    ? "border-blue-100 bg-blue-50/80 text-blue-700"
+    : "border-slate-200 bg-white/90 text-slate-600";
+  const roomShellClassName = isOwnMessage
+    ? "border-blue-100/80 bg-blue-50/40"
+    : "border-slate-200/80 bg-slate-50/80";
+  const roomLabelClassName = isOwnMessage ? "text-blue-700/70" : "text-slate-500";
+  const roomValueClassName = isOwnMessage
+    ? "text-slate-800"
+    : "text-slate-700";
+  const primaryActionClassName =
+    "h-8 rounded-lg bg-blue-600 px-3 text-[12px] font-medium text-white shadow-none hover:bg-blue-700";
+  const secondaryActionClassName =
+    "h-8 rounded-lg border-slate-200 bg-white/80 px-3 text-[12px] font-medium text-slate-700 shadow-none hover:bg-white hover:text-slate-900";
+
+  return (
+    <div
+      className={`w-full max-w-full overflow-hidden rounded-2xl border px-3 py-2.5 text-left ${cardClassName}`}
+    >
+      <div className="flex min-w-0 items-start gap-2.5">
+        <div
+          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border shadow-sm ${iconShellClassName}`}
+        >
+          <Video className="h-3.5 w-3.5" />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col gap-2">
+          <div className="flex min-w-0 items-start justify-between gap-2">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] font-semibold tracking-[-0.01em] text-slate-900">
+                Video Call Started
+              </p>
+            </div>
+            <span
+              className={`inline-flex shrink-0 items-center rounded-full border px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-[0.14em] ${badgeClassName}`}
+            >
+              Jitsi
+            </span>
+          </div>
+
+          <div
+            className={`flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-1.5 ${roomShellClassName}`}
+          >
+            <p
+              className={`shrink-0 text-[10px] font-medium uppercase tracking-[0.16em] ${roomLabelClassName}`}
+            >
+              Room
+            </p>
+            <div
+              className={`min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[12px] font-medium leading-5 ${roomValueClassName}`}
+              title={roomName}
+            >
+              {renderHighlightedText(
+                roomName,
+                searchTerm,
+                `video-call-room-${roomName}`,
+                isOwnMessage,
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-1.5 pt-0.5 sm:flex-row sm:flex-wrap">
+            <Button
+              type="button"
+              size="sm"
+              className={`w-full justify-center gap-1.5 sm:w-auto ${primaryActionClassName}`}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                onJoinCall?.(callUrl);
+              }}
+            >
+              <Video className="h-3.5 w-3.5" />
+              <span>Join Call</span>
+            </Button>
+            <Button variant="outline" size="sm" asChild className={secondaryActionClassName}>
+              <a
+                href={callUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="w-full sm:w-auto"
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+              >
+                <ExternalLink className="h-3.5 w-3.5" />
+                <span>Open in new tab</span>
+              </a>
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+const renderMessageContent = (
+  content: string,
+  members: WorkspaceChatMentionMember[],
+  isOwnMessage: boolean,
+  searchTerm = "",
+  options?: { onJoinCall?: (url: string) => void },
+): ReactNode => {
+  const videoCallMatch = extractWorkspaceVideoCall(content);
+  if (!videoCallMatch) {
+    return renderStandardMessageContent(content, members, isOwnMessage, searchTerm);
+  }
+
+  const leadingText = videoCallMatch.beforeText.trim();
+  const trailingText = videoCallMatch.afterText.trim();
+
+  return (
+    <div className="min-w-0 max-w-full space-y-3">
+      {leadingText ? (
+        <div className="min-w-0 whitespace-pre-wrap break-words">
+          {renderStandardMessageContent(leadingText, members, isOwnMessage, searchTerm)}
+        </div>
+      ) : null}
+
+      <JitsiCallCard
+        callUrl={videoCallMatch.url}
+        roomName={videoCallMatch.roomName}
+        isOwnMessage={isOwnMessage}
+        searchTerm={searchTerm}
+        onJoinCall={options?.onJoinCall}
+      />
+
+      {trailingText ? (
+        <div className="min-w-0 whitespace-pre-wrap break-words">
+          {renderStandardMessageContent(trailingText, members, isOwnMessage, searchTerm)}
+        </div>
+      ) : null}
+    </div>
+  );
 };
 
 const normalizeWorkspaceMessage = (
@@ -731,6 +947,9 @@ export function WorkspaceChatDrawer({
   const [isSearchLoading, setIsSearchLoading] = useState(false);
   const [searchRefreshNonce, setSearchRefreshNonce] = useState(0);
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
+  const [activeCallUrl, setActiveCallUrl] = useState<string | null>(null);
+  const [isCallWindowMinimized, setIsCallWindowMinimized] = useState(false);
+  const [isCallWindowExpanded, setIsCallWindowExpanded] = useState(false);
 
   const messagesContainerRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -1106,6 +1325,23 @@ export function WorkspaceChatDrawer({
 
   const clearReplyTarget = useCallback(() => {
     setReplyingToMessageId(null);
+  }, []);
+
+  const handleJoinVideoCall = useCallback((url: string) => {
+    const normalizedUrl = normalizeJitsiUrl(url);
+    if (!normalizedUrl) {
+      return;
+    }
+
+    setIsCallWindowMinimized(false);
+    setIsCallWindowExpanded(false);
+    setActiveCallUrl(normalizedUrl);
+  }, []);
+
+  const handleLeaveVideoCall = useCallback(() => {
+    setActiveCallUrl(null);
+    setIsCallWindowMinimized(false);
+    setIsCallWindowExpanded(false);
   }, []);
 
   const handleReplyToMessage = useCallback((messageId: string) => {
@@ -2102,6 +2338,9 @@ export function WorkspaceChatDrawer({
     setEditingMessageId(null);
     setEditingValue("");
     setPendingAttachments([]);
+    setActiveCallUrl(null);
+    setIsCallWindowMinimized(false);
+    setIsCallWindowExpanded(false);
     setHighlightedMessageId(null);
     setReplyingToMessageId(null);
     setSearchQuery("");
@@ -2110,21 +2349,31 @@ export function WorkspaceChatDrawer({
     closeMentionPopover();
   }, [closeMentionPopover, projectId]);
 
+  const activeCallRoomName = activeCallUrl ? getJitsiRoomNameFromUrl(activeCallUrl) : "";
+  const activeCallDisplayLabel = activeCallRoomName || activeCallUrl || "Jitsi call";
+  const activeCallWindowClassName = isCallWindowMinimized
+    ? "w-[min(88vw,304px)]"
+    : isCallWindowExpanded
+      ? "h-[min(88vh,760px)] w-[min(92vw,960px)]"
+      : "h-[min(78vh,560px)] w-[min(92vw,420px)]";
+  const activeCallWindowPositionClassName = isOpen ? "mb-24 sm:mb-0 sm:mr-96" : "";
+
   return (
-    <Sheet
-      modal={false}
-      open={isOpen}
-      onOpenChange={(open) => {
-        if (!open) {
-          onClose?.();
-        }
-      }}
-    >
-      <SheetContent
-        side="right"
-        showOverlay={false}
-        className="h-screen w-96 max-w-[100vw] gap-0 border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[24rem]"
+    <>
+      <Sheet
+        modal={false}
+        open={isOpen}
+        onOpenChange={(open) => {
+          if (!open) {
+            onClose?.();
+          }
+        }}
       >
+        <SheetContent
+          side="right"
+          showOverlay={false}
+          className="z-40 h-screen w-96 max-w-[100vw] gap-0 border-l border-slate-200 bg-white p-0 shadow-2xl sm:max-w-[24rem]"
+        >
         <header className="border-b border-slate-200 px-3 py-3 pr-12">
           <div className="mb-2">
             <SheetTitle className="text-sm font-semibold text-slate-900">
@@ -2196,7 +2445,7 @@ export function WorkspaceChatDrawer({
         <div
           ref={messagesContainerRef}
           onScroll={handleMessagesScroll}
-          className="flex-1 space-y-6 overflow-y-auto bg-white px-5 py-5"
+          className="min-w-0 flex-1 space-y-6 overflow-x-hidden overflow-y-auto bg-white px-5 py-5"
         >
           {isLoadingMore && !isSearchActive && (
             <p className="text-center text-xs text-slate-400">Loading older messages...</p>
@@ -2226,6 +2475,7 @@ export function WorkspaceChatDrawer({
               const isEditing = editingMessageId === message.id;
               const isBusy = activeMessageActionId === message.id;
               const replyPreview = !message.isDeleted ? message.replyTo : null;
+              const containsVideoCall = Boolean(extractWorkspaceVideoCall(message.content));
 
               if (systemMessage) {
                 return (
@@ -2234,17 +2484,30 @@ export function WorkspaceChatDrawer({
                     ref={(node) => {
                       messageRefs.current[message.id] = node;
                     }}
-                    className="flex justify-center py-1"
+                    className="flex min-w-0 max-w-full justify-center py-1"
                   >
-                    <div className="max-w-[85%] text-center">
-                      <p className="text-xs font-normal text-gray-400">
+                    <div
+                      className={
+                        containsVideoCall
+                          ? "min-w-0 w-full max-w-[min(100%,22rem)]"
+                          : "min-w-0 max-w-[85%] text-center"
+                      }
+                    >
+                      <div
+                        className={
+                          containsVideoCall
+                            ? "min-w-0 max-w-full"
+                            : "min-w-0 max-w-full whitespace-pre-wrap break-words text-xs font-normal text-gray-400 [overflow-wrap:anywhere]"
+                        }
+                      >
                         {renderMessageContent(
                           message.content,
                           projectMembers,
                           false,
                           normalizedSearchQuery,
+                          { onJoinCall: handleJoinVideoCall },
                         )}
-                      </p>
+                      </div>
                       <div className="mt-1 flex items-center justify-center gap-1.5 text-[10px] text-gray-400">
                         <span>{formatMessageTime(message.createdAt)}</span>
                         {!message.isDeleted && (
@@ -2290,11 +2553,13 @@ export function WorkspaceChatDrawer({
                   ref={(node) => {
                     messageRefs.current[message.id] = node;
                   }}
-                  className={`group relative flex ${
+                  className={`group relative flex min-w-0 max-w-full ${
                     isMe ? "justify-end" : "justify-start"
                   } ${highlightedMessageId === message.id ? "rounded-2xl ring-2 ring-amber-300/80 ring-offset-2 ring-offset-slate-50" : ""}`}
                 >
-                  <div className={`max-w-[85%] ${isMe ? "items-end" : "items-start"}`}>
+                  <div
+                    className={`flex min-w-0 max-w-[85%] flex-col ${isMe ? "items-end" : "items-start"}`}
+                  >
                     <p
                       className={`mb-1 text-[11px] font-medium ${
                         isMe ? "text-right text-slate-500" : "text-slate-500"
@@ -2305,15 +2570,15 @@ export function WorkspaceChatDrawer({
                     <div
                         className={
                           isEditing
-                            ? "text-sm leading-relaxed"
-                            : `relative rounded-2xl px-5 py-3 pr-12 text-sm leading-relaxed ${
+                            ? "min-w-0 max-w-full text-sm leading-relaxed"
+                            : `relative min-w-0 max-w-full rounded-2xl px-5 py-3 pr-12 text-sm leading-relaxed ${
                                 message.isDeleted ? "" : ""
                               } ${bubbleClassName}`
                         }
                       >
                       {isEditing ? (
                         <div
-                          className={`space-y-3 rounded-2xl px-4 py-4 ${editingShellClassName}`}
+                          className={`min-w-0 max-w-full space-y-3 rounded-2xl px-4 py-4 ${editingShellClassName}`}
                         >
                           <p
                             className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
@@ -2364,7 +2629,7 @@ export function WorkspaceChatDrawer({
                       ) : (
                         <div className="space-y-3">
                           <div
-                            className={`absolute -top-3 -right-2 z-10 flex items-center gap-0.5 rounded-md border border-gray-200 bg-white p-0.5 shadow-sm transition-opacity duration-150 ${
+                            className={`absolute -top-3 right-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-md border border-gray-200 bg-white p-0.5 shadow-sm transition-opacity duration-150 ${
                               message.isDeleted
                                 ? "opacity-100"
                                 : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
@@ -2454,7 +2719,7 @@ export function WorkspaceChatDrawer({
                                 <button
                                   type="button"
                                   onClick={() => scrollToMessage(replyPreview.id)}
-                                    className={`w-full rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
+                                    className={`min-w-0 max-w-full w-full rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
                                       isMe
                                         ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
                                         : "border-gray-100 bg-white text-gray-600 hover:bg-gray-50"
@@ -2469,20 +2734,27 @@ export function WorkspaceChatDrawer({
                                 </button>
                               )}
                               {message.content ? (
-                                <p className="whitespace-pre-wrap break-words">
+                                <div
+                                  className={
+                                    containsVideoCall
+                                      ? "min-w-0 max-w-full"
+                                      : "min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                                  }
+                                >
                                   {renderMessageContent(
                                     message.content,
                                     projectMembers,
                                     isMe,
                                     normalizedSearchQuery,
+                                    { onJoinCall: handleJoinVideoCall },
                                   )}
-                                </p>
+                                </div>
                               ) : null}
                             </>
                           )}
 
                           {!message.isDeleted && message.attachments.length > 0 && (
-                            <div className="grid gap-2">
+                            <div className="grid min-w-0 max-w-full gap-2">
                               {message.attachments.map((attachment) =>
                                 isImageAttachment(attachment) ? (
                                   <a
@@ -2490,7 +2762,7 @@ export function WorkspaceChatDrawer({
                                     href={attachment.url}
                                     target="_blank"
                                     rel="noreferrer"
-                                    className="block overflow-hidden rounded-xl border border-gray-100 bg-white"
+                                    className="block max-w-full overflow-hidden rounded-xl border border-gray-100 bg-white"
                                   >
                                     <img
                                       src={attachment.url}
@@ -2505,14 +2777,14 @@ export function WorkspaceChatDrawer({
                                     href={attachment.url}
                                     target="_blank"
                                     rel="noreferrer"
-                                      className={`flex items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
+                                      className={`flex min-w-0 max-w-full items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
                                         isMe
                                           ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
                                           : "border-gray-100 bg-white text-gray-700 hover:bg-gray-50"
                                       }`}
                                   >
                                     <FileText className="h-4 w-4 shrink-0" />
-                                    <span className="truncate text-sm">{attachment.name}</span>
+                                    <span className="min-w-0 flex-1 truncate text-sm">{attachment.name}</span>
                                   </a>
                                 ),
                               )}
@@ -2742,8 +3014,158 @@ export function WorkspaceChatDrawer({
             </form>
           </div>
         </footer>
-      </SheetContent>
-    </Sheet>
+        </SheetContent>
+      </Sheet>
+
+      {activeCallUrl ? (
+        <div className="pointer-events-none fixed inset-0 z-[100] flex items-end justify-end p-4">
+          <div
+            className={`pointer-events-auto ml-auto mt-auto flex max-h-[calc(100vh-2rem)] flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl transition-all ${activeCallWindowClassName} ${activeCallWindowPositionClassName}`}
+          >
+            {isCallWindowMinimized ? (
+              <>
+                <div className="flex shrink-0 items-center gap-3 px-3 py-2.5">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                    <Video className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-semibold text-slate-900">Workspace Video Call</p>
+                    <p
+                      className="mt-0.5 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] text-slate-600"
+                      title={activeCallDisplayLabel}
+                    >
+                      Room: {activeCallDisplayLabel}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 rounded-full text-slate-500 hover:text-slate-900"
+                    onClick={() => {
+                      setIsCallWindowMinimized(false);
+                    }}
+                    aria-label="Restore call window"
+                  >
+                    <Maximize2 className="h-4 w-4" />
+                  </Button>
+                </div>
+
+                <div className="flex shrink-0 items-center gap-1.5 border-t border-slate-200 bg-slate-50 px-3 py-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 flex-1 px-2 text-xs"
+                    onClick={() => {
+                      setIsCallWindowMinimized(false);
+                    }}
+                  >
+                    Restore
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 flex-1 px-2 text-xs"
+                    asChild
+                  >
+                    <a href={activeCallUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-4 w-4" />
+                      <span>Open</span>
+                    </a>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-7 flex-1 px-2 text-xs"
+                    onClick={handleLeaveVideoCall}
+                  >
+                    Leave
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex shrink-0 items-start gap-3 border-b border-slate-200 px-4 py-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-100 text-blue-700">
+                    <Video className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-900">Workspace Video Call</p>
+                    <p
+                      className="mt-1 overflow-hidden text-ellipsis whitespace-nowrap text-xs text-slate-600"
+                      title={activeCallDisplayLabel}
+                    >
+                      Room: {activeCallDisplayLabel}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-full text-slate-500 hover:text-slate-900"
+                      onClick={() => {
+                        setIsCallWindowExpanded((current) => !current);
+                      }}
+                      aria-label={isCallWindowExpanded ? "Restore call window" : "Expand call window"}
+                    >
+                      {isCallWindowExpanded ? (
+                        <Minimize2 className="h-4 w-4" />
+                      ) : (
+                        <Maximize2 className="h-4 w-4" />
+                      )}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 rounded-full text-slate-500 hover:text-slate-900"
+                      onClick={() => {
+                        setIsCallWindowMinimized(true);
+                        setIsCallWindowExpanded(false);
+                      }}
+                      aria-label="Minimize call window"
+                    >
+                      <Minus className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="flex min-h-0 flex-1 bg-slate-950/5 p-2.5">
+                  <div className="flex min-h-0 flex-1 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+                    <iframe
+                      title={`Workspace Jitsi Call ${activeCallRoomName || ""}`.trim()}
+                      src={activeCallUrl}
+                      className="h-full w-full bg-white"
+                      allow="camera; microphone; fullscreen; display-capture"
+                      allowFullScreen
+                    />
+                  </div>
+                </div>
+
+                <div className="flex shrink-0 items-center justify-between gap-3 border-t border-slate-200 bg-slate-50 px-4 py-3">
+                  <Button variant="outline" size="sm" asChild>
+                    <a href={activeCallUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink className="h-4 w-4" />
+                      <span>Open in new tab</span>
+                    </a>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleLeaveVideoCall}
+                  >
+                    Leave Call
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
-

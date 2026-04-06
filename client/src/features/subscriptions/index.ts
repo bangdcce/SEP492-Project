@@ -4,15 +4,20 @@
 
 // Pages
 export { SubscriptionPage } from './SubscriptionPage';
+export { SubscriptionCheckoutPage } from './SubscriptionCheckoutPage';
 
 // Components
 export { UpgradeModal } from './components/UpgradeModal';
 export type { UpgradeModalProps } from './components/UpgradeModal';
+export { PayPalSubscriptionCheckout } from './components/PayPalSubscriptionCheckout';
+export { SubscriptionPayPalSetupDialog } from './components/SubscriptionPayPalSetupDialog';
 
 // API
 export {
   getSubscriptionPlans,
   getMySubscription,
+  getSubscriptionPayPalConfig,
+  createPayPalSubscriptionOrder,
   subscribeToPlan,
   cancelSubscription,
   parseQuotaError,
@@ -24,10 +29,15 @@ export type {
   SubscriptionPlan,
   UserSubscription,
   MySubscriptionResponse,
+  SubscriptionPayPalConfigRequest,
+  SubscriptionPayPalCheckoutConfig,
+  CreatePayPalSubscriptionOrderRequest,
+  PayPalSubscriptionOrder,
   SubscribeRequest,
   CancelSubscriptionRequest,
   QuotaUsage,
   PlanPerks,
+  SubscriptionPayment,
 } from './types';
 
 export {
@@ -36,9 +46,16 @@ export {
   QuotaAction,
   QUOTA_ACTION_LABELS,
   PERK_LABELS,
-  formatVND,
+  formatCurrency,
   formatPerkValue,
   getBillingCycleLabel,
+  getPlanDisplayAmount,
   getMonthlyEquivalent,
   calculateSavings,
 } from './types';
+
+export {
+  normalizeSupportedSubscriptionRole,
+  resolveSubscriptionCheckoutRoute,
+  resolveSubscriptionRoute,
+} from './subscriptionRoutes';

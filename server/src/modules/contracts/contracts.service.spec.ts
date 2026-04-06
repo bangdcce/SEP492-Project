@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DataSource, QueryRunner } from 'typeorm';
@@ -25,10 +26,14 @@ import { ProjectRequestEntity } from '../../database/entities/project-request.en
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
 import { EscrowEntity } from '../../database/entities/escrow.entity';
+import { ContractArchiveStorageService } from './contract-archive.storage';
+import { NotificationsService } from '../notifications/notifications.service';
+import { SigningCredentialsService } from '../auth/signing-credentials.service';
 
 describe('ContractsService', () => {
   let service: ContractsService;
   let queryRunner: QueryRunner;
+  let mockDataSource: { createQueryRunner: jest.Mock; getRepository: jest.Mock };
 
   const mockContractsRepo = {
     findOne: jest.fn(),
@@ -36,10 +41,33 @@ describe('ContractsService', () => {
     createQueryBuilder: jest.fn(),
   };
   const mockProjectsRepo = {};
-  const mockProjectSpecsRepo = {};
+  const mockProjectSpecsRepo = {
+    findOne: jest.fn(),
+  };
   const mockProjectRequestsRepo = {};
   const mockProjectRequestProposalsRepo = { find: jest.fn() };
   const mockAuditLogsService = { log: jest.fn() };
+  const mockNotificationsService = {
+    create: jest.fn().mockResolvedValue(undefined),
+    createMany: jest.fn().mockResolvedValue(undefined),
+  };
+  const mockEventEmitter = { emit: jest.fn() };
+  const mockContractArchiveStorage = {
+    persistPdfArtifact: jest.fn(),
+    downloadPdfArtifact: jest.fn(),
+  };
+  const mockEscrowReadRepository = {
+    find: jest.fn().mockResolvedValue([]),
+  };
+  const mockSigningCredentialsService = {
+    signContentHash: jest.fn().mockResolvedValue({
+      signatureBase64: 'signed-payload',
+      signatureAlgorithm: 'RSA-SHA256',
+      keyFingerprint: 'mini-ca-fingerprint',
+      keyVersion: 1,
+      certificateSerial: 'INTERDEV-MCA-1-MINI',
+    }),
+  };
 
   const mockManager = {
     create: jest.fn((_: unknown, data: unknown) => data),
@@ -142,8 +170,14 @@ describe('ContractsService', () => {
       manager: mockManager,
     } as unknown as QueryRunner;
 
-    const mockDataSource = {
+    mockDataSource = {
       createQueryRunner: jest.fn().mockReturnValue(queryRunner),
+      getRepository: jest.fn((entity: unknown) => {
+        if (entity === EscrowEntity) {
+          return mockEscrowReadRepository;
+        }
+        return { find: jest.fn().mockResolvedValue([]) };
+      }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -158,7 +192,11 @@ describe('ContractsService', () => {
           useValue: mockProjectRequestProposalsRepo,
         },
         { provide: AuditLogsService, useValue: mockAuditLogsService },
+        { provide: NotificationsService, useValue: mockNotificationsService },
+        { provide: ContractArchiveStorageService, useValue: mockContractArchiveStorage },
+        { provide: SigningCredentialsService, useValue: mockSigningCredentialsService },
         { provide: DataSource, useValue: mockDataSource },
+        { provide: EventEmitter2, useValue: mockEventEmitter },
       ],
     }).compile();
 
@@ -236,12 +274,14 @@ describe('ContractsService', () => {
         clientId: 'client-uuid',
       } as ProjectRequestEntity;
 
-      mockManager.findOne.mockImplementation(async (entity: unknown, options?: { where?: { id?: string } }) => {
-        if (entity === ProjectSpecEntity && options?.where?.id === spec.id) return spec;
-        if (entity === ProjectRequestEntity && options?.where?.id === request.id) return request;
-        if (entity === ContractEntity) return null;
-        return null;
-      });
+      mockManager.findOne.mockImplementation(
+        async (entity: unknown, options?: { where?: { id?: string } }) => {
+          if (entity === ProjectSpecEntity && options?.where?.id === spec.id) return spec;
+          if (entity === ProjectRequestEntity && options?.where?.id === request.id) return request;
+          if (entity === ContractEntity) return null;
+          return null;
+        },
+      );
       mockManager.find.mockImplementation(async (entity: unknown) => {
         if (entity === MilestoneEntity) {
           return spec.milestones;
@@ -264,6 +304,34 @@ describe('ContractsService', () => {
           return { id: 'project-uuid', ...entity };
         }
         return args[1];
+      });
+      mockContractsRepo.findOne.mockResolvedValue({
+        id: 'contract-uuid',
+        projectId: 'project-uuid',
+        sourceSpecId: spec.id,
+        title: spec.title,
+        status: ContractStatus.SENT,
+        contractUrl: 'contracts/project-uuid.pdf',
+        project: {
+          ...buildProject({
+            client: { id: 'client-uuid', fullName: 'Client', email: 'client@example.com' } as any,
+            broker: { id: 'broker-uuid', fullName: 'Broker', email: 'broker@example.com' } as any,
+            freelancer: {
+              id: 'freelancer-uuid',
+              fullName: 'Freelancer',
+              email: 'freelancer@example.com',
+            } as any,
+            request: { specs: [spec] } as any,
+          }),
+        },
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(buildProject(), {
+          scopeNarrativeRichContent: spec.richContentJson,
+          scopeNarrativePlainText: 'Delivery assumptions\nBroker provides staging access.',
+        }),
+        termsContent: 'Detailed Scope Notes\nBroker provides staging access.',
+        signatures: [],
+        contentHash: null,
       });
 
       const result = await service.initializeProjectAndContract(brokerUser, spec.id);
@@ -324,10 +392,7 @@ describe('ContractsService', () => {
 
       mockContractsRepo.findOne.mockResolvedValue(contract);
 
-      const result = await service.findOneForUser(
-        { id: 'broker-uuid' } as UserEntity,
-        contract.id,
-      );
+      const result = await service.findOneForUser({ id: 'broker-uuid' } as UserEntity, contract.id);
 
       expect(result.contentHash).toBe((service as any).computeContentHash(contract));
       expect(result.contractUrl).toMatch(/\/contracts\/contract-uuid\/pdf$/);
@@ -448,16 +513,11 @@ describe('ContractsService', () => {
       });
 
       await expect(
-        service.signContract(
-          brokerUser,
-          contract.id,
-          'stale-hash',
-          {
-            headers: {},
-            ip: '127.0.0.1',
-            get: jest.fn().mockReturnValue('jest-agent'),
-          } as any,
-        ),
+        service.signContract(brokerUser, contract.id, 'stale-hash', '123456', {
+          headers: {},
+          ip: '127.0.0.1',
+          get: jest.fn().mockReturnValue('jest-agent'),
+        } as any),
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
@@ -502,11 +562,15 @@ describe('ContractsService', () => {
         }
         return [];
       });
+      jest
+        .spyOn<any, any>(service as any, 'persistSignedContractArchiveIfPossible')
+        .mockResolvedValue(true);
 
       const result = await service.signContract(
         brokerUser,
         contract.id,
         contract.contentHash,
+        '123456',
         {
           headers: {},
           ip: '127.0.0.1',
@@ -515,6 +579,7 @@ describe('ContractsService', () => {
       );
 
       expect(result.allRequiredSigned).toBe(true);
+      expect(result.archivePersisted).toBe(true);
       expect(mockManager.save).toHaveBeenCalledWith(
         DigitalSignatureEntity,
         expect.objectContaining({
@@ -532,6 +597,115 @@ describe('ContractsService', () => {
           activatedAt: null,
         }),
       );
+    });
+
+    it('keeps signing successful when archive persistence is unavailable', async () => {
+      const project = buildProject({ freelancerId: null });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        status: ContractStatus.SENT,
+        activatedAt: null,
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project, { freelancerId: null }),
+        termsContent: 'Terms',
+      } as ContractEntity;
+      contract.contentHash = (service as any).computeContentHash(contract);
+
+      mockManager.findOne.mockImplementation(async (entity: unknown, options?: any) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        if (entity === DigitalSignatureEntity && options?.where?.userId === brokerUser.id) {
+          return null;
+        }
+        return null;
+      });
+      mockManager.find.mockImplementation(async (entity: unknown) => {
+        if (entity === DigitalSignatureEntity) {
+          return [
+            {
+              contractId: contract.id,
+              userId: 'client-uuid',
+              signedAt: new Date('2026-03-10T10:00:00.000Z'),
+            },
+            {
+              contractId: contract.id,
+              userId: 'broker-uuid',
+              signedAt: new Date('2026-03-10T10:05:00.000Z'),
+            },
+          ];
+        }
+        return [];
+      });
+      jest
+        .spyOn<any, any>(service as any, 'persistSignedContractArchiveIfPossible')
+        .mockResolvedValue(false);
+
+      const result = await service.signContract(
+        brokerUser,
+        contract.id,
+        contract.contentHash,
+        '123456',
+        {
+          headers: {},
+          ip: '127.0.0.1',
+          get: jest.fn().mockReturnValue('jest-agent'),
+        } as any,
+      );
+
+      expect(result.allRequiredSigned).toBe(true);
+      expect(result.archivePersisted).toBe(false);
+    });
+  });
+
+  describe('generatePdfForUser', () => {
+    it('streams the archived artifact when one is available', async () => {
+      const archivedBuffer = Buffer.from('archived-contract-pdf');
+      const contract = {
+        id: 'contract-uuid',
+        status: ContractStatus.SIGNED,
+        archiveStoragePath: 'contracts/contract-uuid/archive-hash.pdf',
+        archiveDocumentHash: 'archive-hash',
+      } as ContractEntity;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+      mockContractArchiveStorage.downloadPdfArtifact.mockResolvedValue(archivedBuffer);
+
+      const dynamicPdfSpy = jest
+        .spyOn<any, any>(service as any, 'buildPdfBufferForContract')
+        .mockResolvedValue(Buffer.from('dynamic-pdf'));
+
+      const result = await service.generatePdfForUser(brokerUser, contract.id);
+
+      expect(result).toEqual(archivedBuffer);
+      expect(mockContractArchiveStorage.downloadPdfArtifact).toHaveBeenCalledWith(
+        contract.archiveStoragePath,
+      );
+      expect(dynamicPdfSpy).not.toHaveBeenCalled();
+    });
+
+    it('falls back to dynamic PDF rendering when archive storage is missing the object', async () => {
+      const dynamicBuffer = Buffer.from('dynamic-contract-pdf');
+      const contract = {
+        id: 'contract-uuid',
+        status: ContractStatus.ACTIVATED,
+        archiveStoragePath: 'contracts/contract-uuid/archive-hash.pdf',
+        archiveDocumentHash: 'archive-hash',
+      } as ContractEntity;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+      mockContractArchiveStorage.downloadPdfArtifact.mockResolvedValue(null);
+
+      jest
+        .spyOn<any, any>(service as any, 'buildPdfBufferForContract')
+        .mockResolvedValue(dynamicBuffer);
+
+      const result = await service.generatePdfForUser(brokerUser, contract.id);
+
+      expect(result).toEqual(dynamicBuffer);
     });
   });
 
@@ -588,6 +762,7 @@ describe('ContractsService', () => {
         projectId: project.id,
         sourceSpecId: 'spec-uuid',
         status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
         activatedAt: null,
         project,
         milestoneSnapshot: snapshot,
@@ -668,6 +843,7 @@ describe('ContractsService', () => {
         projectId: project.id,
         sourceSpecId: 'spec-uuid',
         status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
         activatedAt: null,
         project,
         milestoneSnapshot: buildSnapshot(),
@@ -716,6 +892,182 @@ describe('ContractsService', () => {
   });
 
   describe('draft guardrails', () => {
+    it('rejects draft updates that try to change the frozen project budget baseline', async () => {
+      const project = buildProject({ totalBudget: 1000 });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        status: ContractStatus.DRAFT,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Draft terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          milestoneSnapshot: [
+            {
+              title: 'Milestone 1',
+              amount: 300,
+              sortOrder: 1,
+              deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+              retentionAmount: 0,
+            },
+            {
+              title: 'Milestone 2',
+              amount: 800,
+              sortOrder: 2,
+              deliverableType: DeliverableType.SOURCE_CODE,
+              retentionAmount: 50,
+            },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('rejects draft updates when first milestone exceeds 30% of total budget', async () => {
+      const project = buildProject({ totalBudget: 1000 });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        status: ContractStatus.DRAFT,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Draft terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          milestoneSnapshot: [
+            {
+              title: 'Milestone 1',
+              amount: 400,
+              sortOrder: 1,
+              deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+              retentionAmount: 40,
+            },
+            {
+              title: 'Milestone 2',
+              amount: 600,
+              sortOrder: 2,
+              deliverableType: DeliverableType.SOURCE_CODE,
+              retentionAmount: 60,
+            },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects draft updates when retention exceeds 10% cap for a milestone', async () => {
+      const project = buildProject({ totalBudget: 1000 });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        status: ContractStatus.DRAFT,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Draft terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          milestoneSnapshot: [
+            {
+              title: 'Milestone 1',
+              amount: 300,
+              sortOrder: 1,
+              deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+              retentionAmount: 31,
+            },
+            {
+              title: 'Milestone 2',
+              amount: 700,
+              sortOrder: 2,
+              deliverableType: DeliverableType.SOURCE_CODE,
+              retentionAmount: 70,
+            },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects draft updates when a milestone starts on or before the previous due date', async () => {
+      const project = buildProject({ totalBudget: 1000 });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        status: ContractStatus.DRAFT,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Draft terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          milestoneSnapshot: [
+            {
+              title: 'Milestone 1',
+              amount: 300,
+              sortOrder: 1,
+              deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+              retentionAmount: 30,
+              startDate: '2026-03-01',
+              dueDate: '2026-03-10',
+            },
+            {
+              title: 'Milestone 2',
+              amount: 700,
+              sortOrder: 2,
+              deliverableType: DeliverableType.SOURCE_CODE,
+              retentionAmount: 70,
+              startDate: '2026-03-10',
+              dueDate: '2026-04-01',
+            },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
     it('rejects sending a non-draft contract', async () => {
       const project = buildProject();
       const contract = {

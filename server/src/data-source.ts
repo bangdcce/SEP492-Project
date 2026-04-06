@@ -1,4 +1,5 @@
 ﻿import { DataSource } from 'typeorm';
+import './config/postgres-date-parsers';
 import * as dotenv from 'dotenv';
 import * as path from 'path';
 

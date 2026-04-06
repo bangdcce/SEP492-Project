@@ -1,7 +1,6 @@
 import { startTransition, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  AlertCircle,
   ArrowRight,
   Briefcase,
   CheckCircle2,
@@ -30,7 +29,6 @@ import {
   CardTitle,
 } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
-import { Progress } from "@/shared/components/ui/progress";
 import Spinner from "@/shared/components/ui/spinner";
 import { connectSocket } from "@/shared/realtime/socket";
 
@@ -227,30 +225,6 @@ export default function FreelancerDashboardPage() {
             from real platform data.
           </p>
         </div>
-
-        {dashboard && !dashboard.profileCompleteness.isComplete && (
-          <Alert className="border-amber-200 bg-amber-50/80 text-amber-900">
-            <AlertCircle className="h-4 w-4 text-amber-700" />
-            <AlertTitle>Profile still needs work</AlertTitle>
-            <AlertDescription className="space-y-3">
-              <p>
-                Profile completeness is {dashboard.profileCompleteness.percentage}%.
-                Missing: {dashboard.profileCompleteness.missingFields.join(", ")}.
-              </p>
-              <div className="max-w-md">
-                <Progress value={dashboard.profileCompleteness.percentage} />
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="border-amber-300 text-amber-900 hover:bg-amber-100"
-                onClick={() => navigate(ROUTES.FREELANCER_ONBOARDING)}
-              >
-                Complete Profile
-              </Button>
-            </AlertDescription>
-          </Alert>
-        )}
 
         {error && (
           <Alert variant="destructive">

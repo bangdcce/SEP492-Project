@@ -1,0 +1,174 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC14_Request_Detail_Viewing_Test_Case_v1.0",
+    "creator": "Son",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "defaultTester": "Son",
+    "environment": [
+      "1. Frontend: React RequestDetailPage and request workflow panels",
+      "2. Backend: NestJS project-requests module",
+      "3. Database: PostgreSQL via TypeORM relations for requests, proposals, specs, contracts, and linked projects",
+      "4. Evidence source: code inspection of project-requests.controller.ts, project-requests.service.ts, RequestDetailPage.tsx, requests README, and UC14-UC24 use case description"
+    ],
+    "notes": "Strict feature-based workbook for UC-14 Request Detail Viewing. The repository does not include a dedicated executable integration spec for the request detail endpoint or page, so the cases below are derived from implementation behavior and are currently marked Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "UC-14 Request Detail Viewing",
+        "changeType": "A",
+        "description": "Initial feature/function-based workbook generated from the request detail API, read-model logic, and client page workflow implementation.",
+        "reference": "diagram/Usecases/UC14-UC24-usecases.md, project-requests.controller.ts, project-requests.service.ts, client RequestDetailPage.tsx"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "REQUESTS",
+      "name": "Request Detail Viewing",
+      "testRequirement": "Validate request detail retrieval, role-based access control, client data masking, read-model enrichment, and the client detail page rendering for UC-14 Request Detail Viewing.",
+      "referenceDocument": [
+        "diagram/Usecases/UC14-UC24-usecases.md",
+        "server/src/modules/project-requests/README.md",
+        "server/src/modules/project-requests/project-requests.controller.ts",
+        "server/src/modules/project-requests/project-requests.service.ts",
+        "client/src/features/requests/README.md",
+        "client/src/features/requests/RequestDetailPage.tsx"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 6,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Request Detail API Read Model",
+          "description": "The backend returns a request detail payload with related answers, proposals, specs, contract/project summaries, flow snapshot, and viewer permissions.",
+          "preCondition": "A request id exists and the caller is an authenticated user with permission to view that request unless the negative case intentionally violates access rules.",
+          "relatedUseCases": [
+            "UC-14"
+          ],
+          "actor": "Client",
+          "done": false
+        },
+        {
+          "name": "Client Request Detail Page Rendering",
+          "description": "The React page fetches the request detail payload, renders workflow state, and shows available actions such as edit, delete, contract review, and workspace handoff.",
+          "preCondition": "The client can navigate to the request detail route and the request detail API is reachable unless the negative case intentionally simulates an error response.",
+          "relatedUseCases": [
+            "UC-14"
+          ],
+          "actor": "Client",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Request Detail API Read Model",
+          "testCases": [
+            {
+              "id": "[UC14-API-01]",
+              "description": "Return the full request detail read model for the owning client.",
+              "procedure": "1. Authenticate as the client who owns the request.\\n2. Call GET /project-requests/:id with a valid request id.\\n3. Inspect the response payload returned by ProjectRequestsService.findOne.",
+              "expectedResults": "1. The API returns HTTP 200.\\n2. The response includes the base request fields plus answers, broker proposals, freelancer proposals, spec summary, linked project or contract summary when present, flowSnapshot, requestProgress, marketVisibility, and viewerPermissions.\\n3. Attachment metadata is normalized before being returned.",
+              "actualResults": "",
+              "dependencies": "A persisted request with related answers, proposals, and optional specs/project records exists.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from findOneEntity and buildRequestReadModel in project-requests.service.ts."
+            },
+            {
+              "id": "[UC14-API-02]",
+              "description": "Reject request detail lookup when the request id does not exist.",
+              "procedure": "1. Authenticate as a valid user.\\n2. Call GET /project-requests/:id with a request id that is not present in the database.",
+              "expectedResults": "1. The service throws NotFoundException.\\n2. The API returns HTTP 404 with a request-not-found message.",
+              "actualResults": "",
+              "dependencies": "An authenticated user and a non-existent request id.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from findOneEntity in project-requests.service.ts and GET :id controller mapping."
+            },
+            {
+              "id": "[UC14-API-03]",
+              "description": "Reject a client attempting to view another client's request detail.",
+              "procedure": "1. Authenticate as Client B.\\n2. Call GET /project-requests/:id for a request owned by Client A.",
+              "expectedResults": "1. The service throws ForbiddenException.\\n2. The API returns HTTP 403.\\n3. No request detail payload is exposed.",
+              "actualResults": "",
+              "dependencies": "Two client accounts and a request owned by another client.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the CLIENT ownership check in findOne."
+            },
+            {
+              "id": "[UC14-API-04]",
+              "description": "Mask client contact data when a broker views a pending request detail.",
+              "procedure": "1. Authenticate as a broker.\\n2. Call GET /project-requests/:id for a request in PENDING state with no broker assignment.\\n3. Inspect the client object in the returned payload.",
+              "expectedResults": "1. The API returns the request detail payload.\\n2. The embedded client email and phoneNumber are masked as ********.\\n3. Other request data remains available for marketplace review.",
+              "actualResults": "",
+              "dependencies": "A request in PENDING state with client information populated and a broker viewer.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the BROKER masking logic in findOne."
+            }
+          ]
+        },
+        {
+          "title": "Client Request Detail Page Rendering",
+          "testCases": [
+            {
+              "id": "[UC14-UI-01]",
+              "description": "Render the request detail page successfully after fetching the request payload.",
+              "procedure": "1. Navigate to the client request detail route with a valid request id.\\n2. Allow RequestDetailPage.fetchData to call wizardService.getRequestById.\\n3. Observe the rendered page after loading finishes.",
+              "expectedResults": "1. A loading spinner is shown while the fetch is in progress.\\n2. After success, the page shows the request title, status badge, created date, workflow tabs, and phase-derived next actions.\\n3. Broker applications, spec flow data, and linked contract/project actions are populated when present in the payload.",
+              "actualResults": "",
+              "dependencies": "The request detail API returns a valid ProjectRequest payload and the client route is reachable.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from fetchData, loading, and success rendering paths in RequestDetailPage.tsx."
+            },
+            {
+              "id": "[UC14-UI-02]",
+              "description": "Display error messaging instead of the detail view when request loading fails.",
+              "procedure": "1. Navigate to the client request detail route.\\n2. Force wizardService.getRequestById to reject or return an API error.\\n3. Observe the page output after the failed fetch.",
+              "expectedResults": "1. The page stops showing the loading spinner.\\n2. A text error state is rendered with the resolved API error message.\\n3. A toast error is raised and the normal request detail content is not rendered.",
+              "actualResults": "",
+              "dependencies": "The request detail route is reachable and the API returns an error response or network failure.",
+              "useCaseRefs": [
+                "UC-14"
+              ],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from the loadError branch and getApiErrorDetails usage in RequestDetailPage.tsx."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

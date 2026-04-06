@@ -23,7 +23,9 @@ import { SkillDomainEntity } from '../../database/entities/skill-domain.entity';
 import { SkillEntity } from '../../database/entities/skill.entity';
 import { ProjectEntity } from '../../database/entities/project.entity';
 import { WalletEntity } from '../../database/entities/wallet.entity';
+import { UserSigningCredentialEntity } from '../../database/entities/user-signing-credential.entity';
 import { AuditLogsModule } from '../audit-logs/audit-logs.module';
+import { SigningCredentialsService } from './signing-credentials.service';
 
 @Module({
   imports: [
@@ -36,9 +38,10 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
       SkillEntity,
       ProjectEntity,
       WalletEntity,
+      UserSigningCredentialEntity,
     ]),
     PassportModule.register({ defaultStrategy: 'jwt' }),
-    AuditLogsModule, // Import để dùng AuditLogsService
+    AuditLogsModule, // Imported to use AuditLogsService
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService): JwtModuleOptions => {
@@ -70,7 +73,16 @@ import { AuditLogsModule } from '../audit-logs/audit-logs.module';
     JwtStrategy,
     /* GoogleStrategy, */ JwtAuthGuard,
     CaptchaGuard,
+    SigningCredentialsService,
   ],
-  exports: [AuthService, JwtStrategy, PassportModule, JwtModule, CaptchaService, EmailService],
+  exports: [
+    AuthService,
+    JwtStrategy,
+    PassportModule,
+    JwtModule,
+    CaptchaService,
+    EmailService,
+    SigningCredentialsService,
+  ],
 })
 export class AuthModule {}

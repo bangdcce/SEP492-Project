@@ -7,6 +7,7 @@ import { ProjectEntity } from '../../database/entities/project.entity';
 import { CalendarEventEntity } from '../../database/entities/calendar-event.entity';
 import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
 import { TaskCommentEntity } from '../../database/entities/task-comment.entity';
+import { EscrowEntity } from '../../database/entities/escrow.entity';
 import { TaskAttachmentEntity } from './entities/task-attachment.entity';
 import { TaskLinkEntity } from './entities/task-link.entity';
 import { TaskSubmissionEntity } from './entities/task-submission.entity';
@@ -15,6 +16,7 @@ import { TasksController } from './tasks.controller';
 import { TasksGateway } from './tasks.gateway';
 import { WorkspaceChatModule } from '../workspace-chat/workspace-chat.module';
 import { AuthModule } from '../auth';
+import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -22,6 +24,7 @@ import { AuthModule } from '../auth';
       UserEntity,
       TaskEntity,
       MilestoneEntity,
+      EscrowEntity,
       ProjectEntity,
       CalendarEventEntity,
       TaskHistoryEntity,
@@ -31,6 +34,7 @@ import { AuthModule } from '../auth';
       TaskSubmissionEntity,
     ]),
     AuthModule,
+    AuditLogsModule,
     WorkspaceChatModule,
   ],
   providers: [TasksService, TasksGateway],

@@ -108,7 +108,18 @@ export const BrokerSidebar: React.FC<BrokerSidebarProps> = ({
               <ul className="space-y-1">
                 {items.map((item) => {
                   const Icon = item.icon;
-                  const active = location.pathname === item.path;
+                  const activePatterns = item.activePatterns ?? [item.path];
+                  const activeExclusions = item.activeExclusions ?? [];
+                  const isExcluded = activeExclusions.some((prefix) =>
+                    location.pathname.startsWith(prefix),
+                  );
+                  const active =
+                    !isExcluded &&
+                    activePatterns.some(
+                      (pattern) =>
+                        location.pathname === pattern ||
+                        location.pathname.startsWith(`${pattern}/`),
+                    );
 
                   return (
                     <li key={item.id}>

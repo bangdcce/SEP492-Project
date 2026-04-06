@@ -1,0 +1,178 @@
+@startuml Logout_Class_Diagram
+title User Logout - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+' ======================
+' Client-side
+' ======================
+class Header {
+    - showDropdown: boolean
+    - navigate: any
+    - avatarUrl: string
+    - userName: string
+    - dropdownRef: HTMLDivElement
+    --
+    + handleViewProfile(): void
+    + handleLogout(): Promise<void>
+    + getInitials(name: string): string
+}
+
+class AuthApi {
+    --
+    + signIn(data: SignInRequest): Promise<SignInResponse>
+    + signUp(data: SignUpRequest): Promise<SignUpResponse>
+    + forgotPassword(data: ForgotPasswordRequest): Promise<ForgotPasswordResponse>
+    + verifyOtp(data: VerifyOtpRequest): Promise<VerifyOtpResponse>
+    + resetPassword(data: ResetPasswordRequest): Promise<ResetPasswordResponse>
+    + refreshToken(): Promise<{ message: string; data: Record<string, never> }>
+    + signOut(): Promise<void>
+    + getProfile(): Promise<any>
+    + getSession(): Promise<any>
+    + updateProfile(data: any): Promise<any>
+    ...
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    --
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    - setupInterceptors()
+    - handleAuthFailure(suppressRedirect: boolean = false)
+    - isRefreshEndpoint(url?: string): boolean
+    - isPublicAuthEndpoint(url?: string): boolean
+    - refreshAccessTokenSingleFlight(): Promise<void>
+    - getAuthErrorCode(error: unknown): string | null
+    - shouldAttemptSessionReconcile(error: unknown): boolean
+    - reconcileSessionSingleFlight(): Promise<void>
+    + bootstrapSession(): Promise<
+    ...
+}
+
+class StorageUtil {
+    --
+    + getStoredItem(key: string): string | null
+    + setStoredItem(key: string, value: string, remember: boolean): void
+    + setStoredItemAuto(key: string, value: string): void
+    + removeStoredItem(key: string): void
+    + getStoredJson<T>(key: string): T | null
+    + setStoredJson(key: string, value: unknown, remember: boolean): void
+    + setStoredJsonAuto(key: string, value: unknown): void
+}
+
+' ======================
+' Server-side
+' ======================
+class AuthController {
+    - cookiePolicy: AuthCookiePolicy
+    - authService: AuthService
+    --
+    + logout(req: AuthRequest, response: Response): Promise<{ message: string; data: null }>
+    + verifyEmail(@Query('token')
+    + resendVerification(@Body('email')
+    + getProfile(@Req()
+    + getSession(@Req()
+    + forgotPassword(@Body(ValidationPipe)
+    + verifyOtp(@Body(ValidationPipe)
+    + resetPassword(@Body(ValidationPipe)
+    + checkObligations(@Req()
+    + googleAuth(@Req()
+}
+
+class AuthCookiePolicy {
+    + accessToken: CookieOptions
+    + refreshToken: CookieOptions
+    + clear: CookieOptions
+    --
+}
+
+class AuthRequest {
+    + user: JwtPayload
+    + cookies: Record<string, string>
+    --
+}
+
+class JwtPayload {
+    + id: string
+    + email: string
+    + role: string
+    + sub: string
+    --
+}
+
+class AuthService {
+    - authSessionRepository: Repository
+    --
+    + logout(userId: string, refreshToken?: string): Promise<LogoutResponseDto>
+    - buildRefreshTokenFingerprint(token: string): string
+    + validateUser(userId: string): Promise<UserEntity | null>
+    + refreshToken(oldRefreshToken: string): Promise<
+    - findSessionByRefreshToken(token: string): Promise<AuthSessionEntity | null>
+    - cleanupExpiredSessions(userId: string): Promise<void>
+    + forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto>
+    + verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<VerifyOtpResponseDto>
+    + resetPassword(resetPasswordDto: ResetPasswordDto): Promise<ResetPasswordResponseDto>
+    + findUserWithProfile(userId: string): Promise<UserEntity | null>
+    ...
+}
+
+class LogoutResponseDto {
+    + message: string
+    --
+}
+
+class Repository {
+    --
+    + findOne(options: any): Promise<any>
+    + find(options: any): Promise<any[]>
+    + update(criteria: any, partial: any): Promise<any>
+    ...
+}
+
+class AuthSessionEntity {
+    + id: string
+    + userId: string
+    + refreshTokenHash: string
+    + refreshTokenFingerprint: string
+    + isRevoked: boolean
+    + revokedAt: Date
+    + userAgent: string
+    + ipAddress: string
+    + expiresAt: Date
+    + createdAt: Date
+    ...
+    --
+}
+
+' ======================
+' Relationships
+' ======================
+Header ..> AuthApi : dependency
+Header ..> StorageUtil : dependency
+AuthApi ..> ApiClient : dependency
+ApiClient ..> AuthController : dependency
+
+AuthController --> AuthService
+AuthController ..> AuthCookiePolicy
+AuthController ..> AuthRequest
+AuthController ..> LogoutResponseDto
+
+AuthService --> Repository
+AuthService ..> LogoutResponseDto
+AuthService ..> AuthSessionEntity
+
+AuthRequest ..> JwtPayload
+
+@enduml

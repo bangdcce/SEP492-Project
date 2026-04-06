@@ -1,0 +1,262 @@
+{
+  "project": {
+    "projectName": "SEP492 Software Brokerage Platform",
+    "projectCode": "SEP492",
+    "documentCode": "SEP492_UC03_Authentication_Session_Test_Case_v1.0",
+    "creator": "Bao",
+    "reviewerApprover": "",
+    "issueDate": "24/03/2026",
+    "version": "v1.0",
+    "environment": [
+      "1. Backend: NestJS auth module",
+      "2. Database: PostgreSQL auth_sessions and users tables via TypeORM repositories",
+      "3. API entry points: POST /auth/login, POST /auth/logout, POST /auth/profile, and POST /auth/refresh",
+      "4. Evidence source: code inspection of auth.controller.ts, auth.service.ts, auth-session.entity.ts, login.dto.ts, refresh-token.dto.ts, and jwt.strategy.ts"
+    ],
+    "notes": "Feature-based workbook for UC-03 Authentication Session. The repository does not include executable auth session specs, so these cases are derived from the implemented controller and service flows and are currently marked Untested.",
+    "changeLog": [
+      {
+        "effectiveDate": "24/03/2026",
+        "version": "v1.0",
+        "changeItem": "UC-03 Authentication Session",
+        "changeType": "A",
+        "description": "Initial workbook generated from the implemented auth session lifecycle, token rotation, profile retrieval, and session cleanup logic.",
+        "reference": "auth.controller.ts, auth.service.ts, auth-session.entity.ts, login.dto.ts, refresh-token.dto.ts, jwt.strategy.ts"
+      }
+    ]
+  },
+  "features": [
+    {
+      "code": "AUTH-SESSION",
+      "name": "Authentication Session",
+      "testRequirement": "Validate login authentication, session persistence, same-device revocation, logout behaviors, JWT-backed profile retrieval, refresh-token rotation, and expired-session cleanup for UC-03 Authentication Session.",
+      "referenceDocument": [
+        "docs/Use_Cases_UC01_UC10.doc",
+        "server/src/modules/auth/auth.controller.ts",
+        "server/src/modules/auth/auth.service.ts",
+        "server/src/database/entities/auth-session.entity.ts",
+        "server/src/modules/auth/strategies/jwt.strategy.ts",
+        "server/src/modules/auth/dto/login.dto.ts",
+        "server/src/modules/auth/dto/refresh-token.dto.ts"
+      ],
+      "statistics": {
+        "passed": 0,
+        "failed": 0,
+        "untested": 10,
+        "na": 0
+      },
+      "functions": [
+        {
+          "name": "Login Session Creation",
+          "description": "Authenticated users submit valid credentials and receive access and refresh tokens while a new auth session is persisted.",
+          "preCondition": "A user account exists and the submitted login payload satisfies DTO validation.",
+          "relatedUseCases": ["UC-03"],
+          "actor": "Registered User",
+          "done": false
+        },
+        {
+          "name": "Session Logout",
+          "description": "Authenticated users revoke either one matching session or every active session owned by the account.",
+          "preCondition": "The caller is authenticated with JWT and at least one active auth session exists.",
+          "relatedUseCases": ["UC-03"],
+          "actor": "Registered User",
+          "done": false
+        },
+        {
+          "name": "Own Session Profile Viewing",
+          "description": "JWT-authenticated users retrieve the mapped AuthResponseDto for the current account.",
+          "preCondition": "A valid bearer token resolves to an existing user via JwtStrategy.validate.",
+          "relatedUseCases": ["UC-03", "UC-04"],
+          "actor": "Registered User",
+          "done": false
+        },
+        {
+          "name": "Refresh Token Rotation",
+          "description": "A valid unrevoked refresh token issues a new access token and refresh token while updating the stored token hash and last-used timestamp.",
+          "preCondition": "An active auth session exists with an unexpired refresh token hash.",
+          "relatedUseCases": ["UC-03"],
+          "actor": "Registered User",
+          "done": false
+        },
+        {
+          "name": "Expired Session Cleanup",
+          "description": "The login path removes expired sessions and revokes the oldest active sessions when the per-user cap is exceeded.",
+          "preCondition": "The user already has expired sessions or more than five active sessions before the new login is persisted.",
+          "relatedUseCases": ["UC-03"],
+          "actor": "System",
+          "done": false
+        }
+      ],
+      "sections": [
+        {
+          "title": "Login Session Creation",
+          "testCases": [
+            {
+              "id": "[UC03-LGN-01]",
+              "description": "Log in successfully with valid credentials and capture device metadata in a new auth session.",
+              "procedure": "1. Submit POST /auth/login with an existing email and matching password.\n2. Include a user-agent header and client IP on the request.\n3. Observe the response payload and saved auth session.",
+              "expectedResults": "1. HTTP 200 is returned with accessToken, refreshToken, and mapped user data.\n2. AuthService creates a refresh token and signs an access token.\n3. A new auth_sessions row is saved with hashed refreshTokenHash, the supplied userAgent, the resolved ipAddress, expiresAt approximately 7 days ahead, isRevoked = false, and lastUsedAt set.",
+              "actualResults": "",
+              "dependencies": "Existing user account with a bcrypt-hashed password and working JWT configuration.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Derived from AuthController.login, AuthService.login, and AuthService.createAuthSession."
+            },
+            {
+              "id": "[UC03-LGN-02]",
+              "description": "Reject login when the submitted email does not match any user account.",
+              "procedure": "1. Submit POST /auth/login with an email that does not exist and any password.\n2. Observe the authentication result.",
+              "expectedResults": "1. AuthService.login throws UnauthorizedException.\n2. No JWT token is issued.\n3. No auth session is created.",
+              "actualResults": "",
+              "dependencies": "The target email is absent from the users table.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "The user lookup fails before bcrypt.compare or session persistence runs."
+            },
+            {
+              "id": "[UC03-LGN-03]",
+              "description": "Reject login when the password is incorrect for an existing user.",
+              "procedure": "1. Submit POST /auth/login with an existing email and the wrong password.\n2. Observe the authentication result.",
+              "expectedResults": "1. AuthService.login throws UnauthorizedException after bcrypt.compare returns false.\n2. No access token or refresh token is returned.\n3. No auth session is persisted.",
+              "actualResults": "",
+              "dependencies": "The email belongs to an existing user and the stored password hash does not match the submitted password.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the invalid-password branch in AuthService.login."
+            },
+            {
+              "id": "[UC03-LGN-04]",
+              "description": "Replace an older active session from the same device when the user logs in again with the same userAgent.",
+              "procedure": "1. Seed an active auth session for the same user and the same userAgent.\n2. Submit POST /auth/login again with valid credentials from that device.\n3. Inspect the previous and new session rows.",
+              "expectedResults": "1. createAuthSession revokes the previous non-revoked same-device session by setting isRevoked = true and revokedAt.\n2. cleanupExpiredSessions runs before the new session is saved.\n3. A replacement active session is stored for the new login.",
+              "actualResults": "",
+              "dependencies": "An existing active session already uses the same userAgent string for the same user.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers the same-device revocation branch inside AuthService.createAuthSession."
+            }
+          ]
+        },
+        {
+          "title": "Session Logout",
+          "testCases": [
+            {
+              "id": "[UC03-LGO-01]",
+              "description": "Log out only the session whose refresh token matches one of the caller's active sessions.",
+              "procedure": "1. Authenticate as a user that has multiple active sessions.\n2. Call POST /auth/logout with a refreshToken matching exactly one active session.\n3. Inspect the session table after the request.",
+              "expectedResults": "1. AuthService.logout compares the supplied token against each active session hash.\n2. Only the matching session is updated to isRevoked = true with revokedAt set.\n3. Other active sessions for the same user remain unchanged.\n4. The API returns the success message.",
+              "actualResults": "",
+              "dependencies": "JWT authentication succeeds and at least one active session hash matches the supplied refresh token.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the token-specific branch in AuthService.logout."
+            },
+            {
+              "id": "[UC03-LGO-02]",
+              "description": "Log out all active sessions for the authenticated user when no refresh token is supplied.",
+              "procedure": "1. Authenticate as a user with one or more active sessions.\n2. Call POST /auth/logout without a refreshToken body field.\n3. Inspect active sessions afterward.",
+              "expectedResults": "1. AuthService.logout updates every non-revoked session for the user.\n2. Each updated session becomes isRevoked = true with revokedAt set.\n3. The API returns the success message with null data.",
+              "actualResults": "",
+              "dependencies": "JWT authentication succeeds and the account owns active sessions.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the bulk-revocation branch in AuthService.logout and AuthController.logout."
+            }
+          ]
+        },
+        {
+          "title": "Own Session Profile Viewing",
+          "testCases": [
+            {
+              "id": "[UC03-PRF-01]",
+              "description": "Return the current user's mapped auth profile when a valid bearer token is presented.",
+              "procedure": "1. Call POST /auth/profile with a valid bearer token.\n2. Ensure JwtStrategy.validate resolves the corresponding user entity.\n3. Observe the returned payload.",
+              "expectedResults": "1. JwtStrategy.validate finds the user by payload.sub and attaches the user to request.user.\n2. AuthController.getProfile returns message plus AuthResponseDto fields id, email, fullName, phoneNumber, role, isVerified, currentTrustScore, createdAt, and updatedAt.\n3. No password hash or session secret values are exposed.",
+              "actualResults": "",
+              "dependencies": "JWT secret is configured and the referenced user still exists.",
+              "useCaseRefs": ["UC-03", "UC-04"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This is the guarded profile-read path used by the active session holder."
+            }
+          ]
+        },
+        {
+          "title": "Refresh Token Rotation",
+          "testCases": [
+            {
+              "id": "[UC03-RFR-01]",
+              "description": "Refresh tokens successfully when the supplied refresh token matches an active unexpired session.",
+              "procedure": "1. Seed a non-revoked auth session whose expiresAt is still in the future.\n2. Submit POST /auth/refresh with the matching refresh token.\n3. Inspect the response and updated session row.",
+              "expectedResults": "1. AuthService.refreshToken finds a valid session by bcrypt-comparing the supplied token to an active session hash.\n2. The user owning the session is loaded successfully.\n3. A new access token and new refresh token are returned.\n4. The existing session row is updated with a new hashed refreshTokenHash and a new lastUsedAt timestamp.",
+              "actualResults": "",
+              "dependencies": "An active session exists for an existing user and the submitted token matches its stored hash.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the main token-rotation path in AuthService.refreshToken."
+            },
+            {
+              "id": "[UC03-RFR-02]",
+              "description": "Reject refresh when no unrevoked, unexpired session matches the submitted token.",
+              "procedure": "1. Submit POST /auth/refresh with an invalid token, or use a token whose session is revoked or expired.\n2. Observe the response.",
+              "expectedResults": "1. AuthService.refreshToken throws UnauthorizedException.\n2. No new token pair is returned.\n3. No session hash is rotated.",
+              "actualResults": "",
+              "dependencies": "The submitted token does not match any active session with expiresAt greater than the current time.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This covers both invalid-token and expired-token behavior because the implementation filters by isRevoked and expiresAt before accepting a match."
+            }
+          ]
+        },
+        {
+          "title": "Expired Session Cleanup",
+          "testCases": [
+            {
+              "id": "[UC03-CLN-01]",
+              "description": "Delete expired sessions for the user before saving a new session.",
+              "procedure": "1. Seed one or more expired auth sessions for the user.\n2. Trigger a new valid login for that user.\n3. Observe session cleanup activity.",
+              "expectedResults": "1. cleanupExpiredSessions deletes sessions whose expiresAt is older than the current time.\n2. Expired rows are removed before the new session is inserted.\n3. The new session is still created normally.",
+              "actualResults": "",
+              "dependencies": "The user has at least one expired session before the new login starts.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "Covers the LessThan(now) cleanup branch in AuthService.cleanupExpiredSessions."
+            },
+            {
+              "id": "[UC03-CLN-02]",
+              "description": "Revoke the oldest active sessions when the user already has five or more active sessions.",
+              "procedure": "1. Seed at least five non-revoked, unexpired sessions for the same user with descending createdAt order.\n2. Trigger a new valid login.\n3. Inspect the session set after cleanup.",
+              "expectedResults": "1. cleanupExpiredSessions keeps the four newest active sessions before the new session insert.\n2. Older active sessions beyond that slice are updated to isRevoked = true with revokedAt set.\n3. The new login then adds a fresh active session, keeping the session pool bounded.",
+              "actualResults": "",
+              "dependencies": "The user already has five or more active unexpired sessions before the new login runs.",
+              "useCaseRefs": ["UC-03"],
+              "result": "Untested",
+              "testDate": "",
+              "tester": "",
+              "note": "This is the boundary-control branch inside AuthService.cleanupExpiredSessions."
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

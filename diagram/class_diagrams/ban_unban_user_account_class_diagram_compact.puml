@@ -79,6 +79,9 @@ class UsersService {
     --
     + banUser(userId: string, adminId: string, dto: BanUserDto): any
     + unbanUser(userId: string, adminId: string, dto: UnbanUserDto): any
+    - parseSkillFilter(input?: string | string[]): string[]
+    - buildRequestMatchText(request: ProjectRequestEntity): string
+    - getCommercialFeatures(request: ProjectRequestEntity): ProjectRequestCommercialFeature[]
     + getAllUsers(filters: UserFilterDto)
     + getUserDetail(userId: string)
     + resetUserPassword(userId: string, adminId: string, dto: ResetUserPasswordDto)
@@ -102,13 +105,6 @@ class UserEntity {
     + warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE'
 }
 
-enum UserRole {
-    ADMIN
-    STAFF
-    BROKER
-    CLIENT
-    FREELANCER
-}
 
 AdminUsersPage ..> WebClient
 WebClient ..> UsersController

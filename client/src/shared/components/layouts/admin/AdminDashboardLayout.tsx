@@ -11,11 +11,13 @@ import { ClientFooter } from "../client/ClientFooter";
 interface AdminDashboardLayoutProps {
   children: React.ReactNode;
   showFooter?: boolean;
+  contentMode?: "default" | "hearing-room";
 }
 
 export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
   children,
   showFooter = true,
+  contentMode = "default",
 }) => {
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -28,13 +30,25 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
     setIsMobileMenuOpen(!isMobileMenuOpen);
   };
 
+  const contentContainerClass =
+    contentMode === "hearing-room"
+      ? "w-full flex-1"
+      : "max-w-7xl mx-auto w-full flex-1";
+
+  const mainClass =
+    contentMode === "hearing-room"
+      ? "flex min-w-0 flex-1 flex-col px-[2.5%] py-3"
+      : "flex min-w-0 flex-1 flex-col p-6";
+
   return (
-    <div className="flex h-screen bg-slate-50/50 overflow-hidden">
+    <div className="flex min-h-screen bg-slate-50/50">
       {/* Desktop Sidebar */}
-      <AdminSidebar
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={handleToggleSidebar}
-      />
+      <div className="hidden self-start lg:sticky lg:top-0 lg:block lg:h-screen">
+        <AdminSidebar
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={handleToggleSidebar}
+        />
+      </div>
 
       {/* Mobile Sidebar Overlay */}
       {isMobileMenuOpen && (
@@ -50,13 +64,13 @@ export const AdminDashboardLayout: React.FC<AdminDashboardLayoutProps> = ({
       )}
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative">
+      <div className="relative flex min-w-0 flex-1 flex-col">
         <ClientHeader
           onMenuToggle={handleMobileMenuToggle}
           isMobileMenuOpen={isMobileMenuOpen}
         />
-        <main className="flex-1 overflow-y-auto overflow-x-hidden p-6 flex flex-col">
-          <div className="max-w-7xl mx-auto w-full flex-1">{children}</div>
+        <main className={mainClass}>
+          <div className={contentContainerClass}>{children}</div>
           {showFooter && <ClientFooter />}
         </main>
       </div>
