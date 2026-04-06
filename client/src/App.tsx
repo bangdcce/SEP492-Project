@@ -105,6 +105,9 @@ const ContractListPage = lazy(
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
 const AdminWizardQuestionsPage = lazy(() => import("@/pages/AdminWizardQuestionsPage"));
+const AdminStaffApplicationsPage = lazy(
+  () => import("@/pages/AdminStaffApplicationsPage"),
+);
 const AdminLeaveManagementPage = lazy(
   () => import("@/pages/AdminLeaveManagementPage"),
 );
@@ -191,6 +194,9 @@ const StaffHearingRoomPage = lazy(() =>
   import("@/features/staff/pages/StaffHearingRoomPage").then((m) => ({
     default: m.StaffHearingRoomPage,
   })),
+);
+const StaffApplicationStatusPage = lazy(
+  () => import("@/pages/StaffApplicationStatusPage"),
 );
 
 // ========== LANDING PAGE ==========
@@ -818,6 +824,16 @@ function App() {
           }
         />
         <Route
+          path={ROUTES.ADMIN_STAFF_APPLICATIONS}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminStaffApplicationsPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path="/admin/wizard-questions"
           element={
             <RoleGuard allowedRoles={["ADMIN"]}>
@@ -1106,7 +1122,22 @@ function App() {
         />
 
         {/* ========== STAFF ROUTES - /staff/* ========== */}
-        <Route path="/staff" element={<StaffLayout />}>
+        <Route
+          path={ROUTES.STAFF_APPLICATION_STATUS}
+          element={
+            <RoleGuard allowedRoles={["STAFF"]} allowPendingStaff>
+              <StaffApplicationStatusPage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/staff"
+          element={
+            <RoleGuard allowedRoles={["STAFF", "ADMIN"]}>
+              <StaffLayout />
+            </RoleGuard>
+          }
+        >
           <Route path="dashboard" element={<StaffDashboardPage />} />
           <Route path="projects" element={<StaffProjectsPage />} />
           <Route path="queue" element={<StaffQueuePage />} />

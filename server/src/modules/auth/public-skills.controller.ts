@@ -32,7 +32,7 @@ export class PublicSkillsController {
 
   @Get('skills')
   @ApiOperation({ summary: 'Get list of skills for registration' })
-  @ApiQuery({ name: 'role', required: false, enum: ['FREELANCER', 'BROKER'] })
+  @ApiQuery({ name: 'role', required: false, enum: ['FREELANCER', 'BROKER', 'STAFF'] })
   async getSkills(@Query('role') role?: string) {
     const where: any = { isActive: true };
 
@@ -41,6 +41,8 @@ export class PublicSkillsController {
       where.forFreelancer = true;
     } else if (role === 'BROKER') {
       where.forBroker = true;
+    } else if (role === 'STAFF') {
+      where.forStaff = true;
     }
 
     const skills = await this.skillRepo.find({

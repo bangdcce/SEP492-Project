@@ -10,6 +10,7 @@ import {
   Scale,
   ScrollText,
   Shield,
+  ShieldCheck,
   UserCheck,
   Users,
   User,
@@ -100,6 +101,14 @@ export const adminSidebarMenuItems: AdminSidebarMenuItem[] = [
     icon: Users,
     path: "/admin/users",
     description: "Manage users, ban/unban",
+    section: "management",
+  },
+  {
+    id: "staff-applications",
+    label: "Staff Applications",
+    icon: ShieldCheck,
+    path: "/admin/staff-applications",
+    description: "Review pending staff registrations",
     section: "management",
   },
   {

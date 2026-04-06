@@ -76,7 +76,7 @@ describe('AuthService session flows', () => {
       ipAddress: '127.0.0.1',
       isRevoked: false,
       revokedAt: null,
-      expiresAt: new Date('2026-04-05T00:00:00.000Z'),
+      expiresAt: new Date('2027-04-05T00:00:00.000Z'),
       createdAt: new Date('2026-03-20T00:00:00.000Z'),
       lastUsedAt: fixedNow,
       replacedBySessionId: null,
@@ -360,7 +360,7 @@ describe('AuthService session flows', () => {
   it('refreshes tokens for a valid active session and rotates the stored hash', async () => {
     const existingSession = createSession({
       id: 'session-rotate',
-      expiresAt: new Date('2026-04-10T00:00:00.000Z'),
+      expiresAt: new Date('2027-04-10T00:00:00.000Z'),
     });
     const user = createUser();
     const issuedRefreshToken = Buffer.alloc(64, 2).toString('hex');

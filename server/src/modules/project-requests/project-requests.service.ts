@@ -34,6 +34,7 @@ import { MatchingService } from '../matching/matching.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ContractsService } from '../contracts/contracts.service';
 import { RequestChatService } from '../request-chat/request-chat.service';
+import { hasOperationalStaffAccess } from '../auth/utils/role.utils';
 import {
   buildPublicUploadUrl,
   extractUploadStoragePath,
@@ -717,7 +718,7 @@ export class ProjectRequestsService {
     const role = user?.role;
     const isClient = role === UserRole.CLIENT && request.clientId === user?.id;
     const isAssignedBroker = role === UserRole.BROKER && request.brokerId === user?.id;
-    const isInternal = role === UserRole.ADMIN || role === UserRole.STAFF;
+    const isInternal = hasOperationalStaffAccess(user);
     const isFreelancerViewer =
       role === UserRole.FREELANCER &&
       Boolean(
@@ -1347,7 +1348,7 @@ export class ProjectRequestsService {
 
       if (user) {
         const isOwner = user.role === UserRole.CLIENT && request.clientId === user.id;
-        const isInternal = user.role === UserRole.ADMIN || user.role === UserRole.STAFF;
+        const isInternal = hasOperationalStaffAccess(user);
         const isAssignedBroker = user.role === UserRole.BROKER && request.brokerId === user.id;
         if (!isOwner && !isInternal && !isAssignedBroker) {
           throw new ForbiddenException('Forbidden: You cannot update this request');
@@ -1514,6 +1515,12 @@ export class ProjectRequestsService {
       const request = await this.findOneEntity(id);
 
       if (user) {
+        if (user.role === UserRole.STAFF && !hasOperationalStaffAccess(user)) {
+          throw new ForbiddenException(
+            'Forbidden: Staff operational access requires admin approval.',
+          );
+        }
+
         if (user.role === UserRole.CLIENT && request.clientId !== user.id) {
           throw new ForbiddenException('Forbidden: You can only view your own requests');
         }
@@ -1643,7 +1650,7 @@ export class ProjectRequestsService {
   ) {
     const request = await this.findOneEntity(requestId);
     const isAssignedBroker = actor.role === UserRole.BROKER && request.brokerId === actor.id;
-    const isInternal = actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF;
+    const isInternal = hasOperationalStaffAccess(actor);
 
     if (!isAssignedBroker && !isInternal) {
       throw new ForbiddenException(
@@ -1991,7 +1998,7 @@ export class ProjectRequestsService {
     try {
       const request = await this.findOneEntity(requestId);
       const isAssignedBroker = actor.role === UserRole.BROKER && request.brokerId === actor.id;
-      const isInternal = actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF;
+      const isInternal = hasOperationalStaffAccess(actor);
       if (!isAssignedBroker && !isInternal) {
         throw new ForbiddenException(
           'Only the assigned broker or internal staff can recommend freelancers.',
@@ -2348,7 +2355,7 @@ export class ProjectRequestsService {
     try {
       const request = await this.findOneEntity(requestId);
       const isOwner = actor.role === UserRole.CLIENT && request.clientId === actor.id;
-      const isInternal = actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF;
+      const isInternal = hasOperationalStaffAccess(actor);
       if (!isOwner && !isInternal) {
         throw new ForbiddenException('Only the client or internal staff can release a broker slot.');
       }
@@ -2480,11 +2487,7 @@ export class ProjectRequestsService {
       throw new BadRequestException('Cannot convert request without an assigned broker.');
     }
 
-    if (
-      actor.role !== UserRole.ADMIN &&
-      actor.role !== UserRole.STAFF &&
-      request.brokerId !== actor.id
-    ) {
+    if (!hasOperationalStaffAccess(actor) && request.brokerId !== actor.id) {
       throw new ForbiddenException('Only the assigned broker or internal staff can convert this request.');
     }
 

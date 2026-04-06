@@ -33,6 +33,7 @@ import { RequestChatModule } from './modules/request-chat/request-chat.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { SubscriptionsModule } from './modules/subscriptions/subscriptions.module';
 import { AdminDashboardModule } from './modules/admin-dashboard/admin-dashboard.module';
+import { StaffApplicationsModule } from './modules/staff-applications/staff-applications.module';
 
 const parseNumberEnv = (value: string | undefined, fallback: number): number => {
   if (!value) return fallback;
@@ -138,6 +139,7 @@ const parseNumberEnv = (value: string | undefined, fallback: number): number => 
     RequestChatModule,
     SubscriptionsModule,
     AdminDashboardModule,
+    StaffApplicationsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

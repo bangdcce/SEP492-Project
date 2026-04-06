@@ -1,5 +1,6 @@
 // User & Auth Entities
 export { UserEntity, UserRole, UserStatus, BadgeType } from './user.entity';
+export { StaffApplicationEntity, StaffApplicationStatus } from './staff-application.entity';
 export { SocialAccountEntity } from './social-account.entity';
 export { ProfileEntity } from './profile.entity';
 export { SavedFreelancerEntity } from './saved-freelancer.entity';

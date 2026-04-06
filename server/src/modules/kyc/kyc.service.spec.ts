@@ -1,6 +1,7 @@
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException } from '@nestjs/common';
 
 import { DocumentType, KycStatus } from '../../database/entities/kyc-verification.entity';
+import { UserRole } from '../../database/entities/user.entity';
 import { KycService } from './kyc.service';
 
 jest.mock('../../common/utils/supabase-storage.util', () => ({
@@ -70,6 +71,10 @@ describe('KycService', () => {
     kycRepo = createRepositoryMock();
     userRepo = createRepositoryMock();
     auditLogRepo = createRepositoryMock();
+    userRepo.findOne.mockResolvedValue({
+      id: 'user-1',
+      role: UserRole.CLIENT,
+    });
     fptAiService = {
       verifyKyc: jest.fn().mockResolvedValue({
         decision: 'AUTO_APPROVED',
@@ -128,6 +133,20 @@ describe('KycService', () => {
     await expect(service.submitKyc('user-1', dto as any, files as any)).rejects.toBeInstanceOf(
       BadRequestException,
     );
+    expect(fptAiService.verifyKyc).not.toHaveBeenCalled();
+  });
+
+  it('rejects self-KYC submissions from staff accounts', async () => {
+    userRepo.findOne.mockResolvedValueOnce({
+      id: 'user-1',
+      role: UserRole.STAFF,
+    });
+
+    await expect(service.submitKyc('user-1', dto as any, files as any)).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+
+    expect(kycRepo.findOne).not.toHaveBeenCalled();
     expect(fptAiService.verifyKyc).not.toHaveBeenCalled();
   });
 

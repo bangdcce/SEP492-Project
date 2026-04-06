@@ -82,9 +82,12 @@ export const ROUTES = {
   ADMIN_REVIEW_MODERATION: "/admin/reviews",
   ADMIN_LEAVE: "/admin/leave",
   ADMIN_PROFILE: "/admin/profile",
+  ADMIN_STAFF_APPLICATIONS: "/admin/staff-applications",
 
   // ========== STAFF ROUTES - prefix /staff ==========
+  STAFF_DASHBOARD: "/staff/dashboard",
   STAFF_PROFILE: "/staff/profile",
+  STAFF_APPLICATION_STATUS: "/staff/application-status",
   STAFF_WORKSPACE: "/projects/:projectId",
 
   // ========== LEGACY ALIASES (backward compatibility) ==========

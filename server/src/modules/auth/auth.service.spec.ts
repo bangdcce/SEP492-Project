@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, UnauthorizedException } from '@
 import * as bcrypt from 'bcryptjs';
 
 import { ProjectStatus } from '../../database/entities/project.entity';
+import { StaffApplicationEntity, StaffApplicationStatus } from '../../database/entities/staff-application.entity';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuthService } from './auth.service';
 
@@ -31,7 +32,7 @@ describe('AuthService.register', () => {
   let projectRepository: ReturnType<typeof createRepositoryMock>;
   let walletRepository: ReturnType<typeof createRepositoryMock>;
   let emailVerificationService: { sendVerificationEmail: jest.Mock };
-  let auditLogsService: { logRegistration: jest.Mock };
+  let auditLogsService: { logRegistration: jest.Mock; logCustom: jest.Mock };
 
   const mockedHash = bcrypt.hash as jest.MockedFunction<typeof bcrypt.hash>;
   const mockedCompare = bcrypt.compare as jest.MockedFunction<typeof bcrypt.compare>;
@@ -91,6 +92,7 @@ describe('AuthService.register', () => {
     };
     auditLogsService = {
       logRegistration: jest.fn().mockResolvedValue(undefined),
+      logCustom: jest.fn().mockResolvedValue(undefined),
     };
 
     mockedHash.mockReset();
@@ -294,6 +296,91 @@ describe('AuthService.register', () => {
     expect(result.role).toBe(UserRole.BROKER);
   });
 
+  it('creates a pending staff application and reuses the taxonomy selections for staff signup', async () => {
+    const domainRepository = {
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const skillRepository = {
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    const staffApplicationRepository = {
+      create: jest.fn((data) => ({
+        id: 'staff-application-1',
+        ...data,
+      })),
+      save: jest.fn().mockResolvedValue({
+        id: 'staff-application-1',
+        userId: 'user-1',
+        status: StaffApplicationStatus.PENDING,
+      }),
+    };
+
+    userRepository.findOne.mockResolvedValue(null);
+    userRepository.manager.getRepository.mockImplementation((entityName: unknown) => {
+      if (entityName === StaffApplicationEntity) return staffApplicationRepository;
+      if (entityName === 'UserSkillDomainEntity') return domainRepository;
+      if (entityName === 'UserSkillEntity') return skillRepository;
+      throw new Error(`Unexpected repository request: ${String(entityName)}`);
+    });
+
+    const result = await service.register(
+      createRegisterDto({
+        role: UserRole.STAFF,
+        domainIds: ['domain-1'],
+        skillIds: ['skill-1', 'skill-2'],
+      }) as any,
+      '198.51.100.20',
+      'Firefox',
+    );
+
+    expect(staffApplicationRepository.create).toHaveBeenCalledWith({
+      userId: 'user-1',
+      status: StaffApplicationStatus.PENDING,
+    });
+    expect(staffApplicationRepository.save).toHaveBeenCalledWith({
+      id: 'staff-application-1',
+      userId: 'user-1',
+      status: StaffApplicationStatus.PENDING,
+    });
+    expect(domainRepository.save).toHaveBeenCalledWith([{ userId: 'user-1', domainId: 'domain-1' }]);
+    expect(skillRepository.save).toHaveBeenCalledWith([
+      {
+        userId: 'user-1',
+        skillId: 'skill-1',
+        priority: 'SECONDARY',
+        verificationStatus: 'SELF_DECLARED',
+      },
+      {
+        userId: 'user-1',
+        skillId: 'skill-2',
+        priority: 'SECONDARY',
+        verificationStatus: 'SELF_DECLARED',
+      },
+    ]);
+    expect(auditLogsService.logCustom).toHaveBeenCalledWith(
+      'STAFF_APPLICATION_SUBMITTED',
+      'StaffApplication',
+      'staff-application-1',
+      expect.objectContaining({
+        applicationId: 'staff-application-1',
+        userId: 'user-1',
+        email: 'new.user@gmail.com',
+      }),
+      undefined,
+      'user-1',
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        role: UserRole.STAFF,
+        isVerified: false,
+        isEmailVerified: false,
+        staffApprovalStatus: StaffApplicationStatus.PENDING,
+        staffApplicationReviewedAt: null,
+        staffRejectionReason: null,
+      }),
+    );
+  });
+
   it('throws a conflict when the email is already registered', async () => {
     userRepository.findOne.mockResolvedValue({ id: 'existing-user' });
 
@@ -493,7 +580,7 @@ describe('AuthService.login', () => {
 
     expect(userRepository.findOne).toHaveBeenCalledWith({
       where: { email: 'member@gmail.com' },
-      relations: ['profile'],
+      relations: ['profile', 'staffApplication'],
     });
     expect(mockedCompare).toHaveBeenCalledWith('SecurePass123!', 'stored-password-hash');
     expect(userRepository.update).toHaveBeenCalledWith({ id: 'user-1' }, { timeZone: 'Asia/Bangkok' });
@@ -547,7 +634,7 @@ describe('AuthService.login', () => {
 
     expect(userRepository.findOne).toHaveBeenCalledWith({
       where: { email: 'member@gmail.com' },
-      relations: ['profile'],
+      relations: ['profile', 'staffApplication'],
     });
     expect(mockedCompare).toHaveBeenCalledWith('SecurePass123!', 'stored-password-hash');
   });
@@ -1089,7 +1176,7 @@ describe('AuthService.refreshToken', () => {
     id: 'session-1',
     userId: 'user-1',
     isRevoked: false,
-    expiresAt: new Date('2026-04-05T09:00:00.000Z'),
+    expiresAt: new Date('2027-04-05T09:00:00.000Z'),
   };
 
   beforeEach(() => {

@@ -14,6 +14,10 @@ import * as bcrypt from 'bcryptjs';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
+import {
+  StaffApplicationEntity,
+  StaffApplicationStatus,
+} from '../../database/entities/staff-application.entity';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
 import { WalletEntity } from '../../database/entities/wallet.entity';
 import { EmailService } from './email.service';
@@ -120,8 +124,38 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(newUser);
 
+    if (role === UserRole.STAFF) {
+      const staffApplicationRepository =
+        this.userRepository.manager.getRepository(StaffApplicationEntity);
+
+      const staffApplication = await staffApplicationRepository.save(
+        staffApplicationRepository.create({
+          userId: savedUser.id,
+          status: StaffApplicationStatus.PENDING,
+        }),
+      );
+
+      this.auditLogsService
+        .logCustom(
+          'STAFF_APPLICATION_SUBMITTED',
+          'StaffApplication',
+          staffApplication.id,
+          {
+            applicationId: staffApplication.id,
+            userId: savedUser.id,
+            email: savedUser.email,
+          },
+          undefined,
+          savedUser.id,
+        )
+        .catch(() => {});
+    }
+
     // N蘯ｿu lﾃ BROKER ho蘯ｷc FREELANCER 竊・Lﾆｰu domains vﾃ skills
-    if ((role === UserRole.BROKER || role === UserRole.FREELANCER) && (domainIds || skillIds)) {
+    if (
+      (role === UserRole.BROKER || role === UserRole.FREELANCER || role === UserRole.STAFF) &&
+      (domainIds || skillIds)
+    ) {
       const userSkillDomainRepo =
         this.userRepository.manager.getRepository('UserSkillDomainEntity');
       const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
@@ -182,7 +216,7 @@ export class AuthService {
     // Tﾃｬm user theo email v盻嬖 profile relation
     const user = await this.userRepository.findOne({
       where: { email: normalizedEmail },
-      relations: ['profile'],
+      relations: ['profile', 'staffApplication'],
     });
 
     if (!user) {
@@ -762,7 +796,7 @@ export class AuthService {
   async findUserWithProfile(userId: string): Promise<UserEntity | null> {
     return await this.userRepository.findOne({
       where: { id: userId },
-      relations: ['profile'],
+      relations: ['profile', 'staffApplication'],
     });
   }
 
@@ -1004,6 +1038,7 @@ export class AuthService {
 
   private mapToAuthResponse(user: UserEntity): AuthResponseDto {
     const certifications = this.extractCertifications(user.profile?.bankInfo);
+    const staffApprovalStatus = this.resolveStaffApprovalStatus(user);
 
     return {
       id: user.id,
@@ -1022,12 +1057,33 @@ export class AuthService {
       role: user.role,
       isVerified: user.isVerified,
       isEmailVerified: !!user.emailVerifiedAt,
+      ...(staffApprovalStatus
+        ? {
+            staffApprovalStatus,
+            staffApplicationReviewedAt: user.staffApplication?.reviewedAt ?? null,
+            staffRejectionReason: user.staffApplication?.rejectionReason ?? null,
+          }
+        : {}),
       currentTrustScore: user.currentTrustScore,
       badge: user.badge, // T盻ｫ virtual property c盻ｧa Entity
       stats: user.stats, // T盻ｫ virtual property c盻ｧa Entity
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  private resolveStaffApprovalStatus(user: UserEntity): StaffApplicationStatus | undefined {
+    if (user.role !== UserRole.STAFF) {
+      return undefined;
+    }
+
+    if (user.staffApplication?.status) {
+      return user.staffApplication.status;
+    }
+
+    return user.isVerified
+      ? StaffApplicationStatus.APPROVED
+      : StaffApplicationStatus.PENDING;
   }
 
   private extractCertifications(bankInfo?: Record<string, any> | null) {
