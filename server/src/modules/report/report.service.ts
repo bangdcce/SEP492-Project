@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { ReportEntity, ReportStatus, ReviewEntity } from 'src/database/entities';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { CreateReportDto } from './dto/create-report.dto';
 import { ResolveReportDto } from './dto/resolve-report.dto';
 import { ReviewService } from '../review/review.service';
@@ -14,7 +14,16 @@ export class ReportService {
     @InjectRepository(ReviewEntity)
     private reviewRepo: Repository<ReviewEntity>,
     private reviewService: ReviewService,
+    private dataSource: DataSource,
   ) {}
+
+  private toBoundedPositiveInt(value: number, fallback: number, max: number): number {
+    if (!Number.isFinite(value) || value <= 0) {
+      return fallback;
+    }
+
+    return Math.min(Math.trunc(value), max);
+  }
 
   /**
    * User tạo report cho một review
@@ -58,20 +67,23 @@ export class ReportService {
    * Admin lấy danh sách reports (PENDING)
    */
   async findPending(page: number = 1, limit: number = 20) {
+    const safePage = this.toBoundedPositiveInt(page, 1, 10_000);
+    const safeLimit = this.toBoundedPositiveInt(limit, 20, 100);
+
     const [reports, total] = await this.reportRepo.findAndCount({
       where: { status: ReportStatus.PENDING },
       relations: ['reporter', 'review', 'review.reviewer'],
       order: { createdAt: 'DESC' },
-      skip: (page - 1) * limit,
-      take: limit,
+      skip: (safePage - 1) * safeLimit,
+      take: safeLimit,
     });
 
     return {
       data: reports,
       total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
+      page: safePage,
+      limit: safeLimit,
+      totalPages: Math.ceil(total / safeLimit),
     };
   }
 
@@ -79,35 +91,55 @@ export class ReportService {
    * Admin resolve một report
    */
   async resolve(reportId: string, dto: ResolveReportDto, adminId: string) {
-    const report = await this.reportRepo.findOne({
-      where: { id: reportId },
-      relations: ['review'],
+    let deletedReview: {
+      id: string;
+      targetUserId: string;
+    } | null = null;
+
+    const resolvedReport = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+      const reportRepo = manager.getRepository(ReportEntity);
+      const report = await reportRepo
+        .createQueryBuilder('report')
+        .leftJoinAndSelect('report.review', 'review')
+        .setLock('pessimistic_write')
+        .where('report.id = :reportId', { reportId })
+        .getOne();
+
+      if (!report) {
+        throw new NotFoundException('Report not found');
+      }
+
+      if (report.status !== ReportStatus.PENDING) {
+        throw new BadRequestException('Report này đã được xử lý');
+      }
+
+      report.status = dto.status;
+      report.resolvedBy = adminId;
+      report.adminNote = dto.adminNote || '';
+      report.resolvedAt = new Date();
+
+      if (dto.status === ReportStatus.RESOLVED && dto.deleteReview) {
+        const deleted = await this.reviewService.softDeleteWithinTransaction(
+          manager,
+          report.reviewId,
+          adminId,
+          `Report #${reportId}: ${dto.adminNote || 'Vi phạm quy tắc cộng đồng'}`,
+        );
+
+        deletedReview = {
+          id: deleted.id,
+          targetUserId: deleted.targetUserId,
+        };
+      }
+
+      return reportRepo.save(report);
     });
 
-    if (!report) {
-      throw new NotFoundException('Report not found');
+    if (deletedReview) {
+      await this.reviewService.handleSoftDeleteCommitted(deletedReview, adminId);
     }
 
-    if (report.status !== ReportStatus.PENDING) {
-      throw new BadRequestException('Report này đã được xử lý');
-    }
-
-    // Cập nhật report
-    report.status = dto.status;
-    report.resolvedBy = adminId;
-    report.adminNote = dto.adminNote || '';
-    report.resolvedAt = new Date();
-
-    // Nếu RESOLVED và yêu cầu xóa review
-    if (dto.status === ReportStatus.RESOLVED && dto.deleteReview) {
-      await this.reviewService.softDelete(
-        report.reviewId,
-        adminId,
-        `Report #${reportId}: ${dto.adminNote || 'Vi phạm quy tắc cộng đồng'}`,
-      );
-    }
-
-    return this.reportRepo.save(report);
+    return resolvedReport;
   }
 
   /**

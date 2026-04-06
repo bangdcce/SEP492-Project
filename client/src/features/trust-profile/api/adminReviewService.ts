@@ -29,7 +29,7 @@ export const getReviewsForModeration = async (filters?: {
 
   const queryString = params.toString();
   return apiClient.get<AdminReview[]>(
-    `/reviews/admin/moderation${queryString ? `?${queryString}` : ""}`
+    `/reviews/admin/moderation${queryString ? `?${queryString}` : ""}`,
   );
 };
 
@@ -42,7 +42,7 @@ export const getReviewsForModeration = async (filters?: {
 export const softDeleteReview = async (
   reviewId: string,
   reason: string,
-  notes?: string
+  notes?: string,
 ) => {
   const fullReason = notes ? `${reason}: ${notes}` : reason;
   return apiClient.delete<{
@@ -64,20 +64,9 @@ export const restoreReview = async (reviewId: string, reason: string) => {
   }>(`/reviews/${reviewId}/restore`, { reason });
 };
 
-/**
- * Dismiss a report on a review (Admin only)
- * @param reviewId - ID of the review with the report
- * @param reason - Reason for dismissing the report
- */
-export const dismissReport = async (reviewId: string, reason?: string) => {
-  return apiClient.post<{
-    message: string;
-  }>(`/reviews/${reviewId}/dismiss-report`, { reason });
-};
-
 export const openModerationCase = async (
   reviewId: string,
-  assignmentVersion: number
+  assignmentVersion: number,
 ) => {
   return apiClient.post<AdminReview>(
     `/reviews/admin/moderation/${reviewId}/open`,
@@ -87,7 +76,7 @@ export const openModerationCase = async (
 
 export const takeModerationCase = async (
   reviewId: string,
-  assignmentVersion: number
+  assignmentVersion: number,
 ) => {
   return apiClient.post<AdminReview>(
     `/reviews/admin/moderation/${reviewId}/take`,
@@ -97,7 +86,7 @@ export const takeModerationCase = async (
 
 export const releaseModerationCase = async (
   reviewId: string,
-  assignmentVersion: number
+  assignmentVersion: number,
 ) => {
   return apiClient.post<AdminReview>(
     `/reviews/admin/moderation/${reviewId}/release`,
@@ -122,32 +111,6 @@ export const reassignModerationCase = async (
  */
 export const getFlaggedReviews = async () => {
   return apiClient.get<AdminReview[]>(`/reviews/admin/flagged`);
-};
-
-/**
- * Bulk action on multiple reviews
- * @param reviewIds - Array of review IDs
- * @param action - Action to perform
- * @param reason - Reason for the action
- */
-export const bulkModerationAction = async (
-  reviewIds: string[],
-  action: "SOFT_DELETE" | "RESTORE" | "DISMISS_REPORT",
-  reason: string
-) => {
-  return apiClient.post<{
-    success: boolean;
-    processedCount: number;
-    results: Array<{
-      reviewId: string;
-      success: boolean;
-      error?: string;
-    }>;
-  }>(`/reviews/admin/bulk-action`, {
-    reviewIds,
-    action,
-    reason,
-  });
 };
 
 export const getModerationAssignees = async () => {

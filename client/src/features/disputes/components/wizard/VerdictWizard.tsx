@@ -4,7 +4,6 @@ import { MoneySplitSlider } from "../shared/MoneySplitSlider";
 import { DisputeResult } from "../../../staff/types/staff.types";
 import {
   getDisputeRuleCatalog,
-  resolveDispute,
   resolveDisputeAppeal,
   type DisputeRuleCatalogItem,
 } from "../../api";
@@ -177,6 +176,15 @@ export const VerdictWizard = ({
       toast.error("Admin comment is required.");
       return;
     }
+    if (!isAppealMode) {
+      const payload = {
+        message:
+          "Initial verdicts must be issued from Hearing Room so minutes and hearing closure are recorded together.",
+      };
+      setVerdictGateError(payload);
+      toast.error("Issue the initial verdict from Hearing Room.");
+      return;
+    }
     if (isAppealMode && !existingVerdictId) {
       toast.error("Appeal verdict requires the original verdict reference.");
       return;
@@ -209,23 +217,6 @@ export const VerdictWizard = ({
           overrideReason: overrideReason.trim(),
         });
         toast.success("Appeal verdict submitted.");
-      } else {
-        await resolveDispute(disputeId, {
-          verdict,
-          adminComment: adminComment.trim(),
-          faultType,
-          faultyParty,
-          reasoning: {
-            violatedPolicies: selectedPolicies,
-            factualFindings: factualFindings.trim(),
-            legalAnalysis: legalAnalysis.trim(),
-            conclusion: conclusion.trim(),
-            evidenceReferences: [evidenceBasis.trim()],
-          },
-          splitRatioClient:
-            verdict === DisputeResult.SPLIT ? splitRatioClient : undefined,
-        });
-        toast.success("Verdict submitted.");
       }
 
       if (onSubmitted) {
@@ -270,7 +261,7 @@ export const VerdictWizard = ({
           <p className="mt-1 text-sm text-gray-500">
             {isAppealMode
               ? "Issue the Tier 2 decision that upholds or overrides the original verdict."
-              : "Record the official dispute outcome and financial distribution."}
+              : "Initial verdict issuance has moved to Hearing Room so the hearing can close with minutes and findings in one step."}
           </p>
         </div>
         {isAppealMode ? (
@@ -280,6 +271,14 @@ export const VerdictWizard = ({
           </span>
         ) : null}
       </div>
+
+      {!isAppealMode ? (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Use the Hearing Room verdict panel for initial verdicts. This wizard remains available
+          only for appeal review so the platform does not bypass hearing minutes and closure
+          requirements.
+        </div>
+      ) : null}
 
       {isAppealMode ? (
         <div className="mb-6 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">

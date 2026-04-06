@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-03-29T06:48:52.812Z",
+  "generatedAt": "2026-03-29T08:07:03.424Z",
   "totalRows": 154,
   "duplicateRouteKeys": [],
   "endpoints": [
@@ -13,6 +13,7 @@
       "useCases": "UC-95 View Statistic; UC-107 View Statistic Staff",
       "group": "admin-dashboard",
       "controllerName": "AdminDashboardController",
+      "sourceFilePath": "server/src/modules/admin-dashboard/admin-dashboard.controller.ts",
       "methodName": "getOverview",
       "roles": [
         "ADMIN"
@@ -31,6 +32,7 @@
       "useCases": "UC-93 View System Log",
       "group": "audit-logs",
       "controllerName": "AuditLogsController",
+      "sourceFilePath": "server/src/modules/audit-logs/audit-logs.controller.ts",
       "methodName": "findAll",
       "roles": [
         "ADMIN"
@@ -49,6 +51,7 @@
       "useCases": "UC-94 Export Log",
       "group": "audit-logs",
       "controllerName": "AuditLogsController",
+      "sourceFilePath": "server/src/modules/audit-logs/audit-logs.controller.ts",
       "methodName": "export",
       "roles": [
         "ADMIN"
@@ -67,6 +70,7 @@
       "useCases": "UC-93 View System Log",
       "group": "audit-logs",
       "controllerName": "AuditLogsController",
+      "sourceFilePath": "server/src/modules/audit-logs/audit-logs.controller.ts",
       "methodName": "getTimeline",
       "roles": [
         "ADMIN"
@@ -85,6 +89,7 @@
       "useCases": "UC-93 View System Log",
       "group": "audit-logs",
       "controllerName": "AuditLogsController",
+      "sourceFilePath": "server/src/modules/audit-logs/audit-logs.controller.ts",
       "methodName": "findOne",
       "roles": [
         "ADMIN"
@@ -103,6 +108,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-82 Control Hearing Session",
       "group": "calendar",
       "controllerName": "CalendarController",
+      "sourceFilePath": "server/src/modules/calendar/calendar.controller.ts",
       "methodName": "createEvent",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -119,6 +125,7 @@
       "useCases": "UC-80 View Hearing List; UC-81 View Hearing Detail",
       "group": "calendar",
       "controllerName": "CalendarController",
+      "sourceFilePath": "server/src/modules/calendar/calendar.controller.ts",
       "methodName": "listEvents",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -135,6 +142,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "calendar",
       "controllerName": "CalendarController",
+      "sourceFilePath": "server/src/modules/calendar/calendar.controller.ts",
       "methodName": "updateEvent",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -151,6 +159,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-82 Control Hearing Session",
       "group": "calendar",
       "controllerName": "CalendarController",
+      "sourceFilePath": "server/src/modules/calendar/calendar.controller.ts",
       "methodName": "requestReschedule",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -167,6 +176,7 @@
       "useCases": "UC-80 View Hearing List; UC-81 View Hearing Detail",
       "group": "calendar",
       "controllerName": "CalendarController",
+      "sourceFilePath": "server/src/modules/calendar/calendar.controller.ts",
       "methodName": "listRescheduleRequests",
       "roles": [
         "STAFF",
@@ -186,6 +196,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-82 Control Hearing Session",
       "group": "calendar",
       "controllerName": "CalendarController",
+      "sourceFilePath": "server/src/modules/calendar/calendar.controller.ts",
       "methodName": "processRescheduleRequest",
       "roles": [
         "STAFF",
@@ -205,6 +216,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-82 Control Hearing Session",
       "group": "calendar",
       "controllerName": "CalendarController",
+      "sourceFilePath": "server/src/modules/calendar/calendar.controller.ts",
       "methodName": "respondInvite",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -221,6 +233,7 @@
       "useCases": "UC-46 Create Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "createDisputes",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -237,6 +250,7 @@
       "useCases": "UC-46 Create Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "createDisputeGroup",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -253,6 +267,7 @@
       "useCases": "UC-45 View List Of Active Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getListDisputes",
       "roles": [
         "ADMIN",
@@ -272,6 +287,7 @@
       "useCases": "UC-45 View List Of Active Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getMyDisputes",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -288,6 +304,7 @@
       "useCases": "UC-76 View List Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getDisputeStats",
       "roles": [
         "ADMIN",
@@ -307,6 +324,7 @@
       "useCases": "UC-76 View List Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getQueueCount",
       "roles": [
         "ADMIN",
@@ -326,6 +344,7 @@
       "useCases": "UC-76 View List Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getQueueDisputes",
       "roles": [
         "ADMIN",
@@ -345,6 +364,7 @@
       "useCases": "UC-76 View List Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getCaseloadDisputes",
       "roles": [
         "ADMIN",
@@ -364,6 +384,7 @@
       "useCases": "UC-76 View List Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getSchedulingWorklist",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -380,6 +401,7 @@
       "useCases": "UC-76 View List Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getDisputeRuleCatalog",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -396,6 +418,7 @@
       "useCases": "UC-76 View List Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getDisputeQueuePreview",
       "roles": [
         "ADMIN",
@@ -415,6 +438,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getDetailDisputes",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -431,6 +455,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getDisputeDossier",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -447,6 +472,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "exportDisputeDossier",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -463,6 +489,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getDisputeLedger",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -479,6 +506,7 @@
       "useCases": "UC-49 Report Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getEscalationPolicy",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -495,6 +523,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-80 View Hearing List",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getAutoScheduleOptions",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -511,6 +540,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-80 View Hearing List",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getSchedulingProposals",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -527,6 +557,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-80 View Hearing List",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "createSchedulingProposal",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -543,6 +574,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-80 View Hearing List",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "deleteSchedulingProposal",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -559,6 +591,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-80 View Hearing List",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "submitSchedulingProposals",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -575,6 +608,7 @@
       "useCases": "UC-47 View Dispute Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "updateDisputes",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -591,6 +625,7 @@
       "useCases": "UC-47 View Dispute Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "provideAdditionalInfo",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -607,6 +642,7 @@
       "useCases": "UC-47 View Dispute Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "markDisputeViewed",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -623,6 +659,7 @@
       "useCases": "UC-47 View Dispute Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "sendDisputeMessage",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -639,6 +676,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "listDisputeMessages",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -655,6 +693,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "hideMessage",
       "roles": [
         "ADMIN",
@@ -674,6 +713,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "unhideMessage",
       "roles": [
         "ADMIN",
@@ -693,6 +733,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getActivities",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -709,6 +750,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getNotes",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -725,6 +767,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getInternalMembers",
       "roles": [
         "ADMIN",
@@ -744,6 +787,7 @@
       "useCases": "UC-47 View Dispute Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "addNote",
       "roles": [
         "ADMIN",
@@ -763,6 +807,7 @@
       "useCases": "UC-47 View Dispute Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "deleteNote",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -779,6 +824,7 @@
       "useCases": "UC-47 View Dispute Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "submitDefendantResponse",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -795,6 +841,7 @@
       "useCases": "UC-47 View Dispute Information; UC-77 View Dispute Specific Information",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getVerdict",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -811,6 +858,7 @@
       "useCases": "UC-86 Issue Hearing Verdict",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "getHearingVerdictReadiness",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -827,6 +875,7 @@
       "useCases": "UC-86 Issue Hearing Verdict",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "issueHearingVerdict",
       "roles": [
         "ADMIN",
@@ -846,6 +895,7 @@
       "useCases": "UC-49 Report Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "submitAppeal",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -862,6 +912,7 @@
       "useCases": "UC-49 Report Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "appealRejection",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -878,6 +929,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "resolveAppeal",
       "roles": [
         "ADMIN"
@@ -896,6 +948,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "resolveRejectionAppeal",
       "roles": [
         "ADMIN"
@@ -914,6 +967,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "updateDisputePhase",
       "roles": [
         "ADMIN",
@@ -933,6 +987,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "requestAdditionalInfo",
       "roles": [
         "ADMIN",
@@ -952,6 +1007,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "adminUpdateDispute",
       "roles": [
         "ADMIN",
@@ -971,6 +1027,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "resolveDispute",
       "roles": [
         "ADMIN",
@@ -990,6 +1047,7 @@
       "useCases": "UC-49 Report Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "escalateDispute",
       "roles": [
         "ADMIN",
@@ -1009,6 +1067,7 @@
       "useCases": "UC-79 Schedule Hearing; UC-80 View Hearing List",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "autoScheduleHearing",
       "roles": [
         "ADMIN",
@@ -1028,6 +1087,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "cancelDispute",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -1044,6 +1104,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "acceptDispute",
       "roles": [
         "ADMIN",
@@ -1063,6 +1124,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "triageDispute",
       "roles": [
         "ADMIN",
@@ -1082,6 +1144,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "completePreview",
       "roles": [
         "ADMIN",
@@ -1101,6 +1164,7 @@
       "useCases": "UC-78 Solve Dispute",
       "group": "disputes-main",
       "controllerName": "DisputesController",
+      "sourceFilePath": "server/src/modules/disputes/disputes.controller.ts",
       "methodName": "rejectDispute",
       "roles": [
         "ADMIN",
@@ -1120,6 +1184,7 @@
       "useCases": "UC-48 Add Evidence",
       "group": "disputes-evidence",
       "controllerName": "EvidenceController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/evidence.controller.ts",
       "methodName": "uploadEvidence",
       "roles": [
         "CLIENT",
@@ -1140,6 +1205,7 @@
       "useCases": "UC-47 View Dispute Information; UC-48 Add Evidence; UC-77 View Dispute Specific Information",
       "group": "disputes-evidence",
       "controllerName": "EvidenceController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/evidence.controller.ts",
       "methodName": "getEvidenceList",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -1156,6 +1222,7 @@
       "useCases": "UC-47 View Dispute Information; UC-48 Add Evidence; UC-77 View Dispute Specific Information",
       "group": "disputes-evidence",
       "controllerName": "EvidenceController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/evidence.controller.ts",
       "methodName": "getQuota",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -1172,6 +1239,7 @@
       "useCases": "UC-47 View Dispute Information; UC-48 Add Evidence; UC-77 View Dispute Specific Information",
       "group": "disputes-evidence",
       "controllerName": "EvidenceController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/evidence.controller.ts",
       "methodName": "getEvidence",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -1188,6 +1256,7 @@
       "useCases": "UC-47 View Dispute Information; UC-48 Add Evidence; UC-77 View Dispute Specific Information",
       "group": "disputes-evidence",
       "controllerName": "EvidenceController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/evidence.controller.ts",
       "methodName": "flagEvidence",
       "roles": [
         "STAFF",
@@ -1207,6 +1276,7 @@
       "useCases": "UC-47 View Dispute Information; UC-48 Add Evidence; UC-77 View Dispute Specific Information",
       "group": "disputes-evidence",
       "controllerName": "EvidenceController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/evidence.controller.ts",
       "methodName": "exportEvidencePackage",
       "roles": [
         "CLIENT",
@@ -1229,6 +1299,7 @@
       "useCases": "UC-79 Schedule Hearing",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "scheduleHearing",
       "roles": [
         "ADMIN",
@@ -1248,6 +1319,7 @@
       "useCases": "UC-80 View Hearing List",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "listHearingsForDispute",
       "roles": [
         "ADMIN",
@@ -1270,6 +1342,7 @@
       "useCases": "UC-80 View Hearing List",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "listMyHearings",
       "roles": [
         "STAFF",
@@ -1289,6 +1362,7 @@
       "useCases": "UC-81 View Hearing Detail",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "getHearingById",
       "roles": [
         "ADMIN",
@@ -1311,6 +1385,7 @@
       "useCases": "UC-81 View Hearing Detail",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "getHearingWorkspace",
       "roles": [
         "ADMIN",
@@ -1333,6 +1408,7 @@
       "useCases": "UC-84 Manage Hearing Statements & Q&A",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "listHearingStatements",
       "roles": [
         "ADMIN",
@@ -1355,6 +1431,7 @@
       "useCases": "UC-84 Manage Hearing Statements & Q&A",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "listHearingQuestions",
       "roles": [
         "ADMIN",
@@ -1377,6 +1454,7 @@
       "useCases": "UC-81 View Hearing Detail",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "getHearingTimeline",
       "roles": [
         "ADMIN",
@@ -1399,6 +1477,7 @@
       "useCases": "UC-81 View Hearing Detail",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "getHearingAttendance",
       "roles": [
         "ADMIN",
@@ -1418,6 +1497,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "validateSchedule",
       "roles": [
         "ADMIN",
@@ -1437,6 +1517,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "startHearing",
       "roles": [
         "STAFF",
@@ -1456,6 +1537,7 @@
       "useCases": "UC-83 Control Hearing Phase & Speaker",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "transitionHearingPhase",
       "roles": [
         "STAFF",
@@ -1475,6 +1557,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "pauseHearing",
       "roles": [
         "STAFF",
@@ -1494,6 +1577,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "resumeHearing",
       "roles": [
         "STAFF",
@@ -1513,6 +1597,7 @@
       "useCases": "UC-85 Manage Hearing Evidence Intake",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "openEvidenceIntake",
       "roles": [
         "STAFF",
@@ -1532,6 +1617,7 @@
       "useCases": "UC-85 Manage Hearing Evidence Intake",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "closeEvidenceIntake",
       "roles": [
         "STAFF",
@@ -1551,6 +1637,7 @@
       "useCases": "UC-83 Control Hearing Phase & Speaker",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "updateSpeakerControl",
       "roles": [
         "STAFF",
@@ -1570,6 +1657,7 @@
       "useCases": "UC-84 Manage Hearing Statements & Q&A",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "submitStatement",
       "roles": [
         "CLIENT",
@@ -1592,6 +1680,7 @@
       "useCases": "UC-84 Manage Hearing Statements & Q&A",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "askQuestion",
       "roles": [
         "STAFF",
@@ -1611,6 +1700,7 @@
       "useCases": "UC-84 Manage Hearing Statements & Q&A",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "answerQuestion",
       "roles": [
         "CLIENT",
@@ -1633,6 +1723,7 @@
       "useCases": "UC-84 Manage Hearing Statements & Q&A",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "cancelQuestion",
       "roles": [
         "STAFF",
@@ -1652,6 +1743,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "endHearing",
       "roles": [
         "STAFF",
@@ -1671,6 +1763,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "rescheduleHearing",
       "roles": [
         "STAFF",
@@ -1690,6 +1783,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "extendHearing",
       "roles": [
         "STAFF",
@@ -1709,6 +1803,7 @@
       "useCases": "UC-81 View Hearing Detail",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "getSupportCandidates",
       "roles": [
         "STAFF",
@@ -1728,6 +1823,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "inviteSupport",
       "roles": [
         "STAFF",
@@ -1747,6 +1843,7 @@
       "useCases": "UC-82 Control Hearing Session",
       "group": "disputes-hearing",
       "controllerName": "HearingController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/hearing.controller.ts",
       "methodName": "dispatchDueReminders",
       "roles": [
         "ADMIN",
@@ -1766,6 +1863,7 @@
       "useCases": "UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-settlement",
       "controllerName": "SettlementController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/settlement.controller.ts",
       "methodName": "createSettlementOffer",
       "roles": [
         "CLIENT",
@@ -1786,6 +1884,7 @@
       "useCases": "UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-settlement",
       "controllerName": "SettlementController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/settlement.controller.ts",
       "methodName": "getSettlementsByDispute",
       "roles": [
         "CLIENT",
@@ -1808,6 +1907,7 @@
       "useCases": "UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-settlement",
       "controllerName": "SettlementController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/settlement.controller.ts",
       "methodName": "getSettlementById",
       "roles": [
         "CLIENT",
@@ -1830,6 +1930,7 @@
       "useCases": "UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-settlement",
       "controllerName": "SettlementController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/settlement.controller.ts",
       "methodName": "respondToSettlement",
       "roles": [
         "CLIENT",
@@ -1850,6 +1951,7 @@
       "useCases": "UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-settlement",
       "controllerName": "SettlementController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/settlement.controller.ts",
       "methodName": "cancelSettlement",
       "roles": [
         "CLIENT",
@@ -1870,6 +1972,7 @@
       "useCases": "UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-settlement",
       "controllerName": "SettlementController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/settlement.controller.ts",
       "methodName": "getSettlementAttemptsSummary",
       "roles": [
         "CLIENT",
@@ -1892,6 +1995,7 @@
       "useCases": "UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-settlement",
       "controllerName": "SettlementController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/settlement.controller.ts",
       "methodName": "getChatLockStatus",
       "roles": [
         "CLIENT",
@@ -1912,6 +2016,7 @@
       "useCases": "UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-settlement",
       "controllerName": "SettlementController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/settlement.controller.ts",
       "methodName": "createStaffSuggestion",
       "roles": [
         "STAFF",
@@ -1931,6 +2036,7 @@
       "useCases": "UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-settlement",
       "controllerName": "SettlementController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/settlement.controller.ts",
       "methodName": "getNonComplianceSummary",
       "roles": [
         "STAFF",
@@ -1950,6 +2056,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "estimateComplexity",
       "roles": [
         "STAFF",
@@ -1969,6 +2076,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "estimateComplexityBatch",
       "roles": [
         "STAFF",
@@ -1988,6 +2096,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "getAvailableStaff",
       "roles": [
         "STAFF",
@@ -2007,6 +2116,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "getDashboardOverview",
       "roles": [
         "STAFF",
@@ -2026,6 +2136,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "autoAssignStaff",
       "roles": [
         "ADMIN"
@@ -2044,6 +2155,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "reassignDispute",
       "roles": [
         "ADMIN"
@@ -2062,6 +2174,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "checkSessionTiming",
       "roles": [
         "STAFF",
@@ -2081,6 +2194,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "earlyReleaseStaff",
       "roles": [
         "STAFF",
@@ -2100,6 +2214,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "analyzeFragmentedTime",
       "roles": [
         "STAFF",
@@ -2119,6 +2234,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "emergencyReassign",
       "roles": [
         "ADMIN"
@@ -2137,6 +2253,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "recordActivity",
       "roles": [
         "STAFF",
@@ -2156,6 +2273,7 @@
       "useCases": "UC-76 View List Dispute; UC-77 View Dispute Specific Information; UC-78 Solve Dispute",
       "group": "disputes-staff",
       "controllerName": "StaffAssignmentController",
+      "sourceFilePath": "server/src/modules/disputes/controllers/staff-assignment.controller.ts",
       "methodName": "getSuggestionsForReassign",
       "roles": [
         "STAFF",
@@ -2175,6 +2293,7 @@
       "useCases": "UC-108 Staff leave request form",
       "group": "leave",
       "controllerName": "LeaveController",
+      "sourceFilePath": "server/src/modules/leave/leave.controller.ts",
       "methodName": "createLeaveRequest",
       "roles": [
         "STAFF",
@@ -2194,6 +2313,7 @@
       "useCases": "UC-110 Reviewing leave requests for staff",
       "group": "leave",
       "controllerName": "LeaveController",
+      "sourceFilePath": "server/src/modules/leave/leave.controller.ts",
       "methodName": "listLeaveRequests",
       "roles": [
         "STAFF",
@@ -2213,6 +2333,7 @@
       "useCases": "UC-110 Reviewing leave requests for staff",
       "group": "leave",
       "controllerName": "LeaveController",
+      "sourceFilePath": "server/src/modules/leave/leave.controller.ts",
       "methodName": "processLeaveRequest",
       "roles": [
         "ADMIN"
@@ -2231,6 +2352,7 @@
       "useCases": "UC-108 Staff leave request form",
       "group": "leave",
       "controllerName": "LeaveController",
+      "sourceFilePath": "server/src/modules/leave/leave.controller.ts",
       "methodName": "cancelLeaveRequest",
       "roles": [
         "STAFF",
@@ -2250,6 +2372,7 @@
       "useCases": "UC-108 Staff leave request form",
       "group": "leave",
       "controllerName": "LeaveController",
+      "sourceFilePath": "server/src/modules/leave/leave.controller.ts",
       "methodName": "getLeaveBalance",
       "roles": [
         "STAFF",
@@ -2269,6 +2392,7 @@
       "useCases": "UC-108 Staff leave request form",
       "group": "leave",
       "controllerName": "LeaveController",
+      "sourceFilePath": "server/src/modules/leave/leave.controller.ts",
       "methodName": "listLeavePolicies",
       "roles": [
         "ADMIN"
@@ -2287,6 +2411,7 @@
       "useCases": "UC-110 Reviewing leave requests for staff",
       "group": "leave",
       "controllerName": "LeaveController",
+      "sourceFilePath": "server/src/modules/leave/leave.controller.ts",
       "methodName": "updateLeavePolicy",
       "roles": [
         "ADMIN"
@@ -2305,6 +2430,7 @@
       "useCases": "UC-11 Report Feedback",
       "group": "reports",
       "controllerName": "ReportController",
+      "sourceFilePath": "server/src/modules/report/report.controller.ts",
       "methodName": "create",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -2321,6 +2447,7 @@
       "useCases": "UC-72 View List Feedback Report",
       "group": "reports",
       "controllerName": "ReportController",
+      "sourceFilePath": "server/src/modules/report/report.controller.ts",
       "methodName": "findPending",
       "roles": [
         "ADMIN"
@@ -2339,6 +2466,7 @@
       "useCases": "UC-73 View List Feedback Report Detail",
       "group": "reports",
       "controllerName": "ReportController",
+      "sourceFilePath": "server/src/modules/report/report.controller.ts",
       "methodName": "findOne",
       "roles": [
         "ADMIN"
@@ -2357,6 +2485,7 @@
       "useCases": "UC-74 Delete Feedback; UC-75 Restore Feedback",
       "group": "reports",
       "controllerName": "ReportController",
+      "sourceFilePath": "server/src/modules/report/report.controller.ts",
       "methodName": "resolve",
       "roles": [
         "ADMIN"
@@ -2375,6 +2504,7 @@
       "useCases": "UC-41 Rate Other User",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "create",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -2391,6 +2521,7 @@
       "useCases": "UC-41 Rate Other User",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "update",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -2407,6 +2538,7 @@
       "useCases": "UC-41 Rate Other User",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "getEditHistory",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -2423,6 +2555,7 @@
       "useCases": "UC-74 Delete Feedback",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "softDelete",
       "roles": [
         "ADMIN"
@@ -2441,6 +2574,7 @@
       "useCases": "UC-75 Restore Feedback",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "restore",
       "roles": [
         "ADMIN"
@@ -2459,6 +2593,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "dismissReport",
       "roles": [
         "ADMIN"
@@ -2477,6 +2612,7 @@
       "useCases": "UC-71 View list Feedback; UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "getFlaggedReviews",
       "roles": [
         "ADMIN"
@@ -2495,6 +2631,7 @@
       "useCases": "UC-71 View list Feedback; UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "getReviewsForModeration",
       "roles": [
         "ADMIN"
@@ -2513,6 +2650,7 @@
       "useCases": "UC-71 View list Feedback; UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "openModerationCase",
       "roles": [
         "ADMIN"
@@ -2531,6 +2669,7 @@
       "useCases": "UC-71 View list Feedback; UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "takeModerationCase",
       "roles": [
         "ADMIN"
@@ -2549,6 +2688,7 @@
       "useCases": "UC-71 View list Feedback; UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "releaseModerationCase",
       "roles": [
         "ADMIN"
@@ -2567,6 +2707,7 @@
       "useCases": "UC-71 View list Feedback; UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "reviews",
       "controllerName": "ReviewController",
+      "sourceFilePath": "server/src/modules/review/review.controller.ts",
       "methodName": "reassignModerationCase",
       "roles": [
         "ADMIN"
@@ -2585,6 +2726,7 @@
       "useCases": "UC-95 View Statistic",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "getStatistics",
       "roles": [],
       "preferredRole": "ADMIN",
@@ -2601,6 +2743,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "getFlaggedUsers",
       "roles": [],
       "preferredRole": "ADMIN",
@@ -2617,6 +2760,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "getPendingAppeals",
       "roles": [],
       "preferredRole": "ADMIN",
@@ -2633,6 +2777,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "createFlag",
       "roles": [],
       "preferredRole": "ADMIN",
@@ -2649,6 +2794,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "updateFlag",
       "roles": [],
       "preferredRole": "ADMIN",
@@ -2665,6 +2811,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "resolveAppeal",
       "roles": [],
       "preferredRole": "ADMIN",
@@ -2681,6 +2828,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "getMyFlags",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -2697,6 +2845,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "appealFlag",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -2713,6 +2862,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "getUserFlags",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -2729,6 +2879,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "getWarningStatus",
       "roles": [],
       "preferredRole": "CLIENT",
@@ -2745,6 +2896,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "checkPerformanceFlags",
       "roles": [],
       "preferredRole": "ADMIN",
@@ -2761,6 +2913,7 @@
       "useCases": "UC-72 View List Feedback Report; UC-73 View List Feedback Report Detail",
       "group": "user-warnings",
       "controllerName": "UserWarningController",
+      "sourceFilePath": "server/src/modules/user-warning/user-warning.controller.ts",
       "methodName": "expireOldFlags",
       "roles": [],
       "preferredRole": "ADMIN",
@@ -2777,6 +2930,7 @@
       "useCases": "UC-95 View Statistic",
       "group": "users-admin",
       "controllerName": "UsersController",
+      "sourceFilePath": "server/src/modules/users/users.controller.ts",
       "methodName": "getUserStatistics",
       "roles": [
         "ADMIN",

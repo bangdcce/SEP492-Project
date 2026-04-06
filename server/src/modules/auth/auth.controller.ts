@@ -1,4 +1,4 @@
-import {
+﻿import {
   Controller,
   Post,
   Body,
@@ -54,7 +54,8 @@ import {
   DeleteAccountDto,
   // CompleteGoogleSignupDto
 } from './dto';
-import { UserEntity } from '../../database/entities/user.entity';
+import { UserEntity, UserRole } from '../../database/entities/user.entity';
+import { StaffApplicationStatus } from '../../database/entities/staff-application.entity';
 
 // Extend Express Request to include user
 interface AuthRequest extends Request {
@@ -286,7 +287,6 @@ export class AuthController {
     message: string;
     data: AuthResponseDto;
   }> {
-    // Fetch user with profile to get all profile data
     const userWithProfile = await this.authService.findUserWithProfile(req.user.id);
 
     if (!userWithProfile) {
@@ -296,10 +296,17 @@ export class AuthController {
       });
     }
 
-    // Map the entity into the public auth response DTO.
     const certifications = Array.isArray(userWithProfile?.profile?.bankInfo?.certifications)
       ? userWithProfile.profile.bankInfo.certifications
       : undefined;
+
+    const staffApprovalStatus =
+      userWithProfile.role === UserRole.STAFF
+        ? userWithProfile.staffApplication?.status ||
+          (userWithProfile.isVerified
+            ? StaffApplicationStatus.APPROVED
+            : StaffApplicationStatus.PENDING)
+        : undefined;
 
     const userResponse: AuthResponseDto = {
       id: userWithProfile.id,
@@ -318,6 +325,13 @@ export class AuthController {
       role: userWithProfile.role,
       isVerified: userWithProfile.isVerified,
       isEmailVerified: !!userWithProfile.emailVerifiedAt,
+      ...(staffApprovalStatus
+        ? {
+            staffApprovalStatus,
+            staffApplicationReviewedAt: userWithProfile.staffApplication?.reviewedAt ?? null,
+            staffRejectionReason: userWithProfile.staffApplication?.rejectionReason ?? null,
+          }
+        : {}),
       currentTrustScore: userWithProfile.currentTrustScore,
       badge: userWithProfile.badge || 'NORMAL',
       stats: {

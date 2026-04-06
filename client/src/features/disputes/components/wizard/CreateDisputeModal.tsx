@@ -33,7 +33,12 @@ export const CreateDisputeModal = ({
   }
 
   return (
-    <div className="fixed inset-0 z-50" role="dialog" aria-modal="true">
+    <div
+      className="fixed inset-0 z-50"
+      role="dialog"
+      aria-modal="true"
+      data-testid="create-dispute-modal"
+    >
       <div
         className="fixed inset-0 bg-slate-900/75 transition-opacity"
         onClick={onClose}
@@ -48,6 +53,7 @@ export const CreateDisputeModal = ({
             <div className="bg-slate-50 px-4 py-3 sm:flex sm:flex-row-reverse sm:px-6 border-b border-gray-200">
               <button
                 type="button"
+                data-testid="close-create-dispute"
                 className="inline-flex rounded-md p-2 text-gray-400 hover:text-gray-500 focus:outline-none"
                 onClick={onClose}
               >

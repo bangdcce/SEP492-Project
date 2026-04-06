@@ -16,6 +16,7 @@ import { TasksController } from './tasks.controller';
 import { TasksGateway } from './tasks.gateway';
 import { WorkspaceChatModule } from '../workspace-chat/workspace-chat.module';
 import { AuthModule } from '../auth';
+import { AuditLogsModule } from '../audit-logs/audit-logs.module';
 
 @Module({
   imports: [
@@ -33,6 +34,7 @@ import { AuthModule } from '../auth';
       TaskSubmissionEntity,
     ]),
     AuthModule,
+    AuditLogsModule,
     WorkspaceChatModule,
   ],
   providers: [TasksService, TasksGateway],

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   EditorContent,
@@ -31,6 +31,15 @@ import {
 } from "lucide-react";
 
 import { Button } from "@/shared/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
+import { Label } from "@/shared/components/ui/label";
 import { cn } from "@/shared/utils/utils";
 
 export type NarrativeDocument = Record<string, unknown>;
@@ -102,7 +111,9 @@ const hasMeaningfulNarrativeContent = (
   };
 
   const content = normalizeNarrativeContent(value).content;
-  return Array.isArray(content) ? content.some((node) => nodeHasMeaningfulContent(node)) : false;
+  return Array.isArray(content)
+    ? content.some((node) => nodeHasMeaningfulContent(node))
+    : false;
 };
 
 type ToolbarButtonProps = {
@@ -151,6 +162,9 @@ export function SpecNarrativeEditor({
   placeholder = "Write the detailed scope notes, assumptions, exclusions, and delivery clarifications here...",
   className,
 }: SpecNarrativeEditorProps) {
+  const [isLinkDialogOpen, setIsLinkDialogOpen] = useState(false);
+  const [linkInputValue, setLinkInputValue] = useState("");
+
   const editor = useEditor({
     extensions: narrativeExtensions.map((extension) =>
       extension.name === "placeholder"
@@ -232,9 +246,9 @@ export function SpecNarrativeEditor({
   };
 
   const runEditorCommand = (
-    command: (
-      chain: ReturnType<NonNullable<typeof editor>["chain"]>,
-    ) => { run: () => boolean },
+    command: (chain: ReturnType<NonNullable<typeof editor>["chain"]>) => {
+      run: () => boolean;
+    },
   ) => {
     if (!editor) return;
     const selection = {
@@ -250,16 +264,24 @@ export function SpecNarrativeEditor({
       typeof editor.getAttributes("link").href === "string"
         ? (editor.getAttributes("link").href as string)
         : "";
-    const url = window.prompt("Enter a URL", previousUrl);
-    if (url === null) return;
-    const normalizedUrl = normalizeLinkUrl(url);
+    setLinkInputValue(previousUrl);
+    setIsLinkDialogOpen(true);
+  };
+
+  const applyLinkFromDialog = () => {
+    if (!editor) return;
+    const normalizedUrl = normalizeLinkUrl(linkInputValue);
     if (!normalizedUrl) {
       runEditorCommand((chain) => chain.extendMarkRange("link").unsetLink());
+      setIsLinkDialogOpen(false);
+      setLinkInputValue("");
       return;
     }
     runEditorCommand((chain) =>
       chain.extendMarkRange("link").setLink({ href: normalizedUrl }),
     );
+    setIsLinkDialogOpen(false);
+    setLinkInputValue("");
   };
 
   if (!editor) {
@@ -271,131 +293,188 @@ export function SpecNarrativeEditor({
   }
 
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50/80 px-3 py-3">
-        <ToolbarButton
-          label="Bold"
-          active={toolbarState?.isBoldActive}
-          onClick={() => runEditorCommand((chain) => chain.toggleBold())}
-        >
-          <Bold className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Italic"
-          active={toolbarState?.isItalicActive}
-          onClick={() => runEditorCommand((chain) => chain.toggleItalic())}
-        >
-          <Italic className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Underline"
-          active={toolbarState?.isUnderlineActive}
-          onClick={() => runEditorCommand((chain) => chain.toggleUnderline())}
-        >
-          <UnderlineIcon className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Heading 1"
-          active={toolbarState?.isHeading1Active}
-          onClick={() =>
-            runEditorCommand((chain) => chain.toggleHeading({ level: 1 }))
-          }
-        >
-          <Heading1 className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Heading 2"
-          active={toolbarState?.isHeading2Active}
-          onClick={() =>
-            runEditorCommand((chain) => chain.toggleHeading({ level: 2 }))
-          }
-        >
-          <Heading2 className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Heading 3"
-          active={toolbarState?.isHeading3Active}
-          onClick={() =>
-            runEditorCommand((chain) => chain.toggleHeading({ level: 3 }))
-          }
-        >
-          <Heading3 className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Bullet list"
-          active={toolbarState?.isBulletListActive}
-          onClick={() => runEditorCommand((chain) => chain.toggleBulletList())}
-        >
-          <List className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Numbered list"
-          active={toolbarState?.isOrderedListActive}
-          onClick={() =>
-            runEditorCommand((chain) => chain.toggleOrderedList())
-          }
-        >
-          <ListOrdered className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Checklist"
-          active={toolbarState?.isTaskListActive}
-          onClick={() => runEditorCommand((chain) => chain.toggleTaskList())}
-        >
-          <ListChecks className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Quote"
-          active={toolbarState?.isBlockquoteActive}
-          onClick={() => runEditorCommand((chain) => chain.toggleBlockquote())}
-        >
-          <Quote className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Insert divider"
-          onClick={() => runEditorCommand((chain) => chain.setHorizontalRule())}
-        >
-          <Minus className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Set link"
-          active={toolbarState?.isLinkActive}
-          onClick={setLink}
-        >
-          <Link2 className="h-4 w-4" />
-        </ToolbarButton>
-        <ToolbarButton
-          label="Remove link"
-          onClick={() => runEditorCommand((chain) => chain.unsetLink())}
-        >
-          <Unlink className="h-4 w-4" />
-        </ToolbarButton>
-        <div className="ml-auto flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => editor.chain().focus().undo().run()}
-            disabled={!toolbarState?.canUndo}
+    <>
+      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-slate-50/80 px-3 py-3">
+          <ToolbarButton
+            label="Bold"
+            active={toolbarState?.isBoldActive}
+            onClick={() => runEditorCommand((chain) => chain.toggleBold())}
           >
-            <RotateCcw className="mr-2 h-4 w-4" />
-            Undo
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => editor.chain().focus().redo().run()}
-            disabled={!toolbarState?.canRedo}
+            <Bold className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Italic"
+            active={toolbarState?.isItalicActive}
+            onClick={() => runEditorCommand((chain) => chain.toggleItalic())}
           >
-            <RotateCw className="mr-2 h-4 w-4" />
-            Redo
-          </Button>
+            <Italic className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Underline"
+            active={toolbarState?.isUnderlineActive}
+            onClick={() => runEditorCommand((chain) => chain.toggleUnderline())}
+          >
+            <UnderlineIcon className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Heading 1"
+            active={toolbarState?.isHeading1Active}
+            onClick={() =>
+              runEditorCommand((chain) => chain.toggleHeading({ level: 1 }))
+            }
+          >
+            <Heading1 className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Heading 2"
+            active={toolbarState?.isHeading2Active}
+            onClick={() =>
+              runEditorCommand((chain) => chain.toggleHeading({ level: 2 }))
+            }
+          >
+            <Heading2 className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Heading 3"
+            active={toolbarState?.isHeading3Active}
+            onClick={() =>
+              runEditorCommand((chain) => chain.toggleHeading({ level: 3 }))
+            }
+          >
+            <Heading3 className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Bullet list"
+            active={toolbarState?.isBulletListActive}
+            onClick={() =>
+              runEditorCommand((chain) => chain.toggleBulletList())
+            }
+          >
+            <List className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Numbered list"
+            active={toolbarState?.isOrderedListActive}
+            onClick={() =>
+              runEditorCommand((chain) => chain.toggleOrderedList())
+            }
+          >
+            <ListOrdered className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Checklist"
+            active={toolbarState?.isTaskListActive}
+            onClick={() => runEditorCommand((chain) => chain.toggleTaskList())}
+          >
+            <ListChecks className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Quote"
+            active={toolbarState?.isBlockquoteActive}
+            onClick={() =>
+              runEditorCommand((chain) => chain.toggleBlockquote())
+            }
+          >
+            <Quote className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Insert divider"
+            onClick={() =>
+              runEditorCommand((chain) => chain.setHorizontalRule())
+            }
+          >
+            <Minus className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Set link"
+            active={toolbarState?.isLinkActive}
+            onClick={setLink}
+          >
+            <Link2 className="h-4 w-4" />
+          </ToolbarButton>
+          <ToolbarButton
+            label="Remove link"
+            onClick={() => runEditorCommand((chain) => chain.unsetLink())}
+          >
+            <Unlink className="h-4 w-4" />
+          </ToolbarButton>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => editor.chain().focus().undo().run()}
+              disabled={!toolbarState?.canUndo}
+            >
+              <RotateCcw className="mr-2 h-4 w-4" />
+              Undo
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => editor.chain().focus().redo().run()}
+              disabled={!toolbarState?.canRedo}
+            >
+              <RotateCw className="mr-2 h-4 w-4" />
+              Redo
+            </Button>
+          </div>
         </div>
+
+        <EditorContent editor={editor} />
       </div>
 
-      <EditorContent editor={editor} />
-    </div>
+      <Dialog
+        open={isLinkDialogOpen}
+        onOpenChange={(open) => {
+          setIsLinkDialogOpen(open);
+          if (!open) {
+            setLinkInputValue("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Insert link</DialogTitle>
+            <DialogDescription>
+              Enter a URL to apply on the selected text. Leave empty to remove
+              the current link.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="spec-narrative-link-input">URL</Label>
+            <input
+              id="spec-narrative-link-input"
+              type="text"
+              value={linkInputValue}
+              onChange={(event) => setLinkInputValue(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  applyLinkFromDialog();
+                }
+              }}
+              placeholder="https://example.com"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsLinkDialogOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button type="button" onClick={applyLinkFromDialog}>
+              Apply link
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

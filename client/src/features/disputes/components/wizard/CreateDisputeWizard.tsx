@@ -96,6 +96,10 @@ export const CreateDisputeWizard = ({
   const allowedCategories = useMemo(() => {
     switch (normalizedStatus) {
       case "SUBMITTED":
+      case "PENDING_STAFF_REVIEW":
+      case "PENDING_CLIENT_APPROVAL":
+      case "COMPLETED":
+      case "PAID":
         return [
           DisputeCategory.QUALITY,
           DisputeCategory.DEADLINE,
@@ -165,10 +169,13 @@ export const CreateDisputeWizard = ({
       return "Use a Change Request for scope changes. Dispute is for serious issues only.";
     }
     if (category === DisputeCategory.QUALITY) {
-      return "Requires submitted proof (Submitted/Revisions).";
+      return "Use this when delivered work does not match the agreed milestone outputs.";
     }
-    return "Available while milestone is in progress or awaiting approval.";
-  }, [blockedCategories]);
+    if (normalizedStatus === "COMPLETED" || normalizedStatus === "PAID") {
+      return "Available during the post-delivery warranty window while evidence is still available.";
+    }
+    return "Available while the milestone is in progress or awaiting approval.";
+  }, [blockedCategories, normalizedStatus]);
 
   // Filter out current user from defendant list
   const availableDefendants = useMemo(
@@ -278,9 +285,7 @@ export const CreateDisputeWizard = ({
 
   const handleSubmit = async () => {
     if (!isDisputeAllowed) {
-      toast.error(
-        "Dispute is only available while the milestone is in progress or awaiting approval.",
-      );
+      toast.error("Dispute is not available for this milestone status.");
       return;
     }
     if (!selectedCategory || !selectedDefendant) {
@@ -390,8 +395,7 @@ export const CreateDisputeWizard = ({
             {statusLabel}
             {!isDisputeAllowed && (
               <div className="mt-2 text-xs text-slate-500">
-                Disputes are only available while funds are held in escrow
-                (In progress / Submitted).
+                Disputes are not available for the current milestone status.
               </div>
             )}
           </div>
@@ -449,6 +453,7 @@ export const CreateDisputeWizard = ({
                 <button
                   key={reason.id}
                   type="button"
+                  data-testid={`dispute-category-${String(reason.id).toLowerCase()}`}
                   role="radio"
                   aria-checked={checked}
                   aria-disabled={!allowed}
@@ -498,6 +503,7 @@ export const CreateDisputeWizard = ({
                 Who is at fault?
               </label>
               <select
+                data-testid="dispute-defendant-select"
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 sm:text-sm p-2 border"
                 value={selectedDefendant}
                 onChange={(e) => setSelectedDefendant(e.target.value)}
@@ -520,6 +526,7 @@ export const CreateDisputeWizard = ({
                 !selectedDefendant ||
                 !isCategoryAllowed(selectedCategory)
               }
+              data-testid="dispute-step-1-next"
               onClick={() => setStep(2)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed hover:bg-slate-800 transition-colors"
             >
@@ -538,6 +545,7 @@ export const CreateDisputeWizard = ({
             </label>
             <div className="mt-1">
               <textarea
+                data-testid="dispute-reason-textarea"
                 rows={4}
                 className="block w-full rounded-md border-gray-300 shadow-sm focus:border-teal-500 focus:ring-teal-500 sm:text-sm p-3 border placeholder-gray-400"
                 placeholder="Please explain what happened, referencing specific contract terms..."
@@ -561,6 +569,7 @@ export const CreateDisputeWizard = ({
                 multiple
                 className="hidden"
                 id="evidence-upload"
+                data-testid="dispute-evidence-upload"
                 onChange={handleFileUpload}
                 accept="image/*,.pdf,.docx"
               />
@@ -603,6 +612,7 @@ export const CreateDisputeWizard = ({
           <div className="flex justify-between pt-4">
             <button
               onClick={() => setStep(1)}
+              data-testid="dispute-step-2-back"
               className="text-gray-600 hover:text-slate-900 text-sm font-medium"
             >
               Back
@@ -614,6 +624,7 @@ export const CreateDisputeWizard = ({
                 !selectedCategory ||
                 !isCategoryAllowed(selectedCategory)
               }
+              data-testid="dispute-step-2-next"
               onClick={() => setStep(3)}
               className="flex items-center gap-2 px-4 py-2 bg-slate-900 text-white rounded-lg disabled:opacity-50 hover:bg-slate-800 transition-colors"
             >
@@ -663,6 +674,7 @@ export const CreateDisputeWizard = ({
           <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
             <input
               type="checkbox"
+              data-testid="dispute-disclaimer-checkbox"
               checked={disclaimerAccepted}
               onChange={(event) => setDisclaimerAccepted(event.target.checked)}
               className="mt-0.5"
@@ -675,6 +687,7 @@ export const CreateDisputeWizard = ({
           <div className="flex justify-between pt-2">
             <button
               onClick={() => setStep(2)}
+              data-testid="dispute-step-3-back"
               className="text-gray-600 hover:text-slate-900 text-sm font-medium"
             >
               Back
@@ -682,6 +695,7 @@ export const CreateDisputeWizard = ({
             <button
               onClick={handleSubmit}
               disabled={isSubmitting || !disclaimerAccepted}
+              data-testid="dispute-confirm-submit"
               className="flex items-center gap-2 px-6 py-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 shadow-md transition-colors disabled:opacity-70"
             >
               {isSubmitting ? "Submitting..." : "Confirm Dispute"}

@@ -41,6 +41,17 @@ const mergeNotification = (
   );
 };
 
+const mergeNotificationList = (
+  current: NotificationItem[],
+  incoming: NotificationItem[],
+  limit: number,
+): NotificationItem[] => {
+  const incomingIds = new Set(incoming.map((item) => item.id));
+  return [...incoming, ...current.filter((item) => !incomingIds.has(item.id))]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, limit);
+};
+
 export const useNotifications = (limit: number = 10) => {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -52,7 +63,9 @@ export const useNotifications = (limit: number = 10) => {
       }
       try {
         const data = await getNotifications({ page: 1, limit });
-        setNotifications(data.items ?? []);
+        setNotifications((prev) =>
+          mergeNotificationList(prev, data.items ?? [], limit),
+        );
       } catch (error) {
         if (!options?.silent) {
           console.warn("Failed to refresh notifications", error);

@@ -24,6 +24,9 @@ export interface GetAuditLogsParams {
   eventCategory?: AuditEventCategory;
   statusCode?: number;
   errorOnly?: boolean;
+  incidentOnly?: boolean;
+  component?: string;
+  fingerprint?: string;
 }
 
 export interface AuditLogsResponse {
@@ -46,10 +49,13 @@ export const auditLogsApi = {
   getAll: (params?: GetAuditLogsParams) =>
     apiClient.get<AuditLogsResponse>(ENDPOINTS.AUDIT_LOGS, { params }),
 
-  getById: (id: string) => apiClient.get<AuditLogEntry>(`${ENDPOINTS.AUDIT_LOGS}/${id}`),
+  getById: (id: string) =>
+    apiClient.get<AuditLogEntry>(`${ENDPOINTS.AUDIT_LOGS}/${id}`),
 
   getTimeline: (id: string) =>
-    apiClient.get<AuditLogTimelineResponse>(`${ENDPOINTS.AUDIT_LOGS}/${id}/timeline`),
+    apiClient.get<AuditLogTimelineResponse>(
+      `${ENDPOINTS.AUDIT_LOGS}/${id}/timeline`,
+    ),
 
   export: async (format: "csv" | "xlsx", params?: GetAuditLogsParams) =>
     await apiClient.getResponse<Blob>(`${ENDPOINTS.AUDIT_LOGS}/export`, {

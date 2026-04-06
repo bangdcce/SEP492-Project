@@ -21,8 +21,17 @@ import { supabaseClient } from '../../config/supabase.config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
 import { ProfileEntity } from '../../database/entities/profile.entity';
-import { UserSkillEntity, SkillPriority, SkillVerificationStatus } from '../../database/entities/user-skill.entity';
+import {
+  UserSkillEntity,
+  SkillPriority,
+  SkillVerificationStatus,
+} from '../../database/entities/user-skill.entity';
 import { SkillEntity } from '../../database/entities/skill.entity';
+import {
+  InitializeSigningCredentialDto,
+  RotateSigningCredentialDto,
+} from './dto/signing-credentials.dto';
+import { SigningCredentialsService } from './signing-credentials.service';
 import * as path from 'path';
 
 interface AuthRequest extends Request {
@@ -45,7 +54,38 @@ export class ProfileController {
     private readonly userSkillRepo: Repository<UserSkillEntity>,
     @InjectRepository(SkillEntity)
     private readonly skillRepo: Repository<SkillEntity>,
+    private readonly signingCredentialsService: SigningCredentialsService,
   ) {}
+
+  @Get('signing-credentials/status')
+  @ApiOperation({ summary: 'Get Mini CA signing credential status' })
+  async getSigningCredentialStatus(@Req() req: AuthRequest) {
+    return this.signingCredentialsService.getCredentialStatus(req.user.id);
+  }
+
+  @Post('signing-credentials/initialize')
+  @ApiOperation({ summary: 'Initialize Mini CA signing credential for current user' })
+  async initializeSigningCredential(
+    @Req() req: AuthRequest,
+    @Body() dto: InitializeSigningCredentialDto,
+  ) {
+    return this.signingCredentialsService.initializeCredential(
+      req.user.id,
+      dto.pin,
+      dto.modulusLength,
+    );
+  }
+
+  @Post('signing-credentials/rotate')
+  @ApiOperation({ summary: 'Rotate Mini CA signing keypair using current PIN' })
+  async rotateSigningCredential(@Req() req: AuthRequest, @Body() dto: RotateSigningCredentialDto) {
+    return this.signingCredentialsService.rotateCredential(
+      req.user.id,
+      dto.oldPin,
+      dto.newPin,
+      dto.modulusLength,
+    );
+  }
 
   // ==============================================
   // CV MANAGEMENT
@@ -94,7 +134,8 @@ export class ProfileController {
     try {
       // Generate unique filename
       const timestamp = Date.now();
-      const ext = path.extname(file.originalname) || (file.mimetype === 'application/pdf' ? '.pdf' : '.docx');
+      const ext =
+        path.extname(file.originalname) || (file.mimetype === 'application/pdf' ? '.pdf' : '.docx');
       const filename = `cv-${timestamp}${ext}`;
       const storagePath = `cvs/${userId}/${filename}`;
 
@@ -113,15 +154,13 @@ export class ProfileController {
       }
 
       // Get public URL
-      const { data: urlData } = supabaseClient.storage
-        .from('cvs')
-        .getPublicUrl(storagePath);
+      const { data: urlData } = supabaseClient.storage.from('cvs').getPublicUrl(storagePath);
 
       const cvUrl = urlData.publicUrl;
 
       // Upsert profile with CV URL (create if not exists, update if exists)
       let profile = await this.profileRepo.findOne({ where: { userId } });
-      
+
       if (!profile) {
         // Create new profile if doesn't exist
         profile = this.profileRepo.create({ userId, cvUrl });
@@ -193,9 +232,7 @@ export class ProfileController {
       }
 
       // Delete from Supabase Storage
-      const { error } = await supabaseClient.storage
-        .from('cvs')
-        .remove([storagePath]);
+      const { error } = await supabaseClient.storage.from('cvs').remove([storagePath]);
 
       if (error) {
         console.error('[CV Delete Error]:', error);
@@ -203,10 +240,7 @@ export class ProfileController {
       }
 
       // Clear CV URL in profile
-      await this.profileRepo.update(
-        { userId },
-        { cvUrl: '' },
-      );
+      await this.profileRepo.update({ userId }, { cvUrl: '' });
 
       return { message: 'CV deleted successfully' };
     } catch (error) {
@@ -238,7 +272,7 @@ export class ProfileController {
 
     // Upsert profile (create if not exists)
     let profile = await this.profileRepo.findOne({ where: { userId } });
-    
+
     if (!profile) {
       profile = this.profileRepo.create({ userId, bio: bio.trim() });
       await this.profileRepo.save(profile);
@@ -265,7 +299,7 @@ export class ProfileController {
     });
 
     return {
-      skills: userSkills.map(us => ({
+      skills: userSkills.map((us) => ({
         id: us.id,
         skillId: us.skillId,
         skillName: us.skill.name,
@@ -313,11 +347,11 @@ export class ProfileController {
       where: { userId },
     });
 
-    const currentSkillIds = currentSkills.map(us => us.skillId);
+    const currentSkillIds = currentSkills.map((us) => us.skillId);
 
     // Determine skills to add and remove
-    const skillsToAdd = skillIds.filter(id => !currentSkillIds.includes(id));
-    const skillsToRemove = currentSkillIds.filter(id => !skillIds.includes(id));
+    const skillsToAdd = skillIds.filter((id) => !currentSkillIds.includes(id));
+    const skillsToRemove = currentSkillIds.filter((id) => !skillIds.includes(id));
 
     // Remove old skills
     if (skillsToRemove.length > 0) {
@@ -329,7 +363,7 @@ export class ProfileController {
 
     // Add new skills (all as SECONDARY by default, user can set PRIMARY via other endpoint)
     if (skillsToAdd.length > 0) {
-      const newUserSkills = skillsToAdd.map(skillId => {
+      const newUserSkills = skillsToAdd.map((skillId) => {
         const userSkill = new UserSkillEntity();
         userSkill.userId = userId;
         userSkill.skillId = skillId;

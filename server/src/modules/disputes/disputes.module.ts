@@ -53,6 +53,7 @@ import { NotificationRealtimeListener } from './events/notification-realtime.lis
 import { WorkflowRealtimeListener } from './events/workflow-realtime.listener';
 import { DisputeSchemaReadinessFilter } from './filters/dispute-schema-readiness.filter';
 import { DisputeMediationTimeoutScheduler } from './services/dispute-mediation-timeout.scheduler';
+import { DisputeAppealDeadlineScheduler } from './services/dispute-appeal-deadline.scheduler';
 
 @Module({
   imports: [
@@ -112,6 +113,7 @@ import { DisputeMediationTimeoutScheduler } from './services/dispute-mediation-t
     WorkflowRealtimeListener,
     DisputeSchemaReadinessFilter,
     DisputeMediationTimeoutScheduler,
+    DisputeAppealDeadlineScheduler,
   ],
   exports: [DisputesService, VerdictService, VerdictReadinessService, HearingVerdictOrchestratorService],
 })

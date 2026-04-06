@@ -23,6 +23,7 @@ import type {
   HearingWorkspaceSummary,
   VerdictSummary,
   AppealInput,
+  AcceptVerdictInput,
   HearingVerdictInput,
   VerdictReadiness,
 } from "./types";
@@ -407,6 +408,13 @@ export const submitAppeal = async (
   input: AppealInput,
 ): Promise<void> => {
   await apiClient.post(`/disputes/${disputeId}/appeal`, input);
+};
+
+export const acceptDisputeVerdict = async (
+  disputeId: string,
+  input: AcceptVerdictInput,
+): Promise<void> => {
+  await apiClient.post(`/disputes/${disputeId}/verdict/accept`, input);
 };
 
 export const getHearingVerdictReadiness = async (

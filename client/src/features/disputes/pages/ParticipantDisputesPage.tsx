@@ -150,6 +150,7 @@ export const ParticipantDisputesPage = () => {
             <button
               key={key}
               type="button"
+              data-testid={`dispute-group-${key}`}
               onClick={() => setGroup(key)}
               className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
                 group === key
@@ -173,6 +174,7 @@ export const ParticipantDisputesPage = () => {
               <button
                 key={dispute.id}
                 type="button"
+                data-testid={`dispute-card-${dispute.id}`}
                 onClick={() => navigate(`${roleBasePath}/disputes/${dispute.id}`)}
                 className="group flex h-full w-full flex-col rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-teal-200 hover:shadow-md"
               >

@@ -14,6 +14,10 @@ import * as bcrypt from 'bcryptjs';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
 import { AuthSessionEntity } from '../../database/entities/auth-session.entity';
 import { ProfileEntity } from '../../database/entities/profile.entity';
+import {
+  StaffApplicationEntity,
+  StaffApplicationStatus,
+} from '../../database/entities/staff-application.entity';
 import { ProjectEntity, ProjectStatus } from '../../database/entities/project.entity';
 import { WalletEntity } from '../../database/entities/wallet.entity';
 import { EmailService } from './email.service';
@@ -37,6 +41,7 @@ import {
 } from './dto';
 import { JwtPayload } from './strategies/jwt.strategy';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { normalizeAuthEmail } from './utils/email.utils';
 
 @Injectable()
 export class AuthService {
@@ -77,11 +82,12 @@ export class AuthService {
       acceptTerms,
       acceptPrivacy,
     } = registerDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     // Check whether the email already exists.
     // Select only the fields we need to avoid issues when optional relations are missing.
     const existingUser = await this.userRepository.findOne({
-      where: { email },
+      where: { email: normalizedEmail },
       select: ['id', 'email', 'passwordHash', 'fullName', 'role', 'phoneNumber', 'isVerified'],
     });
 
@@ -103,7 +109,7 @@ export class AuthService {
     // Create the user and store legal-consent timestamps.
     const now = new Date();
     const newUser = this.userRepository.create({
-      email,
+      email: normalizedEmail,
       passwordHash,
       fullName,
       phoneNumber,
@@ -118,8 +124,38 @@ export class AuthService {
 
     const savedUser = await this.userRepository.save(newUser);
 
-    // If the role is BROKER or FREELANCER, persist selected domains and skills.
-    if ((role === UserRole.BROKER || role === UserRole.FREELANCER) && (domainIds || skillIds)) {
+    if (role === UserRole.STAFF) {
+      const staffApplicationRepository =
+        this.userRepository.manager.getRepository(StaffApplicationEntity);
+
+      const staffApplication = await staffApplicationRepository.save(
+        staffApplicationRepository.create({
+          userId: savedUser.id,
+          status: StaffApplicationStatus.PENDING,
+        }),
+      );
+
+      this.auditLogsService
+        .logCustom(
+          'STAFF_APPLICATION_SUBMITTED',
+          'StaffApplication',
+          staffApplication.id,
+          {
+            applicationId: staffApplication.id,
+            userId: savedUser.id,
+            email: savedUser.email,
+          },
+          undefined,
+          savedUser.id,
+        )
+        .catch(() => {});
+    }
+
+    // N蘯ｿu lﾃ BROKER ho蘯ｷc FREELANCER 竊・Lﾆｰu domains vﾃ skills
+    if (
+      (role === UserRole.BROKER || role === UserRole.FREELANCER || role === UserRole.STAFF) &&
+      (domainIds || skillIds)
+    ) {
       const userSkillDomainRepo =
         this.userRepository.manager.getRepository('UserSkillDomainEntity');
       const userSkillRepo = this.userRepository.manager.getRepository('UserSkillEntity');
@@ -175,11 +211,12 @@ export class AuthService {
     timeZone?: string,
   ): Promise<LoginResponseDto> {
     const { email, password } = loginDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     // Find the user by email together with the profile relation.
     const user = await this.userRepository.findOne({
-      where: { email },
-      relations: ['profile'],
+      where: { email: normalizedEmail },
+      relations: ['profile', 'staffApplication'],
     });
 
     if (!user) {
@@ -499,15 +536,16 @@ export class AuthService {
    */
   async forgotPassword(forgotPasswordDto: ForgotPasswordDto): Promise<ForgotPasswordResponseDto> {
     const { email } = forgotPasswordDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     // 1. Find user by email
     const user = await this.userRepository.findOne({
-      where: { email },
+      where: { email: normalizedEmail },
     });
 
     // Reject non-existent, deleted, or banned accounts immediately
     if (!user || user.status === UserStatus.DELETED || user.isBanned) {
-      this.logger.warn(`ForgotPassword: User not found or inactive for email=${email}`);
+      this.logger.warn(`ForgotPassword: User not found or inactive for email=${normalizedEmail}`);
       throw new BadRequestException('Email does not exist');
     }
 
@@ -523,15 +561,15 @@ export class AuthService {
 
     // 4. Send OTP via Email
     try {
-      await this.emailService.sendOTP(email, otp);
+      await this.emailService.sendOTP(user.email, otp);
     } catch (error) {
-      this.logger.error(`ForgotPassword: Failed to send OTP to ${email}: ${error.message}`);
+      this.logger.error(`ForgotPassword: Failed to send OTP to ${user.email}: ${error.message}`);
       // Continue execution even if email fails - user can resend or check logs
     }
 
     return {
       message: 'OTP code has been sent to your email',
-      email: this.emailService.maskEmail(email),
+      email: this.emailService.maskEmail(user.email),
       expiresIn: 300, // 5 minutes in seconds
     };
   }
@@ -541,9 +579,10 @@ export class AuthService {
    */
   async verifyOtp(verifyOtpDto: VerifyOtpDto): Promise<VerifyOtpResponseDto> {
     const { email, otp } = verifyOtpDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     const user = await this.userRepository.findOne({
-      where: { email },
+      where: { email: normalizedEmail },
     });
 
     // Return generic error for deleted/banned/non-existent accounts
@@ -582,6 +621,7 @@ export class AuthService {
    */
   async resetPassword(resetPasswordDto: ResetPasswordDto): Promise<ResetPasswordResponseDto> {
     const { email, otp, newPassword, confirmPassword } = resetPasswordDto;
+    const normalizedEmail = normalizeAuthEmail(email);
 
     // 1. Validate password confirmation
     if (newPassword !== confirmPassword) {
@@ -590,7 +630,7 @@ export class AuthService {
 
     // 2. Find the user by email.
     const user = await this.userRepository.findOne({
-      where: { email },
+      where: { email: normalizedEmail },
     });
 
     // Return generic error for deleted/banned/non-existent accounts
@@ -756,7 +796,7 @@ export class AuthService {
   async findUserWithProfile(userId: string): Promise<UserEntity | null> {
     return await this.userRepository.findOne({
       where: { id: userId },
-      relations: ['profile'],
+      relations: ['profile', 'staffApplication'],
     });
   }
 
@@ -998,6 +1038,7 @@ export class AuthService {
 
   private mapToAuthResponse(user: UserEntity): AuthResponseDto {
     const certifications = this.extractCertifications(user.profile?.bankInfo);
+    const staffApprovalStatus = this.resolveStaffApprovalStatus(user);
 
     return {
       id: user.id,
@@ -1016,12 +1057,33 @@ export class AuthService {
       role: user.role,
       isVerified: user.isVerified,
       isEmailVerified: !!user.emailVerifiedAt,
+      ...(staffApprovalStatus
+        ? {
+            staffApprovalStatus,
+            staffApplicationReviewedAt: user.staffApplication?.reviewedAt ?? null,
+            staffRejectionReason: user.staffApplication?.rejectionReason ?? null,
+          }
+        : {}),
       currentTrustScore: user.currentTrustScore,
       badge: user.badge, // Virtual property exposed by the entity.
       stats: user.stats, // Virtual property exposed by the entity.
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  private resolveStaffApprovalStatus(user: UserEntity): StaffApplicationStatus | undefined {
+    if (user.role !== UserRole.STAFF) {
+      return undefined;
+    }
+
+    if (user.staffApplication?.status) {
+      return user.staffApplication.status;
+    }
+
+    return user.isVerified
+      ? StaffApplicationStatus.APPROVED
+      : StaffApplicationStatus.PENDING;
   }
 
   private extractCertifications(bankInfo?: Record<string, any> | null) {

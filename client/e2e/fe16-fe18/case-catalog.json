@@ -1,0 +1,625 @@
+{
+  "projectName": "InterDev",
+  "projectCode": "INTERDEV",
+  "documentVersion": "v1.0",
+  "issueDate": "2026-03-30",
+  "tester": "SonNT",
+  "features": [
+    {
+      "sheetName": "Rating & Trust Score System",
+      "testRequirement": "Validate that a signed-in user can inspect trust signals, create and edit reviews, review edit history, submit abuse reports, and that admins can moderate flagged reviews from the real frontend routes.",
+      "referenceDocument": "Frontend routes:\n- /client/discovery/profile/:id\n- /admin/reviews\nFrontend source:\n- client/src/features/trust-profile/pages/TrustProfilePage.tsx\n- client/src/features/trust-profile/sections/TrustProfileSection.tsx\n- client/src/features/trust-profile/components/review/ReviewItem.tsx\n- client/src/pages/AdminReviewModerationPage.tsx",
+      "functions": [
+        {
+          "name": "View Trust Profile",
+          "description": "A client can inspect another member's trust profile before deciding whether to continue collaboration.",
+          "preCondition": "Signed in as client client-100. Seeded trust profile exists for freelancer-200 unless stated otherwise. Notification endpoint is available for the client header.",
+          "cases": [
+            {
+              "id": "View Trust Profile - 1",
+              "route": "/client/discovery/profile/freelancer-200",
+              "description": "Display trust score summary, review preview, and completed project history for an existing freelancer profile.",
+              "procedure": [
+                "Open `/client/discovery/profile/freelancer-200` while logged in as client `client-100`.",
+                "Wait until the trust profile page finishes loading and the reviews section becomes visible.",
+                "Inspect the trust score card, total review counter, first review card, and completed project history list."
+              ],
+              "expectedResults": [
+                "The page shows freelancer `Alex Stone` with the seeded verification badge, trust score, and review statistics.",
+                "The reviews section lists the seeded review content and the project history section includes the completed project `Brand Portal Revamp`."
+              ]
+            },
+            {
+              "id": "View Trust Profile - 2",
+              "route": "/client/discovery/profile/missing-user",
+              "description": "Show a stable error state when the requested trust profile does not exist.",
+              "procedure": [
+                "Open `/client/discovery/profile/missing-user` while logged in as client `client-100`.",
+                "Allow the page to complete the failed profile request.",
+                "Review the alert panel rendered in the main content area."
+              ],
+              "expectedResults": [
+                "The page keeps the client inside the protected layout and renders the `Unable to load trust profile` error panel.",
+                "The alert explains that the profile could not be loaded and the page exposes a `Back` action instead of crashing."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Create Review",
+          "description": "A project participant can submit a new rating and comment from the trust profile page after a completed collaboration.",
+          "preCondition": "Signed in as client client-100. A completed project `Brand Portal Revamp` links client-100 to freelancer-200. The current user has not reviewed freelancer-200 unless stated otherwise.",
+          "cases": [
+            {
+              "id": "Create Review - 1",
+              "route": "/client/discovery/profile/freelancer-200",
+              "description": "Create a new 4-star review from the `Leave a Review` modal and refresh the profile content.",
+              "procedure": [
+                "Open `/client/discovery/profile/freelancer-200`.",
+                "Click `Leave a Review`, choose 4 stars, and enter `Delivered the dashboard fixes on schedule and communicated clearly.` in the comment field.",
+                "Submit the modal and wait for the profile page to refresh."
+              ],
+              "expectedResults": [
+                "The review is accepted, the modal closes, and the profile reloads with the new review card visible at the top of the review list.",
+                "The review counter and average score are updated to include the newly submitted rating."
+              ]
+            },
+            {
+              "id": "Create Review - 2",
+              "route": "/client/discovery/profile/freelancer-200",
+              "description": "Show a clear validation error when the backend rejects a duplicate review submission.",
+              "procedure": [
+                "Open `/client/discovery/profile/freelancer-200` with the seeded state that still exposes the `Leave a Review` button.",
+                "Click `Leave a Review`, keep the default 5-star selection, and enter `Attempting to submit a duplicate review for the same project.`.",
+                "Submit the modal after the mocked backend is configured to return a duplicate-review error."
+              ],
+              "expectedResults": [
+                "The modal stays open and shows the English error message `You have already reviewed this user.`.",
+                "No new review card is appended to the page and the review totals remain unchanged."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Edit Review",
+          "description": "A reviewer can revise their own review inside the 72-hour edit window and see when editing is no longer available.",
+          "preCondition": "Signed in as client client-100. Seeded trust profile includes an own review written by client-100 against freelancer-200.",
+          "cases": [
+            {
+              "id": "Edit Review - 1",
+              "route": "/client/discovery/profile/freelancer-200",
+              "description": "Edit an existing review within the allowed 72-hour window and reload the updated content.",
+              "procedure": [
+                "Open `/client/discovery/profile/freelancer-200` with a recent own review already displayed.",
+                "Open the review menu for the current user's review, choose `Edit Review`, change the rating to 3 stars, and replace the comment with `Needed one more revision cycle before approval, but the final hand-off was correct.`.",
+                "Submit the edit modal and wait for the profile to refresh."
+              ],
+              "expectedResults": [
+                "The edit modal saves successfully and closes, and the updated comment is visible on the own review card.",
+                "The review metadata shows the `(edited)` label, proving that the page is rendering the updated review version."
+              ]
+            },
+            {
+              "id": "Edit Review - 2",
+              "route": "/client/discovery/profile/freelancer-200",
+              "description": "Show that editing is unavailable after the 72-hour window expires.",
+              "procedure": [
+                "Open `/client/discovery/profile/freelancer-200` with a seeded own review created more than 72 hours ago.",
+                "Open the review menu on the current user's review card.",
+                "Inspect the available actions without opening an edit modal."
+              ],
+              "expectedResults": [
+                "The menu no longer exposes the active `Edit Review` action.",
+                "Instead, the menu shows the informational text `Edit expired (72h limit)` so the user knows why editing is locked."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "View Edit History",
+          "description": "A user can inspect the revision timeline for an edited review directly from the review card.",
+          "preCondition": "Signed in as client client-100. Seeded review history exists for the selected review record.",
+          "cases": [
+            {
+              "id": "View Edit History - 1",
+              "route": "/client/discovery/profile/freelancer-200",
+              "description": "Open the edit-history page for a review with multiple saved versions and inspect the diff timeline.",
+              "procedure": [
+                "Open `/client/discovery/profile/freelancer-200` with a review that has three stored history entries.",
+                "Open the review menu and click `View Edit History`.",
+                "Inspect the full-screen history page and the rendered timeline entries."
+              ],
+              "expectedResults": [
+                "The app opens the dedicated edit-history page instead of a broken placeholder view.",
+                "The timeline lists the seeded versions in descending order, including the current version badge and the comment diff viewer."
+              ]
+            },
+            {
+              "id": "View Edit History - 2",
+              "route": "/client/discovery/profile/freelancer-200",
+              "description": "Open edit history for a review that only has the original saved version.",
+              "procedure": [
+                "Open `/client/discovery/profile/freelancer-200` with a review whose history endpoint returns a single original version.",
+                "Use the review menu to open `View Edit History`.",
+                "Inspect the timeline cards on the history page."
+              ],
+              "expectedResults": [
+                "The history page still renders successfully for a single-entry timeline.",
+                "The only entry is labeled as the original version and the user can return to the review list without a rendering error."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Report Review Abuse",
+          "description": "A viewer can report abusive or fake review content from the review action menu.",
+          "preCondition": "Signed in as client client-100. Target review belongs to another user and is visible on the trust profile page.",
+          "cases": [
+            {
+              "id": "Report Review Abuse - 1",
+              "route": "/client/discovery/profile/freelancer-200",
+              "description": "Submit an abuse report with the `OTHER` reason and a descriptive moderator note.",
+              "procedure": [
+                "Open `/client/discovery/profile/freelancer-200` and open the menu for review `review-third-party-1`.",
+                "Choose `Report Review`, select the `OTHER` reason, and enter `The review references a project that never existed in this account.` in the details field.",
+                "Submit the report and wait for the confirmation state."
+              ],
+              "expectedResults": [
+                "The abuse report request succeeds and the modal switches to the success confirmation state.",
+                "Closing the modal returns the user to the trust profile with the review list intact."
+              ]
+            },
+            {
+              "id": "Report Review Abuse - 2",
+              "route": "/client/discovery/profile/freelancer-200",
+              "description": "Show the duplicate-report error when the current user has already reported the same review.",
+              "procedure": [
+                "Open `/client/discovery/profile/freelancer-200` and launch the report modal for review `review-third-party-1`.",
+                "Choose the `FAKE_REVIEW` reason and submit the form while the mocked backend is configured to reject duplicate reports.",
+                "Read the error panel inside the modal."
+              ],
+              "expectedResults": [
+                "The modal remains open and shows the message `You have already reported this review.`.",
+                "No success confirmation is shown and the user can still cancel the modal safely."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Moderate Reviews",
+          "description": "An admin moderator can open flagged review cases, take action, and restore soft-deleted content from the moderation queue.",
+          "preCondition": "Signed in as admin admin-900. Seeded moderation queue contains one flagged review and one soft-deleted review. Admin assignee list is available.",
+          "cases": [
+            {
+              "id": "Moderate Reviews - 1",
+              "route": "/admin/reviews",
+              "description": "Open a flagged case, take ownership, and soft delete the review from the moderation queue.",
+              "procedure": [
+                "Open `/admin/reviews` as admin `admin-900`.",
+                "On the flagged review card, click `Open case`, then `Take ownership`, then `Soft delete` and confirm the moderation reason `Confirmed fake testimonial from unrelated account.`.",
+                "Wait for the moderation list to refresh."
+              ],
+              "expectedResults": [
+                "The admin queue updates the selected review to the soft-deleted state and the card remains visible with the moderation history refreshed.",
+                "The case action buttons stay responsive after the queue reloads and no layout text becomes garbled."
+              ]
+            },
+            {
+              "id": "Moderate Reviews - 2",
+              "route": "/admin/reviews",
+              "description": "Reassign a flagged case and restore a previously soft-deleted review.",
+              "procedure": [
+                "Open `/admin/reviews` with the seeded queue containing one flagged review and one soft-deleted review.",
+                "Use `Reassign` on the flagged case to move it to `admin-901`, then switch to the soft-deleted review card and click `Restore` with the reason `Evidence cleared after moderator review.`.",
+                "Wait for both moderation actions to complete and the list to refresh."
+              ],
+              "expectedResults": [
+                "The flagged case shows the new assignee information after reassignment.",
+                "The soft-deleted review returns to the active queue state after restore and the restore action is no longer offered for that card."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sheetName": "Dispute Resolution System",
+      "testRequirement": "Validate that participants can browse disputes, raise new cases from workspace, inspect dispute details, manage evidence, work through hearing actions, and submit appeals or review requests from the real frontend routes.",
+      "referenceDocument": "Frontend routes:\n- /client/disputes\n- /client/workspace/:projectId\n- /client/disputes/:disputeId\n- /staff/caseload?disputeId=:id\nFrontend source:\n- client/src/features/disputes/pages/ParticipantDisputesPage.tsx\n- client/src/features/project-workspace/ProjectWorkspace.tsx\n- client/src/features/disputes/components/dashboard/DisputeDetailHub.tsx\n- client/src/features/disputes/components/evidence/EvidenceVault.tsx\n- client/src/features/disputes/components/hearings/DisputeHearingPanel.tsx",
+      "functions": [
+        {
+          "name": "Open My Disputes",
+          "description": "A participant can browse active, appealed, and closed dispute groups from the personal dispute dashboard.",
+          "preCondition": "Signed in as client client-100. Seeded dispute list contains active, appealed, and resolved disputes for the logged-in user.",
+          "cases": [
+            {
+              "id": "Open My Disputes - 1",
+              "route": "/client/disputes",
+              "description": "Display the active disputes group with seeded case cards and primary metadata.",
+              "procedure": [
+                "Open `/client/disputes` while logged in as client `client-100`.",
+                "Wait for the dispute list to finish loading and remain on the default `Active` group.",
+                "Inspect the first active case card and its project, next-step, and appeal metadata."
+              ],
+              "expectedResults": [
+                "The page renders the active dispute cards with seeded display code, title, project label, and next action.",
+                "The `Active`, `Appeals`, and `Closed` pills show the expected counters based on the seeded response."
+              ]
+            },
+            {
+              "id": "Open My Disputes - 2",
+              "route": "/client/disputes",
+              "description": "Switch to the appeals group and show only appealed disputes.",
+              "procedure": [
+                "Open `/client/disputes` and wait for the default list to load.",
+                "Click the `Appeals` group pill.",
+                "Inspect the visible case cards after the group switch."
+              ],
+              "expectedResults": [
+                "Only appealed dispute cards remain visible after the filter change.",
+                "Each appealed card shows the `Appeal active` indicator or equivalent appeal-state metadata from the seeded case."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Create Dispute",
+          "description": "A participant can raise a new dispute or attach themselves to an existing dispute case from the project workspace milestone summary.",
+          "preCondition": "Signed in as client client-100. Project project-900 and milestone milestone-900-1 are available in the workspace board view. Milestone status allows disputes.",
+          "cases": [
+            {
+              "id": "Create Dispute - 1",
+              "route": "/client/workspace/project-900?view=board&milestone=milestone-900-1",
+              "description": "Open the dispute wizard from workspace, submit a new quality dispute, and redirect to the hearings page.",
+              "procedure": [
+                "Open `/client/workspace/project-900?view=board&milestone=milestone-900-1`.",
+                "Click `Raise Dispute`, choose the `Low Quality / Not as Described` category, pick defendant `freelancer-200`, enter `Submitted UI build ignored the approved accessibility checklist and delivered incomplete navigation states.` in the reason field, check the ADR disclaimer, and submit.",
+                "Wait for the success flow to redirect the user away from the workspace."
+              ],
+              "expectedResults": [
+                "The dispute is created successfully from the workspace wizard and the app redirects the client to the hearings page with the new dispute id in the query string.",
+                "The mocked API captures the selected category, defendant, reason, and disclaimer acknowledgement."
+              ]
+            },
+            {
+              "id": "Create Dispute - 2",
+              "route": "/client/workspace/project-900?view=board&milestone=milestone-900-1",
+              "description": "Attach a new party to an existing dispute case instead of opening a separate case file.",
+              "procedure": [
+                "Open `/client/workspace/project-900?view=board&milestone=milestone-900-1` with one parent dispute already seeded for the same milestone.",
+                "Click `Raise Dispute`, tick the option to add the issue to an existing case, choose parent dispute `dispute-parent-01`, select `Payment Issue`, choose defendant `broker-300`, enter `Need the broker added because the refund route now involves both payment approvers.` and complete the wizard.",
+                "Submit the form after checking the ADR disclaimer."
+              ],
+              "expectedResults": [
+                "The dispute creation payload includes the selected parent dispute id so the new party is attached to the existing case.",
+                "The user is redirected to the hearings page and the created dispute references the selected parent case."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Review Dispute Detail",
+          "description": "A participant can open a dispute record and inspect timeline, dossier summary, hearings, and evidence without leaving the protected frontend route.",
+          "preCondition": "Signed in as client client-100. Seeded dispute detail exists for dispute-200 with timeline events, dossier summary, evidence, and hearings.",
+          "cases": [
+            {
+              "id": "Review Dispute Detail - 1",
+              "route": "/client/disputes/dispute-200",
+              "description": "Load the dispute hub and inspect timeline, evidence, and hearing panels for a seeded case.",
+              "procedure": [
+                "Open `/client/disputes/dispute-200` as client `client-100`.",
+                "Wait for the dispute detail hub to load its summary banner, timeline tab, hearing panel, and evidence vault.",
+                "Inspect the displayed dispute title, case stage, timeline activity, and evidence cards."
+              ],
+              "expectedResults": [
+                "The dispute detail hub renders the seeded dispute summary, timeline entries, hearing panel, and evidence vault without crashing.",
+                "The case stage, project title, reason excerpt, and evidence metadata match the seeded dispute response."
+              ]
+            },
+            {
+              "id": "Review Dispute Detail - 2",
+              "route": "/client/disputes/dispute-200",
+              "description": "Export the dispute dossier package from the detail hub.",
+              "procedure": [
+                "Open `/client/disputes/dispute-200` and wait for the case summary to load.",
+                "Click `Export Dossier` from the action toolbar.",
+                "Allow the mocked dossier export request to finish."
+              ],
+              "expectedResults": [
+                "The dossier export action completes without a UI error toast.",
+                "The mocked export endpoint is called for dispute-200 and the frontend records the generated file name for download."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Manage Evidence",
+          "description": "Participants can upload evidence and staff can flag harmful evidence from the case record.",
+          "preCondition": "Case dispute-200 exists. Participant upload scenario uses client client-100. Moderator flagging scenario uses staff staff-500 through the staff caseload route.",
+          "cases": [
+            {
+              "id": "Manage Evidence - 1",
+              "route": "/client/disputes/dispute-200",
+              "description": "Upload a new evidence file from the participant evidence vault.",
+              "procedure": [
+                "Open `/client/disputes/dispute-200` as client `client-100`.",
+                "Navigate to the evidence vault, click `Upload New Evidence`, and attach the file `handoff-notes.txt`.",
+                "Wait for the evidence vault to refresh after the upload request completes."
+              ],
+              "expectedResults": [
+                "The evidence upload request succeeds and a new evidence card for `handoff-notes.txt` appears in the vault.",
+                "The quota and evidence list refresh without forcing the user out of the dispute detail page."
+              ]
+            },
+            {
+              "id": "Manage Evidence - 2",
+              "route": "/staff/caseload?disputeId=dispute-200",
+              "description": "Flag an inappropriate evidence file from the staff caseload view.",
+              "procedure": [
+                "Open `/staff/caseload?disputeId=dispute-200` while logged in as staff `staff-500`.",
+                "In the evidence vault, click the flag icon on evidence `evidence-graphic-1`, enter `Sensitive personal data is visible in the uploaded screenshot.` in the flag reason field, and confirm the flag action.",
+                "Wait for the evidence list to reload."
+              ],
+              "expectedResults": [
+                "The selected evidence item is refreshed into the flagged state and shows the `Content Hidden` presentation.",
+                "The mock backend captures the staff moderator reason so the flag action is auditable."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Conduct Hearing & Verdict",
+          "description": "A staff moderator can schedule, start, and end dispute hearings from the caseload hearing panel.",
+          "preCondition": "Signed in as staff staff-500. Dispute dispute-300 is visible in staff caseload. Hearing test tools are available in dev mode.",
+          "cases": [
+            {
+              "id": "Conduct Hearing & Verdict - 1",
+              "route": "/staff/caseload?disputeId=dispute-300&tab=hearings",
+              "description": "Schedule a new hearing from the hearing management panel.",
+              "procedure": [
+                "Open `/staff/caseload?disputeId=dispute-300&tab=hearings`.",
+                "Fill `2026-04-02T09:30` into the hearing time field, set duration to `90`, enter `Review escrow release evidence and cross-check delivery acceptance timeline.` as agenda, provide `signed change request, final hand-off build` as required documents, tick the confirmation checkbox, and submit the schedule form.",
+                "Wait for the hearing list to refresh."
+              ],
+              "expectedResults": [
+                "A new hearing card appears for dispute-300 with the scheduled time, 90-minute duration, and seeded hearing number.",
+                "The scheduling payload sent by the frontend contains the entered agenda, documents, and confirmation flag."
+              ]
+            },
+            {
+              "id": "Conduct Hearing & Verdict - 2",
+              "route": "/staff/caseload?disputeId=dispute-300&tab=hearings",
+              "description": "Start an existing hearing and close it with a written summary and findings.",
+              "procedure": [
+                "Open `/staff/caseload?disputeId=dispute-300&tab=hearings` with one scheduled hearing already listed.",
+                "Click `Start Hearing` on the scheduled hearing card, then click `End Hearing`, enter `Both parties joined and confirmed the revised scope agreement.` as summary, `Evidence confirms the scope changed after the original estimate was approved.` as findings, and `Broker to issue a revised payment release recommendation.` as pending actions.",
+                "Submit the end-hearing dialog and wait for the hearing card to update."
+              ],
+              "expectedResults": [
+                "The hearing status changes from scheduled to completed after the start and end actions run successfully.",
+                "The mocked backend stores the supplied summary, findings, and pending actions for the ended hearing."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Submit Appeal / Review Request",
+          "description": "A participant can submit a verdict appeal or escalate the dispute through the review-request dialog.",
+          "preCondition": "Signed in as client client-100 unless stated otherwise. Seeded dispute-400 exposes the relevant action buttons through allowedActions and verdict metadata.",
+          "cases": [
+            {
+              "id": "Submit Appeal / Review Request - 1",
+              "route": "/client/disputes/dispute-400",
+              "description": "Submit a formal verdict appeal from the dispute detail action bar.",
+              "procedure": [
+                "Open `/client/disputes/dispute-400` as client `client-100`.",
+                "Click `Formal Verdict Appeal`, enter `The verdict ignores the signed revision approval and the delivery acceptance note dated March 21. The refund split should be recalculated from the revised scope, not the original estimate.` in the appeal reason field, continue to the confirmation step, check the disclaimer, and submit.",
+                "Wait for the appeal dialog to close."
+              ],
+              "expectedResults": [
+                "The appeal dialog accepts the 200+ character reason, submits successfully, and closes.",
+                "The mocked backend records a verdict appeal for dispute-400 with the entered reason and disclaimer acknowledgement."
+              ]
+            },
+            {
+              "id": "Submit Appeal / Review Request - 2",
+              "route": "/client/disputes/dispute-400",
+              "description": "Submit a staff-support escalation request from the review-request dialog.",
+              "procedure": [
+                "Open `/client/disputes/dispute-400` with `Request Staff Support` enabled in the action bar.",
+                "Click `Request Staff Support`, enter `Need a neutral staff review because both parties disagree on which milestone acceptance checklist applies.` in the reason field, enter `Project delivery is blocked and escrow release cannot proceed until the checklist conflict is resolved.` in the impact summary field, and submit the request.",
+                "Wait for the dialog to close and the page to settle."
+              ],
+              "expectedResults": [
+                "The review-request dialog submits successfully and closes.",
+                "The mocked backend stores a `SUPPORT_ESCALATION` request for dispute-400 with the entered reason and impact summary."
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "sheetName": "Notification System",
+      "testRequirement": "Validate that dropdown notifications load from the protected frontend layouts, read states update correctly, navigation follows the notification target, and realtime events are inserted live without reloading the page.",
+      "referenceDocument": "Frontend routes:\n- /client/disputes\n- /client/disputes/:disputeId\n- /client/hearings\nFrontend source:\n- client/src/features/notifications/components/NotificationDropdown.tsx\n- client/src/features/notifications/hooks/useNotifications.ts\n- client/src/shared/components/layouts/client/ClientHeader.tsx",
+      "functions": [
+        {
+          "name": "Open Notifications",
+          "description": "A signed-in client can open the header dropdown and inspect notification content from any protected client route.",
+          "preCondition": "Signed in as client client-100. Notification dropdown is available in the client header.",
+          "cases": [
+            {
+              "id": "Open Notifications - 1",
+              "route": "/client/disputes",
+              "description": "Open the notification dropdown and show the unread badge plus seeded notification items.",
+              "procedure": [
+                "Open `/client/disputes` as client `client-100`.",
+                "Inspect the unread badge in the header and click the notification bell.",
+                "Read the notification titles and preview text displayed inside the dropdown panel."
+              ],
+              "expectedResults": [
+                "The notification badge shows the seeded unread count before the panel opens.",
+                "The dropdown panel lists the seeded notification items in descending created-at order with title, body, and unread indicators."
+              ]
+            },
+            {
+              "id": "Open Notifications - 2",
+              "route": "/client/disputes",
+              "description": "Show the empty-state message when the account has no notifications.",
+              "procedure": [
+                "Open `/client/disputes` with an empty notification feed for client `client-100`.",
+                "Click the notification bell in the client header.",
+                "Inspect the content area of the dropdown panel."
+              ],
+              "expectedResults": [
+                "The panel opens successfully even when no notification items exist.",
+                "The dropdown shows the empty-state text `No notifications yet.` instead of rendering a broken list."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Read Notification",
+          "description": "A client can mark individual notifications as read from the dropdown without leaving the protected layout.",
+          "preCondition": "Signed in as client client-100. Notification dropdown contains at least one message item.",
+          "cases": [
+            {
+              "id": "Read Notification - 1",
+              "route": "/client/disputes",
+              "description": "Mark an unread informational notification as read from the dropdown.",
+              "procedure": [
+                "Open `/client/disputes` with one unread notification that has no navigation target.",
+                "Click the notification bell and then click the unread informational item `Workspace checklist updated`.",
+                "Observe the badge and the item state after the click."
+              ],
+              "expectedResults": [
+                "The notification remains in the dropdown but loses the `Unread` marker after the click.",
+                "The unread badge decreases by one and the app stays on the current route because the item has no target route."
+              ]
+            },
+            {
+              "id": "Read Notification - 2",
+              "route": "/client/disputes",
+              "description": "Open a notification that is already read and keep the badge unchanged.",
+              "procedure": [
+                "Open `/client/disputes` with a dropdown feed that includes one notification already marked as read.",
+                "Open the notification panel and click the already-read item `Broker approved the revised scope`.",
+                "Inspect the badge count after the click completes."
+              ],
+              "expectedResults": [
+                "The frontend does not attempt to decrement the unread badge for an already-read item.",
+                "The notification opens normally and the current unread count remains unchanged."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Mark All Notifications Read",
+          "description": "A client can clear the unread state for the whole dropdown with one action.",
+          "preCondition": "Signed in as client client-100. Notification dropdown is visible in the client header.",
+          "cases": [
+            {
+              "id": "Mark All Notifications Read - 1",
+              "route": "/client/disputes",
+              "description": "Use `Mark all read` to clear a mixed feed of unread notifications.",
+              "procedure": [
+                "Open `/client/disputes` with multiple unread notifications.",
+                "Click the notification bell and then click `Mark all read` in the panel header.",
+                "Inspect the badge and every item in the panel after the action completes."
+              ],
+              "expectedResults": [
+                "All visible notification items are updated to the read state.",
+                "The unread badge disappears because the unread count drops to zero."
+              ]
+            },
+            {
+              "id": "Mark All Notifications Read - 2",
+              "route": "/client/disputes",
+              "description": "Keep the UI stable when `Mark all read` is used on an already-cleared feed.",
+              "procedure": [
+                "Open `/client/disputes` with all notifications already read.",
+                "Open the notification dropdown and click `Mark all read`.",
+                "Inspect the panel content and badge area."
+              ],
+              "expectedResults": [
+                "The action completes without throwing an error toast or changing the route.",
+                "The notification panel remains open and the unread badge stays hidden because the feed was already clear."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Navigate From Notification",
+          "description": "A client can jump directly to the related dispute or hearing route from a dropdown notification item.",
+          "preCondition": "Signed in as client client-100. Notification items include valid relatedType and relatedId values.",
+          "cases": [
+            {
+              "id": "Navigate From Notification - 1",
+              "route": "/client/disputes",
+              "description": "Navigate from a dispute notification to the matching dispute detail route.",
+              "procedure": [
+                "Open `/client/disputes`.",
+                "Click the notification bell and then click the notification `Dispute dispute-200 needs your response`.",
+                "Wait for the route transition to complete."
+              ],
+              "expectedResults": [
+                "The app navigates to `/client/disputes/dispute-200` after the notification is selected.",
+                "The target dispute detail page loads successfully and keeps the client inside the authenticated layout."
+              ]
+            },
+            {
+              "id": "Navigate From Notification - 2",
+              "route": "/client/disputes",
+              "description": "Navigate from a hearing notification to the client hearings calendar route.",
+              "procedure": [
+                "Open `/client/disputes` and open the notification dropdown.",
+                "Click the notification `Hearing H-12 has been rescheduled` that is tagged as `DisputeHearing`.",
+                "Wait for the frontend route change to finish."
+              ],
+              "expectedResults": [
+                "The app navigates to `/client/hearings` after the hearing notification is selected.",
+                "The hearings calendar route loads with the protected client layout still active."
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Receive Realtime Notification",
+          "description": "A live socket event should update the dropdown feed and unread badge without a full page refresh.",
+          "preCondition": "Signed in as client client-100. Fake realtime socket is injected for the notification namespace.",
+          "cases": [
+            {
+              "id": "Receive Realtime Notification - 1",
+              "route": "/client/disputes",
+              "description": "Prepend a new notification and increment the unread badge when a realtime event arrives while the panel is closed.",
+              "procedure": [
+                "Open `/client/disputes` and note the current unread badge.",
+                "Emit a fake realtime `NOTIFICATION_CREATED` event for notification `notif-live-01` while the dropdown is closed.",
+                "Open the notification dropdown and inspect the first item in the list."
+              ],
+              "expectedResults": [
+                "The unread badge increments immediately after the realtime event is received.",
+                "The new notification `Live hearing reminder` appears at the top of the dropdown when the panel is opened."
+              ]
+            },
+            {
+              "id": "Receive Realtime Notification - 2",
+              "route": "/client/disputes",
+              "description": "Show a live notification instantly while the dropdown panel is already open.",
+              "procedure": [
+                "Open `/client/disputes` and keep the notification dropdown panel open.",
+                "Emit a fake realtime `NOTIFICATION_CREATED` event for notification `notif-live-02`.",
+                "Inspect the top item in the open panel without reloading the page."
+              ],
+              "expectedResults": [
+                "The open dropdown updates in place and prepends the new realtime notification to the top of the list.",
+                "The unread badge and the panel content stay synchronized after the realtime insert."
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

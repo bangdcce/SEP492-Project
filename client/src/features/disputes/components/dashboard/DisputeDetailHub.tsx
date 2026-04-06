@@ -21,8 +21,12 @@ import { DisputeHearingPanel } from "../hearings/DisputeHearingPanel";
 import { VerdictWizard } from "../wizard/VerdictWizard";
 import { useDisputeRealtime } from "@/features/disputes/hooks/useDisputeRealtime";
 import { AppealDialog } from "@/features/hearings/components/hearing-room/AppealDialog";
+import { AcceptVerdictDialog } from "@/features/hearings/components/hearing-room/AcceptVerdictDialog";
 import { VerdictAnnouncement } from "@/features/hearings/components/hearing-room/VerdictAnnouncement";
-import { getDisputeVerdict } from "@/features/hearings/api";
+import {
+  acceptDisputeVerdict,
+  getDisputeVerdict,
+} from "@/features/hearings/api";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { triggerBlobDownload } from "@/shared/utils/download";
@@ -136,7 +140,9 @@ const formatAppealDeadlineText = (appealDeadline?: string | null) => {
   if (diff <= 0) return "Expired";
   const hours = Math.floor(diff / 3_600_000);
   const minutes = Math.ceil((diff % 3_600_000) / 60_000);
-  return hours > 0 ? `${hours}h ${minutes}m remaining` : `${minutes}m remaining`;
+  return hours > 0
+    ? `${hours}h ${minutes}m remaining`
+    : `${minutes}m remaining`;
 };
 
 const caseStageLabelMap: Record<string, string> = {
@@ -193,12 +199,18 @@ export const DisputeDetailHub = ({
   const [verdict, setVerdict] = useState<VerdictSummary | null>(null);
   const [appealDialogOpen, setAppealDialogOpen] = useState(false);
   const [appealLoading, setAppealLoading] = useState(false);
+  const [acceptVerdictDialogOpen, setAcceptVerdictDialogOpen] = useState(false);
+  const [acceptVerdictLoading, setAcceptVerdictLoading] = useState(false);
   const [appealWizardOpen, setAppealWizardOpen] = useState(false);
   const [dossierExporting, setDossierExporting] = useState(false);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [requestDialogMode, setRequestDialogMode] = useState<
-    "impact-review" | "support-escalation" | "admin-oversight" | "neutral-panel" | null
+    | "impact-review"
+    | "support-escalation"
+    | "admin-oversight"
+    | "neutral-panel"
+    | null
   >(null);
   const [reviewReason, setReviewReason] = useState("");
   const [reviewImpactSummary, setReviewImpactSummary] = useState("");
@@ -224,7 +236,10 @@ export const DisputeDetailHub = ({
     [currentUser?.role],
   );
   const canViewInternal = useMemo(() => {
-    return currentUser?.role === UserRole.ADMIN || currentUser?.role === UserRole.STAFF;
+    return (
+      currentUser?.role === UserRole.ADMIN ||
+      currentUser?.role === UserRole.STAFF
+    );
   }, [currentUser]);
 
   const fetchDetail = useCallback(
@@ -233,7 +248,10 @@ export const DisputeDetailHub = ({
       try {
         setLoading(true);
         const detail = await getDisputeDetail(disputeId, { preferCache });
-        setDispute((prev) => ({ ...(prev ?? ({} as DisputeSummary)), ...detail }));
+        setDispute((prev) => ({
+          ...(prev ?? ({} as DisputeSummary)),
+          ...detail,
+        }));
       } catch (error) {
         console.error("Failed to load dispute detail:", error);
         toast.error("Could not load dispute details");
@@ -339,7 +357,13 @@ export const DisputeDetailHub = ({
     void fetchDossier();
     void fetchVerdict();
     setRefreshToken((prev) => prev + 1);
-  }, [fetchActivities, fetchComplexity, fetchDetail, fetchDossier, fetchVerdict]);
+  }, [
+    fetchActivities,
+    fetchComplexity,
+    fetchDetail,
+    fetchDossier,
+    fetchVerdict,
+  ]);
 
   useDisputeRealtime(disputeId, {
     onEvidenceUploaded: handleRealtimeRefresh,
@@ -382,13 +406,17 @@ export const DisputeDetailHub = ({
 
   const allowedActions = dispute?.allowedActions ?? [];
   const appealTrack = dispute?.appealTrack;
-  const appealDeadlineSource = appealTrack?.deadline ?? verdict?.appealDeadline ?? null;
+  const appealDeadlineSource =
+    appealTrack?.deadline ?? verdict?.appealDeadline ?? null;
   const appealDeadlinePassed = useMemo(() => {
     if (!appealDeadlineSource) return false;
     return Date.now() > new Date(appealDeadlineSource).getTime();
   }, [appealDeadlineSource]);
 
   const canSubmitVerdictAppeal = useMemo(() => {
+    if (typeof verdict?.acceptance?.currentUserCanAppeal === "boolean") {
+      return verdict.acceptance.currentUserCanAppeal;
+    }
     if (allowedActions.includes("SUBMIT_APPEAL")) {
       return true;
     }
@@ -400,7 +428,10 @@ export const DisputeDetailHub = ({
     if (dispute.canAppealVerdict === true) {
       return true;
     }
-    if (currentUser?.id !== dispute.raisedById && currentUser?.id !== dispute.defendantId) {
+    if (
+      currentUser?.id !== dispute.raisedById &&
+      currentUser?.id !== dispute.defendantId
+    ) {
       return false;
     }
     if (dispute.status !== DisputeStatus.RESOLVED) return false;
@@ -429,7 +460,9 @@ export const DisputeDetailHub = ({
   const appealDialogMode = canSubmitRejectionAppeal ? "rejection" : "verdict";
 
   const canResolveAppeal = useMemo(() => {
-    return Boolean(isAdmin && dispute?.status === DisputeStatus.APPEALED && verdict?.id);
+    return Boolean(
+      isAdmin && dispute?.status === DisputeStatus.APPEALED && verdict?.id,
+    );
   }, [dispute?.status, isAdmin, verdict?.id]);
 
   const canSubmitImpactReview = useMemo(() => {
@@ -449,18 +482,16 @@ export const DisputeDetailHub = ({
       dispute.project?.brokerId,
       dispute.project?.freelancerId,
     ].includes(currentUser.id);
-  }, [
-    allowedActions,
-    canViewInternal,
-    currentUser?.id,
-    dispute,
-  ]);
-  const canRequestSupportEscalation =
-    allowedActions.includes("REQUEST_SUPPORT_ESCALATION");
-  const canRequestAdminOversight =
-    allowedActions.includes("REQUEST_ADMIN_OVERSIGHT");
-  const canRequestNeutralPanel =
-    allowedActions.includes("REQUEST_NEUTRAL_PANEL");
+  }, [allowedActions, canViewInternal, currentUser?.id, dispute]);
+  const canRequestSupportEscalation = allowedActions.includes(
+    "REQUEST_SUPPORT_ESCALATION",
+  );
+  const canRequestAdminOversight = allowedActions.includes(
+    "REQUEST_ADMIN_OVERSIGHT",
+  );
+  const canRequestNeutralPanel = allowedActions.includes(
+    "REQUEST_NEUTRAL_PANEL",
+  );
   const isNeutralPanelReviewer = Boolean(
     dispute?.participants?.some(
       (participant) =>
@@ -479,7 +510,9 @@ export const DisputeDetailHub = ({
       try {
         setAppealLoading(true);
         if (appealDialogMode === "rejection") {
-          await submitDisputeRejectionAppeal(disputeId, { reason: input.reason });
+          await submitDisputeRejectionAppeal(disputeId, {
+            reason: input.reason,
+          });
         } else {
           await submitDisputeAppeal(disputeId, input);
         }
@@ -504,6 +537,32 @@ export const DisputeDetailHub = ({
       }
     },
     [appealDialogMode, disputeId, handleRealtimeRefresh],
+  );
+
+  const handleAcceptVerdictSubmit = useCallback(
+    async (input: {
+      disclaimerAccepted: boolean;
+      waiveAppealRights: boolean;
+      disclaimerVersion?: string;
+    }) => {
+      if (!disputeId) return;
+      try {
+        setAcceptVerdictLoading(true);
+        await acceptDisputeVerdict(disputeId, input);
+        invalidateDisputesCache();
+        invalidateDisputeDetailCache(disputeId);
+        toast.success("Verdict accepted");
+        setAcceptVerdictDialogOpen(false);
+        handleRealtimeRefresh();
+      } catch (error: any) {
+        toast.error(
+          error?.response?.data?.message || "Failed to accept verdict",
+        );
+      } finally {
+        setAcceptVerdictLoading(false);
+      }
+    },
+    [disputeId, handleRealtimeRefresh],
   );
 
   const handleReviewRequestSubmit = useCallback(async () => {
@@ -629,36 +688,40 @@ export const DisputeDetailHub = ({
   }, [disputeId]);
   const evidenceReadOnly = !allowedActions.includes("UPLOAD_EVIDENCE");
   const hearingPanelReadOnly = !allowedActions.includes("MANAGE_HEARING");
-  const participantArchiveReadOnly = Boolean(dispute?.isReadOnly && !canViewInternal);
+  const participantArchiveReadOnly = Boolean(
+    dispute?.isReadOnly && !canViewInternal,
+  );
 
   const tabs = [
     {
       name: "Timeline",
       icon: History,
-      component: <TimelineRoute activities={activities} loading={activityLoading} />,
+      component: (
+        <TimelineRoute activities={activities} loading={activityLoading} />
+      ),
     },
     {
       name: "Hearings",
       icon: Calendar,
-        component: disputeId ? (
-          <DisputeHearingPanel
-            disputeId={disputeId}
-            refreshToken={refreshToken}
-            readOnly={hearingPanelReadOnly}
-          />
-        ) : null,
-      },
+      component: disputeId ? (
+        <DisputeHearingPanel
+          disputeId={disputeId}
+          refreshToken={refreshToken}
+          readOnly={hearingPanelReadOnly}
+        />
+      ) : null,
+    },
     {
       name: "Evidence Vault",
       icon: FileText,
-        component: disputeId ? (
-          <EvidenceVault
-            disputeId={disputeId}
-            refreshToken={refreshToken}
-            readOnly={evidenceReadOnly}
-          />
-        ) : null,
-      },
+      component: disputeId ? (
+        <EvidenceVault
+          disputeId={disputeId}
+          refreshToken={refreshToken}
+          readOnly={evidenceReadOnly}
+        />
+      ) : null,
+    },
     ...(canViewInternal
       ? [
           {
@@ -718,16 +781,51 @@ export const DisputeDetailHub = ({
     : "N/A";
   const appealDeadlineText = formatAppealDeadlineText(appealDeadlineSource);
   const isClosedCase = Boolean(dispute?.isReadOnly);
+  const complexityLevel = useMemo(() => {
+    if (!complexity) return null;
+    const legacyComplexity = complexity as DisputeComplexity & {
+      severity?: string;
+    };
+    const rawLevel = legacyComplexity.level ?? legacyComplexity.severity;
+    if (
+      rawLevel === "LOW" ||
+      rawLevel === "MEDIUM" ||
+      rawLevel === "HIGH" ||
+      rawLevel === "CRITICAL"
+    ) {
+      return rawLevel;
+    }
+    return null;
+  }, [complexity]);
+  const complexityRecommendedMinutes = useMemo(() => {
+    if (!complexity) return null;
+    const recommendedMinutes = complexity.timeEstimation?.recommendedMinutes;
+    if (typeof recommendedMinutes === "number") {
+      return recommendedMinutes;
+    }
+
+    const legacyEvidenceLoad = (
+      complexity as DisputeComplexity & {
+        evidenceLoad?: number;
+      }
+    ).evidenceLoad;
+    if (typeof legacyEvidenceLoad === "number") {
+      return Math.max(30, legacyEvidenceLoad * 30);
+    }
+
+    return null;
+  }, [complexity]);
   const hasRenderableVerdict = Boolean(
     verdict &&
-      typeof verdict === "object" &&
-      verdict.id &&
-      verdict.issuedAt &&
-      verdict.result,
+    typeof verdict === "object" &&
+    verdict.id &&
+    verdict.issuedAt &&
+    verdict.result,
   );
   const appealStateLabel = useMemo(() => {
     if (appealTrack?.state && appealTrack.state !== "NONE") {
-      const kindLabel = appealTrack.kind === "REJECTION" ? "rejection appeal" : "appeal";
+      const kindLabel =
+        appealTrack.kind === "REJECTION" ? "rejection appeal" : "appeal";
       if (appealTrack.state === "AVAILABLE") {
         return `${kindLabel} available`;
       }
@@ -744,7 +842,11 @@ export const DisputeDetailHub = ({
     if (dispute?.appealState) {
       return dispute.appealState.replaceAll("_", " ");
     }
-    if (dispute?.appealResolvedAt || dispute?.appealResolution || verdict?.isAppealVerdict) {
+    if (
+      dispute?.appealResolvedAt ||
+      dispute?.appealResolution ||
+      verdict?.isAppealVerdict
+    ) {
       return "Appeal resolved";
     }
     if (
@@ -842,39 +944,42 @@ export const DisputeDetailHub = ({
       <div className="shrink-0 border-b border-gray-200 bg-white px-6 py-4">
         <div className="flex items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-              <button
-                className="rounded-full p-2 text-gray-500 hover:bg-gray-100"
-                onClick={() => navigate(-1)}
-              >
-                <ChevronLeft className="h-5 w-5" />
-              </button>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-xl font-bold text-slate-900">
-                    {dispute?.displayTitle || dispute?.id || "Dispute"}
-                  </h2>
-                  {dispute?.displayCode ? (
-                    <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
-                      {dispute.displayCode}
-                    </span>
-                  ) : null}
-                  <span
-                    className={`rounded border px-2 py-0.5 text-xs font-bold ${headerStatusStyle(
-                      dispute?.status,
-                    )}`}
-                  >
-                    {dispute?.status?.replaceAll("_", " ") ?? "UNKNOWN"}
+            <button
+              className="rounded-full p-2 text-gray-500 hover:bg-gray-100"
+              onClick={() => navigate(-1)}
+            >
+              <ChevronLeft className="h-5 w-5" />
+            </button>
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <h2 className="text-xl font-bold text-slate-900">
+                  {dispute?.displayTitle || dispute?.id || "Dispute"}
+                </h2>
+                {dispute?.displayCode ? (
+                  <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
+                    {dispute.displayCode}
                   </span>
-                  {dispute?.caseStage ? (
-                    <span className="rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-bold text-sky-700">
-                      {caseStageLabelMap[dispute.caseStage] || dispute.caseStage.replaceAll("_", " ")}
-                    </span>
-                  ) : null}
-                  {canViewInternal && complexity ? (
-                    <DisputeComplexityBadge
-                      level={complexity.level}
-                    estMinutes={complexity.timeEstimation.recommendedMinutes}
-                    confidence={complexity.confidence}
+                ) : null}
+                <span
+                  className={`rounded border px-2 py-0.5 text-xs font-bold ${headerStatusStyle(
+                    dispute?.status,
+                  )}`}
+                >
+                  {dispute?.status?.replaceAll("_", " ") ?? "UNKNOWN"}
+                </span>
+                {dispute?.caseStage ? (
+                  <span className="rounded border border-sky-200 bg-sky-50 px-2 py-0.5 text-xs font-bold text-sky-700">
+                    {caseStageLabelMap[dispute.caseStage] ||
+                      dispute.caseStage.replaceAll("_", " ")}
+                  </span>
+                ) : null}
+                {canViewInternal &&
+                complexityLevel &&
+                complexityRecommendedMinutes !== null ? (
+                  <DisputeComplexityBadge
+                    level={complexityLevel}
+                    estMinutes={complexityRecommendedMinutes}
+                    confidence={complexity?.confidence ?? 0}
                   />
                 ) : null}
               </div>
@@ -904,11 +1009,14 @@ export const DisputeDetailHub = ({
             {canSubmitAppeal ? (
               <button
                 type="button"
+                data-testid="open-appeal-dialog"
                 onClick={() => setAppealDialogOpen(true)}
                 className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-100"
               >
                 <Scale className="h-4 w-4" />
-                {canSubmitRejectionAppeal ? "Appeal Rejection" : "Formal Verdict Appeal"}
+                {canSubmitRejectionAppeal
+                  ? "Appeal Rejection"
+                  : "Formal Verdict Appeal"}
               </button>
             ) : null}
             {canResolveAppeal ? (
@@ -924,6 +1032,7 @@ export const DisputeDetailHub = ({
             {canSubmitImpactReview ? (
               <button
                 type="button"
+                data-testid="open-impact-review-dialog"
                 onClick={() => {
                   setRequestDialogMode("impact-review");
                   setReviewDialogOpen(true);
@@ -937,6 +1046,7 @@ export const DisputeDetailHub = ({
             {canRequestSupportEscalation ? (
               <button
                 type="button"
+                data-testid="open-support-escalation-dialog"
                 onClick={() => {
                   setRequestDialogMode("support-escalation");
                   setReviewDialogOpen(true);
@@ -950,6 +1060,7 @@ export const DisputeDetailHub = ({
             {canRequestAdminOversight ? (
               <button
                 type="button"
+                data-testid="open-admin-oversight-dialog"
                 onClick={() => {
                   setRequestDialogMode("admin-oversight");
                   setReviewDialogOpen(true);
@@ -963,6 +1074,7 @@ export const DisputeDetailHub = ({
             {canRequestNeutralPanel ? (
               <button
                 type="button"
+                data-testid="open-neutral-panel-dialog"
                 onClick={() => {
                   setRequestDialogMode("neutral-panel");
                   setReviewDialogOpen(true);
@@ -975,6 +1087,7 @@ export const DisputeDetailHub = ({
             ) : null}
             <button
               type="button"
+              data-testid="export-dispute-dossier"
               onClick={() => void handleDossierExport()}
               disabled={dossierExporting}
               className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
@@ -1012,7 +1125,9 @@ export const DisputeDetailHub = ({
                     </h3>
                     <p className="mt-1 text-xs text-amber-900/80">
                       State: <strong>{appealStateLabel}</strong>
-                      {appealTrack.requiresHearing ? " • Tier 2 hearing required" : " • Desk review"}
+                      {appealTrack.requiresHearing
+                        ? " • Tier 2 hearing required"
+                        : " • Desk review"}
                     </p>
                   </div>
                   {appealTrack.isSlaBreached ? (
@@ -1028,7 +1143,10 @@ export const DisputeDetailHub = ({
                     </div>
                     <div className="mt-1 text-sm text-slate-800">
                       {appealTrack.deadline
-                        ? format(new Date(appealTrack.deadline), "MMM d, yyyy h:mm a")
+                        ? format(
+                            new Date(appealTrack.deadline),
+                            "MMM d, yyyy h:mm a",
+                          )
                         : "Not set"}
                     </div>
                   </div>
@@ -1061,24 +1179,26 @@ export const DisputeDetailHub = ({
                   Neutral Panel Recommendation
                 </h3>
                 <p className="mt-1 text-xs text-violet-900/80">
-                  Submit an advisory recommendation for admin review. Your recommendation does not
-                  directly finalize the case.
+                  Submit an advisory recommendation for admin review. Your
+                  recommendation does not directly finalize the case.
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {(["UPHOLD", "OVERTURN", "NEEDS_HEARING"] as const).map((option) => (
-                    <button
-                      key={option}
-                      type="button"
-                      onClick={() => setPanelRecommendation(option)}
-                      className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                        panelRecommendation === option
-                          ? "border-violet-700 bg-violet-700 text-white"
-                          : "border-violet-200 bg-white text-violet-800"
-                      }`}
-                    >
-                      {option.replaceAll("_", " ")}
-                    </button>
-                  ))}
+                  {(["UPHOLD", "OVERTURN", "NEEDS_HEARING"] as const).map(
+                    (option) => (
+                      <button
+                        key={option}
+                        type="button"
+                        onClick={() => setPanelRecommendation(option)}
+                        className={`rounded-full border px-3 py-1 text-xs font-semibold ${
+                          panelRecommendation === option
+                            ? "border-violet-700 bg-violet-700 text-white"
+                            : "border-violet-200 bg-white text-violet-800"
+                        }`}
+                      >
+                        {option.replaceAll("_", " ")}
+                      </button>
+                    ),
+                  )}
                 </div>
                 <div className="mt-3 grid gap-3 md:grid-cols-2">
                   <Textarea
@@ -1099,11 +1219,17 @@ export const DisputeDetailHub = ({
                 <div className="mt-3 flex justify-end">
                   <button
                     type="button"
-                    onClick={() => void handleNeutralPanelRecommendationSubmit()}
-                    disabled={panelSubmitting || panelRationale.trim().length < 50}
+                    onClick={() =>
+                      void handleNeutralPanelRecommendationSubmit()
+                    }
+                    disabled={
+                      panelSubmitting || panelRationale.trim().length < 50
+                    }
                     className="rounded-lg bg-violet-700 px-4 py-2 text-sm font-medium text-white hover:bg-violet-600 disabled:opacity-60"
                   >
-                    {panelSubmitting ? "Submitting..." : "Submit Recommendation"}
+                    {panelSubmitting
+                      ? "Submitting..."
+                      : "Submit Recommendation"}
                   </button>
                 </div>
               </div>
@@ -1111,9 +1237,11 @@ export const DisputeDetailHub = ({
 
             {isClosedCase ? (
               <div className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-                This case is closed. Verdicts, hearings, contracts, and timeline are now read-only
-                reference material.
-                {canSubmitAppeal ? " Appeal remains available until the deadline." : ""}
+                This case is closed. Verdicts, hearings, contracts, and timeline
+                are now read-only reference material.
+                {canSubmitAppeal
+                  ? " Appeal remains available until the deadline."
+                  : ""}
               </div>
             ) : null}
 
@@ -1121,10 +1249,12 @@ export const DisputeDetailHub = ({
               <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-900">Case docket</h3>
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Case docket
+                    </h3>
                     <p className="mt-1 text-xs text-slate-500">
-                      Hearings are preserved as a chronological docket. Only one hearing remains
-                      actionable at a time.
+                      Hearings are preserved as a chronological docket. Only one
+                      hearing remains actionable at a time.
                     </p>
                   </div>
                 </div>
@@ -1159,15 +1289,22 @@ export const DisputeDetailHub = ({
                         </div>
                         <span className="text-xs text-slate-500">
                           {entry.scheduledAt
-                            ? format(new Date(entry.scheduledAt), "MMM d, yyyy h:mm a")
+                            ? format(
+                                new Date(entry.scheduledAt),
+                                "MMM d, yyyy h:mm a",
+                              )
                             : "Unscheduled"}
                         </span>
                       </div>
                       {entry.agenda ? (
-                        <p className="mt-2 text-sm text-slate-700">{entry.agenda}</p>
+                        <p className="mt-2 text-sm text-slate-700">
+                          {entry.agenda}
+                        </p>
                       ) : null}
                       {entry.freezeReason ? (
-                        <p className="mt-2 text-xs text-slate-500">{entry.freezeReason}</p>
+                        <p className="mt-2 text-xs text-slate-500">
+                          {entry.freezeReason}
+                        </p>
                       ) : null}
                       {entry.summary || entry.findings ? (
                         <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -1176,7 +1313,9 @@ export const DisputeDetailHub = ({
                               <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                                 Minutes
                               </div>
-                              <p className="mt-1 text-sm text-slate-700">{entry.summary}</p>
+                              <p className="mt-1 text-sm text-slate-700">
+                                {entry.summary}
+                              </p>
                             </div>
                           ) : null}
                           {entry.findings ? (
@@ -1184,7 +1323,9 @@ export const DisputeDetailHub = ({
                               <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                                 Findings
                               </div>
-                              <p className="mt-1 text-sm text-slate-700">{entry.findings}</p>
+                              <p className="mt-1 text-sm text-slate-700">
+                                {entry.findings}
+                              </p>
                             </div>
                           ) : null}
                         </div>
@@ -1201,8 +1342,18 @@ export const DisputeDetailHub = ({
                   verdict={verdict}
                   canAppealOverride={canSubmitAppeal}
                   appealDeadlinePassed={appealDeadlinePassed}
-                  onAppeal={canSubmitAppeal ? () => setAppealDialogOpen(true) : undefined}
+                  onAppeal={
+                    canSubmitAppeal
+                      ? () => setAppealDialogOpen(true)
+                      : undefined
+                  }
                   appealLoading={appealLoading}
+                  onAccept={
+                    verdict.acceptance?.currentUserCanAccept
+                      ? () => setAcceptVerdictDialogOpen(true)
+                      : undefined
+                  }
+                  acceptLoading={acceptVerdictLoading}
                 />
               </div>
             ) : null}
@@ -1211,9 +1362,12 @@ export const DisputeDetailHub = ({
               <div className="mb-6 rounded-xl border border-gray-200 bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-900">Contract dossier</h3>
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Contract dossier
+                    </h3>
                     <p className="mt-1 text-xs text-slate-500">
-                      Use the full contract page when available; PDF remains available as a fallback.
+                      Use the full contract page when available; PDF remains
+                      available as a fallback.
                     </p>
                   </div>
                 </div>
@@ -1238,7 +1392,11 @@ export const DisputeDetailHub = ({
                         {contractBasePath ? (
                           <button
                             type="button"
-                            onClick={() => navigate(`${contractBasePath}/contracts/${contract.id}`)}
+                            onClick={() =>
+                              navigate(
+                                `${contractBasePath}/contracts/${contract.id}`,
+                              )
+                            }
                             className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                           >
                             <FileText className="h-3.5 w-3.5" />
@@ -1263,7 +1421,10 @@ export const DisputeDetailHub = ({
               </div>
             ) : null}
 
-            {appealWizardOpen && canResolveAppeal && disputeId && verdict?.id ? (
+            {appealWizardOpen &&
+            canResolveAppeal &&
+            disputeId &&
+            verdict?.id ? (
               <div className="mb-6 rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
                 <VerdictWizard
                   disputeId={disputeId}
@@ -1278,7 +1439,10 @@ export const DisputeDetailHub = ({
             ) : null}
 
             <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
-              <div className="flex space-x-1 border-b border-gray-200 bg-white px-6" role="tablist">
+              <div
+                className="flex space-x-1 border-b border-gray-200 bg-white px-6"
+                role="tablist"
+              >
                 {tabs.map((tab, idx) => {
                   const isSelected = idx === activeTabIndex;
                   return (
@@ -1303,10 +1467,14 @@ export const DisputeDetailHub = ({
 
               <div className="p-6" role="tabpanel">
                 {loading ? (
-                  <div className="text-sm text-gray-500">Loading dispute...</div>
+                  <div className="text-sm text-gray-500">
+                    Loading dispute...
+                  </div>
                 ) : (
                   tabs.map((tab, idx) =>
-                    idx === activeTabIndex ? <div key={tab.name}>{tab.component}</div> : null,
+                    idx === activeTabIndex ? (
+                      <div key={tab.name}>{tab.component}</div>
+                    ) : null,
                   )
                 )}
               </div>
@@ -1315,7 +1483,9 @@ export const DisputeDetailHub = ({
         </main>
 
         <aside className="hidden w-80 overflow-y-auto border-l border-gray-200 bg-white p-6 xl:block">
-          <h4 className="mb-4 text-sm font-semibold text-gray-900">Involved Parties</h4>
+          <h4 className="mb-4 text-sm font-semibold text-gray-900">
+            Involved Parties
+          </h4>
           <div className="space-y-4">
             {participantRoster.map((participant, index) => {
               const initials = (participant.caseRole || "P").slice(0, 1);
@@ -1343,24 +1513,34 @@ export const DisputeDetailHub = ({
                           <button
                             type="button"
                             onClick={() =>
-                              navigate(`${profileBasePath}/discovery/profile/${participant.userId}`)
+                              navigate(
+                                `${profileBasePath}/discovery/profile/${participant.userId}`,
+                              )
                             }
                             className="hover:underline"
                           >
-                            {participant.displayName || participant.username || participant.userId}
+                            {participant.displayName ||
+                              participant.username ||
+                              participant.userId}
                           </button>
                         ) : (
-                          participant.displayName || participant.username || participant.userId
+                          participant.displayName ||
+                          participant.username ||
+                          participant.userId
                         )}
                       </p>
                       <p className="text-xs text-gray-500">
                         {participant.caseRole.replaceAll("_", " ")}
                       </p>
                       {participant.username ? (
-                        <p className="truncate text-[11px] text-slate-500">{participant.username}</p>
+                        <p className="truncate text-[11px] text-slate-500">
+                          {participant.username}
+                        </p>
                       ) : null}
                       {participant.email ? (
-                        <p className="truncate text-[11px] text-slate-400">{participant.email}</p>
+                        <p className="truncate text-[11px] text-slate-400">
+                          {participant.email}
+                        </p>
                       ) : null}
                     </div>
                   </div>
@@ -1371,7 +1551,9 @@ export const DisputeDetailHub = ({
 
           <div className="my-6 h-px bg-gray-100" />
 
-          <h4 className="mb-2 text-sm font-semibold text-gray-900">Escrow Details</h4>
+          <h4 className="mb-2 text-sm font-semibold text-gray-900">
+            Escrow Details
+          </h4>
           <div className="rounded-lg border border-slate-100 bg-slate-50 p-4">
             <p className="text-xs text-gray-500">Total Funded</p>
             <p className="text-xl font-bold text-slate-900">{escrowAmount}</p>
@@ -1382,7 +1564,9 @@ export const DisputeDetailHub = ({
 
           <div className="my-6 h-px bg-gray-100" />
 
-          <h4 className="mb-3 text-sm font-semibold text-gray-900">Deadlines</h4>
+          <h4 className="mb-3 text-sm font-semibold text-gray-900">
+            Deadlines
+          </h4>
           <div className="space-y-3 text-sm text-gray-600">
             <div className="flex items-center gap-2">
               <Clock className="h-4 w-4 text-gray-400" />
@@ -1408,12 +1592,19 @@ export const DisputeDetailHub = ({
 
           <div className="my-6 h-px bg-gray-100" />
 
-          <h4 className="mb-3 text-sm font-semibold text-gray-900">Contracts</h4>
+          <h4 className="mb-3 text-sm font-semibold text-gray-900">
+            Contracts
+          </h4>
           <div className="space-y-3 text-sm text-gray-600">
             {dossier?.contracts?.length ? (
               dossier.contracts.map((contract) => (
-                <div key={contract.id} className="rounded-lg border border-slate-100 bg-slate-50 p-3">
-                  <p className="font-medium text-slate-900">{contract.title || contract.id}</p>
+                <div
+                  key={contract.id}
+                  className="rounded-lg border border-slate-100 bg-slate-50 p-3"
+                >
+                  <p className="font-medium text-slate-900">
+                    {contract.title || contract.id}
+                  </p>
                   <p className="mt-1 text-xs text-slate-500">
                     {(contract.status || "UNKNOWN").replaceAll("_", " ")}
                   </p>
@@ -1421,7 +1612,11 @@ export const DisputeDetailHub = ({
                     {contractBasePath ? (
                       <button
                         type="button"
-                        onClick={() => navigate(`${contractBasePath}/contracts/${contract.id}`)}
+                        onClick={() =>
+                          navigate(
+                            `${contractBasePath}/contracts/${contract.id}`,
+                          )
+                        }
                         className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         Open page
@@ -1441,31 +1636,43 @@ export const DisputeDetailHub = ({
                 </div>
               ))
             ) : (
-              <p className="text-sm text-gray-500">No contract records linked.</p>
+              <p className="text-sm text-gray-500">
+                No contract records linked.
+              </p>
             )}
           </div>
 
           <div className="my-6 h-px bg-gray-100" />
 
-          <h4 className="mb-3 text-sm font-semibold text-gray-900">Appeal State</h4>
+          <h4 className="mb-3 text-sm font-semibold text-gray-900">
+            Appeal State
+          </h4>
           <div className="space-y-2 text-sm text-gray-600">
             <div>
-              <span className="text-xs uppercase tracking-wider text-gray-400">Status</span>
-              <p className="font-medium text-slate-900">
-                {appealStateLabel}
-              </p>
+              <span className="text-xs uppercase tracking-wider text-gray-400">
+                Status
+              </span>
+              <p className="font-medium text-slate-900">{appealStateLabel}</p>
             </div>
             {appealTrack?.kind && appealTrack.kind !== "NONE" ? (
               <div>
-                <span className="text-xs uppercase tracking-wider text-gray-400">Track</span>
+                <span className="text-xs uppercase tracking-wider text-gray-400">
+                  Track
+                </span>
                 <p className="font-medium text-slate-900">
-                  {appealTrack.kind === "REJECTION" ? "Rejection appeal" : "Verdict appeal"}
+                  {appealTrack.kind === "REJECTION"
+                    ? "Rejection appeal"
+                    : "Verdict appeal"}
                 </p>
               </div>
             ) : null}
-            {(appealTrack?.filedAt || dispute?.appealedAt || dispute?.rejectionAppealedAt) ? (
+            {appealTrack?.filedAt ||
+            dispute?.appealedAt ||
+            dispute?.rejectionAppealedAt ? (
               <div>
-                <span className="text-xs uppercase tracking-wider text-gray-400">Appealed At</span>
+                <span className="text-xs uppercase tracking-wider text-gray-400">
+                  Appealed At
+                </span>
                 <p>
                   {format(
                     new Date(
@@ -1479,19 +1686,23 @@ export const DisputeDetailHub = ({
                 </p>
               </div>
             ) : null}
-            {(dispute?.appealReason || dispute?.rejectionAppealReason) ? (
+            {dispute?.appealReason || dispute?.rejectionAppealReason ? (
               <div>
-                <span className="text-xs uppercase tracking-wider text-gray-400">Appeal Reason</span>
+                <span className="text-xs uppercase tracking-wider text-gray-400">
+                  Appeal Reason
+                </span>
                 <p className="whitespace-pre-wrap text-slate-700">
                   {dispute.appealReason || dispute.rejectionAppealReason}
                 </p>
               </div>
             ) : null}
-            {(appealTrack?.assignedAdmin?.fullName ||
-              appealTrack?.assignedAdmin?.email ||
-              appealTrack?.assignedAdminId) ? (
+            {appealTrack?.assignedAdmin?.fullName ||
+            appealTrack?.assignedAdmin?.email ||
+            appealTrack?.assignedAdminId ? (
               <div>
-                <span className="text-xs uppercase tracking-wider text-gray-400">Assigned Admin</span>
+                <span className="text-xs uppercase tracking-wider text-gray-400">
+                  Assigned Admin
+                </span>
                 <p className="text-slate-700">
                   {appealTrack?.assignedAdmin?.fullName ||
                     appealTrack?.assignedAdmin?.email ||
@@ -1499,19 +1710,21 @@ export const DisputeDetailHub = ({
                 </p>
               </div>
             ) : null}
-            {(appealTrack?.resolution ||
-              dispute?.appealResolution ||
-              dispute?.rejectionAppealResolution) ? (
+            {appealTrack?.resolution ||
+            dispute?.appealResolution ||
+            dispute?.rejectionAppealResolution ? (
               <div>
-                <span className="text-xs uppercase tracking-wider text-gray-400">Resolution</span>
+                <span className="text-xs uppercase tracking-wider text-gray-400">
+                  Resolution
+                </span>
                 <p className="whitespace-pre-wrap text-slate-700">
                   {appealTrack?.resolution ||
                     dispute?.appealResolution ||
                     dispute?.rejectionAppealResolution}
                 </p>
-                {(appealTrack?.resolvedAt ||
-                  dispute?.appealResolvedAt ||
-                  dispute?.rejectionAppealResolvedAt) ? (
+                {appealTrack?.resolvedAt ||
+                dispute?.appealResolvedAt ||
+                dispute?.rejectionAppealResolvedAt ? (
                   <p className="mt-1 text-xs text-gray-500">
                     {format(
                       new Date(
@@ -1541,7 +1754,10 @@ export const DisputeDetailHub = ({
           }
         }}
       >
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent
+          className="sm:max-w-lg"
+          data-testid="review-request-dialog"
+        >
           <DialogHeader>
             <DialogTitle>{requestDialogCopy.title}</DialogTitle>
             <DialogDescription>
@@ -1554,6 +1770,7 @@ export const DisputeDetailHub = ({
                 {requestDialogCopy.reasonLabel}
               </label>
               <Textarea
+                data-testid="review-request-reason"
                 value={reviewReason}
                 onChange={(event) => setReviewReason(event.target.value)}
                 rows={5}
@@ -1565,6 +1782,7 @@ export const DisputeDetailHub = ({
                 {requestDialogCopy.impactLabel}
               </label>
               <Textarea
+                data-testid="review-request-impact"
                 value={reviewImpactSummary}
                 onChange={(event) => setReviewImpactSummary(event.target.value)}
                 rows={3}
@@ -1574,6 +1792,7 @@ export const DisputeDetailHub = ({
             <div className="flex justify-end gap-2">
               <button
                 type="button"
+                data-testid="cancel-review-request"
                 onClick={() => setReviewDialogOpen(false)}
                 className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
               >
@@ -1581,11 +1800,14 @@ export const DisputeDetailHub = ({
               </button>
               <button
                 type="button"
+                data-testid="submit-review-request"
                 onClick={() => void handleReviewRequestSubmit()}
                 disabled={reviewSubmitting || reviewReason.trim().length < 20}
                 className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:opacity-60"
               >
-                {reviewSubmitting ? "Submitting..." : requestDialogCopy.submitLabel}
+                {reviewSubmitting
+                  ? "Submitting..."
+                  : requestDialogCopy.submitLabel}
               </button>
             </div>
           </div>
@@ -1598,6 +1820,11 @@ export const DisputeDetailHub = ({
         mode={appealDialogMode}
         onSubmit={handleAppealSubmit}
         deadlineText={appealDeadlineText}
+      />
+      <AcceptVerdictDialog
+        open={acceptVerdictDialogOpen}
+        onOpenChange={setAcceptVerdictDialogOpen}
+        onSubmit={handleAcceptVerdictSubmit}
       />
     </div>
   );

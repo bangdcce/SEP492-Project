@@ -13,6 +13,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
@@ -48,6 +49,7 @@ import { CreateMilestoneModal } from "./components/milestone/CreateMilestoneModa
 import { CalendarView } from "./components/calendar/CalendarView";
 import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
 import { MilestoneFundingCard } from "./components/milestone/MilestoneFundingCard";
+import { ProjectReviewActionsCard } from "./components/review/ProjectReviewActionsCard";
 import { ProjectOverview } from "./components/overview/ProjectOverview";
 import { WorkspaceChatDrawer } from "./components/chat/WorkspaceChatDrawer";
 import { calculateProgress, getLatestApprovedSubmission } from "./utils";
@@ -184,6 +186,7 @@ export function ProjectWorkspace() {
   const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
 
   const { projectId } = useParams();
+  const location = useLocation();
 
   const viewMode = useMemo<WorkspaceViewMode>(
     () => parseWorkspaceViewMode(searchParams.get("view")),
@@ -1867,6 +1870,21 @@ export function ProjectWorkspace() {
             />
           )}
 
+          {project &&
+          activeMilestone &&
+          ["COMPLETED", "PAID"].includes(String(project.status || "").toUpperCase()) &&
+          activeMilestone.escrow?.status === "RELEASED" ? (
+            <ProjectReviewActionsCard
+              project={project}
+              currentUserId={currentUser?.id}
+              currentUserRole={currentRole}
+              pathname={location.pathname}
+              milestoneTitle={activeMilestone.title}
+              canRaiseDispute={!isProjectDisputed}
+              onRaiseDispute={() => handleRaiseDispute(activeMilestone.id)}
+            />
+          ) : null}
+
           {viewMode !== "summary" && (
             <MilestoneTabs
               milestones={milestones}
@@ -1890,6 +1908,8 @@ export function ProjectWorkspace() {
                   <span>{activeProgress}%</span>
                   {canRaiseDisputeForMilestone(activeMilestone.status) && (
                     <button
+                      type="button"
+                      data-testid={`raise-dispute-${activeMilestone.id}`}
                       onClick={() => handleRaiseDispute(activeMilestone.id)}
                       className="ml-2 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-100"
                     >

@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { buildPublicUploadUrl, extractUploadStoragePath } from '../../common/utils/public-upload-url.util';
+import {
+  buildPublicUploadUrl,
+  extractUploadStoragePath,
+} from '../../common/utils/public-upload-url.util';
 import {
   extractRequestChatStoragePath,
   getRequestChatSignedUrl,
@@ -21,6 +24,7 @@ import {
   type WorkspaceMessageEditHistoryEntry,
 } from 'src/database/entities';
 import { NotificationsService } from '../notifications/notifications.service';
+import { hasOperationalStaffAccess } from '../auth/utils/role.utils';
 import { RequestChatRealtimeBridge } from './request-chat.realtime';
 
 export interface RequestChatReplySummary {
@@ -58,6 +62,12 @@ export interface RequestChatMessage {
   replyTo: RequestChatReplySummary | null;
 }
 
+type RequestChatActor = Pick<UserEntity, 'id' | 'role' | 'isVerified' | 'staffApplication'>;
+export interface RequestSystemMessageOptions {
+  skipNotificationUserIds?: string[];
+  notificationTitle?: string;
+}
+
 @Injectable()
 export class RequestChatService {
   constructor(
@@ -81,10 +91,7 @@ export class RequestChatService {
     return request;
   }
 
-  private isAcceptedFreelancerParticipant(
-    request: ProjectRequestEntity,
-    userId: string,
-  ): boolean {
+  private isAcceptedFreelancerParticipant(request: ProjectRequestEntity, userId: string): boolean {
     return Boolean(
       request.proposals?.some(
         (proposal) =>
@@ -96,33 +103,31 @@ export class RequestChatService {
 
   private canReadRequestChat(
     request: ProjectRequestEntity,
-    userId: string,
-    role: UserRole,
+    actor: RequestChatActor,
   ): boolean {
-    if (role === UserRole.ADMIN || role === UserRole.STAFF) {
+    if (hasOperationalStaffAccess(actor)) {
       return true;
     }
 
     return (
-      request.clientId === userId ||
-      request.brokerId === userId ||
-      this.isAcceptedFreelancerParticipant(request, userId)
+      request.clientId === actor.id ||
+      request.brokerId === actor.id ||
+      this.isAcceptedFreelancerParticipant(request, actor.id)
     );
   }
 
   private canWriteRequestChat(
     request: ProjectRequestEntity,
-    userId: string,
-    role: UserRole,
+    actor: RequestChatActor,
   ): boolean {
-    if (role === UserRole.ADMIN || role === UserRole.STAFF) {
+    if (actor.role === UserRole.ADMIN || actor.role === UserRole.STAFF) {
       return false;
     }
 
     return (
-      request.clientId === userId ||
-      request.brokerId === userId ||
-      this.isAcceptedFreelancerParticipant(request, userId)
+      request.clientId === actor.id ||
+      request.brokerId === actor.id ||
+      this.isAcceptedFreelancerParticipant(request, actor.id)
     );
   }
 
@@ -159,7 +164,9 @@ export class RequestChatService {
       .filter((item): item is WorkspaceMessageAttachment => Boolean(item));
   }
 
-  private async resolveAttachmentUrl(attachment: Partial<WorkspaceMessageAttachment>): Promise<string> {
+  private async resolveAttachmentUrl(
+    attachment: Partial<WorkspaceMessageAttachment>,
+  ): Promise<string> {
     const objectStoragePath =
       extractRequestChatStoragePath(attachment?.storagePath) ||
       extractRequestChatStoragePath(attachment?.url);
@@ -286,16 +293,16 @@ export class RequestChatService {
     return Array.from(ids);
   }
 
-  async assertRequestReadAccess(requestId: string, userId: string, role: UserRole): Promise<void> {
+  async assertRequestReadAccess(requestId: string, actor: RequestChatActor): Promise<void> {
     const request = await this.getRequestAccessContext(requestId);
-    if (!this.canReadRequestChat(request, userId, role)) {
+    if (!this.canReadRequestChat(request, actor)) {
       throw new ForbiddenException('You do not have access to this request chat');
     }
   }
 
-  async assertRequestWriteAccess(requestId: string, userId: string, role: UserRole): Promise<void> {
+  async assertRequestWriteAccess(requestId: string, actor: RequestChatActor): Promise<void> {
     const request = await this.getRequestAccessContext(requestId);
-    if (!this.canWriteRequestChat(request, userId, role)) {
+    if (!this.canWriteRequestChat(request, actor)) {
       throw new ForbiddenException('You do not have write access to this request chat');
     }
   }
@@ -304,10 +311,9 @@ export class RequestChatService {
     requestId: string,
     limit: number,
     offset: number,
-    userId: string,
-    role: UserRole,
+    actor: RequestChatActor,
   ): Promise<RequestChatMessage[]> {
-    await this.assertRequestReadAccess(requestId, userId, role);
+    await this.assertRequestReadAccess(requestId, actor);
 
     const messages = await this.requestMessageRepo.find({
       where: { requestId },
@@ -322,12 +328,12 @@ export class RequestChatService {
 
   async saveMessage(
     requestId: string,
-    sender: Pick<UserEntity, 'id' | 'role'>,
+    sender: RequestChatActor,
     content: string,
     attachments?: WorkspaceMessageAttachment[],
     replyToId?: string,
   ): Promise<RequestChatMessage> {
-    await this.assertRequestWriteAccess(requestId, sender.id, sender.role);
+    await this.assertRequestWriteAccess(requestId, sender);
 
     const trimmedContent = String(content || '').trim();
     const normalizedAttachments = this.normalizeAttachmentsForPersistence(attachments);
@@ -369,7 +375,10 @@ export class RequestChatService {
     const participants = await this.getParticipantIds(request);
     const preview =
       trimmedContent ||
-      normalizedAttachments.map((attachment) => attachment.name).join(', ').slice(0, 120);
+      normalizedAttachments
+        .map((attachment) => attachment.name)
+        .join(', ')
+        .slice(0, 120);
 
     await this.notificationsService.createMany(
       participants
@@ -386,7 +395,11 @@ export class RequestChatService {
     return hydrated;
   }
 
-  async createSystemMessage(requestId: string, content: string): Promise<RequestChatMessage> {
+  async createSystemMessage(
+    requestId: string,
+    content: string,
+    options?: RequestSystemMessageOptions,
+  ): Promise<RequestChatMessage> {
     const request = await this.getRequestAccessContext(requestId);
     const trimmedContent = String(content || '').trim();
     if (!trimmedContent) {
@@ -411,15 +424,22 @@ export class RequestChatService {
 
     RequestChatRealtimeBridge.emitMessage(hydrated);
 
-    await this.notificationsService.createMany(
-      (await this.getParticipantIds(request)).map((participantId) => ({
-        userId: participantId,
-        title: 'Request update',
-        body: `${request.title}: ${trimmedContent.slice(0, 180)}`,
-        relatedType: 'ProjectRequest',
-        relatedId: requestId,
-      })),
+    const skipIds = new Set((options?.skipNotificationUserIds || []).filter(Boolean));
+    const participants = (await this.getParticipantIds(request)).filter(
+      (participantId) => !skipIds.has(participantId),
     );
+
+    if (participants.length > 0) {
+      await this.notificationsService.createMany(
+        participants.map((participantId) => ({
+          userId: participantId,
+          title: options?.notificationTitle || 'Request update',
+          body: `${request.title}: ${trimmedContent.slice(0, 180)}`,
+          relatedType: 'ProjectRequest',
+          relatedId: requestId,
+        })),
+      );
+    }
 
     return hydrated;
   }
