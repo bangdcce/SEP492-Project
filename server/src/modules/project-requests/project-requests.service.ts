@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
+} from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions, In, MoreThan } from 'typeorm';
@@ -33,7 +38,10 @@ import {
 import { MatchingService } from '../matching/matching.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ContractsService } from '../contracts/contracts.service';
-import { RequestChatService } from '../request-chat/request-chat.service';
+import {
+  RequestChatService,
+  type RequestSystemMessageOptions,
+} from '../request-chat/request-chat.service';
 import { hasOperationalStaffAccess } from '../auth/utils/role.utils';
 import {
   buildPublicUploadUrl,
@@ -50,7 +58,10 @@ import {
 
 const BROKER_APPLICATION_CAP = 10;
 const BROKER_APPLICATION_WINDOW_HOURS = 72;
-const ACTIVE_BROKER_APPLICATION_STATUSES = [ProposalStatus.PENDING, ProposalStatus.INVITED] as const;
+const ACTIVE_BROKER_APPLICATION_STATUSES = [
+  ProposalStatus.PENDING,
+  ProposalStatus.INVITED,
+] as const;
 const FREELANCER_PENDING_CLIENT_APPROVAL = 'PENDING_CLIENT_APPROVAL' as const;
 const DATE_ONLY_INPUT_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -218,7 +229,10 @@ export class ProjectRequestsService {
     };
   }
 
-  private buildProjectGoalSummary(title?: string | null, description?: string | null): string | null {
+  private buildProjectGoalSummary(
+    title?: string | null,
+    description?: string | null,
+  ): string | null {
     const normalizedTitle = this.sanitizePlainText(title);
     const normalizedDescription = this.sanitizePlainText(description);
     if (!normalizedTitle && !normalizedDescription) {
@@ -231,9 +245,7 @@ export class ProjectRequestsService {
       normalizedDescription.length > 220
         ? `${normalizedDescription.slice(0, 217).trimEnd()}...`
         : normalizedDescription;
-    return normalizedTitle
-      ? `${normalizedTitle}: ${compactDescription}`
-      : compactDescription;
+    return normalizedTitle ? `${normalizedTitle}: ${compactDescription}` : compactDescription;
   }
 
   private buildRequestScopeBaseline(request: ProjectRequestEntity): ProjectRequestScopeBaseline {
@@ -344,7 +356,7 @@ export class ProjectRequestsService {
           ? baseline.estimatedBudget
           : typeof baseline.agreedBudget === 'number' && Number.isFinite(baseline.agreedBudget)
             ? baseline.agreedBudget
-          : null,
+            : null,
       estimatedTimeline:
         `${baseline.estimatedTimeline || baseline.agreedDeliveryDeadline || ''}`.trim() || null,
       clientFeatures: this.normalizeCommercialFeatures(
@@ -353,12 +365,14 @@ export class ProjectRequestsService {
       agreedBudget:
         typeof baseline.agreedBudget === 'number' && Number.isFinite(baseline.agreedBudget)
           ? baseline.agreedBudget
-          : typeof baseline.estimatedBudget === 'number' && Number.isFinite(baseline.estimatedBudget)
+          : typeof baseline.estimatedBudget === 'number' &&
+              Number.isFinite(baseline.estimatedBudget)
             ? baseline.estimatedBudget
             : null,
       agreedDeliveryDeadline:
         this.safeNormalizeRequestedDeadline(
-          `${baseline.agreedDeliveryDeadline || baseline.estimatedTimeline || ''}`.trim() || undefined,
+          `${baseline.agreedDeliveryDeadline || baseline.estimatedTimeline || ''}`.trim() ||
+            undefined,
         ) ?? null,
       agreedClientFeatures: this.normalizeCommercialFeatures(
         baseline.agreedClientFeatures ?? baseline.clientFeatures,
@@ -378,8 +392,7 @@ export class ProjectRequestsService {
 
     return {
       id: value.id,
-      status:
-        value.status === 'APPROVED' || value.status === 'REJECTED' ? value.status : 'PENDING',
+      status: value.status === 'APPROVED' || value.status === 'REJECTED' ? value.status : 'PENDING',
       reason: `${value.reason || ''}`.trim(),
       requestedByBrokerId: `${value.requestedByBrokerId || ''}`.trim(),
       requestedAt: `${value.requestedAt || ''}`.trim(),
@@ -429,8 +442,7 @@ export class ProjectRequestsService {
             typeof attachment?.size === 'number' && Number.isFinite(attachment.size)
               ? attachment.size
               : null,
-          category:
-            attachment?.category === 'requirements' ? 'requirements' : 'attachment',
+          category: attachment?.category === 'requirements' ? 'requirements' : 'attachment',
         };
       })
       .filter(
@@ -473,7 +485,9 @@ export class ProjectRequestsService {
       remainingSlots: Math.max(0, BROKER_APPLICATION_CAP - activeApplications),
       hasCapacity: activeApplications < BROKER_APPLICATION_CAP,
       windowStartedAt: windowStart,
-      windowEndsAt: new Date(windowStart.getTime() + BROKER_APPLICATION_WINDOW_HOURS * 60 * 60 * 1000),
+      windowEndsAt: new Date(
+        windowStart.getTime() + BROKER_APPLICATION_WINDOW_HOURS * 60 * 60 * 1000,
+      ),
     };
   }
 
@@ -574,16 +588,20 @@ export class ProjectRequestsService {
   }
 
   private pickLatestSpecByPhase(
-    specs: Array<Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>>,
+    specs: Array<
+      Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
+    >,
     phase: SpecPhase,
   ) {
-    return [...specs]
-      .filter((spec) => spec.specPhase === phase)
-      .sort(
-        (a, b) =>
-          new Date(b.updatedAt || b.createdAt).getTime() -
-          new Date(a.updatedAt || a.createdAt).getTime(),
-      )[0] ?? null;
+    return (
+      [...specs]
+        .filter((spec) => spec.specPhase === phase)
+        .sort(
+          (a, b) =>
+            new Date(b.updatedAt || b.createdAt).getTime() -
+            new Date(a.updatedAt || a.createdAt).getTime(),
+        )[0] ?? null
+    );
   }
 
   private async buildOriginalRequestContext(request: ProjectRequestEntity) {
@@ -593,13 +611,17 @@ export class ProjectRequestsService {
       budgetRange: request.budgetRange ?? null,
       intendedTimeline: request.intendedTimeline ?? null,
       requestedDeadline:
-        this.buildRequestScopeBaseline(request).requestedDeadline ?? request.requestedDeadline ?? null,
+        this.buildRequestScopeBaseline(request).requestedDeadline ??
+        request.requestedDeadline ??
+        null,
       techPreferences: request.techPreferences ?? null,
       attachments: await this.hydrateAttachments(request.attachments),
     };
   }
 
-  private resolveCommercialBaseline(request: ProjectRequestEntity): ProjectRequestCommercialBaseline | null {
+  private resolveCommercialBaseline(
+    request: ProjectRequestEntity,
+  ): ProjectRequestCommercialBaseline | null {
     const normalized = this.normalizeCommercialBaseline(request.commercialBaseline);
     if (normalized) {
       return normalized;
@@ -610,11 +632,15 @@ export class ProjectRequestsService {
       budgetRange: request.budgetRange ?? null,
       estimatedBudget: null,
       estimatedTimeline:
-        this.buildRequestScopeBaseline(request).requestedDeadline ?? request.intendedTimeline ?? null,
+        this.buildRequestScopeBaseline(request).requestedDeadline ??
+        request.intendedTimeline ??
+        null,
       clientFeatures: null,
       agreedBudget: null,
       agreedDeliveryDeadline:
-        this.buildRequestScopeBaseline(request).requestedDeadline ?? request.requestedDeadline ?? null,
+        this.buildRequestScopeBaseline(request).requestedDeadline ??
+        request.requestedDeadline ??
+        null,
       agreedClientFeatures: null,
       sourceSpecId: null,
       sourceChangeRequestId: null,
@@ -639,19 +665,17 @@ export class ProjectRequestsService {
             linkedContract ||
             fullSpec?.status === ProjectSpecStatus.ALL_SIGNED
           ? 'CONTRACT'
-          : fullSpec ||
-              selectedFreelancer ||
-              request.status === RequestStatus.HIRING
+          : fullSpec || selectedFreelancer || request.status === RequestStatus.HIRING
             ? 'FINAL_SPEC_REVIEW'
             : request.status === RequestStatus.SPEC_APPROVED ||
                 clientSpec?.status === ProjectSpecStatus.CLIENT_APPROVED ||
                 clientSpec?.status === ProjectSpecStatus.APPROVED
-            ? 'FREELANCER_SELECTION'
-            : request.status === RequestStatus.BROKER_ASSIGNED ||
-                request.status === RequestStatus.PENDING_SPECS ||
-                request.status === RequestStatus.SPEC_SUBMITTED
-              ? 'SPEC_WORKFLOW'
-              : 'REQUEST_INTAKE';
+              ? 'FREELANCER_SELECTION'
+              : request.status === RequestStatus.BROKER_ASSIGNED ||
+                  request.status === RequestStatus.PENDING_SPECS ||
+                  request.status === RequestStatus.SPEC_SUBMITTED
+                ? 'SPEC_WORKFLOW'
+                : 'REQUEST_INTAKE';
 
     if (fullSpec?.status === ProjectSpecStatus.FINAL_REVIEW) {
       phase = 'FINAL_SPEC_REVIEW';
@@ -725,7 +749,9 @@ export class ProjectRequestsService {
         request.proposals?.some(
           (proposal) =>
             proposal.freelancerId === user?.id &&
-            ['INVITED', 'PENDING', 'ACCEPTED'].includes(String(proposal.status || '').toUpperCase()),
+            ['INVITED', 'PENDING', 'ACCEPTED'].includes(
+              String(proposal.status || '').toUpperCase(),
+            ),
         ),
       );
     const hasPendingFreelancerApprovals = Boolean(
@@ -743,7 +769,8 @@ export class ProjectRequestsService {
       canViewBrokerMatches: isClient || isInternal,
       canInviteBroker: isClient && !request.brokerId && !flowSnapshot?.readOnly,
       canAcceptBroker: isClient && !request.brokerId && !flowSnapshot?.readOnly,
-      canReleaseBrokerSlot: (isClient || isInternal) && !request.brokerId && !flowSnapshot?.readOnly,
+      canReleaseBrokerSlot:
+        (isClient || isInternal) && !request.brokerId && !flowSnapshot?.readOnly,
       canApplyAsBroker:
         role === UserRole.BROKER &&
         request.status === RequestStatus.PUBLIC_DRAFT &&
@@ -759,14 +786,8 @@ export class ProjectRequestsService {
         !flowSnapshot?.freelancerSelected &&
         !isReadOnly,
       canApproveFreelancerInvite:
-        isClient &&
-        !isReadOnly &&
-        phaseNumber >= 3 &&
-        hasPendingFreelancerApprovals,
-      canRespondAsFreelancer:
-        isFreelancerViewer &&
-        !isReadOnly &&
-        phaseNumber >= 3,
+        isClient && !isReadOnly && phaseNumber >= 3 && hasPendingFreelancerApprovals,
+      canRespondAsFreelancer: isFreelancerViewer && !isReadOnly && phaseNumber >= 3,
       canInitializeContract:
         (isAssignedBroker || isInternal) &&
         flowSnapshot?.fullSpecStatus === ProjectSpecStatus.ALL_SIGNED &&
@@ -795,7 +816,8 @@ export class ProjectRequestsService {
     slots: Awaited<ReturnType<ProjectRequestsService['getBrokerApplicationCapSummary']>>;
   }) {
     const selectedBroker =
-      input.brokerApplications.find((proposal) => proposal.broker?.id === input.request.brokerId) ?? null;
+      input.brokerApplications.find((proposal) => proposal.broker?.id === input.request.brokerId) ??
+      null;
 
     return {
       assignedBrokerId: input.request.brokerId ?? null,
@@ -874,14 +896,20 @@ export class ProjectRequestsService {
 
     return {
       total: items.length,
-      invited: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'INVITED').length,
+      invited: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'INVITED')
+        .length,
       pendingClientApproval: items.filter(
         (proposal) =>
           String(proposal.status || '').toUpperCase() === FREELANCER_PENDING_CLIENT_APPROVAL,
       ).length,
-      pending: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'PENDING').length,
-      accepted: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'ACCEPTED').length,
-      rejected: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'REJECTED').length,
+      pending: items.filter((proposal) => String(proposal.status || '').toUpperCase() === 'PENDING')
+        .length,
+      accepted: items.filter(
+        (proposal) => String(proposal.status || '').toUpperCase() === 'ACCEPTED',
+      ).length,
+      rejected: items.filter(
+        (proposal) => String(proposal.status || '').toUpperCase() === 'REJECTED',
+      ).length,
       selectedFreelancerId: selectedEntry?.freelancer?.id ?? null,
       selectedFreelancer: selectedEntry,
       items,
@@ -922,7 +950,9 @@ export class ProjectRequestsService {
     request: ProjectRequestEntity;
     linkedProject: Pick<ProjectEntity, 'id'> | null;
     brokerSlots: Awaited<ReturnType<ProjectRequestsService['getBrokerApplicationCapSummary']>>;
-    freelancerSelectionSummary: ReturnType<ProjectRequestsService['buildFreelancerSelectionSummary']>;
+    freelancerSelectionSummary: ReturnType<
+      ProjectRequestsService['buildFreelancerSelectionSummary']
+    >;
   }) {
     const isProjectLinked = Boolean(input.linkedProject);
     const brokerMarket =
@@ -935,9 +965,11 @@ export class ProjectRequestsService {
     const freelancerMarket =
       isProjectLinked || input.freelancerSelectionSummary.selectedFreelancerId
         ? 'CLOSED'
-        : [RequestStatus.SPEC_APPROVED, RequestStatus.HIRING, RequestStatus.CONTRACT_PENDING].includes(
-              input.request.status,
-            )
+        : [
+              RequestStatus.SPEC_APPROVED,
+              RequestStatus.HIRING,
+              RequestStatus.CONTRACT_PENDING,
+            ].includes(input.request.status)
           ? 'OPEN'
           : 'LOCKED';
 
@@ -949,16 +981,24 @@ export class ProjectRequestsService {
     };
   }
 
-  private async notifyUsers(inputs: Array<{
-    userId?: string | null;
-    title: string;
-    body: string;
-    relatedType?: string | null;
-    relatedId?: string | null;
-  }>) {
+  private async notifyUsers(
+    inputs: Array<{
+      userId?: string | null;
+      title: string;
+      body: string;
+      relatedType?: string | null;
+      relatedId?: string | null;
+    }>,
+  ) {
     const deduped = new Map<
       string,
-      { userId: string; title: string; body: string; relatedType?: string | null; relatedId?: string | null }
+      {
+        userId: string;
+        title: string;
+        body: string;
+        relatedType?: string | null;
+        relatedId?: string | null;
+      }
     >();
 
     for (const input of inputs) {
@@ -1008,11 +1048,13 @@ export class ProjectRequestsService {
 
     const linkedContract =
       linkedProject?.id != null
-        ? ((await this.contractRepo.find({
-            where: { projectId: linkedProject.id },
-            order: { createdAt: 'DESC' },
-            take: 1,
-          }))?.[0] ?? null)
+        ? ((
+            await this.contractRepo.find({
+              where: { projectId: linkedProject.id },
+              order: { createdAt: 'DESC' },
+              take: 1,
+            })
+          )?.[0] ?? null)
         : null;
 
     const brokerHistoryById = await this.loadBrokerHistoryMap(
@@ -1327,7 +1369,15 @@ export class ProjectRequestsService {
 
   async findAll(status?: RequestStatus) {
     const options: FindManyOptions<ProjectRequestEntity> = {
-      relations: ['answers', 'answers.question', 'answers.option', 'client', 'broker', 'brokerProposals', 'brokerProposals.broker'],
+      relations: [
+        'answers',
+        'answers.question',
+        'answers.option',
+        'client',
+        'broker',
+        'brokerProposals',
+        'brokerProposals.broker',
+      ],
       order: { createdAt: 'DESC' },
     };
     if (status) {
@@ -1367,7 +1417,9 @@ export class ProjectRequestsService {
         request.requestedDeadline =
           this.normalizeRequestedDeadline(
             dto.requestedDeadline ??
-              (DATE_ONLY_INPUT_PATTERN.test(`${dto.intendedTimeline || ''}`) ? dto.intendedTimeline : undefined),
+              (DATE_ONLY_INPUT_PATTERN.test(`${dto.intendedTimeline || ''}`)
+                ? dto.intendedTimeline
+                : undefined),
           ) ?? null;
       }
       if (dto.techPreferences) request.techPreferences = dto.techPreferences;
@@ -1438,7 +1490,9 @@ export class ProjectRequestsService {
       }
 
       if (request.brokerId) {
-        throw new BadRequestException('Cannot publish a request that already has a broker assigned');
+        throw new BadRequestException(
+          'Cannot publish a request that already has a broker assigned',
+        );
       }
 
       if (request.status === RequestStatus.PUBLIC_DRAFT) {
@@ -1503,9 +1557,7 @@ export class ProjectRequestsService {
       })),
     );
 
-    console.log(
-      `Find My Drafts Successful: ${hydratedRequests.length} draft request(s)`,
-    );
+    console.log(`Find My Drafts Successful: ${hydratedRequests.length} draft request(s)`);
 
     return hydratedRequests;
   }
@@ -1582,9 +1634,13 @@ export class ProjectRequestsService {
     }
   }
 
-  private async emitRequestSystemMessage(requestId: string, content: string) {
+  private async emitRequestSystemMessage(
+    requestId: string,
+    content: string,
+    options?: RequestSystemMessageOptions,
+  ) {
     try {
-      await this.requestChatService.createSystemMessage(requestId, content);
+      await this.requestChatService.createSystemMessage(requestId, content, options);
     } catch (error) {
       console.warn(
         `Request chat system message failed for ${requestId}: ${error instanceof Error ? error.message : String(error)}`,
@@ -1602,7 +1658,10 @@ export class ProjectRequestsService {
       throw new BadRequestException('Commercial change requests require an assigned broker');
     }
 
-    if (request.status === RequestStatus.CONTRACT_PENDING || request.status === RequestStatus.CONVERTED_TO_PROJECT) {
+    if (
+      request.status === RequestStatus.CONTRACT_PENDING ||
+      request.status === RequestStatus.CONVERTED_TO_PROJECT
+    ) {
       throw new BadRequestException('Commercial changes are locked after contract handoff begins');
     }
 
@@ -1667,10 +1726,9 @@ export class ProjectRequestsService {
 
     if (
       !baseline?.estimatedBudget ||
-      ![
-        ProjectSpecStatus.CLIENT_APPROVED,
-        ProjectSpecStatus.APPROVED,
-      ].includes(clientSpec?.status as ProjectSpecStatus)
+      ![ProjectSpecStatus.CLIENT_APPROVED, ProjectSpecStatus.APPROVED].includes(
+        clientSpec?.status as ProjectSpecStatus,
+      )
     ) {
       throw new BadRequestException(
         'Commercial changes are only available after the client approves the client spec baseline.',
@@ -1701,10 +1759,7 @@ export class ProjectRequestsService {
       dto.proposedTimeline != null && `${dto.proposedTimeline}`.trim()
         ? this.normalizeRequestedDeadline(dto.proposedTimeline)
         : null;
-    const commercialTimelineFloor = this.resolveCommercialChangeTimelineFloor(
-      request,
-      baseline,
-    );
+    const commercialTimelineFloor = this.resolveCommercialChangeTimelineFloor(request, baseline);
 
     if (proposedTimeline && proposedTimeline < commercialTimelineFloor) {
       throw new BadRequestException(
@@ -1796,7 +1851,9 @@ export class ProjectRequestsService {
       throw new ForbiddenException('Only the request owner can respond to commercial changes.');
     }
 
-    const changeRequest = this.normalizeCommercialChangeRequest(request.activeCommercialChangeRequest);
+    const changeRequest = this.normalizeCommercialChangeRequest(
+      request.activeCommercialChangeRequest,
+    );
     if (!changeRequest || changeRequest.id !== changeRequestId) {
       throw new NotFoundException('Commercial change request not found.');
     }
@@ -1831,11 +1888,14 @@ export class ProjectRequestsService {
       const fullSpecEntity = await this.findOneEntity(requestId).then((entity) =>
         (entity.specs || []).find((spec) => spec.id === fullSpec.id),
       );
-      if (fullSpecEntity && [ProjectSpecStatus.DRAFT, ProjectSpecStatus.REJECTED].includes(fullSpecEntity.status)) {
+      if (
+        fullSpecEntity &&
+        [ProjectSpecStatus.DRAFT, ProjectSpecStatus.REJECTED].includes(fullSpecEntity.status)
+      ) {
         fullSpecEntity.status = ProjectSpecStatus.REJECTED;
         fullSpecEntity.rejectionReason =
           'Commercial baseline changed. Review budget, timeline, and client-facing features before resubmitting.';
-        await (this.requestRepo.manager.getRepository(ProjectSpecEntity)).save(fullSpecEntity);
+        await this.requestRepo.manager.getRepository(ProjectSpecEntity).save(fullSpecEntity);
       }
     }
 
@@ -1855,9 +1915,7 @@ export class ProjectRequestsService {
       {
         userId: request.brokerId,
         title:
-          dto.action === 'APPROVE'
-            ? 'Commercial change approved'
-            : 'Commercial change rejected',
+          dto.action === 'APPROVE' ? 'Commercial change approved' : 'Commercial change rejected',
         body:
           dto.action === 'APPROVE'
             ? `Client approved the commercial change for "${request.title}". Update the final spec to match the new baseline.`
@@ -1868,9 +1926,7 @@ export class ProjectRequestsService {
       {
         userId: request.clientId,
         title:
-          dto.action === 'APPROVE'
-            ? 'Commercial baseline updated'
-            : 'Commercial change closed',
+          dto.action === 'APPROVE' ? 'Commercial baseline updated' : 'Commercial change closed',
         body:
           dto.action === 'APPROVE'
             ? `You approved the commercial update for "${request.title}".`
@@ -1900,7 +1956,10 @@ export class ProjectRequestsService {
       }
 
       const techStack = request.techPreferences
-        ? request.techPreferences.split(',').map(s => s.trim()).filter(s => s.length > 0)
+        ? request.techPreferences
+            .split(',')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0)
         : [];
 
       const input = {
@@ -2174,9 +2233,7 @@ export class ProjectRequestsService {
         relations: ['request', 'request.client'],
         order: { createdAt: 'DESC' },
       });
-      console.log(
-        `Get My Invitations Successful: ${role} -> ${invitations.length} invitation(s)`,
-      );
+      console.log(`Get My Invitations Successful: ${role} -> ${invitations.length} invitation(s)`);
       return invitations;
     } else if (role === UserRole.FREELANCER) {
       const invitations = await this.freelancerProposalRepo.find({
@@ -2184,9 +2241,7 @@ export class ProjectRequestsService {
         relations: ['request', 'request.client'],
         order: { createdAt: 'DESC' },
       });
-      console.log(
-        `Get My Invitations Successful: ${role} -> ${invitations.length} invitation(s)`,
-      );
+      console.log(`Get My Invitations Successful: ${role} -> ${invitations.length} invitation(s)`);
       return invitations;
     }
     console.log(`Get My Invitations Successful: ${role} -> 0 invitation(s)`);
@@ -2202,9 +2257,7 @@ export class ProjectRequestsService {
       relations: ['request', 'request.client', 'request.broker'],
       order: { createdAt: 'DESC' },
     });
-    console.log(
-      `Get Freelancer Request Access List Successful: ${requests.length} request(s)`,
-    );
+    console.log(`Get Freelancer Request Access List Successful: ${requests.length} request(s)`);
     return requests;
   }
 
@@ -2227,7 +2280,9 @@ export class ProjectRequestsService {
       });
 
       if (existingProposal) {
-        throw new BadRequestException('Broker already has an application or invitation for this request');
+        throw new BadRequestException(
+          'Broker already has an application or invitation for this request',
+        );
       }
 
       await this.quotaService.checkQuota(brokerId, QuotaAction.APPLY_TO_REQUEST);
@@ -2277,9 +2332,11 @@ export class ProjectRequestsService {
   async acceptBroker(requestId: string, brokerId: string, clientId?: string) {
     try {
       const request = await this.findOneEntity(requestId);
-      
+
       if (clientId && request.clientId !== clientId) {
-        throw new ForbiddenException('Forbidden: You can only accept brokers for your own requests');
+        throw new ForbiddenException(
+          'Forbidden: You can only accept brokers for your own requests',
+        );
       }
 
       if (
@@ -2336,10 +2393,10 @@ export class ProjectRequestsService {
             relatedId: requestId,
           })),
       ]);
-      await this.emitRequestSystemMessage(
-        requestId,
-        'Client selected a broker for this request.',
-      );
+      await this.emitRequestSystemMessage(requestId, 'Client selected a broker for this request.', {
+        skipNotificationUserIds: [brokerId, request.clientId],
+        notificationTitle: 'Broker assignment update',
+      });
 
       const acceptedRequest = await this.findOne(requestId);
       console.log(`Accept Broker Successful: "${requestId}" -> "${brokerId}"`);
@@ -2357,10 +2414,14 @@ export class ProjectRequestsService {
       const isOwner = actor.role === UserRole.CLIENT && request.clientId === actor.id;
       const isInternal = hasOperationalStaffAccess(actor);
       if (!isOwner && !isInternal) {
-        throw new ForbiddenException('Only the client or internal staff can release a broker slot.');
+        throw new ForbiddenException(
+          'Only the client or internal staff can release a broker slot.',
+        );
       }
       if (request.brokerId) {
-        throw new BadRequestException('Cannot release broker slots after a broker has been assigned.');
+        throw new BadRequestException(
+          'Cannot release broker slots after a broker has been assigned.',
+        );
       }
 
       const proposal = await this.brokerProposalRepo.findOne({
@@ -2370,7 +2431,11 @@ export class ProjectRequestsService {
         throw new NotFoundException('Broker proposal not found.');
       }
 
-      if (!ACTIVE_BROKER_APPLICATION_STATUSES.includes(proposal.status as (typeof ACTIVE_BROKER_APPLICATION_STATUSES)[number])) {
+      if (
+        !ACTIVE_BROKER_APPLICATION_STATUSES.includes(
+          proposal.status as (typeof ACTIVE_BROKER_APPLICATION_STATUSES)[number],
+        )
+      ) {
         throw new BadRequestException(`Proposal status ${proposal.status} cannot be released.`);
       }
 
@@ -2474,7 +2539,9 @@ export class ProjectRequestsService {
     const fullSpec = this.pickLatestSpecByPhase(specs, SpecPhase.FULL_SPEC);
 
     if (!fullSpec) {
-      throw new BadRequestException('Cannot convert request without a finalized full specification.');
+      throw new BadRequestException(
+        'Cannot convert request without a finalized full specification.',
+      );
     }
 
     if (![ProjectSpecStatus.ALL_SIGNED, ProjectSpecStatus.APPROVED].includes(fullSpec.status)) {
@@ -2581,9 +2648,7 @@ export class ProjectRequestsService {
         where: { requestId, status: 'ACCEPTED' },
       });
       if (acceptedProposal) {
-        throw new BadRequestException(
-          'Cannot delete a request that has an accepted freelancer.',
-        );
+        throw new BadRequestException('Cannot delete a request that has an accepted freelancer.');
       }
 
       await this.answerRepo.delete({ requestId });
@@ -2708,7 +2773,9 @@ export class ProjectRequestsService {
           }
 
           if (request.brokerId && request.brokerId !== userId) {
-            throw new BadRequestException('Another broker has already been assigned to this request.');
+            throw new BadRequestException(
+              'Another broker has already been assigned to this request.',
+            );
           }
 
           proposal.status = ProposalStatus.ACCEPTED;
@@ -2778,7 +2845,10 @@ export class ProjectRequestsService {
           const requestWithSpecs = await this.findOneEntity(proposal.requestId);
           const clientSpec = this.pickLatestSpecByPhase(
             (requestWithSpecs.specs || []) as Array<
-              Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
+              Pick<
+                ProjectSpecEntity,
+                'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'
+              >
             >,
             SpecPhase.CLIENT_SPEC,
           );
@@ -2801,7 +2871,9 @@ export class ProjectRequestsService {
             where: { requestId: proposal.requestId, status: 'ACCEPTED' },
           });
           if (existingAccepted && existingAccepted.id !== proposal.id) {
-            throw new BadRequestException('A freelancer has already been accepted for this request');
+            throw new BadRequestException(
+              'A freelancer has already been accepted for this request',
+            );
           }
 
           proposal.status = 'ACCEPTED';

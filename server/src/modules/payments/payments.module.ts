@@ -27,6 +27,7 @@ import { PayPalCheckoutService } from './pay-pal-checkout.service';
 import { PayPalPayoutsGateway } from './pay-pal-payouts.gateway';
 import { PayoutMethodsService } from './payout-methods.service';
 import { PayoutRequestsService } from './payout-requests.service';
+import { RetentionReleaseScheduler } from './retention-release.scheduler';
 import { StripeCheckoutService } from './stripe-checkout.service';
 import { WalletService } from './wallet.service';
 
@@ -65,6 +66,7 @@ import { WalletService } from './wallet.service';
     InternalSandboxGateway,
     PayPalPayoutsGateway,
     StripeCheckoutService,
+    RetentionReleaseScheduler,
   ],
   exports: [
     WalletService,

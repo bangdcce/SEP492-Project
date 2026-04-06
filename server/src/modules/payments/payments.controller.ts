@@ -19,7 +19,9 @@ import {
   CreatePayPalMilestoneOrderDto,
   CreateStripeCheckoutSessionDto,
   FundMilestoneDto,
+  ReleaseRetentionDto,
 } from './dto';
+import { EscrowReleaseService } from './escrow-release.service';
 import { MilestoneFundingService } from './milestone-funding.service';
 import { PayPalCheckoutService } from './pay-pal-checkout.service';
 import { StripeCheckoutService } from './stripe-checkout.service';
@@ -33,10 +35,14 @@ export class PaymentsController {
     private readonly milestoneFundingService: MilestoneFundingService,
     private readonly payPalCheckoutService: PayPalCheckoutService,
     private readonly stripeCheckoutService: StripeCheckoutService,
+    private readonly escrowReleaseService: EscrowReleaseService,
   ) {}
 
   @Get('paypal/config')
-  @ApiOperation({ summary: 'Return client-side PayPal checkout configuration, including Vault tokens when available' })
+  @ApiOperation({
+    summary:
+      'Return client-side PayPal checkout configuration, including Vault tokens when available',
+  })
   async getPayPalConfig(
     @GetUser() user: UserEntity,
     @Query('paymentMethodId') paymentMethodId?: string,
@@ -48,7 +54,9 @@ export class PaymentsController {
   }
 
   @Get('stripe/config')
-  @ApiOperation({ summary: 'Return client-side Stripe Checkout availability for test-mode card funding' })
+  @ApiOperation({
+    summary: 'Return client-side Stripe Checkout availability for test-mode card funding',
+  })
   getStripeConfig() {
     return {
       success: true,
@@ -86,7 +94,9 @@ export class PaymentsController {
   }
 
   @Post('milestones/:milestoneId/paypal/capture')
-  @ApiOperation({ summary: 'Complete a real PayPal sandbox capture and sync it into milestone escrow' })
+  @ApiOperation({
+    summary: 'Complete a real PayPal sandbox capture and sync it into milestone escrow',
+  })
   async completePayPalCapture(
     @GetUser() user: UserEntity,
     @Param('milestoneId', ParseUUIDPipe) milestoneId: string,
@@ -106,7 +116,9 @@ export class PaymentsController {
   }
 
   @Post('milestones/:milestoneId/paypal/order')
-  @ApiOperation({ summary: 'Create a PayPal order for milestone funding and request vaulting when eligible' })
+  @ApiOperation({
+    summary: 'Create a PayPal order for milestone funding and request vaulting when eligible',
+  })
   async createPayPalMilestoneOrder(
     @GetUser() user: UserEntity,
     @Param('milestoneId', ParseUUIDPipe) milestoneId: string,
@@ -146,7 +158,9 @@ export class PaymentsController {
   }
 
   @Post('milestones/:milestoneId/stripe/complete')
-  @ApiOperation({ summary: 'Verify a completed Stripe Checkout Session and sync it into milestone escrow' })
+  @ApiOperation({
+    summary: 'Verify a completed Stripe Checkout Session and sync it into milestone escrow',
+  })
   async completeStripeCheckout(
     @GetUser() user: UserEntity,
     @Param('milestoneId', ParseUUIDPipe) milestoneId: string,
@@ -160,6 +174,26 @@ export class PaymentsController {
         paymentMethodId: dto.paymentMethodId,
         gateway: FundingGateway.STRIPE,
         sessionId: dto.sessionId,
+      }),
+    };
+  }
+
+  @Post('milestones/:milestoneId/release-retention')
+  @ApiOperation({
+    summary:
+      'Release milestone retention hold to recipients after warranty or via authorized manual override',
+  })
+  async releaseRetention(
+    @GetUser() user: UserEntity,
+    @Param('milestoneId', ParseUUIDPipe) milestoneId: string,
+    @Body() dto: ReleaseRetentionDto,
+  ) {
+    return {
+      success: true,
+      data: await this.escrowReleaseService.releaseRetentionForMilestone(milestoneId, user.id, {
+        releasedByRole: user.role,
+        bypassWarranty: dto.bypassWarranty,
+        reason: dto.reason,
       }),
     };
   }

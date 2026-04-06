@@ -52,10 +52,14 @@ import { getApiErrorDetails } from "@/shared/utils/apiError";
 
 interface StaffDisputeBoardProps {
   mode?: "queue" | "caseload";
+  titleOverride?: string;
+  detailHrefBuilder?: (disputeId: string) => string;
 }
 
 export const StaffDisputeBoard = ({
   mode = "queue",
+  titleOverride,
+  detailHrefBuilder,
 }: StaffDisputeBoardProps) => {
   const navigate = useNavigate();
   const currentUser = useMemo(() => {
@@ -499,6 +503,17 @@ export const StaffDisputeBoard = ({
     setQuickViewDispute(dispute);
     setQuickViewOpen(true);
   }, []);
+  const openDisputeDetail = useCallback(
+    (dispute: DisputeSummary) => {
+      const href = detailHrefBuilder
+        ? detailHrefBuilder(dispute.id)
+        : `/staff/caseload?disputeId=${dispute.id}`;
+      navigate(href, {
+        state: { dispute },
+      });
+    },
+    [detailHrefBuilder, navigate],
+  );
 
   const currencyFormatter = useMemo(
     () =>
@@ -556,7 +571,8 @@ export const StaffDisputeBoard = ({
   const emptyState = !loading && visibleDisputes.length === 0;
 
   const boardTitle =
-    mode === "caseload" ? "My Caseload" : "Dispute Queue (Triage)";
+    titleOverride ??
+    (mode === "caseload" ? "My Caseload" : "Dispute Queue (Triage)");
 
   const canModerate = true; // actions available in both queue and caseload modes
 
@@ -936,9 +952,7 @@ export const StaffDisputeBoard = ({
                             openQuickView(dispute);
                             return;
                           }
-                          navigate(`/staff/caseload?disputeId=${dispute.id}`, {
-                            state: { dispute },
-                          });
+                          openDisputeDetail(dispute);
                         }}
                       >
                         <Eye className="w-4 h-4" />

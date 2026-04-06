@@ -15,7 +15,17 @@ import { normalizeExternalMeetingLink } from "@/features/hearings/utils/external
 import { resolveHearingLifecycle } from "@/features/hearings/utils/hearingLifecycle";
 import { useStaffDashboardRealtime } from "@/features/staff/hooks/useStaffDashboardRealtime";
 
-export const StaffHearingsPage = () => {
+interface StaffHearingsPageProps {
+  routeBase?: string;
+  title?: string;
+  description?: string;
+}
+
+export const StaffHearingsPage = ({
+  routeBase = "/staff",
+  title = "My Hearings",
+  description = "Track hearings you are moderating or participating in.",
+}: StaffHearingsPageProps) => {
   const [hearings, setHearings] = useState<DisputeHearingSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [schemaErrorMessage, setSchemaErrorMessage] = useState<string | null>(
@@ -110,11 +120,15 @@ export const StaffHearingsPage = () => {
   };
 
   const handleOpenDispute = (disputeId: string) => {
-    navigate(`/staff/caseload?disputeId=${disputeId}&tab=hearings`);
+    if (routeBase === "/staff") {
+      navigate(`/staff/caseload?disputeId=${disputeId}&tab=hearings`);
+      return;
+    }
+    navigate(`${routeBase}/disputes/${disputeId}?tab=hearings`);
   };
 
   const handleOpenRoom = (hearingId: string) => {
-    navigate(`/staff/hearings/${hearingId}`);
+    navigate(`${routeBase}/hearings/${hearingId}`);
   };
 
   const renderHearingCard = (hearing: DisputeHearingSummary) => {
@@ -215,10 +229,8 @@ export const StaffHearingsPage = () => {
 
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">My Hearings</h2>
-          <p className="text-gray-500">
-            Track hearings you are moderating or participating in.
-          </p>
+          <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+          <p className="text-gray-500">{description}</p>
         </div>
         <button
           onClick={loadHearings}

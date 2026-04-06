@@ -41,6 +41,8 @@ import {
   HearingParticipantRole,
   HearingQuestionStatus,
   DisputeVerdictEntity,
+  LegalActionType,
+  LegalSignatureEntity,
   EscrowEntity,
   EscrowStatus,
   MilestoneEntity,
@@ -97,14 +99,12 @@ import { DISPUTE_EVENTS } from './events/dispute.events';
 import { AddNoteDto } from './dto/add-note.dto';
 import { DefendantResponseDto } from './dto/defendant-response.dto';
 import { AppealDto } from './dto/appeal.dto';
+import { AcceptVerdictDto } from './dto/accept-verdict.dto';
 import { ReviewRequestDto } from './dto/review-request.dto';
 import { AdminUpdateDisputeDto } from './dto/admin-update-dispute.dto';
 import { AssignAppealOwnerDto } from './dto/assign-appeal-owner.dto';
 import { AssignNeutralPanelDto } from './dto/assign-neutral-panel.dto';
-import {
-  DisputeEscalationRequestKind,
-  RequestEscalationDto,
-} from './dto/request-escalation.dto';
+import { DisputeEscalationRequestKind, RequestEscalationDto } from './dto/request-escalation.dto';
 import { SendDisputeMessageDto, HideMessageDto } from './dto/message.dto';
 import {
   DisputeFilterDto,
@@ -146,10 +146,7 @@ import {
   resolveDisputeDisplayTitle,
   resolveReasonExcerpt,
 } from './dispute-docket';
-import {
-  DISPUTE_DISCLAIMER_SNAPSHOT,
-  DISPUTE_DISCLAIMER_VERSION,
-} from './dispute-legal';
+import { DISPUTE_DISCLAIMER_SNAPSHOT, DISPUTE_DISCLAIMER_VERSION } from './dispute-legal';
 import { DISPUTE_FOLLOW_UP_ACTION_CATALOG } from './dispute-follow-up';
 
 // Constants for deadlines
@@ -201,7 +198,11 @@ const DISPUTE_SCHEDULING_WORKLIST_STATUSES = [
   DisputeStatus.IN_MEDIATION,
 ];
 const PROPOSAL_ELIGIBLE_STATUSES = [DisputeStatus.IN_MEDIATION];
-const ACTIVE_HEARING_STATUSES = [HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS, HearingStatus.PAUSED];
+const ACTIVE_HEARING_STATUSES = [
+  HearingStatus.SCHEDULED,
+  HearingStatus.IN_PROGRESS,
+  HearingStatus.PAUSED,
+];
 const PENDING_INVITE_PARTICIPANT_STATUSES = [
   ParticipantStatus.PENDING,
   ParticipantStatus.NO_RESPONSE,
@@ -209,6 +210,7 @@ const PENDING_INVITE_PARTICIPANT_STATUSES = [
 ];
 const WORKLIST_NEW_WINDOW_MS = 24 * 60 * 60 * 1000;
 const UUID_REGEX = '^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$';
+const ACTIVE_ROOT_DISPUTE_UNIQUE_INDEX = 'UQ_disputes_active_root_per_milestone';
 const PROPOSAL_MAX_PER_USER = 20;
 const MEDIATION_TIMEOUT_HOURS = 24;
 const ACTIVE_CALENDAR_EVENT_STATUSES = new Set<EventStatus>([
@@ -378,8 +380,169 @@ export class DisputesService {
     if (!verdict) {
       return { data: null };
     }
+    const acceptance = await this.resolveVerdictAcceptanceState({
+      dispute,
+      verdict,
+      viewerUserId: userId,
+      viewerUserRole: userRole,
+    });
     return {
-      data: this.buildFullVerdictReadModel(verdict, dispute),
+      data: this.buildFullVerdictReadModel(verdict, dispute, acceptance),
+    };
+  }
+
+  private buildVerdictAcceptanceKey(disputeId: string, verdictId: string): string {
+    return `${disputeId}:${verdictId}`;
+  }
+
+  private async loadVerdictAcceptanceMap(
+    entries: Array<{ disputeId: string; verdictId: string }>,
+  ): Promise<
+    Map<
+      string,
+      Array<{
+        signerId: string;
+        signerRole: UserRole;
+        signedAt: Date;
+      }>
+    >
+  > {
+    if (!entries.length) {
+      return new Map();
+    }
+
+    const disputeIds = Array.from(new Set(entries.map((entry) => entry.disputeId)));
+    const verdictIdSet = new Set(entries.map((entry) => entry.verdictId));
+    const signatures = await this.dataSource.getRepository(LegalSignatureEntity).find({
+      where: {
+        disputeId: In(disputeIds),
+        actionType: LegalActionType.ACCEPT_VERDICT,
+        referenceType: 'Verdict',
+      },
+      select: ['disputeId', 'signerId', 'signerRole', 'referenceId', 'signedAt'],
+      order: { signedAt: 'ASC' },
+    });
+
+    const acceptanceMap = new Map<
+      string,
+      Array<{
+        signerId: string;
+        signerRole: UserRole;
+        signedAt: Date;
+      }>
+    >();
+
+    signatures.forEach((signature) => {
+      if (!signature.referenceId || !verdictIdSet.has(signature.referenceId)) {
+        return;
+      }
+
+      const key = this.buildVerdictAcceptanceKey(signature.disputeId, signature.referenceId);
+      const existing = acceptanceMap.get(key);
+      const normalizedSignature = {
+        signerId: signature.signerId,
+        signerRole: signature.signerRole as UserRole,
+        signedAt: signature.signedAt,
+      };
+
+      if (existing) {
+        if (!existing.some((item) => item.signerId === normalizedSignature.signerId)) {
+          existing.push(normalizedSignature);
+        }
+        return;
+      }
+
+      acceptanceMap.set(key, [normalizedSignature]);
+    });
+
+    return acceptanceMap;
+  }
+
+  private async resolveVerdictAcceptanceState(input: {
+    dispute: DisputeEntity;
+    verdict: Pick<DisputeVerdictEntity, 'id' | 'isAppealVerdict'>;
+    viewerUserId?: string;
+    viewerUserRole?: UserRole;
+  }) {
+    const acceptanceMap = await this.loadVerdictAcceptanceMap([
+      { disputeId: input.dispute.id, verdictId: input.verdict.id },
+    ]);
+
+    return this.summarizeVerdictAcceptance({
+      dispute: input.dispute,
+      verdict: input.verdict,
+      signatures:
+        acceptanceMap.get(this.buildVerdictAcceptanceKey(input.dispute.id, input.verdict.id)) || [],
+      viewerUserId: input.viewerUserId,
+      viewerUserRole: input.viewerUserRole,
+    });
+  }
+
+  private summarizeVerdictAcceptance(input: {
+    dispute: Pick<
+      DisputeEntity,
+      'raisedById' | 'defendantId' | 'status' | 'isAppealed' | 'appealDeadline' | 'currentTier'
+    >;
+    verdict: Pick<DisputeVerdictEntity, 'id' | 'isAppealVerdict'>;
+    signatures: Array<{
+      signerId: string;
+      signerRole: UserRole;
+      signedAt: Date;
+    }>;
+    viewerUserId?: string;
+    viewerUserRole?: UserRole;
+  }) {
+    const now = new Date();
+    const partyIds = Array.from(
+      new Set([input.dispute.raisedById, input.dispute.defendantId].filter(Boolean)),
+    );
+    const acceptedBy = input.signatures
+      .filter((signature) => partyIds.includes(signature.signerId))
+      .map((signature) => ({
+        userId: signature.signerId,
+        role: signature.signerRole,
+        signedAt: signature.signedAt,
+      }));
+    const acceptedPartyIds = Array.from(new Set(acceptedBy.map((item) => item.userId)));
+    const allPartiesAccepted =
+      partyIds.length > 0 && partyIds.every((partyId) => acceptedPartyIds.includes(partyId));
+    const viewerIsParty = Boolean(input.viewerUserId && partyIds.includes(input.viewerUserId));
+    const viewerIsInternal = Boolean(
+      input.viewerUserRole && [UserRole.ADMIN, UserRole.STAFF].includes(input.viewerUserRole),
+    );
+    const currentUserAccepted = Boolean(
+      input.viewerUserId && acceptedPartyIds.includes(input.viewerUserId),
+    );
+    const appealWindowOpen =
+      input.dispute.status === DisputeStatus.RESOLVED &&
+      !input.dispute.isAppealed &&
+      !input.verdict.isAppealVerdict &&
+      (input.dispute.currentTier ?? 1) < 2 &&
+      (!input.dispute.appealDeadline ||
+        new Date(input.dispute.appealDeadline).getTime() > now.getTime());
+
+    return {
+      acceptedBy,
+      acceptedPartyIds,
+      acceptedCount: acceptedPartyIds.length,
+      requiredPartyCount: partyIds.length,
+      allPartiesAccepted,
+      currentUserAccepted,
+      currentUserCanAccept:
+        viewerIsParty &&
+        !viewerIsInternal &&
+        !currentUserAccepted &&
+        !allPartiesAccepted &&
+        input.dispute.status === DisputeStatus.RESOLVED &&
+        !input.dispute.isAppealed &&
+        !input.verdict.isAppealVerdict &&
+        (input.dispute.currentTier ?? 1) < 2,
+      currentUserCanAppeal:
+        viewerIsParty &&
+        !viewerIsInternal &&
+        !currentUserAccepted &&
+        !allPartiesAccepted &&
+        appealWindowOpen,
     };
   }
 
@@ -426,9 +589,8 @@ export class DisputesService {
     });
 
     const docket = buildHearingDocket(finalizedHearings, dispute.status);
-    const policyCitations = (Array.isArray(verdict.reasoning?.violatedPolicies)
-      ? verdict.reasoning.violatedPolicies
-      : []
+    const policyCitations = (
+      Array.isArray(verdict.reasoning?.violatedPolicies) ? verdict.reasoning.violatedPolicies : []
     )
       .map((code) => DISPUTE_RULE_CATALOG.find((item) => item.code === code))
       .filter((item): item is (typeof DISPUTE_RULE_CATALOG)[number] => Boolean(item))
@@ -440,11 +602,14 @@ export class DisputesService {
       }));
 
     const redactedStatements = statementRows.filter((row) => row.isRedacted);
-    const redactionSummary = redactedStatements.reduce<Record<string, number>>((accumulator, row) => {
-      const key = (row.redactedReason || 'UNSPECIFIED').trim() || 'UNSPECIFIED';
-      accumulator[key] = (accumulator[key] || 0) + 1;
-      return accumulator;
-    }, {});
+    const redactionSummary = redactedStatements.reduce<Record<string, number>>(
+      (accumulator, row) => {
+        const key = (row.redactedReason || 'UNSPECIFIED').trim() || 'UNSPECIFIED';
+        accumulator[key] = (accumulator[key] || 0) + 1;
+        return accumulator;
+      },
+      {},
+    );
 
     return {
       data: {
@@ -495,6 +660,20 @@ export class DisputesService {
   private buildFullVerdictReadModel(
     verdict: DisputeVerdictEntity,
     dispute: DisputeEntity | null,
+    acceptance?: {
+      acceptedBy: Array<{
+        userId: string;
+        role: UserRole;
+        signedAt: Date;
+      }>;
+      acceptedPartyIds: string[];
+      acceptedCount: number;
+      requiredPartyCount: number;
+      allPartiesAccepted: boolean;
+      currentUserAccepted: boolean;
+      currentUserCanAccept: boolean;
+      currentUserCanAppeal: boolean;
+    },
   ) {
     const normalizedReasoning = {
       violatedPolicies: Array.isArray(verdict.reasoning?.violatedPolicies)
@@ -522,8 +701,7 @@ export class DisputesService {
       factualFindings: verdict.reasoning?.factualFindings ?? '',
       legalAnalysis: verdict.reasoning?.legalAnalysis ?? '',
       conclusion: verdict.reasoning?.conclusion ?? '',
-      analysis:
-        (verdict.reasoning as any)?.analysis ?? verdict.reasoning?.legalAnalysis ?? '',
+      analysis: (verdict.reasoning as any)?.analysis ?? verdict.reasoning?.legalAnalysis ?? '',
       remedyRationale: (verdict.reasoning as any)?.remedyRationale ?? '',
       trustPenaltyRationale: (verdict.reasoning as any)?.trustPenaltyRationale ?? '',
     };
@@ -556,6 +734,18 @@ export class DisputesService {
       appealResolution: dispute?.appealResolution ?? null,
       disputeStatus: dispute?.status ?? null,
       currentTier: dispute?.currentTier ?? null,
+      acceptance: acceptance
+        ? {
+            acceptedBy: acceptance.acceptedBy,
+            acceptedPartyIds: acceptance.acceptedPartyIds,
+            acceptedCount: acceptance.acceptedCount,
+            requiredPartyCount: acceptance.requiredPartyCount,
+            allPartiesAccepted: acceptance.allPartiesAccepted,
+            currentUserAccepted: acceptance.currentUserAccepted,
+            currentUserCanAccept: acceptance.currentUserCanAccept,
+            currentUserCanAppeal: acceptance.currentUserCanAppeal,
+          }
+        : undefined,
       issuedAt: verdict.issuedAt,
       adjudicator: verdict.adjudicator
         ? {
@@ -645,6 +835,35 @@ export class DisputesService {
 
     const message = error.message || '';
     return message.includes(`"${tableName}"`) || message.includes(tableName);
+  }
+
+  private isUniqueViolation(error: unknown, constraintName?: string): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+
+    const driverError = (
+      error as QueryFailedError & {
+        code?: string;
+        driverError?: { code?: string; constraint?: string };
+      }
+    ).driverError;
+    const code = driverError?.code;
+
+    if (code !== '23505') {
+      return false;
+    }
+
+    if (!constraintName) {
+      return true;
+    }
+
+    if (driverError?.constraint === constraintName) {
+      return true;
+    }
+
+    const message = error.message || '';
+    return message.includes(constraintName);
   }
 
   private isVerdictHearingGateEnabled(): boolean {
@@ -940,7 +1159,9 @@ export class DisputesService {
       disclaimerVersion.trim() !== '' &&
       disclaimerVersion !== DISPUTE_DISCLAIMER_VERSION
     ) {
-      throw new BadRequestException('Dispute disclaimer version is outdated. Please refresh and try again.');
+      throw new BadRequestException(
+        'Dispute disclaimer version is outdated. Please refresh and try again.',
+      );
     }
   }
 
@@ -1472,7 +1693,7 @@ export class DisputesService {
       defendantRole = this.determineUserRole(defendantId, project);
       const disputeType = this.determineDisputeType(raiserRole, defendantRole);
 
-      const amount = disputedAmount || Number(escrow.totalAmount);
+      const amount = disputedAmount || Number(escrow.fundedAmount || escrow.totalAmount);
       const priority = this.calculatePriority(amount, disputeCategory, project.currency);
 
       const responseDeadline = new Date(
@@ -1624,6 +1845,11 @@ export class DisputesService {
       await queryRunner.commitTransaction();
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      if (this.isUniqueViolation(error, ACTIVE_ROOT_DISPUTE_UNIQUE_INDEX)) {
+        throw new ConflictException(
+          'This milestone already has an active dispute. Add evidence instead.',
+        );
+      }
       this.logger.error(
         `create dispute transaction failed projectId=${projectId} raisedBy=${raisedBy} error=${
           error instanceof Error ? error.message : 'unknown'
@@ -1829,6 +2055,12 @@ export class DisputesService {
       createdItems = created;
     } catch (error) {
       await queryRunner.rollbackTransaction();
+      if (this.isUniqueViolation(error, ACTIVE_ROOT_DISPUTE_UNIQUE_INDEX)) {
+        throw new ConflictException({
+          code: 'MILESTONE_ALREADY_HAS_ACTIVE_DISPUTE',
+          message: 'This milestone already has an active dispute. Add evidence instead.',
+        });
+      }
       this.logger.error(
         `createGroup transaction failed raisedBy=${raisedBy} itemCount=${dto.items?.length ?? 0} error=${
           error instanceof Error ? error.message : 'unknown'
@@ -2065,7 +2297,7 @@ export class DisputesService {
     const defendantRole = this.determineUserRole(defendantId, project);
     const disputeType = this.determineDisputeType(raiserRole, defendantRole);
 
-    const amount = disputedAmount || Number(escrow.totalAmount);
+    const amount = disputedAmount || Number(escrow.fundedAmount || escrow.totalAmount);
     const priority = this.calculatePriority(amount, disputeCategory, project.currency);
 
     const responseDeadline = new Date(
@@ -2674,7 +2906,7 @@ export class DisputesService {
     );
 
     try {
-        return this.applyFiltersAndPaginate(qb, restFilters, { userId, userRole });
+      return this.applyFiltersAndPaginate(qb, restFilters, { userId, userRole });
     } catch (error) {
       const errCode = (error as { code?: string })?.code || 'UNKNOWN';
       const errMessage = error instanceof Error ? error.message : 'unknown';
@@ -3937,11 +4169,7 @@ export class DisputesService {
             'COOPERATION_DUTY',
             'SCOPE_CHANGE',
           ],
-          [FaultType.GHOSTING]: [
-            'COOPERATION_DUTY',
-            'CONTRACT_PERFORMANCE',
-            'HEARING_CONDUCT',
-          ],
+          [FaultType.GHOSTING]: ['COOPERATION_DUTY', 'CONTRACT_PERFORMANCE', 'HEARING_CONDUCT'],
           [FaultType.SCOPE_CHANGE_CONFLICT]: [
             'SCOPE_CHANGE',
             'CONTRACT_PERFORMANCE',
@@ -4202,14 +4430,17 @@ export class DisputesService {
       });
 
       const closedWithoutVerdict =
-        (DISPUTE_CLOSED_STATUSES.includes(dispute.status) || dispute.result !== DisputeResult.PENDING) &&
+        (DISPUTE_CLOSED_STATUSES.includes(dispute.status) ||
+          dispute.result !== DisputeResult.PENDING) &&
         !hasVerdict;
 
       const anomalies = [
         closedWithoutVerdict ? 'DISPUTE_STATUS_RESULT_WITHOUT_VERDICT' : null,
         actionableHearings.length > 1 ? 'MULTIPLE_ACTIONABLE_HEARINGS' : null,
         actionableSupersededEventCount > 0 ? 'STALE_ACTIONABLE_CALENDAR_EVENTS' : null,
-        duplicateEffectiveCandidateCount > 0 ? 'DUPLICATE_EFFECTIVE_CALENDAR_EVENT_CANDIDATES' : null,
+        duplicateEffectiveCandidateCount > 0
+          ? 'DUPLICATE_EFFECTIVE_CALENDAR_EVENT_CANDIDATES'
+          : null,
       ].filter((value): value is string => Boolean(value));
 
       return {
@@ -4459,10 +4690,7 @@ export class DisputesService {
       defendant?: Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'> | null;
     };
     memberships: Array<
-      Pick<
-        DisputeInternalMembershipEntity,
-        'id' | 'userId' | 'grantedBy' | 'source' | 'createdAt'
-      >
+      Pick<DisputeInternalMembershipEntity, 'id' | 'userId' | 'grantedBy' | 'source' | 'createdAt'>
     >;
     userById: Map<string, Pick<UserEntity, 'id' | 'fullName' | 'email' | 'role'>>;
   }) {
@@ -4571,31 +4799,31 @@ export class DisputesService {
     ]);
     const hearings =
       (await this.hearingRepo.find({
-      where: { disputeId: In(disputeIds) },
-      select: [
-        'id',
-        'disputeId',
-        'status',
-        'scheduledAt',
-        'agenda',
-        'previousHearingId',
-        'hearingNumber',
-        'tier',
-        'summary',
-        'findings',
-        'noShowNote',
-        'externalMeetingLink',
-      ],
-      order: {
-        disputeId: 'ASC',
-        hearingNumber: 'ASC',
-        scheduledAt: 'ASC',
-      },
+        where: { disputeId: In(disputeIds) },
+        select: [
+          'id',
+          'disputeId',
+          'status',
+          'scheduledAt',
+          'agenda',
+          'previousHearingId',
+          'hearingNumber',
+          'tier',
+          'summary',
+          'findings',
+          'noShowNote',
+          'externalMeetingLink',
+        ],
+        order: {
+          disputeId: 'ASC',
+          hearingNumber: 'ASC',
+          scheduledAt: 'ASC',
+        },
       })) ?? [];
-    const verdictByDisputeId = new Map<string, Pick<
-      DisputeVerdictEntity,
-      'id' | 'disputeId' | 'issuedAt' | 'isAppealVerdict'
-    >>();
+    const verdictByDisputeId = new Map<
+      string,
+      Pick<DisputeVerdictEntity, 'id' | 'disputeId' | 'issuedAt' | 'isAppealVerdict'>
+    >();
     for (const verdict of verdicts) {
       if (!verdictByDisputeId.has(verdict.disputeId)) {
         verdictByDisputeId.set(verdict.disputeId, verdict);
@@ -4632,7 +4860,9 @@ export class DisputesService {
       new Set(
         disputes
           .flatMap((dispute) => [dispute.assignedStaffId, dispute.escalatedToAdminId])
-          .concat(internalMemberships.flatMap((membership) => [membership.userId, membership.grantedBy]))
+          .concat(
+            internalMemberships.flatMap((membership) => [membership.userId, membership.grantedBy]),
+          )
           .filter((value): value is string => Boolean(value)),
       ),
     );
@@ -4644,10 +4874,31 @@ export class DisputesService {
           })
         : [];
     const supplementalUserById = new Map(supplementalUsers.map((actor) => [actor.id, actor]));
+    const acceptanceMap = await this.loadVerdictAcceptanceMap(
+      Array.from(verdictByDisputeId.values())
+        .filter((verdict) => !verdict.isAppealVerdict)
+        .map((verdict) => ({
+          disputeId: verdict.disputeId,
+          verdictId: verdict.id,
+        })),
+    );
 
     return disputes.map((rawDispute) => {
       const deadlineAwareDispute = this.withDeadlineIndicators(rawDispute, now);
       const sourceVerdict = verdictByDisputeId.get(rawDispute.id);
+      const verdictAcceptance = sourceVerdict
+        ? this.summarizeVerdictAcceptance({
+            dispute: rawDispute,
+            verdict: sourceVerdict,
+            signatures: sourceVerdict.isAppealVerdict
+              ? []
+              : acceptanceMap.get(
+                  this.buildVerdictAcceptanceKey(rawDispute.id, sourceVerdict.id),
+                ) || [],
+            viewerUserId: viewer?.userId,
+            viewerUserRole: viewer?.userRole,
+          })
+        : null;
       const effectiveStatus =
         rawDispute.status === DisputeStatus.RESOLVED && !sourceVerdict
           ? DisputeStatus.IN_MEDIATION
@@ -4656,22 +4907,26 @@ export class DisputesService {
         ...deadlineAwareDispute,
         status: effectiveStatus,
       };
-      const docket = buildHearingDocket(
-        hearingsByDisputeId.get(dispute.id) || [],
-        effectiveStatus,
-      );
-      const rawAppealState = resolveDisputeAppealState({
-        status: effectiveStatus,
-        isAppealed: dispute.isAppealed,
-        appealDeadline: dispute.appealDeadline,
-        appealResolvedAt: dispute.appealResolvedAt,
-        appealResolution: dispute.appealResolution,
-        isAppealVerdict: sourceVerdict?.isAppealVerdict,
-      });
-      const appealState = !sourceVerdict && rawAppealState === 'AVAILABLE' ? 'NONE' : rawAppealState;
+      const docket = buildHearingDocket(hearingsByDisputeId.get(dispute.id) || [], effectiveStatus);
+      const rawAppealState =
+        verdictAcceptance?.allPartiesAccepted &&
+        !rawDispute.isAppealed &&
+        rawDispute.status === DisputeStatus.RESOLVED &&
+        !sourceVerdict?.isAppealVerdict
+          ? 'RESOLVED'
+          : resolveDisputeAppealState({
+              status: effectiveStatus,
+              isAppealed: dispute.isAppealed,
+              appealDeadline: dispute.appealDeadline,
+              appealResolvedAt: dispute.appealResolvedAt,
+              appealResolution: dispute.appealResolution,
+              isAppealVerdict: sourceVerdict?.isAppealVerdict,
+            });
+      const appealState =
+        !sourceVerdict && rawAppealState === 'AVAILABLE' ? 'NONE' : rawAppealState;
       const viewerIsParty = Boolean(
         viewer?.userId &&
-          (viewer.userId === dispute.raisedById || viewer.userId === dispute.defendantId),
+        (viewer.userId === dispute.raisedById || viewer.userId === dispute.defendantId),
       );
       const projectLinkedIds = [
         (dispute as any).project?.clientId,
@@ -4679,14 +4934,13 @@ export class DisputesService {
         (dispute as any).project?.brokerId,
       ].filter((value): value is string => Boolean(value));
       const viewerIsInternal = Boolean(
-        viewer?.userRole &&
-          [UserRole.ADMIN, UserRole.STAFF].includes(viewer.userRole),
+        viewer?.userRole && [UserRole.ADMIN, UserRole.STAFF].includes(viewer.userRole),
       );
       const viewerIsLinkedParticipant = Boolean(
         viewer?.userId &&
-          !viewerIsParty &&
-          !viewerIsInternal &&
-          projectLinkedIds.includes(viewer.userId),
+        !viewerIsParty &&
+        !viewerIsInternal &&
+        projectLinkedIds.includes(viewer.userId),
       );
       const canAppealVerdict =
         Boolean(sourceVerdict) &&
@@ -4694,27 +4948,28 @@ export class DisputesService {
         !viewerIsInternal &&
         appealState === 'AVAILABLE' &&
         effectiveStatus === DisputeStatus.RESOLVED &&
-        !dispute.isAppealed;
+        !dispute.isAppealed &&
+        Boolean(verdictAcceptance?.currentUserCanAppeal ?? true);
       const canAppealRejection = Boolean(
         viewer?.userId &&
-          viewer.userId === dispute.raisedById &&
-          !viewerIsInternal &&
-          rawDispute.status === DisputeStatus.REJECTED &&
-          !rawDispute.rejectionAppealedAt &&
-          rawDispute.dismissalHoldUntil &&
-          new Date(rawDispute.dismissalHoldUntil).getTime() > now.getTime(),
+        viewer.userId === dispute.raisedById &&
+        !viewerIsInternal &&
+        rawDispute.status === DisputeStatus.REJECTED &&
+        !rawDispute.rejectionAppealedAt &&
+        rawDispute.dismissalHoldUntil &&
+        new Date(rawDispute.dismissalHoldUntil).getTime() > now.getTime(),
       );
       const canSubmitImpactReview = viewerIsLinkedParticipant;
       const canRequestSupportEscalation = Boolean(
         (viewerIsParty || viewerIsLinkedParticipant) &&
-          !viewerIsInternal &&
-          ![DisputeStatus.CANCELED].includes(rawDispute.status),
+        !viewerIsInternal &&
+        ![DisputeStatus.CANCELED].includes(rawDispute.status),
       );
       const canRequestAdminOversight = canRequestSupportEscalation;
       const canRequestNeutralPanel = canRequestSupportEscalation;
       const assignedAdmin =
         rawDispute.escalatedToAdminId != null
-          ? supplementalUserById.get(rawDispute.escalatedToAdminId) ?? null
+          ? (supplementalUserById.get(rawDispute.escalatedToAdminId) ?? null)
           : null;
       const appealKind =
         rawDispute.status === DisputeStatus.REJECTION_APPEALED || rawDispute.rejectionAppealedAt
@@ -4727,7 +4982,9 @@ export class DisputesService {
                 ? 'VERDICT'
                 : 'NONE';
       const appealFiledAt =
-        appealKind === 'REJECTION' ? rawDispute.rejectionAppealedAt || null : rawDispute.appealedAt || null;
+        appealKind === 'REJECTION'
+          ? rawDispute.rejectionAppealedAt || null
+          : rawDispute.appealedAt || null;
       const appealDeadline =
         appealKind === 'REJECTION'
           ? rawDispute.dismissalHoldUntil || null
@@ -4775,8 +5032,8 @@ export class DisputesService {
         resolvedAt: appealResolvedAt,
         isSlaBreached: Boolean(
           appealFiledAt &&
-            !appealResolvedAt &&
-            now.getTime() - new Date(appealFiledAt).getTime() > 48 * 60 * 60 * 1000,
+          !appealResolvedAt &&
+          now.getTime() - new Date(appealFiledAt).getTime() > 48 * 60 * 60 * 1000,
         ),
       };
       const caseStage =
@@ -4814,7 +5071,7 @@ export class DisputesService {
       });
       const latestHearing =
         docket.latestHearingId != null
-          ? docket.items.find((item) => item.hearingId === docket.latestHearingId) ?? null
+          ? (docket.items.find((item) => item.hearingId === docket.latestHearingId) ?? null)
           : null;
       const participants = this.buildDisputeParticipants({
         dispute,
@@ -5254,7 +5511,15 @@ export class DisputesService {
       dispute.projectId
         ? this.contractRepo.find({
             where: { projectId: dispute.projectId },
-            select: ['id', 'projectId', 'title', 'status', 'contractUrl', 'termsContent', 'createdAt'],
+            select: [
+              'id',
+              'projectId',
+              'title',
+              'status',
+              'contractUrl',
+              'termsContent',
+              'createdAt',
+            ],
             order: { createdAt: 'DESC' },
             take: 20,
           })
@@ -7844,7 +8109,9 @@ export class DisputesService {
     await this.assertDisputeAccess(dispute as DisputeEntity, userId, userRole);
 
     if ([UserRole.ADMIN, UserRole.STAFF].includes(userRole)) {
-      throw new ForbiddenException('Internal reviewers should use case notes instead of participant review requests.');
+      throw new ForbiddenException(
+        'Internal reviewers should use case notes instead of participant review requests.',
+      );
     }
 
     if ([dispute.raisedById, dispute.defendantId].includes(userId)) {
@@ -8024,10 +8291,7 @@ export class DisputesService {
         role: memberUser.role,
         fullName: memberUser.fullName,
         email: memberUser.email,
-        source:
-          membership.source === 'neutral_panel'
-            ? 'NEUTRAL_PANEL'
-            : 'SUPPORT_INVITED',
+        source: membership.source === 'neutral_panel' ? 'NEUTRAL_PANEL' : 'SUPPORT_INVITED',
         grantedBy: membership.grantedBy,
         createdAt: membership.createdAt,
       });
@@ -8243,7 +8507,9 @@ export class DisputesService {
     await this.assertDisputeAccess(dispute as DisputeEntity, userId, userRole);
 
     if ([UserRole.ADMIN, UserRole.STAFF].includes(userRole)) {
-      throw new ForbiddenException('Internal users should act directly instead of creating escalation requests');
+      throw new ForbiddenException(
+        'Internal users should act directly instead of creating escalation requests',
+      );
     }
 
     const content = [
@@ -8439,7 +8705,9 @@ export class DisputesService {
 
     const invalidReviewerId = reviewerIds.find((reviewerId) => !candidateById.has(reviewerId));
     if (invalidReviewerId) {
-      throw new BadRequestException(`Reviewer ${invalidReviewerId} is not eligible for neutral panel assignment`);
+      throw new BadRequestException(
+        `Reviewer ${invalidReviewerId} is not eligible for neutral panel assignment`,
+      );
     }
 
     await this.dataSource.transaction(async (manager) => {
@@ -8522,7 +8790,9 @@ export class DisputesService {
     });
 
     if (!panelMembership) {
-      throw new ForbiddenException('Only assigned neutral panel reviewers can submit a recommendation');
+      throw new ForbiddenException(
+        'Only assigned neutral panel reviewers can submit a recommendation',
+      );
     }
 
     const content = [
@@ -8577,6 +8847,28 @@ export class DisputesService {
   // APPEAL SYSTEM
   // =============================================================================
 
+  async acceptVerdict(
+    userId: string,
+    userRole: UserRole,
+    disputeId: string,
+    dto: AcceptVerdictDto,
+  ) {
+    const result = await this.verdictService.acceptVerdict(disputeId, userId, {
+      termsContentSnapshot: DISPUTE_DISCLAIMER_SNAPSHOT,
+      termsVersion: dto.disclaimerVersion || DISPUTE_DISCLAIMER_VERSION,
+    });
+
+    const verdict = await this.getVerdict(disputeId, userId, userRole);
+
+    return {
+      success: true,
+      data: {
+        verdict: verdict.data,
+        finalization: result.finalization,
+      },
+    };
+  }
+
   async submitAppeal(userId: string, disputeId: string, dto: AppealDto): Promise<DisputeEntity> {
     const existingDispute = await this.disputeRepo.findOne({ where: { id: disputeId } });
     if (!existingDispute) {
@@ -8629,6 +8921,7 @@ export class DisputesService {
     });
     this.eventEmitter.emit(DISPUTE_EVENTS.APPEAL_SUBMITTED, {
       disputeId,
+      userId,
       appellantId: userId,
       previousStatus,
       newStatus: updated.status,
@@ -8650,7 +8943,11 @@ export class DisputesService {
 
       const admin = updated.escalatedToAdminId
         ? await this.userRepo.findOne({
-            where: { id: updated.escalatedToAdminId, role: UserRole.ADMIN, status: UserStatus.ACTIVE },
+            where: {
+              id: updated.escalatedToAdminId,
+              role: UserRole.ADMIN,
+              status: UserStatus.ACTIVE,
+            },
             select: ['id'],
           })
         : await this.userRepo.findOne({
@@ -9542,4 +9839,3 @@ export class DisputesService {
     return next;
   }
 }
-

@@ -337,15 +337,19 @@ export class PayoutRequestsService {
   }
 
   private assertCanCashOut(user: UserEntity): void {
-    if (this.isBrokerOrFreelancer(user)) {
+    if (this.isCashoutEligibleUser(user)) {
       return;
     }
 
-    throw new ForbiddenException('Only broker and freelancer accounts can request cashouts');
+    throw new ForbiddenException(
+      'Only client, broker, and freelancer accounts can request cashouts',
+    );
   }
 
-  private isBrokerOrFreelancer(user: UserEntity): boolean {
-    return [ 'BROKER', 'FREELANCER' ].includes(String(user?.role || '').toUpperCase());
+  private isCashoutEligibleUser(user: UserEntity): boolean {
+    return ['CLIENT', 'BROKER', 'FREELANCER'].includes(
+      String(user?.role || '').toUpperCase(),
+    );
   }
 
   private isStaffOrAdmin(user: UserEntity): boolean {

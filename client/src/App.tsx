@@ -73,6 +73,7 @@ const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage"),
 );
+const AdminReportInboxPage = lazy(() => import("@/pages/AdminReportInboxPage"));
 const ProjectRequestsPage = lazy(() =>
   import("@/features/project-requests/ProjectRequestsPage").then((module) => ({
     default: module.ProjectRequestsPage,
@@ -116,6 +117,16 @@ const AdminAppealQueuePage = lazy(() =>
     default: module.AdminAppealQueuePage,
   })),
 );
+const AdminDisputesPage = lazy(() =>
+  import("@/features/disputes/pages/AdminDisputesPage").then((module) => ({
+    default: module.AdminDisputesPage,
+  })),
+);
+const AdminDisputeDetailPage = lazy(() =>
+  import("@/features/disputes/pages/AdminDisputeDetailPage").then((module) => ({
+    default: module.AdminDisputeDetailPage,
+  })),
+);
 
 // ========== HEARINGS (CLIENT/BROKER/FREELANCER) ==========
 const ParticipantHearingsPage = lazy(() =>
@@ -126,6 +137,16 @@ const ParticipantHearingsPage = lazy(() =>
 const ParticipantHearingRoomPage = lazy(() =>
   import("@/features/hearings/pages/ParticipantHearingRoomPage").then((module) => ({
     default: module.ParticipantHearingRoomPage,
+  })),
+);
+const AdminHearingsPage = lazy(() =>
+  import("@/features/hearings/pages/AdminHearingsPage").then((module) => ({
+    default: module.AdminHearingsPage,
+  })),
+);
+const AdminHearingRoomPage = lazy(() =>
+  import("@/features/hearings/pages/AdminHearingRoomPage").then((module) => ({
+    default: module.AdminHearingRoomPage,
   })),
 );
 
@@ -784,11 +805,61 @@ function App() {
           }
         />
         <Route
+          path={ROUTES.ADMIN_DISPUTES}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminDisputesPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_DISPUTE_DETAIL}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout showFooter={false} contentMode="hearing-room">
+                <AdminDisputeDetailPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.ADMIN_DISPUTE_APPEALS}
           element={
             <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminAppealQueuePage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_HEARINGS}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminHearingsPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_HEARING_ROOM}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout showFooter={false} contentMode="hearing-room">
+                <AdminHearingRoomPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_REPORTS}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminReportInboxPage />
               </AdminDashboardLayout>
             </RoleGuard>
           }

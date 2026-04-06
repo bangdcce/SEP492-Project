@@ -9,6 +9,23 @@ export class HearingLifecycleScheduler {
 
   constructor(private readonly hearingService: HearingService) {}
 
+  private async runJobSafely<T>(
+    jobName: string,
+    run: () => Promise<T>,
+    onSuccess?: (result: T) => void,
+  ): Promise<T | null> {
+    try {
+      const result = await run();
+      onSuccess?.(result);
+      return result;
+    } catch (error) {
+      this.logger.error(
+        `Hearing lifecycle job "${jobName}" failed: ${error instanceof Error ? error.message : 'unknown error'}`,
+      );
+      return null;
+    }
+  }
+
   @Cron(CronExpression.EVERY_MINUTE, { name: 'hearing-auto-start' })
   async autoStartDueHearings(): Promise<void> {
     if (
@@ -20,50 +37,61 @@ export class HearingLifecycleScheduler {
       return;
     }
 
-    try {
-      const referenceAt = new Date();
-      const confirmationTimeouts =
-        await this.hearingService.autoRescheduleExpiredPendingHearings(referenceAt);
-      if (
-        confirmationTimeouts.rescheduled > 0 ||
-        confirmationTimeouts.flagged > 0 ||
-        confirmationTimeouts.repaired > 0
-      ) {
-        this.logger.log(
-          `Hearing confirmation timeout tick: repaired=${confirmationTimeouts.repaired}, rescheduled=${confirmationTimeouts.rescheduled}, flagged=${confirmationTimeouts.flagged}, at=${confirmationTimeouts.referenceAt}`,
-        );
-      }
+    const referenceAt = new Date();
 
-      const result = await this.hearingService.autoStartDueHearings(referenceAt);
-      if (result.started > 0 || result.blocked > 0) {
-        this.logger.log(
-          `Hearing auto-start tick: started=${result.started}, blocked=${result.blocked}, at=${result.referenceAt}`,
-        );
-      }
+    const confirmationTimeouts = await this.runJobSafely(
+      'confirmation-timeout-reschedule',
+      () => this.hearingService.autoRescheduleExpiredPendingHearings(referenceAt),
+      (result) => {
+        if (result.rescheduled > 0 || result.flagged > 0 || result.repaired > 0) {
+          this.logger.log(
+            `Hearing confirmation timeout tick: repaired=${result.repaired}, rescheduled=${result.rescheduled}, flagged=${result.flagged}, at=${result.referenceAt}`,
+          );
+        }
+      },
+    );
 
-      const warningResult = await this.hearingService.dispatchActiveHearingTimeWarnings(referenceAt);
-      if (warningResult.warnings > 0) {
-        this.logger.log(
-          `Hearing warning tick: warnings=${warningResult.warnings}, at=${warningResult.referenceAt}`,
-        );
-      }
+    const autoStartResult = await this.runJobSafely('auto-start', () =>
+      this.hearingService.autoStartDueHearings(referenceAt),
+    );
+    if (autoStartResult && (autoStartResult.started > 0 || autoStartResult.blocked > 0)) {
+      this.logger.log(
+        `Hearing auto-start tick: started=${autoStartResult.started}, blocked=${autoStartResult.blocked}, at=${autoStartResult.referenceAt}`,
+      );
+    }
 
-      const pausedResult = await this.hearingService.autoCloseAbandonedPausedHearings(referenceAt);
-      if (pausedResult.closed > 0 || pausedResult.failed > 0) {
-        this.logger.log(
-          `Hearing paused-timeout tick: checked=${pausedResult.checked}, closed=${pausedResult.closed}, failed=${pausedResult.failed}, at=${pausedResult.referenceAt}`,
-        );
-      }
+    const warningResult = await this.runJobSafely('active-hearing-time-warnings', () =>
+      this.hearingService.dispatchActiveHearingTimeWarnings(referenceAt),
+    );
+    if (warningResult && warningResult.warnings > 0) {
+      this.logger.log(
+        `Hearing warning tick: warnings=${warningResult.warnings}, at=${warningResult.referenceAt}`,
+      );
+    }
 
-      const overdueResult = await this.hearingService.autoCloseOverdueHearings(referenceAt);
-      if (overdueResult.closed > 0 || overdueResult.failed > 0) {
-        this.logger.log(
-          `Hearing auto-close tick: checked=${overdueResult.checked}, closed=${overdueResult.closed}, failed=${overdueResult.failed}, at=${overdueResult.referenceAt}`,
-        );
-      }
-    } catch (error) {
-      this.logger.error(
-        `Failed to auto-start due hearings: ${error instanceof Error ? error.message : 'unknown error'}`,
+    const pausedResult = await this.runJobSafely('paused-hearing-auto-close', () =>
+      this.hearingService.autoCloseAbandonedPausedHearings(referenceAt),
+    );
+    if (pausedResult && (pausedResult.closed > 0 || pausedResult.failed > 0)) {
+      this.logger.log(
+        `Hearing paused-timeout tick: checked=${pausedResult.checked}, closed=${pausedResult.closed}, failed=${pausedResult.failed}, at=${pausedResult.referenceAt}`,
+      );
+    }
+
+    const overdueResult = await this.runJobSafely('overdue-hearing-auto-close', () =>
+      this.hearingService.autoCloseOverdueHearings(referenceAt),
+    );
+    if (overdueResult && (overdueResult.closed > 0 || overdueResult.failed > 0)) {
+      this.logger.log(
+        `Hearing auto-close tick: checked=${overdueResult.checked}, closed=${overdueResult.closed}, failed=${overdueResult.failed}, at=${overdueResult.referenceAt}`,
+      );
+    }
+
+    const blockedStarts = autoStartResult?.blocked || 0;
+    const flaggedConfirmations = confirmationTimeouts?.flagged || 0;
+    if (blockedStarts > 0 || flaggedConfirmations > 0) {
+      this.logger.warn(
+        `Hearing auto-schedule backlog warning: blockedStarts=${blockedStarts}, flaggedPendingConfirmations=${flaggedConfirmations}, referenceAt=${referenceAt.toISOString()}`,
       );
     }
   }

@@ -23,11 +23,19 @@ export class CashoutController {
   constructor(private readonly payoutRequestsService: PayoutRequestsService) {}
 
   private assertCanRequestCashout(user: UserEntity): void {
-    if (hasAnyUserRole(user?.role, [UserRole.BROKER, UserRole.FREELANCER])) {
+    if (
+      hasAnyUserRole(user?.role, [
+        UserRole.CLIENT,
+        UserRole.BROKER,
+        UserRole.FREELANCER,
+      ])
+    ) {
       return;
     }
 
-    throw new ForbiddenException('Only broker and freelancer accounts can request cashouts');
+    throw new ForbiddenException(
+      'Only client, broker, and freelancer accounts can request cashouts',
+    );
   }
 
   @Get('requests')

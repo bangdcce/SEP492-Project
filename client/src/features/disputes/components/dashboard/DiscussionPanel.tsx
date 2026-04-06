@@ -23,7 +23,6 @@ import {
   getDisputeNotes,
   getProjectBoard,
   sendDisputeMessage,
-  updateDisputePhase,
 } from "../../api";
 import type {
   DisputeMessage,
@@ -37,6 +36,7 @@ import { projectSpecsApi } from "@/features/project-specs/api";
 import type { ProjectSpec } from "@/features/project-specs/types";
 import type { Milestone, Task } from "@/features/project-workspace/types";
 import { useDisputeRealtime } from "../../hooks/useDisputeRealtime";
+import { transitionHearingPhase } from "@/features/hearings/api";
 
 type EvidenceReferenceType = "TASK" | "MILESTONE" | "SPEC";
 
@@ -708,10 +708,20 @@ export const DiscussionPanel = ({
     if (!dispute) return;
     const nextPhase = event.target.value as DisputePhase;
     if (nextPhase === currentPhase) return;
+    const actionableHearingId =
+      dispute.activeHearingId ??
+      dispute.hearingDocket?.find((entry) => entry.isActionable)?.hearingId;
+
+    if (!actionableHearingId) {
+      toast.error(
+        "Phase control has moved to the active hearing. Open the hearing docket first.",
+      );
+      return;
+    }
 
     try {
       setPhaseUpdating(true);
-      await updateDisputePhase(dispute.id, nextPhase);
+      await transitionHearingPhase(actionableHearingId, nextPhase);
       onPhaseUpdated?.(nextPhase);
       const label =
         phaseOptions.find((item) => item.value === nextPhase)?.label ??

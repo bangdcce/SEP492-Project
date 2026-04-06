@@ -12,7 +12,11 @@ import { CreateProjectSpecForm } from "./components/CreateProjectSpecForm";
 import { projectRequestsApi } from "../project-requests/api";
 import { projectSpecsApi } from "./api";
 import type { ProjectRequest } from "../project-requests/types";
-import type { ClientFeatureDTO, CreateProjectSpecDTO, ProjectSpec } from "./types";
+import type {
+  ClientFeatureDTO,
+  CreateProjectSpecDTO,
+  ProjectSpec,
+} from "./types";
 import { SpecPhase } from "./types";
 import Spinner from "@/shared/components/ui/spinner";
 import {
@@ -113,13 +117,15 @@ export default function CreateProjectSpecPage() {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadedExistingSpec, setLoadedExistingSpec] = useState(false);
-  const [commercialRequestDraft, setCommercialRequestDraft] = useState<CommercialRequestDraftState>({
-    proposedBudget: "",
-    proposedTimeline: "",
-    reason: "",
-    features: [{ title: "", description: "", priority: "SHOULD_HAVE" }],
-  });
-  const [isSubmittingCommercialChange, setIsSubmittingCommercialChange] = useState(false);
+  const [commercialRequestDraft, setCommercialRequestDraft] =
+    useState<CommercialRequestDraftState>({
+      proposedBudget: "",
+      proposedTimeline: "",
+      reason: "",
+      features: [{ title: "", description: "", priority: "SHOULD_HAVE" }],
+    });
+  const [isSubmittingCommercialChange, setIsSubmittingCommercialChange] =
+    useState(false);
   const freelancerProposalList =
     (request as any)?.freelancerProposals || (request as any)?.proposals || [];
   const acceptedFreelancerCount = freelancerProposalList.filter(
@@ -189,7 +195,9 @@ export default function CreateProjectSpecPage() {
       label: "Client Spec approved",
       ready: Boolean(clientSpec),
       icon: FileText,
-      helper: clientSpec ? "Approved scope is available as the parent spec." : "Waiting for the approved client-facing scope.",
+      helper: clientSpec
+        ? "Approved scope is available as the parent spec."
+        : "Waiting for the approved client-facing scope.",
     },
     {
       key: "freelancer",
@@ -208,7 +216,7 @@ export default function CreateProjectSpecPage() {
       helper: activeSpec
         ? `Current status: ${formatSpecStatusLabel(activeSpec.status)}`
         : "No full spec record exists yet for this request.",
-      },
+    },
   ];
   const originalRequestContext = request?.originalRequestContext || request;
   const requestScopeBaseline = request?.requestScopeBaseline || null;
@@ -225,10 +233,10 @@ export default function CreateProjectSpecPage() {
     requestScopeBaseline?.requestedDeadline ||
     request?.requestedDeadline ||
     null;
-  const approvedClientFeatures =
-    approvedCommercialBaseline?.agreedClientFeatures?.length
-      ? approvedCommercialBaseline.agreedClientFeatures
-      : clientSpec?.clientFeatures || [];
+  const approvedClientFeatures = approvedCommercialBaseline
+    ?.agreedClientFeatures?.length
+    ? approvedCommercialBaseline.agreedClientFeatures
+    : clientSpec?.clientFeatures || [];
   const normalizedApprovedClientFeatures: ClientFeatureDTO[] =
     approvedClientFeatures.map((feature) => ({
       id: feature.id || undefined,
@@ -243,7 +251,9 @@ export default function CreateProjectSpecPage() {
     null;
   const projectGoalSummary = requestScopeBaseline?.projectGoalSummary || null;
   const requestedDeadline =
-    requestScopeBaseline?.requestedDeadline || request?.requestedDeadline || null;
+    requestScopeBaseline?.requestedDeadline ||
+    request?.requestedDeadline ||
+    null;
   const todayDateKey = toLocalDateKey(new Date());
   const requestCreatedDateKey = request?.createdAt
     ? toLocalDateKey(new Date(request.createdAt))
@@ -253,10 +263,12 @@ export default function CreateProjectSpecPage() {
     getDateKeyCandidate(approvedDeliveryDeadline),
     getDateKeyCandidate(requestedDeadline),
     requestCreatedDateKey,
-  ].filter((value): value is string => Boolean(value)).reduce(
-    (latest, candidate) => (candidate > latest ? candidate : latest),
-    todayDateKey,
-  );
+  ]
+    .filter((value): value is string => Boolean(value))
+    .reduce(
+      (latest, candidate) => (candidate > latest ? candidate : latest),
+      todayDateKey,
+    );
   const commercialChangeTimelineWarning =
     commercialRequestDraft.proposedTimeline &&
     approvedDeliveryDeadline &&
@@ -321,10 +333,7 @@ export default function CreateProjectSpecPage() {
         );
         if (approved) setClientSpec(approved);
 
-        const existingFullSpec = pickPreferredFullSpec(
-          specs,
-          approved?.id,
-        );
+        const existingFullSpec = pickPreferredFullSpec(specs, approved?.id);
 
         if (existingFullSpec) {
           setExistingFullSpec(existingFullSpec);
@@ -357,20 +366,19 @@ export default function CreateProjectSpecPage() {
 
   useEffect(() => {
     const baseline = request?.commercialBaseline;
-    const baselineFeatures =
-      baseline?.agreedClientFeatures?.length
-        ? baseline.agreedClientFeatures.map((feature) => ({
+    const baselineFeatures = baseline?.agreedClientFeatures?.length
+      ? baseline.agreedClientFeatures.map((feature) => ({
+          title: feature.title,
+          description: feature.description,
+          priority: feature.priority || "SHOULD_HAVE",
+        }))
+      : clientSpec?.clientFeatures?.length
+        ? clientSpec.clientFeatures.map((feature) => ({
             title: feature.title,
             description: feature.description,
             priority: feature.priority || "SHOULD_HAVE",
           }))
-        : clientSpec?.clientFeatures?.length
-          ? clientSpec.clientFeatures.map((feature) => ({
-              title: feature.title,
-              description: feature.description,
-              priority: feature.priority || "SHOULD_HAVE",
-            }))
-          : [{ title: "", description: "", priority: "SHOULD_HAVE" as const }];
+        : [{ title: "", description: "", priority: "SHOULD_HAVE" as const }];
 
     setCommercialRequestDraft((current) => ({
       proposedBudget:
@@ -490,19 +498,29 @@ export default function CreateProjectSpecPage() {
 
     const payload = {
       proposedBudget: Number(commercialRequestDraft.proposedBudget),
-      proposedTimeline: commercialRequestDraft.proposedTimeline.trim() || undefined,
-      proposedClientFeatures: normalizedFeatures.length ? normalizedFeatures : undefined,
+      proposedTimeline:
+        commercialRequestDraft.proposedTimeline.trim() || undefined,
+      proposedClientFeatures: normalizedFeatures.length
+        ? normalizedFeatures
+        : undefined,
       reason: commercialRequestDraft.reason.trim(),
       parentSpecId: clientSpec.id,
     };
 
-    if (!Number.isFinite(payload.proposedBudget) || payload.proposedBudget < 0) {
-      setSubmitError("Commercial change budget must be a valid non-negative number.");
+    if (
+      !Number.isFinite(payload.proposedBudget) ||
+      payload.proposedBudget < 0
+    ) {
+      setSubmitError(
+        "Commercial change budget must be a valid non-negative number.",
+      );
       return;
     }
 
     if (!payload.reason || payload.reason.length < 10) {
-      setSubmitError("Commercial change reason must be at least 10 characters.");
+      setSubmitError(
+        "Commercial change reason must be at least 10 characters.",
+      );
       return;
     }
 
@@ -519,7 +537,8 @@ export default function CreateProjectSpecPage() {
     try {
       setIsSubmittingCommercialChange(true);
       setSubmitError(null);
-      const updatedRequest = await projectRequestsApi.createCommercialChangeRequest(id, payload);
+      const updatedRequest =
+        await projectRequestsApi.createCommercialChangeRequest(id, payload);
       setRequest(updatedRequest);
     } catch (err: any) {
       setSubmitError(
@@ -560,20 +579,24 @@ export default function CreateProjectSpecPage() {
   }
 
   return (
-    <div className="container mx-auto py-8 max-w-4xl space-y-6">
-      <div className="flex items-center gap-4">
+    <div className="container mx-auto py-8 max-w-6xl space-y-6">
+      <div className="flex flex-wrap items-center gap-3">
         <Button
           variant="outline"
-          className="h-9 w-9 p-0"
+          className="h-9 shrink-0 gap-2 px-3"
           onClick={() => navigate(`/broker/project-requests/${id}`)}
+          aria-label="Back to request details"
         >
           <ArrowLeft className="h-4 w-4" />
+          <span className="text-sm font-medium">Back</span>
         </Button>
-        <div>
+        <div className="min-w-0 flex-1">
           <h1 className="text-2xl font-bold tracking-tight">
             Create Full Specification
           </h1>
-          <p className="text-muted-foreground">For request: {request.title}</p>
+          <p className="text-muted-foreground wrap-break-word">
+            For request: {request.title}
+          </p>
         </div>
         {clientSpec && (
           <Badge variant="secondary" className="ml-auto text-xs">
@@ -582,7 +605,7 @@ export default function CreateProjectSpecPage() {
         )}
       </div>
 
-      <Card className="overflow-hidden border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.18),_transparent_42%),linear-gradient(135deg,_#f8fffe_0%,_#f8fafc_55%,_#ecfeff_100%)] shadow-sm">
+      <Card className="overflow-hidden border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.18),transparent_42%),linear-gradient(135deg,#f8fffe_0%,#f8fafc_55%,#ecfeff_100%)] shadow-sm">
         <CardContent className="space-y-5 p-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="space-y-2">
@@ -591,12 +614,13 @@ export default function CreateProjectSpecPage() {
                 Final Spec Workspace
               </div>
               <div>
-                <h2 className="text-2xl font-semibold tracking-tight text-slate-950">
+                <h2 className="text-2xl font-semibold tracking-tight text-slate-950 wrap-break-word">
                   {request.title}
                 </h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">
-                  Draft the broker-facing technical scope, freeze the right milestone details, then
-                  move it into 3-party review when the freelancer signer is ready.
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600 wrap-break-word">
+                  Draft the broker-facing technical scope, freeze the right
+                  milestone details, then move it into 3-party review when the
+                  freelancer signer is ready.
                 </p>
               </div>
             </div>
@@ -606,7 +630,9 @@ export default function CreateProjectSpecPage() {
                 Current record
               </p>
               <p className="mt-2 text-lg font-semibold text-slate-950">
-                {activeSpec ? formatSpecStatusLabel(activeSpec.status) : "Not started"}
+                {activeSpec
+                  ? formatSpecStatusLabel(activeSpec.status)
+                  : "Not started"}
               </p>
               <p className="mt-1 text-sm text-slate-600">
                 {activeSpec
@@ -634,22 +660,31 @@ export default function CreateProjectSpecPage() {
                     <div className="flex items-center gap-2">
                       <div
                         className={`rounded-full p-2 ${
-                          item.ready ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-500"
+                          item.ready
+                            ? "bg-emerald-100 text-emerald-700"
+                            : "bg-slate-100 text-slate-500"
                         }`}
                       >
                         <Icon className="h-4 w-4" />
                       </div>
-                      <p className="text-sm font-semibold text-slate-950">{item.label}</p>
+                      <p className="text-sm font-semibold text-slate-950">
+                        {item.label}
+                      </p>
                     </div>
                     {item.ready ? (
                       <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                     ) : (
-                      <Badge variant="outline" className="border-slate-200 text-slate-500">
+                      <Badge
+                        variant="outline"
+                        className="border-slate-200 text-slate-500"
+                      >
                         Pending
                       </Badge>
                     )}
                   </div>
-                  <p className="mt-3 text-sm leading-6 text-slate-600">{item.helper}</p>
+                  <p className="mt-3 text-sm leading-6 text-slate-600">
+                    {item.helper}
+                  </p>
                 </div>
               );
             })}
@@ -664,34 +699,52 @@ export default function CreateProjectSpecPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Original brief</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                Original brief
+              </p>
               <p className="mt-2 font-medium text-slate-950">
                 {requestScopeBaseline?.requestTitle ||
                   originalRequestContext?.title ||
                   request.title}
               </p>
-              <p className="mt-2 whitespace-pre-wrap text-slate-600">
+              <p className="mt-2 whitespace-pre-wrap wrap-break-word text-slate-600">
                 {requestScopeBaseline?.requestDescription ||
                   originalRequestContext?.description ||
                   request.description}
               </p>
             </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border bg-slate-50/70 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Product Type</p>
-                <p className="mt-1 font-medium">{lockedProductType || "Not set"}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Product Type
+                </p>
+                <p className="mt-1 font-medium wrap-break-word">
+                  {lockedProductType || "Not set"}
+                </p>
               </div>
               <div className="rounded-xl border bg-slate-50/70 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Project Goal</p>
-                <p className="mt-1 font-medium">{projectGoalSummary || "Not set"}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Requested Deadline
+                </p>
+                <p className="mt-1 font-medium wrap-break-word">
+                  {requestedDeadline || "Not set"}
+                </p>
               </div>
               <div className="rounded-xl border bg-slate-50/70 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Requested Deadline</p>
-                <p className="mt-1 font-medium">{requestedDeadline || "Not set"}</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Tech preferences
+                </p>
+                <p className="mt-1 font-medium wrap-break-word">
+                  {originalRequestContext?.techPreferences || "Not set"}
+                </p>
               </div>
-              <div className="rounded-xl border bg-slate-50/70 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Tech preferences</p>
-                <p className="mt-1 font-medium">{originalRequestContext?.techPreferences || "Not set"}</p>
+              <div className="rounded-xl border bg-slate-50/70 p-3 sm:col-span-2 xl:col-span-4">
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Project Goal
+                </p>
+                <p className="mt-1 font-medium wrap-break-word whitespace-pre-wrap">
+                  {projectGoalSummary || "Not set"}
+                </p>
               </div>
             </div>
             <RequestAttachmentGallery
@@ -707,17 +760,23 @@ export default function CreateProjectSpecPage() {
           </CardHeader>
           <CardContent className="space-y-4 text-sm">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
-              <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Current source</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">
+                Current source
+              </p>
               <p className="mt-2 font-semibold text-emerald-950">
                 {approvedCommercialBaseline?.source || "CLIENT_SPEC"}
               </p>
               <p className="mt-1 text-emerald-900">
-                Budget, timeline, and client-facing features are frozen from this baseline. The full spec must stay aligned unless the client approves a commercial change request.
+                Budget, timeline, and client-facing features are frozen from
+                this baseline. The full spec must stay aligned unless the client
+                approves a commercial change request.
               </p>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-xl border bg-slate-50/70 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Approved budget</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Approved budget
+                </p>
                 <p className="mt-1 font-medium">
                   {approvedBudgetCap != null
                     ? `$${approvedBudgetCap.toLocaleString()}`
@@ -725,25 +784,40 @@ export default function CreateProjectSpecPage() {
                 </p>
               </div>
               <div className="rounded-xl border bg-slate-50/70 p-3">
-                <p className="text-xs uppercase tracking-wide text-slate-500">Agreed Delivery Deadline</p>
+                <p className="text-xs uppercase tracking-wide text-slate-500">
+                  Agreed Delivery Deadline
+                </p>
                 <p className="mt-1 font-medium">
-                  {approvedDeliveryDeadline || clientSpec?.estimatedTimeline || "Not set"}
+                  {approvedDeliveryDeadline ||
+                    clientSpec?.estimatedTimeline ||
+                    "Not set"}
                 </p>
               </div>
             </div>
             <div className="space-y-2">
-              <p className="text-xs uppercase tracking-wide text-slate-500">Client-facing features</p>
+              <p className="text-xs uppercase tracking-wide text-slate-500">
+                Client-facing features
+              </p>
               {approvedClientFeatures.length ? (
                 <div className="space-y-2">
                   {approvedClientFeatures.map((feature, index) => (
-                    <div key={`${feature.title}-${index}`} className="rounded-xl border border-slate-200 p-3">
-                      <p className="font-medium text-slate-950">{feature.title}</p>
-                      <p className="mt-1 text-slate-600">{feature.description}</p>
+                    <div
+                      key={`${feature.title}-${index}`}
+                      className="rounded-xl border border-slate-200 p-3"
+                    >
+                      <p className="font-medium text-slate-950 wrap-break-word">
+                        {feature.title}
+                      </p>
+                      <p className="mt-1 text-slate-600 wrap-break-word whitespace-pre-wrap">
+                        {feature.description}
+                      </p>
                     </div>
                   ))}
                 </div>
               ) : (
-                <p className="text-muted-foreground">No client-facing features locked yet.</p>
+                <p className="text-muted-foreground">
+                  No client-facing features locked yet.
+                </p>
               )}
             </div>
           </CardContent>
@@ -765,13 +839,14 @@ export default function CreateProjectSpecPage() {
             <p>
               <strong>Title:</strong> {clientSpec.title}
             </p>
-            <p className="text-muted-foreground line-clamp-3">
+            <p className="text-muted-foreground line-clamp-4 wrap-break-word">
               {clientSpec.description}
             </p>
-            <div className="flex gap-4 text-xs text-muted-foreground">
+            <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
               <span>Budget: ${clientSpec.totalBudget?.toLocaleString()}</span>
               <span>
-                Agreed Delivery Deadline: {clientSpec.estimatedTimeline || "Not set"}
+                Agreed Delivery Deadline:{" "}
+                {clientSpec.estimatedTimeline || "Not set"}
               </span>
               {clientSpec.clientFeatures && (
                 <span>{clientSpec.clientFeatures.length} features</span>
@@ -806,7 +881,7 @@ export default function CreateProjectSpecPage() {
       {submitError && (
         <Alert variant="destructive">
           <AlertTitle>Submission Error</AlertTitle>
-          <AlertDescription className="whitespace-pre-line">
+          <AlertDescription className="whitespace-pre-line wrap-break-word">
             {submitError}
           </AlertDescription>
         </Alert>
@@ -826,7 +901,9 @@ export default function CreateProjectSpecPage() {
         <Alert>
           <AlertTitle>Full spec locked by contract</AlertTitle>
           <AlertDescription>
-            Contract <strong>{activeSpec.lockedByContractId}</strong> now owns the frozen commercial snapshot for this scope. Continue contract review there instead of editing this spec.
+            Contract <strong>{activeSpec.lockedByContractId}</strong> now owns
+            the frozen commercial snapshot for this scope. Continue contract
+            review there instead of editing this spec.
           </AlertDescription>
         </Alert>
       )}
@@ -834,17 +911,21 @@ export default function CreateProjectSpecPage() {
       {activeSpec?.status === "REJECTED" && activeSpec.rejectionReason && (
         <Alert>
           <AlertTitle>Revision requested</AlertTitle>
-          <AlertDescription>{activeSpec.rejectionReason}</AlertDescription>
+          <AlertDescription className="wrap-break-word whitespace-pre-wrap">
+            {activeSpec.rejectionReason}
+          </AlertDescription>
         </Alert>
       )}
 
       {warnings.length > 0 && (
         <Alert>
           <AlertTitle>Governance Warnings</AlertTitle>
-          <AlertDescription>
+          <AlertDescription className="whitespace-pre-wrap wrap-break-word">
             <ul className="list-disc pl-4">
               {warnings.map((warning) => (
-                <li key={warning}>{warning}</li>
+                <li key={warning} className="wrap-break-word">
+                  {warning}
+                </li>
               ))}
             </ul>
           </AlertDescription>
@@ -862,12 +943,15 @@ export default function CreateProjectSpecPage() {
                 Status: <strong>{activeCommercialChange.status}</strong>
               </p>
               <Badge variant="outline" className="bg-white">
-                Requested {new Date(activeCommercialChange.requestedAt).toLocaleString()}
+                Requested{" "}
+                {new Date(activeCommercialChange.requestedAt).toLocaleString()}
               </Badge>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               <div className="rounded-xl border bg-white p-3">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Budget</p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Budget
+                </p>
                 <p className="mt-1">
                   {activeCommercialChange.currentBudget != null
                     ? `$${Number(activeCommercialChange.currentBudget).toLocaleString()}`
@@ -879,7 +963,9 @@ export default function CreateProjectSpecPage() {
                 </p>
               </div>
               <div className="rounded-xl border bg-white p-3">
-                <p className="text-xs uppercase tracking-wide text-muted-foreground">Timeline</p>
+                <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Timeline
+                </p>
                 <p className="mt-1">
                   {activeCommercialChange.currentTimeline || "Not set"}
                   {" -> "}
@@ -888,7 +974,9 @@ export default function CreateProjectSpecPage() {
               </div>
             </div>
             <div className="rounded-xl border bg-white p-3">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">Reason</p>
+              <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                Reason
+              </p>
               <p className="mt-1 whitespace-pre-wrap text-slate-700">
                 {activeCommercialChange.reason}
               </p>
@@ -898,19 +986,29 @@ export default function CreateProjectSpecPage() {
                 <p className="text-xs uppercase tracking-wide text-muted-foreground">
                   Proposed client-facing features
                 </p>
-                {activeCommercialChange.proposedClientFeatures.map((feature, index) => (
-                  <div key={`${feature.title}-${index}`} className="rounded-xl border bg-white p-3">
-                    <p className="font-medium text-slate-950">{feature.title}</p>
-                    <p className="mt-1 text-slate-600">{feature.description}</p>
-                  </div>
-                ))}
+                {activeCommercialChange.proposedClientFeatures.map(
+                  (feature, index) => (
+                    <div
+                      key={`${feature.title}-${index}`}
+                      className="rounded-xl border bg-white p-3"
+                    >
+                      <p className="font-medium text-slate-950">
+                        {feature.title}
+                      </p>
+                      <p className="mt-1 text-slate-600">
+                        {feature.description}
+                      </p>
+                    </div>
+                  ),
+                )}
               </div>
             ) : null}
             {activeCommercialChange.status === "PENDING" ? (
               <Alert>
                 <AlertTitle>Waiting for client approval</AlertTitle>
                 <AlertDescription>
-                  You cannot submit another commercial change while this one is pending.
+                  You cannot submit another commercial change while this one is
+                  pending.
                 </AlertDescription>
               </Alert>
             ) : null}
@@ -921,15 +1019,20 @@ export default function CreateProjectSpecPage() {
       {canDraftCommercialChange ? (
         <Card>
           <CardHeader>
-            <CardTitle>Request Client Approval For Commercial Changes</CardTitle>
+            <CardTitle>
+              Request Client Approval For Commercial Changes
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-muted-foreground">
-              Use this when budget, timeline, or client-facing features need to move. Do not edit those values directly in the full spec.
+              Use this when budget, timeline, or client-facing features need to
+              move. Do not edit those values directly in the full spec.
             </p>
             <div className="grid gap-4 md:grid-cols-2">
               <div>
-                <label className="mb-1 block text-sm font-medium">Proposed budget</label>
+                <label className="mb-1 block text-sm font-medium">
+                  Proposed budget
+                </label>
                 <Input
                   type="number"
                   min="0"
@@ -959,7 +1062,8 @@ export default function CreateProjectSpecPage() {
                   }
                 />
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Earliest allowed date for this commercial change: {commercialChangeMinimumTimeline}
+                  Earliest allowed date for this commercial change:{" "}
+                  {commercialChangeMinimumTimeline}
                 </p>
                 {commercialChangeTimelineWarning ? (
                   <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -970,7 +1074,9 @@ export default function CreateProjectSpecPage() {
             </div>
             <div className="space-y-3">
               <div className="flex items-center justify-between gap-3">
-                <p className="text-sm font-medium">Proposed client-facing features</p>
+                <p className="text-sm font-medium">
+                  Proposed client-facing features
+                </p>
                 <Button
                   type="button"
                   variant="outline"
@@ -988,18 +1094,29 @@ export default function CreateProjectSpecPage() {
                 </Button>
               </div>
               {commercialRequestDraft.features.map((feature, index) => (
-                <div key={`commercial-feature-${index}`} className="grid gap-3 rounded-xl border p-4 md:grid-cols-[1fr_1fr_auto]">
+                <div
+                  key={`commercial-feature-${index}`}
+                  className="grid gap-3 rounded-xl border p-4 md:grid-cols-[1fr_1fr_auto]"
+                >
                   <Input
                     value={feature.title}
                     onChange={(event) =>
-                      handleCommercialDraftFeatureChange(index, "title", event.target.value)
+                      handleCommercialDraftFeatureChange(
+                        index,
+                        "title",
+                        event.target.value,
+                      )
                     }
                     placeholder="Feature title"
                   />
                   <Input
                     value={feature.description}
                     onChange={(event) =>
-                      handleCommercialDraftFeatureChange(index, "description", event.target.value)
+                      handleCommercialDraftFeatureChange(
+                        index,
+                        "description",
+                        event.target.value,
+                      )
                     }
                     placeholder="What is changing for the client-facing scope?"
                   />
@@ -1012,7 +1129,9 @@ export default function CreateProjectSpecPage() {
                         features:
                           current.features.length === 1
                             ? current.features
-                            : current.features.filter((_, featureIndex) => featureIndex !== index),
+                            : current.features.filter(
+                                (_, featureIndex) => featureIndex !== index,
+                              ),
                       }))
                     }
                   >
@@ -1032,7 +1151,7 @@ export default function CreateProjectSpecPage() {
                   }))
                 }
                 placeholder="Explain why the approved commercial baseline needs to move."
-                className="min-h-[120px]"
+                className="min-h-30"
               />
             </div>
             <div className="flex justify-end">
@@ -1060,7 +1179,9 @@ export default function CreateProjectSpecPage() {
           requestedDeadline={requestedDeadline}
           projectGoalSummary={projectGoalSummary}
           lockedProjectCategory={lockedProductType}
-          requireChangeSummary={Boolean(editableDraftSpec?.status === "REJECTED")}
+          requireChangeSummary={Boolean(
+            editableDraftSpec?.status === "REJECTED",
+          )}
           onSubmit={handleSubmit}
           onCancel={() => navigate(`/broker/project-requests/${id}`)}
           isSubmitting={isSubmitting}
@@ -1128,7 +1249,8 @@ export default function CreateProjectSpecPage() {
               <Alert>
                 <AlertTitle>Commercial review moved to contract</AlertTitle>
                 <AlertDescription>
-                  This full spec is frozen for contract review. Review the frozen contract there instead of editing this spec.
+                  This full spec is frozen for contract review. Review the
+                  frozen contract there instead of editing this spec.
                 </AlertDescription>
               </Alert>
             )}

@@ -22,6 +22,7 @@ import {
   EventParticipantEntity,
   HearingParticipantEntity,
   HearingQuestionEntity,
+  LegalSignatureEntity,
   MilestoneEntity,
   MilestoneStatus,
   ProjectEntity,
@@ -60,6 +61,7 @@ describe('DisputesService', () => {
   let userRepo: any;
   let projectRepo: any;
   let verdictRepo: any;
+  let legalSignatureRepo: any;
   let dataSource: any;
   let verdictService: any;
   let hearingService: any;
@@ -89,6 +91,8 @@ describe('DisputesService', () => {
   });
 
   beforeEach(async () => {
+    legalSignatureRepo = repoMock();
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         DisputesService,
@@ -120,6 +124,12 @@ describe('DisputesService', () => {
           useValue: {
             transaction: jest.fn(),
             createQueryRunner: jest.fn(),
+            getRepository: jest.fn((entity) => {
+              if (entity === LegalSignatureEntity) {
+                return legalSignatureRepo;
+              }
+              throw new Error('Unexpected repository');
+            }),
           },
         },
         { provide: TrustScoreService, useValue: {} },
@@ -163,6 +173,7 @@ describe('DisputesService', () => {
     hearingService = module.get(HearingService);
 
     verdictRepo.find.mockResolvedValue([]);
+    legalSignatureRepo.find.mockResolvedValue([]);
     disputeInternalMembershipRepo.find.mockResolvedValue([]);
     userRepo.find.mockResolvedValue([]);
     hearingRepo.find.mockResolvedValue([]);
@@ -332,6 +343,73 @@ describe('DisputesService', () => {
             analysis: '',
             remedyRationale: '',
             trustPenaltyRationale: '',
+          }),
+        }),
+      });
+    });
+
+    it('returns acceptance state and blocks appeal for a party that already accepted the verdict', async () => {
+      verdictService.getVerdictByDisputeId.mockResolvedValue({
+        id: 'v-1',
+        disputeId: 'd-1',
+        adjudicatorId: 'staff-1',
+        adjudicatorRole: UserRole.STAFF,
+        faultType: 'OTHER',
+        faultyParty: 'defendant',
+        reasoning: {
+          violatedPolicies: ['POL-1'],
+          factualFindings: 'facts',
+          legalAnalysis: 'analysis',
+          conclusion: 'conclusion',
+        },
+        amountToFreelancer: 25,
+        amountToClient: 75,
+        platformFee: 0,
+        trustScorePenalty: null,
+        isBanTriggered: null,
+        banDurationDays: null,
+        warningMessage: null,
+        tier: 1,
+        isAppealVerdict: false,
+        overridesVerdictId: null,
+        issuedAt: new Date('2026-03-15T10:00:00.000Z'),
+      });
+      disputeRepo.findOne.mockResolvedValue({
+        id: 'd-1',
+        raisedById: 'raiser-1',
+        defendantId: 'def-1',
+        result: 'WIN_CLIENT',
+        appealDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        isAppealed: false,
+        appealReason: null,
+        appealedAt: null,
+        appealResolvedAt: null,
+        appealResolvedById: null,
+        appealResolution: null,
+        status: DisputeStatus.RESOLVED,
+        currentTier: 1,
+      });
+      legalSignatureRepo.find.mockResolvedValue([
+        {
+          disputeId: 'd-1',
+          signerId: 'raiser-1',
+          signerRole: UserRole.CLIENT,
+          referenceId: 'v-1',
+          signedAt: new Date('2026-03-15T11:00:00.000Z'),
+        },
+      ]);
+
+      const result = await service.getVerdict('d-1', 'raiser-1', UserRole.CLIENT);
+
+      expect(result).toEqual({
+        data: expect.objectContaining({
+          id: 'v-1',
+          acceptance: expect.objectContaining({
+            acceptedPartyIds: ['raiser-1'],
+            currentUserAccepted: true,
+            currentUserCanAccept: false,
+            currentUserCanAppeal: false,
+            allPartiesAccepted: false,
           }),
         }),
       });
