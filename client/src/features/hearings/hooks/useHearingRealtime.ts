@@ -1,6 +1,8 @@
 import { useEffect, useRef, useLayoutEffect } from "react";
 import { connectSocket } from "@/shared/realtime/socket";
 
+const REALTIME_EVENT_DEDUPE_TTL_MS = 1200;
+
 interface HearingRealtimeHandlers {
   onMessageSent?: (payload: any) => void;
   onMessageHidden?: (payload: any) => void;
@@ -51,6 +53,7 @@ export const useHearingRealtime = (
 ) => {
   // Keep a live ref to the latest handlers so we never need to re-subscribe
   const handlersRef = useRef(handlers);
+  const eventSignatureRef = useRef<Map<string, number>>(new Map());
   useLayoutEffect(() => {
     handlersRef.current = handlers;
   }, [handlers]);
@@ -59,6 +62,92 @@ export const useHearingRealtime = (
     if (!hearingId) return;
 
     const socket = connectSocket();
+    eventSignatureRef.current.clear();
+
+    const buildRealtimeSignature = (
+      eventName: string,
+      payload: unknown,
+    ): string => {
+      if (!payload || typeof payload !== "object") {
+        return `${eventName}:no-payload`;
+      }
+
+      const value = payload as Record<string, unknown>;
+      const fields = [
+        value.hearingId,
+        value.disputeId,
+        value.eventId,
+        value.messageId,
+        value.questionId,
+        value.statementId,
+        value.evidenceId,
+        value.participantId,
+        value.userId,
+        value.response,
+        value.eventStatus,
+        value.newPhase,
+        value.phase,
+        value.newRole,
+        value.isOpen,
+        value.serverTimestamp,
+        value.changedAt,
+        value.createdAt,
+        value.answeredAt,
+        value.respondedAt,
+        value.uploadedAt,
+      ]
+        .map((item) => {
+          if (
+            typeof item === "string" ||
+            typeof item === "number" ||
+            typeof item === "boolean"
+          ) {
+            return String(item);
+          }
+          return "";
+        })
+        .filter(Boolean)
+        .join("|");
+
+      const participantCount = Array.isArray(value.participants)
+        ? `|participants:${value.participants.length}`
+        : "";
+
+      return `${eventName}:${fields}${participantCount}`;
+    };
+
+    const shouldProcessEvent = (eventName: string, payload: unknown): boolean => {
+      // Typing and connection events are intentionally noisy and should not be deduped.
+      if (eventName === "HEARING_TYPING") {
+        return true;
+      }
+
+      const now = Date.now();
+      const signatures = eventSignatureRef.current;
+      signatures.forEach((timestamp, key) => {
+        if (now - timestamp > REALTIME_EVENT_DEDUPE_TTL_MS) {
+          signatures.delete(key);
+        }
+      });
+
+      const signature = buildRealtimeSignature(eventName, payload);
+      const seenAt = signatures.get(signature);
+      if (seenAt && now - seenAt < REALTIME_EVENT_DEDUPE_TTL_MS) {
+        return false;
+      }
+
+      signatures.set(signature, now);
+      return true;
+    };
+
+    const withDedup = <T,>(eventName: string, callback: (payload: T) => void) => {
+      return (payload: T) => {
+        if (!shouldProcessEvent(eventName, payload)) {
+          return;
+        }
+        callback(payload);
+      };
+    };
 
     /* ── Join the hearing room ── */
     const joinRoom = () => {
@@ -71,46 +160,72 @@ export const useHearingRealtime = (
     // inflates the server-side presence counter, breaking online/offline tracking.
 
     /* ── Stable listener wrappers that delegate to handlersRef ── */
-    const onMessageSent = (p: any) => handlersRef.current?.onMessageSent?.(p);
-    const onMessageHidden = (p: any) =>
-      handlersRef.current?.onMessageHidden?.(p);
-    const onMessageUnhidden = (p: any) =>
-      handlersRef.current?.onMessageUnhidden?.(p);
-    const onSpeakerControlChanged = (p: any) =>
-      handlersRef.current?.onSpeakerControlChanged?.(p);
-    const onPhaseTransitioned = (p: any) =>
-      handlersRef.current?.onPhaseTransitioned?.(p);
-    const onEvidenceIntakeChanged = (p: any) =>
-      handlersRef.current?.onEvidenceIntakeChanged?.(p);
-    const onHearingStarted = (p: any) =>
-      handlersRef.current?.onHearingStarted?.(p);
-    const onHearingPaused = (p: any) =>
-      handlersRef.current?.onHearingPaused?.(p);
-    const onHearingResumed = (p: any) =>
-      handlersRef.current?.onHearingResumed?.(p);
-    const onHearingEnded = (p: any) => handlersRef.current?.onHearingEnded?.(p);
-    const onHearingExtended = (p: any) =>
-      handlersRef.current?.onHearingExtended?.(p);
-    const onHearingTimeWarning = (p: any) =>
-      handlersRef.current?.onHearingTimeWarning?.(p);
-    const onHearingFollowUpScheduled = (p: any) =>
-      handlersRef.current?.onHearingFollowUpScheduled?.(p);
-    const onStatementSubmitted = (p: any) =>
-      handlersRef.current?.onStatementSubmitted?.(p);
-    const onQuestionAsked = (p: any) =>
-      handlersRef.current?.onQuestionAsked?.(p);
-    const onQuestionAnswered = (p: any) =>
-      handlersRef.current?.onQuestionAnswered?.(p);
-    const onQuestionCancelled = (p: any) =>
-      handlersRef.current?.onQuestionCancelled?.(p);
-    const onVerdictIssued = (p: any) =>
-      handlersRef.current?.onVerdictIssued?.(p);
-    const onEvidenceUploaded = (p: any) =>
-      handlersRef.current?.onEvidenceUploaded?.(p);
-    const onPresenceChanged = (p: any) =>
-      handlersRef.current?.onPresenceChanged?.(p);
-    const onPresenceSync = (p: any) => handlersRef.current?.onPresenceSync?.(p);
-    const onTyping = (p: any) => handlersRef.current?.onTyping?.(p);
+    const onMessageSent = withDedup("MESSAGE_SENT", (p: any) =>
+      handlersRef.current?.onMessageSent?.(p),
+    );
+    const onMessageHidden = withDedup("MESSAGE_HIDDEN", (p: any) =>
+      handlersRef.current?.onMessageHidden?.(p),
+    );
+    const onMessageUnhidden = withDedup("MESSAGE_UNHIDDEN", (p: any) =>
+      handlersRef.current?.onMessageUnhidden?.(p),
+    );
+    const onSpeakerControlChanged = withDedup("SPEAKER_CONTROL_CHANGED", (p: any) =>
+      handlersRef.current?.onSpeakerControlChanged?.(p),
+    );
+    const onPhaseTransitioned = withDedup("PHASE_TRANSITIONED", (p: any) =>
+      handlersRef.current?.onPhaseTransitioned?.(p),
+    );
+    const onEvidenceIntakeChanged = withDedup("EVIDENCE_INTAKE_CHANGED", (p: any) =>
+      handlersRef.current?.onEvidenceIntakeChanged?.(p),
+    );
+    const onHearingStarted = withDedup("HEARING_STARTED", (p: any) =>
+      handlersRef.current?.onHearingStarted?.(p),
+    );
+    const onHearingPaused = withDedup("HEARING_PAUSED", (p: any) =>
+      handlersRef.current?.onHearingPaused?.(p),
+    );
+    const onHearingResumed = withDedup("HEARING_RESUMED", (p: any) =>
+      handlersRef.current?.onHearingResumed?.(p),
+    );
+    const onHearingEnded = withDedup("HEARING_ENDED", (p: any) =>
+      handlersRef.current?.onHearingEnded?.(p),
+    );
+    const onHearingExtended = withDedup("HEARING_EXTENDED", (p: any) =>
+      handlersRef.current?.onHearingExtended?.(p),
+    );
+    const onHearingTimeWarning = withDedup("HEARING_TIME_WARNING", (p: any) =>
+      handlersRef.current?.onHearingTimeWarning?.(p),
+    );
+    const onHearingFollowUpScheduled = withDedup("HEARING_FOLLOW_UP_SCHEDULED", (p: any) =>
+      handlersRef.current?.onHearingFollowUpScheduled?.(p),
+    );
+    const onStatementSubmitted = withDedup("HEARING_STATEMENT_SUBMITTED", (p: any) =>
+      handlersRef.current?.onStatementSubmitted?.(p),
+    );
+    const onQuestionAsked = withDedup("HEARING_QUESTION_ASKED", (p: any) =>
+      handlersRef.current?.onQuestionAsked?.(p),
+    );
+    const onQuestionAnswered = withDedup("HEARING_QUESTION_ANSWERED", (p: any) =>
+      handlersRef.current?.onQuestionAnswered?.(p),
+    );
+    const onQuestionCancelled = withDedup("HEARING_QUESTION_CANCELLED", (p: any) =>
+      handlersRef.current?.onQuestionCancelled?.(p),
+    );
+    const onVerdictIssued = withDedup("VERDICT_ISSUED", (p: any) =>
+      handlersRef.current?.onVerdictIssued?.(p),
+    );
+    const onEvidenceUploaded = withDedup("EVIDENCE_UPLOADED", (p: any) =>
+      handlersRef.current?.onEvidenceUploaded?.(p),
+    );
+    const onPresenceChanged = withDedup("HEARING_PRESENCE_CHANGED", (p: any) =>
+      handlersRef.current?.onPresenceChanged?.(p),
+    );
+    const onPresenceSync = withDedup("HEARING_PRESENCE_SYNC", (p: any) =>
+      handlersRef.current?.onPresenceSync?.(p),
+    );
+    const onTyping = withDedup("HEARING_TYPING", (p: any) =>
+      handlersRef.current?.onTyping?.(p),
+    );
     const onConnected = () => {
       joinRoom(); // Re-join on every reconnect so presence is re-established
       handlersRef.current?.onConnected?.();

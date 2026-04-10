@@ -51,12 +51,17 @@ export function ReviewDetailPage({ review, onBack }: ReviewDetailPageProps) {
   //Check if high value project
   const isHighValueProject = review.weight >= 1.5;
 
-  // Status is always COMPLETED (business rule: only completed projects can be reviewed)
-  // Keep simple fallback for data consistency
+  // Reviews are tied to completed/paid projects.
+  // Keep simple fallback styling for unexpected statuses.
   const getStatusColor = (status?: string) => {
-    return status === "COMPLETE"
-      ? "bg-green-50 text-green-700 border-green-700"
-      : "bg-gray-50 text-gray-700 border-gray-200";
+    const normalized = String(status || "").toUpperCase();
+    if (normalized === "COMPLETED" || normalized === "PAID") {
+      return "bg-green-50 text-green-700 border-green-700";
+    }
+    if (normalized === "CANCELED" || normalized === "CANCELLED") {
+      return "bg-red-50 text-red-700 border-red-200";
+    }
+    return "bg-gray-50 text-gray-700 border-gray-200";
   };
 
   return (
@@ -118,10 +123,9 @@ export function ReviewDetailPage({ review, onBack }: ReviewDetailPageProps) {
             {review.comment}
           </p>
         </div>
-      </div>
 
-      {/* Grid: Reviewer Info | Project Info */}
-      <div className="grid md:grid-cols-2 gap-6">
+        {/* Grid: Reviewer Info | Project Info */}
+        <div className="grid md:grid-cols-2 gap-6">
         {/* Grid: Reviewer Info | Project Info */}
         <div className="bg-white border border-gray-200 rounded-lg p-6 space-y-4 shadow-sm">
           <h3 className="text-slate-900 text-xl flex items-center gap-2">
@@ -161,11 +165,11 @@ export function ReviewDetailPage({ review, onBack }: ReviewDetailPageProps) {
               <div className="flex-1">
                 <div className="text-sm text-gray-600">Trust Score</div>
                 <div className="text-xl text-slate-900">
-                  {review.reviewer.currentTrustScore.toFixed(1)}
+                  {Number(review.reviewer.currentTrustScore).toFixed(1)}
                 </div>
               </div>
               <StarRating
-                rating={review.reviewer.currentTrustScore}
+                rating={Number(review.reviewer.currentTrustScore)}
                 editable={false}
               />
             </div>
@@ -237,7 +241,7 @@ export function ReviewDetailPage({ review, onBack }: ReviewDetailPageProps) {
                   review.project.status,
                 )}`}
               >
-                {review.project.status.replace("_", " ")}
+                {review.project.status.replace(/_/g, " ")}
               </span>
             )}
           </div>
@@ -302,6 +306,7 @@ export function ReviewDetailPage({ review, onBack }: ReviewDetailPageProps) {
             </button>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

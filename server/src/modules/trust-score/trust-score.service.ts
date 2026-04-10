@@ -169,7 +169,7 @@ export class TrustScoreService {
     // Defensive: Đảm bảo điểm cuối cùng luôn trong khoảng 0-5 sao
     const finalScore5 = Math.min(5, Math.max(0, (finalScore100 / 100) * 5));
 
-    const oldScore = user.currentTrustScore;
+    const oldScore = Number(user.currentTrustScore);
     user.currentTrustScore = Math.round(finalScore5 * 100) / 100;
     await this.userRepo.save(user);
 
@@ -191,7 +191,7 @@ export class TrustScoreService {
     return {
       userId,
       oldScore,
-      newScore: user.currentTrustScore,
+      newScore: Number(user.currentTrustScore),
       breakdown: {
         qualityScore: Math.round(qualityScore) / 100,
         performanceScore: Math.round(performanceScore) / 100,

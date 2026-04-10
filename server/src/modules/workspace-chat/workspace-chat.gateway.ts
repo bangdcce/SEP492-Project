@@ -196,6 +196,26 @@ export class WorkspaceChatGateway
   }
 
   @UsePipes(wsValidationPipe())
+  @SubscribeMessage('leaveProjectChat')
+  async leaveProjectChat(
+    @MessageBody() data: JoinProjectChatDto,
+    @ConnectedSocket() client: Socket,
+  ): Promise<{ left: boolean; room: string }> {
+    try {
+      await this.resolveUser(client);
+      const room = this.projectRoom(data.projectId);
+      await client.leave(room);
+      return { left: true, room };
+    } catch (error) {
+      this.logBackendCrashDetail(error);
+      await this.logSystemIncidentIfNeeded(error, 'leave-project-chat', data.projectId, client);
+      const message = this.toErrorMessage(error);
+      client.emit('workspaceChatError', { message });
+      throw this.toWsException(error);
+    }
+  }
+
+  @UsePipes(wsValidationPipe())
   @SubscribeMessage('sendProjectMessage')
   async sendProjectMessage(
     @MessageBody() dto: SendProjectMessageDto,

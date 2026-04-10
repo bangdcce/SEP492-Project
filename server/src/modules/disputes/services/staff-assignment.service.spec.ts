@@ -11,6 +11,7 @@ import {
   DisputeStatus,
   DisputeType,
   EventType,
+  ProfileEntity,
   ProjectEntity,
   SkillEntity,
   SkillMappingRuleEntity,
@@ -25,6 +26,7 @@ import {
 } from 'src/database/entities';
 import { LeaveService } from '../../leave/leave.service';
 import { StaffAssignmentService } from './staff-assignment.service';
+import { DISPUTE_EVENTS } from '../events/dispute.events';
 import { recordEvidence } from '../../../../test/fe16-fe18/evidence-recorder';
 
 describe('StaffAssignmentService', () => {
@@ -36,6 +38,8 @@ describe('StaffAssignmentService', () => {
   let performanceRepository: any;
   let workloadRepository: any;
   let userRepository: any;
+  let dataSource: any;
+  let eventEmitter: any;
 
   const repoMock = () => ({
     count: jest.fn(),
@@ -53,6 +57,7 @@ describe('StaffAssignmentService', () => {
         { provide: getRepositoryToken(DisputeEntity), useValue: repoMock() },
         { provide: getRepositoryToken(ProjectEntity), useValue: repoMock() },
         { provide: getRepositoryToken(UserEntity), useValue: repoMock() },
+        { provide: getRepositoryToken(ProfileEntity), useValue: repoMock() },
         { provide: getRepositoryToken(StaffWorkloadEntity), useValue: repoMock() },
         { provide: getRepositoryToken(CalendarEventEntity), useValue: repoMock() },
         { provide: getRepositoryToken(UserAvailabilityEntity), useValue: repoMock() },
@@ -78,6 +83,11 @@ describe('StaffAssignmentService', () => {
     performanceRepository = module.get(getRepositoryToken(StaffPerformanceEntity));
     workloadRepository = module.get(getRepositoryToken(StaffWorkloadEntity));
     userRepository = module.get(getRepositoryToken(UserEntity));
+    dataSource = module.get(DataSource);
+    eventEmitter = module.get(EventEmitter2);
+
+    dataSource.transaction = jest.fn();
+    jest.clearAllMocks();
   });
 
   describe('getDashboardOverview', () => {
@@ -200,6 +210,248 @@ describe('StaffAssignmentService', () => {
         evidenceRef: 'staff-assignment.service.spec.ts::dashboard enum-safe broker filters',
         actualResults:
           'getDashboardOverview built riskSignals.multiPartyCases=2 and conflictingEvidenceCases=1 while calling the broker dispute filter with enum-safe brokerTypes across broker-related dispute roles.',
+      });
+    });
+  });
+
+  describe('autoAssignStaffToDispute', () => {
+    it('returns manual fallback for terminal dispute status', async () => {
+      const complexity = {
+        level: 'LOW',
+        confidence: 0.8,
+        factors: [],
+        timeEstimation: {
+          minMinutes: 30,
+          recommendedMinutes: 45,
+          maxMinutes: 60,
+        },
+      };
+
+      jest.spyOn(service, 'estimateDisputeComplexity').mockResolvedValue(complexity as any);
+
+      const manager = {
+        getRepository: jest.fn().mockImplementation((entity: any) => {
+          if (entity === DisputeEntity) {
+            return {
+              findOne: jest.fn().mockResolvedValue({
+                id: 'dispute-1',
+                status: DisputeStatus.RESOLVED,
+                assignedStaffId: null,
+              }),
+              update: jest.fn(),
+            };
+          }
+
+          if (entity === StaffWorkloadEntity) {
+            return {
+              findOne: jest.fn(),
+            };
+          }
+
+          return {};
+        }),
+      };
+
+      dataSource.transaction.mockImplementation(async (cb: any) => cb(manager));
+
+      const result = await service.autoAssignStaffToDispute('dispute-1');
+
+      expect(result.success).toBe(false);
+      expect(result.staffId).toBe('');
+      expect(result.fallbackReason).toContain('RESOLVED');
+      expect(eventEmitter.emit).not.toHaveBeenCalledWith('staff.assigned', expect.anything());
+    });
+
+    it('assigns recommended staff in transaction and emits events after commit', async () => {
+      const complexity = {
+        level: 'MEDIUM',
+        confidence: 0.9,
+        factors: [],
+        timeEstimation: {
+          minMinutes: 45,
+          recommendedMinutes: 60,
+          maxMinutes: 90,
+        },
+      };
+
+      jest.spyOn(service, 'estimateDisputeComplexity').mockResolvedValue(complexity as any);
+      jest.spyOn(service, 'getAvailableStaff').mockResolvedValue({
+        staff: [
+          {
+            staffId: 'staff-1',
+            totalScore: 90,
+            workloadScore: 90,
+            performanceScore: 90,
+            fairnessScore: 80,
+            utilizationRate: 20,
+            avgUserRating: 4.8,
+            overturnRate: 0,
+            monthlyDisputeCount: 2,
+            isAvailable: true,
+            isOnLeave: false,
+            canAcceptNewEvent: true,
+          },
+        ],
+        totalAvailable: 1,
+        totalStaff: 1,
+        shortageWarning: false,
+        recommendedStaffId: 'staff-1',
+      } as any);
+
+      const incrementSpy = jest
+        .spyOn(service, 'incrementPendingDisputes')
+        .mockResolvedValue(4);
+
+      const disputeRepo = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'dispute-1',
+          status: DisputeStatus.IN_MEDIATION,
+          assignedStaffId: null,
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+      const workloadRepo = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'workload-1',
+          utilizationRate: 20,
+          isOnLeave: false,
+          canAcceptNewEvent: true,
+        }),
+      };
+
+      const manager = {
+        getRepository: jest.fn().mockImplementation((entity: any) => {
+          if (entity === DisputeEntity) {
+            return disputeRepo;
+          }
+          if (entity === StaffWorkloadEntity) {
+            return workloadRepo;
+          }
+          return {};
+        }),
+      };
+
+      dataSource.transaction.mockImplementation(async (cb: any) => cb(manager));
+
+      const result = await service.autoAssignStaffToDispute('dispute-1');
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          success: true,
+          staffId: 'staff-1',
+        }),
+      );
+      expect(disputeRepo.update).toHaveBeenCalledWith('dispute-1', {
+        assignedStaffId: 'staff-1',
+        assignedAt: expect.any(Date),
+      });
+      expect(incrementSpy).toHaveBeenCalledWith('staff-1', 'dispute-1', {
+        manager,
+        emitEvent: false,
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith('workload.incremented', {
+        staffId: 'staff-1',
+        disputeId: 'dispute-1',
+        newPendingCount: 4,
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith('staff.assigned', {
+        disputeId: 'dispute-1',
+        staffId: 'staff-1',
+        complexity: 'MEDIUM',
+        estimatedMinutes: 60,
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith(DISPUTE_EVENTS.ASSIGNED, {
+        disputeId: 'dispute-1',
+        staffId: 'staff-1',
+        assignedAt: expect.any(Date),
+      });
+    });
+  });
+
+  describe('reassignDispute', () => {
+    it('updates assignment atomically and emits workload + dispute reassigned events', async () => {
+      const decrementSpy = jest
+        .spyOn(service, 'decrementPendingDisputes')
+        .mockResolvedValue(2);
+      const incrementSpy = jest
+        .spyOn(service, 'incrementPendingDisputes')
+        .mockResolvedValue(5);
+
+      const disputeRepo = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'dispute-1',
+          assignedStaffId: 'staff-old',
+          status: DisputeStatus.PREVIEW,
+        }),
+        update: jest.fn().mockResolvedValue(undefined),
+      };
+
+      const userRepo = {
+        findOne: jest.fn().mockResolvedValue({
+          id: 'staff-new',
+          role: UserRole.STAFF,
+          isBanned: false,
+        }),
+      };
+
+      const manager = {
+        getRepository: jest.fn().mockImplementation((entity: any) => {
+          if (entity === DisputeEntity) {
+            return disputeRepo;
+          }
+          if (entity === UserEntity) {
+            return userRepo;
+          }
+          return {};
+        }),
+      };
+
+      dataSource.transaction.mockImplementation(async (cb: any) => cb(manager));
+
+      const result = await service.reassignDispute(
+        'dispute-1',
+        'staff-new',
+        'Rebalance caseload',
+        'admin-1',
+        'Urgent rotation',
+      );
+
+      expect(result).toEqual(
+        expect.objectContaining({
+          success: true,
+          oldStaffId: 'staff-old',
+          newStaffId: 'staff-new',
+        }),
+      );
+      expect(disputeRepo.update).toHaveBeenCalledWith('dispute-1', {
+        assignedStaffId: 'staff-new',
+        assignedAt: expect.any(Date),
+      });
+      expect(decrementSpy).toHaveBeenCalledWith('staff-old', 'dispute-1', {
+        manager,
+        emitEvent: false,
+      });
+      expect(incrementSpy).toHaveBeenCalledWith('staff-new', 'dispute-1', {
+        manager,
+        emitEvent: false,
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith('workload.decremented', {
+        staffId: 'staff-old',
+        disputeId: 'dispute-1',
+        newPendingCount: 2,
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith('workload.incremented', {
+        staffId: 'staff-new',
+        disputeId: 'dispute-1',
+        newPendingCount: 5,
+      });
+      expect(eventEmitter.emit).toHaveBeenCalledWith(DISPUTE_EVENTS.REASSIGNED, {
+        disputeId: 'dispute-1',
+        oldStaffId: 'staff-old',
+        newStaffId: 'staff-new',
+        reason: 'Rebalance caseload',
+        performedById: 'admin-1',
+        notes: 'Urgent rotation',
       });
     });
   });

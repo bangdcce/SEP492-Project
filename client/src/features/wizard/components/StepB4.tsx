@@ -12,12 +12,16 @@ interface StepB4Props {
 }
 
 export function StepB4({ question, productType, selectedValues, onChange }: StepB4Props) {
-  const handleToggle = (optionValue: string) => {
-    if (selectedValues.includes(optionValue)) {
-      onChange(selectedValues.filter((v) => v !== optionValue));
-    } else {
+  const setSelection = (optionValue: string, checked: boolean) => {
+    if (checked) {
+      if (selectedValues.includes(optionValue)) {
+        return;
+      }
       onChange([...selectedValues, optionValue]);
+      return;
     }
+
+    onChange(selectedValues.filter((v) => v !== optionValue));
   };
 
   const normalizedProductType = normalizeProductTypeCode(productType);
@@ -73,6 +77,9 @@ export function StepB4({ question, productType, selectedValues, onChange }: Step
       <div className="text-center mb-8">
         <h2 className="text-2xl font-bold text-primary">{question.label}</h2>
         {question.helpText && <p className="text-muted-foreground mt-2">{question.helpText}</p>}
+        <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+          Select at least one feature to seed the phase-1 spec baseline
+        </p>
       </div>
 
       <div className="space-y-6">
@@ -98,12 +105,13 @@ export function StepB4({ question, productType, selectedValues, onChange }: Step
                       ? "border-primary bg-primary/5"
                       : "border-muted"
                   }`}
-                  onClick={() => handleToggle(option.value)}
                 >
                   <Checkbox
                     id={String(option.id)}
                     checked={selectedValues.includes(option.value)}
-                    onCheckedChange={() => handleToggle(option.value)}
+                    onCheckedChange={(checked) =>
+                      setSelection(option.value, Boolean(checked))
+                    }
                   />
                   <div className="grid w-full cursor-pointer gap-1.5 leading-none">
                     <Label htmlFor={String(option.id)} className="cursor-pointer font-medium text-base">

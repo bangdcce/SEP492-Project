@@ -23,6 +23,7 @@ describe('TasksController', () => {
       updateComment: jest.fn(),
       deleteComment: jest.fn(),
       submitWork: jest.fn(),
+      createTask: jest.fn(),
       reviewSubmission: jest.fn(),
     };
 
@@ -300,20 +301,13 @@ describe('TasksController', () => {
       expect(tasksService.submitWork).toHaveBeenCalledWith('task-1', dto, 'freelancer-1');
     });
 
-    it('UC59-SUBMITWORK-UTCID02 falls back to SYSTEM when the request has no authenticated user', async () => {
+    it('UC59-SUBMITWORK-UTCID02 rejects unauthenticated submission attempts before reaching the service', async () => {
       const dto = { content: 'Fallback submission' };
-      const savedSubmission = {
-        id: 'submission-2',
-        taskId: 'task-1',
-        version: 2,
-        status: TaskSubmissionStatus.PENDING,
-      };
-      tasksService.submitWork.mockResolvedValue(savedSubmission);
 
-      await expect(controller.submitWork('task-1', dto as any, {} as any)).resolves.toEqual(
-        savedSubmission,
+      await expect(controller.submitWork('task-1', dto as any, {} as any)).rejects.toThrow(
+        new ForbiddenException('Authentication required'),
       );
-      expect(tasksService.submitWork).toHaveBeenCalledWith('task-1', dto, 'SYSTEM');
+      expect(tasksService.submitWork).not.toHaveBeenCalled();
     });
 
     it('UC59-SUBMITWORK-UTCID03 forwards an explicitly empty attachment list for a normal authenticated submission', async () => {
@@ -335,6 +329,70 @@ describe('TasksController', () => {
         } as any),
       ).resolves.toEqual(savedSubmission);
       expect(tasksService.submitWork).toHaveBeenCalledWith('task-1', dto, 'freelancer-1');
+    });
+
+    it('UC59-SUBMITWORK-UTCID04 rejects non-freelancer roles from submitting work', async () => {
+      const dto = { content: 'Attempting restricted submission' };
+
+      await expect(
+        controller.submitWork('task-1', dto as any, {
+          user: { id: 'broker-1', role: UserRole.BROKER },
+        } as any),
+      ).rejects.toThrow(
+        new ForbiddenException('Only freelancers can submit work for tasks.'),
+      );
+      expect(tasksService.submitWork).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('createTask', () => {
+    const basePayload = {
+      title: 'Implement notifications API',
+      projectId: 'project-1',
+      milestoneId: 'milestone-1',
+    };
+
+    it('UC59-CREATETASK-UTCID01 allows broker role and forwards requester context to service', async () => {
+      const createdTask = {
+        id: 'task-1',
+        ...basePayload,
+      };
+      tasksService.createTask.mockResolvedValue(createdTask);
+
+      await expect(
+        controller.createTask(basePayload as any, {
+          user: { id: 'broker-1', role: UserRole.BROKER },
+        } as any),
+      ).resolves.toEqual(createdTask);
+
+      expect(tasksService.createTask).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: basePayload.title,
+          projectId: basePayload.projectId,
+          milestoneId: basePayload.milestoneId,
+          reporterId: 'broker-1',
+          requesterId: 'broker-1',
+          requesterRole: UserRole.BROKER,
+        }),
+      );
+    });
+
+    it('UC59-CREATETASK-UTCID02 rejects unauthenticated users before reaching the service', async () => {
+      await expect(controller.createTask(basePayload as any, {} as any)).rejects.toThrow(
+        new ForbiddenException('Authentication required'),
+      );
+      expect(tasksService.createTask).not.toHaveBeenCalled();
+    });
+
+    it('UC59-CREATETASK-UTCID03 rejects freelancer users because only brokers can create tasks', async () => {
+      await expect(
+        controller.createTask(basePayload as any, {
+          user: { id: 'freelancer-1', role: UserRole.FREELANCER },
+        } as any),
+      ).rejects.toThrow(
+        new ForbiddenException('Only brokers can create tasks in project workspace.'),
+      );
+      expect(tasksService.createTask).not.toHaveBeenCalled();
     });
   });
 

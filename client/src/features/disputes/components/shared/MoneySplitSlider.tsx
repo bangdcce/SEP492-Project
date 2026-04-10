@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import * as Slider from "@radix-ui/react-slider";
 
 interface MoneySplitSliderProps {
@@ -17,15 +17,19 @@ export const MoneySplitSlider = ({
   onChange,
 }: MoneySplitSliderProps) => {
   const [freelancerPercent, setFreelancerPercent] = useState(50);
+  const normalizedTotalAmount = useMemo(() => {
+    const numericAmount = Number(totalAmount);
+    return Number.isFinite(numericAmount) ? numericAmount : 0;
+  }, [totalAmount]);
 
   // Constants from backend config
   const PLATFORM_FEE_PERCENT = 0.05; // 5%
 
   // Calculations
-  const freelancerGross = (totalAmount * freelancerPercent) / 100;
+  const freelancerGross = (normalizedTotalAmount * freelancerPercent) / 100;
   const platformFee = freelancerGross * PLATFORM_FEE_PERCENT; // Fee usually taken from Freelancer earnings
   const freelancerNet = freelancerGross - platformFee;
-  const clientAmount = totalAmount - freelancerGross;
+  const clientAmount = normalizedTotalAmount - freelancerGross;
   const clientPercent = 100 - freelancerPercent;
 
   useEffect(() => {
@@ -36,7 +40,15 @@ export const MoneySplitSlider = ({
       clientPercent,
       freelancerPercent,
     });
-  }, [freelancerPercent, totalAmount, clientAmount, freelancerNet, platformFee, clientPercent, onChange]);
+  }, [
+    freelancerPercent,
+    normalizedTotalAmount,
+    clientAmount,
+    freelancerNet,
+    platformFee,
+    clientPercent,
+    onChange,
+  ]);
 
   return (
     <div className="space-y-6 select-none touch-none">
@@ -55,7 +67,7 @@ export const MoneySplitSlider = ({
         <div className="text-center pb-2">
           <p className="text-xs text-gray-400">Total Escrow</p>
           <p className="text-sm font-semibold text-gray-600">
-            ${totalAmount.toFixed(2)}
+            ${normalizedTotalAmount.toFixed(2)}
           </p>
         </div>
 
@@ -81,7 +93,14 @@ export const MoneySplitSlider = ({
         value={[freelancerPercent]}
         max={100}
         step={1}
-        onValueChange={(val) => setFreelancerPercent(val[0])}
+        onValueChange={(val) => {
+          const nextPercent = Number(val?.[0]);
+          setFreelancerPercent(
+            Number.isFinite(nextPercent)
+              ? Math.max(0, Math.min(100, nextPercent))
+              : 50,
+          );
+        }}
       >
         <Slider.Track className="bg-slate-200 relative grow rounded-full h-4 overflow-hidden">
           {/* Background is client (Slate), Range is Freelancer (Teal) */}

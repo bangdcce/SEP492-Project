@@ -151,6 +151,17 @@ export class SigningCredentialsService {
     keyFingerprint: string;
     keyVersion: number;
     certificateSerial: string;
+    publicKeyPem: string;
+    certificateProfile: {
+      serial: string;
+      subject: string;
+      issuer: string;
+      validFrom: string;
+      validTo: string;
+      keyFingerprint: string;
+      keyVersion: number;
+      signatureAlgorithm: string;
+    };
   }> {
     this.assertValidPin(pin);
 
@@ -201,6 +212,20 @@ export class SigningCredentialsService {
     const certificateSerial = `INTERDEV-MCA-${credential.keyVersion}-${credential.keyFingerprint
       .slice(0, 16)
       .toUpperCase()}`;
+    const certificateIssuedAt = new Date();
+    const certificateValidTo = new Date(
+      certificateIssuedAt.getTime() + 365 * 24 * 60 * 60 * 1000,
+    );
+    const certificateProfile = {
+      serial: certificateSerial,
+      subject: `CN=${userId}`,
+      issuer: 'CN=INTERDEV-MINI-CA-ISSUER',
+      validFrom: certificateIssuedAt.toISOString(),
+      validTo: certificateValidTo.toISOString(),
+      keyFingerprint: credential.keyFingerprint,
+      keyVersion: credential.keyVersion,
+      signatureAlgorithm: 'RSA-SHA256',
+    };
 
     return {
       signatureBase64,
@@ -208,6 +233,8 @@ export class SigningCredentialsService {
       keyFingerprint: credential.keyFingerprint,
       keyVersion: credential.keyVersion,
       certificateSerial,
+      publicKeyPem: credential.publicKeyPem,
+      certificateProfile,
     };
   }
 

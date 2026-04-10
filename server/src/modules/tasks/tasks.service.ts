@@ -762,9 +762,32 @@ export class TasksService implements OnModuleInit {
     dto: CreateSubmissionDto,
     submitterId?: string,
   ): Promise<TaskSubmissionEntity> {
+    if (!submitterId) {
+      throw new ForbiddenException('Authentication required');
+    }
+
     const task = await this.taskRepository.findOne({ where: { id: taskId } });
     if (!task) {
       throw new NotFoundException('Task not found');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: task.projectId },
+      select: ['id', 'freelancerId'],
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found for this task');
+    }
+
+    if (!project.freelancerId || project.freelancerId !== submitterId) {
+      throw new ForbiddenException(
+        'Only the assigned project freelancer can submit work for this task.',
+      );
+    }
+
+    if (task.assignedTo && task.assignedTo !== submitterId) {
+      throw new ForbiddenException('Only the task assignee can submit work for this task.');
     }
 
     const latestSubmission = await this.submissionRepository
@@ -779,7 +802,7 @@ export class TasksService implements OnModuleInit {
 
     const submission = this.submissionRepository.create({
       taskId,
-      submitterId: submitterId || null,
+      submitterId,
       content: dto.content,
       attachments: dto.attachments ?? [],
       version: nextVersion,
@@ -1375,6 +1398,8 @@ export class TasksService implements OnModuleInit {
     storyPoints?: number;
     labels?: string[];
     reporterId?: string;
+    requesterId: string;
+    requesterRole?: UserRole | string;
   }): Promise<TaskEntity> {
     const milestone = await this.milestoneRepository.findOne({
       where: { id: data.milestoneId },
@@ -1386,6 +1411,26 @@ export class TasksService implements OnModuleInit {
 
     if (milestone.projectId !== data.projectId) {
       throw new BadRequestException('Milestone does not belong to this project');
+    }
+
+    const normalizedRequesterRole = String(data.requesterRole || '').toUpperCase();
+    if (normalizedRequesterRole !== UserRole.BROKER) {
+      throw new ForbiddenException('Only brokers can create tasks in project workspace.');
+    }
+
+    const project = await this.projectRepository.findOne({
+      where: { id: data.projectId },
+      select: ['id', 'brokerId'],
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found for this milestone');
+    }
+
+    if (!project.brokerId || project.brokerId !== data.requesterId) {
+      throw new ForbiddenException(
+        'Only the assigned broker can create tasks for this project.',
+      );
     }
 
     if (!TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(milestone.status)) {
@@ -1404,7 +1449,7 @@ export class TasksService implements OnModuleInit {
       priority: data.priority ?? TaskPriority.MEDIUM,
       storyPoints: data.storyPoints,
       labels: data.labels,
-      reporterId: data.reporterId,
+      reporterId: data.reporterId ?? data.requesterId,
     });
 
     const saved = await this.taskRepository.save(newTask);

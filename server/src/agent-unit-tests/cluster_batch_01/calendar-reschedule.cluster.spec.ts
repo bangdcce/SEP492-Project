@@ -1,6 +1,7 @@
 import request from 'supertest';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ForbiddenException, INestApplication, NotFoundException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { RescheduleRequestStatus, UserRole } from 'src/database/entities';
 import { AutoScheduleService } from 'src/modules/calendar/auto-schedule.service';
@@ -39,6 +40,7 @@ const buildCalendarController = () => {
     deps.calendarService as never,
     deps.autoScheduleService as never,
     deps.availabilityService as never,
+    { emit: jest.fn() } as EventEmitter2,
   );
 
   return { controller, ...deps };
@@ -60,6 +62,7 @@ describe('Calendar reschedule module cluster', () => {
         { provide: CalendarService, useValue: routeDeps.calendarService },
         { provide: AutoScheduleService, useValue: routeDeps.autoScheduleService },
         { provide: AvailabilityService, useValue: routeDeps.availabilityService },
+        { provide: EventEmitter2, useValue: { emit: jest.fn() } },
       ],
     });
   });

@@ -13,7 +13,18 @@
 
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, DataSource, Between, LessThan, MoreThan, In, IsNull, Not } from 'typeorm';
+import {
+  Repository,
+  DataSource,
+  Between,
+  LessThan,
+  MoreThan,
+  In,
+  IsNull,
+  Not,
+  EntityManager,
+  QueryFailedError,
+} from 'typeorm';
 import { EventEmitter2, OnEvent } from '@nestjs/event-emitter';
 import { LeaveService } from '../../leave/leave.service';
 import { DISPUTE_EVENTS } from '../events/dispute.events';
@@ -26,7 +37,8 @@ import {
   DisputeType,
 } from '../../../database/entities/dispute.entity';
 import { ProjectEntity, PricingModel } from '../../../database/entities/project.entity';
-import { UserEntity, UserRole } from '../../../database/entities/user.entity';
+import { ProfileEntity } from '../../../database/entities/profile.entity';
+import { UserEntity, UserRole, UserStatus } from '../../../database/entities/user.entity';
 import { StaffWorkloadEntity } from '../../../database/entities/staff-workload.entity';
 import {
   CalendarEventEntity,
@@ -174,6 +186,27 @@ const BROKER_INVOLVED_DISPUTE_TYPES = [
   DisputeType.BROKER_VS_FREELANCER,
 ] as const;
 
+const STAFF_WORKLOAD_DATE_UNIQUE_CONSTRAINT = 'UQ_staff_workloads_staff_date';
+
+type StoredDisputeDevSettings = {
+  autoAssignPinned: boolean;
+  pinnedAt: string | null;
+  updatedAt: string | null;
+  updatedBy: string | null;
+};
+
+type DisputeDevSettingsSnapshot = {
+  enabled: boolean;
+  testModeEnabled: boolean;
+  activePinnedStaff: {
+    id: string;
+    email: string;
+    fullName: string;
+  } | null;
+  fallbackEmails: string[];
+  source: 'PROFILE' | 'ENV' | 'NONE';
+};
+
 // =============================================================================
 // SERVICE
 // =============================================================================
@@ -189,6 +222,8 @@ export class StaffAssignmentService {
     private readonly projectRepository: Repository<ProjectEntity>,
     @InjectRepository(UserEntity)
     private readonly userRepository: Repository<UserEntity>,
+    @InjectRepository(ProfileEntity)
+    private readonly profileRepository: Repository<ProfileEntity>,
     @InjectRepository(StaffWorkloadEntity)
     private readonly workloadRepository: Repository<StaffWorkloadEntity>,
     @InjectRepository(CalendarEventEntity)
@@ -217,6 +252,240 @@ export class StaffAssignmentService {
     private readonly eventEmitter: EventEmitter2,
     private readonly leaveService: LeaveService,
   ) {}
+
+  private isDisputeTestModeEnabled(): boolean {
+    const testMode = process.env.DISPUTE_TEST_MODE === 'true';
+    const runtimeEnv = (process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development').toLowerCase();
+    const isProduction = runtimeEnv === 'production' || runtimeEnv === 'prod';
+    return testMode && !isProduction;
+  }
+
+  private getEnvPreferredTestStaffEmails(): string[] {
+    const raw = process.env.DISPUTE_TEST_AUTO_ASSIGN_STAFF_EMAILS || '';
+    if (!raw.trim()) {
+      return [];
+    }
+
+    const normalized = raw
+      .split(',')
+      .map((email) => email.trim().toLowerCase())
+      .filter((email) => email.length > 0);
+
+    return Array.from(new Set(normalized));
+  }
+
+  private normalizeProfileBankInfo(bankInfo?: Record<string, any> | null): Record<string, any> {
+    if (!bankInfo || typeof bankInfo !== 'object' || Array.isArray(bankInfo)) {
+      return {};
+    }
+
+    return bankInfo;
+  }
+
+  private extractDisputeDevSettings(bankInfo?: Record<string, any> | null): StoredDisputeDevSettings {
+    const normalizedBankInfo = this.normalizeProfileBankInfo(bankInfo);
+    const rawSettings = normalizedBankInfo.disputeDevSettings;
+
+    if (!rawSettings || typeof rawSettings !== 'object' || Array.isArray(rawSettings)) {
+      return {
+        autoAssignPinned: false,
+        pinnedAt: null,
+        updatedAt: null,
+        updatedBy: null,
+      };
+    }
+
+    return {
+      autoAssignPinned: rawSettings.autoAssignPinned === true,
+      pinnedAt: typeof rawSettings.pinnedAt === 'string' ? rawSettings.pinnedAt : null,
+      updatedAt: typeof rawSettings.updatedAt === 'string' ? rawSettings.updatedAt : null,
+      updatedBy: typeof rawSettings.updatedBy === 'string' ? rawSettings.updatedBy : null,
+    };
+  }
+
+  private buildDisputeDevSettings(
+    enabled: boolean,
+    actorUserId: string,
+    timestampIso: string,
+  ): StoredDisputeDevSettings {
+    return {
+      autoAssignPinned: enabled,
+      pinnedAt: enabled ? timestampIso : null,
+      updatedAt: timestampIso,
+      updatedBy: actorUserId,
+    };
+  }
+
+  private async getActivePinnedTestStaff(): Promise<UserEntity | null> {
+    const staffUsers = await this.userRepository.find({
+      where: {
+        role: UserRole.STAFF,
+        isBanned: false,
+        status: UserStatus.ACTIVE,
+      },
+      relations: ['profile'],
+    });
+
+    const activePinnedUsers = staffUsers
+      .map((staffUser) => ({
+        user: staffUser,
+        settings: this.extractDisputeDevSettings(staffUser.profile?.bankInfo),
+      }))
+      .filter(({ settings }) => settings.autoAssignPinned)
+      .sort((left, right) => {
+        const leftTime = Date.parse(left.settings.updatedAt ?? left.settings.pinnedAt ?? '') || 0;
+        const rightTime =
+          Date.parse(right.settings.updatedAt ?? right.settings.pinnedAt ?? '') || 0;
+        return rightTime - leftTime;
+      });
+
+    return activePinnedUsers[0]?.user ?? null;
+  }
+
+  private async resolvePreferredTestStaffEmails(): Promise<string[]> {
+    const activePinnedStaff = await this.getActivePinnedTestStaff();
+    if (activePinnedStaff?.email) {
+      return [activePinnedStaff.email.trim().toLowerCase()];
+    }
+
+    return this.getEnvPreferredTestStaffEmails();
+  }
+
+  async getDisputeDevSettingsSnapshot(): Promise<DisputeDevSettingsSnapshot> {
+    const activePinnedStaff = await this.getActivePinnedTestStaff();
+    const fallbackEmails = this.getEnvPreferredTestStaffEmails();
+
+    return {
+      enabled: Boolean(activePinnedStaff),
+      testModeEnabled: this.isDisputeTestModeEnabled(),
+      activePinnedStaff: activePinnedStaff
+        ? {
+            id: activePinnedStaff.id,
+            email: activePinnedStaff.email,
+            fullName: activePinnedStaff.fullName,
+          }
+        : null,
+      fallbackEmails,
+      source: activePinnedStaff ? 'PROFILE' : fallbackEmails.length > 0 ? 'ENV' : 'NONE',
+    };
+  }
+
+  async updateDisputeDevSettings(
+    actor: UserEntity,
+    enabled: boolean,
+    targetStaffEmail?: string,
+  ): Promise<DisputeDevSettingsSnapshot> {
+    if (!this.isDisputeTestModeEnabled()) {
+      throw new BadRequestException(
+        'Dispute dev auto-assign can only be changed when DISPUTE_TEST_MODE=true in a non-production environment.',
+      );
+    }
+
+    const normalizedTargetEmail = targetStaffEmail?.trim().toLowerCase();
+    const fallbackActorEmail = actor.role === UserRole.STAFF ? actor.email.trim().toLowerCase() : '';
+    const resolvedTargetEmail = normalizedTargetEmail || fallbackActorEmail;
+
+    let targetStaffId: string | null = null;
+
+    if (enabled) {
+      if (!resolvedTargetEmail) {
+        throw new BadRequestException(
+          'Provide targetStaffEmail when enabling dispute dev auto-assign from a non-staff account.',
+        );
+      }
+
+      const targetStaff = await this.userRepository.findOne({
+        where: {
+          email: resolvedTargetEmail,
+          role: UserRole.STAFF,
+          isBanned: false,
+          status: UserStatus.ACTIVE,
+        },
+        select: ['id'],
+      });
+
+      if (!targetStaff) {
+        throw new NotFoundException(
+          `Staff account ${resolvedTargetEmail} was not found or is not available for dispute assignment.`,
+        );
+      }
+
+      targetStaffId = targetStaff.id;
+    }
+
+    await this.dataSource.transaction(async (manager) => {
+      const userRepo = manager.getRepository(UserEntity);
+      const profileRepo = manager.getRepository(ProfileEntity);
+      const activeStaffUsers = await userRepo.find({
+        where: {
+          role: UserRole.STAFF,
+          isBanned: false,
+          status: UserStatus.ACTIVE,
+        },
+        relations: ['profile'],
+      });
+
+      const timestampIso = new Date().toISOString();
+      const profilesToSave: ProfileEntity[] = [];
+
+      for (const staffUser of activeStaffUsers) {
+        const currentSettings = this.extractDisputeDevSettings(staffUser.profile?.bankInfo);
+        const shouldPin = Boolean(enabled && targetStaffId && staffUser.id === targetStaffId);
+
+        if (!currentSettings.autoAssignPinned && !shouldPin) {
+          continue;
+        }
+
+        const nextProfile =
+          staffUser.profile ??
+          profileRepo.create({
+            userId: staffUser.id,
+          });
+        const normalizedBankInfo = this.normalizeProfileBankInfo(nextProfile.bankInfo);
+
+        nextProfile.bankInfo = {
+          ...normalizedBankInfo,
+          disputeDevSettings: this.buildDisputeDevSettings(shouldPin, actor.id, timestampIso),
+        };
+
+        profilesToSave.push(nextProfile);
+      }
+
+      if (profilesToSave.length > 0) {
+        await profileRepo.save(profilesToSave);
+      }
+    });
+
+    return await this.getDisputeDevSettingsSnapshot();
+  }
+
+  private async filterCandidateIdsByPreferredEmails(
+    candidateIds: string[],
+    preferredEmails: string[],
+  ): Promise<string[]> {
+    if (!candidateIds.length || !preferredEmails.length) {
+      return candidateIds;
+    }
+
+    const candidateUsers = await this.userRepository.find({
+      where: {
+        id: In(candidateIds),
+        role: UserRole.STAFF,
+        isBanned: false,
+      },
+      select: ['id', 'email'],
+    });
+
+    const candidateIdByEmail = new Map(
+      candidateUsers.map((user) => [String(user.email || '').toLowerCase(), user.id]),
+    );
+
+    const filtered = preferredEmails
+      .map((email) => candidateIdByEmail.get(email))
+      .filter((id): id is string => Boolean(id));
+
+    return Array.from(new Set(filtered));
+  }
 
   private getRangeDays(range: '7d' | '30d' | '90d'): number {
     switch (range) {
@@ -253,6 +522,31 @@ export class StaffAssignmentService {
     }
 
     return periods;
+  }
+
+  private isUniqueConstraintViolation(error: unknown, constraintName?: string): boolean {
+    if (!(error instanceof QueryFailedError)) {
+      return false;
+    }
+
+    const driverError = (
+      error as QueryFailedError & {
+        driverError?: {
+          code?: string;
+          constraint?: string;
+        };
+      }
+    ).driverError;
+
+    if (driverError?.code !== '23505') {
+      return false;
+    }
+
+    if (!constraintName) {
+      return true;
+    }
+
+    return driverError.constraint === constraintName;
   }
 
   private buildDashboardBuckets(range: '7d' | '30d' | '90d', start: Date, end: Date) {
@@ -2007,53 +2301,96 @@ export class StaffAssignmentService {
    * Trigger: Sau khi assign dispute (cﾃ｡ﾂｺﾂ｣ auto vﾃδ manual)
    * Purpose: Realtime update thay vﾃδｬ ﾃ・妥｡ﾂｻﾂ｣i cronjob 00:00
    */
-  async incrementPendingDisputes(staffId: string, disputeId: string): Promise<void> {
+  async incrementPendingDisputes(
+    staffId: string,
+    disputeId: string,
+    options?: {
+      manager?: EntityManager;
+      emitEvent?: boolean;
+    },
+  ): Promise<number> {
+    const repository = options?.manager?.getRepository(StaffWorkloadEntity) ?? this.workloadRepository;
+    const emitEvent = options?.emitEvent ?? true;
     const dateStr = new Date().toISOString().split('T')[0];
+    const workloadDate = dateStr as unknown as Date;
 
-    // Upsert workload record
-    const existingWorkload = await this.workloadRepository.findOne({
-      where: { staffId, date: dateStr as unknown as Date },
-    });
+    const incrementWhere = {
+      staffId,
+      date: workloadDate,
+    };
 
-    let newPendingCount: number;
+    const incrementResult = await repository.increment(
+      incrementWhere,
+      'totalDisputesPending',
+      1,
+    );
 
-    if (existingWorkload) {
-      existingWorkload.totalDisputesPending += 1;
-      // Recalculate flags
-      existingWorkload.canAcceptNewEvent =
-        existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
-      existingWorkload.isOverloaded =
-        existingWorkload.utilizationRate >= ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD;
-      await this.workloadRepository.save(existingWorkload);
-      newPendingCount = existingWorkload.totalDisputesPending;
-    } else {
-      // Create new workload record for today
-      const newWorkload = this.workloadRepository.create({
-        staffId,
-        date: dateStr as unknown as Date,
-        totalDisputesPending: 1,
-        totalEventsScheduled: 0,
-        scheduledMinutes: 0,
-        dailyCapacityMinutes: 480,
-        utilizationRate: 0,
-        isOverloaded: false,
-        canAcceptNewEvent: true,
-        isOnLeave: false,
-      });
-      await this.workloadRepository.save(newWorkload);
-      newPendingCount = 1;
+    if (!incrementResult.affected) {
+      try {
+        await repository.insert({
+          staffId,
+          date: workloadDate,
+          totalDisputesPending: 1,
+          totalEventsScheduled: 0,
+          scheduledMinutes: 0,
+          dailyCapacityMinutes: 480,
+          utilizationRate: 0,
+          isOverloaded: false,
+          canAcceptNewEvent: true,
+          isOnLeave: false,
+        });
+      } catch (error) {
+        if (this.isUniqueConstraintViolation(error, STAFF_WORKLOAD_DATE_UNIQUE_CONSTRAINT)) {
+          await repository.increment(incrementWhere, 'totalDisputesPending', 1);
+        } else {
+          throw error;
+        }
+      }
     }
 
-    // Emit event for tracking
-    this.eventEmitter.emit('workload.incremented', {
-      staffId,
-      disputeId,
-      newPendingCount,
+    const existingWorkload = await repository.findOne({
+      where: incrementWhere,
     });
 
+    if (!existingWorkload) {
+      this.logger.warn(
+        `No workload record found after increment for staff ${staffId} on ${dateStr}.`,
+      );
+      return 0;
+    }
+
+    const shouldAccept =
+      existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
+    const shouldMarkOverloaded =
+      existingWorkload.utilizationRate >= ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD;
+    const normalizedPendingCount = Math.max(0, Number(existingWorkload.totalDisputesPending || 0));
+
+    if (
+      existingWorkload.canAcceptNewEvent !== shouldAccept ||
+      existingWorkload.isOverloaded !== shouldMarkOverloaded
+    ) {
+      await repository.update(
+        { id: existingWorkload.id },
+        {
+          canAcceptNewEvent: shouldAccept,
+          isOverloaded: shouldMarkOverloaded,
+        },
+      );
+    }
+
+    if (emitEvent) {
+      this.eventEmitter.emit('workload.incremented', {
+        staffId,
+        disputeId,
+        newPendingCount: normalizedPendingCount,
+      });
+    }
+
     this.logger.log(
-      `Incremented pending disputes for staff ${staffId}: now ${newPendingCount} pending`,
+      `Incremented pending disputes for staff ${staffId}: now ${normalizedPendingCount} pending`,
     );
+
+    return normalizedPendingCount;
   }
 
   /**
@@ -2062,41 +2399,82 @@ export class StaffAssignmentService {
    * Trigger: Sau khi resolve hoﾃ｡ﾂｺﾂｷc close dispute
    * Purpose: Realtime update ﾃ・妥｡ﾂｻﾂ・staff cﾃδｳ thﾃ｡ﾂｻﾂ・nhﾃ｡ﾂｺﾂｭn viﾃ｡ﾂｻﾂ㌘ mﾃ｡ﾂｻﾂ嬖 ngay
    */
-  async decrementPendingDisputes(staffId: string, disputeId: string): Promise<void> {
+  async decrementPendingDisputes(
+    staffId: string,
+    disputeId: string,
+    options?: {
+      manager?: EntityManager;
+      emitEvent?: boolean;
+    },
+  ): Promise<number> {
+    const repository = options?.manager?.getRepository(StaffWorkloadEntity) ?? this.workloadRepository;
+    const emitEvent = options?.emitEvent ?? true;
     const dateStr = new Date().toISOString().split('T')[0];
+    const workloadDate = dateStr as unknown as Date;
 
-    const existingWorkload = await this.workloadRepository.findOne({
-      where: { staffId, date: dateStr as unknown as Date },
+    const decrementResult = await repository.decrement(
+      {
+        staffId,
+        date: workloadDate,
+        totalDisputesPending: MoreThan(0),
+      },
+      'totalDisputesPending',
+      1,
+    );
+
+    if (!decrementResult.affected) {
+      this.logger.warn(
+        `No workload record found for staff ${staffId} on ${dateStr}. Cannot decrement.`,
+      );
+      return 0;
+    }
+
+    const existingWorkload = await repository.findOne({
+      where: {
+        staffId,
+        date: workloadDate,
+      },
     });
 
     if (!existingWorkload) {
       this.logger.warn(
-        `No workload record found for staff ${staffId} on ${dateStr}. Cannot decrement.`,
+        `Workload row missing after decrement for staff ${staffId} on ${dateStr}.`,
       );
-      return;
+      return 0;
     }
 
-    // Decrement but don't go below 0
-    existingWorkload.totalDisputesPending = Math.max(0, existingWorkload.totalDisputesPending - 1);
-
-    // Recalculate flags - staff cﾃδｳ thﾃ｡ﾂｻﾂ・nhﾃ｡ﾂｺﾂｭn viﾃ｡ﾂｻﾂ㌘ mﾃ｡ﾂｻﾂ嬖 ngay
-    existingWorkload.canAcceptNewEvent =
+    const normalizedPendingCount = Math.max(0, Number(existingWorkload.totalDisputesPending || 0));
+    const shouldAccept =
       existingWorkload.utilizationRate < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE;
-    existingWorkload.isOverloaded =
+    const shouldMarkOverloaded =
       existingWorkload.utilizationRate >= ASSIGNMENT_CONFIG.OVERLOADED_THRESHOLD;
 
-    await this.workloadRepository.save(existingWorkload);
+    if (
+      existingWorkload.canAcceptNewEvent !== shouldAccept ||
+      existingWorkload.isOverloaded !== shouldMarkOverloaded
+    ) {
+      await repository.update(
+        { id: existingWorkload.id },
+        {
+          canAcceptNewEvent: shouldAccept,
+          isOverloaded: shouldMarkOverloaded,
+        },
+      );
+    }
 
-    // Emit event for tracking
-    this.eventEmitter.emit('workload.decremented', {
-      staffId,
-      disputeId,
-      newPendingCount: existingWorkload.totalDisputesPending,
-    });
+    if (emitEvent) {
+      this.eventEmitter.emit('workload.decremented', {
+        staffId,
+        disputeId,
+        newPendingCount: normalizedPendingCount,
+      });
+    }
 
     this.logger.log(
-      `Decremented pending disputes for staff ${staffId}: now ${existingWorkload.totalDisputesPending} pending`,
+      `Decremented pending disputes for staff ${staffId}: now ${normalizedPendingCount} pending`,
     );
+
+    return normalizedPendingCount;
   }
 
   // ===========================================================================
@@ -2289,48 +2667,180 @@ export class StaffAssignmentService {
     // 1. Estimate complexity
     const complexity = await this.estimateDisputeComplexity(disputeId);
 
-    // 2. Get available staff
-    const availableResult = await this.getAvailableStaff();
+    let assignmentEvent:
+      | {
+          staffId: string;
+          newPendingCount: number;
+          complexityLevel: ComplexityLevel;
+          estimatedMinutes: number;
+        }
+      | null = null;
 
-    if (!availableResult.recommendedStaffId) {
-      this.logger.warn(`No staff available for dispute ${disputeId}`);
-      return {
-        staffId: '',
-        complexity,
-        success: false,
-        fallbackReason: 'No staff available. Dispute added to manual assignment queue.',
+    const result = await this.dataSource.transaction(async (manager) => {
+      const disputeRepo = manager.getRepository(DisputeEntity);
+      const workloadRepo = manager.getRepository(StaffWorkloadEntity);
+
+      const dispute = await disputeRepo.findOne({
+        where: { id: disputeId },
+        select: ['id', 'status', 'assignedStaffId'],
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (!dispute) {
+        throw new NotFoundException(`Dispute ${disputeId} not found`);
+      }
+
+      if (
+        [DisputeStatus.RESOLVED, DisputeStatus.REJECTED, DisputeStatus.CANCELED].includes(
+          dispute.status,
+        )
+      ) {
+        this.logger.warn(
+          `Cannot auto-assign dispute ${disputeId} in terminal status ${dispute.status}`,
+        );
+        return {
+          staffId: '',
+          complexity,
+          success: false,
+          fallbackReason: `Dispute is ${dispute.status} and cannot be assigned.`,
+        };
+      }
+
+      if (dispute.assignedStaffId) {
+        return {
+          staffId: dispute.assignedStaffId,
+          complexity,
+          success: true,
+        };
+      }
+
+      // 2. Get available staff snapshot
+      const availableResult = await this.getAvailableStaff();
+      const availableCandidateIds = availableResult.staff
+        .filter((staff) => staff.isAvailable)
+        .map((staff) => staff.staffId);
+
+      const preferredTestStaffEmails = this.isDisputeTestModeEnabled()
+        ? await this.resolvePreferredTestStaffEmails()
+        : [];
+      const restrictToPreferredTestStaff =
+        this.isDisputeTestModeEnabled() && preferredTestStaffEmails.length > 0;
+
+      const candidateIds = restrictToPreferredTestStaff
+        ? await this.filterCandidateIdsByPreferredEmails(
+            availableCandidateIds,
+            preferredTestStaffEmails,
+          )
+        : availableCandidateIds;
+
+      if (!candidateIds.length) {
+        const warning = restrictToPreferredTestStaff
+          ? `No preferred test staff available for dispute ${disputeId}. ` +
+            `Configured emails: ${preferredTestStaffEmails.join(', ')}`
+          : `No staff available for dispute ${disputeId}`;
+
+        this.logger.warn(warning);
+
+        const fallbackReason = restrictToPreferredTestStaff
+          ? 'No preferred test staff is currently available. Check dispute dev settings, DISPUTE_TEST_AUTO_ASSIGN_STAFF_EMAILS, or staff availability.'
+          : 'No staff available. Dispute added to manual assignment queue.';
+
+        return {
+          staffId: '',
+          complexity,
+          success: false,
+          fallbackReason,
+        };
+      }
+
+      // Re-check with per-row lock to avoid assigning stale overloaded candidates.
+      const workloadDate = new Date().toISOString().split('T')[0] as unknown as Date;
+      let selectedStaffId: string | null = null;
+
+      for (const candidateId of candidateIds) {
+        const workload = await workloadRepo.findOne({
+          where: {
+            staffId: candidateId,
+            date: workloadDate,
+          },
+          lock: { mode: 'pessimistic_write' },
+        });
+
+        const stillAvailable =
+          !workload ||
+          (!workload.isOnLeave &&
+            (workload.canAcceptNewEvent ?? true) &&
+            Number(workload.utilizationRate || 0) < ASSIGNMENT_CONFIG.MAX_UTILIZATION_RATE);
+
+        if (stillAvailable) {
+          selectedStaffId = candidateId;
+          break;
+        }
+      }
+
+      if (!selectedStaffId) {
+        this.logger.warn(`No staff available after workload recheck for dispute ${disputeId}`);
+        return {
+          staffId: '',
+          complexity,
+          success: false,
+          fallbackReason: 'No staff available after workload recheck. Manual assignment required.',
+        };
+      }
+
+      // 3. Assign to selected staff
+      await disputeRepo.update(disputeId, {
+        assignedStaffId: selectedStaffId,
+        assignedAt: new Date(),
+      });
+
+      // 4. Update workload in the same transaction
+      const newPendingCount = await this.incrementPendingDisputes(selectedStaffId, disputeId, {
+        manager,
+        emitEvent: false,
+      });
+
+      assignmentEvent = {
+        staffId: selectedStaffId,
+        newPendingCount,
+        complexityLevel: complexity.level,
+        estimatedMinutes: complexity.timeEstimation.recommendedMinutes,
       };
+
+      return {
+        staffId: selectedStaffId,
+        complexity,
+        success: true,
+      };
+    });
+
+    if (assignmentEvent) {
+      this.eventEmitter.emit('workload.incremented', {
+        staffId: assignmentEvent.staffId,
+        disputeId,
+        newPendingCount: assignmentEvent.newPendingCount,
+      });
+
+      this.eventEmitter.emit('staff.assigned', {
+        disputeId,
+        staffId: assignmentEvent.staffId,
+        complexity: assignmentEvent.complexityLevel,
+        estimatedMinutes: assignmentEvent.estimatedMinutes,
+      });
+
+      this.eventEmitter.emit(DISPUTE_EVENTS.ASSIGNED, {
+        disputeId,
+        staffId: assignmentEvent.staffId,
+        assignedAt: new Date(),
+      });
+
+      this.logger.log(
+        `Auto-assigned dispute ${disputeId} to staff ${assignmentEvent.staffId} ` +
+          `(complexity: ${assignmentEvent.complexityLevel}, ~${assignmentEvent.estimatedMinutes} min)`,
+      );
     }
 
-    // 3. Assign to top-scored staff
-    const staffId = availableResult.recommendedStaffId;
-
-    await this.disputeRepository.update(disputeId, {
-      assignedStaffId: staffId,
-      assignedAt: new Date(),
-    });
-
-    // 4. Update workload using event-driven function (realtime update)
-    await this.incrementPendingDisputes(staffId, disputeId);
-
-    // 5. Emit event
-    this.eventEmitter.emit('staff.assigned', {
-      disputeId,
-      staffId,
-      complexity: complexity.level,
-      estimatedMinutes: complexity.timeEstimation.recommendedMinutes,
-    });
-
-    this.logger.log(
-      `Auto-assigned dispute ${disputeId} to staff ${staffId} ` +
-        `(complexity: ${complexity.level}, ~${complexity.timeEstimation.recommendedMinutes} min)`,
-    );
-
-    return {
-      staffId,
-      complexity,
-      success: true,
-    };
+    return result;
   }
 
   // ===========================================================================
@@ -2366,73 +2876,123 @@ export class StaffAssignmentService {
     newStaffId: string;
     message: string;
   }> {
-    // 1. Load dispute
-    const dispute = await this.disputeRepository.findOne({
-      where: { id: disputeId },
-      select: ['id', 'assignedStaffId', 'status'],
-    });
+    let reassignmentEvent:
+      | {
+          oldStaffId: string | null;
+          newStaffId: string;
+          oldPendingCount: number | null;
+          newPendingCount: number;
+        }
+      | null = null;
 
-    if (!dispute) {
-      throw new NotFoundException(`Dispute ${disputeId} not found`);
-    }
+    const result = await this.dataSource.transaction(async (manager) => {
+      const disputeRepo = manager.getRepository(DisputeEntity);
+      const userRepo = manager.getRepository(UserEntity);
 
-    // 2. Validate dispute status - khﾃδｴng reassign dispute ﾃ・妥δ｣ ﾃ・妥δｳng
-    if (dispute.status === DisputeStatus.RESOLVED || dispute.status === DisputeStatus.REJECTED) {
-      throw new BadRequestException(`Cannot reassign dispute with status ${dispute.status}`);
-    }
-    // 3. Validate new staff exists and is active
-    const newStaff = await this.userRepository.findOne({
-      where: { id: newStaffId, role: UserRole.STAFF, isBanned: false },
-    });
+      // 1. Load dispute with write lock
+      const dispute = await disputeRepo.findOne({
+        where: { id: disputeId },
+        select: ['id', 'assignedStaffId', 'status'],
+        lock: { mode: 'pessimistic_write' },
+      });
 
-    if (!newStaff) {
-      throw new BadRequestException(`Staff ${newStaffId} not found or is not active`);
-    }
+      if (!dispute) {
+        throw new NotFoundException(`Dispute ${disputeId} not found`);
+      }
 
-    // 4. Check not reassigning to same staff
-    if (dispute.assignedStaffId === newStaffId) {
-      return {
-        success: false,
-        oldStaffId: dispute.assignedStaffId,
+      // 2. Validate dispute status
+      if (
+        [DisputeStatus.RESOLVED, DisputeStatus.REJECTED, DisputeStatus.CANCELED].includes(
+          dispute.status,
+        )
+      ) {
+        throw new BadRequestException(`Cannot reassign dispute with status ${dispute.status}`);
+      }
+
+      // 3. Validate new staff exists and is active
+      const newStaff = await userRepo.findOne({
+        where: { id: newStaffId, role: UserRole.STAFF, isBanned: false },
+      });
+
+      if (!newStaff) {
+        throw new BadRequestException(`Staff ${newStaffId} not found or is not active`);
+      }
+
+      // 4. Check not reassigning to same staff
+      if (dispute.assignedStaffId === newStaffId) {
+        return {
+          success: false,
+          oldStaffId: dispute.assignedStaffId,
+          newStaffId,
+          message: 'Dispute is already assigned to this staff',
+        };
+      }
+
+      const oldStaffId = dispute.assignedStaffId;
+
+      // 5. Update dispute assignment
+      await disputeRepo.update(disputeId, {
+        assignedStaffId: newStaffId,
+        assignedAt: new Date(),
+      });
+
+      // 6. Update workloads in the same transaction
+      const oldPendingCount = oldStaffId
+        ? await this.decrementPendingDisputes(oldStaffId, disputeId, {
+            manager,
+            emitEvent: false,
+          })
+        : null;
+      const newPendingCount = await this.incrementPendingDisputes(newStaffId, disputeId, {
+        manager,
+        emitEvent: false,
+      });
+
+      reassignmentEvent = {
+        oldStaffId,
         newStaffId,
-        message: 'Dispute is already assigned to this staff',
+        oldPendingCount,
+        newPendingCount,
       };
-    }
 
-    const oldStaffId = dispute.assignedStaffId;
-
-    // 5. Update dispute assignment
-    await this.disputeRepository.update(disputeId, {
-      assignedStaffId: newStaffId,
-      assignedAt: new Date(),
+      return {
+        success: true,
+        oldStaffId,
+        newStaffId,
+        message: `Dispute reassigned successfully from ${oldStaffId || 'unassigned'} to ${newStaffId}`,
+      };
     });
 
-    // 6. Update workloads
-    if (oldStaffId) {
-      await this.decrementPendingDisputes(oldStaffId, disputeId);
+    if (reassignmentEvent) {
+      if (reassignmentEvent.oldStaffId) {
+        this.eventEmitter.emit('workload.decremented', {
+          staffId: reassignmentEvent.oldStaffId,
+          disputeId,
+          newPendingCount: reassignmentEvent.oldPendingCount,
+        });
+      }
+
+      this.eventEmitter.emit('workload.incremented', {
+        staffId: reassignmentEvent.newStaffId,
+        disputeId,
+        newPendingCount: reassignmentEvent.newPendingCount,
+      });
+
+      this.eventEmitter.emit(DISPUTE_EVENTS.REASSIGNED, {
+        disputeId,
+        oldStaffId: reassignmentEvent.oldStaffId,
+        newStaffId: reassignmentEvent.newStaffId,
+        reason,
+        performedById,
+        notes,
+      });
+
+      this.logger.log(
+        `Reassigned dispute ${disputeId} from ${reassignmentEvent.oldStaffId || 'unassigned'} to ${reassignmentEvent.newStaffId}. Reason: ${reason}`,
+      );
     }
-    await this.incrementPendingDisputes(newStaffId, disputeId);
 
-    // 7. Emit event
-    this.eventEmitter.emit(DISPUTE_EVENTS.REASSIGNED, {
-      disputeId,
-      oldStaffId,
-      newStaffId,
-      reason,
-      performedById,
-      notes,
-    });
-
-    this.logger.log(
-      `Reassigned dispute ${disputeId} from ${oldStaffId || 'unassigned'} to ${newStaffId}. Reason: ${reason}`,
-    );
-
-    return {
-      success: true,
-      oldStaffId,
-      newStaffId,
-      message: `Dispute reassigned successfully from ${oldStaffId || 'unassigned'} to ${newStaffId}`,
-    };
+    return result;
   }
 
   // ===========================================================================

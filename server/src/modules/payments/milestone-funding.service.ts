@@ -18,9 +18,11 @@ import {
   FundingIntentEntity,
   FundingIntentStatus,
   MilestoneEntity,
+  MilestoneStatus,
   PaymentMethodEntity,
   PaymentMethodType,
   ProjectEntity,
+  ProjectStatus,
   TaskEntity,
   TaskHistoryEntity,
   TaskStatus,
@@ -149,6 +151,8 @@ export class MilestoneFundingService {
         throw new ForbiddenException('Only the project client can fund a milestone');
       }
 
+      this.assertProjectCanBeFunded(project);
+      this.assertMilestoneCanBeFunded(milestone);
       this.assertEscrowCanBeFunded(escrow);
       this.assertMilestoneAmountMatchesEscrow(milestone, escrow);
 
@@ -321,6 +325,8 @@ export class MilestoneFundingService {
         throw new ForbiddenException('Only the project client can fund a milestone');
       }
 
+      this.assertProjectCanBeFunded(project);
+      this.assertMilestoneCanBeFunded(milestone);
       this.assertEscrowCanBeFunded(escrow);
       this.assertMilestoneAmountMatchesEscrow(milestone, escrow);
       this.assertPayPalOrderMatchesEscrow(orderDetails, escrow, project);
@@ -480,6 +486,8 @@ export class MilestoneFundingService {
         throw new ForbiddenException('Only the project client can fund a milestone');
       }
 
+      this.assertProjectCanBeFunded(project);
+      this.assertMilestoneCanBeFunded(milestone);
       this.assertEscrowCanBeFunded(escrow);
       this.assertMilestoneAmountMatchesEscrow(milestone, escrow);
 
@@ -545,6 +553,8 @@ export class MilestoneFundingService {
         throw new ForbiddenException('Only the project client can fund a milestone');
       }
 
+      this.assertProjectCanBeFunded(project);
+      this.assertMilestoneCanBeFunded(milestone);
       this.assertEscrowCanBeFunded(escrow);
       this.assertMilestoneAmountMatchesEscrow(milestone, escrow);
 
@@ -645,6 +655,8 @@ export class MilestoneFundingService {
         throw new ForbiddenException('Only the project client can fund a milestone');
       }
 
+      this.assertProjectCanBeFunded(project);
+      this.assertMilestoneCanBeFunded(milestone);
       this.assertEscrowCanBeFunded(escrow);
       this.assertMilestoneAmountMatchesEscrow(milestone, escrow);
       this.assertStripeSessionMatchesEscrow(sessionDetails, escrow, project, input);
@@ -1001,6 +1013,35 @@ export class MilestoneFundingService {
 
     if (escrow.status !== EscrowStatus.PENDING) {
       throw new BadRequestException(`Escrow ${escrow.id} is not open for funding`);
+    }
+  }
+
+  private assertProjectCanBeFunded(project: ProjectEntity): void {
+    const nonFundableStatuses = new Set<ProjectStatus>([
+      ProjectStatus.CANCELED,
+      ProjectStatus.PAID,
+      ProjectStatus.COMPLETED,
+      ProjectStatus.DISPUTED,
+    ]);
+
+    if (nonFundableStatuses.has(project.status)) {
+      throw new BadRequestException(
+        `Cannot fund milestone while project is ${project.status}`,
+      );
+    }
+  }
+
+  private assertMilestoneCanBeFunded(milestone: MilestoneEntity): void {
+    const nonFundableStatuses = new Set<MilestoneStatus>([
+      MilestoneStatus.LOCKED,
+      MilestoneStatus.COMPLETED,
+      MilestoneStatus.PAID,
+    ]);
+
+    if (nonFundableStatuses.has(milestone.status)) {
+      throw new BadRequestException(
+        `Cannot fund milestone while milestone is ${milestone.status}`,
+      );
     }
   }
 

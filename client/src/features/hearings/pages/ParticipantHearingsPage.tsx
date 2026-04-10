@@ -60,6 +60,7 @@ import { STORAGE_KEYS } from "@/constants";
 import { cn } from "@/lib/utils";
 import { getStoredJson } from "@/shared/utils/storage";
 import { getApiErrorDetails } from "@/shared/utils/apiError";
+import { connectSocket } from "@/shared/realtime/socket";
 import type {
   DisputeScheduleProposal,
   SchedulingWorklistItem,
@@ -113,6 +114,18 @@ type CalendarViewType =
   | "timeGridDay"
   | "listWeek";
 type MobileStep = "cases" | "actions";
+type CalendarVisibleRange = {
+  startIso: string;
+  endIso: string;
+};
+
+const buildVisibleRange = (
+  start: Date,
+  end: Date,
+): CalendarVisibleRange => ({
+  startIso: start.toISOString(),
+  endIso: end.toISOString(),
+});
 
 const STATUS_STYLES: Record<
   EventStatus,
@@ -191,6 +204,80 @@ const EVENT_TYPE_BADGE_STYLE: Record<EventType, string> = {
   [EventType.OTHER]: "bg-purple-100 text-purple-700",
 };
 
+const APPEAL_STATE_LABELS: Record<string, string> = {
+  NONE: "No appeal",
+  AVAILABLE: "Appeal available",
+  FILED: "Appeal submitted",
+  RESOLVED: "Appeal resolved",
+  EXPIRED: "Appeal window closed",
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  CLIENT: "Client",
+  BROKER: "Broker",
+  FREELANCER: "Freelancer",
+  ADMIN: "Admin",
+  STAFF: "Staff",
+  MODERATOR: "Moderator",
+  RAISER: "Claimant",
+  DEFENDANT: "Respondent",
+  OBSERVER: "Observer",
+  WITNESS: "Witness",
+};
+
+const INVITE_STATUS_LABELS: Record<string, string> = {
+  NO_RESPONSE: "No response",
+  PENDING: "Pending",
+  ACCEPTED: "Accepted",
+  DECLINED: "Declined",
+  TENTATIVE: "Tentative",
+  REQUIRED: "Required",
+};
+
+const formatEnumLabel = (
+  value?: string | null,
+  fallback: string = "Not available",
+) => {
+  if (!value) return fallback;
+  return value
+    .toLowerCase()
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const formatTierLabel = (value?: string | null) => {
+  if (!value) return "Hearing tier";
+  if (value.toUpperCase().startsWith("TIER_")) {
+    return `Tier ${value.slice(5)}`;
+  }
+  return formatEnumLabel(value, "Hearing tier");
+};
+
+const formatAppealStateLabel = (value?: string | null) => {
+  if (!value) return "No appeal";
+  return APPEAL_STATE_LABELS[value] || formatEnumLabel(value, "No appeal");
+};
+
+const formatRoleLabel = (value?: string | null) => {
+  if (!value) return "Role not set";
+  return ROLE_LABELS[value] || formatEnumLabel(value, "Role not set");
+};
+
+const formatInviteStatusLabel = (value?: string | null) => {
+  if (!value) return "Pending";
+  return INVITE_STATUS_LABELS[value] || formatEnumLabel(value, "Pending");
+};
+
+const resolveHearingBadgeLabel = (event: HearingCalendarEvent) => {
+  if (event.hearingNumber) {
+    return `Hearing #${event.hearingNumber}`;
+  }
+  return EVENT_TYPE_LABELS[event.type] || "Hearing";
+};
+
+const shouldShowAppealBadge = (appealState?: string | null) =>
+  Boolean(appealState && appealState !== "NONE");
+
 const CALENDAR_STATUS_LEGEND = [
   {
     label: "Scheduled / ready",
@@ -209,6 +296,59 @@ const CALENDAR_STATUS_LEGEND = [
     color: "bg-slate-100 text-slate-600 border-slate-200",
   },
 ];
+
+const REALTIME_REFRESH_DEBOUNCE_MS = 500;
+const REALTIME_EVENT_DEDUPE_TTL_MS = 1500;
+
+const isInviteResponseValue = (
+  value: unknown,
+): value is EventInviteResponse =>
+  value === "accept" || value === "decline" || value === "tentative";
+
+const toEventStatus = (value: unknown): EventStatus | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  return (Object.values(EventStatus) as string[]).includes(value)
+    ? (value as EventStatus)
+    : undefined;
+};
+
+const mapInviteResponseToParticipantStatus = (
+  response: EventInviteResponse,
+): string => {
+  if (response === "accept") {
+    return "ACCEPTED";
+  }
+  if (response === "decline") {
+    return "DECLINED";
+  }
+  return "TENTATIVE";
+};
+
+const applyInviteResponseToParticipants = (
+  participants: CalendarEventParticipant[] | undefined,
+  participantId: string,
+  response: EventInviteResponse,
+) => {
+  if (!participants?.length) {
+    return participants;
+  }
+
+  const status = mapInviteResponseToParticipantStatus(response);
+  const respondedAt = new Date().toISOString();
+
+  return participants.map((participant) =>
+    participant.id === participantId
+      ? {
+          ...participant,
+          status,
+          respondedAt,
+        }
+      : participant,
+  );
+};
 
 type AvailabilityEntry = {
   id: string;
@@ -230,6 +370,20 @@ const getNumberValue = (value: unknown): number | undefined =>
 
 const getBooleanValue = (value: unknown): boolean | undefined =>
   typeof value === "boolean" ? value : undefined;
+
+const DISPUTE_DEMO_PROJECT_TITLE_PATTERN = /^DISPUTE\s*DEMO\s*::\s*\d+\s*::\s*/i;
+
+const normalizeProjectDisplayTitle = (value?: string | null): string | undefined => {
+  const normalized = `${value || ""}`.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return (
+    normalized.replace(DISPUTE_DEMO_PROJECT_TITLE_PATTERN, "").trim() ||
+    normalized
+  );
+};
 
 const normalizeDisputeSummary = (
   value: unknown,
@@ -340,7 +494,6 @@ const truncate = (value: string | undefined, maxLength: number) => {
 export const ParticipantHearingsPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [date, setDate] = useState(new Date());
   const [view, setView] = useState<CalendarViewType>("timeGridWeek");
   const [events, setEvents] = useState<HearingCalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -365,11 +518,15 @@ export const ParticipantHearingsPage = () => {
   const [worklistDegradedMessage, setWorklistDegradedMessage] = useState<
     string | null
   >(null);
+  const [markingViewedIds, setMarkingViewedIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [selectedDisputeId, setSelectedDisputeId] = useState("");
   const [mobileStep, setMobileStep] = useState<MobileStep>("cases");
-  const [markingViewedIds, setMarkingViewedIds] = useState<Set<string>>(
-    new Set(),
-  );
+  const [visibleRange, setVisibleRange] = useState<CalendarVisibleRange>(() => {
+    const initialRange = resolveRange(new Date(), "timeGridWeek");
+    return buildVisibleRange(initialRange.start, initialRange.end);
+  });
 
   const [cancelingDispute, setCancelingDispute] = useState(false);
   const [submittingInfo, setSubmittingInfo] = useState(false);
@@ -383,6 +540,7 @@ export const ParticipantHearingsPage = () => {
   const [proposalDeleteId, setProposalDeleteId] = useState<string | null>(null);
   const [proposalSubmitLoading, setProposalSubmitLoading] = useState(false);
   const [infoResponseDraft, setInfoResponseDraft] = useState("");
+  const [infoEvidenceIds, setInfoEvidenceIds] = useState<string[]>([]);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedEvent, setSelectedEvent] =
     useState<HearingCalendarEvent | null>(null);
@@ -390,6 +548,10 @@ export const ParticipantHearingsPage = () => {
     null,
   );
   const notifiedRef = useRef<Set<string>>(new Set());
+  const joinedDisputeIdsRef = useRef<Set<string>>(new Set());
+  const refreshTimeoutRef = useRef<number | null>(null);
+  const realtimeEventSignaturesRef = useRef<Map<string, number>>(new Map());
+  const fetchSequenceRef = useRef(0);
 
   const currentUser = useMemo(
     () => getStoredJson<{ id?: string; role?: string }>(STORAGE_KEYS.USER),
@@ -505,7 +667,10 @@ export const ParticipantHearingsPage = () => {
     Boolean(proposalEnd) &&
     proposalValidation.isValid;
 
-  const fetchEvents = useCallback(async () => {
+  const fetchEvents = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = options?.silent ?? false;
+    const fetchSequence = ++fetchSequenceRef.current;
+
     if (!userId) {
       setEvents([]);
       setAvailabilityEntries([]);
@@ -513,20 +678,31 @@ export const ParticipantHearingsPage = () => {
       return;
     }
 
-    setLoading(true);
-    setWorklistLoading(true);
+    if (!silent) {
+      setLoading(true);
+      setWorklistLoading(true);
+    }
+
     setWorklistDegradedMessage(null);
-    const { start, end } = resolveRange(date, view);
+
+    const rangeStartIso = visibleRange.startIso;
+    const rangeEndIso = visibleRange.endIso;
+
     const [eventsResult, availabilityResult, worklistResult] =
       await Promise.allSettled([
         getEvents({
-          startDate: start.toISOString(),
-          endDate: end.toISOString(),
-          participantId: userId,
+          startDate: rangeStartIso,
+          endDate: rangeEndIso,
+          type: EventType.DISPUTE_HEARING,
+          limit: 200,
         }),
-        getMyAvailability(start.toISOString(), end.toISOString()),
+        getMyAvailability(rangeStartIso, rangeEndIso),
         getSchedulingWorklist(),
       ]);
+
+    if (fetchSequenceRef.current !== fetchSequence) {
+      return;
+    }
 
     if (eventsResult.status === "fulfilled") {
       const items = eventsResult.value?.items ?? [];
@@ -540,6 +716,28 @@ export const ParticipantHearingsPage = () => {
           ) {
             return null;
           }
+          const disputeSummary = normalizeDisputeSummary(
+            event.metadata?.disputeSummary,
+          );
+          const hearingSummary = normalizeHearingSummary(
+            event.metadata?.hearingSummary,
+          );
+          const contextProjectTitle = normalizeProjectDisplayTitle(
+            event.disputeContext?.projectTitle,
+          );
+          const projectTitle =
+            contextProjectTitle ||
+            normalizeProjectDisplayTitle(disputeSummary?.projectTitle);
+          const displayCode =
+            event.disputeContext?.displayCode ||
+            disputeSummary?.displayCode ||
+            `DSP-${(event.referenceId || event.id).slice(0, 8).toUpperCase()}`;
+          const displayTitle =
+            (projectTitle ? `${projectTitle} dispute` : undefined) ||
+            disputeSummary?.displayTitle ||
+            event.title ||
+            "Dispute Hearing";
+
           return {
             id: event.id,
             title: event.title || "Dispute Hearing",
@@ -555,33 +753,28 @@ export const ParticipantHearingsPage = () => {
             metadata: (event.metadata as Record<string, unknown>) || undefined,
             disputeId:
               event.disputeContext?.disputeId ||
-              normalizeDisputeSummary(event.metadata?.disputeSummary)?.id,
-            displayTitle:
-              normalizeDisputeSummary(event.metadata?.disputeSummary)?.displayTitle ||
-              event.title ||
-              "Dispute Hearing",
-            displayCode:
-              normalizeDisputeSummary(event.metadata?.disputeSummary)?.displayCode ||
-              event.disputeContext?.displayCode ||
-              `DSP-${(event.referenceId || event.id).slice(0, 8).toUpperCase()}`,
-            projectTitle:
-              normalizeDisputeSummary(event.metadata?.disputeSummary)?.projectTitle ||
-              event.disputeContext?.projectTitle,
-            reasonExcerpt: normalizeDisputeSummary(event.metadata?.disputeSummary)?.reasonExcerpt,
-            hearingNumber: normalizeHearingSummary(event.metadata?.hearingSummary)?.hearingNumber,
-            tier: normalizeHearingSummary(event.metadata?.hearingSummary)?.tier,
-            nextAction: normalizeHearingSummary(event.metadata?.hearingSummary)?.nextAction,
+              disputeSummary?.id ||
+              (typeof event.metadata?.disputeId === "string"
+                ? event.metadata.disputeId
+                : undefined),
+            displayTitle,
+            displayCode,
+            projectTitle,
+            reasonExcerpt: disputeSummary?.reasonExcerpt,
+            hearingNumber: hearingSummary?.hearingNumber,
+            tier: hearingSummary?.tier,
+            nextAction: hearingSummary?.nextAction,
             appealState:
-              normalizeDisputeSummary(event.metadata?.disputeSummary)?.appealState ||
-              normalizeHearingSummary(event.metadata?.hearingSummary)?.appealState,
+              disputeSummary?.appealState ||
+              hearingSummary?.appealState,
             isActionable:
-              normalizeHearingSummary(event.metadata?.hearingSummary)?.isActionable,
+              hearingSummary?.isActionable,
             isArchived:
-              normalizeHearingSummary(event.metadata?.hearingSummary)?.isArchived,
+              hearingSummary?.isArchived,
             freezeReason:
-              normalizeHearingSummary(event.metadata?.hearingSummary)?.freezeReason,
-            disputeSummary: normalizeDisputeSummary(event.metadata?.disputeSummary),
-            hearingSummary: normalizeHearingSummary(event.metadata?.hearingSummary),
+              hearingSummary?.freezeReason,
+            disputeSummary,
+            hearingSummary,
             participants: event.participants ?? [],
             disputeContext: event.disputeContext,
           };
@@ -596,10 +789,27 @@ export const ParticipantHearingsPage = () => {
           return isDisputeHearingType || Boolean(isDisputeReference);
         });
       setEvents(mapped);
+      setSelectedEvent((current) => {
+        if (!current) {
+          return current;
+        }
+        const refreshed = mapped.find((event) => event.id === current.id);
+        if (refreshed) {
+          return refreshed;
+        }
+
+        const fallback = mapped.find(
+          (event) =>
+            Boolean(current.disputeId) && event.disputeId === current.disputeId,
+        );
+
+        return fallback ?? null;
+      });
     } else {
       console.error("Failed to load calendar events:", eventsResult.reason);
-      toast.error("Could not load calendar events.");
-      setEvents([]);
+      if (!silent) {
+        toast.error("Could not load calendar events.");
+      }
     }
 
     if (availabilityResult.status === "fulfilled") {
@@ -655,14 +865,228 @@ export const ParticipantHearingsPage = () => {
       setWorklistDegradedMessage(
         "Could not refresh dispute scheduling worklist. Showing last synced data.",
       );
-      toast.warning(
-        "Some dispute scheduling data failed to load. Calendar is still available.",
-      );
+      if (!silent) {
+        toast.warning(
+          "Some dispute scheduling data failed to load. Calendar is still available.",
+        );
+      }
     }
 
-    setWorklistLoading(false);
-    setLoading(false);
-  }, [date, focusedDisputeId, userId, view]);
+    if (!silent) {
+      setWorklistLoading(false);
+      setLoading(false);
+    }
+  }, [focusedDisputeId, userId, visibleRange.endIso, visibleRange.startIso]);
+
+  const scheduleRealtimeRefresh = useCallback(() => {
+    if (refreshTimeoutRef.current !== null) {
+      window.clearTimeout(refreshTimeoutRef.current);
+    }
+
+    refreshTimeoutRef.current = window.setTimeout(() => {
+      refreshTimeoutRef.current = null;
+      void fetchEvents({ silent: true });
+    }, REALTIME_REFRESH_DEBOUNCE_MS);
+  }, [fetchEvents]);
+
+  const applyRealtimeInviteResponse = useCallback((payload: unknown) => {
+    if (!payload || typeof payload !== "object") {
+      return;
+    }
+
+    const eventPayload = payload as Record<string, unknown>;
+    const eventId =
+      typeof eventPayload.eventId === "string" ? eventPayload.eventId : null;
+    const participantId =
+      typeof eventPayload.participantId === "string"
+        ? eventPayload.participantId
+        : null;
+    const response = isInviteResponseValue(eventPayload.response)
+      ? eventPayload.response
+      : null;
+    const nextStatus = toEventStatus(eventPayload.eventStatus);
+
+    if (!eventId) {
+      return;
+    }
+
+    const updateEvent = (event: HearingCalendarEvent): HearingCalendarEvent => {
+      if (event.id !== eventId) {
+        return event;
+      }
+
+      return {
+        ...event,
+        status: nextStatus ?? event.status,
+        participants:
+          participantId && response
+            ? applyInviteResponseToParticipants(event.participants, participantId, response)
+            : event.participants,
+      };
+    };
+
+    setEvents((current) => current.map(updateEvent));
+    setSelectedEvent((current) => (current ? updateEvent(current) : current));
+  }, []);
+
+  const realtimeDisputeIds = useMemo(() => {
+    const ids = new Set<string>();
+
+    events.forEach((event) => {
+      if (event.disputeId) {
+        ids.add(event.disputeId);
+      }
+    });
+
+    worklistItems.forEach((item) => {
+      if (item.disputeId) {
+        ids.add(item.disputeId);
+      }
+    });
+
+    if (selectedEvent?.disputeId) {
+      ids.add(selectedEvent.disputeId);
+    }
+
+    return Array.from(ids);
+  }, [events, selectedEvent?.disputeId, worklistItems]);
+
+  useEffect(() => {
+    const socket = connectSocket();
+    const joined = joinedDisputeIdsRef.current;
+
+    const joinTrackedRooms = () => {
+      realtimeDisputeIds.forEach((disputeId) => {
+        if (!joined.has(disputeId)) {
+          socket.emit("joinDispute", { disputeId });
+          joined.add(disputeId);
+        }
+      });
+    };
+
+    if (socket.connected) {
+      joinTrackedRooms();
+    } else {
+      socket.once("connect", joinTrackedRooms);
+    }
+
+    joined.forEach((disputeId) => {
+      if (!realtimeDisputeIds.includes(disputeId)) {
+        socket.emit("leaveDispute", { disputeId });
+        joined.delete(disputeId);
+      }
+    });
+
+    return () => {
+      socket.off("connect", joinTrackedRooms);
+    };
+  }, [realtimeDisputeIds]);
+
+  useEffect(() => {
+    const socket = connectSocket();
+    const realtimeEvents = [
+      "HEARING_SCHEDULED",
+      "HEARING_RESCHEDULED",
+      "HEARING_STARTED",
+      "HEARING_PAUSED",
+      "HEARING_RESUMED",
+      "HEARING_ENDED",
+      "HEARING_EXTENDED",
+      "HEARING_FOLLOW_UP_SCHEDULED",
+      "HEARING_INVITE_RESPONDED",
+      "VERDICT_ISSUED",
+      "APPEAL_DEADLINE_PASSED",
+    ] as const;
+    const handlers = new Map<string, (payload: unknown) => void>();
+
+    const cleanupStaleSignatures = (now: number) => {
+      const signatures = realtimeEventSignaturesRef.current;
+      signatures.forEach((timestamp, key) => {
+        if (now - timestamp > REALTIME_EVENT_DEDUPE_TTL_MS) {
+          signatures.delete(key);
+        }
+      });
+    };
+
+    const buildRealtimeSignature = (eventName: string, payload: unknown): string => {
+      if (!payload || typeof payload !== "object") {
+        return `${eventName}:no-payload`;
+      }
+
+      const value = payload as Record<string, unknown>;
+      const eventId = typeof value.eventId === "string" ? value.eventId : "";
+      const disputeId = typeof value.disputeId === "string" ? value.disputeId : "";
+      const hearingId = typeof value.hearingId === "string" ? value.hearingId : "";
+      const participantId =
+        typeof value.participantId === "string" ? value.participantId : "";
+      const response = typeof value.response === "string" ? value.response : "";
+      const eventStatus =
+        typeof value.eventStatus === "string" ? value.eventStatus : "";
+      const respondedAt =
+        typeof value.respondedAt === "string" ? value.respondedAt : "";
+      const serverTimestamp =
+        typeof value.serverTimestamp === "string" ? value.serverTimestamp : "";
+
+      return [
+        eventName,
+        eventId,
+        disputeId,
+        hearingId,
+        participantId,
+        response,
+        eventStatus,
+        respondedAt,
+        serverTimestamp,
+      ].join("|");
+    };
+
+    realtimeEvents.forEach((eventName) => {
+      const handler = (payload: unknown) => {
+        const now = Date.now();
+        cleanupStaleSignatures(now);
+
+        const signature = buildRealtimeSignature(eventName, payload);
+        const signatures = realtimeEventSignaturesRef.current;
+        const seenAt = signatures.get(signature);
+        if (seenAt && now - seenAt < REALTIME_EVENT_DEDUPE_TTL_MS) {
+          return;
+        }
+        signatures.set(signature, now);
+
+        if (eventName === "HEARING_INVITE_RESPONDED") {
+          applyRealtimeInviteResponse(payload);
+        }
+
+        scheduleRealtimeRefresh();
+      };
+
+      handlers.set(eventName, handler);
+      socket.on(eventName, handler);
+    });
+
+    return () => {
+      realtimeEvents.forEach((eventName) => {
+        const handler = handlers.get(eventName);
+        if (handler) {
+          socket.off(eventName, handler);
+        }
+      });
+    };
+  }, [applyRealtimeInviteResponse, scheduleRealtimeRefresh]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimeoutRef.current !== null) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
+
+      const socket = connectSocket();
+      joinedDisputeIdsRef.current.forEach((disputeId) => {
+        socket.emit("leaveDispute", { disputeId });
+      });
+      joinedDisputeIdsRef.current.clear();
+    };
+  }, []);
 
   useEffect(() => {
     fetchEvents();
@@ -696,8 +1120,12 @@ export const ParticipantHearingsPage = () => {
   useEffect(() => {
     if (!selectedCase || selectedCase.actionType !== "PROVIDE_INFO") {
       setInfoResponseDraft("");
+      setInfoEvidenceIds([]);
+      return;
     }
-  }, [selectedCase]);
+
+    setInfoEvidenceIds([]);
+  }, [selectedCase?.actionType, selectedCase?.disputeId]);
 
   useEffect(() => {
     if (
@@ -736,10 +1164,11 @@ export const ParticipantHearingsPage = () => {
   }, [markingViewedIds, selectedCase]);
 
   useEffect(() => {
-        if (!events.length) return;
-        const notify = () => {
-          const now = new Date();
-          events.forEach((event) => {
+    if (!events.length) return;
+
+    const notify = () => {
+      const now = new Date();
+      events.forEach((event) => {
         if (!isActionableEvent(event)) return;
         const minutesUntil = (event.start.getTime() - now.getTime()) / 60000;
         if (minutesUntil > 10 || minutesUntil < -5) return;
@@ -753,6 +1182,7 @@ export const ParticipantHearingsPage = () => {
         notifiedRef.current.add(key);
       });
     };
+
     notify();
     const interval = window.setInterval(notify, 60_000);
     return () => window.clearInterval(interval);
@@ -815,6 +1245,38 @@ export const ParticipantHearingsPage = () => {
   const handleRespondInvite = useCallback(
     async (response: EventInviteResponse) => {
       if (!selectedEvent || !selectedParticipant) return;
+
+      const previousSelectedEvent = selectedEvent;
+      const previousEvents = events;
+
+      setSelectedEvent((current) => {
+        if (!current || current.id !== selectedEvent.id) {
+          return current;
+        }
+        return {
+          ...current,
+          participants: applyInviteResponseToParticipants(
+            current.participants,
+            selectedParticipant.id,
+            response,
+          ),
+        };
+      });
+      setEvents((current) =>
+        current.map((event) =>
+          event.id === selectedEvent.id
+            ? {
+                ...event,
+                participants: applyInviteResponseToParticipants(
+                  event.participants,
+                  selectedParticipant.id,
+                  response,
+                ),
+              }
+            : event,
+        ),
+      );
+
       try {
         setResponding(response);
         const result = await respondEventInvite(selectedEvent.id, {
@@ -840,16 +1302,17 @@ export const ParticipantHearingsPage = () => {
         }
 
         await fetchEvents();
-        setDetailOpen(false);
-        setSelectedEvent(null);
+        scheduleRealtimeRefresh();
       } catch (error) {
+        setSelectedEvent(previousSelectedEvent);
+        setEvents(previousEvents);
         console.error("Failed to respond to hearing invitation:", error);
         toast.error("Could not submit your response.");
       } finally {
         setResponding(null);
       }
     },
-    [fetchEvents, selectedEvent, selectedParticipant],
+    [events, fetchEvents, scheduleRealtimeRefresh, selectedEvent, selectedParticipant],
   );
 
   const calendarEvents = useMemo(
@@ -891,9 +1354,9 @@ export const ParticipantHearingsPage = () => {
             color: statusStyle.text,
           }}
         >
-          <span className="truncate">{event.displayCode}</span>
+          <span className="truncate">{resolveHearingBadgeLabel(event)}</span>
           <span className="shrink-0 rounded-full bg-white/80 px-1 py-0.5 text-[9px]">
-            {event.hearingNumber ? `H${event.hearingNumber}` : statusShortLabelMap[event.status]}
+            {statusShortLabelMap[event.status]}
           </span>
         </div>
       );
@@ -914,11 +1377,11 @@ export const ParticipantHearingsPage = () => {
         }}
       >
         <div className="flex items-center justify-between gap-2">
-          <span className="truncate text-[10px] font-semibold uppercase tracking-[0.14em]">
-            {event.displayCode}
+          <span className="truncate text-[10px] font-semibold text-slate-800">
+            {resolveHearingBadgeLabel(event)}
           </span>
           <span className="rounded-full bg-white/70 px-1.5 py-0.5 text-[10px] font-semibold">
-            {event.hearingNumber ? `H${event.hearingNumber}` : statusShortLabelMap[event.status]}
+            {statusShortLabelMap[event.status]}
           </span>
         </div>
         <div className="mt-1 line-clamp-2 text-xs font-semibold leading-4 text-slate-900">
@@ -940,7 +1403,12 @@ export const ParticipantHearingsPage = () => {
           </span>
           {event.tier ? (
             <span className="rounded-full bg-white/75 px-1.5 py-0.5 text-[10px] font-medium">
-              {event.tier.replaceAll("_", " ")}
+              {formatTierLabel(event.tier)}
+            </span>
+          ) : null}
+          {shouldShowAppealBadge(event.appealState) ? (
+            <span className="rounded-full bg-white/75 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">
+              {formatAppealStateLabel(event.appealState)}
             </span>
           ) : null}
           {event.nextAction && !isListView ? (
@@ -973,9 +1441,15 @@ export const ParticipantHearingsPage = () => {
   }, [handleSelectEvent]);
 
   const handleDatesSet = useCallback((arg: DatesSetArg) => {
-    setDate((current) =>
-      current.getTime() === arg.start.getTime() ? current : arg.start,
+    const nextRange = buildVisibleRange(arg.start, arg.end);
+
+    setVisibleRange((current) =>
+      current.startIso === nextRange.startIso &&
+      current.endIso === nextRange.endIso
+        ? current
+        : nextRange,
     );
+
     setView((current) =>
       current === (arg.view.type as CalendarViewType)
         ? current
@@ -987,9 +1461,9 @@ export const ParticipantHearingsPage = () => {
     if (!selectedEvent?.disputeId) return;
     try {
       await navigator.clipboard.writeText(selectedEvent.disputeId);
-      toast.success("Dispute ID copied");
+      toast.success("Technical case ID copied");
     } catch {
-      toast.error("Could not copy dispute ID");
+      toast.error("Could not copy technical case ID");
     }
   }, [selectedEvent?.disputeId]);
 
@@ -1086,16 +1560,31 @@ export const ParticipantHearingsPage = () => {
     }
 
     const message = infoResponseDraft.trim();
-    if (message.length < 10) {
+    const evidenceIds = infoEvidenceIds;
+
+    if (!message && evidenceIds.length === 0) {
+      toast.error("Add a response message or select evidence before submitting.");
+      return;
+    }
+
+    if (message.length > 0 && message.length < 10 && evidenceIds.length === 0) {
       toast.error("Please provide at least 10 characters for your response.");
       return;
     }
 
     try {
       setSubmittingInfo(true);
-      await provideDisputeInfo(selectedCase.disputeId, { message });
-      toast.success("Additional information submitted.");
+      await provideDisputeInfo(selectedCase.disputeId, {
+        message: message || undefined,
+        evidenceIds: evidenceIds.length > 0 ? evidenceIds : undefined,
+      });
+      toast.success(
+        evidenceIds.length > 0
+          ? "Additional information and evidence submitted."
+          : "Additional information submitted.",
+      );
       setInfoResponseDraft("");
+      setInfoEvidenceIds([]);
       await fetchEvents();
     } catch (error) {
       console.error("Failed to provide dispute info:", error);
@@ -1103,7 +1592,7 @@ export const ParticipantHearingsPage = () => {
     } finally {
       setSubmittingInfo(false);
     }
-  }, [fetchEvents, infoResponseDraft, selectedCase]);
+  }, [fetchEvents, infoEvidenceIds, infoResponseDraft, selectedCase]);
 
   const handleProposalStartChange = useCallback(
     (value: string) => {
@@ -1291,9 +1780,7 @@ export const ParticipantHearingsPage = () => {
 
       {createdDisputeId && (
         <div className="rounded-xl border border-teal-200 bg-teal-50 px-4 py-3 text-sm text-teal-700">
-          New dispute created:{" "}
-          <span className="font-semibold">#{createdDisputeId.slice(0, 8)}</span>
-          .
+          New dispute created successfully. Open Disputes for the full case record.
         </div>
       )}
 
@@ -1320,7 +1807,7 @@ export const ParticipantHearingsPage = () => {
             </div>
           </div>
           <div className="px-4 pb-4">
-            <div className="interdev-fc h-[700px] overflow-hidden rounded-2xl border border-slate-200">
+            <div className="interdev-fc h-175 overflow-hidden rounded-2xl border border-slate-200">
               <FullCalendar
                 plugins={[
                   dayGridPlugin,
@@ -1375,8 +1862,8 @@ export const ParticipantHearingsPage = () => {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        {event.displayCode}
+                      <div className="truncate text-xs font-semibold text-slate-700">
+                        {resolveHearingBadgeLabel(event)}
                       </div>
                       <div className="truncate font-medium text-slate-900">
                         {event.displayTitle}
@@ -1417,8 +1904,8 @@ export const ParticipantHearingsPage = () => {
                 >
                   <div className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
-                      <div className="truncate text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                        {event.displayCode}
+                      <div className="truncate text-xs font-semibold text-slate-700">
+                        {resolveHearingBadgeLabel(event)}
                       </div>
                       <div className="truncate font-medium text-slate-900">
                         {event.displayTitle}
@@ -1555,7 +2042,7 @@ export const ParticipantHearingsPage = () => {
           <div className="flex items-center gap-2 lg:hidden">
             <button
               className={cn(
-                "min-h-[40px] rounded-lg border px-4 py-2 text-xs font-medium transition-colors",
+                "min-h-10 rounded-lg border px-4 py-2 text-xs font-medium transition-colors",
                 mobileStep === "cases"
                   ? "border-teal-300 bg-teal-50 text-teal-700"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
@@ -1566,7 +2053,7 @@ export const ParticipantHearingsPage = () => {
             </button>
             <button
               className={cn(
-                "min-h-[40px] rounded-lg border px-4 py-2 text-xs font-medium transition-colors",
+                "min-h-10 rounded-lg border px-4 py-2 text-xs font-medium transition-colors",
                 mobileStep === "actions"
                   ? "border-teal-300 bg-teal-50 text-teal-700"
                   : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50",
@@ -1605,7 +2092,7 @@ export const ParticipantHearingsPage = () => {
             >
               <div className="mb-3 lg:hidden">
                 <button
-                  className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
+                  className="inline-flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50 transition-colors"
                   onClick={() => setMobileStep("cases")}
                 >
                   <ChevronLeft className="h-3.5 w-3.5" />
@@ -1625,12 +2112,14 @@ export const ParticipantHearingsPage = () => {
                 proposalDeleteId={proposalDeleteId}
                 scheduleProposals={scheduleProposals}
                 infoResponseDraft={infoResponseDraft}
+                infoEvidenceIds={infoEvidenceIds}
                 submittingInfo={submittingInfo}
                 canceling={cancelingDispute}
                 onProposalStartChange={handleProposalStartChange}
                 onProposalEndChange={handleProposalEndChange}
                 onProposalNoteChange={setProposalNote}
                 onInfoResponseChange={setInfoResponseDraft}
+                onInfoEvidenceIdsChange={setInfoEvidenceIds}
                 onCreateProposal={handleCreateProposal}
                 onSubmitProposals={handleSubmitProposals}
                 onDeleteProposal={handleDeleteProposal}
@@ -1664,15 +2153,20 @@ export const ParticipantHearingsPage = () => {
             <div className="flex-1 space-y-5 overflow-y-auto p-4 text-sm text-slate-600">
               <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600">
-                    {selectedEvent.displayCode}
+                  <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700">
+                    {resolveHearingBadgeLabel(selectedEvent)}
                   </span>
                   <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700">
                     {statusLabelMap[selectedEvent.status]}
                   </span>
                   {selectedEvent.tier ? (
                     <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-700">
-                      {selectedEvent.tier.replaceAll("_", " ")}
+                      {formatTierLabel(selectedEvent.tier)}
+                    </span>
+                  ) : null}
+                  {selectedEvent.disputeId ? (
+                    <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold text-slate-500">
+                      Case ref: {selectedEvent.displayCode}
                     </span>
                   ) : null}
                 </div>
@@ -1709,7 +2203,7 @@ export const ParticipantHearingsPage = () => {
                       Appeal state
                     </p>
                     <p className="mt-1 font-medium text-slate-900">
-                      {selectedEvent.appealState || "None"}
+                      {formatAppealStateLabel(selectedEvent.appealState)}
                     </p>
                   </div>
                 </div>
@@ -1759,21 +2253,29 @@ export const ParticipantHearingsPage = () => {
                 </div>
                 <div className="rounded-xl border border-slate-200 bg-white p-4">
                   <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                    Full dispute id
+                    Case reference
                   </p>
-                  <div className="mt-1 flex items-center gap-2">
-                    <code className="truncate text-xs text-slate-700">
-                      {selectedEvent.disputeId || "Unavailable"}
-                    </code>
-                    {selectedEvent.disputeId ? (
-                      <button
-                        type="button"
-                        onClick={() => void copyDisputeId()}
-                        className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
-                      >
-                        Copy
-                      </button>
-                    ) : null}
+                  <div className="mt-1 space-y-2">
+                    <p className="font-medium text-slate-900">
+                      {selectedEvent.displayCode || "Unavailable"}
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-xs text-slate-600">
+                        Technical ID: {selectedEvent.disputeId || "Unavailable"}
+                      </span>
+                      {selectedEvent.disputeId ? (
+                        <button
+                          type="button"
+                          onClick={() => void copyDisputeId()}
+                          className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-medium text-slate-600 hover:bg-slate-50"
+                        >
+                          Copy ID
+                        </button>
+                      ) : null}
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Use this technical ID only when contacting support.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -1794,13 +2296,15 @@ export const ParticipantHearingsPage = () => {
                             {participant.displayName}
                           </p>
                           <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
-                            <span>{participant.hearingRole.replaceAll("_", " ")}</span>
+                            <span>{formatRoleLabel(participant.hearingRole)}</span>
                             {participant.handle ? <span>{participant.handle}</span> : null}
-                            {participant.systemRole ? <span>{participant.systemRole}</span> : null}
+                            {participant.systemRole ? (
+                              <span>{formatRoleLabel(participant.systemRole)}</span>
+                            ) : null}
                           </div>
                         </div>
                         <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                          {participant.inviteStatus.replaceAll("_", " ")}
+                          {formatInviteStatusLabel(participant.inviteStatus)}
                         </span>
                       </div>
                     ))}
@@ -1814,7 +2318,7 @@ export const ParticipantHearingsPage = () => {
                     Your response
                   </p>
                   <p className="mt-1 font-medium text-slate-900">
-                    {selectedParticipant.status.replaceAll("_", " ")}
+                    {formatInviteStatusLabel(selectedParticipant.status)}
                   </p>
                 </div>
               ) : null}

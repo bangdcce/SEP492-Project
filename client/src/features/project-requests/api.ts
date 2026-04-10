@@ -48,7 +48,11 @@ export const projectRequestsApi = {
   respondCommercialChangeRequest: (
     id: string,
     changeRequestId: string,
-    payload: { action: "APPROVE" | "REJECT"; note?: string },
+    payload: {
+      action: "APPROVE" | "REJECT";
+      note?: string;
+      acknowledgeOutOfRangeBudgetWarning?: boolean;
+    },
   ) => {
     return apiClient.post<ProjectRequest>(
       `/project-requests/${id}/commercial-change-requests/${changeRequestId}/respond`,

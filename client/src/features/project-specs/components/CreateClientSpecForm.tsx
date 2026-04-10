@@ -93,14 +93,77 @@ const normalizeReferenceUrl = (value?: string): string => {
   return trimmed;
 };
 
+const BUDGET_CODE_RANGES: Record<string, { min?: number; max?: number }> = {
+  UNDER_1K: { min: 0, max: 1000 },
+  '1K_5K': { min: 1000, max: 5000 },
+  '5K_10K': { min: 5000, max: 10000 },
+  '10K_25K': { min: 10000, max: 25000 },
+  ABOVE_25K: { min: 25000 },
+};
+
+const isFiniteNonNegativeNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0;
+
+const parseBudgetToken = (value: string): number | undefined => {
+  const normalized = value.replace(/[$,\s]/g, '').toUpperCase();
+  const match = normalized.match(/^(\d+(?:\.\d+)?)([KMB])?$/);
+  if (!match) {
+    return undefined;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) {
+    return undefined;
+  }
+
+  const multiplier =
+    match[2] === 'K' ? 1000 : match[2] === 'M' ? 1000000 : match[2] === 'B' ? 1000000000 : 1;
+
+  return Math.round(amount * multiplier);
+};
+
 const parseBudgetRange = (value?: string | null): { min?: number; max?: number } | null => {
   const raw = String(value || '').trim();
   if (!raw) return null;
 
+  const normalizedCode = raw.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
+  if (BUDGET_CODE_RANGES[normalizedCode]) {
+    return BUDGET_CODE_RANGES[normalizedCode];
+  }
+
+  const normalizedRaw = raw.toUpperCase();
+  if (BUDGET_CODE_RANGES[normalizedRaw]) {
+    return BUDGET_CODE_RANGES[normalizedRaw];
+  }
+
+  const compactMatches = raw.match(/\d[\d,.]*(?:\.\d+)?\s*[kKmMbB]?/g) || [];
+  const compactNumbers = compactMatches
+    .map((segment) => parseBudgetToken(segment))
+    .filter(isFiniteNonNegativeNumber);
+
+  if (compactNumbers.length > 0) {
+    if (raw.includes('+') || /above|over|more than/i.test(raw)) {
+      return { min: compactNumbers[0] };
+    }
+
+    if (/under|below|less than/i.test(raw)) {
+      return { min: 0, max: compactNumbers[0] };
+    }
+
+    if (compactNumbers.length === 1) {
+      return { min: compactNumbers[0], max: compactNumbers[0] };
+    }
+
+    return {
+      min: Math.min(...compactNumbers),
+      max: Math.max(...compactNumbers),
+    };
+  }
+
   const matches = raw.match(/\d[\d,.]*/g) || [];
   const numbers = matches
     .map((segment) => Number(segment.replace(/[^\d.]/g, '')))
-    .filter((number) => Number.isFinite(number) && number >= 0);
+    .filter(isFiniteNonNegativeNumber);
 
   if (numbers.length === 0) {
     return null;
@@ -298,6 +361,84 @@ export function CreateClientSpecForm({
     });
   };
 
+  const handleFillTestData = () => {
+    const selectedOrFirstTemplate =
+      selectedTemplate || compatibleTemplates[0] || null;
+
+    const resolvedBudget = (() => {
+      if (parsedBudgetRange?.min != null && parsedBudgetRange?.max != null) {
+        return Math.max(1, Math.round((parsedBudgetRange.min + parsedBudgetRange.max) / 2));
+      }
+
+      if (parsedBudgetRange?.min != null) {
+        return Math.max(1, parsedBudgetRange.min);
+      }
+
+      if (parsedBudgetRange?.max != null) {
+        return Math.max(1, Math.round(parsedBudgetRange.max * 0.8));
+      }
+
+      return 15000;
+    })();
+
+    const testClientFeatures =
+      selectedOrFirstTemplate?.clientFeatures?.length
+        ? selectedOrFirstTemplate.clientFeatures.map((feature) => ({
+            id: feature.id || undefined,
+            title: feature.title,
+            description: feature.description,
+            priority: feature.priority,
+          }))
+        : [
+            {
+              id: undefined,
+              title: 'Product Catalog',
+              description:
+                'Users can browse products with filters, sorting, and category navigation.',
+              priority: 'MUST_HAVE' as const,
+            },
+            {
+              id: undefined,
+              title: 'Checkout',
+              description:
+                'Users can place orders with shipping information and payment confirmation.',
+              priority: 'MUST_HAVE' as const,
+            },
+            {
+              id: undefined,
+              title: 'Order Tracking',
+              description:
+                'Users can view current order status and delivery updates after purchase.',
+              priority: 'SHOULD_HAVE' as const,
+            },
+          ];
+
+    form.reset({
+      title: 'Project hệ thống Nam Cần Thơ > FPT',
+      description:
+        'Client scope draft for ecommerce delivery focused on catalog, checkout, and post-purchase order tracking for initial commercial review.',
+      estimatedBudget: resolvedBudget,
+      agreedDeliveryDeadline: minimumDeliveryDeadline,
+      projectCategory: lockedProjectCategory || form.getValues('projectCategory') || '',
+      templateCode: selectedOrFirstTemplate?.code || '',
+      changeSummary:
+        'Prepared test submission with aligned budget, deadline, and baseline client-facing features for workflow verification.',
+      clientFeatures: testClientFeatures,
+      referenceLinks: [
+        {
+          label: 'Requirement brief',
+          url: 'https://drive.google.com/file/d/example',
+        },
+        {
+          label: 'Design reference',
+          url: 'https://www.figma.com/file/example/client-spec',
+        },
+      ],
+    });
+
+    form.clearErrors();
+  };
+
   const handleSubmit = (values: FormSubmitValues) => {
     if (values.agreedDeliveryDeadline < minimumDeliveryDeadline) {
       form.setError('agreedDeliveryDeadline', {
@@ -455,6 +596,12 @@ export function CreateClientSpecForm({
         </Alert>
       )}
 
+      <div className="flex justify-end">
+        <Button type="button" variant="outline" onClick={handleFillTestData}>
+          Fill Test Data
+        </Button>
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Template Starter</CardTitle>
@@ -516,7 +663,7 @@ export function CreateClientSpecForm({
             <Textarea
               {...form.register('description')}
               placeholder="Clear, simple scope for client review"
-              className={`min-h-[120px] ${
+              className={`min-h-30 ${
                 errors.description ? 'border-red-500 focus-visible:ring-red-500' : ''
               }`}
             />
@@ -598,7 +745,7 @@ export function CreateClientSpecForm({
             <Textarea
               {...form.register('changeSummary')}
               placeholder="Explain what changed in this submission, especially budget, deadline, or feature scope adjustments."
-              className={`min-h-[96px] ${
+              className={`min-h-24 ${
                 errors.changeSummary ? 'border-red-500 focus-visible:ring-red-500' : ''
               }`}
             />

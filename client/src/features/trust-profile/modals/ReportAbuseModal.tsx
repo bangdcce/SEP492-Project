@@ -89,14 +89,21 @@ export function ReportAbuseModal({
         response?: { data?: { message?: string }; status?: number };
       };
       const message = errorResponse.response?.data?.message || "";
+      const normalizedMessage = message.toLowerCase();
 
       if (errorResponse.response?.status === 400) {
-        if (message.includes("đã report")) {
+        if (
+          normalizedMessage.includes("đã report") ||
+          normalizedMessage.includes("already reported")
+        ) {
           setError("You have already reported this review.");
-        } else if (message.includes("chính mình")) {
+        } else if (
+          normalizedMessage.includes("chính mình") ||
+          normalizedMessage.includes("cannot report your own review")
+        ) {
           setError("You cannot report your own review.");
         } else {
-          setError("You have already reported this review.");
+          setError(message || "Invalid report request.");
         }
       } else if (errorResponse.response?.status === 404) {
         setError("The selected review could not be found.");

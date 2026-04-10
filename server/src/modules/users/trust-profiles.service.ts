@@ -99,6 +99,7 @@ type TrustProfileReviewEligibilityResponse = {
   reason: TrustProfileReviewEligibilityReason;
   pendingReviewCount: number;
   nextProject: TrustProfileReviewCandidateProject | null;
+  pendingProjects: TrustProfileReviewCandidateProject[];
 };
 
 @Injectable()
@@ -160,6 +161,7 @@ export class TrustProfilesService {
         reason: 'VIEWER_NOT_AVAILABLE',
         pendingReviewCount: 0,
         nextProject: null,
+        pendingProjects: [],
       };
     }
 
@@ -169,6 +171,7 @@ export class TrustProfilesService {
         reason: 'SELF_PROFILE',
         pendingReviewCount: 0,
         nextProject: null,
+        pendingProjects: [],
       };
     }
 
@@ -198,6 +201,7 @@ export class TrustProfilesService {
         reason: 'NO_SHARED_COMPLETED_PROJECT',
         pendingReviewCount: 0,
         nextProject: null,
+        pendingProjects: [],
       };
     }
 
@@ -229,6 +233,7 @@ export class TrustProfilesService {
         reason: 'ALREADY_REVIEWED_ALL_SHARED_PROJECTS',
         pendingReviewCount: 0,
         nextProject: null,
+        pendingProjects: [],
       };
     }
 
@@ -237,6 +242,7 @@ export class TrustProfilesService {
       reason: 'ELIGIBLE',
       pendingReviewCount: pendingProjects.length,
       nextProject: pendingProjects[0],
+      pendingProjects,
     };
   }
 

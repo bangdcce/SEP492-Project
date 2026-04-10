@@ -23,6 +23,8 @@ import {
   fetchBoard,
   updateTaskStatus,
   createTask,
+  createTaskSubmission,
+  reviewSubmission,
   fetchMilestones,
   createMilestone,
   approveMilestone,
@@ -55,6 +57,7 @@ import { WorkspaceChatDrawer } from "./components/chat/WorkspaceChatDrawer";
 import { calculateProgress, getLatestApprovedSubmission } from "./utils";
 import { CreateDisputeModal } from "@/features/disputes/components/wizard/CreateDisputeModal";
 import {
+  connectSocket,
   connectNamespacedSocket,
   disconnectNamespacedSocket,
   getNamespacedSocket,
@@ -99,6 +102,18 @@ const TASK_CREATION_ALLOWED_MILESTONE_STATUSES = new Set<Milestone["status"]>([
 ]);
 const TASK_CREATION_LOCK_MESSAGE =
   "Tasks can only be added while the milestone is pending, in progress, or revisions required.";
+const WARRANTY_WINDOW_DAYS = 30;
+const DISPUTE_PRE_DELIVERY_MILESTONE_STATUSES = new Set<string>([
+  "IN_PROGRESS",
+  "SUBMITTED",
+  "REVISIONS_REQUIRED",
+  "PENDING_STAFF_REVIEW",
+  "PENDING_CLIENT_APPROVAL",
+]);
+const DISPUTE_POST_DELIVERY_MILESTONE_STATUSES = new Set<string>([
+  "COMPLETED",
+  "PAID",
+]);
 
 const normalizeMilestoneKey = (value?: string | null) =>
   value == null ? null : String(value);
@@ -118,6 +133,15 @@ const formatMilestoneRuntimeStatus = (status?: string | null) => {
     default:
       return status ?? "PENDING";
   }
+};
+
+const parseWorkspaceDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T00:00:00.000Z`
+    : value;
+  const parsed = new Date(normalizedValue);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
 };
 
 type ProjectWorkspaceMember = {
@@ -184,6 +208,15 @@ export function ProjectWorkspace() {
   // Task Detail Modal state
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
+  const [isQuickActionRunning, setIsQuickActionRunning] = useState(false);
+  const [quickActionTitle, setQuickActionTitle] = useState<string | null>(null);
+  const [quickActionSteps, setQuickActionSteps] = useState<
+    Array<{
+      label: string;
+      status: "pending" | "running" | "done" | "error";
+      note?: string;
+    }>
+  >([]);
 
   const { projectId } = useParams();
   const location = useLocation();
@@ -319,6 +352,7 @@ export function ProjectWorkspace() {
     }
 
     return () => {
+      socket.emit("leaveProjectChat", { projectId });
       socket.off("connect", joinWorkspaceChatRoom);
       socket.off("newProjectMessage", handleNewProjectMessage);
       disconnectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
@@ -330,24 +364,37 @@ export function ProjectWorkspace() {
     return status === "DISPUTED" || Boolean(project?.hasActiveDispute);
   }, [project]);
 
+  const isProjectCanceled = useMemo(() => {
+    const status = project?.status?.toUpperCase();
+    return status === "CANCELED" || status === "CANCELLED";
+  }, [project]);
+
+  const isProjectInteractionLocked = isProjectDisputed || isProjectCanceled;
+
   const currentRole = currentUser?.role?.toUpperCase();
   const billingRole = normalizeSupportedBillingRole(currentRole);
   const isBroker = currentRole === "BROKER";
   const isFreelancer = currentRole === "FREELANCER";
+  const isQuickRoleActionsEnabled =
+    import.meta.env.DEV ||
+    import.meta.env.VITE_ENABLE_TASK_AUTOFILL_TEST === "true";
   const isAssignedBroker = Boolean(
     isBroker && currentUser?.id && project?.brokerId === currentUser.id,
+  );
+  const isProjectFreelancer = Boolean(
+    isFreelancer && currentUser?.id && project?.freelancerId === currentUser.id,
   );
 
   // Clients, internal reviewers, and disputed projects are read-only for task mutations.
   const isReadOnly = useMemo(() => {
     return (
-      currentRole === "CLIENT" || currentRole === "STAFF" || isProjectDisputed
+      currentRole === "CLIENT" || currentRole === "STAFF" || isProjectInteractionLocked
     );
-  }, [currentRole, isProjectDisputed]);
+  }, [currentRole, isProjectInteractionLocked]);
 
   const canApproveMilestone = useMemo(() => {
-    return currentRole === "CLIENT" && !isProjectDisputed;
-  }, [currentRole, isProjectDisputed]);
+    return currentRole === "CLIENT" && !isProjectInteractionLocked;
+  }, [currentRole, isProjectInteractionLocked]);
 
   const hasBrokerReviewStep = Boolean(
     project?.brokerId && project?.brokerId !== project?.clientId,
@@ -376,9 +423,9 @@ export function ProjectWorkspace() {
 
   const canMutateMilestoneStructure = useMemo(() => {
     return (
-      isAssignedBroker && !isProjectDisputed && !isMilestoneStructureLocked
+      isAssignedBroker && !isProjectInteractionLocked && !isMilestoneStructureLocked
     );
-  }, [isAssignedBroker, isProjectDisputed, isMilestoneStructureLocked]);
+  }, [isAssignedBroker, isProjectInteractionLocked, isMilestoneStructureLocked]);
 
   const projectMembers = useMemo<ProjectWorkspaceMember[]>(() => {
     if (!project) return [];
@@ -444,16 +491,36 @@ export function ProjectWorkspace() {
     [projectMembers],
   );
 
-  const canRaiseDisputeForMilestone = useCallback((status?: string) => {
-    if (!status) return false;
-    const normalized = status.toUpperCase();
-    return [
-      "IN_PROGRESS",
-      "SUBMITTED",
-      "REVISIONS_REQUIRED",
-      "PENDING_STAFF_REVIEW",
-      "PENDING_CLIENT_APPROVAL",
-    ].includes(normalized);
+  const canRaiseDisputeForMilestone = useCallback((milestone?: Milestone | null) => {
+    if (!milestone?.status) {
+      return false;
+    }
+
+    const normalizedStatus = milestone.status.toUpperCase();
+
+    if (DISPUTE_PRE_DELIVERY_MILESTONE_STATUSES.has(normalizedStatus)) {
+      return true;
+    }
+
+    if (!DISPUTE_POST_DELIVERY_MILESTONE_STATUSES.has(normalizedStatus)) {
+      return false;
+    }
+
+    if (normalizedStatus !== "PAID") {
+      return true;
+    }
+
+    const paidReferenceDate =
+      parseWorkspaceDate(milestone.escrow?.releasedAt) ||
+      parseWorkspaceDate(milestone.dueDate);
+    if (!paidReferenceDate) {
+      return true;
+    }
+
+    const warrantyDeadline = new Date(paidReferenceDate);
+    warrantyDeadline.setDate(warrantyDeadline.getDate() + WARRANTY_WINDOW_DAYS);
+
+    return Date.now() <= warrantyDeadline.getTime();
   }, []);
 
   const specFeatureOptions = useMemo<SpecFeatureOption[]>(() => {
@@ -527,21 +594,25 @@ export function ProjectWorkspace() {
     [project?.currency],
   );
 
-  useEffect(() => {
-    if (!projectId) {
-      setError("No project selected. Please choose a project from the list.");
-      setLoading(false);
-      return;
-    }
-    const loadBoard = async () => {
+  const reloadWorkspaceData = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!projectId) {
+        setError("No project selected. Please choose a project from the list.");
+        setLoading(false);
+        return;
+      }
+
       try {
-        setLoading(true);
+        if (!options?.silent) {
+          setLoading(true);
+        }
         setError(null);
         const [milestoneData, boardData, projectData] = await Promise.all([
           fetchMilestones(projectId),
           fetchBoard(projectId),
           fetchProject(projectId),
         ]);
+
         let contractData: ContractDetail | null = null;
         const contracts = Array.isArray(projectData?.contracts)
           ? [...projectData.contracts]
@@ -570,7 +641,7 @@ export function ProjectWorkspace() {
             );
           }
         }
-        console.log("API Data:", { milestoneData, boardData, projectData });
+
         setMilestones(milestoneData || []);
         setProject(projectData);
         setContractDetail(contractData);
@@ -584,12 +655,17 @@ export function ProjectWorkspace() {
         setContractDetail(null);
         setError(err?.message || "Failed to load task board");
       } finally {
-        setLoading(false);
+        if (!options?.silent) {
+          setLoading(false);
+        }
       }
-    };
+    },
+    [projectId],
+  );
 
-    loadBoard();
-  }, [projectId]);
+  useEffect(() => {
+    void reloadWorkspaceData();
+  }, [reloadWorkspaceData]);
 
   useEffect(() => {
     if (loading) {
@@ -634,6 +710,13 @@ export function ProjectWorkspace() {
       return;
     }
 
+    if (!isAssignedBroker) {
+      const message = "Only the assigned broker can create tasks for this project.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+
     if (!canCreateTasksForSelectedMilestone) {
       setError(TASK_CREATION_LOCK_MESSAGE);
       toast.warning(TASK_CREATION_LOCK_MESSAGE);
@@ -657,9 +740,11 @@ export function ProjectWorkspace() {
       toast.warning(message);
       return;
     }
-    if (isProjectDisputed) {
+    if (isProjectInteractionLocked) {
       setError(
-        "Project is under dispute. Milestone changes are locked in read-only mode.",
+        isProjectCanceled
+          ? "Project is cancelled. Milestone changes are now read-only."
+          : "Project is under dispute. Milestone changes are locked in read-only mode.",
       );
       return;
     }
@@ -803,21 +888,79 @@ export function ProjectWorkspace() {
       ? tasksByMilestone[selectedMilestoneKey]
       : [];
   const activeProgress = calculateProgress(activeTasks);
+  const quickSubmitCandidateTask = useMemo(() => {
+    if (activeTasks.length === 0) {
+      return null;
+    }
+
+    const statusPriority: Record<KanbanColumnKey, number> = {
+      IN_PROGRESS: 0,
+      TODO: 1,
+      IN_REVIEW: 2,
+      DONE: 3,
+    };
+
+    const candidatePool = activeTasks.filter((task) => task.status !== "DONE");
+    if (candidatePool.length === 0) {
+      return null;
+    }
+
+    return [...candidatePool].sort((first, second) => {
+      const statusDelta =
+        (statusPriority[first.status] ?? 9) - (statusPriority[second.status] ?? 9);
+      if (statusDelta !== 0) {
+        return statusDelta;
+      }
+
+      const firstUpdated = first.dueDate
+        ? new Date(first.dueDate).getTime()
+        : Number.MAX_SAFE_INTEGER;
+      const secondUpdated = second.dueDate
+        ? new Date(second.dueDate).getTime()
+        : Number.MAX_SAFE_INTEGER;
+      return firstUpdated - secondUpdated;
+    })[0];
+  }, [activeTasks]);
+  const quickReviewCandidate = useMemo(() => {
+    for (const task of activeTasks) {
+      const pendingSubmission =
+        task.submissions
+          ?.slice()
+          .sort((first, second) => (second.version ?? 0) - (first.version ?? 0))
+          .find((submission) => submission.status === "PENDING") ?? null;
+
+      if (pendingSubmission) {
+        return { task, submission: pendingSubmission };
+      }
+    }
+
+    return null;
+  }, [activeTasks]);
   const activeMilestoneStatus = activeMilestone?.status?.toUpperCase() ?? null;
   const canCreateTasksForSelectedMilestone = useMemo(() => {
-    if (isReadOnly || !activeMilestone) {
+    if (isReadOnly || !activeMilestone || !isAssignedBroker) {
       return false;
     }
 
     return TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(activeMilestone.status);
-  }, [activeMilestone, isReadOnly]);
+  }, [activeMilestone, isAssignedBroker, isReadOnly]);
   const taskCommandUnavailableMessage = useMemo(() => {
-    if (isProjectDisputed) {
-      return "Task creation via chat is locked while the project is in dispute.";
+    if (isProjectInteractionLocked) {
+      return isProjectCanceled
+        ? "Task creation via chat is locked because this project is cancelled."
+        : "Task creation via chat is locked while the project is in dispute.";
     }
 
-    if (currentRole === "CLIENT" || currentRole === "STAFF") {
+    if (
+      currentRole === "CLIENT" ||
+      currentRole === "STAFF" ||
+      currentRole === "FREELANCER"
+    ) {
       return "You do not have permission to create tasks via chat in this workspace.";
+    }
+
+    if (currentRole === "BROKER" && !isAssignedBroker) {
+      return "Only the assigned broker can create tasks in this workspace.";
     }
 
     if (!activeMilestone) {
@@ -829,7 +972,13 @@ export function ProjectWorkspace() {
     }
 
     return TASK_CREATION_LOCK_MESSAGE;
-  }, [activeMilestone, currentRole, isProjectDisputed]);
+  }, [
+    activeMilestone,
+    currentRole,
+    isAssignedBroker,
+    isProjectCanceled,
+    isProjectInteractionLocked,
+  ]);
 
   const contractHref =
     project?.contracts?.[0]?.id && currentUser?.role
@@ -1178,14 +1327,76 @@ export function ProjectWorkspace() {
     };
   }, [currentUser?.id, handleTaskRealtimeEvent, projectId]);
 
+  useEffect(() => {
+    if (!projectId || !currentUser?.id) {
+      return;
+    }
+
+    const socket = connectSocket();
+    const currentContractId = contractDetail?.id ?? null;
+
+    const handleProjectUpdated = (payload?: {
+      projectId?: string;
+      requestId?: string | null;
+    }) => {
+      if (payload?.projectId === projectId) {
+        void reloadWorkspaceData({ silent: true });
+      }
+    };
+
+    const handleContractUpdated = (payload?: {
+      contractId?: string;
+      projectId?: string;
+    }) => {
+      if (payload?.projectId === projectId) {
+        void reloadWorkspaceData({ silent: true });
+      }
+    };
+
+    const handleNotificationCreated = (payload?: {
+      notification?: {
+        relatedType?: string | null;
+        relatedId?: string | null;
+      };
+      relatedType?: string | null;
+      relatedId?: string | null;
+    }) => {
+      const notification = payload?.notification ?? payload;
+      const relatedType = String(notification?.relatedType || "").toUpperCase();
+      const relatedId = String(notification?.relatedId || "");
+
+      const isRelevant =
+        (relatedType === "PROJECT" && relatedId === projectId) ||
+        (relatedType === "CONTRACT" &&
+          Boolean(currentContractId) &&
+          relatedId === currentContractId);
+
+      if (isRelevant) {
+        void reloadWorkspaceData({ silent: true });
+      }
+    };
+
+    socket.on("PROJECT_UPDATED", handleProjectUpdated);
+    socket.on("CONTRACT_UPDATED", handleContractUpdated);
+    socket.on("NOTIFICATION_CREATED", handleNotificationCreated);
+
+    return () => {
+      socket.off("PROJECT_UPDATED", handleProjectUpdated);
+      socket.off("CONTRACT_UPDATED", handleContractUpdated);
+      socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
+    };
+  }, [contractDetail?.id, currentUser?.id, projectId, reloadWorkspaceData]);
+
   // Handle milestone approval (Client/Broker only)
   const handleApproveMilestone = async (
     milestoneId: string,
     feedback?: string,
   ) => {
-    if (isProjectDisputed) {
+    if (isProjectInteractionLocked) {
       throw new Error(
-        "Project is under dispute. Milestone approval is locked.",
+        isProjectCanceled
+          ? "Project is cancelled. Milestone approval is locked."
+          : "Project is under dispute. Milestone approval is locked.",
       );
     }
     try {
@@ -1348,8 +1559,12 @@ export function ProjectWorkspace() {
   }, [handleFundingSuccess, requestedMilestoneId, searchParams, setSearchParams]);
 
   const handleRequestMilestoneReview = async (milestoneId: string) => {
-    if (isProjectDisputed) {
-      throw new Error("Project is under dispute. Milestone review is locked.");
+    if (isProjectInteractionLocked) {
+      throw new Error(
+        isProjectCanceled
+          ? "Project is cancelled. Milestone review is locked."
+          : "Project is under dispute. Milestone review is locked.",
+      );
     }
 
     try {
@@ -1381,8 +1596,12 @@ export function ProjectWorkspace() {
     milestoneId: string,
     payload: { recommendation: "ACCEPT" | "REJECT"; note: string },
   ) => {
-    if (isProjectDisputed) {
-      throw new Error("Project is under dispute. Milestone review is locked.");
+    if (isProjectInteractionLocked) {
+      throw new Error(
+        isProjectCanceled
+          ? "Project is cancelled. Milestone review is locked."
+          : "Project is under dispute. Milestone review is locked.",
+      );
     }
 
     try {
@@ -1437,9 +1656,11 @@ export function ProjectWorkspace() {
 
   const handleDragEnd = async (result: DropResult) => {
     if (isReadOnly) {
-      if (isProjectDisputed) {
+      if (isProjectInteractionLocked) {
         toast.warning(
-          "Task movement is locked while this project is in dispute.",
+          isProjectCanceled
+            ? "Task movement is locked because this project is cancelled."
+            : "Task movement is locked while this project is in dispute.",
         );
       }
       return;
@@ -1532,9 +1753,11 @@ export function ProjectWorkspace() {
   };
 
   const handleCreateTask = async () => {
-    if (isProjectDisputed) {
+    if (isProjectInteractionLocked) {
       setError(
-        "Project is under dispute. Task creation is locked in read-only mode.",
+        isProjectCanceled
+          ? "Project is cancelled. Task creation is locked in read-only mode."
+          : "Project is under dispute. Task creation is locked in read-only mode.",
       );
       return;
     }
@@ -1549,6 +1772,12 @@ export function ProjectWorkspace() {
     }
     if (!selectedMilestoneId) {
       setError("Please create a milestone before adding tasks.");
+      return;
+    }
+    if (!isAssignedBroker) {
+      const message = "Only the assigned broker can create tasks for this project.";
+      setError(message);
+      toast.warning(message);
       return;
     }
     if (!canCreateTasksForSelectedMilestone) {
@@ -1688,7 +1917,7 @@ export function ProjectWorkspace() {
               <MessageSquare className="h-4 w-4" />
               <span>Chat</span>
               {unreadCount > 0 && (
-                <span className="ml-1 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-red-100">
+                <span className="ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-red-100">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
@@ -1719,6 +1948,12 @@ export function ProjectWorkspace() {
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           This project has active dispute cases. Workspace is read-only for task
           changes, but dispute workflows remain available.
+        </div>
+      )}
+
+      {isProjectCanceled && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          This project is cancelled. Task updates, milestone edits, and funding actions are locked.
         </div>
       )}
 
@@ -1864,6 +2099,7 @@ export function ProjectWorkspace() {
               milestone={activeMilestone}
               progress={activeProgress}
               currentUserRole={currentRole}
+              projectStatus={project?.status ?? null}
               currency={project?.currency ?? "USD"}
               billingSetupHref={workspaceBillingHref}
               onFunded={handleFundingSuccess}
@@ -1872,15 +2108,22 @@ export function ProjectWorkspace() {
 
           {project &&
           activeMilestone &&
-          ["COMPLETED", "PAID"].includes(String(project.status || "").toUpperCase()) &&
-          activeMilestone.escrow?.status === "RELEASED" ? (
+          ["FUNDED", "RELEASED"].includes(
+            String(activeMilestone.escrow?.status || "").toUpperCase(),
+          ) &&
+          DISPUTE_POST_DELIVERY_MILESTONE_STATUSES.has(
+            String(activeMilestone.status || "").toUpperCase(),
+          ) ? (
             <ProjectReviewActionsCard
               project={project}
               currentUserId={currentUser?.id}
               currentUserRole={currentRole}
               pathname={location.pathname}
               milestoneTitle={activeMilestone.title}
-              canRaiseDispute={!isProjectDisputed}
+              canRaiseDispute={
+                !isProjectDisputed &&
+                canRaiseDisputeForMilestone(activeMilestone)
+              }
               onRaiseDispute={() => handleRaiseDispute(activeMilestone.id)}
             />
           ) : null}
@@ -1906,7 +2149,7 @@ export function ProjectWorkspace() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-700">
                   <span>{activeProgress}%</span>
-                  {canRaiseDisputeForMilestone(activeMilestone.status) && (
+                  {canRaiseDisputeForMilestone(activeMilestone) && (
                     <button
                       type="button"
                       data-testid={`raise-dispute-${activeMilestone.id}`}
@@ -2108,7 +2351,7 @@ export function ProjectWorkspace() {
                 {columns.map((col) => (
                   <div
                     key={col.key}
-                    className="min-w-[280px] xl:min-w-0 xl:w-auto flex-shrink-0"
+                    className="min-w-70 xl:min-w-0 xl:w-auto shrink-0"
                   >
                     <KanbanColumn
                       key={col.key}

@@ -78,6 +78,11 @@ export interface ProjectRequestCommercialChangeRequest {
   currentClientFeatures?: ProjectRequestCommercialFeature[] | null;
   proposedClientFeatures?: ProjectRequestCommercialFeature[] | null;
   parentSpecId?: string | null;
+  requestBudgetRange?: string | null;
+  proposedBudgetOutsideRequestRange?: boolean;
+  proposedBudgetRangeWarning?: string | null;
+  clientAcknowledgedBudgetRangeWarning?: boolean;
+  clientAcknowledgedBudgetRangeWarningAt?: string | null;
 }
 
 export interface RequestPartySummary {
@@ -120,6 +125,7 @@ export interface RequestMatchCandidate {
   matchScore?: number | null;
   aiRelevanceScore?: number | null;
   tagOverlapScore?: number | null;
+  trustScore?: number | string | null;
   normalizedTrust?: number | string | null;
   matchedSkills?: string[];
   reasoning?: string | null;

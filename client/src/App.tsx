@@ -835,6 +835,26 @@ function App() {
           }
         />
         <Route
+          path={ROUTES.ADMIN_CONTRACTS}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <ContractListPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_CONTRACT_DETAIL}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <ContractPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.ADMIN_HEARINGS}
           element={
             <RoleGuard allowedRoles={["ADMIN"]}>
@@ -1217,6 +1237,8 @@ function App() {
           <Route path="leave" element={<StaffLeavePage />} />
           <Route path="hearings" element={<StaffHearingsPage />} />
           <Route path="hearings/:hearingId" element={<StaffHearingRoomPage />} />
+          <Route path="contracts" element={<ContractListPage />} />
+          <Route path="contracts/:id" element={<ContractPage />} />
           <Route path="kyc" element={<AdminKYCPage />} />
           <Route path="profile" element={<ProfilePage />} />
           {/* Fallback */}

@@ -52,6 +52,7 @@ import {
   submitNeutralPanelRecommendation,
   submitDisputeReviewRequest,
 } from "../../api";
+import { contractsApi } from "@/features/contracts/api";
 import type {
   DisputeActivity,
   DisputeComplexity,
@@ -71,67 +72,225 @@ interface DisputeDetailHubProps {
   initialTab?: string;
 }
 
+const parseHearingAgendaBlock = (
+  agenda?: string | null,
+  fallbackBody?: string | null,
+) => {
+  const trimmed = agenda?.trim();
+  if (!trimmed) return null;
+
+  const appealPrefix = "Appeal hearing (Tier 2) | Reviewing verdict appeal:";
+  if (trimmed.startsWith(appealPrefix)) {
+    return {
+      label: "Appeal Hearing",
+      title: "Reviewing verdict appeal",
+      body: fallbackBody?.trim() || trimmed.slice(appealPrefix.length).trim(),
+    };
+  }
+
+  if (trimmed.startsWith("Appeal hearing (Tier 2)")) {
+    const sections = trimmed
+      .split(/\n{2,}/)
+      .map((part) => part.trim())
+      .filter(Boolean);
+    return {
+      label: "Appeal Hearing",
+      title: sections[1] || sections[0] || "Reviewing verdict appeal",
+      body: fallbackBody?.trim() || sections.slice(2).join("\n\n") || trimmed,
+    };
+  }
+
+  if (trimmed.includes("|")) {
+    const [title, ...rest] = trimmed
+      .split("|")
+      .map((part) => part.trim())
+      .filter(Boolean);
+    return {
+      label: "Agenda",
+      title: title || "Hearing agenda",
+      body: rest.join("\n\n") || trimmed,
+    };
+  }
+
+  return {
+    label: "Agenda",
+    title: "Hearing agenda",
+    body: trimmed,
+  };
+};
+
 const TimelineRoute = ({
   activities,
   loading,
+  dispute,
 }: {
   activities: DisputeActivity[];
   loading: boolean;
+  dispute: DisputeSummary | null;
 }) => {
-  if (loading) {
-    return <div className="p-4 text-gray-500">Loading timeline...</div>;
-  }
-
-  if (!activities.length) {
-    return <div className="p-4 text-gray-500">No activity yet.</div>;
-  }
-
   return (
     <div className="space-y-4">
-      {activities.map((activity) => {
-        const actorLabel =
-          activity.actor?.fullName ||
-          activity.actor?.email ||
-          activity.actorId ||
-          "System";
-        const timestamp = activity.timestamp
-          ? format(new Date(activity.timestamp), "MMM d, yyyy h:mm a")
-          : "Unknown time";
-
-        return (
-          <div
-            key={activity.id}
-            className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
-          >
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-sm font-semibold text-slate-900">
-                  {activity.action}
+      {dispute ? (
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-slate-900">
+              Dispute Specific Information
+            </h3>
+            {dispute.category ? (
+              <span className="rounded-full border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-medium text-slate-600">
+                {dispute.category.replaceAll("_", " ")}
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-3 space-y-3 text-sm text-slate-700">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+                Initial Dispute Reason
+              </p>
+              <p className="mt-1 whitespace-pre-wrap rounded-lg border border-slate-200 bg-white p-3 text-sm leading-6 text-slate-800">
+                {dispute.reason?.trim() || "No dispute reason was provided."}
+              </p>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Status
                 </p>
-                <p className="mt-1 text-xs text-gray-500">{actorLabel}</p>
-                {activity.description ? (
-                  <p className="mt-2 text-sm text-gray-700">
-                    {activity.description}
-                  </p>
-                ) : null}
+                <p className="mt-1 font-medium text-slate-800">
+                  {(dispute.status || "UNKNOWN").replaceAll("_", " ")}
+                </p>
               </div>
-              <div className="text-right">
-                <div className="inline-flex items-center gap-1 text-xs text-gray-500">
-                  <Clock className="h-3 w-3" />
-                  {timestamp}
-                </div>
-                {activity.isInternal ? (
-                  <span className="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
-                    Internal
-                  </span>
-                ) : null}
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Priority
+                </p>
+                <p className="mt-1 font-medium text-slate-800">
+                  {(dispute.priority || "N/A").replaceAll("_", " ")}
+                </p>
+              </div>
+              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  Created At
+                </p>
+                <p className="mt-1 font-medium text-slate-800">
+                  {dispute.createdAt
+                    ? format(new Date(dispute.createdAt), "MMM d, yyyy h:mm a")
+                    : "Unknown"}
+                </p>
               </div>
             </div>
           </div>
-        );
-      })}
+        </div>
+      ) : null}
+
+      <div>
+        <h3 className="mb-3 text-sm font-semibold text-slate-900">Case Timeline</h3>
+        {loading ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-gray-500">
+            Loading timeline...
+          </div>
+        ) : !activities.length ? (
+          <div className="rounded-xl border border-slate-200 bg-white p-4 text-gray-500">
+            No activity yet.
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {activities.map((activity) => {
+              const actorLabel =
+                activity.actor?.fullName ||
+                activity.actor?.email ||
+                activity.actorId ||
+                "System";
+              const timestamp = activity.timestamp
+                ? format(new Date(activity.timestamp), "MMM d, yyyy h:mm a")
+                : "Unknown time";
+
+              return (
+                <div
+                  key={activity.id}
+                  className="rounded-xl border border-gray-200 bg-white p-4 shadow-sm"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">
+                        {activity.action}
+                      </p>
+                      <p className="mt-1 text-xs text-gray-500">{actorLabel}</p>
+                      {activity.description ? (
+                        <p className="mt-2 text-sm text-gray-700">
+                          {activity.description}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="text-right">
+                      <div className="inline-flex items-center gap-1 text-xs text-gray-500">
+                        <Clock className="h-3 w-3" />
+                        {timestamp}
+                      </div>
+                      {activity.isInternal ? (
+                        <span className="mt-2 inline-flex rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
+                          Internal
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
+};
+
+const resolveContractDetailPath = (
+  roleBasePath: string | null,
+  contractId?: string | null,
+): string | null => {
+  const normalizedContractId = String(contractId || "").trim();
+  if (!roleBasePath || !normalizedContractId) {
+    return null;
+  }
+
+  return `${roleBasePath}/contracts/${normalizedContractId}`;
+};
+
+const resolveDisputeContractPdfUrl = (
+  contractId?: string | null,
+  dossierPdfUrl?: string | null,
+): string | null => {
+  const normalizedContractId = String(contractId || "").trim();
+  const runtimePdfUrl = normalizedContractId
+    ? contractsApi.downloadPdfUrl(normalizedContractId)
+    : null;
+
+  const candidates = [runtimePdfUrl, dossierPdfUrl]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  const preferred = candidates[0];
+  if (typeof window === "undefined") {
+    return preferred;
+  }
+
+  try {
+    const parsed = new URL(preferred, window.location.origin);
+    if (
+      window.location.protocol === "http:" &&
+      parsed.hostname === "localhost" &&
+      parsed.protocol === "https:"
+    ) {
+      parsed.protocol = "http:";
+    }
+    return parsed.toString();
+  } catch {
+    return preferred;
+  }
 };
 
 const formatAppealDeadlineText = (appealDeadline?: string | null) => {
@@ -692,12 +851,44 @@ export const DisputeDetailHub = ({
     dispute?.isReadOnly && !canViewInternal,
   );
 
+  const openContractPage = useCallback(
+    (contractId: string) => {
+      const targetPath = resolveContractDetailPath(contractBasePath, contractId);
+      if (!targetPath) {
+        toast.error("Contract page is unavailable for your current role.");
+        return;
+      }
+      navigate(targetPath);
+    },
+    [contractBasePath, navigate],
+  );
+
+  const openContractPdf = useCallback(
+    (contractId: string, dossierPdfUrl?: string | null) => {
+      const pdfUrl = resolveDisputeContractPdfUrl(contractId, dossierPdfUrl);
+      if (!pdfUrl) {
+        toast.error("PDF link is unavailable for this contract.");
+        return;
+      }
+
+      const openedWindow = window.open(pdfUrl, "_blank", "noopener,noreferrer");
+      if (!openedWindow) {
+        window.location.assign(pdfUrl);
+      }
+    },
+    [],
+  );
+
   const tabs = [
     {
-      name: "Timeline",
+      name: "Dispute Specific Information",
       icon: History,
       component: (
-        <TimelineRoute activities={activities} loading={activityLoading} />
+        <TimelineRoute
+          activities={activities}
+          loading={activityLoading}
+          dispute={dispute}
+        />
       ),
     },
     {
@@ -776,8 +967,19 @@ export const DisputeDetailHub = ({
     dispute?.raiser?.email,
     raiserLabel,
   ]);
-  const escrowAmount = dispute?.disputedAmount
-    ? currencyFormatter.format(dispute.disputedAmount)
+  const normalizedDisputedAmount = useMemo(() => {
+    const numericAmount = Number(dispute?.disputedAmount ?? 0);
+    return Number.isFinite(numericAmount) ? numericAmount : 0;
+  }, [dispute?.disputedAmount]);
+  const hasDisputedAmount = useMemo(
+    () =>
+      dispute?.disputedAmount !== undefined &&
+      dispute?.disputedAmount !== null &&
+      Number.isFinite(Number(dispute.disputedAmount)),
+    [dispute?.disputedAmount],
+  );
+  const escrowAmount = hasDisputedAmount
+    ? currencyFormatter.format(normalizedDisputedAmount)
     : "N/A";
   const appealDeadlineText = formatAppealDeadlineText(appealDeadlineSource);
   const isClosedCase = Boolean(dispute?.isReadOnly);
@@ -1259,79 +1461,94 @@ export const DisputeDetailHub = ({
                   </div>
                 </div>
                 <div className="mt-4 space-y-3">
-                  {dispute.hearingDocket.map((entry) => (
-                    <div
-                      key={entry.hearingId}
-                      className={`rounded-xl border p-4 ${
-                        entry.isActionable
-                          ? "border-teal-200 bg-teal-50/70"
-                          : "border-slate-200 bg-slate-50"
-                      }`}
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-semibold text-slate-900">
-                            Hearing #{entry.hearingNumber}
-                          </span>
-                          <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                            {entry.status.replaceAll("_", " ")}
-                          </span>
-                          {entry.tier ? (
+                  {dispute.hearingDocket.map((entry) => {
+                    const agendaBlock = parseHearingAgendaBlock(
+                      entry.agenda,
+                      entry.tier === "TIER_2" ? dispute?.appealReason : undefined,
+                    );
+
+                    return (
+                      <div
+                        key={entry.hearingId}
+                        className={`rounded-xl border p-4 ${
+                          entry.isActionable
+                            ? "border-teal-200 bg-teal-50/70"
+                            : "border-slate-200 bg-slate-50"
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex min-w-0 flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-slate-900">
+                              Hearing #{entry.hearingNumber}
+                            </span>
                             <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">
-                              {entry.tier.replaceAll("_", " ")}
+                              {entry.status.replaceAll("_", " ")}
                             </span>
-                          ) : null}
-                          {entry.isActionable ? (
-                            <span className="rounded-full border border-teal-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-teal-700">
-                              Actionable
-                            </span>
-                          ) : null}
+                            {entry.tier ? (
+                              <span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">
+                                {entry.tier.replaceAll("_", " ")}
+                              </span>
+                            ) : null}
+                            {entry.isActionable ? (
+                              <span className="rounded-full border border-teal-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-teal-700">
+                                Actionable
+                              </span>
+                            ) : null}
+                          </div>
+                          <span className="text-xs text-slate-500">
+                            {entry.scheduledAt
+                              ? format(
+                                  new Date(entry.scheduledAt),
+                                  "MMM d, yyyy h:mm a",
+                                )
+                              : "Unscheduled"}
+                          </span>
                         </div>
-                        <span className="text-xs text-slate-500">
-                          {entry.scheduledAt
-                            ? format(
-                                new Date(entry.scheduledAt),
-                                "MMM d, yyyy h:mm a",
-                              )
-                            : "Unscheduled"}
-                        </span>
+                        {agendaBlock ? (
+                          <div className="mt-3 rounded-lg border border-slate-200 bg-white/90 p-3 shadow-sm">
+                            <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                              {agendaBlock.label}
+                            </div>
+                            <div className="mt-1 text-sm font-semibold text-slate-900">
+                              {agendaBlock.title}
+                            </div>
+                            <div className="mt-2 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-slate-700 [overflow-wrap:anywhere]">
+                              {agendaBlock.body}
+                            </div>
+                          </div>
+                        ) : null}
+                        {entry.freezeReason ? (
+                          <p className="mt-2 min-w-0 whitespace-pre-wrap break-words text-xs text-slate-500 [overflow-wrap:anywhere]">
+                            {entry.freezeReason}
+                          </p>
+                        ) : null}
+                        {entry.summary || entry.findings ? (
+                          <div className="mt-3 grid gap-3 md:grid-cols-2">
+                            {entry.summary ? (
+                              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                                  Minutes
+                                </div>
+                                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700 [overflow-wrap:anywhere]">
+                                  {entry.summary}
+                                </p>
+                              </div>
+                            ) : null}
+                            {entry.findings ? (
+                              <div className="rounded-lg border border-slate-200 bg-white p-3">
+                                <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                                  Findings
+                                </div>
+                                <p className="mt-1 whitespace-pre-wrap break-words text-sm text-slate-700 [overflow-wrap:anywhere]">
+                                  {entry.findings}
+                                </p>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                       </div>
-                      {entry.agenda ? (
-                        <p className="mt-2 text-sm text-slate-700">
-                          {entry.agenda}
-                        </p>
-                      ) : null}
-                      {entry.freezeReason ? (
-                        <p className="mt-2 text-xs text-slate-500">
-                          {entry.freezeReason}
-                        </p>
-                      ) : null}
-                      {entry.summary || entry.findings ? (
-                        <div className="mt-3 grid gap-3 md:grid-cols-2">
-                          {entry.summary ? (
-                            <div className="rounded-lg border border-slate-200 bg-white p-3">
-                              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                                Minutes
-                              </div>
-                              <p className="mt-1 text-sm text-slate-700">
-                                {entry.summary}
-                              </p>
-                            </div>
-                          ) : null}
-                          {entry.findings ? (
-                            <div className="rounded-lg border border-slate-200 bg-white p-3">
-                              <div className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
-                                Findings
-                              </div>
-                              <p className="mt-1 text-sm text-slate-700">
-                                {entry.findings}
-                              </p>
-                            </div>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ) : null}
@@ -1392,27 +1609,24 @@ export const DisputeDetailHub = ({
                         {contractBasePath ? (
                           <button
                             type="button"
-                            onClick={() =>
-                              navigate(
-                                `${contractBasePath}/contracts/${contract.id}`,
-                              )
-                            }
+                            onClick={() => openContractPage(contract.id)}
                             className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                           >
                             <FileText className="h-3.5 w-3.5" />
                             Open contract page
                           </button>
                         ) : null}
-                        {contract.contractUrl ? (
-                          <a
-                            href={contract.contractUrl}
-                            target="_blank"
-                            rel="noreferrer"
+                        {contract.id ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              openContractPdf(contract.id, contract.contractUrl)
+                            }
                             className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-100"
                           >
                             <ExternalLink className="h-3.5 w-3.5" />
                             Open PDF
-                          </a>
+                          </button>
                         ) : null}
                       </div>
                     </div>
@@ -1428,7 +1642,7 @@ export const DisputeDetailHub = ({
               <div className="mb-6 rounded-xl border border-amber-200 bg-white p-4 shadow-sm">
                 <VerdictWizard
                   disputeId={disputeId}
-                  disputedAmount={dispute?.disputedAmount}
+                  disputedAmount={normalizedDisputedAmount}
                   disputeCategory={dispute?.category}
                   mode="appeal"
                   existingVerdictId={verdict.id}
@@ -1612,25 +1826,22 @@ export const DisputeDetailHub = ({
                     {contractBasePath ? (
                       <button
                         type="button"
-                        onClick={() =>
-                          navigate(
-                            `${contractBasePath}/contracts/${contract.id}`,
-                          )
-                        }
+                        onClick={() => openContractPage(contract.id)}
                         className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         Open page
                       </button>
                     ) : null}
-                    {contract.contractUrl ? (
-                      <a
-                        href={contract.contractUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                    {contract.id ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          openContractPdf(contract.id, contract.contractUrl)
+                        }
                         className="rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-slate-100"
                       >
                         Open PDF
-                      </a>
+                      </button>
                     ) : null}
                   </div>
                 </div>

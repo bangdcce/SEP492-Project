@@ -279,6 +279,12 @@ type VerdictFundsFinalizationReason =
   | 'PARTY_ACCEPTANCE'
   | 'APPEAL_VERDICT';
 
+type VerdictWorkflowRealtimePayload = {
+  projectId: string;
+  requestId: string | null;
+  participantIds: string[];
+};
+
 interface VerdictReasoningValidationContext {
   result?: DisputeResult | null;
   faultType?: FaultType | null;
@@ -297,6 +303,47 @@ export class VerdictService {
     private readonly staffAssignmentService: StaffAssignmentService,
     private readonly verdictReadinessService: VerdictReadinessService,
   ) {}
+
+  private buildVerdictWorkflowRealtimePayload(
+    project: Pick<
+      ProjectEntity,
+      'id' | 'requestId' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'
+    >,
+  ): VerdictWorkflowRealtimePayload {
+    return {
+      projectId: project.id,
+      requestId: project.requestId ?? null,
+      participantIds: Array.from(
+        new Set(
+          [project.clientId, project.brokerId, project.freelancerId, project.staffId].filter(
+            Boolean,
+          ),
+        ),
+      ) as string[],
+    };
+  }
+
+  private emitVerdictWorkflowUpdates(payload: VerdictWorkflowRealtimePayload): void {
+    payload.participantIds.forEach((userId) => {
+      this.eventEmitter.emit('project.updated', {
+        userId,
+        projectId: payload.projectId,
+        requestId: payload.requestId,
+        entityType: 'Project',
+        entityId: payload.projectId,
+      });
+
+      if (payload.requestId) {
+        this.eventEmitter.emit('request.updated', {
+          userId,
+          requestId: payload.requestId,
+          projectId: payload.projectId,
+          entityType: 'ProjectRequest',
+          entityId: payload.requestId,
+        });
+      }
+    });
+  }
 
   /**
    * Get the latest verdict for a dispute (public read).
@@ -602,7 +649,9 @@ export class VerdictService {
       .andWhere('escrow.status NOT IN (:...finalStatuses)', {
         finalStatuses: [EscrowStatus.RELEASED, EscrowStatus.REFUNDED],
       })
-      .select('DISTINCT dispute.id', 'id')
+      .distinct(true)
+      .select('dispute.id', 'id')
+      .addSelect('dispute.appealDeadline', 'appealDeadline')
       .orderBy('dispute.appealDeadline', 'ASC')
       .getRawMany<{ id: string }>();
 
@@ -1770,7 +1819,9 @@ export class VerdictService {
       }
 
       if (dispute.raisedById !== appellantId && dispute.defendantId !== appellantId) {
-        throw new ForbiddenException('Only dispute participants can appeal');
+        throw new ForbiddenException(
+          'Only direct dispute parties can appeal. Witnesses or linked observers cannot appeal.',
+        );
       }
 
       if (!appealReason || appealReason.trim().length < VERDICT_CONFIG.APPEAL_MIN_REASON_LENGTH) {
@@ -1789,6 +1840,18 @@ export class VerdictService {
       });
       if (!verdict) {
         throw new BadRequestException('Tier 1 verdict not found');
+      }
+
+      const { loserId } = determineLoser(
+        dispute.result ?? DisputeResult.PENDING,
+        dispute.raisedById,
+        dispute.defendantId,
+        dispute.disputeType,
+      );
+      if (loserId && loserId !== appellantId) {
+        throw new ForbiddenException(
+          'Only the non-prevailing party can appeal. Winning/refunded parties cannot appeal their own favorable verdict.',
+        );
       }
 
       const appellantAcceptance = await queryRunner.manager.findOne(LegalSignatureEntity, {
@@ -1869,7 +1932,12 @@ export class VerdictService {
       bypassDeadline: boolean;
       finalizationReason: VerdictFundsFinalizationReason;
     },
-  ): Promise<{ finalized: boolean; transferIds?: string[]; reason?: string }> {
+  ): Promise<{
+    finalized: boolean;
+    transferIds?: string[];
+    reason?: string;
+    workflowRealtimePayload?: VerdictWorkflowRealtimePayload;
+  }> {
     if (dispute.status !== DisputeStatus.RESOLVED) {
       return { finalized: false, reason: 'Dispute is not resolved' };
     }
@@ -1948,7 +2016,11 @@ export class VerdictService {
     milestone.status = newMilestoneStatus;
     await queryRunner.manager.save([project, milestone]);
 
-    return { finalized: true, transferIds };
+    return {
+      finalized: true,
+      transferIds,
+      workflowRealtimePayload: this.buildVerdictWorkflowRealtimePayload(project),
+    };
   }
 
   async finalizeAppealDeadline(
@@ -1957,6 +2029,8 @@ export class VerdictService {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
+
+    let workflowRealtimePayload: VerdictWorkflowRealtimePayload | null = null;
 
     try {
       const dispute = await queryRunner.manager.findOne(DisputeEntity, {
@@ -1973,9 +2047,21 @@ export class VerdictService {
         finalizationReason: 'APPEAL_DEADLINE',
       });
 
+      if (result.workflowRealtimePayload) {
+        workflowRealtimePayload = result.workflowRealtimePayload;
+      }
+
       await queryRunner.commitTransaction();
 
-      return result;
+      if (workflowRealtimePayload) {
+        this.emitVerdictWorkflowUpdates(workflowRealtimePayload);
+      }
+
+      return {
+        finalized: result.finalized,
+        transferIds: result.transferIds,
+        reason: result.reason,
+      };
     } catch (error) {
       await queryRunner.rollbackTransaction();
       throw error;
@@ -2009,6 +2095,8 @@ export class VerdictService {
     const queryRunner = this.dataSource.createQueryRunner();
     await queryRunner.connect();
     await queryRunner.startTransaction();
+
+    let workflowRealtimePayload: VerdictWorkflowRealtimePayload | null = null;
 
     try {
       const dispute = await queryRunner.manager.findOne(DisputeEntity, {
@@ -2075,14 +2163,28 @@ export class VerdictService {
         requiredPartyIds.length > 0 &&
         requiredPartyIds.every((partyId) => acceptedPartyIds.includes(partyId));
 
-      const finalization = allPartiesAccepted
+      const rawFinalization = allPartiesAccepted
         ? await this.finalizeTier1VerdictFunds(queryRunner, dispute, {
             bypassDeadline: true,
             finalizationReason: 'PARTY_ACCEPTANCE',
           })
         : { finalized: false, reason: 'Awaiting the other party acceptance or appeal deadline' };
 
+      if (rawFinalization.workflowRealtimePayload) {
+        workflowRealtimePayload = rawFinalization.workflowRealtimePayload;
+      }
+
+      const finalization = {
+        finalized: rawFinalization.finalized,
+        transferIds: rawFinalization.transferIds,
+        reason: rawFinalization.reason,
+      };
+
       await queryRunner.commitTransaction();
+
+      if (workflowRealtimePayload) {
+        this.emitVerdictWorkflowUpdates(workflowRealtimePayload);
+      }
 
       return {
         dispute,
@@ -2127,6 +2229,8 @@ export class VerdictService {
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
+    let workflowRealtimePayload: VerdictWorkflowRealtimePayload | null = null;
+
     try {
       const dispute = await queryRunner.manager.findOne(DisputeEntity, {
         where: { id: dto.disputeId },
@@ -2154,6 +2258,14 @@ export class VerdictService {
       });
       if (!tier1Verdict) {
         throw new BadRequestException('Tier 1 verdict not found for override');
+      }
+
+      const existingAppealVerdict = await queryRunner.manager.findOne(DisputeVerdictEntity, {
+        where: { disputeId: dispute.id, isAppealVerdict: true },
+        select: ['id'],
+      });
+      if (existingAppealVerdict) {
+        throw new ConflictException('Appeal verdict already exists for this dispute');
       }
 
       const escrow = await queryRunner.manager.findOne(EscrowEntity, {
@@ -2359,6 +2471,8 @@ export class VerdictService {
       milestone.status = newMilestoneStatus;
       await queryRunner.manager.save([project, milestone]);
 
+      workflowRealtimePayload = this.buildVerdictWorkflowRealtimePayload(project);
+
       const appealSignature = await queryRunner.manager.findOne(LegalSignatureEntity, {
         where: {
           disputeId: dispute.id,
@@ -2390,6 +2504,10 @@ export class VerdictService {
       }
 
       await queryRunner.commitTransaction();
+
+      if (workflowRealtimePayload) {
+        this.emitVerdictWorkflowUpdates(workflowRealtimePayload);
+      }
 
       this.eventEmitter.emit('verdict.appealResolved', {
         disputeId: dispute.id,

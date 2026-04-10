@@ -501,8 +501,9 @@ export const resolveDisputeDisplayTitle = (input: {
   reason?: string | null;
   disputeId: string;
 }): string => {
-  if (input.projectTitle?.trim()) {
-    return `${input.projectTitle.trim()} dispute`;
+  const normalizedProjectTitle = normalizeDisputeProjectTitle(input.projectTitle);
+  if (normalizedProjectTitle) {
+    return `${normalizedProjectTitle} dispute`;
   }
 
   if (input.reason?.trim()) {
@@ -510,6 +511,17 @@ export const resolveDisputeDisplayTitle = (input: {
   }
 
   return `Dispute ${input.disputeId.slice(0, 8).toUpperCase()}`;
+};
+
+const DISPUTE_DEMO_PROJECT_TITLE_PATTERN = /^DISPUTE\s*DEMO\s*::\s*\d+\s*::\s*/i;
+
+export const normalizeDisputeProjectTitle = (projectTitle?: string | null): string | undefined => {
+  const normalized = `${projectTitle || ''}`.trim();
+  if (!normalized) {
+    return undefined;
+  }
+
+  return normalized.replace(DISPUTE_DEMO_PROJECT_TITLE_PATTERN, '').trim() || normalized;
 };
 
 export const resolveReasonExcerpt = (reason?: string | null, maxLength: number = 160): string => {

@@ -840,16 +840,22 @@ export class HearingService implements OnModuleInit {
     participantIds: string[],
     isEmergency: boolean = false,
     durationMinutes: number = 60,
+    options?: {
+      bypassMinNotice?: boolean;
+    },
   ): Promise<HearingScheduleValidation> {
     const conflicts: string[] = [];
     const warnings: string[] = [];
     const conflictDetails: HearingScheduleConflictDetail[] = [];
     const now = new Date();
+    const bypassMinNotice = options?.bypassMinNotice === true;
 
     // 1. Check minimum notice period
     const hoursUntilHearing = (scheduledAt.getTime() - now.getTime()) / (1000 * 60 * 60);
 
-    if (isEmergency) {
+    if (bypassMinNotice) {
+      warnings.push('Dispute test mode bypass applied: minimum notice checks skipped.');
+    } else if (isEmergency) {
       if (hoursUntilHearing < HEARING_CONFIG.EMERGENCY_MIN_NOTICE_HOURS) {
         conflicts.push(
           `Emergency hearings require at least ${HEARING_CONFIG.EMERGENCY_MIN_NOTICE_HOURS} hour notice`,
@@ -1398,19 +1404,71 @@ export class HearingService implements OnModuleInit {
     return deadline;
   }
 
+  private canUseTestSchedulingBypass(
+    role?: UserRole | null,
+    bypassReason?: string | null,
+  ): boolean {
+    if (!bypassReason?.trim()) {
+      return false;
+    }
+
+    if (!role || ![UserRole.STAFF, UserRole.ADMIN].includes(role)) {
+      return false;
+    }
+
+    const testMode = process.env.DISPUTE_TEST_MODE === 'true';
+    const runtimeEnv = (process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development').toLowerCase();
+    const isProduction = runtimeEnv === 'production' || runtimeEnv === 'prod';
+
+    return testMode && !isProduction;
+  }
+
   private areAllRequiredParticipantsReady(
     participants: HearingParticipantEntity[],
     inviteStatusByUser: Map<string, ParticipantStatus>,
   ): boolean {
-    const required = participants.filter((p) => p.isRequired);
-    if (required.length === 0) {
-      return false;
+    return this.evaluateRequiredParticipantsReadiness(participants, inviteStatusByUser).ready;
+  }
+
+  private evaluateRequiredParticipantsReadiness(
+    participants: HearingParticipantEntity[],
+    inviteStatusByUser: Map<string, ParticipantStatus>,
+  ): {
+    ready: boolean;
+    totalRequired: number;
+    onlineCount: number;
+    acceptedCount: number;
+  } {
+    const required = participants.filter((participant) => participant.isRequired);
+    const totalRequired = required.length;
+
+    if (totalRequired === 0) {
+      return {
+        ready: false,
+        totalRequired: 0,
+        onlineCount: 0,
+        acceptedCount: 0,
+      };
     }
-    return required.every(
-      (participant) =>
-        participant.isOnline &&
-        inviteStatusByUser.get(participant.userId) === ParticipantStatus.ACCEPTED,
-    );
+
+    let onlineCount = 0;
+    let acceptedCount = 0;
+
+    required.forEach((participant) => {
+      if (participant.isOnline) {
+        onlineCount += 1;
+      }
+      if (inviteStatusByUser.get(participant.userId) === ParticipantStatus.ACCEPTED) {
+        acceptedCount += 1;
+      }
+    });
+
+    return {
+      ready: onlineCount === totalRequired && acceptedCount === totalRequired,
+      totalRequired,
+      onlineCount,
+      acceptedCount,
+    };
   }
 
   private getMinimumAttendanceMinutes(durationMinutes: number): number {
@@ -1941,7 +1999,30 @@ export class HearingService implements OnModuleInit {
               : undefined,
           }
         : undefined,
-    };
+      };
+  }
+
+  private async emitStatementSubmittedEvent(
+    hearing: Pick<DisputeHearingEntity, 'id' | 'disputeId'>,
+    statementId: string,
+    participantId: string,
+    statementType: HearingStatementType,
+    createdAt?: Date | null,
+  ): Promise<void> {
+    const hydratedStatement = await this.statementRepository.findOne({
+      where: { id: statementId },
+      relations: ['participant', 'participant.user'],
+    });
+
+    this.eventEmitter.emit('hearing.statementSubmitted', {
+      hearingId: hearing.id,
+      disputeId: hearing.disputeId,
+      statementId,
+      participantId,
+      createdAt: createdAt ?? hydratedStatement?.createdAt ?? new Date(),
+      statementType,
+      statement: hydratedStatement ? this.mapStatementSummary(hydratedStatement) : null,
+    });
   }
 
   private normalizeStatementBlocks(
@@ -2134,8 +2215,7 @@ export class HearingService implements OnModuleInit {
       initial.requiredDeclined === 0 &&
       initial.requiredTentative === 0 &&
       initial.requiredPending === 0;
-    initial.confirmationSatisfied =
-      initial.hasModeratorAccepted && initial.primaryPartyAcceptedCount > 0;
+    initial.confirmationSatisfied = initial.allRequiredAccepted;
 
     return initial;
   }
@@ -2536,6 +2616,7 @@ export class HearingService implements OnModuleInit {
       content?: string | null;
       replyToMessageId?: string | null;
       relatedEvidenceId?: string | null;
+      attachedEvidenceIds?: string[] | null;
       metadata?: Record<string, unknown> | null;
       isHidden?: boolean;
       hiddenReason?: string | null;
@@ -2588,6 +2669,7 @@ export class HearingService implements OnModuleInit {
       content: message.content,
       replyToMessageId: message.replyToMessageId,
       relatedEvidenceId: message.relatedEvidenceId,
+      attachedEvidenceIds: message.attachedEvidenceIds,
       metadata: message.metadata,
       isHidden: message.isHidden,
       hiddenReason: message.hiddenReason,
@@ -2601,6 +2683,34 @@ export class HearingService implements OnModuleInit {
           }
         : undefined,
     }));
+  }
+
+  private async getWorkspaceEvidence(
+    hearing: Pick<DisputeHearingEntity, 'id' | 'disputeId'>,
+    user: Pick<UserEntity, 'id' | 'role'>,
+  ) {
+    if (!hearing.disputeId) {
+      return [];
+    }
+
+    try {
+      return await this.evidenceService.getEvidenceList(
+        hearing.disputeId,
+        user.id,
+        user.role,
+      );
+    } catch (error) {
+      if (error instanceof ForbiddenException) {
+        this.logger.warn(
+          `hearing_workspace_evidence_fallback hearingId=${hearing.id} userId=${user.id} reason=${
+            error.message || 'forbidden'
+          }`,
+        );
+        return [];
+      }
+
+      throw error;
+    }
   }
 
   private async buildWorkspaceDossier(hearing: DisputeHearingEntity) {
@@ -2828,9 +2938,7 @@ export class HearingService implements OnModuleInit {
         this.getHearingStatements(hearing.id, user, { includeDrafts }),
         this.getHearingQuestions(hearing.id, user),
         this.getHearingTimeline(hearing.id, user),
-        hearing.disputeId
-          ? this.evidenceService.getEvidenceList(hearing.disputeId, user.id, user.role)
-          : Promise.resolve([]),
+        this.getWorkspaceEvidence(hearing, user),
         this.getWorkspaceMessages(hearing.id, user.role, 120),
       ]);
 
@@ -3509,6 +3617,15 @@ export class HearingService implements OnModuleInit {
     const tier = dto.tier || (dispute.currentTier >= 2 ? HearingTier.TIER_2 : HearingTier.TIER_1);
     const durationMinutes = dto.estimatedDurationMinutes || 60;
     const externalMeetingLink = this.normalizeMeetingLink(dto.externalMeetingLink);
+    const moderator = await this.userRepository.findOne({
+      where: { id: moderatorId },
+      select: ['id', 'role'],
+    });
+    const canUseTestBypass = this.canUseTestSchedulingBypass(
+      moderator?.role,
+      dto.testBypassReason,
+    );
+    const useEmergencyRules = dto.isEmergency || canUseTestBypass;
 
     if (dispute.status === DisputeStatus.APPEALED && tier !== HearingTier.TIER_2) {
       throw new BadRequestException(
@@ -3569,8 +3686,11 @@ export class HearingService implements OnModuleInit {
     const scheduleValidation = await this.validateHearingSchedule(
       scheduledAt,
       participantIds,
-      dto.isEmergency || false,
+      useEmergencyRules,
       durationMinutes,
+      {
+        bypassMinNotice: canUseTestBypass,
+      },
     );
 
     if (!scheduleValidation.valid) {
@@ -3582,7 +3702,7 @@ export class HearingService implements OnModuleInit {
       });
     }
 
-    const responseDeadline = this.calculateResponseDeadline(scheduledAt, dto.isEmergency || false);
+    const responseDeadline = this.calculateResponseDeadline(scheduledAt, useEmergencyRules);
 
     const now = new Date();
 
@@ -3720,8 +3840,6 @@ export class HearingService implements OnModuleInit {
 
     await this.assertHearingIsActionable(hearing);
 
-    await this.assertHearingIsActionable(hearing);
-
     if (hearing.status !== HearingStatus.SCHEDULED) {
       throw new BadRequestException(`Hearing is ${hearing.status}, cannot start`);
     }
@@ -3747,13 +3865,15 @@ export class HearingService implements OnModuleInit {
 
     if (startedEarly) {
       const inviteStatusByUser = await this.loadHearingInviteStatusMap(hearing.id);
-      const ready = this.areAllRequiredParticipantsReady(
+      const readiness = this.evaluateRequiredParticipantsReadiness(
         hearing.participants || [],
         inviteStatusByUser,
       );
-      if (!ready) {
+      if (!readiness.ready) {
         throw new BadRequestException(
-          'Hearing cannot start this early unless all required participants are online and ready.',
+          `Hearing cannot start this early unless all required participants are online and ready. ` +
+            `Online: ${readiness.onlineCount}/${readiness.totalRequired}. ` +
+            `Accepted invites: ${readiness.acceptedCount}/${readiness.totalRequired}.`,
         );
       }
     }
@@ -4287,26 +4407,23 @@ export class HearingService implements OnModuleInit {
       }
 
       if (Object.keys(deadlinesByType).length > 0) {
-        // Bulk-update DRAFT statements that match the new phase's allowed types
         const typesToUpdate = Object.keys(deadlinesByType) as HearingStatementType[];
-        await this.statementRepository
-          .createQueryBuilder()
-          .update(HearingStatementEntity)
-          .set({
-            deadline: () =>
-              `CASE ${typesToUpdate
-                .map(
-                  (t) =>
-                    `WHEN "type" = '${t}' THEN '${deadlinesByType[t]!.toISOString()}'`,
-                )
-                .join(' ')} END`,
-          })
-          .where('"hearingId" = :hearingId', { hearingId })
-          .andWhere('"type" IN (:...types)', { types: typesToUpdate })
-          .andWhere('"status" = :status', {
-            status: HearingStatementStatus.DRAFT,
-          })
-          .execute();
+        // Let TypeORM bind Date values for the timestamp column instead of
+        // inlining ISO strings into a CASE expression that Postgres treats as text.
+        await Promise.all(
+          typesToUpdate.map((type) =>
+            this.statementRepository.update(
+              {
+                hearingId,
+                type,
+                status: HearingStatementStatus.DRAFT,
+              },
+              {
+                deadline: deadlinesByType[type]!,
+              },
+            ),
+          ),
+        );
 
         this.eventEmitter.emit('hearing.phaseDeadlinesSet', {
           hearingId,
@@ -4570,14 +4687,13 @@ export class HearingService implements OnModuleInit {
       const saved = await this.statementRepository.save(existingDraft);
 
       if (!isDraft) {
-        this.eventEmitter.emit('hearing.statementSubmitted', {
-          hearingId: hearing.id,
-          disputeId: hearing.disputeId,
-          statementId: saved.id,
-          participantId: participant.id,
-          createdAt: saved.createdAt,
-          statementType: saved.type,
-        });
+        await this.emitStatementSubmittedEvent(
+          hearing,
+          saved.id,
+          participant.id,
+          saved.type,
+          saved.createdAt,
+        );
 
         if (!participant.hasSubmittedStatement) {
           participant.hasSubmittedStatement = true;
@@ -4645,14 +4761,13 @@ export class HearingService implements OnModuleInit {
     const saved = await this.statementRepository.save(statement);
 
     if (!isDraft) {
-      this.eventEmitter.emit('hearing.statementSubmitted', {
-        hearingId: hearing.id,
-        disputeId: hearing.disputeId,
-        statementId: saved.id,
-        participantId: participant.id,
-        createdAt: saved.createdAt,
-        statementType: saved.type,
-      });
+      await this.emitStatementSubmittedEvent(
+        hearing,
+        saved.id,
+        participant.id,
+        saved.type,
+        saved.createdAt,
+      );
 
       if (!participant.hasSubmittedStatement) {
         participant.hasSubmittedStatement = true;
@@ -5189,6 +5304,11 @@ export class HearingService implements OnModuleInit {
       throw new ForbiddenException('Only the assigned moderator or admin can end the hearing');
     }
 
+    const disputeStatus = hearing.dispute?.status;
+    const closingAfterVerdict =
+      disputeStatus === DisputeStatus.RESOLVED ||
+      (Boolean(disputeStatus) && APPEAL_DISPUTE_STATUSES.has(disputeStatus));
+
     return await this.finalizeHearingEnd(hearing, {
       endedById,
       endedByType: 'USER',
@@ -5196,8 +5316,9 @@ export class HearingService implements OnModuleInit {
       summary: dto.summary,
       findings: dto.findings,
       pendingActions: dto.pendingActions,
-      forceEnd: dto.forceEnd,
+      forceEnd: dto.forceEnd || closingAfterVerdict,
       noShowNote: dto.noShowNote,
+      skipActionableCheck: closingAfterVerdict,
     });
   }
 
@@ -5246,6 +5367,12 @@ export class HearingService implements OnModuleInit {
       throw new NotFoundException('Requester not found');
     }
 
+    const canUseTestBypass = this.canUseTestSchedulingBypass(
+      requester.role,
+      dto.testBypassReason,
+    );
+    const useEmergencyRules = dto.isEmergency || canUseTestBypass;
+
     if (requesterId !== hearing.moderatorId && requester.role !== UserRole.ADMIN) {
       throw new ForbiddenException('Only the assigned moderator or admin can reschedule');
     }
@@ -5255,7 +5382,7 @@ export class HearingService implements OnModuleInit {
       hearing.scheduledAt.getTime() - HEARING_CONFIG.RESCHEDULE_FREEZE_HOURS * 60 * 60 * 1000,
     );
 
-    if (now >= rescheduleCutoff && !dto.isEmergency) {
+    if (now >= rescheduleCutoff && !useEmergencyRules) {
       throw new BadRequestException({
         code: 'HEARING_RESCHEDULE_FROZEN',
         message: `Reschedule requests are locked within ${HEARING_CONFIG.RESCHEDULE_FREEZE_HOURS} hours of the hearing start. Use emergency reschedule if an exception is required.`,
@@ -5277,8 +5404,11 @@ export class HearingService implements OnModuleInit {
     const scheduleValidation = await this.validateHearingSchedule(
       scheduledAt,
       participantIds,
-      dto.isEmergency || false,
+      useEmergencyRules,
       durationMinutes,
+      {
+        bypassMinNotice: canUseTestBypass,
+      },
     );
 
     if (!scheduleValidation.valid) {
@@ -5290,7 +5420,7 @@ export class HearingService implements OnModuleInit {
       });
     }
 
-    const responseDeadline = this.calculateResponseDeadline(scheduledAt, dto.isEmergency || false);
+    const responseDeadline = this.calculateResponseDeadline(scheduledAt, useEmergencyRules);
 
     return this.dataSource.transaction(async (manager) => {
       const hearingRepo = manager.getRepository(DisputeHearingEntity);
