@@ -79,6 +79,15 @@ export class ScheduleHearingDto {
   @IsOptional()
   @IsBoolean()
   isEmergency?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Dev/test-only bypass reason for controlled scheduling experiments when dispute test mode is enabled.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  testBypassReason?: string;
 }
 
 /**
@@ -369,6 +378,15 @@ export class RescheduleHearingDto {
   @IsOptional()
   @IsBoolean()
   isEmergency?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Dev/test-only bypass reason for controlled scheduling experiments when dispute test mode is enabled.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  testBypassReason?: string;
 }
 
 export class TransitionHearingPhaseDto {

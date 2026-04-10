@@ -1,5 +1,9 @@
 import { apiClient } from "../../shared/api/client";
-import type { Contract, ContractSummary } from "./types";
+import type {
+  Contract,
+  ContractSignatureVerificationReport,
+  ContractSummary,
+} from "./types";
 import { API_CONFIG } from "@/constants";
 
 export const contractsApi = {
@@ -9,6 +13,12 @@ export const contractsApi = {
 
   getContract: (id: string): Promise<Contract> => {
     return apiClient.get(`/contracts/${id}`);
+  },
+
+  getSignatureVerificationReport: (
+    id: string,
+  ): Promise<ContractSignatureVerificationReport> => {
+    return apiClient.get(`/contracts/${id}/signature-verification-report`);
   },
 
   initializeContract: (

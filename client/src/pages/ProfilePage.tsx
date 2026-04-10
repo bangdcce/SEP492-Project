@@ -27,10 +27,13 @@ import {
 } from "@/shared/components/ui/dialog";
 import {
   getProfile,
+  getDisputeDevSettings,
   getSigningCredentialStatus,
   initializeSigningCredential,
   rotateSigningCredential,
+  updateDisputeDevSettings,
   updateProfile,
+  type DisputeDevSettingsSnapshot,
 } from "@/features/auth/api";
 import { CVUpload, SkillsDisplay } from "@/features/auth";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
@@ -40,6 +43,7 @@ import type { BadgeType } from "@/features/trust-profile/types";
 import { getStoredJson, setStoredJsonAuto } from "@/shared/utils/storage";
 import { DeleteAccountModal } from "@/shared/components/auth/DeleteAccountModal";
 import { apiClient } from "@/shared/api/client";
+import { Switch } from "@/shared/components/ui/switch";
 
 const MONTH_OPTIONS = [
   "Jan",
@@ -134,6 +138,13 @@ export default function ProfilePage() {
   });
   const [isEditing, setIsEditing] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [disputeDevSettings, setDisputeDevSettings] =
+    useState<DisputeDevSettingsSnapshot | null>(null);
+  const [disputeDevSettingsLoading, setDisputeDevSettingsLoading] =
+    useState(false);
+  const [disputeDevSettingsSaving, setDisputeDevSettingsSaving] =
+    useState(false);
+  const [disputeDevTargetEmail, setDisputeDevTargetEmail] = useState("");
 
   const [formData, setFormData] = useState({
     fullName: "",
@@ -243,11 +254,37 @@ export default function ProfilePage() {
     }
   }, []);
 
+  const loadDisputeDevSettings = useCallback(async (fallbackEmail?: string) => {
+    try {
+      setDisputeDevSettingsLoading(true);
+      const settings = await getDisputeDevSettings();
+      setDisputeDevSettings(settings);
+      setDisputeDevTargetEmail(
+        settings.activePinnedStaff?.email || fallbackEmail || "",
+      );
+    } catch {
+      setDisputeDevSettings(null);
+      setDisputeDevTargetEmail(fallbackEmail || "");
+    } finally {
+      setDisputeDevSettingsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadProfile();
     loadKycSummary();
     loadSigningCredentialStatus();
   }, [loadProfile, loadKycSummary, loadSigningCredentialStatus]);
+
+  useEffect(() => {
+    if (!profile || !["STAFF", "ADMIN"].includes(profile.role)) {
+      setDisputeDevSettings(null);
+      setDisputeDevTargetEmail("");
+      return;
+    }
+
+    void loadDisputeDevSettings(profile.email);
+  }, [loadDisputeDevSettings, profile]);
 
   const normalizePinInput = (value: string) =>
     value.replace(/\D/g, "").slice(0, 8);
@@ -402,6 +439,58 @@ export default function ProfilePage() {
     setCertificateForm(createEmptyCertificateDraft());
   };
 
+  const persistDisputeDevSettings = useCallback(
+    async (enabled: boolean, targetStaffEmail?: string) => {
+      try {
+        setDisputeDevSettingsSaving(true);
+        const nextSettings = await updateDisputeDevSettings(
+          enabled,
+          targetStaffEmail,
+        );
+        setDisputeDevSettings(nextSettings);
+        setDisputeDevTargetEmail(
+          nextSettings.activePinnedStaff?.email ||
+            targetStaffEmail ||
+            profile?.email ||
+            "",
+        );
+        toast.success(
+          enabled
+            ? `Dev auto-assign is now pinned to ${nextSettings.activePinnedStaff?.email || targetStaffEmail}.`
+            : "Dev auto-assign pin cleared.",
+        );
+      } catch (error: any) {
+        toast.error(
+          error?.response?.data?.message ||
+            "Failed to update dispute dev settings",
+        );
+      } finally {
+        setDisputeDevSettingsSaving(false);
+      }
+    },
+    [profile?.email],
+  );
+
+  const handleDisputeDevModeToggle = async (enabled: boolean) => {
+    const normalizedEmail = disputeDevTargetEmail.trim().toLowerCase();
+    if (enabled && !normalizedEmail) {
+      toast.error("Enter the staff email that should receive dev auto-assign.");
+      return;
+    }
+
+    await persistDisputeDevSettings(enabled, normalizedEmail || undefined);
+  };
+
+  const handleApplyDisputeDevTarget = async () => {
+    const normalizedEmail = disputeDevTargetEmail.trim().toLowerCase();
+    if (!normalizedEmail) {
+      toast.error("Enter the staff email that should receive dev auto-assign.");
+      return;
+    }
+
+    await persistDisputeDevSettings(true, normalizedEmail);
+  };
+
   const handleAddCertificate = () => {
     const name = certificateForm.name.trim();
     const issuingOrganization = certificateForm.issuingOrganization.trim();
@@ -554,6 +643,7 @@ export default function ProfilePage() {
   );
   const hasPendingKycUpdate = !!kycSummary?.hasPendingUpdate;
   const hasRejectedKycUpdate = !!kycSummary?.hasRejectedUpdate;
+  const supportsDisputeDevMode = ["STAFF", "ADMIN"].includes(profile.role);
   const updateSubmittedLabel = kycSummary?.updateSubmittedAt
     ? new Date(kycSummary.updateSubmittedAt).toLocaleDateString("en-US", {
         year: "numeric",
@@ -954,6 +1044,115 @@ export default function ProfilePage() {
                   </div>
                 </div>
               </div>
+
+              {supportsDisputeDevMode && (
+                <div className="border-t pt-6">
+                  <h4 className="text-lg font-bold text-gray-900 mb-4">
+                    Dispute Dev Mode
+                  </h4>
+                  <div className="rounded-lg border border-purple-200 bg-purple-50 p-4">
+                    <div className="flex flex-col gap-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div>
+                          <p className="text-sm font-semibold text-gray-900">
+                            Pin dispute auto-assign in dev/test
+                          </p>
+                          <p className="mt-1 text-sm text-gray-600">
+                            When enabled, new dispute auto-assignment runs will
+                            be pinned to the staff email below instead of normal
+                            balancing.
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span
+                            className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                              disputeDevSettings?.enabled
+                                ? "bg-purple-200 text-purple-900"
+                                : "bg-white text-gray-600"
+                            }`}
+                          >
+                            {disputeDevSettings?.enabled ? "Enabled" : "Off"}
+                          </span>
+                          <Switch
+                            checked={disputeDevSettings?.enabled ?? false}
+                            onCheckedChange={(checked) => {
+                              void handleDisputeDevModeToggle(checked);
+                            }}
+                            disabled={
+                              disputeDevSettingsLoading ||
+                              disputeDevSettingsSaving ||
+                              !disputeDevSettings?.testModeEnabled
+                            }
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Staff email to receive dev auto-assign
+                          </label>
+                          <input
+                            type="email"
+                            value={disputeDevTargetEmail}
+                            onChange={(event) =>
+                              setDisputeDevTargetEmail(event.target.value)
+                            }
+                            disabled={
+                              disputeDevSettingsLoading ||
+                              disputeDevSettingsSaving ||
+                              !disputeDevSettings?.testModeEnabled
+                            }
+                            placeholder="staff.test.new@example.com"
+                            className="w-full rounded-lg border border-gray-300 px-4 py-3 text-sm focus:ring-2 focus:ring-purple-500 focus:border-transparent disabled:bg-gray-100 disabled:text-gray-400"
+                          />
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void handleApplyDisputeDevTarget();
+                          }}
+                          disabled={
+                            disputeDevSettingsLoading ||
+                            disputeDevSettingsSaving ||
+                            !disputeDevSettings?.testModeEnabled ||
+                            !disputeDevTargetEmail.trim()
+                          }
+                          className="self-end rounded-lg bg-purple-600 px-4 py-3 text-sm font-medium text-white transition-colors hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {disputeDevSettingsSaving ? "Applying..." : "Apply Target"}
+                        </button>
+                      </div>
+
+                      <div className="space-y-1 text-xs text-gray-600">
+                        <p>
+                          Active pinned staff:{" "}
+                          <span className="font-medium text-gray-900">
+                            {disputeDevSettings?.activePinnedStaff
+                              ? `${disputeDevSettings.activePinnedStaff.fullName} (${disputeDevSettings.activePinnedStaff.email})`
+                              : "No staff pin is active"}
+                          </span>
+                        </p>
+                        {disputeDevSettings?.source === "ENV" &&
+                          disputeDevSettings.fallbackEmails.length > 0 && (
+                            <p>
+                              Server fallback:{" "}
+                              {disputeDevSettings.fallbackEmails.join(", ")}
+                            </p>
+                          )}
+                        {disputeDevSettings &&
+                          !disputeDevSettings.testModeEnabled && (
+                          <p className="text-amber-700">
+                            Backend test mode is currently off. Turn on
+                            `DISPUTE_TEST_MODE=true` in a non-production
+                            environment before using this switch.
+                          </p>
+                          )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Professional Information - For Freelancer and Broker */}
               {["FREELANCER", "BROKER"].includes(profile.role) && (

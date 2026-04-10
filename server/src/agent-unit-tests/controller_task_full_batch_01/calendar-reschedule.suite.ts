@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ParseUUIDPipe,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 import { RescheduleRequestStatus, UserRole } from 'src/database/entities';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
@@ -47,6 +48,7 @@ const buildCalendarController = () => {
     deps.calendarService as never,
     deps.autoScheduleService as never,
     deps.availabilityService as never,
+    { emit: jest.fn() } as EventEmitter2,
   );
 
   return { controller, ...deps };

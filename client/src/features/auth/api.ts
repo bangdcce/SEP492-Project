@@ -17,6 +17,18 @@ import type {
   Certification,
 } from "./types";
 
+export interface DisputeDevSettingsSnapshot {
+  enabled: boolean;
+  testModeEnabled: boolean;
+  activePinnedStaff: {
+    id: string;
+    email: string;
+    fullName: string;
+  } | null;
+  fallbackEmails: string[];
+  source: "PROFILE" | "ENV" | "NONE";
+}
+
 /**
  * Sign in with email and password
  */
@@ -114,6 +126,31 @@ export const updateProfile = async (data: {
   timeZone?: string;
 }) => {
   return await apiClient.put("/auth/profile", data);
+};
+
+export const getDisputeDevSettings =
+  async (): Promise<DisputeDevSettingsSnapshot> => {
+    const response = await apiClient.get<{
+      success?: boolean;
+      data?: DisputeDevSettingsSnapshot;
+    }>("/staff/dispute-dev-settings");
+
+    return response?.data ?? (response as unknown as DisputeDevSettingsSnapshot);
+  };
+
+export const updateDisputeDevSettings = async (
+  enabled: boolean,
+  targetStaffEmail?: string,
+): Promise<DisputeDevSettingsSnapshot> => {
+  const response = await apiClient.put<{
+    success?: boolean;
+    data?: DisputeDevSettingsSnapshot;
+  }>("/staff/dispute-dev-settings", {
+    enabled,
+    ...(targetStaffEmail ? { targetStaffEmail } : {}),
+  });
+
+  return response?.data ?? (response as unknown as DisputeDevSettingsSnapshot);
 };
 
 /**

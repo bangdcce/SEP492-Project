@@ -7,6 +7,7 @@ import {
   ConflictException,
   Optional,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, In, IsNull, Repository } from 'typeorm';
 import Decimal from 'decimal.js';
@@ -31,11 +32,13 @@ import {
 import { TaskEntity, TaskStatus } from '../../database/entities/task.entity';
 import { TaskHistoryEntity } from '../../database/entities/task-history.entity';
 import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.entity';
+import { ProjectRequestEntity, RequestStatus } from '../../database/entities/project-request.entity';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
 import { EscrowReleaseService } from '../payments/escrow-release.service';
 import { EscrowRefundMode, EscrowRefundResult, WalletSnapshot } from '../payments/payments.types';
 import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 // Response type with enriched dispute info
 export interface ProjectWithDisputeInfo {
@@ -81,6 +84,11 @@ export interface ProjectReviewSummary {
   currentUserPendingReviews: number;
   currentUserCanReview: boolean;
 }
+
+const REVIEWABLE_PROJECT_STATUSES = new Set<ProjectStatus>([
+  ProjectStatus.COMPLETED,
+  ProjectStatus.PAID,
+]);
 
 export interface StaffCandidateSummary {
   id: string;
@@ -187,9 +195,87 @@ export class ProjectsService {
     private readonly auditLogsService: AuditLogsService,
     private readonly milestoneLockPolicyService: MilestoneLockPolicyService,
     private readonly escrowReleaseService: EscrowReleaseService,
+    private readonly notificationsService: NotificationsService,
+    private readonly eventEmitter: EventEmitter2,
     @Optional()
     private readonly workspaceChatService?: WorkspaceChatService,
   ) {}
+
+  private getProjectParticipantIds(
+    project: Pick<ProjectEntity, 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'>,
+    extraUserIds: Array<string | null | undefined> = [],
+  ): string[] {
+    return Array.from(
+      new Set(
+        [project.clientId, project.brokerId, project.freelancerId, project.staffId, ...extraUserIds].filter(
+          Boolean,
+        ),
+      ),
+    ) as string[];
+  }
+
+  private emitProjectUpdated(
+    project: Pick<
+      ProjectEntity,
+      'id' | 'requestId' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'
+    >,
+  ) {
+    const userIds = this.getProjectParticipantIds(project);
+
+    userIds.forEach((userId) => {
+      this.eventEmitter.emit('project.updated', {
+        userId,
+        projectId: project.id,
+        requestId: project.requestId ?? null,
+        entityType: 'Project',
+        entityId: project.id,
+      });
+
+      if (project.requestId) {
+        this.eventEmitter.emit('request.updated', {
+          userId,
+          requestId: project.requestId,
+          projectId: project.id,
+          entityType: 'ProjectRequest',
+          entityId: project.requestId,
+        });
+      }
+    });
+  }
+
+  private async notifyProjectCancellationParticipants(
+    project: Pick<
+      ProjectEntity,
+      'id' | 'title' | 'currency' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'
+    >,
+    totalRefundedAmount: number,
+    refundModeSummary: EscrowRefundMode | 'MIXED' | 'NONE',
+  ): Promise<void> {
+    const userIds = this.getProjectParticipantIds(project);
+    if (userIds.length === 0) {
+      return;
+    }
+
+    const currency = project.currency || 'USD';
+    const body =
+      totalRefundedAmount > 0
+        ? refundModeSummary === 'PAYPAL_CAPTURE_REFUND'
+          ? `Project "${project.title}" was cancelled. Refunded ${totalRefundedAmount.toFixed(2)} ${currency} back to the client's PayPal funding source.`
+          : refundModeSummary === 'MIXED'
+            ? `Project "${project.title}" was cancelled. Refunded ${totalRefundedAmount.toFixed(2)} ${currency} across PayPal and internal wallet paths.`
+            : `Project "${project.title}" was cancelled. Refunded ${totalRefundedAmount.toFixed(2)} ${currency} back to the internal wallet.`
+        : `Project "${project.title}" was cancelled. No refundable escrow remained.`;
+
+    await this.notificationsService.createMany(
+      userIds.map((userId) => ({
+        userId,
+        title: 'Project cancelled',
+        body,
+        relatedType: 'Project',
+        relatedId: project.id,
+      })),
+    );
+  }
 
   private async recordWorkspaceSystemMessage(
     projectId: string,
@@ -301,7 +387,7 @@ export class ProjectsService {
     }
 
     const currentUserCanReview =
-      project.status === ProjectStatus.COMPLETED &&
+      REVIEWABLE_PROJECT_STATUSES.has(project.status as ProjectStatus) &&
       Boolean(viewerId && members.some((member) => member.id === viewerId));
 
     const pendingReviewTargets =
@@ -1432,6 +1518,14 @@ export class ProjectsService {
       project.staffId = null;
       project.staffInviteStatus = null;
       await projectRepository.save(project);
+
+      if (project.requestId) {
+        await manager.getRepository(ProjectRequestEntity).update(
+          { id: project.requestId },
+          { status: RequestStatus.CANCELED },
+        );
+      }
+
       updatedProject = project;
     });
 
@@ -1492,6 +1586,13 @@ export class ProjectsService {
           ? `Project "${updatedProject.title}" was cancelled. Refunded ${refundedEscrows.length} escrow(s) totaling ${totalRefundedAmount.toFixed(2)} ${updatedProject.currency || 'USD'} across PayPal and internal wallet paths.`
           : `Project "${updatedProject.title}" was cancelled. Refunded ${refundedEscrows.length} escrow(s) totaling ${totalRefundedAmount.toFixed(2)} ${updatedProject.currency || 'USD'} back to the client's internal wallet.`,
     );
+
+    await this.notifyProjectCancellationParticipants(
+      updatedProject,
+      totalRefundedAmount,
+      refundModeSummary,
+    );
+    this.emitProjectUpdated(updatedProject);
 
     return {
       projectId,

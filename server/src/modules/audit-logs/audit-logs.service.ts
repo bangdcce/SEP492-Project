@@ -158,10 +158,10 @@ const ACTION_RISK_MAP: Record<string, RiskLevel> = {
   REJECT: 'NORMAL',
   REGISTRATION: 'NORMAL',
   BREADCRUMB: 'LOW',
+  LOGIN: 'NORMAL',
+  LOGOUT: 'LOW',
   DELETE: 'HIGH',
   REMOVE: 'HIGH',
-  LOGIN: 'HIGH',
-  LOGOUT: 'HIGH',
   CHANGE_PASSWORD: 'HIGH',
   RESET_PASSWORD: 'HIGH',
   WITHDRAW_MONEY: 'HIGH',
@@ -921,14 +921,26 @@ export class AuditLogsService {
   }
 
   private isSuspiciousUserAgent(ua: string): boolean {
-    if (!ua || ua === 'unknown') return true;
+    if (!ua || ua === 'unknown') return false;
     const lowerUa = ua.toLowerCase();
-    const blacklist = ['postman', 'curl', 'wget', 'python', 'insomnia', 'axios', 'bot', 'spider'];
-    return blacklist.some((tool) => lowerUa.includes(tool));
+
+    const automationTools = ['postman', 'curl', 'wget', 'python', 'insomnia', 'axios'];
+    const hostileAgents = ['bot', 'spider', 'sqlmap', 'nikto', 'nmap'];
+
+    if (hostileAgents.some((agent) => lowerUa.includes(agent))) {
+      return true;
+    }
+
+    if (this.isNonProductionEnvironment()) {
+      return false;
+    }
+
+    return automationTools.some((tool) => lowerUa.includes(tool));
   }
 
   private async checkIfIpIsNewForUser(userId: string, currentIp: string): Promise<boolean> {
     if (currentIp === 'system' || currentIp === 'unknown') return false;
+    if (this.isPrivateOrLocalIp(currentIp)) return false;
 
     const recentLogs = await this.auditLogRepository.find({
       where: { actorId: userId },
@@ -945,6 +957,40 @@ export class AuditLogsService {
       .map((log) => log.ipAddress)
       .filter(Boolean)
       .includes(currentIp);
+  }
+
+  private isNonProductionEnvironment(): boolean {
+    return (process.env.NODE_ENV || '').toLowerCase() !== 'production';
+  }
+
+  private isPrivateOrLocalIp(ip: string): boolean {
+    const normalized = ip.trim().toLowerCase();
+
+    if (!normalized) {
+      return true;
+    }
+
+    if (normalized.startsWith('::ffff:')) {
+      return this.isPrivateOrLocalIp(normalized.slice('::ffff:'.length));
+    }
+
+    if (normalized === 'localhost' || normalized === '::1' || normalized === '127.0.0.1') {
+      return true;
+    }
+
+    if (/^10\./.test(normalized) || /^192\.168\./.test(normalized)) {
+      return true;
+    }
+
+    const private172 = normalized.match(/^172\.(\d{1,3})\./);
+    if (private172) {
+      const secondOctet = Number(private172[1]);
+      if (secondOctet >= 16 && secondOctet <= 31) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   private buildChangedFields(

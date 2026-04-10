@@ -78,6 +78,12 @@ interface ServerReviewData {
       avatarUrl?: string;
     };
   };
+  targetUser?: {
+    id?: string;
+    fullName?: string;
+    email?: string;
+    role?: string;
+  };
   project?: {
     id: string;
     title: string;
@@ -201,6 +207,12 @@ export default function AdminReviewModerationPage() {
               badge: (review.reviewer?.badge as BadgeType) || "NORMAL",
               currentTrustScore: review.reviewer?.currentTrustScore,
             },
+            targetUser: {
+              id: review.targetUser?.id || "",
+              fullName: review.targetUser?.fullName || "Unknown User",
+              email: review.targetUser?.email,
+              role: review.targetUser?.role,
+            },
             project: {
               id: review.project?.id || "",
               title: review.project?.title || "Unknown Project",
@@ -311,6 +323,7 @@ export default function AdminReviewModerationPage() {
       return (
         review.comment.toLowerCase().includes(query) ||
         review.reviewer.fullName.toLowerCase().includes(query) ||
+        (review.targetUser?.fullName || "").toLowerCase().includes(query) ||
         review.project.title.toLowerCase().includes(query)
       );
     }
@@ -630,7 +643,7 @@ export default function AdminReviewModerationPage() {
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search by comment, reviewer, or project..."
+            placeholder="Search by comment, reviewer, target user, or project..."
             className="w-full pl-12 pr-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
           />
         </div>
@@ -689,6 +702,14 @@ export default function AdminReviewModerationPage() {
                       Project:{" "}
                       <span className="text-slate-900">
                         {review.project.title}
+                      </span>
+                    </div>
+                    <div className="text-xs text-gray-600 mb-2">
+                      Feedback flow:{" "}
+                      <span className="text-slate-800">{review.reviewer.fullName}</span>
+                      {" "}to{" "}
+                      <span className="text-slate-800">
+                        {review.targetUser?.fullName || "Unknown User"}
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-gray-500">

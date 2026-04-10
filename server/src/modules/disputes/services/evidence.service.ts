@@ -5,6 +5,7 @@ import {
   NotFoundException,
   ForbiddenException,
   Optional,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
@@ -82,6 +83,12 @@ const SIGNED_URL_BATCH_SIZE = 20;
 const BUCKET_NAME = 'disputes';
 const VIRUSTOTAL_BASE_URL = 'https://www.virustotal.com/api/v3';
 const VIRUSTOTAL_BLOCK_THRESHOLD = 1;
+const VIRUSTOTAL_SCAN_CACHE_PREFIX = 'virustotal_scan:';
+const DEFAULT_VIRUSTOTAL_SCAN_CACHE_TTL_SECONDS = 15 * 60;
+const DEFAULT_VIRUSTOTAL_UNKNOWN_HASH_CACHE_TTL_SECONDS = 5 * 60;
+const DEFAULT_VIRUSTOTAL_REQUEST_TIMEOUT_MS = 5000;
+const DEFAULT_VIRUSTOTAL_MAX_RETRIES = 2;
+const DEFAULT_VIRUSTOTAL_RETRY_BASE_DELAY_MS = 250;
 
 // =============================================================================
 // INTERFACES
@@ -168,6 +175,7 @@ export interface EvidenceWithSignedUrl extends DisputeEvidenceEntity {
 // =============================================================================
 @Injectable()
 export class EvidenceService {
+  private readonly logger = new Logger(EvidenceService.name);
   private supabase: SupabaseClient;
   private bucketName = BUCKET_NAME;
 
@@ -435,6 +443,95 @@ export class EvidenceService {
     }
   }
 
+  private parsePositiveIntConfig(
+    key: string,
+    fallback: number,
+    min: number = 0,
+    max: number = Number.MAX_SAFE_INTEGER,
+  ): number {
+    const rawValue = this.configService.get<string>(key);
+    const parsedValue = Number(rawValue);
+
+    if (!Number.isFinite(parsedValue)) {
+      return fallback;
+    }
+
+    const normalized = Math.floor(parsedValue);
+    if (normalized < min) {
+      return min;
+    }
+    if (normalized > max) {
+      return max;
+    }
+
+    return normalized;
+  }
+
+  private getVirusTotalFailOpenPolicy(): boolean {
+    const raw = this.configService.get<string>('VIRUSTOTAL_FAIL_OPEN');
+    if (raw == null) {
+      return true;
+    }
+
+    return !['false', '0', 'no', 'off'].includes(raw.trim().toLowerCase());
+  }
+
+  private getVirusTotalCacheKey(fileHash: string): string {
+    return `${VIRUSTOTAL_SCAN_CACHE_PREFIX}${fileHash}`;
+  }
+
+  private async getVirusTotalCachedResult(
+    fileHash: string,
+  ): Promise<{ blocked: boolean; reason?: string } | null> {
+    const cacheKey = this.getVirusTotalCacheKey(fileHash);
+
+    try {
+      const cached = await this.cacheManager.get<{ blocked: boolean; reason?: string }>(cacheKey);
+      if (cached && typeof cached.blocked === 'boolean') {
+        return {
+          blocked: cached.blocked,
+          reason: cached.reason,
+        };
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`[VirusTotal] cache read failed for hash=${fileHash}: ${message}`);
+    }
+
+    return null;
+  }
+
+  private async setVirusTotalCachedResult(
+    fileHash: string,
+    value: { blocked: boolean; reason?: string },
+    ttlSeconds: number,
+  ): Promise<void> {
+    const cacheKey = this.getVirusTotalCacheKey(fileHash);
+
+    try {
+      await this.cacheManager.set(cacheKey, value, ttlSeconds * 1000);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`[VirusTotal] cache write failed for hash=${fileHash}: ${message}`);
+    }
+  }
+
+  private isVirusTotalRetriableStatus(status?: number): boolean {
+    if (!status) {
+      return true;
+    }
+
+    return status === 408 || status === 429 || status >= 500;
+  }
+
+  private async sleep(milliseconds: number): Promise<void> {
+    if (milliseconds <= 0) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
   private async scanWithVirusTotal(
     fileHash: string,
   ): Promise<{ blocked: boolean; reason?: string }> {
@@ -443,33 +540,114 @@ export class EvidenceService {
       return { blocked: false };
     }
 
-    const baseUrl = this.configService.get<string>('VIRUSTOTAL_API_URL') || VIRUSTOTAL_BASE_URL;
+    const cachedDecision = await this.getVirusTotalCachedResult(fileHash);
+    if (cachedDecision) {
+      return cachedDecision;
+    }
 
-    try {
-      const response = await axios.get(`${baseUrl}/files/${fileHash}`, {
-        headers: {
-          'x-apikey': apiKey,
-        },
-      });
+    const baseUrl =
+      (this.configService.get<string>('VIRUSTOTAL_API_URL') || VIRUSTOTAL_BASE_URL).replace(
+        /\/+$/,
+        '',
+      );
+    const timeoutMs = this.parsePositiveIntConfig(
+      'VIRUSTOTAL_REQUEST_TIMEOUT_MS',
+      DEFAULT_VIRUSTOTAL_REQUEST_TIMEOUT_MS,
+      500,
+      30000,
+    );
+    const maxRetries = this.parsePositiveIntConfig(
+      'VIRUSTOTAL_MAX_RETRIES',
+      DEFAULT_VIRUSTOTAL_MAX_RETRIES,
+      0,
+      5,
+    );
+    const retryBaseDelayMs = this.parsePositiveIntConfig(
+      'VIRUSTOTAL_RETRY_BASE_DELAY_MS',
+      DEFAULT_VIRUSTOTAL_RETRY_BASE_DELAY_MS,
+      0,
+      5000,
+    );
+    const failOpen = this.getVirusTotalFailOpenPolicy();
+    const scanCacheTtlSeconds = this.parsePositiveIntConfig(
+      'VIRUSTOTAL_SCAN_CACHE_TTL_SECONDS',
+      DEFAULT_VIRUSTOTAL_SCAN_CACHE_TTL_SECONDS,
+      30,
+      24 * 60 * 60,
+    );
+    const unknownHashCacheTtlSeconds = this.parsePositiveIntConfig(
+      'VIRUSTOTAL_UNKNOWN_HASH_CACHE_TTL_SECONDS',
+      DEFAULT_VIRUSTOTAL_UNKNOWN_HASH_CACHE_TTL_SECONDS,
+      30,
+      24 * 60 * 60,
+    );
 
-      const stats = response?.data?.data?.attributes?.last_analysis_stats;
-      const malicious = Number(stats?.malicious || 0);
-      const suspicious = Number(stats?.suspicious || 0);
+    let lastStatus: number | undefined;
+    let lastErrorMessage = '';
 
-      if (malicious + suspicious >= VIRUSTOTAL_BLOCK_THRESHOLD) {
-        return {
-          blocked: true,
-          reason: `VirusTotal flagged file (malicious: ${malicious}, suspicious: ${suspicious})`,
-        };
-      }
-    } catch (error) {
-      const status = axios.isAxiosError(error) ? error.response?.status : undefined;
-      if (status && status !== 404) {
-        console.warn('VirusTotal scan failed:', error);
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const response = await axios.get(`${baseUrl}/files/${fileHash}`, {
+          headers: {
+            'x-apikey': apiKey,
+          },
+          timeout: timeoutMs,
+        });
+
+        const stats = response?.data?.data?.attributes?.last_analysis_stats;
+        const malicious = Number(stats?.malicious || 0);
+        const suspicious = Number(stats?.suspicious || 0);
+
+        const decision =
+          malicious + suspicious >= VIRUSTOTAL_BLOCK_THRESHOLD
+            ? {
+                blocked: true,
+                reason: `VirusTotal flagged file (malicious: ${malicious}, suspicious: ${suspicious})`,
+              }
+            : { blocked: false };
+
+        await this.setVirusTotalCachedResult(fileHash, decision, scanCacheTtlSeconds);
+        return decision;
+      } catch (error) {
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined;
+        lastStatus = status;
+        lastErrorMessage = error instanceof Error ? error.message : String(error);
+
+        if (status === 404) {
+          const cleanDecision = { blocked: false };
+          await this.setVirusTotalCachedResult(
+            fileHash,
+            cleanDecision,
+            unknownHashCacheTtlSeconds,
+          );
+          return cleanDecision;
+        }
+
+        if (this.isVirusTotalRetriableStatus(status) && attempt < maxRetries) {
+          const delay = retryBaseDelayMs * Math.pow(2, attempt);
+          await this.sleep(delay);
+          continue;
+        }
+
+        break;
       }
     }
 
-    return { blocked: false };
+    const statusLabel = lastStatus ? `status=${lastStatus}` : 'status=network';
+    if (failOpen) {
+      this.logger.warn(
+        `[VirusTotal] scan skipped (${statusLabel}) hash=${fileHash} reason=${lastErrorMessage || 'unknown'}`,
+      );
+      return { blocked: false };
+    }
+
+    this.logger.error(
+      `[VirusTotal] fail-closed (${statusLabel}) hash=${fileHash} reason=${lastErrorMessage || 'unknown'}`,
+    );
+    return {
+      blocked: true,
+      reason: 'VirusTotal scan unavailable (fail-closed policy)',
+    };
   }
 
   private sanitizeFileName(fileName: string): string | null {

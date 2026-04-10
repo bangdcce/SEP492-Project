@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { createHash, createSign, generateKeyPairSync } from 'crypto';
 import { DataSource, QueryRunner } from 'typeorm';
 import { ContractsService } from './contracts.service';
 import {
@@ -29,6 +30,7 @@ import { EscrowEntity } from '../../database/entities/escrow.entity';
 import { ContractArchiveStorageService } from './contract-archive.storage';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SigningCredentialsService } from '../auth/signing-credentials.service';
+import { UserSigningCredentialEntity } from '../../database/entities/user-signing-credential.entity';
 
 describe('ContractsService', () => {
   let service: ContractsService;
@@ -58,6 +60,9 @@ describe('ContractsService', () => {
   };
   const mockEscrowReadRepository = {
     find: jest.fn().mockResolvedValue([]),
+  };
+  const mockSigningCredentialReadRepository = {
+    findOne: jest.fn().mockResolvedValue(null),
   };
   const mockSigningCredentialsService = {
     signContentHash: jest.fn().mockResolvedValue({
@@ -175,6 +180,9 @@ describe('ContractsService', () => {
       getRepository: jest.fn((entity: unknown) => {
         if (entity === EscrowEntity) {
           return mockEscrowReadRepository;
+        }
+        if (entity === UserSigningCredentialEntity) {
+          return mockSigningCredentialReadRepository;
         }
         return { find: jest.fn().mockResolvedValue([]) };
       }),
@@ -706,6 +714,178 @@ describe('ContractsService', () => {
       const result = await service.generatePdfForUser(brokerUser, contract.id);
 
       expect(result).toEqual(dynamicBuffer);
+    });
+  });
+
+  describe('getSignatureVerificationReportForUser', () => {
+    it('returns a fully verified report for a valid Mini CA signature proof', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-verify-uuid',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
+        project,
+        termsContent: 'Frozen terms',
+        commercialContext: buildCommercialContext(project),
+        milestoneSnapshot: buildSnapshot(),
+      } as ContractEntity;
+
+      const contentHash = (service as any).computeContentHash(contract);
+      contract.contentHash = contentHash;
+
+      const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      });
+
+      const signedAt = new Date('2026-04-07T08:00:00.000Z');
+      const signerRole = 'BROKER';
+      const signer = createSign('RSA-SHA256');
+      signer.update(contentHash);
+      signer.end();
+      const signatureValue = signer.sign(privateKey, 'base64');
+      const auditHash = (service as any).buildServerSignatureHash({
+        contractId: contract.id,
+        userId: brokerUser.id,
+        contentHash,
+        signerRole,
+        signedAt,
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest-agent',
+      });
+      const signatureHash = createHash('sha256')
+        .update(`${auditHash}:${signatureValue}`)
+        .digest('hex');
+      const timestampToken = (service as any).buildMiniCaTimestampToken({
+        contractId: contract.id,
+        userId: brokerUser.id,
+        contentHash,
+        signatureBase64: signatureValue,
+        signedAt,
+      });
+
+      contract.signatures = [
+        {
+          id: 'sig-1',
+          contractId: contract.id,
+          userId: brokerUser.id,
+          signerRole,
+          provider: 'INTERDEV_MINI_CA',
+          contentHash,
+          signatureHash,
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest-agent',
+          certificateSerial: 'INTERDEV-MCA-TEST',
+          signedAt,
+          verifiedAt: signedAt,
+          providerPayload: {
+            contentHash,
+            signatureValue,
+            keyFingerprint: 'fingerprint-test',
+            signerPublicKeyPem: publicKey,
+            timestampToken,
+          },
+          user: {
+            id: brokerUser.id,
+            fullName: 'Broker Tester',
+          },
+        },
+      ] as any;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+
+      const report = await service.getSignatureVerificationReportForUser(
+        brokerUser,
+        contract.id,
+      );
+
+      expect(report.allSignaturesVerified).toBe(true);
+      expect(report.signatureReports[0].checks.cryptographicVerificationPassed).toBe(true);
+      expect(report.signatureReports[0].checks.signatureHashMatches).toBe(true);
+      expect(report.signatureReports[0].checks.signedContentMatchesCurrent).toBe(true);
+      expect(report.signatureReports[0].checks.timestampTokenValid).toBe(true);
+      expect(report.signatureReports[0].overallVerified).toBe(true);
+    });
+
+    it('flags the report when signature hash is tampered', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-verify-tampered',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
+        project,
+        termsContent: 'Frozen terms',
+        commercialContext: buildCommercialContext(project),
+        milestoneSnapshot: buildSnapshot(),
+      } as ContractEntity;
+
+      const contentHash = (service as any).computeContentHash(contract);
+      contract.contentHash = contentHash;
+
+      const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      });
+
+      const signedAt = new Date('2026-04-07T08:05:00.000Z');
+      const signer = createSign('RSA-SHA256');
+      signer.update(contentHash);
+      signer.end();
+      const signatureValue = signer.sign(privateKey, 'base64');
+      const timestampToken = (service as any).buildMiniCaTimestampToken({
+        contractId: contract.id,
+        userId: brokerUser.id,
+        contentHash,
+        signatureBase64: signatureValue,
+        signedAt,
+      });
+
+      contract.signatures = [
+        {
+          id: 'sig-tampered',
+          contractId: contract.id,
+          userId: brokerUser.id,
+          signerRole: 'BROKER',
+          provider: 'INTERDEV_MINI_CA',
+          contentHash,
+          signatureHash: 'tampered-signature-hash',
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest-agent',
+          certificateSerial: 'INTERDEV-MCA-TEST',
+          signedAt,
+          verifiedAt: signedAt,
+          providerPayload: {
+            contentHash,
+            signatureValue,
+            signerPublicKeyPem: publicKey,
+            timestampToken,
+          },
+          user: {
+            id: brokerUser.id,
+            fullName: 'Broker Tester',
+          },
+        },
+      ] as any;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+
+      const report = await service.getSignatureVerificationReportForUser(
+        brokerUser,
+        contract.id,
+      );
+
+      expect(report.allSignaturesVerified).toBe(false);
+      expect(report.signatureReports[0].checks.cryptographicVerificationPassed).toBe(true);
+      expect(report.signatureReports[0].checks.signatureHashMatches).toBe(false);
+      expect(report.signatureReports[0].overallVerified).toBe(false);
     });
   });
 

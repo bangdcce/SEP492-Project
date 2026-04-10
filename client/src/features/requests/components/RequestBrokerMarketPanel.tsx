@@ -17,6 +17,14 @@ import { buildTrustProfilePath } from "@/features/trust-profile/routes";
 import { RequestStatus, type BrokerApplicationItem, type ProjectRequest, type RequestMatchCandidate, type RequestSlotSummary } from "../types";
 import { extractCandidateReasoning } from "../matchReasoning";
 
+const toNumeric = (value: number | string | null | undefined): number | null => {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
 type RequestBrokerMarketPanelProps = {
   request: ProjectRequest;
   currentPhase: number;
@@ -362,7 +370,7 @@ export function RequestBrokerMarketPanel({
                     </Button>
                     <Button
                       size="sm"
-                      className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-sm"
+                      className="bg-linear-to-r from-indigo-500 to-purple-600 text-white shadow-sm"
                       onClick={onGetAiSuggestions}
                       disabled={brokerMatchesLoading}
                     >
@@ -378,6 +386,21 @@ export function RequestBrokerMarketPanel({
                   matches.map((broker) => {
                     const brokerId = broker.id || broker.candidateId || broker.userId;
                     const reasoning = getBrokerReasoning(broker);
+                    const normalizedTrust = (() => {
+                      const normalized = toNumeric(broker.normalizedTrust);
+                      if (normalized !== null) {
+                        return Math.round(clamp(normalized, 0, 100) * 10) / 10;
+                      }
+                      const raw = toNumeric(broker.trustScore);
+                      return raw !== null ? Math.round(clamp(raw * 20, 0, 100) * 10) / 10 : null;
+                    })();
+                    const rawTrust = (() => {
+                      const raw = toNumeric(broker.trustScore);
+                      if (raw !== null) {
+                        return Math.round(clamp(raw, 0, 5) * 10) / 10;
+                      }
+                      return normalizedTrust !== null ? Math.round((normalizedTrust / 20) * 10) / 10 : null;
+                    })();
                     return (
                       <div
                         key={brokerId || broker.fullName}
@@ -420,13 +443,18 @@ export function RequestBrokerMarketPanel({
                               {broker.matchScore !== undefined && broker.matchScore !== null ? (
                                 <div className="flex gap-3 text-sm text-muted-foreground">
                                   <span className="flex items-center gap-1">
-                                    <Star className="h-3 w-3" /> Score: {broker.matchScore}
+                                    <Star className="h-3 w-3" /> Score: {broker.matchScore}/100
                                   </span>
                                   {broker.aiRelevanceScore !== null && broker.aiRelevanceScore !== undefined ? (
                                     <span className="flex items-center gap-1">
-                                      <Sparkles className="h-3 w-3 text-indigo-500" /> AI: {broker.aiRelevanceScore}
+                                      <Sparkles className="h-3 w-3 text-indigo-500" /> AI: {broker.aiRelevanceScore}/100
                                     </span>
                                   ) : null}
+                                  <span>Tag: {broker.tagOverlapScore ?? "N/A"}/100</span>
+                                  <span>
+                                    Trust: {normalizedTrust ?? "N/A"}/100
+                                    {rawTrust !== null ? ` (${rawTrust.toFixed(1)}/5)` : ""}
+                                  </span>
                                 </div>
                               ) : null}
                             </div>

@@ -12,6 +12,10 @@ import { ProfileEntity } from '../../src/database/entities/profile.entity';
 import { ReviewEntity } from '../../src/database/entities/review.entity';
 import { TrustScoreHistoryEntity } from '../../src/database/entities/trust-score-history.entity';
 import { UserEntity } from '../../src/database/entities/user.entity';
+import { BrokerProposalEntity } from '../../src/database/entities/broker-proposal.entity';
+import { TaskAttachmentEntity } from '../../src/modules/tasks/entities/task-attachment.entity';
+import { TaskLinkEntity } from '../../src/modules/tasks/entities/task-link.entity';
+import { TaskSubmissionEntity } from '../../src/modules/tasks/entities/task-submission.entity';
 import jwtConfig from '../../src/config/jwt.config';
 import { JwtStrategy } from '../../src/modules/auth/strategies/jwt.strategy';
 import { NotificationsController } from '../../src/modules/notifications/notifications.controller';
@@ -28,6 +32,13 @@ import type { PostgresTestContainerHandle } from './postgres-test-container';
 const entityClasses = Object.values(entityExports).filter(
   (value): value is new () => unknown => typeof value === 'function',
 );
+
+const featureTestExtraEntities = [
+  BrokerProposalEntity,
+  TaskAttachmentEntity,
+  TaskLinkEntity,
+  TaskSubmissionEntity,
+];
 
 @Module({
   imports: [
@@ -82,7 +93,7 @@ export const createFeatureHttpTestApp = async (
         username: database.username,
         password: database.password,
         database: database.database,
-        entities: entityClasses,
+        entities: [...entityClasses, ...featureTestExtraEntities],
         synchronize: true,
         dropSchema: true,
         logging: false,

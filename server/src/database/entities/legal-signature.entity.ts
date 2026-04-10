@@ -50,7 +50,7 @@ export class LegalSignatureEntity {
   @Column({ type: 'text', comment: 'Snapshot nội dung điều khoản User đã đọc lúc bấm nút' })
   termsContentSnapshot: string;
 
-  @Column({ type: 'varchar', length: 10, comment: 'Version của điều khoản' })
+  @Column({ type: 'varchar', length: 64, comment: 'Version của điều khoản' })
   termsVersion: string;
 
   // === REFERENCE (Nếu liên quan đến Settlement/Verdict cụ thể) ===

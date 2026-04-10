@@ -121,6 +121,7 @@ export interface AuditLogFilters {
   incidentOnly?: boolean;
   component?: string;
   fingerprint?: string;
+  openLogId?: string;
 }
 
 export interface AuditLogTimelineResponse {

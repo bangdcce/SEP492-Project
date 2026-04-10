@@ -7,7 +7,7 @@ import {
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, FindManyOptions, In, MoreThan } from 'typeorm';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { QuotaService } from '../subscriptions/quota.service';
 import { QuotaAction } from '../../database/entities/quota-usage-log.entity';
 import {
@@ -64,6 +64,15 @@ const ACTIVE_BROKER_APPLICATION_STATUSES = [
 ] as const;
 const FREELANCER_PENDING_CLIENT_APPROVAL = 'PENDING_CLIENT_APPROVAL' as const;
 const DATE_ONLY_INPUT_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const BUDGET_CODE_RANGES: Record<string, { min?: number; max?: number }> = {
+  UNDER_1K: { min: 0, max: 1000 },
+  '1K_5K': { min: 1000, max: 5000 },
+  '5K_10K': { min: 5000, max: 10000 },
+  '10K_25K': { min: 10000, max: 25000 },
+  ABOVE_25K: { min: 25000 },
+};
 
 type BrokerHistorySummary = {
   projectId: string;
@@ -167,6 +176,151 @@ export class ProjectRequestsService {
     }
   }
 
+  private parseBudgetToken(value: string): number | null {
+    const normalized = value.replace(/[$,\s]/g, '').toUpperCase();
+    const match = normalized.match(/^(\d+(?:\.\d+)?)([KMB])?$/);
+    if (!match) {
+      return null;
+    }
+
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount)) {
+      return null;
+    }
+
+    const multiplier =
+      match[2] === 'K'
+        ? 1000
+        : match[2] === 'M'
+          ? 1000000
+          : match[2] === 'B'
+            ? 1000000000
+            : 1;
+
+    return Math.round(amount * multiplier);
+  }
+
+  private parseBudgetRange(value?: string | null): { min?: number; max?: number } | null {
+    const raw = `${value || ''}`.trim();
+    if (!raw) {
+      return null;
+    }
+
+    const normalizedCode = raw.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
+    if (BUDGET_CODE_RANGES[normalizedCode]) {
+      return BUDGET_CODE_RANGES[normalizedCode];
+    }
+
+    const normalizedRaw = raw.toUpperCase();
+    if (BUDGET_CODE_RANGES[normalizedRaw]) {
+      return BUDGET_CODE_RANGES[normalizedRaw];
+    }
+
+    const compactMatches = raw.match(/\d[\d,.]*(?:\.\d+)?\s*[kKmMbB]?/g) || [];
+    const compactNumbers = compactMatches
+      .map((segment) => this.parseBudgetToken(segment))
+      .filter((number): number is number => Number.isFinite(number) && number >= 0);
+
+    if (compactNumbers.length > 0) {
+      if (raw.includes('+') || /above|over|more than/i.test(raw)) {
+        return { min: compactNumbers[0] };
+      }
+
+      if (/under|below|less than|up to/i.test(raw)) {
+        return { min: 0, max: compactNumbers[0] };
+      }
+
+      if (compactNumbers.length === 1) {
+        return { min: compactNumbers[0], max: compactNumbers[0] };
+      }
+
+      return {
+        min: Math.min(...compactNumbers),
+        max: Math.max(...compactNumbers),
+      };
+    }
+
+    const numericMatches = raw.match(/\d[\d,.]*/g) || [];
+    const numbers = numericMatches
+      .map((segment) => Number(segment.replace(/[^\d.]/g, '')))
+      .filter((number) => Number.isFinite(number) && number >= 0);
+
+    if (numbers.length === 0) {
+      return null;
+    }
+
+    if (raw.includes('+') || /above|over|more than/i.test(raw)) {
+      return { min: numbers[0] };
+    }
+
+    if (/under|below|less than|up to/i.test(raw)) {
+      return { min: 0, max: numbers[0] };
+    }
+
+    if (numbers.length === 1) {
+      return { min: numbers[0], max: numbers[0] };
+    }
+
+    return {
+      min: Math.min(...numbers),
+      max: Math.max(...numbers),
+    };
+  }
+
+  private formatCurrencyValue(value: number): string {
+    return `$${Number(value).toLocaleString('en-US', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2,
+    })}`;
+  }
+
+  private evaluateProposedBudgetAgainstRequestRange(
+    requestBudgetRange: string | null | undefined,
+    proposedBudget: number | null | undefined,
+  ): {
+    requestBudgetRange: string | null;
+    proposedBudgetOutsideRequestRange: boolean;
+    proposedBudgetRangeWarning: string | null;
+  } {
+    const normalizedRange = `${requestBudgetRange || ''}`.trim() || null;
+
+    if (typeof proposedBudget !== 'number' || !Number.isFinite(proposedBudget) || proposedBudget < 0) {
+      return {
+        requestBudgetRange: normalizedRange,
+        proposedBudgetOutsideRequestRange: false,
+        proposedBudgetRangeWarning: null,
+      };
+    }
+
+    const parsedRange = this.parseBudgetRange(normalizedRange);
+    if (!parsedRange) {
+      return {
+        requestBudgetRange: normalizedRange,
+        proposedBudgetOutsideRequestRange: false,
+        proposedBudgetRangeWarning: null,
+      };
+    }
+
+    const isBelowMin =
+      typeof parsedRange.min === 'number' && Number.isFinite(parsedRange.min)
+        ? proposedBudget < parsedRange.min
+        : false;
+    const isAboveMax =
+      typeof parsedRange.max === 'number' && Number.isFinite(parsedRange.max)
+        ? proposedBudget > parsedRange.max
+        : false;
+    const isOutside = isBelowMin || isAboveMax;
+
+    return {
+      requestBudgetRange: normalizedRange,
+      proposedBudgetOutsideRequestRange: isOutside,
+      proposedBudgetRangeWarning: isOutside
+        ? `Proposed budget ${this.formatCurrencyValue(proposedBudget)} is outside the request budget range (${normalizedRange || 'original wizard range'}). ` +
+          'Client must explicitly acknowledge this warning before approval.'
+        : null,
+    };
+  }
+
   private getDateKeyFromDate(value?: Date | string | null): string | null {
     if (!value) {
       return null;
@@ -182,6 +336,27 @@ export class ProjectRequestsService {
 
   private sanitizePlainText(value?: string | null): string {
     return `${value || ''}`.trim();
+  }
+
+  private isUuid(value?: string | null): boolean {
+    const normalized = this.sanitizePlainText(value);
+    return UUID_PATTERN.test(normalized);
+  }
+
+  private deriveCommercialFeatureId(title: string, index: number): string {
+    const normalizedTitle = this.sanitizePlainText(title)
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    const seed = `commercial-feature:${index + 1}:${normalizedTitle}`;
+    const hex = createHash('sha1').update(seed).digest('hex').slice(0, 32);
+    const chars = hex.split('');
+    chars[12] = '4';
+    const variantNibble = Number.parseInt(chars[16], 16);
+    chars[16] = ((Number.isNaN(variantNibble) ? 0 : variantNibble) & 0x3 | 0x8).toString(16);
+
+    return `${chars.slice(0, 8).join('')}-${chars.slice(8, 12).join('')}-${chars
+      .slice(12, 16)
+      .join('')}-${chars.slice(16, 20).join('')}-${chars.slice(20, 32).join('')}`;
   }
 
   private humanizeProductTypeValue(value: string): string {
@@ -327,12 +502,18 @@ export class ProjectRequestsService {
     }
 
     const normalized = features
-      .map((feature) => ({
-        id: this.sanitizePlainText(feature?.id) || null,
-        title: `${feature?.title || ''}`.trim(),
-        description: `${feature?.description || ''}`.trim(),
-        priority: feature?.priority ?? null,
-      }))
+      .map((feature, index) => {
+        const title = `${feature?.title || ''}`.trim();
+        const description = `${feature?.description || ''}`.trim();
+        const existingId = this.sanitizePlainText(feature?.id);
+
+        return {
+          id: this.isUuid(existingId) ? existingId : this.deriveCommercialFeatureId(title, index),
+          title,
+          description,
+          priority: feature?.priority ?? null,
+        };
+      })
       .filter((feature) => feature.title.length > 0 && feature.description.length > 0);
 
     return normalized.length > 0 ? normalized : null;
@@ -412,6 +593,12 @@ export class ProjectRequestsService {
       currentClientFeatures: this.normalizeCommercialFeatures(value.currentClientFeatures),
       proposedClientFeatures: this.normalizeCommercialFeatures(value.proposedClientFeatures),
       parentSpecId: `${value.parentSpecId || ''}`.trim() || null,
+      requestBudgetRange: `${value.requestBudgetRange || ''}`.trim() || null,
+      proposedBudgetOutsideRequestRange: Boolean(value.proposedBudgetOutsideRequestRange),
+      proposedBudgetRangeWarning: `${value.proposedBudgetRangeWarning || ''}`.trim() || null,
+      clientAcknowledgedBudgetRangeWarning: Boolean(value.clientAcknowledgedBudgetRangeWarning),
+      clientAcknowledgedBudgetRangeWarningAt:
+        `${value.clientAcknowledgedBudgetRangeWarningAt || ''}`.trim() || null,
     };
   }
 
@@ -1033,6 +1220,20 @@ export class ProjectRequestsService {
     });
   }
 
+  private async buildRequestListReadModel(request: ProjectRequestEntity) {
+    const hydratedAttachments = await this.hydrateAttachments(request.attachments);
+
+    return {
+      ...request,
+      attachments: hydratedAttachments,
+      requestScopeBaseline: this.buildRequestScopeBaseline(request),
+      commercialBaseline: this.resolveCommercialBaseline(request),
+      activeCommercialChangeRequest: this.normalizeCommercialChangeRequest(
+        request.activeCommercialChangeRequest,
+      ),
+    };
+  }
+
   private async buildRequestReadModel(request: ProjectRequestEntity, user?: UserEntity) {
     const specs = (request.specs || []) as Array<
       Pick<ProjectSpecEntity, 'id' | 'title' | 'status' | 'specPhase' | 'updatedAt' | 'createdAt'>
@@ -1385,10 +1586,7 @@ export class ProjectRequestsService {
     }
     const requests = await this.requestRepo.find(options);
     return Promise.all(
-      requests.map(async (request) => ({
-        ...request,
-        attachments: await this.hydrateAttachments(request.attachments),
-      })),
+      requests.map((request) => this.buildRequestListReadModel(request)),
     );
   }
 
@@ -1536,10 +1734,7 @@ export class ProjectRequestsService {
     });
 
     return Promise.all(
-      requests.map(async (request) => ({
-        ...request,
-        attachments: await this.hydrateAttachments(request.attachments),
-      })),
+      requests.map((request) => this.buildRequestListReadModel(request)),
     );
   }
 
@@ -1551,10 +1746,7 @@ export class ProjectRequestsService {
     });
 
     const hydratedRequests = await Promise.all(
-      requests.map(async (request) => ({
-        ...request,
-        attachments: await this.hydrateAttachments(request.attachments),
-      })),
+      requests.map((request) => this.buildRequestListReadModel(request)),
     );
 
     console.log(`Find My Drafts Successful: ${hydratedRequests.length} draft request(s)`);
@@ -1685,17 +1877,38 @@ export class ProjectRequestsService {
     request: ProjectRequestEntity,
     changeRequest: ProjectRequestCommercialChangeRequest,
   ): ProjectRequestCommercialBaseline {
+    const existingBaseline = this.resolveCommercialBaseline(request);
+    const effectiveBudget =
+      changeRequest.proposedBudget ??
+      changeRequest.currentBudget ??
+      existingBaseline?.agreedBudget ??
+      existingBaseline?.estimatedBudget ??
+      null;
+    const effectiveTimeline =
+      this.safeNormalizeRequestedDeadline(
+        changeRequest.proposedTimeline ??
+          changeRequest.currentTimeline ??
+          existingBaseline?.agreedDeliveryDeadline ??
+          existingBaseline?.estimatedTimeline ??
+          undefined,
+      ) ?? null;
+    const effectiveFeatures =
+      this.normalizeCommercialFeatures(changeRequest.proposedClientFeatures) ??
+      this.normalizeCommercialFeatures(changeRequest.currentClientFeatures) ??
+      this.normalizeCommercialFeatures(
+        existingBaseline?.agreedClientFeatures ?? existingBaseline?.clientFeatures,
+      );
+
     return {
       source: 'COMMERCIAL_CHANGE',
       budgetRange: request.budgetRange ?? null,
-      estimatedBudget: changeRequest.proposedBudget ?? null,
-      estimatedTimeline: changeRequest.proposedTimeline ?? null,
-      clientFeatures: this.normalizeCommercialFeatures(changeRequest.proposedClientFeatures),
-      agreedBudget: changeRequest.proposedBudget ?? null,
-      agreedDeliveryDeadline:
-        this.safeNormalizeRequestedDeadline(changeRequest.proposedTimeline ?? undefined) ?? null,
-      agreedClientFeatures: this.normalizeCommercialFeatures(changeRequest.proposedClientFeatures),
-      sourceSpecId: changeRequest.parentSpecId ?? null,
+      estimatedBudget: effectiveBudget,
+      estimatedTimeline: effectiveTimeline,
+      clientFeatures: effectiveFeatures,
+      agreedBudget: effectiveBudget,
+      agreedDeliveryDeadline: effectiveTimeline,
+      agreedClientFeatures: effectiveFeatures,
+      sourceSpecId: changeRequest.parentSpecId ?? existingBaseline?.sourceSpecId ?? null,
       sourceChangeRequestId: changeRequest.id,
       approvedAt: changeRequest.respondedAt ?? new Date().toISOString(),
     };
@@ -1749,29 +1962,37 @@ export class ProjectRequestsService {
       );
     }
 
-    const proposedFeatures = this.normalizeCommercialFeatures(dto.proposedClientFeatures);
-    const currentFeatures = this.normalizeCommercialFeatures(baseline.clientFeatures);
+    const currentFeatures = this.normalizeCommercialFeatures(
+      baseline.agreedClientFeatures ?? baseline.clientFeatures,
+    );
+    const hasProposedFeatureInput = Array.isArray(dto.proposedClientFeatures);
+    const proposedFeatures = hasProposedFeatureInput
+      ? this.normalizeCommercialFeatures(dto.proposedClientFeatures)
+      : currentFeatures;
+    const proposedTimelineInput = `${dto.proposedTimeline || ''}`.trim();
+    const hasProposedTimelineInput = proposedTimelineInput.length > 0;
     const currentTimeline =
       this.safeNormalizeRequestedDeadline(
         baseline.agreedDeliveryDeadline ?? baseline.estimatedTimeline ?? undefined,
       ) ?? null;
-    const proposedTimeline =
-      dto.proposedTimeline != null && `${dto.proposedTimeline}`.trim()
-        ? this.normalizeRequestedDeadline(dto.proposedTimeline)
-        : null;
+    const proposedTimeline = hasProposedTimelineInput
+      ? this.normalizeRequestedDeadline(proposedTimelineInput)
+      : currentTimeline;
     const commercialTimelineFloor = this.resolveCommercialChangeTimelineFloor(request, baseline);
 
-    if (proposedTimeline && proposedTimeline < commercialTimelineFloor) {
+    if (hasProposedTimelineInput && proposedTimeline && proposedTimeline < commercialTimelineFloor) {
       throw new BadRequestException(
         `Commercial change timeline cannot be earlier than ${commercialTimelineFloor}. Use this flow only to preserve or extend the approved/requested deadline.`,
       );
     }
 
     const hasBudgetChange =
-      typeof baseline.estimatedBudget === 'number' &&
-      Math.abs((dto.proposedBudget ?? 0) - baseline.estimatedBudget) > 0.01;
-    const hasTimelineChange = proposedTimeline !== currentTimeline;
+      typeof (baseline.agreedBudget ?? baseline.estimatedBudget) === 'number' &&
+      Math.abs((dto.proposedBudget ?? 0) - (baseline.agreedBudget ?? baseline.estimatedBudget ?? 0)) >
+        0.01;
+    const hasTimelineChange = hasProposedTimelineInput && proposedTimeline !== currentTimeline;
     const hasFeatureChange =
+      hasProposedFeatureInput &&
       JSON.stringify(proposedFeatures || []) !== JSON.stringify(currentFeatures || []);
 
     if (!hasBudgetChange && !hasTimelineChange && !hasFeatureChange) {
@@ -1779,6 +2000,11 @@ export class ProjectRequestsService {
         'Commercial change request must actually change budget, timeline, or client-facing features.',
       );
     }
+
+    const budgetRangeEvaluation = this.evaluateProposedBudgetAgainstRequestRange(
+      request.budgetRange ?? baseline.budgetRange ?? null,
+      dto.proposedBudget,
+    );
 
     const commercialChangeRequest: ProjectRequestCommercialChangeRequest = {
       id: randomUUID(),
@@ -1789,13 +2015,18 @@ export class ProjectRequestsService {
       respondedAt: null,
       respondedByClientId: null,
       responseNote: null,
-      currentBudget: baseline.estimatedBudget ?? null,
+      currentBudget: baseline.agreedBudget ?? baseline.estimatedBudget ?? null,
       proposedBudget: dto.proposedBudget,
       currentTimeline,
       proposedTimeline,
       currentClientFeatures: currentFeatures,
       proposedClientFeatures: proposedFeatures,
       parentSpecId: dto.parentSpecId || clientSpec?.id || null,
+      requestBudgetRange: budgetRangeEvaluation.requestBudgetRange,
+      proposedBudgetOutsideRequestRange: budgetRangeEvaluation.proposedBudgetOutsideRequestRange,
+      proposedBudgetRangeWarning: budgetRangeEvaluation.proposedBudgetRangeWarning,
+      clientAcknowledgedBudgetRangeWarning: false,
+      clientAcknowledgedBudgetRangeWarningAt: null,
     };
 
     if (commercialChangeRequest.reason.length < 10) {
@@ -1872,10 +2103,38 @@ export class ProjectRequestsService {
       latestFullSpec: fullSpec,
     });
 
+    const budgetRangeEvaluation = this.evaluateProposedBudgetAgainstRequestRange(
+      request.budgetRange ?? changeRequest.requestBudgetRange ?? null,
+      changeRequest.proposedBudget,
+    );
+
+    if (
+      dto.action === 'APPROVE' &&
+      budgetRangeEvaluation.proposedBudgetOutsideRequestRange &&
+      !dto.acknowledgeOutOfRangeBudgetWarning
+    ) {
+      throw new BadRequestException(
+        budgetRangeEvaluation.proposedBudgetRangeWarning ||
+          'Proposed budget is outside the original request range. Please acknowledge the warning before approval.',
+      );
+    }
+
     changeRequest.status = dto.action === 'APPROVE' ? 'APPROVED' : 'REJECTED';
     changeRequest.respondedAt = new Date().toISOString();
     changeRequest.respondedByClientId = actor.id;
     changeRequest.responseNote = `${dto.note || ''}`.trim() || null;
+    changeRequest.requestBudgetRange = budgetRangeEvaluation.requestBudgetRange;
+    changeRequest.proposedBudgetOutsideRequestRange =
+      budgetRangeEvaluation.proposedBudgetOutsideRequestRange;
+    changeRequest.proposedBudgetRangeWarning = budgetRangeEvaluation.proposedBudgetRangeWarning;
+
+    if (dto.action === 'APPROVE' && budgetRangeEvaluation.proposedBudgetOutsideRequestRange) {
+      changeRequest.clientAcknowledgedBudgetRangeWarning = true;
+      changeRequest.clientAcknowledgedBudgetRangeWarningAt = changeRequest.respondedAt;
+    } else {
+      changeRequest.clientAcknowledgedBudgetRangeWarning = false;
+      changeRequest.clientAcknowledgedBudgetRangeWarningAt = null;
+    }
 
     if (dto.action === 'APPROVE') {
       request.commercialBaseline = this.buildBaselineFromApprovedChange(request, changeRequest);

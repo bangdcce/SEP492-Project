@@ -61,14 +61,14 @@ export class UserFilterDto {
   isBanned?: boolean;
 
   @ApiPropertyOptional({
-    description: 'Trang hiện tại',
+    description: 'Current page',
     default: 1,
   })
   @IsOptional()
   page?: number;
 
   @ApiPropertyOptional({
-    description: 'Số lượng mỗi trang',
+    description: 'Number of items per page',
     default: 20,
   })
   @IsOptional()

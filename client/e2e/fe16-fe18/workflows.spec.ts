@@ -826,3 +826,59 @@ for (const flatCase of flatCases) {
     }
   });
 }
+
+test("Appeal Verdict UI - Fill Sample remains interactive", async ({ page }) => {
+  const state = buildScenario("Appeal Verdict UI - Fill Sample remains interactive");
+  state.sessionUser = {
+    id: "admin-900",
+    fullName: "Morgan Lee",
+    role: "ADMIN",
+    email: "morgan.lee@interdev.test",
+    avatarUrl: null,
+  };
+  state.disputesById["dispute-400"] = {
+    ...state.disputesById["dispute-400"],
+    status: "APPEALED",
+    isAppealed: true,
+    disputedAmount: "4500.00",
+    appealReason:
+      "Appeal context with long narrative to verify the Tier 2 verdict form keeps rendering and remains editable after sample fill.",
+    appealTrack: {
+      ...(state.disputesById["dispute-400"]?.appealTrack || {}),
+      kind: "VERDICT",
+      state: "FILED",
+      canResolve: true,
+      canSubmit: false,
+      deadline: "2026-04-14T01:00:00.000Z",
+    },
+  };
+
+  await installScenario(page, state);
+  await page.goto("/admin/disputes/dispute-400");
+  await page.waitForLoadState("domcontentloaded");
+
+  await expect(page.getByText("Dispute detail is unavailable")).toHaveCount(0);
+
+  const resolveAppealButton = page.getByRole("button", { name: "Resolve Appeal" });
+  await expect(resolveAppealButton).toBeVisible();
+  await resolveAppealButton.click();
+
+  const fillSampleButton = page.getByTestId("appeal-verdict-fill-sample");
+  await expect(fillSampleButton).toBeVisible();
+  await fillSampleButton.click();
+
+  await expect(page.getByText("Dispute detail is unavailable")).toHaveCount(0);
+
+  const evidenceBasis = page.getByPlaceholder(
+    "State the evidence basis, testimony, or platform logs relied on.",
+  );
+  const overrideReason = page.getByPlaceholder(
+    "Explain why the Tier 1 verdict is upheld or overridden...",
+  );
+
+  await evidenceBasis.fill("UI-only test evidence basis.");
+  await overrideReason.fill("UI-only test override reason.");
+
+  await expect(evidenceBasis).toHaveValue("UI-only test evidence basis.");
+  await expect(overrideReason).toHaveValue("UI-only test override reason.");
+});

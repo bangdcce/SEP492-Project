@@ -67,6 +67,21 @@ export function ScoreExplanationModal({ isOpen, onClose }: ScoreExplanationModal
                   <p className="text-xs text-muted-foreground mt-1">Platform reliability, KYC status, and dispute history.</p>
                 </div>
               </div>
+              <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50/40 p-3 text-xs text-blue-900">
+                <strong>Scale normalization rule:</strong> profile trust is stored on a 0-5 scale, then converted for matching with
+                <span className="mx-1 font-mono">normalizedTrust = clamp(profileTrust x 20, 0, 100)</span>.
+                This keeps all matching factors in the same 0-100 system.
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-2 text-xs">
+                <div className="rounded-md border bg-white p-3">
+                  <div className="font-semibold text-slate-800">AI enabled</div>
+                  <div className="mt-1 font-mono text-slate-700">final = AI x 0.5 + Tag x 0.3 + Trust100 x 0.2</div>
+                </div>
+                <div className="rounded-md border bg-white p-3">
+                  <div className="font-semibold text-slate-800">Quick Match (AI disabled)</div>
+                  <div className="mt-1 font-mono text-slate-700">final = Tag x 0.7 + Trust100 x 0.3</div>
+                </div>
+              </div>
             </section>
 
             {/* Section 3 */}
@@ -115,14 +130,14 @@ export function ScoreExplanationModal({ isOpen, onClose }: ScoreExplanationModal
                 <h3 className="text-sm font-bold mb-3 flex items-center gap-2">
                    <HelpCircle className="w-4 h-4 text-primary" /> Why AI Reasoning Matters
                 </h3>
-                <div className="text-sm text-muted-foreground leading-relaxed space-y-3 break-words">
+                <div className="text-sm text-muted-foreground leading-relaxed space-y-3 wrap-break-word">
                    <p>
                      Sometimes a candidate has a <strong>100/100 Tag Score</strong> (they clicked every skill check box) but they get a <strong>🔴 HIGH RISK</strong> label. Why?
                    </p>
                    <p>
                      If you read the AI Reasoning text on their profile, you might see something like:
                    </p>
-                   <blockquote className="italic border-l-4 border-primary pl-4 py-2 bg-background/50 rounded-r-md text-foreground break-words whitespace-normal">
+                   <blockquote className="italic border-l-4 border-primary pl-4 py-2 bg-background/50 rounded-r-md text-foreground wrap-break-word whitespace-normal">
                      "The candidate claims to know React and Node, but their bio states they are strictly a Project Manager. Furthermore, they have 0 completed projects. Their stated experience does not align with their selected skills for this technical requirement."
                    </blockquote>
                    <p>

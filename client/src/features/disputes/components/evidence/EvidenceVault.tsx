@@ -12,6 +12,7 @@ import {
   ZoomOut,
   ExternalLink,
   Unlink,
+  CheckCircle2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { toast } from "sonner";
@@ -62,12 +63,18 @@ interface EvidenceVaultProps {
   disputeId: string;
   refreshToken?: number;
   readOnly?: boolean;
+  selectable?: boolean;
+  selectedEvidenceIds?: string[];
+  onSelectionChange?: (evidenceIds: string[]) => void;
 }
 
 export const EvidenceVault = ({
   disputeId,
   refreshToken,
   readOnly = false,
+  selectable = false,
+  selectedEvidenceIds = [],
+  onSelectionChange,
 }: EvidenceVaultProps) => {
   const [evidence, setEvidence] = useState<DisputeEvidence[]>([]);
   const [quota, setQuota] = useState<DisputeEvidenceQuota | null>(null);
@@ -93,6 +100,26 @@ export const EvidenceVault = ({
     currentUserRole === UserRole.STAFF || currentUserRole === UserRole.ADMIN;
   const canUpload =
     !readOnly && currentUserRole !== UserRole.STAFF && currentUserRole !== UserRole.ADMIN;
+  const selectionEnabled = selectable && typeof onSelectionChange === "function";
+
+  const selectedEvidenceSet = useMemo(
+    () => new Set(selectedEvidenceIds),
+    [selectedEvidenceIds],
+  );
+
+  const handleToggleSelection = useCallback(
+    (evidenceId: string) => {
+      if (!selectionEnabled || !onSelectionChange) return;
+      const next = new Set(selectedEvidenceIds);
+      if (next.has(evidenceId)) {
+        next.delete(evidenceId);
+      } else {
+        next.add(evidenceId);
+      }
+      onSelectionChange(Array.from(next));
+    },
+    [onSelectionChange, selectedEvidenceIds, selectionEnabled],
+  );
 
   // -------------------------------------------------------------------------
   // Load evidence — fetch list and quota independently so one failure
@@ -126,6 +153,20 @@ export const EvidenceVault = ({
   useEffect(() => {
     loadEvidence();
   }, [loadEvidence, refreshToken]);
+
+  useEffect(() => {
+    if (!selectionEnabled || !onSelectionChange || selectedEvidenceIds.length === 0) {
+      return;
+    }
+    const availableIds = new Set(evidence.map((item) => item.id));
+    const filtered = selectedEvidenceIds.filter((id) => availableIds.has(id));
+    const changed =
+      filtered.length !== selectedEvidenceIds.length ||
+      filtered.some((id, index) => id !== selectedEvidenceIds[index]);
+    if (changed) {
+      onSelectionChange(filtered);
+    }
+  }, [evidence, onSelectionChange, selectedEvidenceIds, selectionEnabled]);
 
   const quotaUsed = quota?.used ?? (quota ? quota.total - quota.remaining : 0);
   const quotaTotal = quota?.total ?? 20;
@@ -243,19 +284,27 @@ export const EvidenceVault = ({
             </span>
           )}
         </h3>
-        {canUpload ? (
-          <div className="flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1.5 rounded-full border border-gray-200">
-            <div className="w-20 h-2 bg-gray-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-teal-500"
-                style={{ width: `${(quotaUsed / quotaTotal) * 100}%` }}
-              />
+        <div className="flex items-center gap-2">
+          {selectionEnabled ? (
+            <div className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              {selectedEvidenceSet.size} selected
             </div>
-            <span>
-              {quotaUsed}/{quotaTotal} files used
-            </span>
-          </div>
-        ) : null}
+          ) : null}
+          {canUpload ? (
+            <div className="flex items-center gap-2 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-sm text-gray-500">
+              <div className="h-2 w-20 overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full bg-teal-500"
+                  style={{ width: `${(quotaUsed / quotaTotal) * 100}%` }}
+                />
+              </div>
+              <span>
+                {quotaUsed}/{quotaTotal} files used
+              </span>
+            </div>
+          ) : null}
+        </div>
       </div>
 
       {readOnly ? (
@@ -408,6 +457,23 @@ export const EvidenceVault = ({
                       {file.description}
                     </p>
                   )}
+                  {selectionEnabled ? (
+                    <button
+                      type="button"
+                      onClick={() => handleToggleSelection(file.id)}
+                      disabled={Boolean(file.isFlagged)}
+                      className={`mt-2 inline-flex min-h-8.5 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+                        selectedEvidenceSet.has(file.id)
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                          : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                      }`}
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      {selectedEvidenceSet.has(file.id)
+                        ? "Selected for response"
+                        : "Use in response"}
+                    </button>
+                  ) : null}
                 </div>
               </div>
             );

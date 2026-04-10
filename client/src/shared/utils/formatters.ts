@@ -42,29 +42,29 @@ export const formatCurrency = (
 };
 
 /**
- * Format relative time (e.g., "2 giờ trước")
+ * Format relative time (e.g., "2 hours ago")
  */
 export const formatRelativeTime = (date: string | Date): string => {
   const dateObj = typeof date === "string" ? new Date(date) : date;
   const now = new Date();
   const diffInSeconds = Math.floor((now.getTime() - dateObj.getTime()) / 1000);
 
-  const intervals: Record<string, number> = {
-    năm: 31536000,
-    tháng: 2592000,
-    tuần: 604800,
-    ngày: 86400,
-    giờ: 3600,
-    phút: 60,
-    giây: 1,
-  };
+  const intervals: Array<{ unit: string; secondsInUnit: number }> = [
+    { unit: "year", secondsInUnit: 31536000 },
+    { unit: "month", secondsInUnit: 2592000 },
+    { unit: "week", secondsInUnit: 604800 },
+    { unit: "day", secondsInUnit: 86400 },
+    { unit: "hour", secondsInUnit: 3600 },
+    { unit: "minute", secondsInUnit: 60 },
+    { unit: "second", secondsInUnit: 1 },
+  ];
 
-  for (const [unit, secondsInUnit] of Object.entries(intervals)) {
+  for (const { unit, secondsInUnit } of intervals) {
     const interval = Math.floor(diffInSeconds / secondsInUnit);
     if (interval >= 1) {
-      return `${interval} ${unit} trước`;
+      return `${interval} ${unit}${interval > 1 ? "s" : ""} ago`;
     }
   }
 
-  return "vừa xong";
+  return "just now";
 };

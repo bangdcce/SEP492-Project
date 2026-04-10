@@ -36,7 +36,7 @@ export default function KYCStatusPage() {
   const [loading, setLoading] = useState(true);
   const [kycData, setKycData] = useState<KYCData | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const baseUrl = import.meta.env.VITE_API_URL || 'https://localhost:3000';
 
   const fetchKYCStatus = async (showRefreshing = false) => {
     try {

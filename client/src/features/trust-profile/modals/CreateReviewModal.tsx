@@ -62,6 +62,7 @@ export function CreateReviewModal({
       if (err.response?.status === 400) {
         if (
           normalizedMessage.includes("đã đánh giá") ||
+          normalizedMessage.includes("already reviewed this user") ||
           normalizedMessage.includes("already reviewed")
         ) {
           setError("You have already reviewed this user.");
@@ -70,20 +71,29 @@ export function CreateReviewModal({
           normalizedMessage.includes("completed") ||
           normalizedMessage.includes("paid project")
         ) {
-          setError("Project must be completed before submitting a review.");
+          setError("Project must be completed or paid before submitting a review.");
         } else if (
           normalizedMessage.includes("không phải thành viên") ||
+          normalizedMessage.includes("reviewed user is not a member") ||
           normalizedMessage.includes("not a member")
         ) {
-          setError("You can only review users from shared completed projects.");
+          setError("You can only review users from shared completed or paid projects.");
+        } else if (
+          normalizedMessage.includes("cannot review yourself") ||
+          normalizedMessage.includes("self")
+        ) {
+          setError("You cannot review yourself.");
         } else {
           setError(
             errorMessage ||
-              "Review can only be created for shared completed projects.",
+              "Review can only be created for shared completed or paid projects.",
           );
         }
       } else if (err.response?.status === 403) {
-        if (errorMessage.includes("không phải thành viên")) {
+        if (
+          normalizedMessage.includes("không phải thành viên") ||
+          normalizedMessage.includes("not a member")
+        ) {
           setError("Permission denied. You must be a member of this project.");
         } else {
           setError("You do not have permission to review this user.");

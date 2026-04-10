@@ -255,7 +255,11 @@ export default function DashboardAdminPage() {
                         size="sm"
                         className="w-full bg-slate-900 text-white"
                       >
-                        <Link to={item.actionUrl}>
+                        <Link
+                          to={`${item.actionUrl}${
+                            item.actionUrl.includes("?") ? "&" : "?"
+                          }openLogId=${encodeURIComponent(item.latestAuditLogId)}`}
+                        >
                           Inspect logs
                           <ArrowRight className="ml-2 h-4 w-4" />
                         </Link>

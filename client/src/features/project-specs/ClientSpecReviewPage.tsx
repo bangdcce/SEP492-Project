@@ -43,6 +43,12 @@ const formatDateValue = (value?: string | null) => {
   return parsed.toLocaleDateString();
 };
 
+const toReadableLabel = (value?: string | null) =>
+  String(value || 'NOT_SET')
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
 const renderFeatureCards = (
   features?: ClientFeatureDTO[] | null,
   emptyLabel = 'No scope items.',
@@ -465,17 +471,37 @@ export default function ClientSpecReviewPage() {
       : '/client/my-requests';
 
   return (
-    <div className="container mx-auto max-w-5xl space-y-6 py-8">
-      <div className="flex items-center gap-3">
-        <Button variant="outline" size="sm" onClick={() => navigate(backPath)}>
-          <ArrowLeft className="mr-2 h-4 w-4" />
-          Back
-        </Button>
-        <div>
-          <h1 className="text-2xl font-bold">Spec Review</h1>
-          <p className="text-sm text-muted-foreground">
-            Phase: {spec.specPhase} · Status: {spec.status}
-          </p>
+    <div className="mx-auto max-w-6xl space-y-8 px-4 pb-10 pt-8 md:px-6">
+      <div className="rounded-3xl border border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.18),transparent_42%),linear-gradient(135deg,#f8fffe_0%,#ffffff_62%,#f8fafc_100%)] p-5 shadow-sm md:p-7">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex min-w-0 items-start gap-3">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 rounded-full border-slate-300 bg-white/90 px-4"
+              onClick={() => navigate(backPath)}
+            >
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back
+            </Button>
+            <div className="min-w-0">
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-950 md:text-3xl">
+                Specification Review
+              </h1>
+              <p className="mt-1 text-sm text-slate-600">
+                Request-aligned review workspace for client scope, technical breakdown, and sign-off actions.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge className="rounded-full border border-slate-300 bg-white/90 px-3 py-1 text-xs font-semibold text-slate-700" variant="outline">
+              Phase: {toReadableLabel(spec.specPhase)}
+            </Badge>
+            <Badge className="rounded-full border border-emerald-300 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800" variant="outline">
+              Status: {toReadableLabel(spec.status)}
+            </Badge>
+          </div>
         </div>
       </div>
 
@@ -486,39 +512,39 @@ export default function ClientSpecReviewPage() {
         </Alert>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <Card>
+      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+        <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>Original Client Request</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm">
+          <CardContent className="space-y-5 text-sm leading-6">
             <div>
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Original brief</p>
-              <p className="mt-2 font-medium text-slate-950">
+              <p className="mt-2 text-base font-semibold text-slate-950">
                 {requestContext.originalRequest.title || 'Not set'}
               </p>
               <p className="mt-2 whitespace-pre-wrap text-slate-600">
                 {requestContext.originalRequest.description || 'No original request description.'}
               </p>
             </div>
-            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-              <div className="rounded-xl border bg-slate-50/70 p-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Budget range</p>
                 <p className="mt-1 font-medium">{requestContext.originalRequest.budgetRange || 'Not set'}</p>
               </div>
-              <div className="rounded-xl border bg-slate-50/70 p-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Requested Deadline</p>
                 <p className="mt-1 font-medium">
                   {formatDateValue(requestContext.originalRequest.requestedDeadline)}
                 </p>
               </div>
-              <div className="rounded-xl border bg-slate-50/70 p-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Product Type</p>
                 <p className="mt-1 font-medium">
                   {getProductTypeLabel(requestContext.originalRequest.productTypeLabel || '')}
                 </p>
               </div>
-              <div className="rounded-xl border bg-slate-50/70 p-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Project Goal</p>
                 <p className="mt-1 font-medium">
                   {requestContext.originalRequest.projectGoalSummary || 'Not set'}
@@ -528,25 +554,25 @@ export default function ClientSpecReviewPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>Approved Commercial Baseline</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4 text-sm">
+          <CardContent className="space-y-5 text-sm leading-6">
             <div className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-emerald-700">Current source</p>
-              <p className="mt-2 font-medium text-emerald-950">
+              <p className="mt-2 text-base font-semibold text-emerald-950">
                 {requestContext.approvedCommercialBaseline?.source || 'Pending client approval'}
               </p>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-xl border bg-slate-50/70 p-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Agreed Budget</p>
                 <p className="mt-1 font-medium">
                   {formatCurrency(requestContext.approvedCommercialBaseline?.agreedBudget ?? null)}
                 </p>
               </div>
-              <div className="rounded-xl border bg-slate-50/70 p-3">
+              <div className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
                 <p className="text-xs uppercase tracking-wide text-slate-500">Agreed Delivery Deadline</p>
                 <p className="mt-1 font-medium">
                   {formatDateValue(
@@ -580,17 +606,17 @@ export default function ClientSpecReviewPage() {
         )}
 
       {(spec.submissionVersion || spec.changeSummary || (spec.lastSubmittedDiff?.length ?? 0) > 0) && (
-        <Card>
+        <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>Revision Summary</CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             <div className="grid gap-3 md:grid-cols-3">
-              <div className="rounded-md border p-3">
+              <div className="rounded-xl border border-slate-200 p-4">
                 <p className="text-xs text-muted-foreground">Submission Version</p>
                 <p className="font-medium">v{spec.submissionVersion || 1}</p>
               </div>
-              <div className="rounded-md border p-3 md:col-span-2">
+              <div className="rounded-xl border border-slate-200 p-4 md:col-span-2">
                 <p className="text-xs text-muted-foreground">Broker Change Summary</p>
                 <p className="font-medium whitespace-pre-wrap">
                   {spec.changeSummary || 'No broker change summary was provided for this version.'}
@@ -602,7 +628,7 @@ export default function ClientSpecReviewPage() {
               <div className="space-y-3">
                 <p className="text-sm font-semibold text-slate-900">Changed Fields</p>
                 {spec.lastSubmittedDiff.map((entry, index) => (
-                  <div key={`${entry.field}-${index}`} className="rounded-md border bg-slate-50/60 p-4">
+                  <div key={`${entry.field}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50/60 p-4">
                     <div className="mb-3">
                       <p className="font-medium text-slate-900">{entry.label}</p>
                     </div>
@@ -625,7 +651,7 @@ export default function ClientSpecReviewPage() {
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-slate-900">Revision History</p>
                 {spec.rejectionHistory.map((entry, index) => (
-                  <div key={`${entry.rejectedAt}-${index}`} className="rounded-md border p-3">
+                  <div key={`${entry.rejectedAt}-${index}`} className="rounded-xl border border-slate-200 p-4">
                     <p className="text-sm font-medium">
                       {entry.phase.replace(/_/g, ' ')} rejected on{' '}
                       {new Date(entry.rejectedAt).toLocaleString()}
@@ -644,7 +670,7 @@ export default function ClientSpecReviewPage() {
       {isBrokerViewer &&
         spec.specPhase === SpecPhase.CLIENT_SPEC &&
         (spec.status === ProjectSpecStatus.DRAFT || spec.status === ProjectSpecStatus.REJECTED) && (
-          <Card>
+          <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle>
                 {spec.status === ProjectSpecStatus.REJECTED ? 'Revise and resubmit' : 'Continue drafting'}
@@ -663,33 +689,33 @@ export default function ClientSpecReviewPage() {
           </Card>
         )}
 
-      <Card>
+      <Card className="border-slate-200 shadow-sm">
         <CardHeader>
           <CardTitle>{spec.title}</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-sm text-muted-foreground whitespace-pre-wrap">{spec.description}</p>
+        <CardContent className="space-y-5">
+          <p className="text-[15px] leading-7 text-slate-600 whitespace-pre-wrap">{spec.description}</p>
           <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-md border p-3">
+            <div className="rounded-xl border border-slate-200 p-4">
               <p className="text-xs text-muted-foreground">Budget</p>
               <p className="font-medium">${Number(spec.totalBudget || 0).toLocaleString()}</p>
             </div>
-            <div className="rounded-md border p-3">
+            <div className="rounded-xl border border-slate-200 p-4">
               <p className="text-xs text-muted-foreground">Timeline</p>
               <p className="font-medium">{spec.estimatedTimeline || '—'}</p>
             </div>
-            <div className="rounded-md border p-3">
+            <div className="rounded-xl border border-slate-200 p-4">
               <p className="text-xs text-muted-foreground">Product Type</p>
               <p className="font-medium">{spec.projectCategory || '—'}</p>
             </div>
           </div>
           {spec.specPhase === SpecPhase.FULL_SPEC && (
             <div className="grid gap-3 md:grid-cols-2">
-              <div className="rounded-md border p-3">
+              <div className="rounded-xl border border-slate-200 p-4">
                 <p className="text-xs text-muted-foreground">Tech Stack</p>
                 <p className="font-medium whitespace-pre-wrap">{spec.techStack || '—'}</p>
               </div>
-              <div className="rounded-md border p-3">
+              <div className="rounded-xl border border-slate-200 p-4">
                 <p className="text-xs text-muted-foreground">Milestones</p>
                 <p className="font-medium">{sortedMilestones.length}</p>
               </div>
@@ -700,14 +726,14 @@ export default function ClientSpecReviewPage() {
 
       {spec.specPhase === SpecPhase.CLIENT_SPEC && (
         <>
-          <Card>
+          <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle>Client Scope Items</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="space-y-4">
               {spec.clientFeatures && spec.clientFeatures.length > 0 ? (
                 spec.clientFeatures.map((feature, index) => (
-                  <div key={`${feature.title}-${index}`} className="rounded-md border p-3">
+                  <div key={`${feature.title}-${index}`} className="rounded-xl border border-slate-200 p-4">
                     <div className="mb-2 flex items-start justify-between gap-3">
                       <h3 className="font-medium">{feature.title}</h3>
                       <Badge variant="outline">{feature.priority.replace(/_/g, ' ')}</Badge>
@@ -729,7 +755,7 @@ export default function ClientSpecReviewPage() {
       {spec.specPhase === SpecPhase.FULL_SPEC && (
         <>
           {narrativeHasContent(spec.richContentJson || null) && (
-            <Card>
+            <Card className="border-slate-200 shadow-sm">
               <CardHeader>
                 <CardTitle>Detailed Scope Notes</CardTitle>
               </CardHeader>
@@ -739,14 +765,14 @@ export default function ClientSpecReviewPage() {
             </Card>
           )}
 
-          <Card>
+          <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle>Technical Features & Acceptance Criteria</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {spec.features && spec.features.length > 0 ? (
                 spec.features.map((feature, index) => (
-                  <div key={`${feature.title}-${index}`} className="rounded-md border p-4 space-y-3">
+                  <div key={`${feature.title}-${index}`} className="rounded-xl border border-slate-200 p-4 space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <h3 className="font-medium">{feature.title}</h3>
                       <Badge variant="outline">{feature.complexity}</Badge>
@@ -782,14 +808,14 @@ export default function ClientSpecReviewPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle>Milestones & Payment Schedule</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               {sortedMilestones.length > 0 ? (
                 sortedMilestones.map((milestone, index) => (
-                  <div key={milestone.id} className="rounded-md border p-4 space-y-3">
+                  <div key={milestone.id} className="rounded-xl border border-slate-200 p-4 space-y-3">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <p className="text-xs text-muted-foreground">
@@ -813,34 +839,34 @@ export default function ClientSpecReviewPage() {
                     </p>
 
                     <div className="grid gap-3 md:grid-cols-4">
-                      <div className="rounded-md border p-3">
+                      <div className="rounded-xl border border-slate-200 p-3">
                         <p className="text-xs text-muted-foreground">Deliverable</p>
                         <p className="text-sm font-medium">{milestone.deliverableType}</p>
                       </div>
-                      <div className="rounded-md border p-3">
+                      <div className="rounded-xl border border-slate-200 p-3">
                         <p className="text-xs text-muted-foreground">Retention</p>
                         <p className="text-sm font-medium">
                           ${Number(milestone.retentionAmount || 0).toLocaleString()}
                         </p>
                       </div>
-                      <div className="rounded-md border p-3">
+                      <div className="rounded-xl border border-slate-200 p-3">
                         <p className="text-xs text-muted-foreground">Duration</p>
                         <p className="text-sm font-medium">
                           {milestone.duration ? `${milestone.duration} days` : '—'}
                         </p>
                       </div>
-                      <div className="rounded-md border p-3">
+                      <div className="rounded-xl border border-slate-200 p-3">
                         <p className="text-xs text-muted-foreground">Status</p>
                         <p className="text-sm font-medium">{milestone.status}</p>
                       </div>
                     </div>
 
                     <div className="grid gap-3 md:grid-cols-2">
-                      <div className="rounded-md border p-3">
+                      <div className="rounded-xl border border-slate-200 p-3">
                         <p className="text-xs text-muted-foreground">Start Date</p>
                         <p className="text-sm font-medium">{milestone.startDate || 'Not set'}</p>
                       </div>
-                      <div className="rounded-md border p-3">
+                      <div className="rounded-xl border border-slate-200 p-3">
                         <p className="text-xs text-muted-foreground">Due Date</p>
                         <p className="text-sm font-medium">{milestone.dueDate || 'Not set'}</p>
                       </div>
@@ -874,7 +900,7 @@ export default function ClientSpecReviewPage() {
       )}
 
       {spec.referenceLinks && spec.referenceLinks.length > 0 && (
-        <Card>
+        <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>Reference Links</CardTitle>
           </CardHeader>
@@ -895,12 +921,13 @@ export default function ClientSpecReviewPage() {
         </Card>
       )}
       {showClientReviewActions && (
-        <Card>
+        <Card className="border-slate-200 shadow-sm">
           <CardHeader>
             <CardTitle>Client Decision</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <Textarea
+              className="min-h-28"
               placeholder="Reason is required when rejecting (minimum 10 chars)"
               value={rejectReason}
               onChange={(event) => setRejectReason(event.target.value)}
@@ -930,16 +957,17 @@ export default function ClientSpecReviewPage() {
             onSign={handleSignFullSpec}
           />
 
-          <Card>
+          <Card className="border-slate-200 shadow-sm">
             <CardHeader>
               <CardTitle>Need changes before signing?</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <p className="text-sm text-muted-foreground">
+              <p className="text-sm leading-6 text-muted-foreground">
                 If the full spec still needs revisions, send it back to the broker with a clear
                 reason. Any existing signatures on this review round will be cleared.
               </p>
               <Textarea
+                className="min-h-28"
                 placeholder="Explain what needs to change (minimum 10 characters)"
                 value={changeRequestReason}
                 onChange={(event) => setChangeRequestReason(event.target.value)}

@@ -115,8 +115,8 @@ const POLICY_WARNING_MESSAGE =
   "Warning: Discussing off-platform payments violates Terms of Service and voids Escrow protection.";
 const LEGAL_EXPORT_FOOTER =
   "This record is securely extracted from InterDev System. Tampering with this document is strictly prohibited and it holds legal reference value for Dispute Hearings.";
-const DELETED_MESSAGE_PLACEHOLDER = "[Tin nhắn đã bị thu hồi]";
-const EDITED_MESSAGE_LABEL = "Đã chỉnh sửa";
+const DELETED_MESSAGE_PLACEHOLDER = "[Message deleted]";
+const EDITED_MESSAGE_LABEL = "Edited";
 const FALLBACK_RISK_RULES = [
   { flag: "MOMO", pattern: /\bmomo\b/i },
   { flag: "ZALO", pattern: /\bzalo\b/i },
@@ -137,7 +137,7 @@ const SEARCH_HIGHLIGHT_CLASSNAME =
   "rounded bg-amber-200 px-1 font-semibold text-slate-900";
 const OWN_SEARCH_HIGHLIGHT_CLASSNAME =
   "rounded bg-amber-200/95 px-1 font-semibold text-slate-900";
-const VIDEO_CALL_MESSAGE_PREFIX = "Khởi tạo phòng họp trực tuyến:";
+const VIDEO_CALL_MESSAGE_PREFIX = "Video meeting room created:";
 
 type WorkspaceVideoCallMatch = {
   url: string;
@@ -1527,6 +1527,16 @@ export function WorkspaceChatDrawer({
         return Promise.reject(new Error("Socket is not connected"));
       }
 
+      if (
+        joinedProjectIdRef.current &&
+        joinedProjectIdRef.current !== targetProjectId
+      ) {
+        socket.emit("leaveProjectChat", {
+          projectId: joinedProjectIdRef.current,
+        });
+        joinedProjectIdRef.current = null;
+      }
+
       if (joinInFlightRef.current) {
         return joinInFlightRef.current;
       }
@@ -1745,7 +1755,7 @@ export function WorkspaceChatDrawer({
       }
 
       if (!canReviewTasks) {
-        toast.error("Bạn không có quyền duyệt task trong dự án này.");
+        toast.error("You do not have permission to approve tasks in this project.");
         return;
       }
 
@@ -1760,7 +1770,7 @@ export function WorkspaceChatDrawer({
         const submissions = await fetchTaskSubmissions(targetTask.id);
         const pendingSubmission = resolveLatestPendingSubmission(submissions);
         if (!pendingSubmission) {
-          toast.error("Task này chưa có bài nộp đang chờ duyệt (Pending).");
+          toast.error("This task does not have a pending submission to review yet.");
           return;
         }
 
@@ -2302,6 +2312,9 @@ export function WorkspaceChatDrawer({
     }
 
     return () => {
+      if (joinedProjectIdRef.current === projectId) {
+        socket.emit("leaveProjectChat", { projectId });
+      }
       if (joinedProjectIdRef.current === projectId) {
         joinedProjectIdRef.current = null;
       }

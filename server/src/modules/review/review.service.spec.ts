@@ -33,6 +33,7 @@ const repoMock = () => ({
 describe('ReviewService', () => {
   let service: ReviewService;
   let auditLogsService: { log: jest.Mock; logOrThrow: jest.Mock };
+  let notificationsService: { create: jest.Mock; createMany: jest.Mock };
   let dataSource: { createQueryRunner: jest.Mock; transaction: jest.Mock };
   let eventEmitter: { emitAsync: jest.Mock };
 
@@ -185,6 +186,7 @@ describe('ReviewService', () => {
         {
           provide: NotificationsService,
           useValue: {
+            create: jest.fn(),
             createMany: jest.fn(),
           },
         },
@@ -202,6 +204,7 @@ describe('ReviewService', () => {
 
     service = module.get<ReviewService>(ReviewService);
     auditLogsService = module.get(AuditLogsService);
+    notificationsService = module.get(NotificationsService);
     dataSource = module.get(DataSource);
     eventEmitter = module.get(EventEmitter2);
   });
@@ -415,6 +418,9 @@ describe('ReviewService', () => {
     jest
       .spyOn(service as never, 'notifyModerationWatchers' as never)
       .mockResolvedValue(undefined as never);
+    const notifyOwnerSpy = jest
+      .spyOn(service as never, 'notifyReviewOwner' as never)
+      .mockResolvedValue(undefined as never);
     reviewRepo.findOne.mockResolvedValue({
       id: 'review-4',
       targetUserId: 'target-2',
@@ -447,11 +453,20 @@ describe('ReviewService', () => {
         trigger: 'soft_deleted',
       }),
     );
+    expect(notifyOwnerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerId: 'reviewer-2',
+        reviewId: 'review-4',
+      }),
+    );
   });
 
   it('restores a review and emits a post-commit trust score event', async () => {
     jest
       .spyOn(service as never, 'notifyModerationWatchers' as never)
+      .mockResolvedValue(undefined as never);
+    const notifyOwnerSpy = jest
+      .spyOn(service as never, 'notifyReviewOwner' as never)
       .mockResolvedValue(undefined as never);
     reviewRepo.findOne.mockResolvedValue({
       id: 'review-5',
@@ -487,6 +502,12 @@ describe('ReviewService', () => {
         reviewId: 'review-5',
         targetUserId: 'target-3',
         trigger: 'restored',
+      }),
+    );
+    expect(notifyOwnerSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerId: 'reviewer-3',
+        reviewId: 'review-5',
       }),
     );
   });

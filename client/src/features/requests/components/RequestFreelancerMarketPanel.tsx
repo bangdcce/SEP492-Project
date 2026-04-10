@@ -3,6 +3,47 @@ import { HelpCircle, Loader2, Sparkles, Star, UserPlus } from "lucide-react";
 import { UserRole } from "@/shared/types/user.types";
 import type { FreelancerProposalItem, RequestMatchCandidate } from "../types";
 
+const toNumeric = (value: number | string | null | undefined): number | null => {
+  const parsed = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const toTrustNormalized100 = (
+  normalizedValue: number | string | null | undefined,
+  rawValue?: number | string | null,
+): number | null => {
+  const normalized = toNumeric(normalizedValue);
+  if (normalized !== null) {
+    return Math.round(clamp(normalized, 0, 100) * 10) / 10;
+  }
+
+  const raw = toNumeric(rawValue);
+  if (raw !== null) {
+    return Math.round(clamp(raw * 20, 0, 100) * 10) / 10;
+  }
+
+  return null;
+};
+
+const toTrustRaw5 = (
+  rawTrust: number | string | null | undefined,
+  normalizedTrust?: number | string | null,
+): number | null => {
+  const raw = toNumeric(rawTrust);
+  if (raw !== null) {
+    return Math.round(clamp(raw, 0, 5) * 10) / 10;
+  }
+
+  const normalized = toNumeric(normalizedTrust);
+  if (normalized === null) {
+    return null;
+  }
+  return Math.round((clamp(normalized, 0, 100) / 20) * 10) / 10;
+};
+
 type RequestFreelancerMarketPanelProps = {
   currentPhase: number;
   hasAcceptedFreelancer: boolean;
@@ -60,7 +101,7 @@ export function RequestFreelancerMarketPanel({
               </Button>
               <Button
                 size="sm"
-                className="bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-md transition-all hover:scale-105 active:scale-95"
+                className="bg-linear-to-r from-indigo-500 to-purple-600 text-white shadow-md transition-all hover:scale-105 active:scale-95"
                 onClick={onAiMatch}
                 disabled={freelancerMatchesLoading}
               >
@@ -126,6 +167,8 @@ export function RequestFreelancerMarketPanel({
                 <p className="text-sm text-muted-foreground">{freelancerMatches.length} candidates ranked</p>
                 {freelancerMatches.map((match) => {
                   const matchId = match.userId || match.candidateId || match.id;
+                  const normalizedTrust = toTrustNormalized100(match.normalizedTrust, match.trustScore);
+                  const rawTrust = toTrustRaw5(match.trustScore, match.normalizedTrust);
                   return (
                     <div key={matchId || match.fullName} className="rounded-xl border bg-background p-4 shadow-sm transition-all hover:bg-muted/10">
                       <div className="flex items-start justify-between">
@@ -165,15 +208,18 @@ export function RequestFreelancerMarketPanel({
                             </div>
                             <div className="mb-2 flex gap-3 text-sm text-muted-foreground">
                               <span className="flex items-center gap-1">
-                                <Star className="h-3 w-3" /> Score: {match.matchScore ?? "N/A"}
+                                <Star className="h-3 w-3" /> Score: {match.matchScore ?? "N/A"}/100
                               </span>
                               {match.aiRelevanceScore !== null && match.aiRelevanceScore !== undefined ? (
                                 <span className="flex items-center gap-1">
-                                  <Sparkles className="h-3 w-3 text-indigo-500" /> AI: {match.aiRelevanceScore}
+                                  <Sparkles className="h-3 w-3 text-indigo-500" /> AI: {match.aiRelevanceScore}/100
                                 </span>
                               ) : null}
-                              <span>Tag: {match.tagOverlapScore ?? "N/A"}</span>
-                              <span>Trust: {match.normalizedTrust ?? "N/A"}</span>
+                              <span>Tag: {match.tagOverlapScore ?? "N/A"}/100</span>
+                              <span>
+                                Trust: {normalizedTrust ?? "N/A"}/100
+                                {rawTrust !== null ? ` (${rawTrust.toFixed(1)}/5)` : ""}
+                              </span>
                             </div>
                             {match.matchedSkills?.length ? (
                               <div className="mb-2 flex flex-wrap gap-1">
@@ -268,7 +314,13 @@ export function RequestFreelancerMarketPanel({
                             </Badge>
                           </div>
                           <p className="mt-1 text-sm text-muted-foreground">
-                            Trust Score: {Number(proposal.freelancer?.currentTrustScore || 0).toFixed(1)}
+                            {(() => {
+                              const raw = toTrustRaw5(proposal.freelancer?.currentTrustScore, null);
+                              const normalized = raw !== null ? Math.round(raw * 20 * 10) / 10 : null;
+                              return `Trust Score: ${normalized ?? "N/A"}/100${
+                                raw !== null ? ` (${raw.toFixed(1)}/5)` : ""
+                              }`;
+                            })()}
                           </p>
                           {proposal.coverLetter ? (
                             <p className="mt-2 text-sm text-muted-foreground">

@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Request } from 'express';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, createHmac, createVerify, randomUUID } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -38,6 +38,7 @@ import {
 } from '../../database/entities/milestone.entity';
 import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
+import { UserSigningCredentialEntity } from '../../database/entities/user-signing-credential.entity';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { normalizeContractPdfUrl } from '../../common/utils/contract-pdf-url.util';
@@ -190,6 +191,79 @@ export class ContractsService {
     contract.legalSignatureEvidence = null;
   }
 
+  private isLegacyAuditRecordedSignature(signature: DigitalSignatureEntity | null | undefined) {
+    if (!signature) {
+      return false;
+    }
+    const provider = `${signature.provider || ''}`.trim().toUpperCase();
+    const legalStatus = `${signature.legalStatus || ''}`.trim().toUpperCase();
+    return provider === 'INTERDEV_AUDIT' && legalStatus === 'AUDIT_RECORDED';
+  }
+
+  private buildLegacyAuditContractCertificateSerial(contractId: string, verifiedAt: Date): string {
+    const timestamp = verifiedAt.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+    return `INTERDEV-AUDIT-${contractId.slice(0, 8).toUpperCase()}-${timestamp}`;
+  }
+
+  private async reconcileLegacyAuditVerificationIfEligible(
+    queryRunner: QueryRunner,
+    contract: ContractEntity,
+    signatures: DigitalSignatureEntity[],
+  ): Promise<boolean> {
+    if (contract.legalSignatureStatus === ContractLegalSignatureStatus.VERIFIED) {
+      return false;
+    }
+    if (contract.status !== ContractStatus.SIGNED) {
+      return false;
+    }
+
+    const requiredSignerIds = this.getRequiredContractSignerIds(contract);
+    if (requiredSignerIds.length === 0) {
+      return false;
+    }
+
+    const signaturesByUserId = new Map(signatures.map((signature) => [signature.userId, signature]));
+    const requiredSignatures = requiredSignerIds.map((userId) => signaturesByUserId.get(userId));
+
+    if (requiredSignatures.some((signature) => !signature)) {
+      return false;
+    }
+
+    const allRequiredAreLegacyAudit = requiredSignatures.every((signature) =>
+      this.isLegacyAuditRecordedSignature(signature),
+    );
+
+    if (!allRequiredAreLegacyAudit) {
+      return false;
+    }
+
+    const verifiedAtCandidates = requiredSignatures
+      .map((signature) => signature!.verifiedAt ?? signature!.signedAt ?? null)
+      .filter((value): value is Date => value instanceof Date);
+
+    const verifiedAt =
+      verifiedAtCandidates.length > 0
+        ? new Date(Math.max(...verifiedAtCandidates.map((value) => value.getTime())))
+        : new Date();
+
+    contract.provider = 'INTERDEV_AUDIT';
+    contract.legalSignatureStatus = ContractLegalSignatureStatus.VERIFIED;
+    contract.verifiedAt = verifiedAt;
+    contract.certificateSerial =
+      contract.certificateSerial ||
+      this.buildLegacyAuditContractCertificateSerial(contract.id, verifiedAt);
+    contract.legalSignatureEvidence = this.mergeLegalSignatureEvidence(contract.legalSignatureEvidence, {
+      verificationMode: 'LEGACY_INTERDEV_AUDIT',
+      provider: 'INTERDEV_AUDIT',
+      verifiedAt: verifiedAt.toISOString(),
+      reconciledAt: new Date().toISOString(),
+      reconciliationReason: 'all_required_signers_have_legacy_audit_records',
+    });
+
+    await queryRunner.manager.save(ContractEntity, contract);
+    return true;
+  }
+
   private emitContractUpdated(
     contract: Pick<ContractEntity, 'id' | 'projectId'> & { project?: ProjectEntity | null },
     extraUserIds: Array<string | null | undefined> = [],
@@ -218,13 +292,34 @@ export class ContractsService {
     });
   }
 
+  private emitRequestUpdated(
+    requestId: string,
+    userIds: Array<string | null | undefined>,
+    projectId?: string | null,
+  ) {
+    const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
+    uniqueUserIds.forEach((userId) => {
+      this.eventEmitter.emit('request.updated', {
+        userId,
+        requestId,
+        projectId: projectId ?? null,
+        entityType: 'ProjectRequest',
+        entityId: requestId,
+      });
+    });
+  }
+
   private async notifyContractParticipants(
     contract: ContractEntity,
     input: { title: string; body: string; userIds?: Array<string | null | undefined> },
   ) {
     const userIds =
       input.userIds && input.userIds.length > 0
-        ? Array.from(new Set(input.userIds.filter(Boolean)))
+        ? Array.from(
+            new Set(
+              input.userIds.filter((userId): userId is string => Boolean(userId)),
+            ),
+          )
         : this.getContractParticipantIds(contract);
 
     if (userIds.length === 0) {
@@ -1380,6 +1475,52 @@ export class ContractsService {
     return `INTERDEV-MCA-${datePart}-${contractPart}`;
   }
 
+  private getMiniCaTimestampSecret(): string {
+    return (
+      process.env.MINI_CA_TIMESTAMP_SECRET?.trim() ||
+      process.env.JWT_SECRET?.trim() ||
+      'interdev-mini-ca-timestamp-dev-only-change-me'
+    );
+  }
+
+  private buildMiniCaTimestampToken(params: {
+    contractId: string;
+    userId: string;
+    contentHash: string;
+    signatureBase64: string;
+    signedAt: Date;
+  }): string {
+    return createHmac('sha256', this.getMiniCaTimestampSecret())
+      .update(
+        JSON.stringify({
+          contractId: params.contractId,
+          userId: params.userId,
+          contentHash: params.contentHash,
+          signatureBase64: params.signatureBase64,
+          signedAt: params.signedAt.toISOString(),
+        }),
+      )
+      .digest('hex');
+  }
+
+  private verifyMiniCaTimestampToken(params: {
+    contractId: string;
+    userId: string;
+    contentHash: string;
+    signatureBase64: string;
+    signedAt: Date;
+    token: string;
+  }): boolean {
+    const expectedToken = this.buildMiniCaTimestampToken({
+      contractId: params.contractId,
+      userId: params.userId,
+      contentHash: params.contentHash,
+      signatureBase64: params.signatureBase64,
+      signedAt: params.signedAt,
+    });
+    return expectedToken === params.token;
+  }
+
   private async loadContractForUpdate(
     queryRunner: QueryRunner,
     contractId: string,
@@ -1666,7 +1807,6 @@ export class ContractsService {
     this.validateSnapshotInvariants(snapshot, commercialContext, project);
 
     if (options?.requireAllSignatures) {
-      this.assertContractCanBeActivated(contract);
       const signatures = await queryRunner.manager.find(DigitalSignatureEntity, {
         where: { contractId },
       });
@@ -1679,6 +1819,9 @@ export class ContractsService {
           'Contract must have all required signatures before activation.',
         );
       }
+
+      await this.reconcileLegacyAuditVerificationIfEligible(queryRunner, contract, signatures);
+      this.assertContractCanBeActivated(contract);
     }
 
     if (contract.activatedAt) {
@@ -2104,6 +2247,14 @@ export class ContractsService {
       project.status = ProjectStatus.CANCELED;
       await queryRunner.manager.save(ProjectEntity, project);
 
+      if (project.requestId) {
+        await queryRunner.manager.update(
+          ProjectRequestEntity,
+          { id: project.requestId },
+          { status: RequestStatus.CANCELED },
+        );
+      }
+
       if (contract.sourceSpecId) {
         const spec = await queryRunner.manager.findOne(ProjectSpecEntity, {
           where: { id: contract.sourceSpecId },
@@ -2118,6 +2269,13 @@ export class ContractsService {
 
       await queryRunner.commitTransaction();
       this.emitContractUpdated(contract);
+      if (project.requestId) {
+        this.emitRequestUpdated(
+          project.requestId,
+          [project.clientId, project.brokerId, project.freelancerId],
+          project.id,
+        );
+      }
       await this.notifyContractParticipants(contract, {
         title: 'Contract archived',
         body: `Contract "${contract.title}" was archived before signature completion.`,
@@ -2296,7 +2454,7 @@ export class ContractsService {
     signatures: Array<DigitalSignatureEntity & { user?: UserEntity | null }>,
   ) {
     if (signatures.length === 0) {
-      return [['No signatures recorded yet.', '—', '—', 'No audit trail available yet.']];
+      return [['No signatures recorded yet.', '—', { text: 'Pending', color: '#b45309', bold: true }, '—']];
     }
 
     return signatures
@@ -2314,19 +2472,11 @@ export class ContractsService {
                 : null) ||
           signature.userId;
 
-        const auditDetails = [
-          `Signature hash: ${signature.signatureHash}`,
-          signature.ipAddress ? `IP: ${signature.ipAddress}` : null,
-          signature.userAgent ? `Agent: ${signature.userAgent}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n');
-
         return [
           signerName,
           signature.signerRole || signature.userId,
-          this.formatDateTimeForDisplay(signature.signedAt),
-          auditDetails,
+          { text: '✓ Signed', color: '#047857', bold: true },
+          this.formatDateForDisplay(signature.signedAt),
         ];
       });
   }
@@ -2373,14 +2523,66 @@ export class ContractsService {
     >;
 
     const pdfmake = require('pdfmake');
-    pdfmake.addFonts({
-      Helvetica: {
-        normal: 'Helvetica',
-        bold: 'Helvetica-Bold',
-        italics: 'Helvetica-Oblique',
-        bolditalics: 'Helvetica-BoldOblique',
-      },
-    });
+    const robotoRegularPath = resolve(
+      process.cwd(),
+      'node_modules',
+      'pdfmake',
+      'fonts',
+      'Roboto',
+      'Roboto-Regular.ttf',
+    );
+    const robotoMediumPath = resolve(
+      process.cwd(),
+      'node_modules',
+      'pdfmake',
+      'fonts',
+      'Roboto',
+      'Roboto-Medium.ttf',
+    );
+    const robotoItalicPath = resolve(
+      process.cwd(),
+      'node_modules',
+      'pdfmake',
+      'fonts',
+      'Roboto',
+      'Roboto-Italic.ttf',
+    );
+    const robotoMediumItalicPath = resolve(
+      process.cwd(),
+      'node_modules',
+      'pdfmake',
+      'fonts',
+      'Roboto',
+      'Roboto-MediumItalic.ttf',
+    );
+    const hasRobotoFontFiles = [
+      robotoRegularPath,
+      robotoMediumPath,
+      robotoItalicPath,
+      robotoMediumItalicPath,
+    ].every((fontPath) => existsSync(fontPath));
+
+    pdfmake.addFonts(
+      hasRobotoFontFiles
+        ? {
+            InterDevSans: {
+              normal: robotoRegularPath,
+              bold: robotoMediumPath,
+              italics: robotoItalicPath,
+              bolditalics: robotoMediumItalicPath,
+            },
+          }
+        : {
+            Helvetica: {
+              normal: 'Helvetica',
+              bold: 'Helvetica-Bold',
+              italics: 'Helvetica-Oblique',
+              bolditalics: 'Helvetica-BoldOblique',
+            },
+          },
+    );
+
+    const pdfFontFamily = hasRobotoFontFiles ? 'InterDevSans' : 'Helvetica';
 
     const snapshotMilestones = Array.isArray(contract.milestoneSnapshot)
       ? this.sortSnapshot(contract.milestoneSnapshot)
@@ -2391,6 +2593,12 @@ export class ContractsService {
     const missingSignerIds = requiredSignerIds.filter((id) => !signedUserIds.has(id));
     const commercialContext =
       contract.commercialContext ?? this.buildCommercialContextFallback(contract);
+    const contentHash = contract.contentHash || this.computeContentHash(contract);
+    const documentHash =
+      (contract as any).documentHash || this.computeContractDocumentHash(contract);
+    const signatureHashMetadata = signatures
+      .map((signature, index) => `sig${index + 1}=${signature.signatureHash}`)
+      .join('|');
     const signatureRows = this.buildPdfSignatureTrail(contract, signatures);
     const termsBlocks = this.buildTermsPdfBlocks(contract.termsContent);
     const interDevLogo = this.getInterDevLogoDataUri();
@@ -2420,11 +2628,16 @@ export class ContractsService {
             .map((signature) => ({
               text: [
                 {
+                  text: '✓ ',
+                  color: '#047857',
+                  bold: true,
+                },
+                {
                   text: `${signature.user?.fullName || signature.signerRole || signature.userId}`,
                   bold: true,
                 },
                 {
-                  text: ` · ${signature.signerRole || signature.userId} · ${this.formatDateTimeForDisplay(signature.signedAt)}`,
+                  text: ` · ${signature.signerRole || signature.userId} · ${this.formatDateForDisplay(signature.signedAt)}`,
                 },
               ],
               margin: [0, 0, 0, 6],
@@ -2434,6 +2647,21 @@ export class ContractsService {
     const docDefinition: any = {
       pageSize: 'A4',
       pageMargins: [32, 32, 32, 36],
+      info: {
+        title: `InterDev Contract ${contract.id}`,
+        author: 'InterDev Platform',
+        subject: 'Frozen contract agreement artifact',
+        keywords: [
+          `contractId=${contract.id}`,
+          `contentHash=${contentHash}`,
+          `documentHash=${documentHash}`,
+          signatureHashMetadata || null,
+        ]
+          .filter(Boolean)
+          .join('; '),
+        creator: 'InterDev Contracts Service',
+        producer: 'InterDev PDF Generator',
+      },
       footer: (currentPage: number, pageCount: number) => ({
         margin: [32, 0, 32, 16],
         columns: [
@@ -2451,7 +2679,7 @@ export class ContractsService {
           },
         ],
       }),
-      defaultStyle: { font: 'Helvetica', fontSize: 10, color: '#0f172a' },
+      defaultStyle: { font: pdfFontFamily, fontSize: 10, color: '#0f172a' },
       content: [
         {
           columns: [
@@ -2645,30 +2873,17 @@ export class ContractsService {
           margin: [0, 0, 0, 6],
         },
         ...termsBlocks,
-        { text: 'Audit Appendix', style: 'section' },
+        { text: 'Signature Audit Appendix', style: 'section' },
         {
-          columns: [
-            {
-              text: `Content hash (signable version)\n${
-                contract.contentHash || this.computeContentHash(contract)
-              }`,
-              style: 'hashBlock',
-            },
-            {
-              text: `Document hash (audit/export)\n${
-                (contract as any).documentHash || this.computeContractDocumentHash(contract)
-              }`,
-              style: 'hashBlock',
-            },
-          ],
-          columnGap: 10,
-          margin: [0, 0, 0, 10],
+          text: 'Signature hashes and document hashes are embedded in PDF metadata and retained in server-side legal signature evidence for verification workflows.',
+          style: 'bodyMuted',
+          margin: [0, 0, 0, 8],
         },
         {
           table: {
             headerRows: 1,
-            widths: [110, 72, 120, '*'],
-            body: [['Signer', 'Role', 'Signed At', 'Audit Details'], ...signatureRows],
+            widths: [160, 82, 64, '*'],
+            body: [['Signer', 'Role', 'Status', 'Signed Date'], ...signatureRows],
           },
           layout: 'lightHorizontalLines',
         },
@@ -2708,12 +2923,6 @@ export class ContractsService {
         },
         bodyCopy: { fontSize: 9.5, lineHeight: 1.3, margin: [0, 0, 0, 5] },
         bodyMuted: { fontSize: 8.75, color: '#475569', lineHeight: 1.3, margin: [0, 0, 0, 5] },
-        hashBlock: {
-          fontSize: 8,
-          color: '#0f172a',
-          fillColor: '#f8fafc',
-          margin: [0, 0, 0, 0],
-        },
         termsHeadingPrimary: { fontSize: 15, bold: true, margin: [0, 8, 0, 5] },
         termsHeadingSecondary: { fontSize: 12.5, bold: true, margin: [0, 6, 0, 4] },
         termsHeadingTertiary: { fontSize: 10.5, bold: true, margin: [0, 5, 0, 3] },
@@ -2760,6 +2969,173 @@ export class ContractsService {
     }
 
     return this.buildPdfBufferForContract(contract);
+  }
+
+  async getSignatureVerificationReportForUser(user: UserEntity, contractId: string) {
+    const contract = (await this.findOneForUser(user, contractId)) as ContractEntity & {
+      documentHash?: string;
+    };
+    const signatures = ((contract.signatures || []) as Array<
+      DigitalSignatureEntity & { user?: UserEntity | null }
+    >)
+      .slice()
+      .sort((a, b) => new Date(a.signedAt).getTime() - new Date(b.signedAt).getTime());
+
+    const requiredSignerIds = this.getRequiredContractSignerIds(contract);
+    const signedUserIds = new Set(signatures.map((signature) => signature.userId));
+    const allRequiredSigned = requiredSignerIds.every((userId) => signedUserIds.has(userId));
+    const computedContentHash = this.computeContentHash(contract);
+    const storedContentHash = contract.contentHash ?? null;
+    const storedContentHashMatches =
+      storedContentHash === null || storedContentHash === computedContentHash;
+
+    const signingCredentialRepository = this.dataSource.getRepository(UserSigningCredentialEntity);
+
+    const signatureReports = await Promise.all(
+      signatures.map(async (signature) => {
+        const providerPayload = (signature.providerPayload || {}) as Record<string, unknown>;
+        const signatureValue =
+          typeof providerPayload.signatureValue === 'string'
+            ? providerPayload.signatureValue
+            : null;
+        const signedContentHash =
+          signature.contentHash ||
+          (typeof providerPayload.contentHash === 'string' ? providerPayload.contentHash : null);
+        const payloadPublicKeyPem =
+          typeof providerPayload.signerPublicKeyPem === 'string'
+            ? providerPayload.signerPublicKeyPem
+            : null;
+        const keyFingerprint =
+          typeof providerPayload.keyFingerprint === 'string'
+            ? providerPayload.keyFingerprint
+            : null;
+        const timestampToken =
+          typeof providerPayload.timestampToken === 'string'
+            ? providerPayload.timestampToken
+            : null;
+
+        let publicKeySource: 'provider_payload' | 'credential_store' | 'missing' = 'missing';
+        let resolvedPublicKeyPem = payloadPublicKeyPem;
+
+        if (resolvedPublicKeyPem) {
+          publicKeySource = 'provider_payload';
+        }
+
+        if (!resolvedPublicKeyPem) {
+          const signerCredential = await signingCredentialRepository.findOne({
+            where: { userId: signature.userId },
+          });
+          if (
+            signerCredential &&
+            (!keyFingerprint || signerCredential.keyFingerprint === keyFingerprint)
+          ) {
+            resolvedPublicKeyPem = signerCredential.publicKeyPem;
+            publicKeySource = 'credential_store';
+          }
+        }
+
+        const auditHash = this.buildServerSignatureHash({
+          contractId: signature.contractId,
+          userId: signature.userId,
+          contentHash: signedContentHash || '',
+          signerRole: (signature.signerRole || 'BROKER') as ContractPartyRole,
+          signedAt: signature.signedAt,
+          ipAddress: signature.ipAddress ?? null,
+          userAgent: signature.userAgent ?? null,
+        });
+
+        const recomputedSignatureHash = signatureValue
+          ? createHash('sha256')
+              .update(`${auditHash}:${signatureValue}`)
+              .digest('hex')
+          : null;
+        const signatureHashMatches = Boolean(
+          recomputedSignatureHash && recomputedSignatureHash === signature.signatureHash,
+        );
+
+        let cryptographicVerificationPassed = false;
+        if (signatureValue && resolvedPublicKeyPem && signedContentHash) {
+          try {
+            const verifier = createVerify('RSA-SHA256');
+            verifier.update(signedContentHash);
+            verifier.end();
+            cryptographicVerificationPassed = verifier.verify(
+              resolvedPublicKeyPem,
+              signatureValue,
+              'base64',
+            );
+          } catch {
+            cryptographicVerificationPassed = false;
+          }
+        }
+
+        const signedContentMatchesCurrent = Boolean(
+          signedContentHash && signedContentHash === computedContentHash,
+        );
+        const timestampTokenValid = Boolean(
+          timestampToken &&
+            signatureValue &&
+            signedContentHash &&
+            this.verifyMiniCaTimestampToken({
+              contractId: signature.contractId,
+              userId: signature.userId,
+              contentHash: signedContentHash,
+              signatureBase64: signatureValue,
+              signedAt: signature.signedAt,
+              token: timestampToken,
+            }),
+        );
+
+        const overallVerified =
+          cryptographicVerificationPassed &&
+          signatureHashMatches &&
+          signedContentMatchesCurrent &&
+          timestampTokenValid;
+
+        return {
+          signatureId: signature.id,
+          userId: signature.userId,
+          signerName: signature.user?.fullName || signature.userId,
+          signerRole: signature.signerRole || null,
+          provider: signature.provider || null,
+          certificateSerial: signature.certificateSerial || null,
+          signedAt: signature.signedAt,
+          verifiedAt: signature.verifiedAt || null,
+          publicKeySource,
+          checks: {
+            cryptographicVerificationPassed,
+            signatureHashMatches,
+            signedContentMatchesCurrent,
+            timestampTokenValid,
+          },
+          overallVerified,
+        };
+      }),
+    );
+
+    const allSignaturesVerified =
+      signatureReports.length > 0 && signatureReports.every((report) => report.overallVerified);
+
+    return {
+      contractId: contract.id,
+      contractStatus: contract.status,
+      legalSignatureStatus: contract.legalSignatureStatus,
+      provider: contract.provider || null,
+      verifiedAt: contract.verifiedAt || null,
+      generatedAt: new Date().toISOString(),
+      requiredSignerCount: requiredSignerIds.length,
+      signaturesCount: signatures.length,
+      allRequiredSigned,
+      allSignaturesVerified,
+      contentHash: {
+        stored: storedContentHash,
+        computed: computedContentHash,
+        storedMatchesComputed: storedContentHashMatches,
+      },
+      signatureReports,
+      disclaimer:
+        'InterDev Mini CA verification report is a platform-level technical proof and not a substitute for a qualified public trust CA certificate.',
+    };
   }
 
   async signContract(
@@ -2861,6 +3237,16 @@ export class ContractsService {
         signatureValue: miniCaProof.signatureBase64,
         keyFingerprint: miniCaProof.keyFingerprint,
         keyVersion: miniCaProof.keyVersion,
+        signerPublicKeyPem: miniCaProof.publicKeyPem,
+        certificateProfile: miniCaProof.certificateProfile,
+        timestampIssuedAt: signedAt.toISOString(),
+        timestampToken: this.buildMiniCaTimestampToken({
+          contractId,
+          userId: user.id,
+          contentHash: currentContentHash,
+          signatureBase64: miniCaProof.signatureBase64,
+          signedAt,
+        }),
         miniCaVerified: true,
       };
       ds.signedAt = signedAt;
