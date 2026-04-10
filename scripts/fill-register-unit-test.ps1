@@ -266,16 +266,16 @@ $stringCells = [ordered]@{
     "C15" = "Legal consent is accepted"
     "C16" = "Request omits the user-agent header"
     "B17" = "email"
-    "C18" = '"new.user@gmail.com"'
-    "C19" = '"freelancer@gmail.com"'
-    "C20" = '"broker@gmail.com"'
+    "C18" = '"baong.client01@gmail.com"'
+    "C19" = '"baong.freelancer01@gmail.com"'
+    "C20" = '"baong.broker01@gmail.com"'
     "C21" = '"email.fail@gmail.com"'
     "C22" = '"new.user@mailinator.com"'
     "B23" = "password"
-    "C24" = '"securepass1"'
-    "C25" = '"securepass"'
+    "C24" = '"BaoNG@12345"'
+    "C25" = '"weakpass"'
     "B26" = "fullName"
-    "C27" = '"New User"'
+    "C27" = '"Nguyen Van A"'
     "B28" = "phoneNumber"
     "C29" = '"0987654321"'
     "C30" = '"12345"'
@@ -285,8 +285,8 @@ $stringCells = [ordered]@{
     "C34" = "BROKER"
     "C35" = "ADMIN"
     "B36" = "domainIds / skillIds"
-    "C37" = "not provided"
-    "C38" = "domainIds = 2, skillIds = 1"
+    "C37" = "domainIds omitted, skillIds omitted"
+    "C38" = "domainIds = [2, 5], skillIds = [11]"
     "C39" = "domainIds = [], skillIds = []"
     "A42" = "Confirm"
     "B42" = "Return"
