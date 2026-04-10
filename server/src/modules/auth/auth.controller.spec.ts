@@ -1082,7 +1082,7 @@ describe('AuthController.resetPassword', () => {
 
     expect(authService.resetPassword).toHaveBeenCalledWith(payload);
     expect(result).toEqual({
-      message: 'ﾄ雪ｺｷt l蘯｡i m蘯ｭt kh蘯ｩu thﾃnh cﾃｴng',
+      message: 'Password reset completed successfully',
       data: {
         message: 'Password reset successful. Please login again.',
       },
