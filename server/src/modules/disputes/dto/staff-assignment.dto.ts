@@ -10,6 +10,8 @@ import {
   IsUUID,
   IsEnum,
   IsNumber,
+  IsBoolean,
+  IsEmail,
   IsArray,
   ArrayNotEmpty,
   Min,
@@ -284,6 +286,29 @@ export class ReassignDisputeDto {
   @IsOptional()
   @IsString()
   notes?: string;
+}
+
+// =============================================================================
+// DISPUTE DEV SETTINGS
+// =============================================================================
+
+export class UpdateDisputeDevSettingsDto {
+  @ApiProperty({
+    description:
+      'Whether dev-mode auto-assignment should be pinned to a specific staff account.',
+    example: true,
+  })
+  @IsBoolean()
+  enabled: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Target staff email to pin all dev/test dispute auto-assignments to. Defaults to the current staff account when omitted.',
+    example: 'staff.test.new@example.com',
+  })
+  @IsOptional()
+  @IsEmail()
+  targetStaffEmail?: string;
 }
 
 // =============================================================================

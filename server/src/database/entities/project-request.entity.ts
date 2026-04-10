@@ -89,6 +89,11 @@ export interface ProjectRequestCommercialChangeRequest {
   currentClientFeatures?: ProjectRequestCommercialFeature[] | null;
   proposedClientFeatures?: ProjectRequestCommercialFeature[] | null;
   parentSpecId?: string | null;
+  requestBudgetRange?: string | null;
+  proposedBudgetOutsideRequestRange?: boolean;
+  proposedBudgetRangeWarning?: string | null;
+  clientAcknowledgedBudgetRangeWarning?: boolean;
+  clientAcknowledgedBudgetRangeWarningAt?: string | null;
 }
 
 @Entity('project_requests')

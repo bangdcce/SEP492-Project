@@ -82,7 +82,7 @@ export function StepB5({
           <Label htmlFor="description">Detailed Description</Label>
           <Textarea
             id="description"
-            className="min-h-[150px]"
+            className="min-h-37.5"
             placeholder="Describe scope, constraints, target audience, workflows, and anything brokers/freelancers should understand before replying."
             value={description}
             onChange={(e) => setDescription(e.target.value)}
@@ -137,7 +137,7 @@ export function StepB5({
                       <p className="text-xs text-slate-500">
                         {attachment.mimetype || "Unknown type"}
                         {typeof attachment.size === "number"
-                          ? ` �E ${(attachment.size / 1024 / 1024).toFixed(2)} MB`
+                          ? ` - ${(attachment.size / 1024 / 1024).toFixed(2)} MB`
                           : ""}
                       </p>
                     </div>

@@ -365,6 +365,16 @@ export class DisputesService {
     private readonly calendarService: CalendarService,
   ) {}
 
+  private isUserGuideBypassEnabled(): boolean {
+    const bypassEnabled = process.env.DISPUTE_USER_GUIDE_BYPASS === 'true';
+    if (!bypassEnabled) {
+      return false;
+    }
+
+    const environment = (process.env.NODE_ENV ?? process.env.APP_ENV ?? '').toLowerCase();
+    return environment !== 'production' && environment !== 'prod';
+  }
+
   /**
    * Get the latest verdict for a dispute (returns null if no verdict yet).
    */
@@ -481,7 +491,14 @@ export class DisputesService {
   private summarizeVerdictAcceptance(input: {
     dispute: Pick<
       DisputeEntity,
-      'raisedById' | 'defendantId' | 'status' | 'isAppealed' | 'appealDeadline' | 'currentTier'
+      | 'raisedById'
+      | 'defendantId'
+      | 'status'
+      | 'isAppealed'
+      | 'appealDeadline'
+      | 'currentTier'
+      | 'result'
+      | 'disputeType'
     >;
     verdict: Pick<DisputeVerdictEntity, 'id' | 'isAppealVerdict'>;
     signatures: Array<{
@@ -509,6 +526,15 @@ export class DisputesService {
     const viewerIsParty = Boolean(input.viewerUserId && partyIds.includes(input.viewerUserId));
     const viewerIsInternal = Boolean(
       input.viewerUserRole && [UserRole.ADMIN, UserRole.STAFF].includes(input.viewerUserRole),
+    );
+    const { loserId } = determineLoser(
+      input.dispute.result ?? DisputeResult.PENDING,
+      input.dispute.raisedById,
+      input.dispute.defendantId,
+      input.dispute.disputeType,
+    );
+    const viewerIsEligibleAppellant = Boolean(
+      viewerIsParty && (!loserId || input.viewerUserId === loserId),
     );
     const currentUserAccepted = Boolean(
       input.viewerUserId && acceptedPartyIds.includes(input.viewerUserId),
@@ -538,7 +564,7 @@ export class DisputesService {
         !input.verdict.isAppealVerdict &&
         (input.dispute.currentTier ?? 1) < 2,
       currentUserCanAppeal:
-        viewerIsParty &&
+        viewerIsEligibleAppellant &&
         !viewerIsInternal &&
         !currentUserAccepted &&
         !allPartiesAccepted &&
@@ -939,6 +965,7 @@ export class DisputesService {
       metadata: message.metadata,
       replyToMessageId: message.replyToMessageId,
       relatedEvidenceId: message.relatedEvidenceId,
+      attachedEvidenceIds: message.attachedEvidenceIds,
       isHidden: message.isHidden,
       hiddenReason: message.hiddenReason,
       createdAt: message.createdAt,
@@ -2552,6 +2579,7 @@ export class DisputesService {
       raisedById,
       defendantId,
       assignedStaffId,
+      handledByStaffId,
       escalatedToAdminId,
       includeUnassignedForStaff,
       unassignedOnly,
@@ -2637,6 +2665,25 @@ export class DisputesService {
       qb.andWhere('dispute.assignedStaffId = :assignedStaffId', { assignedStaffId });
     } else if (unassignedOnly) {
       qb.andWhere('dispute.assignedStaffId IS NULL');
+    }
+
+    if (handledByStaffId) {
+      qb.andWhere(
+        new Brackets((sub) => {
+          sub.orWhere('dispute.resolvedById = :handledByStaffId', {
+            handledByStaffId,
+          });
+          sub.orWhere('dispute.assignedStaffId = :handledByStaffId', {
+            handledByStaffId,
+          });
+          sub.orWhere('dispute.appealResolvedById = :handledByStaffId', {
+            handledByStaffId,
+          });
+          sub.orWhere('dispute.rejectionAppealResolvedById = :handledByStaffId', {
+            handledByStaffId,
+          });
+        }),
+      );
     }
 
     // Date filters
@@ -2833,12 +2880,32 @@ export class DisputesService {
     userRole: UserRole,
     filters: DisputeFilterDto = {},
   ): Promise<PaginatedDisputesResponse> {
-    const { asRaiser, asDefendant, asInvolved, ...restFilters } = filters;
+    const { asRaiser, asDefendant, asInvolved, handledByStaffId, ...restFilters } = filters;
+    const userGuideBypassEnabled = this.isUserGuideBypassEnabled();
     const resolvedAsInvolved = Boolean(asInvolved || (!asRaiser && !asDefendant));
+    const normalizedHandledByStaffId = handledByStaffId?.trim() || undefined;
+
+    if (
+      normalizedHandledByStaffId &&
+      !userGuideBypassEnabled &&
+      userRole === UserRole.STAFF &&
+      normalizedHandledByStaffId !== userId
+    ) {
+      throw new ForbiddenException('Staff can only query disputes handled by themselves.');
+    }
+
+    const scopedFilters: Omit<DisputeFilterDto, 'asRaiser' | 'asDefendant' | 'asInvolved'> = {
+      ...restFilters,
+      ...(normalizedHandledByStaffId
+        ? { handledByStaffId: normalizedHandledByStaffId }
+        : {}),
+    };
+
     const requestedScopes = [
       asRaiser ? 'asRaiser' : null,
       asDefendant ? 'asDefendant' : null,
       resolvedAsInvolved ? 'asInvolved' : null,
+      normalizedHandledByStaffId ? 'handledByStaff' : null,
     ]
       .filter(Boolean)
       .join(',');
@@ -2846,10 +2913,10 @@ export class DisputesService {
       CASE
         WHEN dispute."groupId" IS NOT NULL
           AND dispute."groupId"::text ~* '${UUID_REGEX}'
-          THEN dispute."groupId"::text::uuid
+          THEN dispute."groupId"::text
         ELSE NULL
       END,
-      dispute."id"
+      dispute."id"::text
     )`;
 
     const qb = this.disputeRepo
@@ -2871,42 +2938,67 @@ export class DisputesService {
         'project.freelancerId',
       ]);
 
-    qb.andWhere(
-      new Brackets((sub) => {
-        if (asRaiser || resolvedAsInvolved) {
-          sub.orWhere('dispute.raisedById = :userId', { userId });
-        }
-        if (asDefendant || resolvedAsInvolved) {
-          sub.orWhere('dispute.defendantId = :userId', { userId });
-        }
-        if (resolvedAsInvolved) {
-          sub.orWhere('project.clientId = :userId', { userId });
-          sub.orWhere('project.freelancerId = :userId', { userId });
-          sub.orWhere('project.brokerId = :userId', { userId });
-          sub.orWhere(
-            `EXISTS (
-              SELECT 1
-              FROM dispute_internal_memberships dim
-              WHERE dim."disputeId" = dispute."id"
-                AND dim."userId" = :userId
-            )`,
-            { userId },
-          );
-          sub.orWhere(
-            `EXISTS (
-              SELECT 1
-              FROM dispute_parties dp
-              WHERE dp."groupId" = ${safeGroupIdExpr}
-                AND dp."userId" = :userId
-            )`,
-            { userId },
-          );
-        }
-      }),
-    );
+    if (!userGuideBypassEnabled) {
+      qb.andWhere(
+        new Brackets((sub) => {
+          if (asRaiser || resolvedAsInvolved) {
+            sub.orWhere('dispute.raisedById = :userId', { userId });
+          }
+          if (asDefendant || resolvedAsInvolved) {
+            sub.orWhere('dispute.defendantId = :userId', { userId });
+          }
+          if (resolvedAsInvolved) {
+            sub.orWhere('project.clientId = :userId', { userId });
+            sub.orWhere('project.freelancerId = :userId', { userId });
+            sub.orWhere('project.brokerId = :userId', { userId });
+            sub.orWhere(
+              `EXISTS (
+                SELECT 1
+                FROM dispute_internal_memberships dim
+                WHERE dim."disputeId" = dispute."id"
+                  AND dim."userId" = :userId
+              )`,
+              { userId },
+            );
+            sub.orWhere(
+              `EXISTS (
+                SELECT 1
+                FROM dispute_parties dp
+                WHERE dp."groupId"::text = ${safeGroupIdExpr}
+                  AND dp."userId" = :userId
+              )`,
+              { userId },
+            );
+          }
+          if (normalizedHandledByStaffId) {
+            sub.orWhere('dispute.resolvedById = :handledByStaffId', {
+              handledByStaffId: normalizedHandledByStaffId,
+            });
+            sub.orWhere('dispute.assignedStaffId = :handledByStaffId', {
+              handledByStaffId: normalizedHandledByStaffId,
+            });
+            sub.orWhere('dispute.appealResolvedById = :handledByStaffId', {
+              handledByStaffId: normalizedHandledByStaffId,
+            });
+            sub.orWhere(
+              'dispute.rejectionAppealResolvedById = :handledByStaffId',
+              {
+                handledByStaffId: normalizedHandledByStaffId,
+              },
+            );
+          }
+        }),
+      );
+    }
+
+    if (userGuideBypassEnabled) {
+      this.logger.warn(
+        `[getMyDisputes] DISPUTE_USER_GUIDE_BYPASS enabled; returning broader dispute scope for userId=${userId}`,
+      );
+    }
 
     try {
-      return this.applyFiltersAndPaginate(qb, restFilters, { userId, userRole });
+      return this.applyFiltersAndPaginate(qb, scopedFilters, { userId, userRole });
     } catch (error) {
       const errCode = (error as { code?: string })?.code || 'UNKNOWN';
       const errMessage = error instanceof Error ? error.message : 'unknown';
@@ -3035,10 +3127,10 @@ export class DisputesService {
       CASE
         WHEN dispute."groupId" IS NOT NULL
           AND dispute."groupId"::text ~* '${UUID_REGEX}'
-          THEN dispute."groupId"::text::uuid
+          THEN dispute."groupId"::text
         ELSE NULL
       END,
-      dispute."id"
+      dispute."id"::text
     )`;
 
     const rows = await this.disputeRepo
@@ -3075,7 +3167,7 @@ export class DisputesService {
         `EXISTS (
           SELECT 1
           FROM dispute_parties dp
-          WHERE dp."groupId" = ${safeGroupIdExpr}
+          WHERE dp."groupId"::text = ${safeGroupIdExpr}
             AND dp."userId" = :userId
         )`,
         'isGroupMember',
@@ -3094,7 +3186,7 @@ export class DisputesService {
             `EXISTS (
               SELECT 1
               FROM dispute_parties dp
-              WHERE dp."groupId" = ${safeGroupIdExpr}
+              WHERE dp."groupId"::text = ${safeGroupIdExpr}
                 AND dp."userId" = :userId
             )`,
             { userId },
@@ -3413,6 +3505,7 @@ export class DisputesService {
       raisedById,
       defendantId,
       assignedStaffId,
+      handledByStaffId,
       escalatedToAdminId,
       includeUnassignedForStaff,
       unassignedOnly,
@@ -3456,6 +3549,25 @@ export class DisputesService {
       qb.andWhere('d.assignedStaffId = :assignedStaffId', { assignedStaffId });
     } else if (unassignedOnly) {
       qb.andWhere('d.assignedStaffId IS NULL');
+    }
+
+    if (handledByStaffId) {
+      qb.andWhere(
+        new Brackets((sub) => {
+          sub.orWhere('d.resolvedById = :handledByStaffId', {
+            handledByStaffId,
+          });
+          sub.orWhere('d.assignedStaffId = :handledByStaffId', {
+            handledByStaffId,
+          });
+          sub.orWhere('d.appealResolvedById = :handledByStaffId', {
+            handledByStaffId,
+          });
+          sub.orWhere('d.rejectionAppealResolvedById = :handledByStaffId', {
+            handledByStaffId,
+          });
+        }),
+      );
     }
 
     if (createdFrom) {
@@ -3838,7 +3950,7 @@ export class DisputesService {
     }
 
     const testMode = process.env.DISPUTE_TEST_MODE === 'true';
-    const runtimeEnv = (process.env.NODE_ENV || 'development').toLowerCase();
+    const runtimeEnv = (process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development').toLowerCase();
     const isProduction = runtimeEnv === 'production' || runtimeEnv === 'prod';
 
     return testMode && !isProduction;
@@ -4019,6 +4131,7 @@ export class DisputesService {
       priority,
       milestoneId,
       assignedStaffId,
+      handledByStaffId,
       escalatedToAdminId,
       includeUnassignedForStaff,
       unassignedOnly,
@@ -4053,6 +4166,24 @@ export class DisputesService {
       qb.andWhere('dispute.assignedStaffId = :assignedStaffId', { assignedStaffId });
     } else if (unassignedOnly) {
       qb.andWhere('dispute.assignedStaffId IS NULL');
+    }
+    if (handledByStaffId) {
+      qb.andWhere(
+        new Brackets((sub) => {
+          sub.orWhere('dispute.resolvedById = :handledByStaffId', {
+            handledByStaffId,
+          });
+          sub.orWhere('dispute.assignedStaffId = :handledByStaffId', {
+            handledByStaffId,
+          });
+          sub.orWhere('dispute.appealResolvedById = :handledByStaffId', {
+            handledByStaffId,
+          });
+          sub.orWhere('dispute.rejectionAppealResolvedById = :handledByStaffId', {
+            handledByStaffId,
+          });
+        }),
+      );
     }
     if (createdFrom) {
       qb.andWhere('dispute.createdAt >= :createdFrom', { createdFrom: new Date(createdFrom) });
@@ -6517,38 +6648,48 @@ export class DisputesService {
       };
     }
 
-    const existing = await this.hearingRepo.findOne({
-      where: {
-        disputeId: dispute.id,
-        status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS, HearingStatus.PAUSED]),
-      },
-      select: ['id', 'scheduledAt'],
-    });
-    if (existing) {
-      return {
-        manualRequired: false,
-        hearingId: existing.id,
-        scheduledAt: existing.scheduledAt,
-      };
-    }
-
     const triggeredUser = await this.userRepo.findOne({
       where: { id: triggeredById },
       select: ['id', 'role'],
     });
+
+    const selectedSlotStartRaw = tuning?.selectedSlotStart?.trim();
+    const selectedSlotStart = selectedSlotStartRaw ? new Date(selectedSlotStartRaw) : null;
+    if (selectedSlotStartRaw && (!selectedSlotStart || Number.isNaN(selectedSlotStart.getTime()))) {
+      throw new BadRequestException('Invalid selectedSlotStart');
+    }
 
     const hasTuningInput = Boolean(
       tuning &&
       (tuning.minNoticeMinutes ||
         tuning.lookaheadDays ||
         tuning.forceNearTermMinutes ||
-        tuning.bypassReason),
+        tuning.bypassReason ||
+        selectedSlotStartRaw),
     );
     const canUseSchedulingBypass = this.canUseDisputeTestBypass(triggeredUser?.role);
     if (hasTuningInput && !canUseSchedulingBypass) {
       throw new ForbiddenException(
         'Auto-schedule tuning is restricted to STAFF/ADMIN in non-production with DISPUTE_TEST_MODE=true',
       );
+    }
+
+    const existing = await this.hearingRepo.findOne({
+      where: {
+        disputeId: dispute.id,
+        status: In([HearingStatus.SCHEDULED, HearingStatus.IN_PROGRESS, HearingStatus.PAUSED]),
+      },
+      select: ['id', 'scheduledAt', 'status'],
+    });
+    if (
+      existing &&
+      !(canUseSchedulingBypass && selectedSlotStart && existing.status === HearingStatus.SCHEDULED)
+    ) {
+      return {
+        manualRequired: false,
+        hearingId: existing.id,
+        scheduledAt: existing.scheduledAt,
+      };
     }
 
     let moderatorId = dispute.assignedStaffId;
@@ -6609,6 +6750,10 @@ export class DisputesService {
       });
     const durationMinutes =
       complexity?.timeEstimation?.recommendedMinutes ?? DEFAULT_HEARING_DURATION_MINUTES;
+    const testBypassReason =
+      canUseSchedulingBypass && hasTuningInput
+        ? tuning?.bypassReason?.trim() || 'Dispute auto-schedule test bypass'
+        : undefined;
 
     const minNoticeMinutes = canUseSchedulingBypass
       ? (tuning?.minNoticeMinutes ?? DEFAULT_HEARING_MIN_NOTICE_HOURS * 60)
@@ -6628,6 +6773,124 @@ export class DisputesService {
     );
 
     const userTimezones = await this.resolveUserTimezones(participantIds);
+    const timezoneByUserId = Object.fromEntries(
+      Object.entries(userTimezones || {}).map(([userId, timezone]) => [userId, timezone || 'UTC']),
+    );
+
+    const logTestTuningSelection = async (
+      scheduledAt: Date,
+      selectedSlot: {
+        start: Date;
+        end: Date;
+        durationMinutes: number;
+        score?: number;
+        scoreReasons?: string[];
+      },
+    ) => {
+      if (!hasTuningInput || !canUseSchedulingBypass) {
+        return;
+      }
+
+      try {
+        await this.auditLogsService.logCustom(
+          'DISPUTE_SCHEDULE_TEST_TUNING',
+          'Dispute',
+          dispute.id,
+          {
+            actorId: triggeredById,
+            tuning,
+            scheduledAt,
+            selectedSlot: {
+              start: selectedSlot.start,
+              end: selectedSlot.end,
+              durationMinutes: selectedSlot.durationMinutes,
+              score: selectedSlot.score,
+              scoreReasons: selectedSlot.scoreReasons,
+            },
+          },
+          undefined,
+          triggeredById,
+        );
+      } catch (error) {
+        this.logger.warn(
+          `Failed to write schedule tuning audit log for dispute ${dispute.id}: ${
+            error instanceof Error ? error.message : 'unknown'
+          }`,
+        );
+      }
+    };
+
+    if (selectedSlotStart) {
+      const selectedEnd = new Date(selectedSlotStart.getTime() + durationMinutes * 60 * 1000);
+
+      if (existing?.status === HearingStatus.SCHEDULED) {
+        const rescheduled = await this.hearingService.rescheduleHearing(
+          {
+            hearingId: existing.id,
+            scheduledAt: selectedSlotStart.toISOString(),
+            estimatedDurationMinutes: durationMinutes,
+            isEmergency: true,
+            testBypassReason,
+          },
+          triggeredById,
+        );
+
+        const selectedSlot = {
+          start: selectedSlotStart,
+          end: selectedEnd,
+          durationMinutes,
+        };
+        await logTestTuningSelection(rescheduled.newHearing.scheduledAt, selectedSlot);
+
+        return {
+          manualRequired: false,
+          hearingId: rescheduled.newHearing.id,
+          scheduledAt: rescheduled.newHearing.scheduledAt,
+          selectedSlot,
+          requiredParticipants,
+          responseDeadline: rescheduled.responseDeadline,
+          participantConfirmationSummary: rescheduled.participantConfirmationSummary,
+          timezoneContext: {
+            timezoneByUserId,
+            normalizedTo: 'UTC',
+          },
+        };
+      }
+
+      const hearing = await this.hearingService.scheduleHearing(
+        {
+          disputeId: dispute.id,
+          scheduledAt: selectedSlotStart.toISOString(),
+          estimatedDurationMinutes: durationMinutes,
+          tier: HearingTier.TIER_1,
+          isEmergency: true,
+          testBypassReason,
+        },
+        moderatorId,
+      );
+
+      const selectedSlot = {
+        start: selectedSlotStart,
+        end: selectedEnd,
+        durationMinutes,
+      };
+      await logTestTuningSelection(hearing.hearing.scheduledAt, selectedSlot);
+
+      return {
+        manualRequired: false,
+        hearingId: hearing.hearing.id,
+        scheduledAt: hearing.hearing.scheduledAt,
+        selectedSlot,
+        requiredParticipants,
+        responseDeadline: hearing.responseDeadline,
+        participantConfirmationSummary: hearing.participantConfirmationSummary,
+        timezoneContext: {
+          timezoneByUserId,
+          normalizedTo: 'UTC',
+        },
+      };
+    }
+
     const preferredSlots = await this.listSchedulingProposalsForParticipants(
       dispute.id,
       participantIds,
@@ -6639,9 +6902,6 @@ export class DisputesService {
       userTimezones,
       preferredSlots,
     });
-    const timezoneByUserId = Object.fromEntries(
-      Object.entries(userTimezones || {}).map(([userId, timezone]) => [userId, timezone || 'UTC']),
-    );
 
     if (!slotsResult.slots.length) {
       this.logger.warn(
@@ -6667,36 +6927,18 @@ export class DisputesService {
         scheduledAt: selected.start.toISOString(),
         estimatedDurationMinutes: durationMinutes,
         tier: HearingTier.TIER_1,
+        isEmergency: Boolean(testBypassReason),
+        testBypassReason,
       },
       moderatorId,
     );
-
-    if (hasTuningInput && canUseSchedulingBypass) {
-      try {
-        await this.auditLogsService.logCustom(
-          'DISPUTE_SCHEDULE_TEST_TUNING',
-          'Dispute',
-          dispute.id,
-          {
-            actorId: triggeredById,
-            tuning,
-            scheduledAt: hearing.hearing.scheduledAt,
-            selectedSlot: {
-              start: selected.start,
-              end: selected.end,
-            },
-          },
-          undefined,
-          triggeredById,
-        );
-      } catch (error) {
-        this.logger.warn(
-          `Failed to write schedule tuning audit log for dispute ${dispute.id}: ${
-            error instanceof Error ? error.message : 'unknown'
-          }`,
-        );
-      }
-    }
+    await logTestTuningSelection(hearing.hearing.scheduledAt, {
+      start: selected.start,
+      end: selected.end,
+      durationMinutes: selected.durationMinutes,
+      score: selected.score,
+      scoreReasons: selected.scoreReasons,
+    });
 
     return {
       manualRequired: false,
@@ -8925,6 +9167,9 @@ export class DisputesService {
       appellantId: userId,
       previousStatus,
       newStatus: updated.status,
+      appealReason: normalizedReason,
+      additionalEvidenceCount: dto.additionalEvidence?.length ?? 0,
+      escalatedToAdminId: updated.escalatedToAdminId ?? null,
     });
 
     try {
@@ -8964,7 +9209,11 @@ export class DisputesService {
             disputeId,
             scheduledAt: appealHearingDate.toISOString(),
             tier: HearingTier.TIER_2,
-            agenda: `Appeal hearing (Tier 2) | Reviewing verdict appeal: ${normalizedReason.slice(0, 200)}`,
+            agenda: [
+              'Appeal hearing (Tier 2)',
+              'Reviewing verdict appeal',
+              normalizedReason.slice(0, 1600),
+            ].join('\n\n'),
             estimatedDurationMinutes: 90,
             isEmergency: false,
           },
@@ -9001,6 +9250,7 @@ export class DisputesService {
     }
 
     const previousStatus = dispute.status;
+    const previousResult = dispute.result ?? null;
     dispute.status = DisputeStateMachine.transition(
       dispute.status,
       DisputeStatus.REJECTION_APPEALED,
@@ -9065,6 +9315,7 @@ export class DisputesService {
     }
 
     const previousStatus = dispute.status;
+    const previousResult = dispute.result ?? null;
 
     await this.verdictService.issueAppealVerdict(
       {
@@ -9106,6 +9357,10 @@ export class DisputesService {
       resolvedById: staffId,
       previousStatus,
       newStatus: updated.status,
+      previousResult,
+      newResult: updated.result ?? dto.result,
+      overrideReason: dto.overrideReason,
+      overridesVerdictId: dto.overridesVerdictId,
     });
 
     return updated;

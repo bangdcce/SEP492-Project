@@ -75,6 +75,7 @@ const DEFAULT_FILTERS: AuditLogFilters = {
   incidentOnly: false,
   component: "",
   fingerprint: "",
+  openLogId: "",
 };
 
 export const AuditLogPage = () => {
@@ -257,6 +258,36 @@ export const AuditLogPage = () => {
       setTimeline(null);
     }
   };
+
+  useEffect(() => {
+    const openLogId = filters.openLogId;
+    if (!openLogId) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const openFromDeepLink = async () => {
+      try {
+        const log = await auditLogsApi.getById(openLogId);
+        if (!isCancelled) {
+          await handleOpenLog(log);
+        }
+      } catch (err) {
+        console.error("Failed to open deep-linked audit log:", err);
+      } finally {
+        if (!isCancelled) {
+          setFilters((prev) => ({ ...prev, openLogId: "" }));
+        }
+      }
+    };
+
+    void openFromDeepLink();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [filters.openLogId]);
 
   const handleExport = async (format: "csv" | "xlsx") => {
     try {
@@ -490,14 +521,18 @@ export const AuditLogPage = () => {
                 setFilters((prev) => ({ ...prev, sessionId: value }))
               }
             />
-            <div className="flex gap-2">
+            <div className="grid gap-2 sm:grid-cols-2 md:col-span-2 xl:col-span-2">
               <DateInput
+                label="Start date"
+                placeholder="Start date"
                 value={filters.dateFrom || ""}
                 onChange={(value) =>
                   setFilters((prev) => ({ ...prev, dateFrom: value }))
                 }
               />
               <DateInput
+                label="End date"
+                placeholder="End date"
                 value={filters.dateTo || ""}
                 onChange={(value) =>
                   setFilters((prev) => ({ ...prev, dateTo: value }))
@@ -768,21 +803,32 @@ const FilterInput = ({
 );
 
 const DateInput = ({
+  label,
+  placeholder,
   value,
   onChange,
 }: {
+  label: string;
+  placeholder: string;
   value: string;
   onChange: (value: string) => void;
 }) => (
-  <div className="relative flex-1">
-    <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-    <Input
-      type="date"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-      className="pl-9"
-    />
-  </div>
+  <label className="flex min-w-0 flex-col gap-1">
+    <span className="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+      {label}
+    </span>
+    <div className="relative min-w-0">
+      <Calendar className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <Input
+        type="date"
+        aria-label={label}
+        placeholder={placeholder}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="min-w-0 pl-9"
+      />
+    </div>
+  </label>
 );
 
 const parseFiltersFromSearch = (search: string): AuditLogFilters => {
@@ -804,6 +850,7 @@ const parseFiltersFromSearch = (search: string): AuditLogFilters => {
     incidentOnly: params.get("incidentOnly") === "true",
     component: params.get("component") || "",
     fingerprint: params.get("fingerprint") || "",
+    openLogId: params.get("openLogId") || "",
   };
 };
 
@@ -825,5 +872,6 @@ const buildSearchFromFilters = (filters: AuditLogFilters) => {
   if (filters.incidentOnly) params.set("incidentOnly", "true");
   if (filters.component) params.set("component", filters.component);
   if (filters.fingerprint) params.set("fingerprint", filters.fingerprint);
+  if (filters.openLogId) params.set("openLogId", filters.openLogId);
   return params.toString();
 };

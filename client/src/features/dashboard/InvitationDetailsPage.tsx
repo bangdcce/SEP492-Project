@@ -151,6 +151,7 @@ export const InvitationDetailsPage = () => {
   const techPreferences = request.techPreferences || "Not specified";
   const clientInitial =
     request.client?.fullName?.trim()?.charAt(0)?.toUpperCase() || "C";
+  const clientId = request.client?.id;
 
   return (
     <div className="container mx-auto p-6 max-w-4xl space-y-6">
@@ -308,13 +309,13 @@ export const InvitationDetailsPage = () => {
                     <p className="font-semibold">{request.client?.fullName}</p>
                   </div>
                 </div>
-                {request.client?.id && (
+                {clientId && (
                   <Button
                     variant="outline"
                     className="w-full"
                     onClick={() =>
                       navigate(
-                        buildTrustProfilePath(request.client.id, {
+                        buildTrustProfilePath(clientId, {
                           pathname: location.pathname,
                         }),
                       )

@@ -67,6 +67,154 @@ const safeFormatDate = (dateStr: string | Date | null | undefined, fmt: string) 
     }
 };
 
+const BUDGET_CODE_RANGES: Record<string, { min?: number; max?: number }> = {
+  UNDER_1K: { min: 0, max: 1000 },
+  "1K_5K": { min: 1000, max: 5000 },
+  "5K_10K": { min: 5000, max: 10000 },
+  "10K_25K": { min: 10000, max: 25000 },
+  ABOVE_25K: { min: 25000 },
+};
+
+const parseBudgetToken = (value: string): number | null => {
+  const normalized = value.replace(/[$,\s]/g, "").toUpperCase();
+  const match = normalized.match(/^(\d+(?:\.\d+)?)([KMB])?$/);
+  if (!match) {
+    return null;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) {
+    return null;
+  }
+
+  const multiplier =
+    match[2] === "K"
+      ? 1000
+      : match[2] === "M"
+        ? 1000000
+        : match[2] === "B"
+          ? 1000000000
+          : 1;
+
+  return Math.round(amount * multiplier);
+};
+
+const isFiniteNonNegativeNumber = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0;
+
+const parseBudgetRange = (
+  value?: string | null,
+): { min?: number; max?: number } | null => {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  const normalizedCode = raw.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
+  if (BUDGET_CODE_RANGES[normalizedCode]) {
+    return BUDGET_CODE_RANGES[normalizedCode];
+  }
+
+  const normalizedRaw = raw.toUpperCase();
+  if (BUDGET_CODE_RANGES[normalizedRaw]) {
+    return BUDGET_CODE_RANGES[normalizedRaw];
+  }
+
+  const compactMatches = raw.match(/\d[\d,.]*(?:\.\d+)?\s*[kKmMbB]?/g) || [];
+  const compactNumbers = compactMatches
+    .map((segment) => parseBudgetToken(segment))
+    .filter(isFiniteNonNegativeNumber);
+
+  if (compactNumbers.length > 0) {
+    if (raw.includes("+") || /above|over|more than/i.test(raw)) {
+      return { min: compactNumbers[0] };
+    }
+
+    if (/under|below|less than|up to/i.test(raw)) {
+      return { min: 0, max: compactNumbers[0] };
+    }
+
+    if (compactNumbers.length === 1) {
+      return { min: compactNumbers[0], max: compactNumbers[0] };
+    }
+
+    return {
+      min: Math.min(...compactNumbers),
+      max: Math.max(...compactNumbers),
+    };
+  }
+
+  const numericMatches = raw.match(/\d[\d,.]*/g) || [];
+  const numbers = numericMatches
+    .map((segment) => Number(segment.replace(/[^\d.]/g, "")))
+    .filter(isFiniteNonNegativeNumber);
+
+  if (numbers.length === 0) {
+    return null;
+  }
+
+  if (raw.includes("+") || /above|over|more than/i.test(raw)) {
+    return { min: numbers[0] };
+  }
+
+  if (/under|below|less than|up to/i.test(raw)) {
+    return { min: 0, max: numbers[0] };
+  }
+
+  if (numbers.length === 1) {
+    return { min: numbers[0], max: numbers[0] };
+  }
+
+  return {
+    min: Math.min(...numbers),
+    max: Math.max(...numbers),
+  };
+};
+
+const resolveCommercialBudgetRangeWarning = (
+  requestBudgetRange: string | null | undefined,
+  changeRequest?: ProjectRequest["activeCommercialChangeRequest"] | null,
+): string | null => {
+  if (!changeRequest || typeof changeRequest.proposedBudget !== "number") {
+    return null;
+  }
+
+  if (changeRequest.proposedBudgetRangeWarning) {
+    return changeRequest.proposedBudgetRangeWarning;
+  }
+
+  if (changeRequest.proposedBudgetOutsideRequestRange === false) {
+    return null;
+  }
+
+  const parsedRange = parseBudgetRange(
+    changeRequest.requestBudgetRange || requestBudgetRange,
+  );
+
+  if (!parsedRange) {
+    return null;
+  }
+
+  const isBelowMin =
+    typeof parsedRange.min === "number"
+      ? changeRequest.proposedBudget < parsedRange.min
+      : false;
+  const isAboveMax =
+    typeof parsedRange.max === "number"
+      ? changeRequest.proposedBudget > parsedRange.max
+      : false;
+
+  if (!isBelowMin && !isAboveMax) {
+    return null;
+  }
+
+  const proposedBudgetText = `$${Number(changeRequest.proposedBudget).toLocaleString()}`;
+  const budgetRangeLabel =
+    changeRequest.requestBudgetRange || requestBudgetRange || "original wizard range";
+
+  return `Proposed budget ${proposedBudgetText} is outside the request budget range (${budgetRangeLabel}). Please confirm you acknowledge this before approving.`;
+};
+
 export default function RequestDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -108,11 +256,17 @@ export default function RequestDetailPage() {
   const [inviteModalData, setInviteModalData] = useState<{ id: string, name: string, role: "BROKER" | "FREELANCER" } | null>(null);
   const [commercialResponseNote, setCommercialResponseNote] = useState("");
   const [isRespondingCommercialChange, setIsRespondingCommercialChange] = useState(false);
+  const [acknowledgeOutOfRangeBudgetWarning, setAcknowledgeOutOfRangeBudgetWarning] =
+    useState(false);
 
   useEffect(() => {
     const tabParam = searchParams.get('tab');
     if (tabParam) setActiveTab(tabParam);
   }, [searchParams]);
+
+  useEffect(() => {
+    setAcknowledgeOutOfRangeBudgetWarning(false);
+  }, [request?.activeCommercialChangeRequest?.id]);
 
   const fetchFreelancerMatches = useCallback(async (requestId: string, useAi: boolean = false) => {
     try {
@@ -405,16 +559,33 @@ export default function RequestDetailPage() {
   };
 
   const handleRespondCommercialChange = async (action: "APPROVE" | "REJECT") => {
-    if (!id || !request?.activeCommercialChangeRequest?.id) return;
+    const activeChange = request?.activeCommercialChangeRequest;
+    if (!id || !activeChange?.id) return;
+
+    const budgetWarning = resolveCommercialBudgetRangeWarning(
+      request?.budgetRange,
+      activeChange,
+    );
+    const requiresBudgetWarningAck = action === "APPROVE" && Boolean(budgetWarning);
+
+    if (requiresBudgetWarningAck && !acknowledgeOutOfRangeBudgetWarning) {
+      toast.error(
+        "Please acknowledge the out-of-range budget warning before approving.",
+      );
+      return;
+    }
 
     try {
       setIsRespondingCommercialChange(true);
       await projectRequestsApi.respondCommercialChangeRequest(
         id,
-        request.activeCommercialChangeRequest.id,
+        activeChange.id,
         {
           action,
           note: commercialResponseNote.trim() || undefined,
+          acknowledgeOutOfRangeBudgetWarning: requiresBudgetWarningAck
+            ? acknowledgeOutOfRangeBudgetWarning
+            : undefined,
         },
       );
       toast.success(
@@ -423,6 +594,7 @@ export default function RequestDetailPage() {
           : "Commercial change rejected",
       );
       setCommercialResponseNote("");
+      setAcknowledgeOutOfRangeBudgetWarning(false);
       void fetchData(id);
     } catch (error) {
       toast.error(
@@ -503,6 +675,13 @@ export default function RequestDetailPage() {
     ? buildTrustProfilePath(assignedBrokerProfileId, { role: UserRole.CLIENT })
     : null;
   const activeCommercialChange = request.activeCommercialChangeRequest;
+  const activeCommercialBudgetRangeWarning = resolveCommercialBudgetRangeWarning(
+    request.budgetRange,
+    activeCommercialChange,
+  );
+  const requiresBudgetWarningAcknowledgement =
+    activeCommercialChange?.status === "PENDING" &&
+    Boolean(activeCommercialBudgetRangeWarning);
   const canUseRequestChat = Boolean(request.brokerId && currentPhase >= 2);
   const clientNextAction = buildClientNextAction({
     currentPhase,
@@ -600,7 +779,7 @@ export default function RequestDetailPage() {
               <Dialog>
                  <DialogTrigger asChild>
                     <Button 
-                        className="bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transform transition hover:scale-105"
+                    className="bg-linear-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-bold py-2 px-4 rounded-full shadow-lg transform transition hover:scale-105"
                     >
                         <HelpCircle className="w-5 h-5 mr-2" /> HELP GUIDE
                     </Button>
@@ -721,14 +900,14 @@ export default function RequestDetailPage() {
                     onClick={() => setViewMode('workflow')}
                  >
                     Workflow Management
-                    {viewMode === 'workflow' && <div className="absolute bottom-[-9px] left-0 w-full h-0.5 bg-primary" />}
+                    {viewMode === 'workflow' && <div className="absolute -bottom-2.25 left-0 w-full h-0.5 bg-primary" />}
                  </button>
                  <button 
                     className={`px-4 py-2 font-medium text-sm transition-colors relative ${viewMode === 'details' ? 'text-primary' : 'text-muted-foreground hover:text-primary/80'}`}
                     onClick={() => setViewMode('details')}
                  >
                     Project Details
-                    {viewMode === 'details' && <div className="absolute bottom-[-9px] left-0 w-full h-0.5 bg-primary" />}
+                    {viewMode === 'details' && <div className="absolute -bottom-2.25 left-0 w-full h-0.5 bg-primary" />}
                  </button>
             </div>
 
@@ -949,7 +1128,7 @@ export default function RequestDetailPage() {
 
                                     <div className="grid gap-2 text-sm text-muted-foreground md:grid-cols-2">
                                       <p>
-                                        Trust Score: {Number(proposal.freelancer?.currentTrustScore || 0).toFixed(1)}
+                                        Trust Score: {Math.round(Number(proposal.freelancer?.currentTrustScore || 0) * 20 * 10) / 10}/100 ({Number(proposal.freelancer?.currentTrustScore || 0).toFixed(1)}/5)
                                       </p>
                                       <p>
                                         Successful Projects: {proposal.freelancer?.totalProjectsFinished || 0}
@@ -1067,6 +1246,13 @@ export default function RequestDetailPage() {
                                       </div>
                                     </div>
 
+                                    {activeCommercialBudgetRangeWarning ? (
+                                      <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+                                        <p className="font-semibold">Budget range warning</p>
+                                        <p className="mt-1">{activeCommercialBudgetRangeWarning}</p>
+                                      </div>
+                                    ) : null}
+
                                     <div className="mt-3 rounded-lg border bg-white p-3 text-sm">
                                       <p className="text-xs uppercase tracking-wide text-muted-foreground">
                                         Broker reason
@@ -1094,6 +1280,23 @@ export default function RequestDetailPage() {
 
                                     {activeCommercialChange.status === "PENDING" ? (
                                       <div className="mt-4 space-y-3">
+                                        {requiresBudgetWarningAcknowledgement ? (
+                                          <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                            <input
+                                              type="checkbox"
+                                              className="mt-0.5"
+                                              checked={acknowledgeOutOfRangeBudgetWarning}
+                                              onChange={(event) =>
+                                                setAcknowledgeOutOfRangeBudgetWarning(
+                                                  event.target.checked,
+                                                )
+                                              }
+                                            />
+                                            <span>
+                                              I understand this proposed budget is outside the original request budget range and still want to approve it.
+                                            </span>
+                                          </label>
+                                        ) : null}
                                         <Textarea
                                           value={commercialResponseNote}
                                           onChange={(event) => setCommercialResponseNote(event.target.value)}
@@ -1102,7 +1305,11 @@ export default function RequestDetailPage() {
                                         />
                                         <div className="flex flex-wrap gap-3">
                                           <Button
-                                            disabled={isRespondingCommercialChange}
+                                            disabled={
+                                              isRespondingCommercialChange ||
+                                              (requiresBudgetWarningAcknowledgement &&
+                                                !acknowledgeOutOfRangeBudgetWarning)
+                                            }
                                             onClick={() => void handleRespondCommercialChange("APPROVE")}
                                           >
                                             {isRespondingCommercialChange ? "Updating..." : "Approve change"}

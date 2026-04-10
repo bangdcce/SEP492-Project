@@ -574,7 +574,7 @@ export const VerdictAnnouncement = ({
                     ? "Both parties already accepted this verdict."
                     : verdict.isAppealed
                   ? "An appeal has already been filed for this verdict."
-                  : "Only dispute parties may file an appeal."}
+                  : "Only the eligible losing dispute party may appeal. Witnesses and winning/refunded parties cannot appeal."}
               </p>
             ) : null}
             {appealDeadlinePassed ? (

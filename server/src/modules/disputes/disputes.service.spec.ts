@@ -14,12 +14,15 @@ import {
   DisputeMessageEntity,
   DisputeNoteEntity,
   DisputePartyEntity,
+  DisputeResult,
   DisputeScheduleProposalEntity,
   DisputeStatus,
+  DisputeType,
   DisputeVerdictEntity,
   DisputeViewStateEntity,
   EscrowEntity,
   EventParticipantEntity,
+  HearingStatus,
   HearingParticipantEntity,
   HearingQuestionEntity,
   LegalSignatureEntity,
@@ -65,6 +68,9 @@ describe('DisputesService', () => {
   let dataSource: any;
   let verdictService: any;
   let hearingService: any;
+  let auditLogsService: any;
+  let staffAssignmentService: any;
+  let calendarService: any;
 
   const repoMock = () => ({
     find: jest.fn(),
@@ -133,11 +139,18 @@ describe('DisputesService', () => {
           },
         },
         { provide: TrustScoreService, useValue: {} },
-        { provide: AuditLogsService, useValue: {} },
+        { provide: AuditLogsService, useValue: { logCustom: jest.fn() } },
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: UserWarningService, useValue: {} },
         { provide: SettlementService, useValue: {} },
-        { provide: HearingService, useValue: { scheduleHearing: jest.fn() } },
+        {
+          provide: HearingService,
+          useValue: {
+            scheduleHearing: jest.fn(),
+            rescheduleHearing: jest.fn(),
+            determineRequiredParticipants: jest.fn(),
+          },
+        },
         {
           provide: VerdictService,
           useValue: {
@@ -147,8 +160,8 @@ describe('DisputesService', () => {
           },
         },
         { provide: VerdictReadinessService, useValue: {} },
-        { provide: StaffAssignmentService, useValue: {} },
-        { provide: CalendarService, useValue: {} },
+        { provide: StaffAssignmentService, useValue: { estimateDisputeComplexity: jest.fn() } },
+        { provide: CalendarService, useValue: { findAvailableSlots: jest.fn() } },
       ],
     }).compile();
 
@@ -171,12 +184,21 @@ describe('DisputesService', () => {
     dataSource = module.get(DataSource);
     verdictService = module.get(VerdictService);
     hearingService = module.get(HearingService);
+    auditLogsService = module.get(AuditLogsService);
+    staffAssignmentService = module.get(StaffAssignmentService);
+    calendarService = module.get(CalendarService);
 
     verdictRepo.find.mockResolvedValue([]);
     legalSignatureRepo.find.mockResolvedValue([]);
     disputeInternalMembershipRepo.find.mockResolvedValue([]);
     userRepo.find.mockResolvedValue([]);
     hearingRepo.find.mockResolvedValue([]);
+    auditLogsService.logCustom.mockResolvedValue(undefined);
+    staffAssignmentService.estimateDisputeComplexity.mockResolvedValue(null);
+    hearingService.scheduleHearing.mockReset();
+    hearingService.rescheduleHearing.mockReset();
+    hearingService.determineRequiredParticipants.mockReset();
+    calendarService.findAvailableSlots.mockReset();
     hearingParticipantRepo.createQueryBuilder.mockReturnValue({
       innerJoin: jest.fn().mockReturnThis(),
       where: jest.fn().mockReturnThis(),
@@ -413,6 +435,112 @@ describe('DisputesService', () => {
           }),
         }),
       });
+    });
+
+    it('disables appeal for the winning party even when they are a dispute participant', async () => {
+      verdictService.getVerdictByDisputeId.mockResolvedValue({
+        id: 'v-1',
+        disputeId: 'd-1',
+        adjudicatorId: 'staff-1',
+        adjudicatorRole: UserRole.STAFF,
+        faultType: 'OTHER',
+        faultyParty: 'defendant',
+        reasoning: {
+          violatedPolicies: ['POL-1'],
+          factualFindings: 'facts',
+          legalAnalysis: 'analysis',
+          conclusion: 'conclusion',
+        },
+        amountToFreelancer: 0,
+        amountToClient: 100,
+        platformFee: 0,
+        trustScorePenalty: null,
+        isBanTriggered: null,
+        banDurationDays: null,
+        warningMessage: null,
+        tier: 1,
+        isAppealVerdict: false,
+        overridesVerdictId: null,
+        issuedAt: new Date('2026-03-15T10:00:00.000Z'),
+      });
+      disputeRepo.findOne.mockResolvedValue({
+        id: 'd-1',
+        raisedById: 'client-1',
+        defendantId: 'freelancer-1',
+        disputeType: DisputeType.CLIENT_VS_FREELANCER,
+        result: DisputeResult.WIN_CLIENT,
+        appealDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        isAppealed: false,
+        appealReason: null,
+        appealedAt: null,
+        appealResolvedAt: null,
+        appealResolvedById: null,
+        appealResolution: null,
+        status: DisputeStatus.RESOLVED,
+        currentTier: 1,
+      });
+      legalSignatureRepo.find.mockResolvedValue([]);
+
+      const result = await service.getVerdict('d-1', 'client-1', UserRole.CLIENT);
+
+      expect(result.data.acceptance).toEqual(
+        expect.objectContaining({
+          currentUserCanAppeal: false,
+        }),
+      );
+    });
+
+    it('keeps appeal enabled for the losing party while appeal window is open', async () => {
+      verdictService.getVerdictByDisputeId.mockResolvedValue({
+        id: 'v-1',
+        disputeId: 'd-1',
+        adjudicatorId: 'staff-1',
+        adjudicatorRole: UserRole.STAFF,
+        faultType: 'OTHER',
+        faultyParty: 'defendant',
+        reasoning: {
+          violatedPolicies: ['POL-1'],
+          factualFindings: 'facts',
+          legalAnalysis: 'analysis',
+          conclusion: 'conclusion',
+        },
+        amountToFreelancer: 0,
+        amountToClient: 100,
+        platformFee: 0,
+        trustScorePenalty: null,
+        isBanTriggered: null,
+        banDurationDays: null,
+        warningMessage: null,
+        tier: 1,
+        isAppealVerdict: false,
+        overridesVerdictId: null,
+        issuedAt: new Date('2026-03-15T10:00:00.000Z'),
+      });
+      disputeRepo.findOne.mockResolvedValue({
+        id: 'd-1',
+        raisedById: 'client-1',
+        defendantId: 'freelancer-1',
+        disputeType: DisputeType.CLIENT_VS_FREELANCER,
+        result: DisputeResult.WIN_CLIENT,
+        appealDeadline: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        isAppealed: false,
+        appealReason: null,
+        appealedAt: null,
+        appealResolvedAt: null,
+        appealResolvedById: null,
+        appealResolution: null,
+        status: DisputeStatus.RESOLVED,
+        currentTier: 1,
+      });
+      legalSignatureRepo.find.mockResolvedValue([]);
+
+      const result = await service.getVerdict('d-1', 'freelancer-1', UserRole.FREELANCER);
+
+      expect(result.data.acceptance).toEqual(
+        expect.objectContaining({
+          currentUserCanAppeal: true,
+        }),
+      );
     });
   });
 
@@ -904,6 +1032,155 @@ describe('DisputesService', () => {
         actualResults:
           'resolveAppeal delegated the final appeal payload to VerdictService.issueAppealVerdict, saved appeal activity logs, and returned dispute d-1 in RESOLVED status.',
       });
+    });
+  });
+
+  describe('escalateToHearing', () => {
+    const originalAppEnv = process.env.APP_ENV;
+    const originalNodeEnv = process.env.NODE_ENV;
+    const originalTestMode = process.env.DISPUTE_TEST_MODE;
+
+    beforeEach(() => {
+      process.env.APP_ENV = 'test';
+      process.env.NODE_ENV = 'production';
+      process.env.DISPUTE_TEST_MODE = 'true';
+    });
+
+    afterEach(() => {
+      process.env.APP_ENV = originalAppEnv;
+      process.env.NODE_ENV = originalNodeEnv;
+      process.env.DISPUTE_TEST_MODE = originalTestMode;
+    });
+
+    it('schedules a staff-picked test slot when APP_ENV is non-production', async () => {
+      const pickedStart = new Date('2026-04-10T09:05:00.000Z');
+
+      disputeRepo.findOne.mockResolvedValue({
+        id: 'd-1',
+        status: DisputeStatus.IN_MEDIATION,
+        assignedStaffId: 'staff-1',
+        raisedById: 'raiser-1',
+      });
+      userRepo.findOne.mockResolvedValue({ id: 'staff-1', role: UserRole.STAFF });
+      hearingRepo.findOne.mockResolvedValue(null);
+      hearingService.determineRequiredParticipants.mockResolvedValue({
+        participants: [
+          {
+            userId: 'raiser-1',
+            role: 'RAISER',
+            isRequired: true,
+            relationToProject: 'raiser',
+          },
+          {
+            userId: 'staff-1',
+            role: 'MODERATOR',
+            isRequired: true,
+            relationToProject: 'moderator',
+          },
+        ],
+        warnings: [],
+        hasBroker: false,
+        hasSupervisor: false,
+      });
+      staffAssignmentService.estimateDisputeComplexity.mockResolvedValue({
+        timeEstimation: { recommendedMinutes: 45 },
+      });
+      hearingService.scheduleHearing.mockResolvedValue({
+        manualRequired: false,
+        hearing: {
+          id: 'hearing-1',
+          scheduledAt: pickedStart,
+        },
+        responseDeadline: pickedStart,
+        participantConfirmationSummary: { pending: 2 },
+      });
+
+      const result = await service.escalateToHearing('d-1', 'staff-1', {
+        selectedSlotStart: pickedStart.toISOString(),
+        bypassReason: 'picked schedule for dev test',
+      });
+
+      expect(hearingService.scheduleHearing).toHaveBeenCalledWith(
+        expect.objectContaining({
+          disputeId: 'd-1',
+          scheduledAt: pickedStart.toISOString(),
+          estimatedDurationMinutes: 45,
+          isEmergency: true,
+          testBypassReason: 'picked schedule for dev test',
+        }),
+        'staff-1',
+      );
+      expect(hearingService.rescheduleHearing).not.toHaveBeenCalled();
+      expect(result.hearingId).toBe('hearing-1');
+      expect(result.selectedSlot?.start.getTime()).toBe(pickedStart.getTime());
+    });
+
+    it('reschedules the existing actionable hearing when staff picks a new test slot', async () => {
+      const currentStart = new Date('2026-04-12T09:00:00.000Z');
+      const pickedStart = new Date('2026-04-10T10:15:00.000Z');
+
+      disputeRepo.findOne.mockResolvedValue({
+        id: 'd-1',
+        status: DisputeStatus.IN_MEDIATION,
+        assignedStaffId: 'staff-1',
+        raisedById: 'raiser-1',
+      });
+      userRepo.findOne.mockResolvedValue({ id: 'staff-1', role: UserRole.STAFF });
+      hearingRepo.findOne.mockResolvedValue({
+        id: 'hearing-existing',
+        scheduledAt: currentStart,
+        status: HearingStatus.SCHEDULED,
+      });
+      hearingService.determineRequiredParticipants.mockResolvedValue({
+        participants: [
+          {
+            userId: 'raiser-1',
+            role: 'RAISER',
+            isRequired: true,
+            relationToProject: 'raiser',
+          },
+          {
+            userId: 'staff-1',
+            role: 'MODERATOR',
+            isRequired: true,
+            relationToProject: 'moderator',
+          },
+        ],
+        warnings: [],
+        hasBroker: false,
+        hasSupervisor: false,
+      });
+      staffAssignmentService.estimateDisputeComplexity.mockResolvedValue({
+        timeEstimation: { recommendedMinutes: 60 },
+      });
+      hearingService.rescheduleHearing.mockResolvedValue({
+        manualRequired: false,
+        newHearing: {
+          id: 'hearing-2',
+          scheduledAt: pickedStart,
+        },
+        responseDeadline: pickedStart,
+        participantConfirmationSummary: { pending: 2 },
+      });
+
+      const result = await service.escalateToHearing('d-1', 'staff-1', {
+        selectedSlotStart: pickedStart.toISOString(),
+        bypassReason: 'picked reschedule for dev test',
+      });
+
+      expect(hearingService.rescheduleHearing).toHaveBeenCalledWith(
+        expect.objectContaining({
+          hearingId: 'hearing-existing',
+          scheduledAt: pickedStart.toISOString(),
+          estimatedDurationMinutes: 60,
+          isEmergency: true,
+          testBypassReason: 'picked reschedule for dev test',
+        }),
+        'staff-1',
+      );
+      expect(hearingService.scheduleHearing).not.toHaveBeenCalled();
+      expect(result.hearingId).toBe('hearing-2');
+      expect(result.selectedSlot?.start.getTime()).toBe(pickedStart.getTime());
     });
   });
 

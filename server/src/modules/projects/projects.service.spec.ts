@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -7,6 +8,7 @@ import { ContractEntity } from '../../database/entities/contract.entity';
 import { DisputeEntity } from '../../database/entities/dispute.entity';
 import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { ReviewEntity } from '../../database/entities/review.entity';
+import { ProjectRequestEntity, RequestStatus } from '../../database/entities/project-request.entity';
 import {
   DeliverableType,
   MilestoneEntity,
@@ -19,6 +21,7 @@ import { UserEntity } from '../../database/entities/user.entity';
 import { ProjectsService } from './projects.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
 import { EscrowReleaseService } from '../payments/escrow-release.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const createQueryBuilderMock = (result: unknown) => ({
   setLock: jest.fn().mockReturnThis(),
@@ -59,6 +62,12 @@ describe('ProjectsService', () => {
     releaseForApprovedMilestone: jest.fn(),
     refundCancelledEscrow: jest.fn(),
   };
+  const notificationsService = {
+    createMany: jest.fn(),
+  };
+  const eventEmitter = {
+    emit: jest.fn(),
+  };
 
   const milestoneRepoInTransaction = {
     createQueryBuilder: jest.fn(),
@@ -81,6 +90,9 @@ describe('ProjectsService', () => {
     create: jest.fn((value) => value),
     save: jest.fn(),
   };
+  const requestRepoInTransaction = {
+    update: jest.fn(),
+  };
 
   const manager = {
     getRepository: jest.fn((entity) => {
@@ -89,6 +101,7 @@ describe('ProjectsService', () => {
       if (entity === EscrowEntity) return escrowRepoInTransaction;
       if (entity === TaskEntity) return taskRepoInTransaction;
       if (entity === TaskHistoryEntity) return taskHistoryRepoInTransaction;
+      if (entity === ProjectRequestEntity) return requestRepoInTransaction;
       throw new Error('Unexpected repository');
     }),
   };
@@ -102,6 +115,7 @@ describe('ProjectsService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     milestoneRepository.save.mockImplementation((value: MilestoneEntity) => value);
+    notificationsService.createMany.mockResolvedValue([]);
 
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -156,6 +170,14 @@ describe('ProjectsService', () => {
         {
           provide: EscrowReleaseService,
           useValue: escrowReleaseService,
+        },
+        {
+          provide: NotificationsService,
+          useValue: notificationsService,
+        },
+        {
+          provide: EventEmitter2,
+          useValue: eventEmitter,
         },
       ],
     }).compile();
@@ -498,6 +520,7 @@ describe('ProjectsService', () => {
   it('cancels an active project, refunds funded escrows, and locks unfinished work', async () => {
     const project = {
       id: 'project-1',
+      requestId: 'request-1',
       clientId: 'client-1',
       brokerId: 'broker-1',
       freelancerId: 'freelancer-1',
@@ -632,6 +655,15 @@ describe('ProjectsService', () => {
         staffId: null,
         staffInviteStatus: null,
       }),
+    );
+    expect(requestRepoInTransaction.update).toHaveBeenCalledWith(
+      { id: project.requestId },
+      { status: RequestStatus.CANCELED },
+    );
+    expect(notificationsService.createMany).toHaveBeenCalled();
+    expect(eventEmitter.emit).toHaveBeenCalledWith(
+      'project.updated',
+      expect.objectContaining({ projectId: 'project-1' }),
     );
     expect(auditLogsService.logUpdate).toHaveBeenCalled();
     expect(result.totalRefundedAmount).toBe(100);

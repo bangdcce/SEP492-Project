@@ -132,13 +132,27 @@ export function RequestChatPanel({
       setMessages((current) => mergeMessage(current, normalized));
     };
 
+    const handleRequestChatError = (payload: unknown) => {
+      const message =
+        typeof payload === "object" &&
+        payload !== null &&
+        typeof (payload as { message?: unknown }).message === "string"
+          ? (payload as { message: string }).message
+          : "Request chat connection error";
+
+      setError(message);
+    };
+
     join();
     socket.on("connect", join);
     socket.on("newRequestMessage", handleNewMessage);
+    socket.on("requestChatError", handleRequestChatError);
 
     return () => {
+      socket.emit("leaveRequestChat", { requestId });
       socket.off("connect", join);
       socket.off("newRequestMessage", handleNewMessage);
+      socket.off("requestChatError", handleRequestChatError);
     };
   }, [requestId]);
 

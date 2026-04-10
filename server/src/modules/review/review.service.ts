@@ -100,12 +100,12 @@ export class ReviewService {
 
     // Người được đánh giá cũng phải là thành viên dự án
     if (!validMembers.includes(targetUserId)) {
-      throw new BadRequestException('Người được đánh giá không phải thành viên dự án này.');
+      throw new BadRequestException('The reviewed user is not a member of this project.');
     }
 
     // Không được tự review chính mình
     if (reviewerId === targetUserId) {
-      throw new BadRequestException('Không thềEtự đánh giá bản thân.');
+      throw new BadRequestException('You cannot review yourself.');
     }
 
     // Kiểm tra xem đã review chưa (Mỗi người chềEreview 1 lần cho 1 dự án/đối tượng)
@@ -114,7 +114,7 @@ export class ReviewService {
     });
 
     if (existingReview) {
-      throw new BadRequestException('Bạn đã đánh giá người dùng này trong dự án này rồi.');
+      throw new BadRequestException('You have already reviewed this user in this project.');
     }
 
     // 3. Business Logic: Tính trọng sềE(Weight)
@@ -191,7 +191,7 @@ export class ReviewService {
     if (!review) throw new NotFoundException('Review not found');
 
     if (review.reviewerId !== reviewerId) {
-      throw new ForbiddenException('Bạn không có quyền sửa đánh giá này.');
+      throw new ForbiddenException('You do not have permission to edit this review.');
     }
 
     // 3. LOGIC QUAN TRỌNG: Kiểm tra thời hạn (Ví dụ: 3 ngày = 72h)
@@ -201,7 +201,7 @@ export class ReviewService {
     const diffHours = (now - createdTime) / ONE_HOUR;
 
     if (diffHours > 72) {
-      throw new BadRequestException('Đã quá thời hạn 3 ngày, bạn không thềEsửa đánh giá nữa.');
+      throw new BadRequestException('The 3-day edit window has expired for this review.');
     }
     // --- QUAN TRỌNG: SAO CHÉP DỮ LIềE CŨ ĐềEGHI LOG ---
     // Vì lát nữa ta sẽ sửa trực tiếp object 'review', nên phải clone ra một bản 'oldData' trước
@@ -494,7 +494,7 @@ export class ReviewService {
   }
 
   async handleSoftDeleteCommitted(
-    review: Pick<ReviewEntity, 'id' | 'targetUserId'>,
+    review: Pick<ReviewEntity, 'id' | 'targetUserId' | 'reviewerId'>,
     adminId: string,
   ): Promise<void> {
     this.emitReviewMutationCommittedEvent(
@@ -506,6 +506,15 @@ export class ReviewService {
       reviewId: review.id,
       title: 'Review moderated',
       body: `A review was soft deleted by an administrator.`,
+    });
+
+    await this.notifyReviewOwner({
+      actorId: adminId,
+      ownerId: review.reviewerId,
+      reviewId: review.id,
+      title: 'Your review was removed',
+      body:
+        'An administrator removed one of your reviews after moderation. If you think this is incorrect, submit an appeal request from your account.',
     });
   }
 
@@ -680,6 +689,26 @@ export class ReviewService {
         relatedId: params.reviewId,
       })),
     );
+  }
+
+  private async notifyReviewOwner(params: {
+    actorId: string;
+    ownerId?: string | null;
+    reviewId: string;
+    title: string;
+    body: string;
+  }) {
+    if (!params.ownerId || params.ownerId === params.actorId) {
+      return;
+    }
+
+    await this.notificationsService.create({
+      userId: params.ownerId,
+      title: params.title,
+      body: params.body,
+      relatedType: 'Review',
+      relatedId: params.reviewId,
+    });
   }
 
   private async loadReviewForModeration(reviewId: string) {
@@ -891,6 +920,14 @@ export class ReviewService {
       reviewId,
       title: 'Review restored',
       body: `A review was restored by an administrator.`,
+    });
+
+    await this.notifyReviewOwner({
+      actorId: adminId,
+      ownerId: restoredReview.reviewerId,
+      reviewId,
+      title: 'Your review was restored',
+      body: 'An administrator restored your review after moderation.',
     });
 
     return { message: 'Review restored successfully', review: restoredReview };

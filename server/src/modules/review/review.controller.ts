@@ -9,6 +9,7 @@ import {
   NotFoundException,
   Param,
   ParseIntPipe,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -37,15 +38,22 @@ export class ReviewController {
   constructor(private readonly reviewService: ReviewService) {}
 
   private assertDevOnlyRoute() {
-    const env = (process.env.NODE_ENV || 'development').trim().toLowerCase();
-    if (env === 'production' || env === 'staging') {
+    const env = (process.env.NODE_ENV || '').trim().toLowerCase();
+    const allowTestRoutes =
+      (process.env.ENABLE_REVIEW_TEST_ROUTES || '').trim().toLowerCase() === 'true';
+    const isNonProductionEnv = env === 'development' || env === 'test';
+
+    if (!isNonProductionEnv || !allowTestRoutes) {
       throw new NotFoundException('Route not available.');
     }
   }
 
-  // ============ PUBLIC TEST ENDPOINTS (DEV ONLY - REMOVE IN PRODUCTION) ============
+  // ============ DEV TEST ENDPOINTS (REQUIRE ADMIN + EXPLICIT ENABLE FLAG) ============
   @Get('test/moderation')
-  @ApiOperation({ summary: '[DEV] Test endpoint - Get reviews for moderation without auth' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '[DEV] Test endpoint - Get reviews for moderation' })
   async testGetReviewsForModeration(
     @Query('status') status?: string,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number = 1,
@@ -56,37 +64,57 @@ export class ReviewController {
   }
 
   @Get('test/all')
-  @ApiOperation({ summary: '[DEV] Test endpoint - Get all reviews without auth' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '[DEV] Test endpoint - Get all reviews' })
   async testGetAllReviews() {
     this.assertDevOnlyRoute();
     return this.reviewService.getAllReviewsForTest();
   }
 
   @Delete('test/:id')
-  @ApiOperation({ summary: '[DEV] Test endpoint - Soft delete review without auth' })
-  async testSoftDelete(@Param('id') id: string, @Body() dto: DeleteReviewDto) {
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '[DEV] Test endpoint - Soft delete review' })
+  async testSoftDelete(
+    @GetUser('id') adminId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DeleteReviewDto,
+  ) {
     this.assertDevOnlyRoute();
-    // Use fake admin ID for testing
-    const fakeAdminId = '11111111-1111-1111-1111-111111111111';
-    return this.reviewService.softDelete(id, fakeAdminId, dto.reason);
+    return this.reviewService.softDelete(id, adminId, dto.reason);
   }
 
   @Post('test/:id/restore')
-  @ApiOperation({ summary: '[DEV] Test endpoint - Restore review without auth' })
-  async testRestore(@Param('id') id: string, @Body() dto: { reason: string }) {
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '[DEV] Test endpoint - Restore review' })
+  async testRestore(
+    @GetUser('id') adminId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: { reason: string },
+  ) {
     this.assertDevOnlyRoute();
-    const fakeAdminId = '11111111-1111-1111-1111-111111111111';
-    return this.reviewService.restore(id, fakeAdminId, dto.reason);
+    return this.reviewService.restore(id, adminId, dto.reason);
   }
 
   @Post('test/:id/dismiss-report')
-  @ApiOperation({ summary: '[DEV] Test endpoint - Dismiss report without auth' })
-  async testDismissReport(@Param('id') id: string, @Body() dto: { reason?: string }) {
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: '[DEV] Test endpoint - Dismiss report' })
+  async testDismissReport(
+    @GetUser('id') adminId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: { reason?: string },
+  ) {
     this.assertDevOnlyRoute();
-    const fakeAdminId = '11111111-1111-1111-1111-111111111111';
-    return this.reviewService.dismissReport(id, fakeAdminId, dto.reason);
+    return this.reviewService.dismissReport(id, adminId, dto.reason);
   }
-  // ============ END PUBLIC TEST ENDPOINTS ============
+  // ============ END DEV TEST ENDPOINTS ============
 
   @Post()
   @UseGuards(JwtAuthGuard)
@@ -123,7 +151,9 @@ export class ReviewController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Lấy danh sách reviews cho một user' })
-  async findByTargetUser(@Query('targetUserId') targetUserId: string) {
+  async findByTargetUser(
+    @Query('targetUserId', new ParseUUIDPipe()) targetUserId: string,
+  ) {
     return this.reviewService.findByTargetUser(targetUserId);
   }
 

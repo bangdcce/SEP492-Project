@@ -21,6 +21,14 @@ export class ContractsController {
     return this.contractsService.findOneForUser(user, id);
   }
 
+  @Get(':id/signature-verification-report')
+  async getSignatureVerificationReport(
+    @GetUser() user: UserEntity,
+    @Param('id') id: string,
+  ) {
+    return this.contractsService.getSignatureVerificationReportForUser(user, id);
+  }
+
   @Post('initialize')
   async initializeContractWithBody(
     @GetUser() user: UserEntity,

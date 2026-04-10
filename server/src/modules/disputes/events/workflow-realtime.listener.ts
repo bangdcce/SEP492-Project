@@ -57,4 +57,18 @@ export class WorkflowRealtimeListener {
       entityId: payload.entityId ?? payload.contractId,
     });
   }
+
+  @OnEvent('project.updated')
+  handleProjectUpdated(payload: WorkflowRealtimePayload) {
+    if (!payload?.userId || !payload.projectId) {
+      return;
+    }
+
+    this.disputeGateway.emitUserEvent(payload.userId, 'PROJECT_UPDATED', {
+      projectId: payload.projectId,
+      requestId: payload.requestId ?? null,
+      entityType: payload.entityType ?? 'Project',
+      entityId: payload.entityId ?? payload.projectId,
+    });
+  }
 }

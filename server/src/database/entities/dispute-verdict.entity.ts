@@ -1,9 +1,9 @@
 import {
   Entity,
+  Index,
   Column,
   PrimaryGeneratedColumn,
   CreateDateColumn,
-  OneToOne,
   ManyToOne,
   JoinColumn,
 } from 'typeorm';
@@ -34,6 +34,9 @@ export enum FaultType {
  * Mỗi dispute chỉ có 1 verdict có hiệu lực (có thể bị override bởi appeal)
  */
 @Entity('dispute_verdicts')
+@Index('UQ_dispute_verdicts_dispute_appeal_flag', ['disputeId', 'isAppealVerdict'], {
+  unique: true,
+})
 export class DisputeVerdictEntity {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -115,7 +118,7 @@ export class DisputeVerdictEntity {
   issuedAt: Date;
 
   // === RELATIONS ===
-  @OneToOne('DisputeEntity')
+  @ManyToOne('DisputeEntity')
   @JoinColumn({ name: 'disputeId' })
   dispute: any;
 

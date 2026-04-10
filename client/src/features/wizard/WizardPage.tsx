@@ -115,6 +115,7 @@ export default function WizardPage() {
     : null;
 
   const getQuestion = (code: string) => questions.find((question) => question.code === code);
+  const featureQuestion = getQuestion("FEATURES");
 
   const buildPayload = (mode: SubmitMode): CreateProjectRequestDto => {
     const answers: CreateProjectRequestDto["answers"] = [];
@@ -153,6 +154,11 @@ export default function WizardPage() {
   const handleNext = () => {
     if (currentStep === 3 && timelineError) {
       toast.error(timelineError);
+      return;
+    }
+
+    if (currentStep === 4 && featureQuestion && features.length === 0) {
+      toast.error("Please select at least one feature before moving to the final step.");
       return;
     }
 
@@ -258,7 +264,7 @@ export default function WizardPage() {
 
       <Card className="w-full max-w-4xl border-none bg-card/70 shadow-xl backdrop-blur-sm">
         <CardHeader />
-        <CardContent className="min-h-[400px] p-6 md:p-10">
+        <CardContent className="min-h-100 p-6 md:p-10">
           {currentStep === 1 && getQuestion("PRODUCT_TYPE") && (
             <StepB1
               question={getQuestion("PRODUCT_TYPE")!}
@@ -278,9 +284,9 @@ export default function WizardPage() {
               timelineError={timelineError}
             />
           )}
-          {currentStep === 4 && getQuestion("FEATURES") && (
+          {currentStep === 4 && featureQuestion && (
             <StepB4
-              question={getQuestion("FEATURES")!}
+              question={featureQuestion}
               productType={productType}
               selectedValues={features}
               onChange={setFeatures}
@@ -310,7 +316,8 @@ export default function WizardPage() {
               disabled={
                 (currentStep === 1 && !productType) ||
                 (currentStep === 2 && !industry) ||
-                (currentStep === 3 && Boolean(timelineError))
+                (currentStep === 3 && Boolean(timelineError)) ||
+                (currentStep === 4 && Boolean(featureQuestion) && features.length === 0)
               }
             >
               Next <ArrowRight className="ml-2 h-4 w-4" />

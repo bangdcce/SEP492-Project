@@ -145,7 +145,7 @@ export function ProjectReviewActionsCard({
 
   return (
     <>
-      <section className="rounded-[1.9rem] border border-teal-200 bg-gradient-to-br from-teal-50 via-white to-cyan-50 p-5 shadow-sm">
+      <section className="rounded-[1.9rem] border border-teal-200 bg-linear-to-br from-teal-50 via-white to-cyan-50 p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
@@ -207,14 +207,14 @@ export function ProjectReviewActionsCard({
                 <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
                   {target.existingReview ? (
                     <div className="flex items-start gap-2">
-                      <CheckCircle2 className="mt-0.5 h-4 w-4 flex-shrink-0 text-emerald-600" />
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
                       <span>
                         You already submitted a review for this participant on <span className="font-medium">{project.title || "this project"}</span>.
                       </span>
                     </div>
                   ) : (
                     <div className="flex items-start gap-2">
-                      <MessageSquareQuote className="mt-0.5 h-4 w-4 flex-shrink-0 text-teal-600" />
+                      <MessageSquareQuote className="mt-0.5 h-4 w-4 shrink-0 text-teal-600" />
                       <span>
                         Rating for <span className="font-medium">{project.title || "this project"}</span> is ready now that delivery and escrow release are complete.
                       </span>
@@ -259,7 +259,7 @@ export function ProjectReviewActionsCard({
                     Need to report a post-delivery issue?
                   </p>
                   <p className="mt-1 text-sm leading-6 text-slate-600">
-                    This milestone has already been released, but you can still open a dispute during the post-delivery warranty window for{" "}
+                    This milestone is in post-delivery phase, and you can still open a dispute during the post-delivery warranty window for{" "}
                     <span className="font-medium text-slate-800">
                       {milestoneTitle || project.title || "this project"}
                     </span>

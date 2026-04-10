@@ -41,7 +41,7 @@ export default function AdminKYCPage() {
   const [showModal, setShowModal] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const API_URL = import.meta.env.VITE_API_URL || 'https://localhost:3000';
 
   // Helper function to get full image URL
   const getImageUrl = (path: string) => {

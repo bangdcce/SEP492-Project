@@ -57,7 +57,7 @@ export default function KYCPage() {
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const baseUrl = import.meta.env.VITE_API_URL || 'https://localhost:3000';
 
   const steps = [
     { number: 1, title: 'Personal Info', icon: User },

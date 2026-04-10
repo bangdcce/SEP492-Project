@@ -3,6 +3,7 @@ import {
   FileCheck2,
   FileSearch,
   FileText,
+  FlaskConical,
   Gavel,
   HelpCircle,
   History,
@@ -26,6 +27,8 @@ import { Textarea } from "@/shared/components/ui/textarea";
 import { Input } from "@/shared/components/ui/input";
 import { Badge } from "@/shared/components/ui/badge";
 import { cn } from "@/shared/components/ui/utils";
+import { toast } from "sonner";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
 import type {
   HearingStatementContentBlock,
   HearingStatementSummary,
@@ -116,6 +119,19 @@ const STATEMENT_TYPES: StatementTypeMeta[] = [
   },
 ];
 
+const PARTY_ONLY_TYPES: HearingStatementType[] = [
+  "OPENING",
+  "CLOSING",
+  "OBJECTION",
+  "SURREBUTTAL",
+];
+
+const REPLY_REQUIRED_TYPES: HearingStatementType[] = [
+  "ANSWER",
+  "OBJECTION",
+  "SURREBUTTAL",
+];
+
 const EMPTY_SECTIONS: StatementSections = {
   summary: "",
   facts: "",
@@ -182,7 +198,6 @@ const buildBlocks = (sections: StatementSections): HearingStatementContentBlock[
       if (!body) return;
       const meta = SECTION_META.find((section) => section.key === key);
       blocks.push({
-        id: `${SECTION_KIND_MAP[key].toLowerCase()}-${blocks.length + 1}`,
         kind: SECTION_KIND_MAP[key],
         heading: meta?.label ?? null,
         body,
@@ -192,7 +207,6 @@ const buildBlocks = (sections: StatementSections): HearingStatementContentBlock[
 
   if (sections.addendum.trim()) {
     blocks.push({
-      id: `custom-${blocks.length + 1}`,
       kind: "CUSTOM",
       heading: "Addendum",
       body: sections.addendum.trim(),
@@ -237,44 +251,295 @@ const getTypeRestriction = (
   role?: string | null,
   phase?: string,
 ): string | null => {
-  if (role === "OBSERVER") return "Observers cannot submit statements";
+  const normalizedPhase = phase?.trim().toUpperCase();
+  const isPartyRole = role === "RAISER" || role === "DEFENDANT";
+
+  if (role === "OBSERVER") {
+    return "Observers cannot submit statements";
+  }
 
   if (type === "QUESTION" && role !== "MODERATOR") {
     return "Only moderators can place formal questions on the record";
-  }
-
-  if (type === "ANSWER" && phase !== "INTERROGATION") {
-    return "Answers belong to the interrogation phase";
-  }
-
-  if (phase === "PRESENTATION") {
-    if (["REBUTTAL", "OBJECTION", "SURREBUTTAL"].includes(type)) {
-      return "This filing type opens during cross examination";
-    }
-    if (type === "CLOSING") return "Closing statements belong in deliberation";
-  }
-
-  if (phase === "EVIDENCE_SUBMISSION") {
-    if (type === "OPENING") return "Opening statements belong in presentation";
-    if (type === "CLOSING") return "Closing statements belong in deliberation";
-  }
-
-  if (phase === "CROSS_EXAMINATION") {
-    if (type === "OPENING") return "Opening statements belong in presentation";
-    if (type === "CLOSING") return "Closing statements belong in deliberation";
-  }
-
-  if (phase === "DELIBERATION") {
-    if (["OPENING", "EVIDENCE", "WITNESS_TESTIMONY"].includes(type)) {
-      return "New evidentiary pleadings are closed during deliberation";
-    }
   }
 
   if (type === "WITNESS_TESTIMONY" && role !== "WITNESS") {
     return "Only witnesses can file witness testimony";
   }
 
+  if (PARTY_ONLY_TYPES.includes(type) && !isPartyRole) {
+    return "Only dispute parties (raiser/defendant) can file this statement type";
+  }
+
+  if (!normalizedPhase) {
+    return null;
+  }
+
+  if (normalizedPhase === "PRESENTATION") {
+    if (
+      ["EVIDENCE", "REBUTTAL", "WITNESS_TESTIMONY", "OBJECTION", "SURREBUTTAL"].includes(
+        type,
+      )
+    ) {
+      return "This filing type opens in a later hearing phase";
+    }
+    if (type === "CLOSING") {
+      return "Closing statements belong in deliberation";
+    }
+  }
+
+  if (normalizedPhase === "EVIDENCE_SUBMISSION") {
+    if (["OPENING", "CLOSING", "REBUTTAL", "OBJECTION", "SURREBUTTAL"].includes(type)) {
+      return "This filing type is not open in evidence submission";
+    }
+  }
+
+  if (normalizedPhase === "CROSS_EXAMINATION") {
+    if (["OPENING", "CLOSING"].includes(type)) {
+      return "This filing type is not open in cross examination";
+    }
+  }
+
+  if (normalizedPhase === "DELIBERATION") {
+    if (["OPENING", "EVIDENCE", "WITNESS_TESTIMONY"].includes(type)) {
+      return "New evidentiary pleadings are closed during deliberation";
+    }
+    if (type === "OBJECTION") {
+      return "Objections are only available during cross examination";
+    }
+  }
+
   return null;
+};
+
+const resolveSampleRoleLabel = (role?: string | null) => {
+  switch (role) {
+    case "RAISER":
+      return "claimant";
+    case "DEFENDANT":
+      return "respondent";
+    case "MODERATOR":
+      return "moderator";
+    case "WITNESS":
+      return "witness";
+    case "OBSERVER":
+      return "observer";
+    default:
+      return "participant";
+  }
+};
+
+const resolveSamplePhaseLabel = (phase?: string) =>
+  phase?.trim().replaceAll("_", " ").toLowerCase() || "current hearing phase";
+
+const buildSampleStatementPayload = (
+  type: HearingStatementType,
+  participantRole?: string | null,
+  currentPhase?: string,
+): {
+  title: string;
+  sections: StatementSections;
+  citedEvidenceIds: string;
+  replyToStatementId: string;
+  changeSummary: string;
+  declarationAccepted: boolean;
+} => {
+  const roleLabel = resolveSampleRoleLabel(participantRole);
+  const phaseLabel = resolveSamplePhaseLabel(currentPhase);
+  const commonAddendum =
+    `Prepared as sample test content for UI validation in the ${phaseLabel}.`;
+
+  switch (type) {
+    case "EVIDENCE":
+      return {
+        title: "Evidence statement on disputed milestone record",
+        sections: {
+          summary:
+            "I submit this evidence statement to connect the uploaded record with the disputed delivery outcome.",
+          facts:
+            "The milestone was marked as delivered, but the attached record shows unresolved defects, missing acceptance notes, and a mismatch between the approved scope and the final output.",
+          evidenceBasis:
+            "The key support is in the revision screenshots, signed scope summary, change log export, and the platform message thread confirming the expected deliverables.",
+          analysis:
+            "Taken together, these records support the position that the hearing should treat the disputed delivery as incomplete until the missing items are addressed or formally waived.",
+          remedy:
+            "Please keep the cited materials on the record and weigh them against any contrary statement before deciding payment release or remediation steps.",
+          addendum: commonAddendum,
+        },
+        citedEvidenceIds: "evidence-ui-001, evidence-ui-002, evidence-ui-003",
+        replyToStatementId: "",
+        changeSummary: "Generated sample evidence statement",
+        declarationAccepted: true,
+      };
+    case "REBUTTAL":
+      return {
+        title: "Rebuttal to the opposing delivery narrative",
+        sections: {
+          summary:
+            "This rebuttal addresses the opposing account and explains why the delivery timeline and acceptance history do not support that position.",
+          facts:
+            "The prior statement omits the unresolved review comments, the delayed fixes, and the absence of a signed scope change approving the disputed work.",
+          evidenceBasis:
+            "This rebuttal relies on the milestone review thread, issue tracker snapshots, and the delivery comparison attached to the hearing record.",
+          analysis:
+            "Because the missing work remained open after review, the opposing statement should carry less weight than the contemporaneous platform records.",
+          remedy:
+            "I ask the moderator to reject the unsupported portions of the prior statement and rely on the documented review trail instead.",
+          addendum: commonAddendum,
+        },
+        citedEvidenceIds: "evidence-ui-004, evidence-ui-005",
+        replyToStatementId: "statement-prev-001",
+        changeSummary: "Generated sample rebuttal",
+        declarationAccepted: true,
+      };
+    case "CLOSING":
+      return {
+        title: "Closing statement on disputed milestone responsibility",
+        sections: {
+          summary:
+            "This closing statement summarizes why the current record supports a finding in favor of the requested dispute remedy.",
+          facts:
+            "Across the hearing record, the same pattern appears: the baseline scope was confirmed, the delivery missed required elements, and the outstanding issues were never cured in a verified handoff.",
+          evidenceBasis:
+            "The strongest support remains the signed scope, milestone review notes, hearing statements, and linked evidence already cited into the record.",
+          analysis:
+            "The combined record is internally consistent and points to one conclusion: the disputed obligation was not satisfied within the accepted timeline.",
+          remedy:
+            "I request a final finding that preserves the hearing record, assigns responsibility consistently with the evidence, and directs the appropriate payment or corrective action.",
+          addendum: commonAddendum,
+        },
+        citedEvidenceIds: "evidence-ui-001, evidence-ui-005, evidence-ui-006",
+        replyToStatementId: "",
+        changeSummary: "Generated sample closing statement",
+        declarationAccepted: true,
+      };
+    case "QUESTION":
+      return {
+        title: "Formal moderator question on delivery acceptance",
+        sections: {
+          summary:
+            "This question is placed on the hearing record to clarify a material gap in the delivery acceptance timeline.",
+          facts:
+            "The record contains conflicting descriptions of when the disputed work was reviewed and whether the final revision matched the approved scope.",
+          evidenceBasis:
+            "Relevant materials include the milestone approval log, chat confirmation timestamps, and the latest revision package.",
+          analysis:
+            "Without a direct answer on these points, the record remains incomplete for a reliable decision.",
+          remedy:
+            "Please answer precisely whether the disputed revision was accepted, by whom, and on what basis.",
+          addendum: commonAddendum,
+        },
+        citedEvidenceIds: "evidence-ui-007",
+        replyToStatementId: "",
+        changeSummary: "Generated sample moderator question",
+        declarationAccepted: true,
+      };
+    case "ANSWER":
+      return {
+        title: "Formal answer to moderator question",
+        sections: {
+          summary:
+            "This answer responds directly to the pending question and clarifies the acceptance sequence reflected in the platform record.",
+          facts:
+            "The disputed revision was reviewed after the stated deadline, and no final acceptance was confirmed until the missing defects were addressed in a later follow-up.",
+          evidenceBasis:
+            "The response relies on the chat thread, revision timestamps, and the milestone review note captured in the hearing record.",
+          analysis:
+            "Those records show that any temporary acknowledgment should not be treated as final acceptance of the disputed deliverable.",
+          remedy:
+            "Please treat this answer as the authoritative clarification for the acceptance timeline issue raised in the question.",
+          addendum: commonAddendum,
+        },
+        citedEvidenceIds: "evidence-ui-008",
+        replyToStatementId: "statement-question-001",
+        changeSummary: "Generated sample answer statement",
+        declarationAccepted: true,
+      };
+    case "WITNESS_TESTIMONY":
+      return {
+        title: "Witness testimony on project coordination history",
+        sections: {
+          summary:
+            `I provide this testimony as a ${roleLabel} with direct knowledge of the project coordination and dispute timeline.`,
+          facts:
+            "From my observation, the disputed work repeatedly returned for revision after review comments identified missing requirements and unresolved quality issues.",
+          evidenceBasis:
+            "My testimony is consistent with the message thread, review checklist, and revision history already placed in the hearing materials.",
+          analysis:
+            "That sequence supports the view that the final state of delivery remained contested for substantive reasons rather than minor formatting issues.",
+          remedy:
+            "Please consider this testimony as supporting context when evaluating whether the final deliverable met the agreed standard.",
+          addendum: commonAddendum,
+        },
+        citedEvidenceIds: "evidence-ui-009, evidence-ui-010",
+        replyToStatementId: "",
+        changeSummary: "Generated sample witness testimony",
+        declarationAccepted: true,
+      };
+    case "OBJECTION":
+      return {
+        title: "Objection to unsupported factual assertion",
+        sections: {
+          summary:
+            "I object to the challenged statement because it introduces a factual claim that is not supported by the cited record.",
+          facts:
+            "The disputed assertion references acceptance and completion, but the linked materials do not show a verified handoff or a signed scope change authorizing the missing work.",
+          evidenceBasis:
+            "This objection is grounded in the cited platform log, milestone review notes, and the absence of any countervailing acceptance document.",
+          analysis:
+            "Allowing the unsupported assertion to stand without challenge would distort the record and weaken the evidentiary standard of the hearing.",
+          remedy:
+            "Please note this objection on the record and assign reduced weight to the unsupported factual assertion unless corroborating proof is produced.",
+          addendum: commonAddendum,
+        },
+        citedEvidenceIds: "evidence-ui-011",
+        replyToStatementId: "statement-prev-002",
+        changeSummary: "Generated sample objection",
+        declarationAccepted: true,
+      };
+    case "SURREBUTTAL":
+      return {
+        title: "Surrebuttal on scope-change characterization",
+        sections: {
+          summary:
+            "This surrebuttal is limited to the scope-change point raised in the rebuttal and explains why that characterization is incomplete.",
+          facts:
+            "The cited conversation shows only exploratory discussion, not a final approval to reduce or alter the disputed deliverables.",
+          evidenceBasis:
+            "The record still lacks a signed revision approval, updated milestone definition, or a confirmed acceptance note reflecting the claimed scope change.",
+          analysis:
+            "Without those formal markers, the rebuttal overstates the effect of informal discussion and should not replace the signed baseline documents.",
+          remedy:
+            "Please treat the signed scope and acceptance record as controlling unless stronger contrary proof is added.",
+          addendum: commonAddendum,
+        },
+        citedEvidenceIds: "evidence-ui-012",
+        replyToStatementId: "statement-prev-003",
+        changeSummary: "Generated sample surrebuttal",
+        declarationAccepted: true,
+      };
+    case "OPENING":
+    default:
+      return {
+        title: "Opening statement on disputed milestone delivery",
+        sections: {
+          summary:
+            `I submit this opening statement as the ${roleLabel} to summarize the dispute position and the remedy sought from this hearing.`,
+          facts:
+            "The disputed milestone was presented as complete, yet the delivery history shows unresolved defects, outstanding comments, and no final acceptance confirming that the agreed scope was satisfied.",
+          evidenceBasis:
+            "This filing relies on the signed project scope, milestone review history, platform messages, and the uploaded comparison evidence tied to the record.",
+          analysis:
+            "Those materials support the position that the disputed deliverable fell short of the approved baseline and that the hearing should preserve that finding in the record.",
+          remedy:
+            "I request a hearing outcome that reflects the incomplete delivery status, keeps the cited evidence attached to the record, and directs the appropriate corrective action or payment adjustment.",
+          addendum: commonAddendum,
+        },
+        citedEvidenceIds: "evidence-ui-001, evidence-ui-002",
+        replyToStatementId: "",
+        changeSummary: "Generated sample opening statement",
+        declarationAccepted: true,
+      };
+  }
 };
 
 interface StatementSubmissionDialogProps {
@@ -286,6 +551,7 @@ interface StatementSubmissionDialogProps {
     content: string;
     contentBlocks: HearingStatementContentBlock[];
     citedEvidenceIds?: string[];
+    replyToStatementId?: string;
     platformDeclarationAccepted?: boolean;
     changeSummary?: string;
     draftId?: string;
@@ -309,10 +575,37 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
   const [title, setTitle] = useState("");
   const [sections, setSections] = useState<StatementSections>({ ...EMPTY_SECTIONS });
   const [citedEvidenceIds, setCitedEvidenceIds] = useState("");
+  const [replyToStatementId, setReplyToStatementId] = useState("");
   const [changeSummary, setChangeSummary] = useState("");
   const [declarationAccepted, setDeclarationAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [savingDraft, setSavingDraft] = useState(false);
+
+  const sampleToolsEnabled = useMemo(() => {
+    const raw = (import.meta.env.VITE_DISPUTE_TEST_TOOLS || "").toLowerCase();
+    return import.meta.env.DEV || raw === "true" || raw === "1";
+  }, []);
+
+  const restrictionsByType = useMemo(() => {
+    const map = new Map<HearingStatementType, string | null>();
+    STATEMENT_TYPES.forEach((statementType) => {
+      map.set(
+        statementType.value,
+        getTypeRestriction(statementType.value, participantRole, currentPhase),
+      );
+    });
+    return map;
+  }, [participantRole, currentPhase]);
+
+  const allowedTypes = useMemo(
+    () =>
+      STATEMENT_TYPES.filter(
+        (statementType) => !restrictionsByType.get(statementType.value),
+      ).map((statementType) => statementType.value),
+    [restrictionsByType],
+  );
+
+  const selectedTypeRestriction = restrictionsByType.get(selectedType) ?? null;
 
   const selectedDraft = useMemo(
     () => draftStatements.find((draft) => draft.id === selectedDraftId) ?? null,
@@ -323,26 +616,45 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
     STATEMENT_TYPES.find((statementType) => statementType.value === selectedType) ??
     STATEMENT_TYPES[0];
 
-  const suggestedType: HearingStatementType | null =
-    currentPhase === "PRESENTATION"
-      ? "OPENING"
-      : currentPhase === "EVIDENCE_SUBMISSION"
-        ? "EVIDENCE"
-        : currentPhase === "CROSS_EXAMINATION"
-          ? "REBUTTAL"
-          : currentPhase === "DELIBERATION"
-            ? "CLOSING"
-            : null;
+  const declarationRequired = participantRole !== "MODERATOR";
+
+  const suggestedType = useMemo((): HearingStatementType | null => {
+    const isPartyRole = participantRole === "RAISER" || participantRole === "DEFENDANT";
+    const normalizedPhase = currentPhase?.trim().toUpperCase();
+
+    let preferred: HearingStatementType | null = null;
+
+    if (normalizedPhase === "PRESENTATION") {
+      preferred = isPartyRole
+        ? "OPENING"
+        : participantRole === "MODERATOR"
+          ? "QUESTION"
+          : null;
+    } else if (normalizedPhase === "EVIDENCE_SUBMISSION") {
+      preferred = participantRole === "WITNESS" ? "WITNESS_TESTIMONY" : "EVIDENCE";
+    } else if (normalizedPhase === "CROSS_EXAMINATION") {
+      preferred = "REBUTTAL";
+    } else if (normalizedPhase === "DELIBERATION") {
+      preferred = isPartyRole ? "CLOSING" : "REBUTTAL";
+    }
+
+    if (preferred && allowedTypes.includes(preferred)) {
+      return preferred;
+    }
+
+    return allowedTypes[0] ?? null;
+  }, [currentPhase, participantRole, allowedTypes]);
 
   const resetComposer = useCallback(() => {
-    setSelectedType(suggestedType ?? "OPENING");
+    setSelectedType(suggestedType ?? allowedTypes[0] ?? "OPENING");
     setSelectedDraftId("");
     setTitle("");
     setSections({ ...EMPTY_SECTIONS });
     setCitedEvidenceIds("");
+    setReplyToStatementId("");
     setChangeSummary("");
     setDeclarationAccepted(false);
-  }, [suggestedType]);
+  }, [suggestedType, allowedTypes]);
 
   useEffect(() => {
     if (!open) return;
@@ -355,9 +667,20 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
     setTitle(selectedDraft.title ?? "");
     setSections(blocksToSections(selectedDraft));
     setCitedEvidenceIds((selectedDraft.citedEvidenceIds ?? []).join(", "));
+    setReplyToStatementId(selectedDraft.replyToStatementId ?? "");
     setDeclarationAccepted(Boolean(selectedDraft.platformDeclarationAccepted));
     setChangeSummary("");
   }, [selectedDraft]);
+
+  useEffect(() => {
+    if (selectedDraft) {
+      return;
+    }
+
+    if (!allowedTypes.includes(selectedType) && allowedTypes.length > 0) {
+      setSelectedType(allowedTypes[0]);
+    }
+  }, [allowedTypes, selectedType, selectedDraft]);
 
   const handleSectionChange = useCallback(
     (key: StatementSectionKey, value: string) => {
@@ -365,6 +688,24 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
     },
     [],
   );
+
+  const handleFillSample = useCallback(() => {
+    const sample = buildSampleStatementPayload(
+      selectedType,
+      participantRole,
+      currentPhase,
+    );
+
+    setTitle(sample.title);
+    setSections(sample.sections);
+    setCitedEvidenceIds(sample.citedEvidenceIds);
+    setReplyToStatementId(sample.replyToStatementId);
+    setChangeSummary(sample.changeSummary);
+    if (declarationRequired) {
+      setDeclarationAccepted(sample.declarationAccepted);
+    }
+    toast.success(`Sample ${selectedType.toLowerCase()} statement loaded`);
+  }, [currentPhase, declarationRequired, participantRole, selectedType]);
 
   const totalContentLength = useMemo(
     () => Object.values(sections).reduce((sum, item) => sum + item.length, 0),
@@ -375,9 +716,22 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
 
   const handleSubmit = useCallback(
     async (isDraft: boolean) => {
+      if (selectedTypeRestriction) {
+        toast.error(selectedTypeRestriction);
+        return;
+      }
+
       const contentBlocks = buildBlocks(sections);
       const content = compileStatementText(contentBlocks);
       if (!content.trim()) return;
+
+      if (
+        REPLY_REQUIRED_TYPES.includes(selectedType) &&
+        replyToStatementId.trim().length === 0
+      ) {
+        toast.error("Please provide Reply-to statement ID for this statement type.");
+        return;
+      }
 
       const setter = isDraft ? setSavingDraft : setSubmitting;
       try {
@@ -391,6 +745,7 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
             .split(",")
             .map((value) => value.trim())
             .filter(Boolean),
+          replyToStatementId: replyToStatementId.trim() || undefined,
           platformDeclarationAccepted: declarationAccepted,
           changeSummary: changeSummary.trim() || undefined,
           draftId: selectedDraftId || undefined,
@@ -400,6 +755,9 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
           onOpenChange(false);
         }
         resetComposer();
+      } catch (error) {
+        const details = getApiErrorDetails(error, "Could not submit statement");
+        toast.error(details.code ? `[${details.code}] ${details.message}` : details.message);
       } finally {
         setter(false);
       }
@@ -410,11 +768,13 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
       selectedType,
       title,
       citedEvidenceIds,
+      replyToStatementId,
       declarationAccepted,
       changeSummary,
       selectedDraftId,
       onOpenChange,
       resetComposer,
+      selectedTypeRestriction,
     ],
   );
 
@@ -448,7 +808,7 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
                       : "Starting a new structured statement"}
                   </p>
                 </div>
-                <div className="flex min-w-[240px] flex-col gap-2">
+                <div className="flex min-w-60 flex-col gap-2">
                   <label className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
                     Continue Draft
                   </label>
@@ -469,6 +829,35 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
               </div>
             </div>
 
+            {sampleToolsEnabled && (
+              <div className="rounded-2xl border border-amber-200 bg-[linear-gradient(135deg,rgba(255,251,235,0.96),rgba(255,244,214,0.92))] p-4 shadow-[0_12px_28px_-24px_rgba(180,83,9,0.85)]">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge className="border border-amber-300 bg-white/80 text-amber-700">
+                        Test Tools
+                      </Badge>
+                      <span className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">
+                        Statement Samples
+                      </span>
+                    </div>
+                    <p className="text-sm text-amber-900">
+                      Prefill the current statement type with realistic sample sections for fast UI and workflow testing.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleFillSample}
+                    disabled={busy || Boolean(selectedTypeRestriction)}
+                    className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 bg-white/85 px-4 text-sm font-medium text-amber-900 transition-all hover:-translate-y-0.5 hover:bg-white disabled:opacity-50"
+                  >
+                    <FlaskConical className="h-4 w-4" />
+                    Fill Sample Test
+                  </button>
+                </div>
+              </div>
+            )}
+
             <div className="space-y-3">
               <label className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
                 Statement Type
@@ -477,11 +866,7 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
                 {STATEMENT_TYPES.map((type) => {
                   const Icon = type.icon;
                   const isSelected = selectedType === type.value;
-                  const restriction = getTypeRestriction(
-                    type.value,
-                    participantRole,
-                    currentPhase,
-                  );
+                  const restriction = restrictionsByType.get(type.value) ?? null;
                   const isDisabled = busy || Boolean(restriction);
 
                   return (
@@ -521,6 +906,9 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
                 </Badge>
                 {suggestedType && <span>Suggested for this phase: {suggestedType}</span>}
               </div>
+              {selectedTypeRestriction && (
+                <p className="text-xs text-rose-600">{selectedTypeRestriction}</p>
+              )}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -578,6 +966,21 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
                 </p>
               </div>
 
+              {REPLY_REQUIRED_TYPES.includes(selectedType) && (
+                <div className="space-y-1.5 md:col-span-2">
+                  <label className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
+                    Reply To Statement ID
+                  </label>
+                  <Input
+                    value={replyToStatementId}
+                    onChange={(event) => setReplyToStatementId(event.target.value)}
+                    placeholder="Paste the statement id this filing responds to"
+                    disabled={busy}
+                    className="text-sm"
+                  />
+                </div>
+              )}
+
               <div className="space-y-1.5 md:col-span-2">
                 <label className="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">
                   Change Summary
@@ -622,7 +1025,7 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
                 <button
                   type="button"
                   onClick={() => void handleSubmit(true)}
-                  disabled={busy || totalContentLength === 0}
+                  disabled={busy || totalContentLength === 0 || Boolean(selectedTypeRestriction)}
                   className="inline-flex h-10 items-center gap-2 rounded-xl border border-slate-300 px-4 text-sm text-slate-700 transition-colors hover:bg-slate-100 disabled:opacity-50"
                 >
                   {savingDraft ? (
@@ -635,7 +1038,12 @@ export const StatementSubmissionDialog = memo(function StatementSubmissionDialog
                 <button
                   type="button"
                   onClick={() => void handleSubmit(false)}
-                  disabled={busy || totalContentLength === 0 || !declarationAccepted}
+                  disabled={
+                    busy ||
+                    totalContentLength === 0 ||
+                    (declarationRequired && !declarationAccepted) ||
+                    Boolean(selectedTypeRestriction)
+                  }
                   className="inline-flex h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-sm font-medium text-white transition-colors hover:bg-slate-800 disabled:opacity-50"
                 >
                   {submitting ? (
