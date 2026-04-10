@@ -2,7 +2,7 @@ import { useForm, useFieldArray, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { Plus, Trash2, AlertTriangle } from "lucide-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -130,6 +130,17 @@ const addDaysToDateKey = (
   const shifted = new Date(baseDate);
   shifted.setDate(shifted.getDate() + days);
   return toLocalDateKey(shifted);
+};
+
+const addDaysToDate = (value: Date, days = 0): Date => {
+  const shifted = new Date(value);
+  shifted.setDate(shifted.getDate() + days);
+  return shifted;
+};
+
+const differenceInDays = (start: Date, end: Date): number => {
+  const msPerDay = 24 * 60 * 60 * 1000;
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / msPerDay));
 };
 
 const laterDateKey = (left?: string | null, right?: string | null): string => {
@@ -433,6 +444,11 @@ export function CreateProjectSpecForm({
   lockedProjectCategory = null,
   requireChangeSummary = false,
 }: CreateProjectSpecFormProps) {
+  const errorSummaryRef = useRef<HTMLDivElement | null>(null);
+  const [openFeatureAccordionItems, setOpenFeatureAccordionItems] = useState<
+    string[]
+  >([]);
+
   const stopNumberFieldScroll = (event: React.WheelEvent<HTMLInputElement>) => {
     event.currentTarget.blur();
   };
@@ -496,6 +512,17 @@ export function CreateProjectSpecForm({
     name: "referenceLinks",
   });
 
+  useEffect(() => {
+    const featureIds = featureFields.map((field) => field.id);
+    setOpenFeatureAccordionItems((current) => {
+      const preserved = current.filter((id) => featureIds.includes(id));
+      if (preserved.length > 0) {
+        return preserved;
+      }
+      return featureIds.length > 0 ? [featureIds[0]] : [];
+    });
+  }, [featureFields]);
+
   // Real-time Warning Check
   const watchedMilestones = useWatch({
     control: form.control,
@@ -508,10 +535,6 @@ export function CreateProjectSpecForm({
   const watchedFeatures = useWatch({
     control: form.control,
     name: "features",
-  });
-  const watchedReferenceLinks = useWatch({
-    control: form.control,
-    name: "referenceLinks",
   });
   const watchedChangeSummary = useWatch({
     control: form.control,
@@ -636,6 +659,58 @@ export function CreateProjectSpecForm({
 
     return newWarnings;
   }, [watchedDescription, watchedFeatures]);
+
+  useEffect(() => {
+    if (form.formState.submitCount === 0 || form.formState.isValid) {
+      return;
+    }
+
+    const featureErrors = Array.isArray(form.formState.errors.features)
+      ? form.formState.errors.features
+      : [];
+    const firstFeatureErrorIndex = featureErrors.findIndex((featureError) =>
+      Boolean(featureError),
+    );
+
+    if (firstFeatureErrorIndex >= 0) {
+      const featureAccordionId = featureFields[firstFeatureErrorIndex]?.id;
+      if (featureAccordionId) {
+        setOpenFeatureAccordionItems((current) =>
+          current.includes(featureAccordionId)
+            ? current
+            : [...current, featureAccordionId],
+        );
+      }
+    }
+
+    requestAnimationFrame(() => {
+      const firstInvalidField = document.querySelector(
+        "form [aria-invalid='true']",
+      ) as HTMLElement | null;
+
+      if (firstInvalidField) {
+        firstInvalidField.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        firstInvalidField.focus();
+        return;
+      }
+
+      if (errorSummaryRef.current) {
+        errorSummaryRef.current.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+        });
+        errorSummaryRef.current.focus();
+      }
+    });
+  }, [
+    form.formState.errors,
+    form.formState.isValid,
+    form.formState.submitCount,
+    featureFields,
+  ]);
 
   useEffect(() => {
     if (!initialValues) return;
@@ -831,6 +906,69 @@ export function CreateProjectSpecForm({
     const milestoneBudget = sumMilestones(values.milestones);
     form.clearErrors();
 
+    const normalizeFeatureIds = (featureIds?: string[]) =>
+      Array.from(
+        new Set(
+          (featureIds || [])
+            .map((featureId) => featureId?.trim())
+            .filter((featureId): featureId is string => Boolean(featureId)),
+        ),
+      );
+
+    const approvedFeatureIdByTitle = new Map(
+      approvedFeatureOptions.map((feature) => [
+        feature.title.trim().toLowerCase(),
+        feature.id,
+      ]),
+    );
+
+    const normalizedFeaturesForSubmit = (values.features || []).map(
+      (feature, featureIndex) => {
+        const normalizedIds = normalizeFeatureIds(
+          feature.approvedClientFeatureIds,
+        );
+        if (normalizedIds.length > 0) {
+          return {
+            ...feature,
+            approvedClientFeatureIds: normalizedIds,
+          };
+        }
+
+        const matchedFeatureId = approvedFeatureIdByTitle.get(
+          feature.title.trim().toLowerCase(),
+        );
+
+        if (!matchedFeatureId) {
+          return {
+            ...feature,
+            approvedClientFeatureIds: normalizedIds,
+          };
+        }
+
+        form.setValue(
+          `features.${featureIndex}.approvedClientFeatureIds`,
+          [matchedFeatureId],
+          {
+            shouldDirty: true,
+            shouldTouch: true,
+            shouldValidate: false,
+          },
+        );
+
+        return {
+          ...feature,
+          approvedClientFeatureIds: [matchedFeatureId],
+        };
+      },
+    );
+
+    const normalizedMilestonesForSubmit = values.milestones.map((milestone) => ({
+      ...milestone,
+      approvedClientFeatureIds: normalizeFeatureIds(
+        milestone.approvedClientFeatureIds,
+      ),
+    }));
+
     if (budgetCap !== null && Math.abs(milestoneBudget - budgetCap) > 0.01) {
       form.setError("root", {
         type: "manual",
@@ -891,7 +1029,9 @@ export function CreateProjectSpecForm({
     }
 
     let previousDueDateKey: string | null = null;
-    for (const milestone of sortedScheduleMilestones(values.milestones)) {
+    for (const milestone of sortedScheduleMilestones(
+      normalizedMilestonesForSubmit,
+    )) {
       const amount = Number(milestone.amount || 0);
       const retentionAmount = Number(milestone.retentionAmount || 0);
       const startDateKey = normalizeDateOnly(milestone.startDate);
@@ -965,16 +1105,12 @@ export function CreateProjectSpecForm({
     const milestoneFeatureAssignments = new Map<string, number>();
     for (
       let milestoneIndex = 0;
-      milestoneIndex < values.milestones.length;
+      milestoneIndex < normalizedMilestonesForSubmit.length;
       milestoneIndex += 1
     ) {
-      const uniqueFeatureIds = Array.from(
-        new Set(
-          (values.milestones[milestoneIndex]?.approvedClientFeatureIds || [])
-            .map((featureId) => featureId?.trim())
-            .filter((featureId): featureId is string => Boolean(featureId)),
-        ),
-      );
+      const uniqueFeatureIds =
+        normalizedMilestonesForSubmit[milestoneIndex]
+          ?.approvedClientFeatureIds || [];
 
       for (const featureId of uniqueFeatureIds) {
         const alreadyOwnedBy = milestoneFeatureAssignments.get(featureId);
@@ -998,13 +1134,33 @@ export function CreateProjectSpecForm({
       }
     }
 
+    const coveredApprovedFeatureIdsForSubmit = new Set<string>();
+    normalizedFeaturesForSubmit.forEach((feature) => {
+      (feature.approvedClientFeatureIds || []).forEach((featureId) => {
+        if (featureId) {
+          coveredApprovedFeatureIdsForSubmit.add(featureId);
+        }
+      });
+    });
+    normalizedMilestonesForSubmit.forEach((milestone) => {
+      (milestone.approvedClientFeatureIds || []).forEach((featureId) => {
+        if (featureId) {
+          coveredApprovedFeatureIdsForSubmit.add(featureId);
+        }
+      });
+    });
+
+    const missingApprovedFeaturesForSubmit = approvedFeatureOptions.filter(
+      (feature) => !coveredApprovedFeatureIdsForSubmit.has(feature.id),
+    );
+
     if (
       approvedFeatureOptions.length > 0 &&
-      uncoveredApprovedFeatures.length > 0
+      missingApprovedFeaturesForSubmit.length > 0
     ) {
       form.setError("root", {
         type: "manual",
-        message: `Map every approved client-facing feature into the technical scope. Missing coverage: ${uncoveredApprovedFeatures
+        message: `Map every approved client-facing feature into the technical scope. Missing coverage: ${missingApprovedFeaturesForSubmit
           .map((feature) => feature.title)
           .join(", ")}.`,
       });
@@ -1025,7 +1181,7 @@ export function CreateProjectSpecForm({
             url: normalizeReferenceUrl(link.url),
           }))
         : undefined,
-      features: values.features?.map((f) => ({
+      features: normalizedFeaturesForSubmit.map((f) => ({
         id: f.id,
         title: f.title.trim(),
         description: f.description.trim(),
@@ -1035,7 +1191,7 @@ export function CreateProjectSpecForm({
           Boolean,
         ),
       })),
-      milestones: values.milestones.map((m, index) => ({
+      milestones: normalizedMilestonesForSubmit.map((m, index) => ({
         title: m.title.trim(),
         description: m.description.trim(),
         amount: m.amount,
@@ -1061,6 +1217,189 @@ export function CreateProjectSpecForm({
     onSubmit(payload);
   };
 
+  const handleFillTestData = () => {
+    const targetBudget =
+      budgetCap !== null && budgetCap > 0 ? Number(budgetCap) : 15000;
+    const firstMilestoneAmount = Number((targetBudget * 0.3).toFixed(2));
+    const finalMilestoneAmount = Number((targetBudget * 0.3).toFixed(2));
+    const middleMilestoneAmount = Number(
+      (targetBudget - firstMilestoneAmount - finalMilestoneAmount).toFixed(2),
+    );
+
+    const todayDate = parseDateOnly(todayDateKey) || new Date();
+    const approvedDeadlineDate = parseDateOnly(normalizedApprovedDeadline);
+    const minimumFinalDate = addDaysToDate(todayDate, 2);
+    const finalDueDate =
+      approvedDeadlineDate && approvedDeadlineDate >= minimumFinalDate
+        ? approvedDeadlineDate
+        : minimumFinalDate;
+
+    const totalDays = differenceInDays(todayDate, finalDueDate);
+    const firstDueOffset = totalDays >= 4 ? Math.floor(totalDays / 3) : 0;
+    const secondDueOffset =
+      totalDays >= 4
+        ? Math.max(firstDueOffset + 1, Math.floor((totalDays * 2) / 3))
+        : 1;
+
+    const firstDueDate = addDaysToDate(todayDate, firstDueOffset);
+    const secondDueDate = addDaysToDate(
+      todayDate,
+      Math.min(secondDueOffset, Math.max(totalDays - 1, 1)),
+    );
+
+    const milestoneOneStart = toLocalDateKey(todayDate);
+    const milestoneOneDue = toLocalDateKey(firstDueDate);
+    const milestoneTwoStart = toLocalDateKey(addDaysToDate(firstDueDate, 1));
+    const milestoneTwoDue = toLocalDateKey(
+      secondDueDate < addDaysToDate(firstDueDate, 1)
+        ? addDaysToDate(firstDueDate, 1)
+        : secondDueDate,
+    );
+    const milestoneThreeStart = toLocalDateKey(
+      addDaysToDate(parseDateOnly(milestoneTwoDue) || secondDueDate, 1),
+    );
+    const milestoneThreeDue = toLocalDateKey(finalDueDate);
+
+    const featureDefaults =
+      approvedFeatureOptions.length > 0
+        ? approvedFeatureOptions.map((feature) => ({
+            id: undefined,
+            title: feature.title,
+            description: feature.description,
+            complexity: "MEDIUM" as const,
+            approvedClientFeatureIds: [feature.id],
+            acceptanceCriteria: [
+              {
+                value: `System fulfills ${feature.title.toLowerCase()} according to approved baseline requirements.`,
+              },
+            ],
+          }))
+        : [
+            {
+              id: undefined,
+              title: "Product Catalog",
+              description:
+                "Users can browse products with filters, sorting, and category navigation.",
+              complexity: "MEDIUM" as const,
+              approvedClientFeatureIds: [],
+              acceptanceCriteria: [
+                {
+                  value:
+                    "Catalog view supports category filtering and sorting for active products.",
+                },
+              ],
+            },
+            {
+              id: undefined,
+              title: "Checkout",
+              description:
+                "Users can place orders with shipping information and payment confirmation.",
+              complexity: "HIGH" as const,
+              approvedClientFeatureIds: [],
+              acceptanceCriteria: [
+                {
+                  value:
+                    "Checkout validates shipping data and confirms order creation successfully.",
+                },
+              ],
+            },
+            {
+              id: undefined,
+              title: "Order Tracking",
+              description:
+                "Users can view current order status and delivery updates after purchase.",
+              complexity: "MEDIUM" as const,
+              approvedClientFeatureIds: [],
+              acceptanceCriteria: [
+                {
+                  value:
+                    "Order tracking page displays latest delivery status and update history.",
+                },
+              ],
+            },
+          ];
+
+    const firstMilestoneFeatureIds = approvedFeatureOptions[0]
+      ? [approvedFeatureOptions[0].id]
+      : [];
+    const secondMilestoneFeatureIds = approvedFeatureOptions[1]
+      ? [approvedFeatureOptions[1].id]
+      : [];
+    const thirdMilestoneFeatureIds = approvedFeatureOptions
+      .slice(2)
+      .map((feature) => feature.id);
+
+    form.reset({
+      title:
+        projectRequest?.title ||
+        "Project hệ thống Nam Cần Thơ > FPT - Technical Scope Draft",
+      description:
+        "Broker-authored full specification for the approved commercial baseline, focused on ecommerce delivery with clear implementation and handoff checkpoints.",
+      techStack: "React, NestJS, PostgreSQL, Redis, Docker",
+      referenceLinks: [
+        {
+          label: "Implementation repository",
+          url: "https://github.com/example/project-scope",
+        },
+        {
+          label: "UI design brief",
+          url: "https://www.figma.com/file/example/full-spec",
+        },
+      ],
+      features: featureDefaults,
+      milestones: [
+        {
+          title: "Project Setup & Design",
+          description:
+            "Finalize architecture, backlog, and design prototype for execution readiness.",
+          amount: firstMilestoneAmount,
+          deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+          retentionAmount: Number((firstMilestoneAmount * 0.1).toFixed(2)),
+          acceptanceCriteria: [
+            { value: "Architecture and setup checklist are approved for development kickoff." },
+          ],
+          startDate: milestoneOneStart,
+          dueDate: milestoneOneDue,
+          approvedClientFeatureIds: firstMilestoneFeatureIds,
+        },
+        {
+          title: "Core Development",
+          description:
+            "Implement catalog and checkout capabilities with staging validation.",
+          amount: middleMilestoneAmount,
+          deliverableType: DeliverableType.SOURCE_CODE,
+          retentionAmount: Number((middleMilestoneAmount * 0.1).toFixed(2)),
+          acceptanceCriteria: [
+            { value: "Core features are delivered and validated through broker demo scenarios." },
+          ],
+          startDate: milestoneTwoStart,
+          dueDate: milestoneTwoDue,
+          approvedClientFeatureIds: secondMilestoneFeatureIds,
+        },
+        {
+          title: "Final Integration & Handover",
+          description:
+            "Complete tracking workflow, regression checks, and delivery handoff package.",
+          amount: finalMilestoneAmount,
+          deliverableType: DeliverableType.SOURCE_CODE,
+          retentionAmount: Number((finalMilestoneAmount * 0.1).toFixed(2)),
+          acceptanceCriteria: [
+            { value: "Final acceptance checklist and handoff documentation are approved by reviewers." },
+          ],
+          startDate: milestoneThreeStart,
+          dueDate: milestoneThreeDue,
+          approvedClientFeatureIds: thirdMilestoneFeatureIds,
+        },
+      ],
+      changeSummary:
+        "Prepared test draft with budget-aligned milestones, timeline lock, and validated feature coverage for review flow testing.",
+      richContentJson: null,
+    });
+
+    form.clearErrors();
+    void form.trigger();
+  };
+
   const milestoneSum = calculatedBudget;
   const budget = calculatedBudget;
   const retentionSharePercent =
@@ -1078,16 +1417,28 @@ export function CreateProjectSpecForm({
             Define the scope, features, and milestones for the freelancer-facing
             specification.
           </p>
+          <div className="pt-1">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={handleFillTestData}
+            >
+              Fill Test Data
+            </Button>
+          </div>
         </div>
 
         {form.formState.submitCount > 0 && !form.formState.isValid && (
-          <Alert variant="destructive">
-            <AlertTitle>Form has validation errors</AlertTitle>
-            <AlertDescription>
-              Please review the highlighted fields. The first invalid field has
-              been focused.
-            </AlertDescription>
-          </Alert>
+          <div ref={errorSummaryRef} tabIndex={-1} className="outline-none">
+            <Alert variant="destructive">
+              <AlertTitle>Form has validation errors</AlertTitle>
+              <AlertDescription>
+                Please review the highlighted fields. The first invalid field
+                has been focused.
+              </AlertDescription>
+            </Alert>
+          </div>
         )}
 
         {warnings.length > 0 && (
@@ -1336,7 +1687,7 @@ export function CreateProjectSpecForm({
                 {referenceLinkFields.map((field, index) => (
                   <div
                     key={field.id}
-                    className="grid gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-[1fr_2fr_auto]"
+                    className="grid items-start gap-3 rounded-xl border border-slate-200 p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)_auto]"
                   >
                     <FormField
                       control={form.control}
@@ -1390,7 +1741,7 @@ export function CreateProjectSpecForm({
                         </FormItem>
                       )}
                     />
-                    <div className="flex items-end">
+                    <div className="flex items-center justify-end md:pt-6">
                       <Button
                         type="button"
                         variant="ghost"
@@ -1403,19 +1754,6 @@ export function CreateProjectSpecForm({
                 ))}
               </div>
             )}
-            {watchedReferenceLinks?.length ? (
-              <div className="flex flex-wrap gap-2">
-                {watchedReferenceLinks.map((link, index) => (
-                  <Badge
-                    key={`${link.label || "link"}-${index}`}
-                    variant="outline"
-                    className="max-w-full wrap-break-word whitespace-normal"
-                  >
-                    {link.label || `Link ${index + 1}`}
-                  </Badge>
-                ))}
-              </div>
-            ) : null}
           </CardContent>
         </Card>
 
@@ -1445,7 +1783,12 @@ export function CreateProjectSpecForm({
             </Button>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Accordion type="multiple" className="w-full">
+            <Accordion
+              type="multiple"
+              className="w-full"
+              value={openFeatureAccordionItems}
+              onValueChange={setOpenFeatureAccordionItems}
+            >
               {featureFields.map((field, index) => {
                 const currentFeature = watchedFeatures?.[index];
 
@@ -1917,7 +2260,7 @@ export function CreateProjectSpecForm({
                       blockedFeatureHint="Already mapped to another milestone. Remove it there first if you want to move ownership."
                     />
 
-                    <div className="rounded-lg border border-dashed bg-muted/20 p-4">
+                    <div className="space-y-4 rounded-lg border border-dashed bg-muted/20 p-4">
                       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                         <div>
                           <p className="text-sm font-medium text-foreground">
@@ -1931,12 +2274,12 @@ export function CreateProjectSpecForm({
                         <Badge variant="outline">Contract-facing</Badge>
                       </div>
 
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-2">
                         <FormField
                           control={form.control}
                           name={`milestones.${index}.startDate`}
                           render={({ field }) => (
-                            <FormItem>
+                            <FormItem className="space-y-2">
                               <FormLabel>Start date</FormLabel>
                               <FormControl>
                                 <Input
@@ -1946,7 +2289,7 @@ export function CreateProjectSpecForm({
                                   value={field.value || ""}
                                 />
                               </FormControl>
-                              <FormDescription>
+                              <FormDescription className="min-h-10">
                                 {minimumSequentialStartDateKey
                                   ? `Must be on or after ${minimumSequentialStartDateKey} so this milestone starts after the previous one ends.`
                                   : "Cannot be earlier than today."}
@@ -1959,7 +2302,7 @@ export function CreateProjectSpecForm({
                           control={form.control}
                           name={`milestones.${index}.dueDate`}
                           render={({ field }) => (
-                            <FormItem>
+                            <FormItem className="space-y-2">
                               <FormLabel>Due date</FormLabel>
                               <FormControl>
                                 <Input
@@ -1970,7 +2313,7 @@ export function CreateProjectSpecForm({
                                   value={field.value || ""}
                                 />
                               </FormControl>
-                              <FormDescription>
+                              <FormDescription className="min-h-10">
                                 {index === lastMilestoneIndex &&
                                 normalizedApprovedDeadline
                                   ? `This final milestone must end exactly on ${normalizedApprovedDeadline}.`
@@ -2375,7 +2718,7 @@ function MilestoneAcceptanceCriteriaList({
   });
 
   return (
-    <div className="space-y-3 border-l-2 border-primary/20 pl-4">
+    <div className="space-y-3 rounded-md border border-slate-200 bg-white/80 p-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <FormLabel className="text-xs uppercase tracking-wide text-muted-foreground">
           Acceptance criteria

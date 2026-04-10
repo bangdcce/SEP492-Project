@@ -40,7 +40,7 @@ export class ReportService {
 
     // 2. Không cho report review của chính mình
     if (review.reviewerId === reporterId) {
-      throw new BadRequestException('Bạn không thể report review của chính mình');
+      throw new BadRequestException('You cannot report your own review.');
     }
 
     // 3. Kiểm tra đã report review này chưa
@@ -49,7 +49,7 @@ export class ReportService {
     });
 
     if (existingReport) {
-      throw new BadRequestException('Bạn đã report review này rồi');
+      throw new BadRequestException('You have already reported this review.');
     }
 
     // 4. Tạo report
@@ -94,6 +94,7 @@ export class ReportService {
     let deletedReview: {
       id: string;
       targetUserId: string;
+      reviewerId: string;
     } | null = null;
 
     const resolvedReport = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
@@ -110,7 +111,7 @@ export class ReportService {
       }
 
       if (report.status !== ReportStatus.PENDING) {
-        throw new BadRequestException('Report này đã được xử lý');
+        throw new BadRequestException('This report has already been processed.');
       }
 
       report.status = dto.status;
@@ -123,12 +124,13 @@ export class ReportService {
           manager,
           report.reviewId,
           adminId,
-          `Report #${reportId}: ${dto.adminNote || 'Vi phạm quy tắc cộng đồng'}`,
+          `Report #${reportId}: ${dto.adminNote || 'Community guideline violation'}`,
         );
 
         deletedReview = {
           id: deleted.id,
           targetUserId: deleted.targetUserId,
+          reviewerId: deleted.reviewerId,
         };
       }
 

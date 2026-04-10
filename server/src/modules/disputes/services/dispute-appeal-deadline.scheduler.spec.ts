@@ -48,6 +48,14 @@ describe('DisputeAppealDeadlineScheduler', () => {
     expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 
+  it('runs scan by default in development when env is not set', async () => {
+    verdictService.listExpiredAppealDeadlineDisputeIds.mockResolvedValue([]);
+
+    await scheduler.handleExpiredAppealDeadlines();
+
+    expect(verdictService.listExpiredAppealDeadlineDisputeIds).toHaveBeenCalledTimes(1);
+  });
+
   it('emits finalization events for expired appeal deadlines', async () => {
     process.env[envKey] = 'true';
     verdictService.listExpiredAppealDeadlineDisputeIds.mockResolvedValue(['d-1', 'd-2']);

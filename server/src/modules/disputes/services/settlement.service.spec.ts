@@ -4,11 +4,15 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import {
   DisputeEntity,
+  DisputeResult,
   DisputeStatus,
   DisputeType,
   EscrowEntity,
   EscrowStatus,
+  MilestoneEntity,
+  MilestoneStatus,
   ProjectEntity,
+  ProjectStatus,
   TransactionEntity,
   TransactionType,
   UserEntity,
@@ -26,6 +30,7 @@ describe('SettlementService', () => {
   let service: SettlementService;
   let settlementRepository: any;
   let disputeRepository: any;
+  let eventEmitter: any;
 
   const repoMock = () => ({
     find: jest.fn(),
@@ -51,6 +56,7 @@ describe('SettlementService', () => {
     service = module.get(SettlementService);
     settlementRepository = module.get(getRepositoryToken(DisputeSettlementEntity));
     disputeRepository = module.get(getRepositoryToken(DisputeEntity));
+    eventEmitter = module.get(EventEmitter2);
   });
 
   it('validates exact settlement distribution and computes the fee breakdown', () => {
@@ -138,8 +144,14 @@ describe('SettlementService', () => {
       clientId: 'client-1',
       freelancerId: 'freelancer-1',
       brokerId: null,
+      status: ProjectStatus.IN_PROGRESS,
       currency: 'USD',
     } as ProjectEntity;
+
+    const milestone = {
+      id: 'milestone-1',
+      status: MilestoneStatus.IN_PROGRESS,
+    } as MilestoneEntity;
 
     const wallets = new Map<string, any>([
       [
@@ -186,6 +198,10 @@ describe('SettlementService', () => {
       findOne: jest.fn().mockResolvedValue(project),
     };
 
+    const milestoneRepo = {
+      findOne: jest.fn().mockResolvedValue(milestone),
+    };
+
     const walletRepo = {
       createQueryBuilder: jest.fn().mockReturnValue(walletQueryBuilder),
       create: jest.fn().mockImplementation((payload) => ({
@@ -220,6 +236,7 @@ describe('SettlementService', () => {
       getRepository: jest.fn().mockImplementation((entity) => {
         if (entity === EscrowEntity) return escrowRepo;
         if (entity === ProjectEntity) return projectRepo;
+        if (entity === MilestoneEntity) return milestoneRepo;
         if (entity === WalletEntity) return walletRepo;
         if (entity === TransactionEntity) return transactionRepo;
         if (entity === UserEntity) return userRepo;
@@ -228,7 +245,7 @@ describe('SettlementService', () => {
       save: jest.fn().mockImplementation(async (_entity, value) => value),
     };
 
-    await (service as any).executeSettlementTransfers(manager, settlement, dispute);
+    const outcome = await (service as any).executeSettlementTransfers(manager, settlement, dispute);
 
     expect(wallets.get('client-1').heldBalance).toBe(0);
     expect(wallets.get('client-1').balance).toBe(25);
@@ -243,5 +260,82 @@ describe('SettlementService', () => {
     expect(savedTransactions.some((tx) => tx.type === TransactionType.REFUND)).toBe(true);
     expect(savedTransactions.some((tx) => tx.type === TransactionType.ESCROW_RELEASE)).toBe(true);
     expect(savedTransactions.some((tx) => tx.type === TransactionType.FEE_DEDUCTION)).toBe(true);
+
+    expect(project.status).toBe(ProjectStatus.COMPLETED);
+    expect(milestone.status).toBe(MilestoneStatus.PAID);
+    expect(outcome).toEqual(
+      expect.objectContaining({
+        result: DisputeResult.SPLIT,
+        projectStatus: ProjectStatus.COMPLETED,
+        milestoneStatus: MilestoneStatus.PAID,
+      }),
+    );
+  });
+
+  it('writes dispute result when settlement is accepted and prepares post-commit payloads', async () => {
+    const settlement = {
+      id: 'settlement-accept-1',
+      proposerId: 'client-1',
+      responderId: 'freelancer-1',
+      amountToFreelancer: 0,
+      amountToClient: 120,
+      platformFee: 0,
+      status: SettlementStatus.PENDING,
+    } as unknown as DisputeSettlementEntity;
+
+    const dispute = {
+      id: 'dispute-accept-1',
+      status: DisputeStatus.IN_MEDIATION,
+      result: DisputeResult.PENDING,
+      acceptedSettlementId: null,
+      resolvedAt: null,
+    } as unknown as DisputeEntity;
+
+    const manager = {
+      save: jest.fn().mockImplementation(async (value) => value),
+    };
+
+    jest.spyOn(service as any, 'executeSettlementTransfers').mockResolvedValue({
+      result: DisputeResult.WIN_CLIENT,
+      projectStatus: ProjectStatus.CANCELED,
+      milestoneStatus: MilestoneStatus.PENDING,
+      workflowRealtimePayload: {
+        projectId: 'project-1',
+        requestId: null,
+        participantIds: ['client-1', 'freelancer-1'],
+      },
+    });
+
+    let acceptedPayload: any = null;
+    let workflowPayload: any = null;
+
+    await (service as any).processAcceptSettlement(manager as any, settlement, dispute, {
+      onAcceptedEventPrepared: (payload: any) => {
+        acceptedPayload = payload;
+      },
+      onWorkflowCommitted: (payload: any) => {
+        workflowPayload = payload;
+      },
+    });
+
+    expect(dispute.status).toBe(DisputeStatus.RESOLVED);
+    expect(dispute.result).toBe(DisputeResult.WIN_CLIENT);
+    expect(dispute.acceptedSettlementId).toBe(settlement.id);
+    expect(dispute.resolvedAt).toBeInstanceOf(Date);
+
+    expect(acceptedPayload).toEqual(
+      expect.objectContaining({
+        disputeId: dispute.id,
+        result: DisputeResult.WIN_CLIENT,
+        projectStatus: ProjectStatus.CANCELED,
+        milestoneStatus: MilestoneStatus.PENDING,
+      }),
+    );
+    expect(workflowPayload).toEqual(
+      expect.objectContaining({
+        projectId: 'project-1',
+      }),
+    );
+    expect(eventEmitter.emit).not.toHaveBeenCalled();
   });
 });

@@ -94,6 +94,8 @@ export const DisputeHearingPanel = ({
   const [endPendingActions, setEndPendingActions] = useState("");
   const [testActionLoading, setTestActionLoading] = useState<string | null>(null);
   const [testScheduleHint, setTestScheduleHint] = useState<string>("");
+  const [testScheduleOpen, setTestScheduleOpen] = useState(false);
+  const [testScheduleAt, setTestScheduleAt] = useState("");
   const [schemaErrorMessage, setSchemaErrorMessage] = useState<string | null>(
     null,
   );
@@ -162,6 +164,22 @@ export const DisputeHearingPanel = ({
       return "";
     }
     return date.toISOString();
+  };
+
+  const toLocalDateTimeValue = (value: Date) => {
+    return format(value, "yyyy-MM-dd'T'HH:mm");
+  };
+
+  const buildDefaultTestScheduleAt = (reference?: string | null) => {
+    const fallback = new Date(Date.now() + 5 * 60 * 1000);
+    const base = reference ? new Date(reference) : fallback;
+    const candidate =
+      Number.isNaN(base.getTime()) || base.getTime() <= Date.now() ? fallback : base;
+    candidate.setSeconds(0, 0);
+    const rounded = new Date(
+      Math.ceil(candidate.getTime() / (5 * 60 * 1000)) * 5 * 60 * 1000,
+    );
+    return toLocalDateTimeValue(rounded);
   };
 
   const handleSchedule = async () => {
@@ -422,7 +440,16 @@ export const DisputeHearingPanel = ({
       await loadHearings();
     } catch (error) {
       console.error("Failed to start hearing:", error);
-      toast.error("Could not start hearing.");
+      const details = getApiErrorDetails(error, "Could not start hearing.");
+      const normalized = details.message.toLowerCase();
+      const actionableMessage = normalized.includes("cannot start this early")
+        ? `${details.message} Ensure required participants accepted the invite and are online in the hearing room.`
+        : details.message;
+      toast.error(
+        details.code
+          ? `[${details.code}] ${actionableMessage}`
+          : actionableMessage,
+      );
     } finally {
       setActionLoadingId(null);
     }
@@ -554,6 +581,67 @@ export const DisputeHearingPanel = ({
     () => splitHearingsByLifecycle(sortedHearings),
     [sortedHearings],
   );
+  const actionableScheduledHearing = useMemo(
+    () =>
+      sortedHearings.find(
+        (hearing) => hearing.status === "SCHEDULED" && hearing.isActionable !== false,
+      ) ?? null,
+    [sortedHearings],
+  );
+
+  const handleOpenTestSchedule = useCallback(() => {
+    setTestScheduleAt(buildDefaultTestScheduleAt(actionableScheduledHearing?.scheduledAt));
+    setTestScheduleOpen(true);
+  }, [actionableScheduledHearing]);
+
+  const handleApplyTestSchedule = useCallback(async () => {
+    if (!testScheduleAt) {
+      toast.error("Select a test schedule.");
+      return;
+    }
+
+    const selectedSlotStart = toIsoString(testScheduleAt);
+    if (!selectedSlotStart) {
+      toast.error("Selected test schedule is invalid.");
+      return;
+    }
+
+    const action = actionableScheduledHearing ? "reschedule" : "schedule";
+
+    try {
+      setTestActionLoading("picked-slot");
+      setTestScheduleHint("");
+      const result = await triggerDisputeAutoSchedule(disputeId, {
+        selectedSlotStart,
+        bypassReason: actionableScheduledHearing
+          ? "UI test selected reschedule slot"
+          : "UI test selected schedule slot",
+      });
+      if (result.manualRequired) {
+        toast.warning(result.reason || "No valid test slot was applied.");
+      } else {
+        toast.success(
+          actionableScheduledHearing ? "Test re-schedule applied." : "Test schedule applied.",
+        );
+      }
+      if (result.selectedSlot?.start && result.selectedSlot?.end) {
+        setTestScheduleHint(
+          `Selected ${format(new Date(result.selectedSlot.start), "MMM d, h:mm a")} - ${format(
+            new Date(result.selectedSlot.end),
+            "h:mm a",
+          )}`,
+        );
+      }
+      setTestScheduleOpen(false);
+      await loadHearings();
+    } catch (error) {
+      console.error("Test schedule failed:", error);
+      const details = getApiErrorDetails(error, "Could not apply test schedule.");
+      toast.error(getSchedulingErrorMessage(details, action));
+    } finally {
+      setTestActionLoading(null);
+    }
+  }, [actionableScheduledHearing, disputeId, loadHearings, testScheduleAt]);
 
   const handleRunAutoScheduleTest = useCallback(async () => {
     try {
@@ -705,6 +793,17 @@ export const DisputeHearingPanel = ({
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
+              className="px-3 py-1.5 text-xs rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+              onClick={handleOpenTestSchedule}
+              disabled={Boolean(testActionLoading)}
+            >
+              {testActionLoading === "picked-slot"
+                ? "Applying..."
+                : actionableScheduledHearing
+                  ? "Pick test re-schedule"
+                  : "Pick test schedule"}
+            </button>
+            <button
               className="px-3 py-1.5 text-xs rounded-md bg-slate-900 text-white hover:bg-slate-800 disabled:opacity-50"
               onClick={handleRunAutoScheduleTest}
               disabled={Boolean(testActionLoading)}
@@ -743,6 +842,11 @@ export const DisputeHearingPanel = ({
           </div>
           {testScheduleHint ? (
             <p className="mt-2 text-xs text-slate-700">{testScheduleHint}</p>
+          ) : null}
+          {actionableScheduledHearing ? (
+            <p className="mt-2 text-[11px] text-amber-700">
+              Current actionable hearing: {formatScheduledRange(actionableScheduledHearing)}
+            </p>
           ) : null}
         </div>
       )}
@@ -1014,6 +1118,63 @@ export const DisputeHearingPanel = ({
               {actionLoadingId === rescheduleHearingTarget?.id
                 ? "Saving..."
                 : "Reschedule"}
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={testScheduleOpen} onOpenChange={setTestScheduleOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {actionableScheduledHearing ? "Pick test re-schedule" : "Pick test schedule"}
+            </DialogTitle>
+            <DialogDescription>
+              {actionableScheduledHearing
+                ? "Dev/test only. Applying this will create a replacement hearing at the selected time."
+                : "Dev/test only. Applying this will create a hearing at the selected time using the auto-schedule test bypass."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-3">
+            {actionableScheduledHearing ? (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Current hearing: {formatScheduledRange(actionableScheduledHearing)}
+              </div>
+            ) : null}
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">
+                Selected time
+              </label>
+              <input
+                type="datetime-local"
+                data-testid="test-auto-schedule-at"
+                value={testScheduleAt}
+                onChange={(event) => setTestScheduleAt(event.target.value)}
+                className="w-full border border-gray-200 rounded-lg p-2 text-sm"
+              />
+            </div>
+            <p className="text-xs text-slate-500">
+              This bypass works only when backend `DISPUTE_TEST_MODE=true` and runtime is not production.
+            </p>
+          </div>
+          <DialogFooter>
+            <button
+              className="px-4 py-2 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50"
+              onClick={() => setTestScheduleOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              data-testid="test-auto-schedule-submit"
+              className="px-4 py-2 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
+              onClick={handleApplyTestSchedule}
+              disabled={testActionLoading === "picked-slot"}
+            >
+              {testActionLoading === "picked-slot"
+                ? "Applying..."
+                : actionableScheduledHearing
+                  ? "Apply re-schedule"
+                  : "Apply schedule"}
             </button>
           </DialogFooter>
         </DialogContent>

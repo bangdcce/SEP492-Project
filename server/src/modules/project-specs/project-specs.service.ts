@@ -36,7 +36,7 @@ import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { CreateClientSpecDto } from './dto/create-client-spec.dto';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import sanitizeHtml from 'sanitize-html';
 import { RequestChatService } from '../request-chat/request-chat.service';
 
@@ -77,6 +77,9 @@ const BANNED_KEYWORDS = [
   'easy',
   'simple',
 ];
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class ProjectSpecsService {
@@ -461,6 +464,26 @@ export class ProjectSpecsService {
     }).trim();
   }
 
+  private isUuid(value?: string | null): boolean {
+    return UUID_PATTERN.test(this.sanitizePlainText(value));
+  }
+
+  private deriveCommercialFeatureId(title: string, index: number): string {
+    const normalizedTitle = this.sanitizePlainText(title)
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    const seed = `commercial-feature:${index + 1}:${normalizedTitle}`;
+    const hex = createHash('sha1').update(seed).digest('hex').slice(0, 32);
+    const chars = hex.split('');
+    chars[12] = '4';
+    const variantNibble = Number.parseInt(chars[16], 16);
+    chars[16] = ((Number.isNaN(variantNibble) ? 0 : variantNibble) & 0x3 | 0x8).toString(16);
+
+    return `${chars.slice(0, 8).join('')}-${chars.slice(8, 12).join('')}-${chars
+      .slice(12, 16)
+      .join('')}-${chars.slice(16, 20).join('')}-${chars.slice(20, 32).join('')}`;
+  }
+
   private sanitizeStructuredJson(value: unknown): unknown {
     if (typeof value === 'string') {
       return this.sanitizePlainText(value);
@@ -765,12 +788,18 @@ export class ProjectSpecsService {
     }
 
     const normalized = features
-      .map((feature) => ({
-        id: feature.id || null,
-        title: this.sanitizePlainText(feature.title),
-        description: this.sanitizePlainText(feature.description),
-        priority: feature.priority,
-      }))
+      .map((feature, index) => {
+        const title = this.sanitizePlainText(feature.title);
+        const description = this.sanitizePlainText(feature.description);
+        const existingId = this.sanitizePlainText(feature.id);
+
+        return {
+          id: this.isUuid(existingId) ? existingId : this.deriveCommercialFeatureId(title, index),
+          title,
+          description,
+          priority: feature.priority,
+        };
+      })
       .filter((feature) => feature.title.length > 0 && feature.description.length > 0);
 
     return normalized.length > 0 ? normalized : null;
@@ -2021,7 +2050,24 @@ export class ProjectSpecsService {
     specId: string,
     req: RequestContext,
   ): Promise<ProjectSpecEntity> {
-    const spec = await this.findOne(specId);
+    const normalizedInputSpecId = this.sanitizePlainText(specId);
+
+    if (!this.isUuid(normalizedInputSpecId)) {
+      throw new BadRequestException('Invalid full spec id for signing');
+    }
+
+    const spec = await this.findOne(normalizedInputSpecId);
+    const resolvedSpecId = this.sanitizePlainText(spec?.id);
+
+    if (!this.isUuid(resolvedSpecId)) {
+      throw new BadRequestException('Invalid full spec id for signing');
+    }
+
+    if (normalizedInputSpecId !== resolvedSpecId) {
+      this.logger.warn(
+        `signSpec received mismatched id input (input=${normalizedInputSpecId || 'EMPTY'}, resolved=${resolvedSpecId}).`,
+      );
+    }
 
     if (spec.specPhase !== SpecPhase.FULL_SPEC) {
       throw new BadRequestException('Only full specs can be signed');
@@ -2037,22 +2083,22 @@ export class ProjectSpecsService {
     }
 
     const existing = await this.projectSpecSignaturesRepository.findOne({
-      where: { specId, userId: user.id },
+      where: { specId: resolvedSpecId, userId: user.id },
     });
     if (existing) {
       const reconciled = await this.reconcileFullSpecSigningState(spec);
       if (reconciled.allRequiredSigned) {
         this.logger.warn(
-          `Recovered fully-signed spec ${specId} on duplicate sign attempt by ${user.id}; status is now ${spec.status}.`,
+          `Recovered fully-signed spec ${resolvedSpecId} on duplicate sign attempt by ${user.id}; status is now ${spec.status}.`,
         );
-        return this.findOne(specId);
+        return this.findOne(resolvedSpecId);
       }
       throw new BadRequestException('You have already signed this spec');
     }
 
     await this.projectSpecSignaturesRepository.save(
       this.projectSpecSignaturesRepository.create({
-        specId,
+        specId: resolvedSpecId,
         userId: user.id,
         signerRole: user.role,
       }),
@@ -2065,7 +2111,7 @@ export class ProjectSpecsService {
         actorId: user.id,
         action: 'SIGN_FULL_SPEC',
         entityType: 'ProjectSpec',
-        entityId: specId,
+        entityId: resolvedSpecId,
         newData: {
           signedBy: user.id,
           role: user.role,
@@ -2078,7 +2124,7 @@ export class ProjectSpecsService {
       });
     } catch (error) {
       this.logger.warn(
-        `Audit log failed after signing full spec ${specId} by ${user.id}: ${error instanceof Error ? error.message : String(error)}`,
+        `Audit log failed after signing full spec ${resolvedSpecId} by ${user.id}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
@@ -2108,7 +2154,7 @@ export class ProjectSpecsService {
 
     this.emitSpecUpdated(spec, reconciled.requiredSignerIds);
 
-    return this.findOne(specId);
+    return this.findOne(resolvedSpecId);
   }
 
   async requestFullSpecChanges(
@@ -2344,8 +2390,10 @@ export class ProjectSpecsService {
   // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・  // QUERY METHODS
   // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・
   async findOne(id: string): Promise<ProjectSpecEntity> {
+    const normalizedId = this.sanitizePlainText(id);
+
     const spec = await this.projectSpecsRepository.findOne({
-      where: { id },
+      where: { id: normalizedId },
       relations: [
         'milestones',
         'request',
@@ -2357,7 +2405,7 @@ export class ProjectSpecsService {
         'signatures',
       ],
     });
-    if (!spec) throw new NotFoundException(`Project Spec with ID ${id} not found`);
+    if (!spec) throw new NotFoundException(`Project Spec with ID ${normalizedId} not found`);
     return this.attachRequestContext(spec);
   }
 

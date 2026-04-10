@@ -1,4 +1,4 @@
-import { Transform } from 'class-transformer';
+import { Transform, plainToInstance } from 'class-transformer';
 import { IsBoolean, IsOptional, IsString, MaxLength } from 'class-validator';
 
 type FollowUpActionLike = {
@@ -93,12 +93,19 @@ const normalizeSingleFollowUpAction = (
 };
 
 export const TransformFollowUpActions = () =>
-  Transform(({ value }) => {
-    if (!Array.isArray(value)) {
-      return [];
-    }
+  Transform(
+    ({ value }) => {
+      if (!Array.isArray(value)) {
+        return [];
+      }
 
-    return value
-      .map((item) => normalizeSingleFollowUpAction(item))
-      .filter((item): item is FollowUpActionLike => Boolean(item));
-  });
+      const normalized = value
+        .map((item) => normalizeSingleFollowUpAction(item))
+        .filter((item): item is FollowUpActionLike => Boolean(item));
+
+      // Keep nested values as class instances so whitelist + ValidateNested
+      // recognizes FollowUpActionDto fields instead of rejecting them.
+      return plainToInstance(FollowUpActionDto, normalized);
+    },
+    { toClassOnly: true },
+  );

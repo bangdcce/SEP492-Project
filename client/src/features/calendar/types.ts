@@ -168,6 +168,8 @@ export interface CalendarEventFilter {
   status?: EventStatus;
   organizerId?: string;
   participantId?: string;
+  page?: number;
+  limit?: number;
 }
 
 export interface RescheduleRequestFilter {

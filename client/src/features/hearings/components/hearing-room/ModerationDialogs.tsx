@@ -1,4 +1,4 @@
-import React, { memo, useState, useCallback } from "react";
+import React, { memo, useState, useCallback, useEffect } from "react";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -81,8 +81,10 @@ interface EndDialogProps {
     findings: string;
     pendingActions?: string[];
     noShowNote?: string;
+    forceEnd?: boolean;
   }) => void;
   loading: boolean;
+  verdictAnnounced?: boolean;
 }
 
 export const EndHearingDialog = memo(function EndHearingDialog({
@@ -90,12 +92,20 @@ export const EndHearingDialog = memo(function EndHearingDialog({
   onOpenChange,
   onConfirm,
   loading,
+  verdictAnnounced = false,
 }: EndDialogProps) {
   const [summary, setSummary] = useState("");
   const [findings, setFindings] = useState("");
   const [noShowNote, setNoShowNote] = useState("");
   const [pendingAction, setPendingAction] = useState("");
   const [pendingActions, setPendingActions] = useState<string[]>([]);
+  const [forceEnd, setForceEnd] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setForceEnd(verdictAnnounced);
+    }
+  }, [open, verdictAnnounced]);
 
   const addPendingAction = useCallback(() => {
     const trimmed = pendingAction.trim();
@@ -112,16 +122,37 @@ export const EndHearingDialog = memo(function EndHearingDialog({
   const handleConfirm = useCallback(() => {
     const summaryTrimmed = summary.trim();
     const findingsTrimmed = findings.trim();
-    if (!summaryTrimmed || !findingsTrimmed) {
+    const resolvedSummary =
+      summaryTrimmed ||
+      (verdictAnnounced
+        ? "Hearing closed after verdict announcement."
+        : "");
+    const resolvedFindings =
+      findingsTrimmed ||
+      (verdictAnnounced
+        ? "Verdict has been announced and recorded for this dispute."
+        : "");
+
+    if (!resolvedSummary || !resolvedFindings) {
       return;
     }
+
     onConfirm({
-      summary: summaryTrimmed,
-      findings: findingsTrimmed,
+      summary: resolvedSummary,
+      findings: resolvedFindings,
       pendingActions: pendingActions.length > 0 ? pendingActions : undefined,
       noShowNote: noShowNote.trim() || undefined,
+      forceEnd: forceEnd || undefined,
     });
-  }, [onConfirm, summary, findings, pendingActions, noShowNote]);
+  }, [
+    onConfirm,
+    summary,
+    findings,
+    verdictAnnounced,
+    pendingActions,
+    noShowNote,
+    forceEnd,
+  ]);
 
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
@@ -145,11 +176,17 @@ export const EndHearingDialog = memo(function EndHearingDialog({
               <p className="font-medium text-rose-700">
                 This cannot be undone.
               </p>
+              {verdictAnnounced ? (
+                <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
+                  Verdict has already been announced. You can keep minutes concise
+                  and optionally force-close unanswered questions.
+                </p>
+              ) : null}
 
               {/* Summary */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-700">
-                  Summary *
+                  Summary {verdictAnnounced ? "(optional)" : "*"}
                 </label>
                 <textarea
                   value={summary}
@@ -163,7 +200,7 @@ export const EndHearingDialog = memo(function EndHearingDialog({
               {/* Findings */}
               <div className="space-y-1">
                 <label className="text-xs font-medium text-slate-700">
-                  Findings *
+                  Findings {verdictAnnounced ? "(optional)" : "*"}
                 </label>
                 <textarea
                   value={findings}
@@ -233,6 +270,15 @@ export const EndHearingDialog = memo(function EndHearingDialog({
                   placeholder="Document absence details if applicable..."
                 />
               </div>
+
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={forceEnd}
+                  onChange={(event) => setForceEnd(event.target.checked)}
+                />
+                Force-close unanswered questions when finalizing this hearing.
+              </label>
             </div>
           </AlertDialogDescription>
         </AlertDialogHeader>
@@ -240,7 +286,10 @@ export const EndHearingDialog = memo(function EndHearingDialog({
           <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
           <AlertDialogAction
             onClick={handleConfirm}
-            disabled={loading || !summary.trim() || !findings.trim()}
+            disabled={
+              loading ||
+              (!verdictAnnounced && (!summary.trim() || !findings.trim()))
+            }
             className="bg-rose-600 hover:bg-rose-700"
           >
             {loading ? "Ending…" : "End hearing"}

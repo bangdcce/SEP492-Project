@@ -29,6 +29,8 @@ import {
   type PostgresTestContainerHandle,
 } from './postgres-test-container';
 
+jest.setTimeout(120000);
+
 describe('FE16 and FE18 HTTP integration evidence', () => {
   let database: PostgresTestContainerHandle;
   let app: INestApplication;

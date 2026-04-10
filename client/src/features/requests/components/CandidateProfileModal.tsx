@@ -49,9 +49,40 @@ export function CandidateProfileModal({
     return Number.isFinite(parsed) ? parsed : 0;
   };
 
+  const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
   const totalScoreValue = toNumericScore(matchScore);
   const techScoreValue = toNumericScore(tagOverlapScore);
-  const trustScoreValue = toNumericScore(normalizedTrust);
+  const trustNormalizedValue = (() => {
+    const normalizedParsed =
+      typeof normalizedTrust === "number"
+        ? normalizedTrust
+        : typeof normalizedTrust === "string"
+          ? Number(normalizedTrust)
+          : Number.NaN;
+
+    if (Number.isFinite(normalizedParsed)) {
+      return clamp(normalizedParsed, 0, 100);
+    }
+
+    const raw = candidate?.trustScore;
+    const rawParsed =
+      typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : Number.NaN;
+    if (Number.isFinite(rawParsed)) {
+      return clamp(rawParsed * 20, 0, 100);
+    }
+
+    return 0;
+  })();
+  const trustRawValue = (() => {
+    const raw = candidate?.trustScore;
+    const parsed =
+      typeof raw === "number" ? raw : typeof raw === "string" ? Number(raw) : Number.NaN;
+    if (Number.isFinite(parsed)) {
+      return clamp(parsed, 0, 5);
+    }
+    return clamp(trustNormalizedValue / 20, 0, 5);
+  })();
   const aiScoreValue =
     aiRelevanceScore !== null && aiRelevanceScore !== undefined
       ? toNumericScore(aiRelevanceScore)
@@ -86,13 +117,13 @@ export function CandidateProfileModal({
         },
         {
           label: "Trust & XP",
-          raw: trustScoreValue,
+          raw: trustNormalizedValue,
           weightLabel: "20%",
-          contribution: Math.round(trustScoreValue * 0.2 * 10) / 10,
+          contribution: Math.round(trustNormalizedValue * 0.2 * 10) / 10,
           summary:
-            trustScoreValue >= 80
+            trustNormalizedValue >= 80
               ? "Strong trust score and completion history lifted the result."
-              : trustScoreValue >= 50
+              : trustNormalizedValue >= 50
                 ? "Trust and experience helped, but were not enough to dominate the score."
                 : "Trust and experience added only a limited boost.",
         },
@@ -112,21 +143,21 @@ export function CandidateProfileModal({
         },
         {
           label: "Trust & XP",
-          raw: trustScoreValue,
+          raw: trustNormalizedValue,
           weightLabel: "30%",
-          contribution: Math.round(trustScoreValue * 0.3 * 10) / 10,
+          contribution: Math.round(trustNormalizedValue * 0.3 * 10) / 10,
           summary:
-            trustScoreValue >= 80
+            trustNormalizedValue >= 80
               ? "Strong trust score and experience kept the candidate competitive."
-              : trustScoreValue >= 50
+              : trustNormalizedValue >= 50
                 ? "Trust and experience provided a moderate lift."
                 : "Trust and experience added only a small lift.",
         },
       ];
 
   const formulaText = usesAiScoring
-    ? `${aiScoreValue} x 50% + ${techScoreValue} x 30% + ${trustScoreValue} x 20% = ${totalScoreValue}`
-    : `${techScoreValue} x 70% + ${trustScoreValue} x 30% = ${totalScoreValue}`;
+    ? `${aiScoreValue} x 50% + ${techScoreValue} x 30% + ${trustNormalizedValue} x 20% = ${totalScoreValue}`
+    : `${techScoreValue} x 70% + ${trustNormalizedValue} x 30% = ${totalScoreValue}`;
   const headlineExplanation = usesAiScoring
     ? "This score uses AI relevance, tech match, and trust weighting."
     : "This score came from Quick Match, so only tech match and trust were used.";
@@ -173,21 +204,22 @@ export function CandidateProfileModal({
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                <div className="border rounded-lg p-3 bg-muted/20 flex flex-col items-center justify-center text-center">
                  <span className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1"><Star className="w-3 h-3" /> Total Score</span>
-                 <span className="text-2xl font-bold mt-1 text-primary">{matchScore ?? 'N/A'}</span>
+                 <span className="text-2xl font-bold mt-1 text-primary">{matchScore ?? 'N/A'}/100</span>
                </div>
                {aiRelevanceScore !== null && aiRelevanceScore !== undefined && (
                  <div className="border rounded-lg p-3 bg-indigo-50/50 flex flex-col items-center justify-center text-center">
                     <span className="text-xs text-indigo-600 uppercase font-semibold flex items-center gap-1"><Sparkles className="w-3 h-3" /> AI Analysis</span>
-                    <span className="text-2xl font-bold mt-1 text-indigo-700">{aiRelevanceScore}</span>
+                    <span className="text-2xl font-bold mt-1 text-indigo-700">{aiRelevanceScore}/100</span>
                  </div>
                )}
                <div className="border rounded-lg p-3 bg-emerald-50/50 flex flex-col items-center justify-center text-center">
                  <span className="text-xs text-emerald-600 uppercase font-semibold flex items-center gap-1"><CheckCircle2 className="w-3 h-3" /> Tech Match</span>
-                 <span className="text-2xl font-bold mt-1 text-emerald-700">{tagOverlapScore ?? 'N/A'}</span>
+                 <span className="text-2xl font-bold mt-1 text-emerald-700">{tagOverlapScore ?? 'N/A'}/100</span>
                </div>
                <div className="border rounded-lg p-3 bg-blue-50/50 flex flex-col items-center justify-center text-center">
                  <span className="text-xs text-blue-600 uppercase font-semibold flex items-center gap-1"><ShieldCheck className="w-3 h-3" /> Trust & XP</span>
-                 <span className="text-2xl font-bold mt-1 text-blue-700">{normalizedTrust ?? 'N/A'}</span>
+                 <span className="text-2xl font-bold mt-1 text-blue-700">{trustNormalizedValue}/100</span>
+                 <span className="mt-1 text-xs text-blue-600">Raw profile: {trustRawValue.toFixed(1)}/5</span>
                </div>
             </div>
 
@@ -195,6 +227,9 @@ export function CandidateProfileModal({
               <div className="mb-3">
                 <h4 className="text-sm font-semibold uppercase text-slate-700">Score Breakdown</h4>
                 <p className="mt-1 text-sm text-slate-600">{headlineExplanation}</p>
+                <p className="mt-1 text-xs text-slate-500">
+                  Trust normalization: profile trust ({trustRawValue.toFixed(1)}/5) x 20 = {trustNormalizedValue}/100.
+                </p>
                 <p className="mt-2 rounded-md border bg-white px-3 py-2 font-mono text-sm text-slate-900">
                   {formulaText}
                 </p>

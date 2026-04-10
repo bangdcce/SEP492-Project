@@ -21,9 +21,9 @@ interface EvidenceGalleryProps {
 /** Map uploaderRole to a user-friendly party label */
 const partyLabel = (role?: string | null) => {
   if (!role) return "Unknown";
-  if (role === "CLIENT") return "Nguyên đơn";
-  if (role === "FREELANCER") return "Bị đơn";
-  if (role === "BROKER") return "Trung gian";
+  if (role === "CLIENT") return "Claimant";
+  if (role === "FREELANCER") return "Respondent";
+  if (role === "BROKER") return "Broker";
   if (role === "STAFF") return "Staff";
   if (role === "ADMIN") return "Admin";
   return roleLabel(role);

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   ProjectHistoryItem,
   Review,
+  TrustProfileReviewCandidateProject,
   TrustProfileReviewEligibility,
   User,
 } from "../types";
@@ -36,6 +37,17 @@ export function TrustProfileSection({
   const [isFullPageOpen, setIsFullPageOpen] = useState(false);
   const [isCreateReviewOpen, setIsCreateReviewOpen] = useState(false);
   const [hasAutoPromptedReview, setHasAutoPromptedReview] = useState(false);
+  const [selectedPendingProjectId, setSelectedPendingProjectId] = useState<
+    string | null
+  >(null);
+
+  const formatCompletedDate = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return "Unknown date";
+    }
+    return parsed.toLocaleDateString();
+  };
 
   const stats = useMemo(() => {
     const totalReviews = reviews.length;
@@ -133,40 +145,80 @@ export function TrustProfileSection({
     );
   }, [currentUserReviews, sharedReviewableProjects]);
 
-  const computedLatestPendingReviewProject = useMemo(() => {
-    return (
-      computedPendingReviewProjects.sort(
+  const pendingReviewProjects = useMemo<TrustProfileReviewCandidateProject[]>(() => {
+    if (reviewEligibility?.pendingProjects?.length) {
+      return [...reviewEligibility.pendingProjects].sort(
         (a, b) =>
           new Date(b.completedAt || 0).getTime() -
           new Date(a.completedAt || 0).getTime(),
-      )[0] || null
-    );
-  }, [computedPendingReviewProjects]);
+      );
+    }
 
-  const latestPendingReviewProject = useMemo(() => {
-    return reviewEligibility?.nextProject || computedLatestPendingReviewProject;
-  }, [reviewEligibility?.nextProject, computedLatestPendingReviewProject]);
+    return [...computedPendingReviewProjects]
+      .map((project) => ({
+        projectId: project.projectId,
+        title: project.title,
+        status: project.status,
+        completedAt: project.completedAt,
+        targetRoleInProject: project.targetRoleInProject,
+        viewerRoleInProject: project.viewerRoleInProject ?? null,
+      }))
+      .sort(
+        (a, b) =>
+          new Date(b.completedAt || 0).getTime() -
+          new Date(a.completedAt || 0).getTime(),
+      );
+  }, [reviewEligibility?.pendingProjects, computedPendingReviewProjects]);
+
+  const selectedPendingReviewProject = useMemo(() => {
+    if (pendingReviewProjects.length === 0) {
+      return null;
+    }
+
+    return (
+      pendingReviewProjects.find(
+        (project) => project.projectId === selectedPendingProjectId,
+      ) || pendingReviewProjects[0]
+    );
+  }, [pendingReviewProjects, selectedPendingProjectId]);
 
   const pendingReviewCount =
     reviewEligibility?.pendingReviewCount ??
-    computedPendingReviewProjects.length;
+    pendingReviewProjects.length;
 
   const canCreateReview =
     reviewEligibility?.canCreateReview ??
     Boolean(
       currentUserId &&
       currentUserId !== user.id &&
-      latestPendingReviewProject?.projectId,
+      pendingReviewProjects.length > 0,
     );
 
   useEffect(() => {
     setHasAutoPromptedReview(false);
+    setSelectedPendingProjectId(null);
   }, [user.id]);
+
+  useEffect(() => {
+    if (pendingReviewProjects.length === 0) {
+      setSelectedPendingProjectId(null);
+      return;
+    }
+
+    if (
+      !selectedPendingProjectId ||
+      !pendingReviewProjects.some(
+        (project) => project.projectId === selectedPendingProjectId,
+      )
+    ) {
+      setSelectedPendingProjectId(pendingReviewProjects[0].projectId);
+    }
+  }, [pendingReviewProjects, selectedPendingProjectId]);
 
   useEffect(() => {
     if (
       !canCreateReview ||
-      !latestPendingReviewProject ||
+      !selectedPendingReviewProject ||
       hasAutoPromptedReview
     ) {
       return;
@@ -174,7 +226,7 @@ export function TrustProfileSection({
 
     setIsCreateReviewOpen(true);
     setHasAutoPromptedReview(true);
-  }, [canCreateReview, latestPendingReviewProject, hasAutoPromptedReview]);
+  }, [canCreateReview, selectedPendingReviewProject, hasAutoPromptedReview]);
 
   const previewReviews = sortedReviews.slice(0, previewCount);
 
@@ -224,17 +276,59 @@ export function TrustProfileSection({
               </div>
             </div>
 
-            {canCreateReview && latestPendingReviewProject ? (
+            {canCreateReview && selectedPendingReviewProject ? (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-                Trust data required: Please review this user for completed
-                project{" "}
-                <span className="font-medium">
-                  {latestPendingReviewProject.title}
-                </span>
-                .
+                <p>
+                  Trust data required: You still need to review this user on
+                  completed shared projects.
+                </p>
                 {pendingReviewCount > 1
                   ? ` You still have ${pendingReviewCount} completed shared projects pending review.`
                   : ""}
+
+                <div className="mt-3 space-y-2">
+                  {pendingReviewProjects.slice(0, 5).map((project) => {
+                    const isSelected =
+                      project.projectId === selectedPendingReviewProject.projectId;
+
+                    return (
+                      <div
+                        key={project.projectId}
+                        className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
+                          isSelected
+                            ? "border-amber-300 bg-white"
+                            : "border-amber-200 bg-amber-50/70"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-slate-900">
+                            {project.title}
+                          </p>
+                          <p className="text-[11px] text-slate-600">
+                            #{project.projectId.slice(0, 8)} · {formatCompletedDate(project.completedAt)} · You: {project.viewerRoleInProject || "UNKNOWN"} · Target: {project.targetRoleInProject}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPendingProjectId(project.projectId);
+                            setIsCreateReviewOpen(true);
+                          }}
+                          className="rounded-md border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100"
+                        >
+                          {isSelected ? "Reviewing" : "Review"}
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {pendingReviewProjects.length > 5 ? (
+                    <p className="text-[11px] text-slate-600">
+                      +{pendingReviewProjects.length - 5} older project(s) pending review.
+                    </p>
+                  ) : null}
+                </div>
               </div>
             ) : null}
 
@@ -255,11 +349,11 @@ export function TrustProfileSection({
               </p>
             ) : null}
 
-            {canCreateReview && latestPendingReviewProject ? (
+            {canCreateReview && selectedPendingReviewProject ? (
               <p className="mt-3 text-xs text-slate-500">
                 Review will be linked to project{" "}
                 <span className="font-medium">
-                  {latestPendingReviewProject.title}
+                  {selectedPendingReviewProject.title}
                 </span>
                 .
               </p>
@@ -336,11 +430,11 @@ export function TrustProfileSection({
         />
       ) : null}
 
-      {canCreateReview && latestPendingReviewProject ? (
+      {canCreateReview && selectedPendingReviewProject ? (
         <CreateReviewModal
           isOpen={isCreateReviewOpen}
           onClose={() => setIsCreateReviewOpen(false)}
-          projectId={latestPendingReviewProject.projectId}
+          projectId={selectedPendingReviewProject.projectId}
           targetUser={{
             id: user.id,
             fullName: user.fullName,

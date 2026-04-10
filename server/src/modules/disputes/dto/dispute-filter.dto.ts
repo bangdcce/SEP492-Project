@@ -109,6 +109,10 @@ export class DisputeFilterDto {
 
   @IsOptional()
   @IsString()
+  handledByStaffId?: string;
+
+  @IsOptional()
+  @IsString()
   escalatedToAdminId?: string;
 
   @IsOptional()

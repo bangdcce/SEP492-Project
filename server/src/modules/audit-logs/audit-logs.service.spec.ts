@@ -252,4 +252,89 @@ describe('AuditLogsService', () => {
     expect(exported.fileName).toMatch(/audit-logs-.*\.xlsx/);
     expect(exported.buffer.subarray(0, 2).toString('utf8')).toBe('PK');
   });
+
+  it('classifies normal login as NORMAL risk level', async () => {
+    await service.logLogin(
+      'user-1',
+      { success: true },
+      {
+        ip: '203.0.113.10',
+        headers: { 'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+      },
+    );
+
+    expect(repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'LOGIN',
+        afterData: expect.objectContaining({
+          _security_analysis: expect.objectContaining({
+            baseRiskLevel: 'NORMAL',
+            riskLevel: 'NORMAL',
+            flags: [],
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('does not elevate login risk for automation user-agent in non-production environments', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'test';
+
+    try {
+      await service.logLogin(
+        'user-2',
+        { success: true },
+        {
+          ip: '203.0.113.11',
+          headers: { 'user-agent': 'axios/1.7.0' },
+        },
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'LOGIN',
+          afterData: expect.objectContaining({
+            _security_analysis: expect.objectContaining({
+              riskLevel: 'NORMAL',
+              flags: [],
+            }),
+          }),
+        }),
+      );
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
+
+  it('still marks suspicious automation user-agent as HIGH in production', async () => {
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+
+    try {
+      await service.logLogin(
+        'user-3',
+        { success: true },
+        {
+          ip: '203.0.113.12',
+          headers: { 'user-agent': 'curl/8.5.0' },
+        },
+      );
+
+      expect(repository.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          action: 'LOGIN',
+          afterData: expect.objectContaining({
+            _security_analysis: expect.objectContaining({
+              baseRiskLevel: 'NORMAL',
+              riskLevel: 'HIGH',
+              flags: expect.arrayContaining(['SUSPICIOUS_USER_AGENT']),
+            }),
+          }),
+        }),
+      );
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
+  });
 });

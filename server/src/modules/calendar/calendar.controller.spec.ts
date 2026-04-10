@@ -1,4 +1,5 @@
 import { CalendarController } from './calendar.controller';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import {
   EventStatus,
   EventType,
@@ -36,6 +37,7 @@ describe('CalendarController', () => {
     hearingRepository = repoMock();
     hearingParticipantRepository = repoMock();
     projectRepository = repoMock();
+    const eventEmitter = { emit: jest.fn() };
 
     controller = new CalendarController(
       calendarRepository as any,
@@ -50,6 +52,7 @@ describe('CalendarController', () => {
       { findAvailableSlots: jest.fn() } as any,
       { autoScheduleEvent: jest.fn() } as any,
       { syncCalendarEvents: jest.fn() } as any,
+      eventEmitter as EventEmitter2,
     );
   });
 

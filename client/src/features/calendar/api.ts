@@ -76,6 +76,12 @@ export const getEvents = async (
   if (filter?.status) params.append("status", filter.status);
   if (filter?.organizerId) params.append("organizerId", filter.organizerId);
   if (filter?.participantId) params.append("participantId", filter.participantId);
+  if (typeof filter?.page === "number" && Number.isFinite(filter.page)) {
+    params.append("page", String(filter.page));
+  }
+  if (typeof filter?.limit === "number" && Number.isFinite(filter.limit)) {
+    params.append("limit", String(filter.limit));
+  }
 
   const response = await apiClient.get(`${BASE_URL}/events?${params.toString()}`);
   const payload = response as { data?: CalendarEventsResponse } | CalendarEventsResponse;

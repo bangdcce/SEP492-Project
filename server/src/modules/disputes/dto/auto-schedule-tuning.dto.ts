@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsDateString, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class AutoScheduleTuningDto {
   @IsOptional()
@@ -26,4 +26,8 @@ export class AutoScheduleTuningDto {
   @IsOptional()
   @IsString()
   bypassReason?: string;
+
+  @IsOptional()
+  @IsDateString()
+  selectedSlotStart?: string;
 }

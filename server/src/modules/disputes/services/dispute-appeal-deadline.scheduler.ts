@@ -20,7 +20,7 @@ export class DisputeAppealDeadlineScheduler {
   async handleExpiredAppealDeadlines(): Promise<void> {
     if (
       !isBackgroundTaskEnabled(process.env, 'DISPUTE_APPEAL_DEADLINE_CRON_ENABLED', {
-        enabledByDefaultInDevelopment: false,
+        enabledByDefaultInDevelopment: true,
         enabledByDefaultInProduction: true,
       })
     ) {

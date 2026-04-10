@@ -87,6 +87,12 @@ const getDateKeyCandidate = (value?: string | null): string | null => {
   return match?.[1] || null;
 };
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const isUuid = (value?: string | null) =>
+  UUID_PATTERN.test(String(value || "").trim());
+
 type CommercialDraftFeature = {
   title: string;
   description: string;
@@ -99,6 +105,26 @@ type CommercialRequestDraftState = {
   reason: string;
   features: CommercialDraftFeature[];
 };
+
+const toCommercialDraftFeature = (feature: {
+  title?: string | null;
+  description?: string | null;
+  priority?: "MUST_HAVE" | "SHOULD_HAVE" | "NICE_TO_HAVE" | null;
+}): CommercialDraftFeature => ({
+  title: `${feature.title || ""}`.trim(),
+  description: `${feature.description || ""}`.trim(),
+  priority: feature.priority || "SHOULD_HAVE",
+});
+
+const hasCommercialDraftFeatures = (
+  features: CommercialDraftFeature[] | undefined,
+) =>
+  Boolean(
+    features?.some(
+      (feature) =>
+        feature.title.trim().length > 0 || feature.description.trim().length > 0,
+    ),
+  );
 
 export default function CreateProjectSpecPage() {
   const { id } = useParams<{ id: string }>();
@@ -233,13 +259,29 @@ export default function CreateProjectSpecPage() {
     requestScopeBaseline?.requestedDeadline ||
     request?.requestedDeadline ||
     null;
-  const approvedClientFeatures = approvedCommercialBaseline
-    ?.agreedClientFeatures?.length
-    ? approvedCommercialBaseline.agreedClientFeatures
-    : clientSpec?.clientFeatures || [];
+  const approvedBaselineFeatures =
+    approvedCommercialBaseline?.agreedClientFeatures || [];
+  const canUseBaselineFeaturesDirectly =
+    approvedBaselineFeatures.length > 0 &&
+    approvedBaselineFeatures.every((feature) => isUuid(feature.id));
+  const approvedClientFeatures = canUseBaselineFeaturesDirectly
+    ? approvedBaselineFeatures
+    : clientSpec?.clientFeatures || approvedBaselineFeatures;
+  const clientSpecFeatureIdByTitle = new Map(
+    (clientSpec?.clientFeatures || [])
+      .map((feature) => [
+        String(feature.title || "").trim().toLowerCase(),
+        feature.id,
+      ])
+      .filter((entry): entry is [string, string] => Boolean(entry[0] && entry[1])),
+  );
   const normalizedApprovedClientFeatures: ClientFeatureDTO[] =
     approvedClientFeatures.map((feature) => ({
-      id: feature.id || undefined,
+      id:
+        (isUuid(feature.id) ? feature.id : undefined) ||
+        clientSpecFeatureIdByTitle.get(
+          String(feature.title || "").trim().toLowerCase(),
+        ),
       title: feature.title,
       description: feature.description,
       priority: feature.priority || "SHOULD_HAVE",
@@ -367,17 +409,13 @@ export default function CreateProjectSpecPage() {
   useEffect(() => {
     const baseline = request?.commercialBaseline;
     const baselineFeatures = baseline?.agreedClientFeatures?.length
-      ? baseline.agreedClientFeatures.map((feature) => ({
-          title: feature.title,
-          description: feature.description,
-          priority: feature.priority || "SHOULD_HAVE",
-        }))
+      ? baseline.agreedClientFeatures.map((feature) =>
+          toCommercialDraftFeature(feature),
+        )
       : clientSpec?.clientFeatures?.length
-        ? clientSpec.clientFeatures.map((feature) => ({
-            title: feature.title,
-            description: feature.description,
-            priority: feature.priority || "SHOULD_HAVE",
-          }))
+        ? clientSpec.clientFeatures.map((feature) =>
+            toCommercialDraftFeature(feature),
+          )
         : [{ title: "", description: "", priority: "SHOULD_HAVE" as const }];
 
     setCommercialRequestDraft((current) => ({
@@ -388,7 +426,9 @@ export default function CreateProjectSpecPage() {
       proposedTimeline:
         baseline?.agreedDeliveryDeadline || current.proposedTimeline,
       reason: current.reason,
-      features: current.reason.trim() ? current.features : baselineFeatures,
+      features: hasCommercialDraftFeatures(current.features)
+        ? current.features
+        : baselineFeatures,
     }));
   }, [clientSpec?.clientFeatures, request?.commercialBaseline]);
 
@@ -488,6 +528,14 @@ export default function CreateProjectSpecPage() {
   const handleSubmitCommercialChange = async () => {
     if (!id || !clientSpec) return;
 
+    const fallbackFeatures = (
+      approvedCommercialBaseline?.agreedClientFeatures?.length
+        ? approvedCommercialBaseline.agreedClientFeatures
+        : clientSpec.clientFeatures || []
+    )
+      .map((feature) => toCommercialDraftFeature(feature))
+      .filter((feature) => feature.title && feature.description);
+
     const normalizedFeatures = commercialRequestDraft.features
       .map((feature) => ({
         title: feature.title.trim(),
@@ -496,13 +544,24 @@ export default function CreateProjectSpecPage() {
       }))
       .filter((feature) => feature.title && feature.description);
 
+    const proposedClientFeatures =
+      normalizedFeatures.length > 0 ? normalizedFeatures : fallbackFeatures;
+
+    if (proposedClientFeatures.length === 0) {
+      setSubmitError(
+        "Commercial change must keep at least one client-facing feature.",
+      );
+      return;
+    }
+
+    const proposedTimelineInput = commercialRequestDraft.proposedTimeline.trim();
+    const proposedTimeline =
+      proposedTimelineInput || approvedDeliveryDeadline || undefined;
+
     const payload = {
       proposedBudget: Number(commercialRequestDraft.proposedBudget),
-      proposedTimeline:
-        commercialRequestDraft.proposedTimeline.trim() || undefined,
-      proposedClientFeatures: normalizedFeatures.length
-        ? normalizedFeatures
-        : undefined,
+      proposedTimeline,
+      proposedClientFeatures,
       reason: commercialRequestDraft.reason.trim(),
       parentSpecId: clientSpec.id,
     };
@@ -525,6 +584,7 @@ export default function CreateProjectSpecPage() {
     }
 
     if (
+      proposedTimelineInput &&
       payload.proposedTimeline &&
       payload.proposedTimeline < commercialChangeMinimumTimeline
     ) {

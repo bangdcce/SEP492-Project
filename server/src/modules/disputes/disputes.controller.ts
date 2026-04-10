@@ -59,6 +59,16 @@ export class DisputesController {
     private readonly hearingVerdictOrchestrator: HearingVerdictOrchestratorService,
   ) {}
 
+  private isUserGuideBypassEnabled(): boolean {
+    const bypassEnabled = process.env.DISPUTE_USER_GUIDE_BYPASS === 'true';
+    if (!bypassEnabled) {
+      return false;
+    }
+
+    const environment = (process.env.APP_ENV ?? process.env.NODE_ENV ?? '').toLowerCase();
+    return environment !== 'production' && environment !== 'prod';
+  }
+
   @UseGuards(JwtAuthGuard)
   @Post()
   async createDisputes(@GetUser() user: UserEntity, @Body() createDisputes: CreateDisputeDto) {
@@ -88,7 +98,9 @@ export class DisputesController {
   @Get()
   async getListDisputes(@GetUser() user: UserEntity, @Query() filters: DisputeFilterDto) {
     const effectiveFilters: DisputeFilterDto = { ...filters };
-    if (user.role === UserRole.STAFF) {
+    const userGuideBypassEnabled = this.isUserGuideBypassEnabled();
+
+    if (user.role === UserRole.STAFF && !userGuideBypassEnabled) {
       const queueStatuses = new Set<DisputeStatus>([
         DisputeStatus.OPEN,
         DisputeStatus.TRIAGE_PENDING,
@@ -160,7 +172,9 @@ export class DisputesController {
       includeUnassignedForStaff: true,
     };
 
-    if (user.role === UserRole.STAFF) {
+    const userGuideBypassEnabled = this.isUserGuideBypassEnabled();
+
+    if (user.role === UserRole.STAFF && !userGuideBypassEnabled) {
       if (effectiveFilters.assignedStaffId && effectiveFilters.assignedStaffId !== user.id) {
         throw new ForbiddenException('Staff can only view their own queue scope.');
       }
@@ -180,7 +194,9 @@ export class DisputesController {
       unassignedOnly: false,
     };
 
-    if (user.role === UserRole.STAFF) {
+    const userGuideBypassEnabled = this.isUserGuideBypassEnabled();
+
+    if (user.role === UserRole.STAFF && !userGuideBypassEnabled) {
       if (effectiveFilters.assignedStaffId && effectiveFilters.assignedStaffId !== user.id) {
         throw new ForbiddenException('Staff can only view their own caseload.');
       }

@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import {
   DisputeEntity,
   DisputeHearingEntity,
@@ -83,6 +83,76 @@ export class DisputeNotificationListener {
       dispute,
       userIds: Array.from(userIds),
     };
+  }
+
+  private async getStakeholderRecipientIds(userIds: string[]): Promise<string[]> {
+    const uniqueIds = Array.from(new Set(userIds.filter(Boolean)));
+    if (uniqueIds.length === 0) {
+      return [];
+    }
+
+    const users = await this.userRepo.find({
+      where: { id: In(uniqueIds) },
+      select: ['id', 'role'],
+    });
+
+    return users
+      .filter((user) =>
+        [UserRole.CLIENT, UserRole.FREELANCER, UserRole.BROKER].includes(user.role),
+      )
+      .map((user) => user.id);
+  }
+
+  private async getUserDisplayMap(
+    userIds: Array<string | null | undefined>,
+  ): Promise<Map<string, string>> {
+    const uniqueIds = Array.from(
+      new Set(userIds.filter((userId): userId is string => Boolean(userId))),
+    );
+    if (uniqueIds.length === 0) {
+      return new Map();
+    }
+
+    const users = await this.userRepo.find({
+      where: { id: In(uniqueIds) },
+      select: ['id', 'fullName', 'email'],
+    });
+
+    return new Map(
+      users.map((user) => [
+        user.id,
+        user.fullName?.trim() || user.email?.trim() || user.id,
+      ]),
+    );
+  }
+
+  private formatTimestamp(value?: Date | string | null): string | null {
+    if (!value) {
+      return null;
+    }
+
+    const normalized = value instanceof Date ? value : new Date(value);
+    return Number.isNaN(normalized.getTime()) ? null : normalized.toISOString();
+  }
+
+  private async resolveDisputeId(
+    disputeId?: string | null,
+    hearingId?: string | null,
+  ): Promise<string | null> {
+    if (disputeId) {
+      return disputeId;
+    }
+
+    if (!hearingId) {
+      return null;
+    }
+
+    const hearing = await this.hearingRepo.findOne({
+      where: { id: hearingId },
+      select: ['id', 'disputeId'],
+    });
+
+    return hearing?.disputeId ?? null;
   }
 
   @OnEvent(DISPUTE_EVENTS.REJECTED)
@@ -310,6 +380,105 @@ export class DisputeNotificationListener {
     );
   }
 
+  @OnEvent('hearing.rescheduled')
+  async handleHearingRescheduled(payload: {
+    hearingId?: string;
+    disputeId?: string;
+    previousHearingId?: string;
+    scheduledAt?: Date;
+    responseDeadline?: Date;
+  }): Promise<void> {
+    if (!payload?.hearingId) {
+      return;
+    }
+
+    const disputeId = await this.resolveDisputeId(payload.disputeId, payload.hearingId);
+    if (!disputeId) {
+      return;
+    }
+
+    const audience = await this.getDisputeAudience(disputeId);
+    if (!audience.dispute) {
+      return;
+    }
+
+    const bodyParts = [
+      this.formatTimestamp(payload.scheduledAt)
+        ? `A new hearing time was set for ${this.formatTimestamp(payload.scheduledAt)}.`
+        : 'A new hearing time was set for this dispute.',
+      this.formatTimestamp(payload.responseDeadline)
+        ? `Please respond again by ${this.formatTimestamp(payload.responseDeadline)}.`
+        : 'Please review the updated invite and respond again.',
+    ].filter(Boolean);
+
+    await this.createNotifications(
+      audience.userIds,
+      'Hearing rescheduled',
+      bodyParts.join(' '),
+      'DisputeHearing',
+      payload.hearingId,
+    );
+  }
+
+  @OnEvent('hearing.inviteResponded')
+  async handleHearingInviteResponded(payload: {
+    eventId?: string;
+    hearingId?: string | null;
+    disputeId?: string | null;
+    participantId?: string;
+    participantUserId?: string;
+    responderId?: string;
+    response?: 'accept' | 'decline' | 'tentative' | string;
+    responseNote?: string | null;
+    eventStatus?: string | null;
+    manualRequired?: boolean;
+    rescheduleTriggered?: boolean;
+    reason?: string | null;
+    respondedAt?: Date;
+  }): Promise<void> {
+    if (payload?.response !== 'decline' || !payload.rescheduleTriggered) {
+      return;
+    }
+
+    const disputeId = await this.resolveDisputeId(payload.disputeId, payload.hearingId);
+    if (!disputeId) {
+      return;
+    }
+
+    const audience = await this.getDisputeAudience(disputeId);
+    if (!audience.dispute) {
+      return;
+    }
+
+    const userDisplayMap = await this.getUserDisplayMap([payload.responderId]);
+    const actorLabel =
+      (payload.responderId && userDisplayMap.get(payload.responderId)) || 'A participant';
+    const requestReason = payload.responseNote?.trim();
+    const statusSentence = payload.manualRequired
+      ? payload.reason?.trim()
+        ? `Staff review is required before a new hearing time can be confirmed (${payload.reason.trim()}).`
+        : 'Staff review is required before a new hearing time can be confirmed.'
+      : payload.reason?.trim() === 'Auto reschedule is already in progress'
+        ? 'Auto-reschedule is already in progress.'
+        : 'The system is automatically finding a new hearing slot now.';
+
+    const bodyParts = [
+      `${actorLabel} declined the hearing invite and requested a new time.`,
+      requestReason ? `Request note: ${requestReason}.` : null,
+      statusSentence,
+    ].filter(Boolean);
+
+    await this.createNotifications(
+      audience.userIds,
+      payload.manualRequired
+        ? 'Hearing reschedule needs review'
+        : 'Hearing auto-reschedule started',
+      bodyParts.join(' '),
+      'DisputeHearing',
+      payload.hearingId || undefined,
+    );
+  }
+
   @OnEvent('verdict.issued')
   async handleVerdictIssued(payload: {
     disputeId?: string;
@@ -428,6 +597,10 @@ export class DisputeNotificationListener {
   @OnEvent(DISPUTE_EVENTS.APPEAL_RESOLVED)
   async handleAppealResolved(payload: {
     disputeId?: string;
+    resolvedById?: string;
+    previousResult?: string | null;
+    newResult?: string | null;
+    overrideReason?: string;
   }): Promise<void> {
     if (!payload?.disputeId) {
       return;
@@ -438,10 +611,66 @@ export class DisputeNotificationListener {
       return;
     }
 
+    const userDisplayMap = await this.getUserDisplayMap([payload.resolvedById]);
+    const resolverLabel =
+      (payload.resolvedById && userDisplayMap.get(payload.resolvedById)) ||
+      (payload.resolvedById ? 'assigned admin' : null);
+    const resultTransition =
+      payload.previousResult && payload.newResult
+        ? `${payload.previousResult} -> ${payload.newResult}`
+        : payload.newResult || null;
+    const normalizedOverrideReason = `${payload.overrideReason || ''}`.trim();
+
+    const bodyParts = [
+      'The appeal review is complete and the dispute record has been updated.',
+      resolverLabel ? `Resolved by: ${resolverLabel}.` : null,
+      resultTransition ? `Result transition: ${resultTransition}.` : null,
+      normalizedOverrideReason ? `Override reason: ${normalizedOverrideReason}.` : null,
+    ].filter(Boolean);
+
     await this.createNotifications(
       audience.userIds,
       'Appeal resolved',
-      'The appeal review is complete and the dispute record has been updated.',
+      bodyParts.join(' '),
+      'Dispute',
+      audience.dispute.id,
+    );
+  }
+
+  @OnEvent(DISPUTE_EVENTS.ASSIGNED)
+  async handleDisputeAssigned(payload: {
+    disputeId?: string;
+    staffId?: string;
+  }): Promise<void> {
+    if (!payload?.disputeId || !payload.staffId) {
+      return;
+    }
+
+    const audience = await this.getDisputeAudience(payload.disputeId);
+    if (!audience.dispute) {
+      return;
+    }
+
+    const [stakeholderIds, userDisplayMap] = await Promise.all([
+      this.getStakeholderRecipientIds(audience.userIds),
+      this.getUserDisplayMap([payload.staffId]),
+    ]);
+
+    const staffLabel =
+      userDisplayMap.get(payload.staffId) || 'the assigned staff member';
+
+    await this.createNotifications(
+      [payload.staffId],
+      'Dispute assigned to you',
+      'You were assigned to handle this dispute.',
+      'Dispute',
+      audience.dispute.id,
+    );
+
+    await this.createNotifications(
+      stakeholderIds.filter((userId) => userId !== payload.staffId),
+      'Dispute assigned to staff',
+      `This dispute is now being handled by ${staffLabel}.`,
       'Dispute',
       audience.dispute.id,
     );
@@ -451,41 +680,101 @@ export class DisputeNotificationListener {
   async handleDisputeReassigned(payload: {
     disputeId?: string;
     assignmentType?: string;
+    oldStaffId?: string | null;
+    newStaffId?: string | null;
     previousOwnerId?: string | null;
     nextOwnerId?: string | null;
   }): Promise<void> {
-    if (
-      !payload?.disputeId ||
-      payload.assignmentType !== 'APPEAL_OWNER' ||
-      !payload.nextOwnerId
-    ) {
+    if (!payload?.disputeId) {
       return;
     }
 
-    const recipients = [payload.nextOwnerId];
-    const body =
-      payload.previousOwnerId && payload.previousOwnerId !== payload.nextOwnerId
-        ? 'An appeal case was reassigned to you and now needs admin review.'
-        : 'A new appeal case was assigned to you for review.';
+    if (payload.assignmentType === 'APPEAL_OWNER') {
+      if (!payload.nextOwnerId) {
+        return;
+      }
+
+      const recipients = [payload.nextOwnerId];
+      const body =
+        payload.previousOwnerId && payload.previousOwnerId !== payload.nextOwnerId
+          ? 'An appeal case was reassigned to you and now needs admin review.'
+          : 'A new appeal case was assigned to you for review.';
+
+      await this.createNotifications(
+        recipients,
+        'Appeal case assigned',
+        body,
+        'Dispute',
+        payload.disputeId,
+      );
+
+      if (
+        payload.previousOwnerId &&
+        payload.previousOwnerId !== payload.nextOwnerId
+      ) {
+        await this.createNotifications(
+          [payload.previousOwnerId],
+          'Appeal case reassigned',
+          'This appeal case was reassigned to another admin.',
+          'Dispute',
+          payload.disputeId,
+        );
+      }
+
+      return;
+    }
+
+    if (!payload.newStaffId) {
+      return;
+    }
+
+    const audience = await this.getDisputeAudience(payload.disputeId);
+    if (!audience.dispute) {
+      return;
+    }
+
+    const [stakeholderIds, userDisplayMap] = await Promise.all([
+      this.getStakeholderRecipientIds(audience.userIds),
+      this.getUserDisplayMap([payload.oldStaffId, payload.newStaffId]),
+    ]);
+
+    const nextStaffLabel =
+      userDisplayMap.get(payload.newStaffId) || 'the assigned staff member';
+    const previousStaffLabel =
+      (payload.oldStaffId && userDisplayMap.get(payload.oldStaffId)) ||
+      'the previous staff member';
 
     await this.createNotifications(
-      recipients,
-      'Appeal case assigned',
-      body,
+      stakeholderIds.filter(
+        (userId) =>
+          userId !== payload.newStaffId && userId !== payload.oldStaffId,
+      ),
+      'Dispute handler updated',
+      `This dispute is now being handled by ${nextStaffLabel}.`,
       'Dispute',
-      payload.disputeId,
+      audience.dispute.id,
+    );
+
+    await this.createNotifications(
+      [payload.newStaffId],
+      'Dispute assigned to you',
+      payload.oldStaffId && payload.oldStaffId !== payload.newStaffId
+        ? `This dispute was reassigned to you from ${previousStaffLabel}.`
+        : 'You were assigned to handle this dispute.',
+      'Dispute',
+      audience.dispute.id,
     );
 
     if (
-      payload.previousOwnerId &&
-      payload.previousOwnerId !== payload.nextOwnerId
+      payload.oldStaffId &&
+      payload.oldStaffId !== payload.newStaffId
     ) {
       await this.createNotifications(
-        [payload.previousOwnerId],
-        'Appeal case reassigned',
-        'This appeal case was reassigned to another admin.',
+        [payload.oldStaffId],
+        'Dispute reassigned',
+        `This dispute was reassigned to ${nextStaffLabel}.`,
         'Dispute',
-        payload.disputeId,
+        audience.dispute.id,
       );
     }
   }

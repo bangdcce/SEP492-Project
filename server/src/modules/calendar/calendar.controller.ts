@@ -65,10 +65,12 @@ import {
 } from './dto';
 import {
   buildHearingDocket,
+  normalizeDisputeProjectTitle,
   resolveDisputeAppealState,
   resolveDisputeDisplayTitle,
   resolveReasonExcerpt,
 } from '../disputes/dispute-docket';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 const DEFAULT_RESPONSE_DEADLINE_HOURS = 24;
 
@@ -146,6 +148,7 @@ export class CalendarController {
     private readonly calendarService: CalendarService,
     private readonly autoScheduleService: AutoScheduleService,
     private readonly availabilityService: AvailabilityService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ===========================================================================
@@ -681,6 +684,39 @@ export class CalendarController {
       dto.responseNote,
     );
 
+    const refreshedEvent = await this.calendarRepository.findOne({
+      where: { id: eventId },
+      select: ['id', 'status', 'referenceType', 'referenceId'],
+    });
+
+    let hearingId: string | null = null;
+    let disputeId: string | null = null;
+
+    if (refreshedEvent?.referenceType === 'DisputeHearing' && refreshedEvent.referenceId) {
+      hearingId = refreshedEvent.referenceId;
+      const hearing = await this.hearingRepository.findOne({
+        where: { id: hearingId },
+        select: ['id', 'disputeId'],
+      });
+      disputeId = hearing?.disputeId ?? null;
+    }
+
+    this.eventEmitter.emit('hearing.inviteResponded', {
+      eventId,
+      hearingId,
+      disputeId,
+      participantId: participant.id,
+      participantUserId: participant.userId,
+      responderId: user.id,
+      response: dto.response,
+      responseNote: dto.responseNote ?? null,
+      eventStatus: refreshedEvent?.status ?? null,
+      manualRequired: Boolean(result.manualRequired),
+      rescheduleTriggered: Boolean(result.rescheduleTriggered),
+      reason: result.reason ?? null,
+      respondedAt: new Date(),
+    });
+
     return {
       success: true,
       message: 'Response recorded',
@@ -1143,6 +1179,7 @@ export class CalendarController {
       const claimant = userById.get(dispute.raisedById);
       const defendant = userById.get(dispute.defendantId);
       const project = dispute.projectId ? projectById.get(dispute.projectId) : undefined;
+      const projectTitle = normalizeDisputeProjectTitle(project?.title) || project?.title;
       const docket = docketByDisputeId.get(dispute.id);
       const docketEntry = docket?.items.find((item) => item.hearingId === hearing.id);
       const appealState = resolveDisputeAppealState({
@@ -1169,10 +1206,10 @@ export class CalendarController {
         displayCode: this.buildDisputeDisplayCode(dispute.id),
         displayTitle: resolveDisputeDisplayTitle({
           disputeId: dispute.id,
-          projectTitle: project?.title,
+          projectTitle,
           reason: dispute.reason,
         }),
-        projectTitle: project?.title,
+        projectTitle,
         reasonExcerpt: resolveReasonExcerpt(dispute.reason),
         status: dispute.status,
         appealState,
@@ -1208,7 +1245,7 @@ export class CalendarController {
           displayCode: disputeSummary.displayCode,
           hearingNumber: hearing.hearingNumber,
           projectId: dispute.projectId,
-          projectTitle: project?.title,
+          projectTitle,
           claimantName: this.resolveDisplayName(claimant),
           defendantName: this.resolveDisplayName(defendant),
           counterpartyName,

@@ -8,6 +8,7 @@ import {
   Controller,
   Post,
   Get,
+  Put,
   Body,
   Param,
   Query,
@@ -16,6 +17,7 @@ import {
   HttpStatus,
   HttpCode,
   BadRequestException,
+  ForbiddenException,
   UseFilters,
 } from '@nestjs/common';
 import {
@@ -44,6 +46,7 @@ import {
   EmergencyReassignDto,
   ReassignDisputeDto,
   BatchDisputeComplexityDto,
+  UpdateDisputeDevSettingsDto,
 } from '../dto/staff-assignment.dto';
 
 @ApiTags('Staff Assignment')
@@ -53,6 +56,13 @@ import {
 @ApiBearerAuth()
 export class StaffAssignmentController {
   constructor(private readonly staffAssignmentService: StaffAssignmentService) {}
+
+  private isDisputeTestModeEnabled(): boolean {
+    const testMode = process.env.DISPUTE_TEST_MODE === 'true';
+    const runtimeEnv = (process.env.APP_ENV ?? process.env.NODE_ENV ?? 'development').toLowerCase();
+    const isProduction = runtimeEnv === 'production' || runtimeEnv === 'prod';
+    return testMode && !isProduction;
+  }
 
   // ===========================================================================
   // COMPLEXITY ESTIMATION
@@ -231,8 +241,57 @@ export class StaffAssignmentController {
   // AUTO-ASSIGNMENT
   // ===========================================================================
 
+  @Get('dispute-dev-settings')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @ApiOperation({
+    summary: 'Get dispute dev auto-assign settings',
+    description:
+      'Returns the current dev/test auto-assignment pin, including the active target staff account and server fallback configuration.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Dispute dev settings returned successfully',
+  })
+  async getDisputeDevSettings() {
+    return {
+      success: true,
+      data: await this.staffAssignmentService.getDisputeDevSettingsSnapshot(),
+    };
+  }
+
+  @Put('dispute-dev-settings')
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Update dispute dev auto-assign settings',
+    description:
+      'Pins dev/test dispute auto-assignment to a chosen staff account. This is only available when DISPUTE_TEST_MODE=true outside production.',
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Dispute dev settings updated successfully',
+  })
+  async updateDisputeDevSettings(
+    @Body() dto: UpdateDisputeDevSettingsDto,
+    @GetUser() user: UserEntity,
+  ) {
+    const snapshot = await this.staffAssignmentService.updateDisputeDevSettings(
+      user,
+      dto.enabled,
+      dto.targetStaffEmail,
+    );
+
+    return {
+      success: true,
+      message: dto.enabled
+        ? `Dev auto-assign is now pinned to ${snapshot.activePinnedStaff?.email ?? 'the selected staff account'}`
+        : 'Dev auto-assign pin has been cleared',
+      data: snapshot,
+    };
+  }
+
   @Post('disputes/:disputeId/assign')
-  @Roles(UserRole.ADMIN)
+  @Roles(UserRole.STAFF, UserRole.ADMIN)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary: 'Auto-assign staff to dispute',
@@ -257,7 +316,36 @@ export class StaffAssignmentController {
     status: HttpStatus.BAD_REQUEST,
     description: 'No staff available',
   })
-  async autoAssignStaff(@Param('disputeId', ParseUUIDPipe) disputeId: string) {
+  async autoAssignStaff(
+    @Param('disputeId', ParseUUIDPipe) disputeId: string,
+    @GetUser() user: UserEntity,
+  ) {
+    if (user.role === UserRole.STAFF) {
+      if (!this.isDisputeTestModeEnabled()) {
+        throw new ForbiddenException(
+          'Staff self-assignment is only available when DISPUTE_TEST_MODE=true in non-production environments.',
+        );
+      }
+
+      const result = await this.staffAssignmentService.reassignDispute(
+        disputeId,
+        user.id,
+        'Test mode self-assignment',
+        user.id,
+        'Triggered from dispute dev tools',
+      );
+
+      return {
+        success: true,
+        message: result.success
+          ? 'Dispute assigned to your staff account in test mode'
+          : 'Dispute is already assigned to your staff account',
+        data: {
+          staffId: user.id,
+        },
+      };
+    }
+
     const result = await this.staffAssignmentService.autoAssignStaffToDispute(disputeId);
 
     if (!result.success) {

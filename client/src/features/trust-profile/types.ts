@@ -98,6 +98,7 @@ export interface TrustProfileReviewEligibility {
   reason: TrustProfileReviewEligibilityReason;
   pendingReviewCount: number;
   nextProject: TrustProfileReviewCandidateProject | null;
+  pendingProjects?: TrustProfileReviewCandidateProject[];
 }
 // Review Entity
 export interface Review {
@@ -247,6 +248,12 @@ export interface ModerationHistoryEntry {
 // Extended Review with Admin fields (for moderation pages)
 export interface AdminReview extends Review {
   status: ReviewStatus;
+  targetUser?: {
+    id: string;
+    fullName?: string;
+    role?: string;
+    email?: string;
+  };
   reportInfo?: ReportInfo;
   moderationHistory?: ModerationHistoryEntry[];
   openedBy?: {

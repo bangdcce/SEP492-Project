@@ -16,6 +16,7 @@ import type {
   DisputeScheduleProposal,
   SchedulingWorklistItem,
 } from "@/features/disputes/types/dispute.types";
+import { EvidenceVault } from "@/features/disputes/components/evidence/EvidenceVault";
 import { DisputeStatus } from "@/features/staff/types/staff.types";
 import { cn } from "@/lib/utils";
 
@@ -32,12 +33,14 @@ type SchedulingActionPanelProps = {
   proposalDeleteId: string | null;
   scheduleProposals: DisputeScheduleProposal[];
   infoResponseDraft: string;
+  infoEvidenceIds: string[];
   submittingInfo: boolean;
   canceling: boolean;
   onProposalStartChange: (value: string) => void;
   onProposalEndChange: (value: string) => void;
   onProposalNoteChange: (value: string) => void;
   onInfoResponseChange: (value: string) => void;
+  onInfoEvidenceIdsChange: (evidenceIds: string[]) => void;
   onCreateProposal: () => void;
   onSubmitProposals: () => void;
   onDeleteProposal: (proposalId: string) => void;
@@ -115,12 +118,14 @@ export const SchedulingActionPanel = ({
   proposalDeleteId,
   scheduleProposals,
   infoResponseDraft,
+  infoEvidenceIds,
   submittingInfo,
   canceling,
   onProposalStartChange,
   onProposalEndChange,
   onProposalNoteChange,
   onInfoResponseChange,
+  onInfoEvidenceIdsChange,
   onCreateProposal,
   onSubmitProposals,
   onDeleteProposal,
@@ -381,6 +386,20 @@ export const SchedulingActionPanel = ({
             value={infoResponseDraft}
             onChange={(e) => onInfoResponseChange(e.target.value)}
           />
+          <div className="mt-3 rounded-xl border border-amber-200 bg-white p-3">
+            <p className="text-xs font-medium text-slate-700">Evidence Vault</p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Upload new evidence or select existing files to include with this response.
+            </p>
+            <div className="mt-3">
+              <EvidenceVault
+                disputeId={selectedCase.disputeId}
+                selectable
+                selectedEvidenceIds={infoEvidenceIds}
+                onSelectionChange={onInfoEvidenceIdsChange}
+              />
+            </div>
+          </div>
           <div className="mt-2 flex justify-end">
             <button
               className="inline-flex min-h-[40px] items-center gap-1.5 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-amber-700 disabled:opacity-50"

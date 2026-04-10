@@ -244,13 +244,14 @@ const MessageItem = memo(function MessageItem({
       ...new Set([
         ...parseTags(m.content),
         ...(m.relatedEvidenceId ? [m.relatedEvidenceId] : []),
+        ...(m.attachedEvidenceIds ?? []),
       ]),
     ];
     return raw.map((id) => {
       const ev = evidenceById.get(id);
       return { id, label: ev?.fileName || `#EVD-${id.slice(0, 8)}` };
     });
-  }, [m.content, m.relatedEvidenceId, evidenceById]);
+  }, [m.content, m.relatedEvidenceId, m.attachedEvidenceIds, evidenceById]);
 
   // Hidden message placeholder
   if (m.isHidden) {

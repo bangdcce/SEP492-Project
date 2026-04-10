@@ -359,9 +359,16 @@ export const submitHearingStatement = async (
     isDraft?: boolean;
   },
 ) => {
+  const normalizedContentBlocks = input.contentBlocks?.map((block) => ({
+    kind: block.kind,
+    heading: block.heading,
+    body: block.body,
+  }));
+
   return await apiClient.post(`/disputes/hearings/${hearingId}/statements`, {
     hearingId,
     ...input,
+    contentBlocks: normalizedContentBlocks,
   });
 };
 

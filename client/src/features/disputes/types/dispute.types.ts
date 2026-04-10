@@ -171,6 +171,7 @@ export interface DisputeSummary {
   escalatedToAdminId?: string | null;
   createdAt: string;
   updatedAt: string;
+  resolvedAt?: string;
   isOverdue?: boolean;
   isUrgent?: boolean;
   hoursUntilDeadline?: number | null;
@@ -227,6 +228,7 @@ export interface DisputeFilters {
   raisedById?: string;
   defendantId?: string;
   assignedStaffId?: string;
+  handledByStaffId?: string;
   includeUnassignedForStaff?: boolean;
   unassignedOnly?: boolean;
   createdFrom?: string;
@@ -285,6 +287,7 @@ export interface DisputeMessage {
   content?: string | null;
   replyToMessageId?: string | null;
   relatedEvidenceId?: string | null;
+  attachedEvidenceIds?: string[] | null;
   metadata?: Record<string, any> | null;
   isHidden?: boolean;
   hiddenReason?: string | null;

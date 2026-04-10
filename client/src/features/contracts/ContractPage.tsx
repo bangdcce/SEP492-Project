@@ -56,7 +56,11 @@ import { useToast } from "@/shared/hooks/use-toast";
 import { connectSocket } from "@/shared/realtime/socket";
 import { getStoredJson } from "@/shared/utils/storage";
 import { contractsApi } from "./api";
-import type { Contract, ContractMilestoneSnapshotItem } from "./types";
+import type {
+  Contract,
+  ContractMilestoneSnapshotItem,
+  ContractSignatureVerificationReport,
+} from "./types";
 import {
   normalizeSupportedBillingRole,
   resolveBillingLabel,
@@ -344,6 +348,8 @@ export default function ContractPage() {
   const [isCancelingProject, setIsCancelingProject] = useState(false);
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isCheckingSignatureReport, setIsCheckingSignatureReport] =
+    useState(false);
   const [isPreparingPdfPreview, setIsPreparingPdfPreview] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [showFullAgreement, setShowFullAgreement] = useState(false);
@@ -354,6 +360,8 @@ export default function ContractPage() {
   const [pdfPreviewContractId, setPdfPreviewContractId] = useState<
     string | null
   >(null);
+  const [signatureReport, setSignatureReport] =
+    useState<ContractSignatureVerificationReport | null>(null);
   const [error, setError] = useState("");
   const currentUser = getStoredJson<{ id?: string; role?: string }>(
     STORAGE_KEYS.USER,
@@ -375,6 +383,7 @@ export default function ContractPage() {
     async (contractId: string) => {
       const updated = await contractsApi.getContract(contractId);
       resetPdfPreview();
+      setSignatureReport(null);
       setContract(updated);
       return updated;
     },
@@ -437,24 +446,39 @@ export default function ContractPage() {
       return;
     }
 
-    const handleContractUpdated = (payload?: {
+    const handleWorkflowUpdated = (payload?: {
       contractId?: string;
       projectId?: string;
+      notification?: {
+        relatedType?: string | null;
+        relatedId?: string | null;
+      };
+      relatedType?: string | null;
+      relatedId?: string | null;
     }) => {
+      const notification = payload?.notification ?? payload;
+      const relatedType = String(notification?.relatedType || "").toUpperCase();
+      const relatedId = String(notification?.relatedId || "");
+      const currentProjectId = contract?.projectId ?? null;
+
       if (
         payload?.contractId === id ||
-        (contract?.projectId && payload?.projectId === contract.projectId)
+        (currentProjectId !== null && payload?.projectId === currentProjectId) ||
+        (relatedType === "CONTRACT" && relatedId === id) ||
+        (relatedType === "PROJECT" && currentProjectId !== null && relatedId === currentProjectId)
       ) {
         void reloadContract(id);
       }
     };
 
-    socket.on("CONTRACT_UPDATED", handleContractUpdated);
-    socket.on("NOTIFICATION_CREATED", handleContractUpdated);
+    socket.on("CONTRACT_UPDATED", handleWorkflowUpdated);
+    socket.on("PROJECT_UPDATED", handleWorkflowUpdated);
+    socket.on("NOTIFICATION_CREATED", handleWorkflowUpdated);
 
     return () => {
-      socket.off("CONTRACT_UPDATED", handleContractUpdated);
-      socket.off("NOTIFICATION_CREATED", handleContractUpdated);
+      socket.off("CONTRACT_UPDATED", handleWorkflowUpdated);
+      socket.off("PROJECT_UPDATED", handleWorkflowUpdated);
+      socket.off("NOTIFICATION_CREATED", handleWorkflowUpdated);
     };
   }, [contract?.projectId, id, reloadContract]);
 
@@ -625,7 +649,7 @@ export default function ContractPage() {
     if (isDraft) {
       return "Legacy draft contract. New contracts now begin directly in SENT status.";
     }
-    return "Review the frozen agreement, its audit hashes, and the signature trail.";
+    return "Review the frozen agreement and signature trail.";
   }, [
     contract?.legalSignatureStatus,
     isActivated,
@@ -755,6 +779,35 @@ export default function ContractPage() {
         window.setTimeout(() => window.URL.revokeObjectURL(temporaryUrl!), 0);
       }
       setIsDownloadingPdf(false);
+    }
+  };
+
+  const handleRunSignatureVerification = async () => {
+    if (!contract) return;
+
+    try {
+      setIsCheckingSignatureReport(true);
+      setError("");
+      const report = await contractsApi.getSignatureVerificationReport(
+        contract.id,
+      );
+      setSignatureReport(report);
+      toast({
+        title: report.allSignaturesVerified
+          ? "Signature verification passed"
+          : "Signature verification found issues",
+        description: report.allSignaturesVerified
+          ? "All recorded signatures passed cryptographic and integrity checks."
+          : "At least one signature failed verification checks. Review the report details.",
+      });
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.response?.data?.message ||
+          "Failed to run signature verification report. Please try again.",
+      );
+    } finally {
+      setIsCheckingSignatureReport(false);
     }
   };
 
@@ -1719,10 +1772,7 @@ export default function ContractPage() {
                         </Badge>
                       </div>
                       <p className="mt-3 text-sm text-slate-600">
-                        {formatDateTime(signature.signedAt)}
-                      </p>
-                      <p className="mt-2 break-all font-mono text-[11px] text-slate-500">
-                        {signature.signatureHash}
+                        ✓ Signed on {formatDate(signature.signedAt)}
                       </p>
                     </div>
                   ))}
@@ -1876,6 +1926,93 @@ export default function ContractPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                      Signature verification report
+                    </p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      Run independent checks for cryptographic validity and
+                      tamper evidence of recorded signatures.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRunSignatureVerification}
+                    disabled={isCheckingSignatureReport}
+                  >
+                    {isCheckingSignatureReport
+                      ? "Verifying..."
+                      : "Run verification"}
+                  </Button>
+                </div>
+
+                {signatureReport && (
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                      <p className="font-medium text-slate-900">
+                        Overall result: {" "}
+                        {signatureReport.allSignaturesVerified
+                          ? "PASS"
+                          : "HAS ISSUES"}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {signatureReport.signaturesCount}/
+                        {signatureReport.requiredSignerCount} signatures recorded
+                        · report generated {" "}
+                        {formatDateTime(signatureReport.generatedAt)}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-600">
+                        Stored hash matches computed hash: {" "}
+                        {signatureReport.contentHash.storedMatchesComputed
+                          ? "Yes"
+                          : "No"}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      {signatureReport.signatureReports.map((item) => (
+                        <div
+                          key={item.signatureId}
+                          className="rounded-xl border border-slate-200 bg-white p-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-900">
+                              {item.signerName}
+                            </p>
+                            <Badge
+                              variant="outline"
+                              className={
+                                item.overallVerified
+                                  ? "border-emerald-200 text-emerald-700"
+                                  : "border-rose-200 text-rose-700"
+                              }
+                            >
+                              {item.overallVerified ? "Verified" : "Failed"}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-600">
+                            {item.signerRole || "Signer"} · signed at {" "}
+                            {formatDateTime(item.signedAt)}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            Crypto: {item.checks.cryptographicVerificationPassed ? "OK" : "Fail"}
+                            {" · "}
+                            Hash: {item.checks.signatureHashMatches ? "OK" : "Fail"}
+                            {" · "}
+                            Content: {item.checks.signedContentMatchesCurrent ? "OK" : "Fail"}
+                            {" · "}
+                            Timestamp: {item.checks.timestampTokenValid ? "OK" : "Fail"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {contract.contentHash && (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
