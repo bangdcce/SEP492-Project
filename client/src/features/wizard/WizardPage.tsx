@@ -28,7 +28,6 @@ import {
   getTodayDateInputValue,
   isPastDateInputValue,
 } from "./utils/timelineDate";
-import { normalizeProductTypeCode } from "@/shared/utils/productType";
 
 const TOTAL_STEPS = 5;
 
@@ -61,7 +60,7 @@ export default function WizardPage() {
       try {
         const data = await wizardService.getQuestions();
         setQuestions(data);
-      } catch (_error) {
+      } catch {
         toast.error("Could not load wizard questions.");
       }
     };
@@ -82,22 +81,13 @@ export default function WizardPage() {
 
   useEffect(() => {
     const featureQuestion = questions.find((question) => question.code === "FEATURES");
-    const normalizedProductType = normalizeProductTypeCode(productType);
 
-    if (!featureQuestion || !normalizedProductType || features.length === 0) {
+    if (!featureQuestion || features.length === 0) {
       return;
     }
 
     const allowedValues = new Set(
       featureQuestion.options
-        .filter((option) => {
-          const recommendedProductTypes = option.recommendedProductTypes || [];
-          return (
-            option.group === "COMMON" ||
-            recommendedProductTypes.length === 0 ||
-            recommendedProductTypes.includes(normalizedProductType)
-          );
-        })
         .map((option) => option.value),
     );
 

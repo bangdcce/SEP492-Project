@@ -48,7 +48,11 @@ describe('ProjectSpecsService', () => {
   const mockProjectSpecSignaturesRepo = {
     findOne: jest.fn(),
     find: jest.fn(),
+    create: jest.fn((data) => data),
     save: jest.fn(),
+    metadata: {
+      columns: [{ databaseName: 'specId', propertyName: 'specId' }],
+    },
   };
   const mockProjectRequestProposalsRepo = {
     find: jest.fn(),
@@ -99,6 +103,10 @@ describe('ProjectSpecsService', () => {
     }) as ProjectRequestEntity;
 
   beforeEach(async () => {
+    (mockProjectSpecSignaturesRepo as any).metadata = {
+      columns: [{ databaseName: 'specId', propertyName: 'specId' }],
+    };
+
     // Mock QueryRunner
     queryRunner = {
       connect: jest.fn(),
@@ -587,6 +595,36 @@ describe('ProjectSpecsService', () => {
       expect(() =>
         (service as any).validateApprovedFeatureCoverage([], milestones, approvedClientFeatures),
       ).toThrow(/cannot be assigned to multiple milestones/i);
+    });
+  });
+
+  describe('signature foreign key mapping', () => {
+    it('falls back to specId when signature metadata is unavailable', () => {
+      delete (mockProjectSpecSignaturesRepo as any).metadata;
+
+      const where = (service as any).buildProjectSpecSignatureWhere('spec-uuid', {
+        userId: 'user-uuid',
+      });
+
+      expect(where).toEqual({
+        specId: 'spec-uuid',
+        userId: 'user-uuid',
+      });
+    });
+
+    it('uses mapped property when specId database column maps to projectSpecId', () => {
+      (mockProjectSpecSignaturesRepo as any).metadata = {
+        columns: [{ databaseName: 'specId', propertyName: 'projectSpecId' }],
+      };
+
+      const where = (service as any).buildProjectSpecSignatureWhere('spec-uuid', {
+        userId: 'user-uuid',
+      });
+
+      expect(where).toEqual({
+        projectSpecId: 'spec-uuid',
+        userId: 'user-uuid',
+      });
     });
   });
 

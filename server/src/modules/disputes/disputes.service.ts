@@ -1622,12 +1622,10 @@ export class DisputesService {
 
       const allowedEscrowStatuses = parentDisputeId
         ? [EscrowStatus.FUNDED, EscrowStatus.DISPUTED]
-        : [EscrowStatus.FUNDED, EscrowStatus.RELEASED]; // Cho phép RELEASED (đã trả tiền)
+        : [EscrowStatus.FUNDED, EscrowStatus.DISPUTED];
 
       if (!allowedEscrowStatuses.includes(escrow.status)) {
-        if (escrow.status !== EscrowStatus.RELEASED) {
-          throw new BadRequestException('Escrow is not in valid state for dispute');
-        }
+        throw new BadRequestException('Escrow is not in valid state for dispute');
       }
 
       const executionSignal = await this.collectMilestoneExecutionSignal(
@@ -2233,9 +2231,9 @@ export class DisputesService {
 
     const allowedEscrowStatuses = parentDisputeId
       ? [EscrowStatus.FUNDED, EscrowStatus.DISPUTED]
-      : [EscrowStatus.FUNDED, EscrowStatus.RELEASED];
+      : [EscrowStatus.FUNDED, EscrowStatus.DISPUTED];
 
-    if (!allowedEscrowStatuses.includes(escrow.status) && escrow.status !== EscrowStatus.RELEASED) {
+    if (!allowedEscrowStatuses.includes(escrow.status)) {
       throw new BadRequestException('Escrow is not in valid state for dispute');
     }
 
@@ -4061,15 +4059,11 @@ export class DisputesService {
       }
 
       case DisputeCategory.PAYMENT: {
-        const validEscrowStatuses = [
-          EscrowStatus.FUNDED,
-          EscrowStatus.RELEASED,
-          EscrowStatus.DISPUTED,
-        ];
+        const validEscrowStatuses = [EscrowStatus.FUNDED, EscrowStatus.DISPUTED];
         if (!validEscrowStatuses.includes(escrow.status)) {
           return {
             allowed: false,
-            reason: 'Payment disputes require valid escrow context (FUNDED/RELEASED/DISPUTED).',
+            reason: 'Payment disputes require valid escrow context (FUNDED/DISPUTED).',
           };
         }
         if (!executionSignal.hasMeaningfulWork) {
