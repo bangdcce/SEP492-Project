@@ -17,6 +17,9 @@ interface SignUpPageProps {
   onSignUpSuccess?: () => void;
 }
 
+const CUSTOM_DOMAIN_PREFIX = "__other_domain__:";
+const CUSTOM_SKILL_PREFIX = "__other_skill__:";
+
 type UserRole = 'client' | 'broker' | 'freelancer' | 'staff';
 
 export function SignUpPage({
@@ -37,6 +40,8 @@ export function SignUpPage({
     recaptchaToken: "",
     domains: [] as string[], // Domain IDs (UUIDs)
     skills: [] as string[], // Skill IDs (UUIDs)
+    customDomains: [] as string[],
+    customSkills: [] as string[],
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
@@ -48,6 +53,8 @@ export function SignUpPage({
   const [availableSkills, setAvailableSkills] = useState<Skill[]>([]);
   const [loadingDomains, setLoadingDomains] = useState(false);
   const [loadingSkills, setLoadingSkills] = useState(false);
+  const [customDomainInput, setCustomDomainInput] = useState("");
+  const [customSkillInput, setCustomSkillInput] = useState("");
 
   // Fetch domains when entering step 3
   useEffect(() => {
@@ -158,12 +165,12 @@ export function SignUpPage({
 
   // Check if Step 3 (Domain Selection) is valid
   const isStep3Valid = () => {
-    return formData.domains.length > 0;
+    return formData.domains.length > 0 || formData.customDomains.length > 0;
   };
 
   // Check if Step 4 (Skill Selection) is valid
   const isStep4Valid = () => {
-    return formData.skills.length > 0;
+    return formData.skills.length > 0 || formData.customSkills.length > 0;
   };
 
   // Shared function to perform the actual sign up API call
@@ -192,8 +199,17 @@ export function SignUpPage({
         formData.role === 'broker' ||
         formData.role === 'staff'
       ) {
-        if (formData.domains.length > 0) payload.domainIds = formData.domains;
-        if (formData.skills.length > 0) payload.skillIds = formData.skills;
+        const mergedDomainIds = [
+          ...formData.domains,
+          ...formData.customDomains.map((value) => `${CUSTOM_DOMAIN_PREFIX}${value}`),
+        ];
+        const mergedSkillIds = [
+          ...formData.skills,
+          ...formData.customSkills.map((value) => `${CUSTOM_SKILL_PREFIX}${value}`),
+        ];
+
+        if (mergedDomainIds.length > 0) payload.domainIds = mergedDomainIds;
+        if (mergedSkillIds.length > 0) payload.skillIds = mergedSkillIds;
       }
 
       await signUp(payload);
@@ -425,7 +441,7 @@ export function SignUpPage({
   };
 
   const handleDomainNext = () => {
-    if (formData.domains.length === 0) {
+    if (formData.domains.length === 0 && formData.customDomains.length === 0) {
       setErrors({ domains: "Please select at least one domain" });
       return;
     }
@@ -433,7 +449,7 @@ export function SignUpPage({
   };
 
   const handleSkillsNext = () => {
-    if (formData.skills.length === 0) {
+    if (formData.skills.length === 0 && formData.customSkills.length === 0) {
       setErrors({ skills: "Please select at least one skill" });
       return;
     }
@@ -459,6 +475,95 @@ export function SignUpPage({
         : [...prev.skills, skill],
     }));
     if (errors.skills) setErrors((prev) => ({ ...prev, skills: "" }));
+  };
+
+  const sanitizeCustomLabel = (value: string) =>
+    value
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const addCustomDomain = () => {
+    const value = sanitizeCustomLabel(customDomainInput);
+    if (!value) return;
+
+    if (value.length < 2) {
+      setErrors((prev) => ({ ...prev, domains: "Custom domain must be at least 2 characters" }));
+      return;
+    }
+
+    if (formData.customDomains.length >= 5) {
+      setErrors((prev) => ({ ...prev, domains: "You can add up to 5 custom domains" }));
+      return;
+    }
+
+    const normalizedValue = value.toLowerCase();
+    const duplicateInMaster = availableDomains.some(
+      (domain) => domain.name.toLowerCase() === normalizedValue,
+    );
+    const duplicateInCustom = formData.customDomains.some(
+      (domain) => domain.toLowerCase() === normalizedValue,
+    );
+
+    if (duplicateInMaster || duplicateInCustom) {
+      setErrors((prev) => ({ ...prev, domains: "This domain already exists" }));
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      customDomains: [...prev.customDomains, value],
+    }));
+    setCustomDomainInput("");
+    if (errors.domains) setErrors((prev) => ({ ...prev, domains: "" }));
+  };
+
+  const removeCustomDomain = (domainName: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      customDomains: prev.customDomains.filter((domain) => domain !== domainName),
+    }));
+  };
+
+  const addCustomSkill = () => {
+    const value = sanitizeCustomLabel(customSkillInput);
+    if (!value) return;
+
+    if (value.length < 2) {
+      setErrors((prev) => ({ ...prev, skills: "Custom skill must be at least 2 characters" }));
+      return;
+    }
+
+    if (formData.customSkills.length >= 5) {
+      setErrors((prev) => ({ ...prev, skills: "You can add up to 5 custom skills" }));
+      return;
+    }
+
+    const normalizedValue = value.toLowerCase();
+    const duplicateInMaster = availableSkills.some(
+      (skill) => skill.name.toLowerCase() === normalizedValue,
+    );
+    const duplicateInCustom = formData.customSkills.some(
+      (skill) => skill.toLowerCase() === normalizedValue,
+    );
+
+    if (duplicateInMaster || duplicateInCustom) {
+      setErrors((prev) => ({ ...prev, skills: "This skill already exists" }));
+      return;
+    }
+
+    setFormData((prev) => ({
+      ...prev,
+      customSkills: [...prev.customSkills, value],
+    }));
+    setCustomSkillInput("");
+    if (errors.skills) setErrors((prev) => ({ ...prev, skills: "" }));
+  };
+
+  const removeCustomSkill = (skillName: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      customSkills: prev.customSkills.filter((skill) => skill !== skillName),
+    }));
   };
 
   const handleBackToRoleSelection = () => {
@@ -1278,6 +1383,110 @@ export function SignUpPage({
                     </p>
                   </div>
                 )}
+
+                <div
+                  style={{
+                    marginTop: "1rem",
+                    border: "1px dashed var(--auth-border)",
+                    borderRadius: "12px",
+                    padding: "0.875rem",
+                    backgroundColor: "var(--auth-input-bg)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.8125rem",
+                      fontWeight: 600,
+                      color: "var(--auth-text)",
+                      marginBottom: "0.5rem",
+                    }}
+                  >
+                    Can't find your domain? Add your own
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <input
+                      type="text"
+                      value={customDomainInput}
+                      onChange={(e) => setCustomDomainInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addCustomDomain();
+                        }
+                      }}
+                      placeholder="Type custom domain..."
+                      style={{
+                        flex: 1,
+                        padding: "0.625rem 0.75rem",
+                        borderRadius: "8px",
+                        border: "1px solid var(--auth-border)",
+                        backgroundColor: "white",
+                        color: "var(--auth-text)",
+                        fontSize: "0.875rem",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomDomain}
+                      style={{
+                        padding: "0.625rem 0.875rem",
+                        borderRadius: "8px",
+                        border: "1px solid var(--auth-primary)",
+                        color: "var(--auth-primary)",
+                        backgroundColor: "transparent",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  {formData.customDomains.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: "0.625rem",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      {formData.customDomains.map((domainName) => (
+                        <div
+                          key={domainName}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                            borderRadius: "999px",
+                            border: "1px solid var(--auth-primary)",
+                            color: "var(--auth-primary)",
+                            padding: "0.25rem 0.625rem",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {domainName}
+                          <button
+                            type="button"
+                            onClick={() => removeCustomDomain(domainName)}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: "var(--auth-primary)",
+                              cursor: "pointer",
+                              padding: 0,
+                              fontWeight: 700,
+                            }}
+                          >
+                            x
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {errors.domains && (
                   <p
                     style={{
@@ -1390,6 +1599,110 @@ export function SignUpPage({
                     ))}
                   </div>
                 )}
+
+                <div
+                  style={{
+                    marginTop: "1rem",
+                    border: "1px dashed var(--auth-border)",
+                    borderRadius: "12px",
+                    padding: "0.875rem",
+                    backgroundColor: "var(--auth-input-bg)",
+                  }}
+                >
+                  <div
+                    style={{
+                      fontSize: "0.8125rem",
+                      fontWeight: 600,
+                      color: "var(--auth-text)",
+                      marginBottom: "0.5rem",
+                    }}
+                  >
+                    Can't find your skill? Add your own
+                  </div>
+                  <div style={{ display: "flex", gap: "0.5rem" }}>
+                    <input
+                      type="text"
+                      value={customSkillInput}
+                      onChange={(e) => setCustomSkillInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          addCustomSkill();
+                        }
+                      }}
+                      placeholder="Type custom skill..."
+                      style={{
+                        flex: 1,
+                        padding: "0.625rem 0.75rem",
+                        borderRadius: "8px",
+                        border: "1px solid var(--auth-border)",
+                        backgroundColor: "white",
+                        color: "var(--auth-text)",
+                        fontSize: "0.875rem",
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={addCustomSkill}
+                      style={{
+                        padding: "0.625rem 0.875rem",
+                        borderRadius: "8px",
+                        border: "1px solid var(--auth-primary)",
+                        color: "var(--auth-primary)",
+                        backgroundColor: "transparent",
+                        fontWeight: 600,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Add
+                    </button>
+                  </div>
+
+                  {formData.customSkills.length > 0 && (
+                    <div
+                      style={{
+                        marginTop: "0.625rem",
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "0.5rem",
+                      }}
+                    >
+                      {formData.customSkills.map((skillName) => (
+                        <div
+                          key={skillName}
+                          style={{
+                            display: "inline-flex",
+                            alignItems: "center",
+                            gap: "0.5rem",
+                            borderRadius: "999px",
+                            border: "1px solid var(--auth-primary)",
+                            color: "var(--auth-primary)",
+                            padding: "0.25rem 0.625rem",
+                            fontSize: "0.75rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          {skillName}
+                          <button
+                            type="button"
+                            onClick={() => removeCustomSkill(skillName)}
+                            style={{
+                              border: "none",
+                              background: "transparent",
+                              color: "var(--auth-primary)",
+                              cursor: "pointer",
+                              padding: 0,
+                              fontWeight: 700,
+                            }}
+                          >
+                            x
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
                 {errors.skills && (
                   <p
                     style={{
