@@ -1,0 +1,196 @@
+@startuml Invite_To_Request_Class_Diagram
+title Invite To Request - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class InviteModal {
+    - selectedRequestId: string
+    - message: string
+    - myRequests: any[]
+    - isLoadingRequests: boolean
+    - isSending: boolean
+    --
+    + InviteModal(props: InviteModalProps): JSX.Element
+    + handleInvite(): Promise<void>
+}
+
+class discoveryApi {
+    --
+    + inviteBroker(requestId: string, brokerId: string, message?: string): Promise<any>
+    + inviteFreelancer(requestId: string, freelancerId: string, message?: string): Promise<any>
+    ...
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    - setupInterceptors()
+    - isRefreshEndpoint(url?: string): boolean
+    - isPublicAuthEndpoint(url?: string): boolean
+    - getAuthErrorCode(error: unknown): string | null
+    - shouldAttemptSessionReconcile(error: unknown): boolean
+    - reconcileSessionSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class RolesGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean>
+}
+
+class ProjectRequestsController {
+    - projectRequestsService: ProjectRequestsService
+    --
+    + inviteBroker(id: string, inviterId: string, brokerId: string, message?: string): Promise<any>
+    + inviteFreelancer(id: string, user: UserEntity, freelancerId: string, message?: string): Promise<any>
+    - assertFilesAllowed(files: MulterFile[] = [])
+    + seedTestData(@Body('clientId')
+    + getProjectRequests(@GetUser()
+    + findMyDrafts(@GetUser('id')
+    + getMyInvitations(@GetUser()
+    + getFreelancerRequestAccessList(@GetUser()
+    + findMatches(@Param('id')
+    + getOne(@Param('id')
+    ...
+}
+
+class Repository {
+    --
+    + findOne(options: any): Promise<any>
+    + create(data: any): any
+    + save(entity: any): Promise<any>
+}
+
+class NotificationsService {
+    --
+    + createNotification(data: CreateNotificationDto): Promise<NotificationEntity>
+    + notifyUsers(userIds: string[], payload: CreateNotificationDto): Promise<void>
+    + list(userId: string, options: { page?: number; limit?: number; unreadOnly?: boolean })
+    + markRead(userId: string, notificationId: string)
+    + markAllRead(userId: string)
+    + create(input: CreateNotificationInput)
+    + createMany(inputs: CreateNotificationInput[])
+}
+
+class RequestChatService {
+    --
+    + createSystemMessage(requestId: string, message: string, options?: RequestSystemMessageOptions): Promise<any>
+    - getRequestAccessContext(requestId: string): Promise<ProjectRequestEntity>
+    - isAcceptedFreelancerParticipant(request: ProjectRequestEntity, userId: string): boolean
+    - normalizeAttachmentsForPersistence(value: unknown): WorkspaceMessageAttachment[]
+    - hydrateAttachments(value: unknown): Promise<WorkspaceMessageAttachment[]>
+    - normalizeEditHistory(value: unknown): WorkspaceMessageEditHistoryEntry[]
+    - toMessage(message: RequestMessageEntity): Promise<RequestChatMessage>
+    - getMessageById(messageId: string): Promise<RequestChatMessage | null>
+    - getParticipantIds(request: ProjectRequestEntity): Promise<string[]>
+    + assertRequestReadAccess(requestId: string, actor: RequestChatActor): Promise<void>
+}
+
+class ProjectRequestEntity {
+    + id: string
+    + clientId: string
+    + brokerId: string | null
+    + title: string
+    + status: RequestStatus
+    + specs: ProjectSpecEntity[]
+    + description: string
+    + budgetRange: string
+    + intendedTimeline: string
+    + requestedDeadline: string | null
+    ...
+    --
+}
+
+class BrokerProposalEntity {
+    + id: string
+    + requestId: string
+    + brokerId: string
+    + status: ProposalStatus
+    + coverLetter: string | null
+    + createdAt: Date
+    + request: ProjectRequestEntity
+    + broker: UserEntity
+    --
+}
+
+class ProjectRequestProposalEntity {
+    + id: string
+    + requestId: string
+    + freelancerId: string
+    + brokerId: string | null
+    + status: string
+    + coverLetter: string | null
+    + proposedBudget: number
+    + estimatedDuration: string
+    + createdAt: Date
+    + request: any
+    ...
+    --
+}
+
+class ProjectRequestsService {
+    - requestRepo: Repository<ProjectRequestEntity>
+    - brokerProposalRepo: Repository<BrokerProposalEntity>
+    - freelancerProposalRepo: Repository<ProjectRequestProposalEntity>
+    - notificationsService: NotificationsService
+    - requestChatService: RequestChatService
+    --
+    + inviteBroker(requestId: string, brokerId: string, message?: string, inviterId?: string): Promise<any>
+    + inviteFreelancer(requestId: string, freelancerId: string, message: string | undefined, actor: Pick<UserEntity, 'id' | 'role'>): Promise<any>
+    - toUserHandle(user?: Pick<UserEntity, 'email'> | null): string | null
+    - getTodayDateInputValue(referenceDate: Date = new Date()
+    - normalizeIntendedTimeline(value?: string): string | undefined
+    - normalizeRequestedDeadline(value?: string | null): string | undefined
+    - safeNormalizeRequestedDeadline(value?: string | null): string | null
+    - getDateKeyFromDate(value?: Date | string | null): string | null
+    - sanitizePlainText(value?: string | null): string
+    - humanizeProductTypeValue(value: string): string
+    ...
+}
+
+InviteModal ..> ApiClient : get("/project-requests")
+InviteModal ..> discoveryApi : inviteBroker()/inviteFreelancer()
+
+discoveryApi ..> ApiClient
+ApiClient ..> ProjectRequestsController
+
+ProjectRequestsController ..> JwtAuthGuard
+ProjectRequestsController ..> RolesGuard
+ProjectRequestsController --> ProjectRequestsService
+
+ProjectRequestsService ..> Repository
+ProjectRequestsService ..> NotificationsService
+ProjectRequestsService ..> RequestChatService
+ProjectRequestsService ..> ProjectRequestEntity
+ProjectRequestsService ..> BrokerProposalEntity
+ProjectRequestsService ..> ProjectRequestProposalEntity
+
+ProjectRequestEntity o-- BrokerProposalEntity
+ProjectRequestEntity o-- ProjectRequestProposalEntity
+
+@enduml

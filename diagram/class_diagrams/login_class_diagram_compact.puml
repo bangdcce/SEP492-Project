@@ -154,13 +154,13 @@ class AuditLogsService {
     + logLogin(actorId: string, metadata: Record<string, unknown>, req?: any): Promise<any>
     + logRegistration(actorId: string, metadata: Record<string, unknown>, req?: RequestContext)
     + logLogout(actorId: string, req?: RequestContext)
+    + logSystemIncident(input: LogSystemIncidentInput)
     + log(payload: AuditLogPayload, repository?: Repository<AuditLogEntity>)
     + logOrThrow(payload: AuditLogPayload, repository?: Repository<AuditLogEntity>)
     + findAll(queryDto: GetAuditLogsDto)
     + findOne(id: string)
     + getTimeline(id: string)
     + exportLogs(queryDto: GetAuditLogsDto): Promise<
-    + extractActorId(req?: RequestContext): string | null
     ...
 }
 

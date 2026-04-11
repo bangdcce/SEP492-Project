@@ -1,0 +1,157 @@
+@startuml View_Public_Request_Class_Diagram
+title View Public Request - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class ProjectRequestsPage {
+    - requests: ProjectRequest[]
+    - loading: boolean
+    - kycStatus: string | null
+    - searchTerm: string
+    --
+    + ProjectRequestsPage(): JSX.Element
+    + fetchRequests(): Promise<void>
+}
+
+class ProjectRequestsTable {
+    - proposalModalOpen: boolean
+    - selectedRequestId: string | null
+    --
+    + ProjectRequestsTable(props: ProjectRequestsTableProps): JSX.Element
+}
+
+class useKYCStatus {
+    --
+    + useKYCStatus(): object
+    + checkKycStatus(): Promise<string>
+}
+
+class KYCBlocker {
+    --
+    + KYCBlocker(props: KYCBlockerProps): JSX.Element
+}
+
+class projectRequestsApi {
+    --
+    + getAll(params?: GetRequestsParams): Promise<ProjectRequest[]>
+    + getById(id: string): Promise<ProjectRequest>
+    + applyToRequest(id: string, coverLetter: string): Promise<any>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class RolesGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean>
+}
+
+class ProjectRequestsController {
+    - projectRequestsService: ProjectRequestsService
+    --
+    + getProjectRequests(user: UserEntity, status?: string): Promise<any>
+}
+
+class ProjectRequestsService {
+    - requestRepo: Repository<ProjectRequestEntity>
+    --
+    + findAll(status?: RequestStatus): Promise<any[]>
+    + findOne(id: string, user?: UserEntity): Promise<any>
+    ...
+}
+
+class ProjectRequest {
+    + id: string
+    + title: string
+    + description: string
+    + status: RequestStatus
+    + budgetRange?: string | null
+    + intendedTimeline?: string | null
+    + techPreferences?: string | null
+    + brokerId?: string | null
+    + client?: object | null
+    + brokerProposals?: object[]
+    --
+}
+
+class ProjectRequestEntity {
+    + id: string
+    + title: string
+    + description: string
+    + status: RequestStatus
+    + budgetRange: string | null
+    + intendedTimeline: string | null
+    + techPreferences: string | null
+    + brokerId: string | null
+    + client: UserEntity
+    + brokerProposals: BrokerProposalEntity[]
+    --
+}
+
+class BrokerProposalEntity {
+    + id: string
+    + requestId: string
+    + brokerId: string
+    + status: ProposalStatus
+    --
+}
+
+class UserEntity {
+    + id: string
+    + fullName: string
+    + email: string
+    + role: UserRole
+    --
+}
+
+ProjectRequestsPage ..> useKYCStatus
+ProjectRequestsPage ..> KYCBlocker
+ProjectRequestsPage ..> projectRequestsApi
+ProjectRequestsPage ..> ProjectRequestsTable
+
+projectRequestsApi ..> ApiClient
+ApiClient ..> ProjectRequestsController
+
+ProjectRequestsController ..> JwtAuthGuard
+ProjectRequestsController ..> RolesGuard
+ProjectRequestsController ..> UserEntity
+ProjectRequestsController --> ProjectRequestsService
+
+ProjectRequestsService ..> ProjectRequestEntity
+ProjectRequestsService ..> BrokerProposalEntity
+ProjectRequestsService ..> UserEntity
+
+ProjectRequestsPage ..> ProjectRequest
+ProjectRequestsTable ..> ProjectRequest
+
+ProjectRequestEntity o-- BrokerProposalEntity
+ProjectRequestEntity o-- UserEntity
+
+@enduml

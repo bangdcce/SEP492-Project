@@ -1,0 +1,148 @@
+@startuml View_Profile_Detail_Class_Diagram
+title View Profile Detail - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class TrustProfilePage {
+    - data: TrustProfileResponse | null
+    - isLoading: boolean
+    - error: string | null
+    --
+    + TrustProfilePage(): JSX.Element
+    + loadTrustProfile(): Promise<void>
+}
+
+class TrustProfileSection {
+    --
+    + TrustProfileSection(props: TrustProfileSectionProps): JSX.Element
+}
+
+class ProjectHistorySection {
+    --
+    + ProjectHistorySection(props: ProjectHistorySectionProps): JSX.Element
+}
+
+class TrustProfileResponse {
+    + user: object
+    + reviews: object[]
+    + projectHistory: object[]
+    + reviewEligibility: object
+    --
+}
+
+class getTrustProfile {
+    --
+    + getTrustProfile(userId: string): Promise<TrustProfileResponse>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class TrustProfilesController {
+    - trustProfilesService: TrustProfilesService
+    --
+    + getTrustProfile(userId: string, viewerUserId?: string): Promise<any>
+}
+
+class Repository {
+    --
+    + findOne(options: any): Promise<any>
+    + find(options?: any): Promise<any[]>
+    + createQueryBuilder(alias: string): any
+}
+
+class TrustProfilesService {
+    - userRepo: Repository<UserEntity>
+    - reviewRepo: Repository<ReviewEntity>
+    - projectRepo: Repository<ProjectEntity>
+    --
+    + getTrustProfile(userId: string, viewerUserId?: string | null): Promise<any>
+    ...
+}
+
+class UserEntity {
+    + id: string
+    + fullName: string
+    + role: UserRole
+    + isVerified: boolean
+    + currentTrustScore: number
+    + badge: string
+    + profile: ProfileEntity
+    --
+}
+
+class ProfileEntity {
+    + avatarUrl: string | null
+    + bio: string | null
+    + skills: string[]
+    --
+}
+
+class ReviewEntity {
+    + id: string
+    + reviewerId: string
+    + targetUserId: string
+    + projectId: string
+    + rating: number
+    + comment: string
+    --
+}
+
+class ProjectEntity {
+    + id: string
+    + title: string
+    + status: ProjectStatus
+    + totalBudget: number
+    + clientId: string
+    + brokerId: string | null
+    + freelancerId: string | null
+    --
+}
+
+TrustProfilePage ..> getTrustProfile
+TrustProfilePage ..> TrustProfileResponse
+TrustProfilePage ..> TrustProfileSection
+TrustProfilePage ..> ProjectHistorySection
+
+getTrustProfile ..> ApiClient
+ApiClient ..> TrustProfilesController
+
+TrustProfilesController ..> JwtAuthGuard
+TrustProfilesController --> TrustProfilesService
+
+TrustProfilesService ..> Repository
+TrustProfilesService ..> UserEntity
+TrustProfilesService ..> ProfileEntity
+TrustProfilesService ..> ReviewEntity
+TrustProfilesService ..> ProjectEntity
+
+UserEntity o-- ProfileEntity
+
+@enduml
