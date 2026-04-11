@@ -2198,25 +2198,24 @@ export function ProjectWorkspace() {
             />
           )}
 
-          {project &&
-          activeMilestone &&
-          ["FUNDED", "RELEASED"].includes(
-            String(activeMilestone.escrow?.status || "").toUpperCase(),
-          ) &&
-          DISPUTE_POST_DELIVERY_MILESTONE_STATUSES.has(
-            String(activeMilestone.status || "").toUpperCase(),
-          ) ? (
+          {project ? (
             <ProjectReviewActionsCard
               project={project}
+              milestones={milestones}
               currentUserId={currentUser?.id}
               currentUserRole={currentRole}
               pathname={location.pathname}
-              milestoneTitle={activeMilestone.title}
+              milestoneTitle={activeMilestone?.title}
               canRaiseDispute={
+                Boolean(activeMilestone) &&
                 !isProjectDisputed &&
                 canRaiseDisputeForMilestone(activeMilestone)
               }
-              onRaiseDispute={() => handleRaiseDispute(activeMilestone.id)}
+              onRaiseDispute={
+                activeMilestone
+                  ? () => handleRaiseDispute(activeMilestone.id)
+                  : undefined
+              }
             />
           ) : null}
 

@@ -261,12 +261,12 @@ describe('SettlementService', () => {
     expect(savedTransactions.some((tx) => tx.type === TransactionType.ESCROW_RELEASE)).toBe(true);
     expect(savedTransactions.some((tx) => tx.type === TransactionType.FEE_DEDUCTION)).toBe(true);
 
-    expect(project.status).toBe(ProjectStatus.COMPLETED);
+    expect(project.status).toBe(ProjectStatus.CANCELED);
     expect(milestone.status).toBe(MilestoneStatus.PAID);
     expect(outcome).toEqual(
       expect.objectContaining({
         result: DisputeResult.SPLIT,
-        projectStatus: ProjectStatus.COMPLETED,
+        projectStatus: ProjectStatus.CANCELED,
         milestoneStatus: MilestoneStatus.PAID,
       }),
     );
@@ -298,7 +298,7 @@ describe('SettlementService', () => {
     jest.spyOn(service as any, 'executeSettlementTransfers').mockResolvedValue({
       result: DisputeResult.WIN_CLIENT,
       projectStatus: ProjectStatus.CANCELED,
-      milestoneStatus: MilestoneStatus.PENDING,
+      milestoneStatus: MilestoneStatus.LOCKED,
       workflowRealtimePayload: {
         projectId: 'project-1',
         requestId: null,
@@ -328,7 +328,7 @@ describe('SettlementService', () => {
         disputeId: dispute.id,
         result: DisputeResult.WIN_CLIENT,
         projectStatus: ProjectStatus.CANCELED,
-        milestoneStatus: MilestoneStatus.PENDING,
+        milestoneStatus: MilestoneStatus.LOCKED,
       }),
     );
     expect(workflowPayload).toEqual(

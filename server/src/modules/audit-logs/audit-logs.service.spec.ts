@@ -210,6 +210,36 @@ describe('AuditLogsService', () => {
     expect(csv).toContain('"dispute-2"');
   });
 
+  it('sanitizes spreadsheet formula payloads in CSV exports', async () => {
+    builder.getMany.mockResolvedValue([
+      {
+        id: 'log-1',
+        action: '=HYPERLINK("http://malicious")',
+        entityType: 'Dispute',
+        entityId: 'dispute-3',
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest',
+        beforeData: null,
+        afterData: null,
+        createdAt: new Date('2026-03-15T10:00:00.000Z'),
+        actor: {
+          id: 'admin-1',
+          email: 'admin@example.com',
+          fullName: 'Admin',
+          role: 'ADMIN',
+        },
+      },
+    ]);
+
+    const exported = await service.exportLogs({
+      format: 'csv',
+      entityId: 'dispute-3',
+    });
+
+    const csv = exported.buffer.toString('utf8');
+    expect(csv).toContain('"\'=HYPERLINK(""http://malicious"")"');
+  });
+
   it('exports XLSX workbooks for audit analytics exports', async () => {
     builder.getMany.mockResolvedValue([
       {

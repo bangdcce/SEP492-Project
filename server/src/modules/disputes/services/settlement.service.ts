@@ -453,12 +453,12 @@ export class SettlementService {
     if (result === DisputeResult.WIN_CLIENT) {
       return {
         projectStatus: ProjectStatus.CANCELED,
-        milestoneStatus: MilestoneStatus.PENDING,
+        milestoneStatus: MilestoneStatus.LOCKED,
       };
     }
 
     return {
-      projectStatus: ProjectStatus.COMPLETED,
+      projectStatus: ProjectStatus.CANCELED,
       milestoneStatus: MilestoneStatus.PAID,
     };
   }

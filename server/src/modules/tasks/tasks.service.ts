@@ -3,6 +3,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  ConflictException,
   Logger,
   InternalServerErrorException,
   Optional,
@@ -14,9 +15,10 @@ import { DataSource, In, IsNull, LessThanOrEqual, Repository } from 'typeorm';
 import sanitizeHtml from 'sanitize-html';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import * as path from 'path';
+import Decimal from 'decimal.js';
 import { TaskEntity, TaskStatus, TaskPriority } from '../../database/entities/task.entity';
 import { MilestoneEntity, MilestoneStatus } from '../../database/entities/milestone.entity';
-import { EscrowEntity } from '../../database/entities/escrow.entity';
+import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { ProjectEntity } from '../../database/entities/project.entity';
 import { UserRole } from '../../database/entities/user.entity';
 import {
@@ -245,6 +247,9 @@ const ACTIVE_SUBMISSION_REVIEW_STATUSES = [
   TaskSubmissionStatus.PENDING,
   TaskSubmissionStatus.PENDING_CLIENT_REVIEW,
 ] as const;
+
+const TASK_ESCROW_FUNDING_LOCK_MESSAGE =
+  'Milestone workspace is locked until escrow is fully funded.';
 
 const TASK_WORKSPACE_RELATIONS = [
   'assignee',
@@ -673,6 +678,8 @@ export class TasksService implements OnModuleInit {
     const parent = await this.getTaskOrThrow(parentTaskId);
     await this.assertMilestoneAllowsTaskWorkById(parent.milestoneId);
 
+    await this.assertMilestoneEscrowFundedForWorkspace(parent.milestoneId);
+
     const subtask = this.taskRepository.create({
       title: data.title,
       description: data.description,
@@ -714,6 +721,8 @@ export class TasksService implements OnModuleInit {
 
     const parent = await this.getTaskOrThrow(parentTaskId);
     await this.assertMilestoneAllowsTaskWorkById(parent.milestoneId);
+
+    await this.assertMilestoneEscrowFundedForWorkspace(parent.milestoneId);
 
     const subtask = await this.taskRepository.findOne({
       where: { id: subtaskId },
@@ -918,6 +927,8 @@ export class TasksService implements OnModuleInit {
 
     const task = await this.getTaskOrThrow(taskId);
 
+    await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
+
     const project = await this.projectRepository.findOne({
       where: { id: task.projectId },
       select: ['id', 'brokerId', 'freelancerId'],
@@ -1040,6 +1051,8 @@ export class TasksService implements OnModuleInit {
 
     const task = await this.getTaskOrThrow(taskId);
     await this.assertMilestoneInteractionAllowed(task.milestoneId);
+
+    await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
 
     const project = await this.projectRepository.findOne({
       where: { id: task.projectId },
@@ -1530,6 +1543,9 @@ export class TasksService implements OnModuleInit {
 
     const previousStatus = task.status;
     const milestoneId = task.milestoneId;
+
+    await this.assertMilestoneEscrowFundedForWorkspace(milestoneId);
+
     const approvedSubmissionCount = await this.submissionRepository.count({
       where: {
         taskId: id,
@@ -1698,6 +1714,38 @@ export class TasksService implements OnModuleInit {
     }
   }
 
+  private async assertMilestoneEscrowFundedForWorkspace(milestoneId: string): Promise<void> {
+    const escrow = await this.escrowRepository.findOne({
+      where: { milestoneId },
+      select: ['id', 'status', 'fundedAmount', 'totalAmount'],
+    });
+
+    if (!escrow) {
+      throw new ConflictException(
+        'Cannot operate on this milestone workspace before escrow is prepared.',
+      );
+    }
+
+    if (escrow.status !== EscrowStatus.FUNDED) {
+      throw new ForbiddenException(TASK_ESCROW_FUNDING_LOCK_MESSAGE);
+    }
+
+    const fundedAmount = new Decimal(escrow.fundedAmount ?? 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+    const totalAmount = new Decimal(escrow.totalAmount ?? 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+
+    if (!fundedAmount.equals(totalAmount)) {
+      throw new ForbiddenException(
+        'Milestone workspace requires full escrow funding before task operations are allowed.',
+      );
+    }
+  }
+
   async createTask(data: {
     title: string;
     description?: string;
@@ -1725,6 +1773,8 @@ export class TasksService implements OnModuleInit {
     if (milestone.projectId !== data.projectId) {
       throw new BadRequestException('Milestone does not belong to this project');
     }
+
+    await this.assertMilestoneEscrowFundedForWorkspace(data.milestoneId);
 
     const normalizedRequesterRole = String(data.requesterRole || '').toUpperCase();
     if (normalizedRequesterRole !== UserRole.BROKER) {
@@ -1812,6 +1862,7 @@ export class TasksService implements OnModuleInit {
     }
 
     await this.assertMilestoneAllowsTaskWorkById(task.milestoneId);
+    await this.assertMilestoneEscrowFundedForWorkspace(task.milestoneId);
 
     // [HISTORY] Check for changes
     if (data.title && data.title !== task.title) {
