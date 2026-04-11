@@ -20,6 +20,10 @@ import { DeliverableType } from '../../../database/entities/milestone.entity';
 import { ProjectSpecStatus } from '../../../database/entities/project-spec.entity';
 
 export class CreateSpecFeatureDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
   @IsString()
   @IsNotEmpty()
   title: string;

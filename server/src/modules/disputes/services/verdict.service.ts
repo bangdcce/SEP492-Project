@@ -717,6 +717,114 @@ export class VerdictService {
     return [EscrowStatus.RELEASED, EscrowStatus.REFUNDED].includes(escrow.status);
   }
 
+  private assertEscrowCanIssueVerdict(escrow: EscrowEntity): void {
+    if (this.hasEscrowFinalized(escrow)) {
+      throw new ConflictException(
+        `Cannot issue verdict because escrow ${escrow.id} is already ${escrow.status}`,
+      );
+    }
+
+    if (![EscrowStatus.FUNDED, EscrowStatus.DISPUTED].includes(escrow.status)) {
+      throw new ConflictException(
+        `Escrow ${escrow.id} is not eligible for verdict transfers (status=${escrow.status})`,
+      );
+    }
+
+    this.getFundedAmount(escrow);
+  }
+
+  private async resolveEscrowFundingSourceWallet(
+    queryRunner: QueryRunner,
+    escrow: EscrowEntity,
+  ): Promise<WalletEntity> {
+    if (escrow.clientWalletId) {
+      const sourceWallet = await queryRunner.manager.findOne(WalletEntity, {
+        where: { id: escrow.clientWalletId },
+        lock: { mode: 'pessimistic_write' },
+      });
+
+      if (sourceWallet) {
+        return sourceWallet;
+      }
+    }
+
+    const project = await queryRunner.manager.findOne(ProjectEntity, {
+      where: { id: escrow.projectId },
+      select: ['id', 'clientId'],
+      lock: { mode: 'pessimistic_read' },
+    });
+
+    if (!project) {
+      throw new NotFoundException(`Project ${escrow.projectId} not found`);
+    }
+
+    const walletWhere: Partial<WalletEntity> & { userId: string } = {
+      userId: project.clientId,
+    };
+
+    if (escrow.currency) {
+      walletWhere.currency = escrow.currency;
+    }
+
+    const fallbackWallet = await queryRunner.manager.findOne(WalletEntity, {
+      where: walletWhere,
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (!fallbackWallet) {
+      throw new NotFoundException(`Client wallet for project ${project.id} not found`);
+    }
+
+    return fallbackWallet;
+  }
+
+  private async debitEscrowHeldBalanceForVerdict(
+    queryRunner: QueryRunner,
+    escrowId: string,
+    amountToDebit: Decimal,
+  ): Promise<void> {
+    if (amountToDebit.lessThanOrEqualTo(0)) {
+      return;
+    }
+
+    const escrow = await queryRunner.manager.findOne(EscrowEntity, {
+      where: { id: escrowId },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (!escrow) {
+      throw new NotFoundException(`Escrow ${escrowId} not found`);
+    }
+
+    if (this.hasEscrowFinalized(escrow)) {
+      throw new ConflictException(`Cannot settle verdict against finalized escrow ${escrow.id}`);
+    }
+
+    const sourceWallet = await this.resolveEscrowFundingSourceWallet(queryRunner, escrow);
+    const heldBalance = new Decimal(sourceWallet.heldBalance || 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+
+    if (heldBalance.lessThan(amountToDebit)) {
+      throw new ConflictException(
+        `Client wallet held balance is insufficient for dispute finalization. Held ${heldBalance.toFixed(2)}, needed ${amountToDebit.toFixed(2)}.`,
+      );
+    }
+
+    sourceWallet.heldBalance = heldBalance
+      .minus(amountToDebit)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toNumber();
+
+    await queryRunner.manager.save(WalletEntity, sourceWallet);
+
+    if (!escrow.clientWalletId) {
+      escrow.clientWalletId = sourceWallet.id;
+      await queryRunner.manager.save(EscrowEntity, escrow);
+    }
+  }
+
   private async createPendingTransfer(
     queryRunner: QueryRunner,
     userId: string,
@@ -773,7 +881,6 @@ export class VerdictService {
     referenceType: string,
     referenceId: string,
     metadata: Record<string, any>,
-    adjustHeldBalance: boolean,
   ): Promise<TransactionEntity | null> {
     if (amount <= 0) {
       return null;
@@ -792,14 +899,6 @@ export class VerdictService {
       .plus(amount)
       .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
       .toNumber();
-
-    if (adjustHeldBalance) {
-      const newHeld = new Decimal(wallet.heldBalance)
-        .minus(amount)
-        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-        .toNumber();
-      wallet.heldBalance = Math.max(0, newHeld);
-    }
 
     if (type === TransactionType.ESCROW_RELEASE) {
       wallet.totalEarned = new Decimal(wallet.totalEarned)
@@ -843,12 +942,20 @@ export class VerdictService {
       project,
     );
 
+    if (!pending) {
+      const totalTransferAmount = new Decimal(distribution.clientAmount || 0)
+        .plus(distribution.freelancerAmount || 0)
+        .plus(distribution.brokerAmount || 0)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+      await this.debitEscrowHeldBalanceForVerdict(queryRunner, escrow.id, totalTransferAmount);
+    }
+
     if (distribution.clientAmount > 0) {
       const type =
         clientSideRecipient === project.clientId
           ? TransactionType.REFUND
           : TransactionType.ESCROW_RELEASE;
-      const adjustHeld = type === TransactionType.REFUND;
       const transaction = pending
         ? await this.createPendingTransfer(
             queryRunner,
@@ -869,7 +976,6 @@ export class VerdictService {
             'Escrow',
             escrow.id,
             metadata,
-            adjustHeld,
           );
       if (transaction) {
         transactions.push(transaction);
@@ -897,7 +1003,6 @@ export class VerdictService {
             'Escrow',
             escrow.id,
             metadata,
-            false,
           );
       if (transaction) {
         transactions.push(transaction);
@@ -925,7 +1030,6 @@ export class VerdictService {
             'Escrow',
             escrow.id,
             metadata,
-            false,
           );
       if (transaction) {
         transactions.push(transaction);
@@ -1034,6 +1138,27 @@ export class VerdictService {
     const completedIds: string[] = [];
     const now = new Date();
 
+    const escrowDebitTotals = new Map<string, Decimal>();
+    for (const transaction of pendingTransactions) {
+      if (transaction.referenceType !== 'Escrow' || !transaction.referenceId) {
+        throw new ConflictException('Pending verdict transfer is missing escrow reference');
+      }
+
+      const txAmount = new Decimal(transaction.amount || 0).toDecimalPlaces(
+        2,
+        Decimal.ROUND_HALF_UP,
+      );
+      const previousAmount = escrowDebitTotals.get(transaction.referenceId) || new Decimal(0);
+      escrowDebitTotals.set(
+        transaction.referenceId,
+        previousAmount.plus(txAmount).toDecimalPlaces(2, Decimal.ROUND_HALF_UP),
+      );
+    }
+
+    for (const [escrowId, debitAmount] of escrowDebitTotals.entries()) {
+      await this.debitEscrowHeldBalanceForVerdict(queryRunner, escrowId, debitAmount);
+    }
+
     for (const transaction of pendingTransactions) {
       const wallet = await queryRunner.manager.findOne(WalletEntity, {
         where: { id: transaction.walletId },
@@ -1057,15 +1182,7 @@ export class VerdictService {
         .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
         .toNumber();
 
-      if (transaction.type === TransactionType.REFUND) {
-        wallet.heldBalance = Math.max(
-          0,
-          new Decimal(wallet.heldBalance)
-            .minus(transaction.amount)
-            .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-            .toNumber(),
-        );
-      } else if (transaction.type === TransactionType.ESCROW_RELEASE) {
+      if (transaction.type === TransactionType.ESCROW_RELEASE) {
         wallet.totalEarned = new Decimal(wallet.totalEarned)
           .plus(transaction.amount)
           .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
@@ -1201,12 +1318,12 @@ export class VerdictService {
       case DisputeResult.WIN_CLIENT:
         return {
           newProjectStatus: ProjectStatus.CANCELED,
-          newMilestoneStatus: MilestoneStatus.PENDING,
+          newMilestoneStatus: MilestoneStatus.LOCKED,
         };
       case DisputeResult.WIN_FREELANCER:
       case DisputeResult.SPLIT:
         return {
-          newProjectStatus: ProjectStatus.COMPLETED,
+          newProjectStatus: ProjectStatus.CANCELED,
           newMilestoneStatus: MilestoneStatus.PAID,
         };
       default:
@@ -1469,9 +1586,18 @@ export class VerdictService {
   }
 
   private getFundedAmount(escrow: EscrowEntity): number {
-    return escrow.fundedAmount && escrow.fundedAmount > 0
-      ? escrow.fundedAmount
-      : escrow.totalAmount;
+    const fundedAmount = new Decimal(escrow.fundedAmount || 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+
+    if (fundedAmount.lessThanOrEqualTo(0)) {
+      throw new ConflictException(
+        `Escrow ${escrow.id} has no funded balance available for dispute verdict distribution`,
+      );
+    }
+
+    return fundedAmount.toNumber();
   }
 
   private resolvePenaltyTargets(dispute: DisputeEntity, faultyParty: string): string[] {
@@ -1636,6 +1762,7 @@ export class VerdictService {
       if (!escrow) {
         throw new NotFoundException('Escrow not found');
       }
+      this.assertEscrowCanIssueVerdict(escrow);
 
       const project = await queryRunner.manager.findOne(ProjectEntity, {
         where: { id: dispute.projectId },
@@ -2275,6 +2402,7 @@ export class VerdictService {
       if (!escrow) {
         throw new NotFoundException('Escrow not found');
       }
+      this.assertEscrowCanIssueVerdict(escrow);
 
       const project = await queryRunner.manager.findOne(ProjectEntity, {
         where: { id: dispute.projectId },
