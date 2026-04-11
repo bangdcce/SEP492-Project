@@ -1294,18 +1294,23 @@ export class TasksService implements OnModuleInit {
 
     const previousStatus = task.status;
     const milestoneId = task.milestoneId;
+    const approvedSubmissionCount = await this.submissionRepository.count({
+      where: {
+        taskId: id,
+        status: TaskSubmissionStatus.APPROVED,
+      },
+    });
 
-    if (status === TaskStatus.DONE && previousStatus !== TaskStatus.DONE) {
-      const approvedSubmissionCount = await this.submissionRepository.count({
-        where: {
-          taskId: id,
-          status: TaskSubmissionStatus.APPROVED,
-        },
-      });
+    if (status === TaskStatus.DONE && previousStatus !== TaskStatus.DONE && approvedSubmissionCount === 0) {
+      throw new BadRequestException('Cannot move to DONE without an approved submission.');
+    }
 
-      if (approvedSubmissionCount === 0) {
-        throw new BadRequestException('Cannot move to DONE without an approved submission.');
-      }
+    if (
+      previousStatus === TaskStatus.DONE &&
+      status !== TaskStatus.DONE &&
+      approvedSubmissionCount > 0
+    ) {
+      throw new BadRequestException('Approved tasks cannot be moved out of DONE.');
     }
 
     // [HISTORY] Record status change

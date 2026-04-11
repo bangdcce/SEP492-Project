@@ -632,6 +632,17 @@ export function TaskDetailModal({
       return;
     }
 
+    if (
+      task.status === "DONE" &&
+      newStatus !== "DONE" &&
+      latestApprovedSubmission
+    ) {
+      toast.warning(
+        "Task da duoc approve va hoan tat, khong the doi nguoc khoi DONE.",
+      );
+      return;
+    }
+
     try {
       const result = await updateTaskStatus(task.id, newStatus);
       applyTaskSnapshot({

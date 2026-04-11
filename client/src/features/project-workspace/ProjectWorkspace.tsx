@@ -379,9 +379,9 @@ export function ProjectWorkspace() {
       const rect = element.getBoundingClientRect();
       const footerHeight =
         footerElement instanceof HTMLElement ? footerElement.offsetHeight : 0;
-      const bottomReserve = Math.max(176, footerHeight + 40);
+      const bottomReserve = Math.max(208, footerHeight + 56);
       const availableHeight = Math.floor(window.innerHeight - rect.top - bottomReserve);
-      const nextHeight = Math.max(320, Math.min(440, availableHeight));
+      const nextHeight = Math.max(332, Math.min(388, availableHeight));
 
       setBoardViewportHeight((currentHeight) =>
         currentHeight === nextHeight ? currentHeight : nextHeight,
@@ -1658,6 +1658,17 @@ export function ProjectWorkspace() {
       return;
     }
 
+    if (
+      fromColumn === "DONE" &&
+      toColumn !== "DONE" &&
+      getLatestApprovedSubmission(movedTask)
+    ) {
+      toast.warning(
+        "Task da duoc approve va hoan tat, khong the keo nguoc khoi DONE.",
+      );
+      return;
+    }
+
     const prevBoard = board;
     const movement = moveTaskInBoard(board, {
       fromColumn,
@@ -1779,7 +1790,7 @@ export function ProjectWorkspace() {
   ]);
 
   return (
-    <div className="space-y-8 pb-12">
+    <div className="space-y-8 pb-20">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
@@ -2300,7 +2311,7 @@ export function ProjectWorkspace() {
                 style={
                   boardViewportHeight
                     ? { height: `${boardViewportHeight}px` }
-                    : { height: "22rem" }
+                    : { height: "23rem" }
                 }
               >
                 <div className="flex h-full min-h-0 items-stretch gap-4 overflow-x-auto overflow-y-hidden pb-2 xl:grid xl:grid-cols-4 xl:overflow-x-visible">

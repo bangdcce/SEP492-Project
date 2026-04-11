@@ -30,7 +30,7 @@ function KanbanColumnInner({
     <Droppable droppableId={columnId}>
       {(provided, snapshot) => (
         <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-slate-100/80 shadow-sm">
-          <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-3 py-3">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-200 bg-white/90 px-3 py-2.5">
             <div className="flex items-center gap-2">
               <h2 className="text-xs font-bold uppercase tracking-wide text-slate-500">
                 {title}
@@ -45,7 +45,7 @@ function KanbanColumnInner({
             ref={provided.innerRef}
             {...provided.droppableProps}
             className={cn(
-              "flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3 [scrollbar-gutter:stable] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent hover:scrollbar-thumb-slate-300",
+              "flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto px-2.5 py-2 [scrollbar-gutter:stable] scrollbar-thin scrollbar-thumb-slate-200 scrollbar-track-transparent hover:scrollbar-thumb-slate-300",
               snapshot.isDraggingOver && "bg-teal-50/50",
             )}
           >
@@ -68,10 +68,10 @@ function KanbanColumnInner({
           </div>
 
           {!isReadOnly && canAddTask && (
-            <div className="border-t border-slate-200 bg-white/85 px-3 py-2">
+            <div className="border-t border-slate-200 bg-white/85 px-2.5 py-1.5">
               <button
                 type="button"
-                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-50"
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-50"
                 onClick={onAddTask}
               >
                 <Plus className="h-3.5 w-3.5" />
