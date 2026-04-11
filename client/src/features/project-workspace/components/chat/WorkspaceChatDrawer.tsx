@@ -93,6 +93,8 @@ interface WorkspaceChatDrawerProps {
   workspaceTasks?: Task[];
   availableMilestoneIds?: string[];
   canReviewTasks?: boolean;
+  canBrokerReviewTasks?: boolean;
+  canClientReviewTasks?: boolean;
   canUseTaskCommand?: boolean;
   taskCommandUnavailableMessage?: string | null;
   defaultMilestoneId?: string | null;
@@ -152,6 +154,11 @@ const getStoredCurrentUserId = (): string | undefined => {
   const user = getStoredJson<{ id?: string }>(STORAGE_KEYS.USER);
   if (!user?.id) return undefined;
   return user.id;
+};
+
+const getStoredCurrentUserRole = (): string | null => {
+  const user = getStoredJson<{ role?: string }>(STORAGE_KEYS.USER);
+  return user?.role?.toUpperCase() ?? null;
 };
 
 const normalizeForRiskScan = (content: string): string => {
@@ -1389,6 +1396,8 @@ export function WorkspaceChatDrawer({
   workspaceTasks = [],
   availableMilestoneIds = [],
   canReviewTasks = false,
+  canBrokerReviewTasks,
+  canClientReviewTasks,
   canUseTaskCommand = true,
   taskCommandUnavailableMessage = null,
   defaultMilestoneId = null,
@@ -1432,6 +1441,11 @@ export function WorkspaceChatDrawer({
   const activeSearchQueryRef = useRef("");
 
   const resolvedCurrentUserId = currentUserId ?? getStoredCurrentUserId() ?? null;
+  const resolvedCurrentUserRole = getStoredCurrentUserRole();
+  const canActAsBrokerReviewer =
+    canBrokerReviewTasks ?? resolvedCurrentUserRole === "BROKER";
+  const canActAsClientReviewer =
+    canClientReviewTasks ?? resolvedCurrentUserRole === "CLIENT";
   const resolvedTaskCommandUnavailableMessage =
     taskCommandUnavailableMessage || TASK_COMMAND_FALLBACK_MESSAGE;
   const availableSlashCommands = useMemo(
@@ -1740,17 +1754,19 @@ export function WorkspaceChatDrawer({
     [projectId, workspaceTaskLookup],
   );
 
-  const resolveLatestPendingSubmission = useCallback(
+  const resolveLatestActionableSubmission = useCallback(
     (submissions: TaskSubmission[]): TaskSubmission | null => {
-      const pendingSubmissions = submissions.filter(
-        (submission) => submission.status === "PENDING",
+      const openSubmissions = submissions.filter(
+        (submission) =>
+          submission.status === "PENDING" ||
+          submission.status === "PENDING_CLIENT_REVIEW",
       );
 
-      if (pendingSubmissions.length === 0) {
+      if (openSubmissions.length === 0) {
         return null;
       }
 
-      pendingSubmissions.sort((first, second) => {
+      openSubmissions.sort((first, second) => {
         if (first.version !== second.version) {
           return second.version - first.version;
         }
@@ -1760,9 +1776,23 @@ export function WorkspaceChatDrawer({
         );
       });
 
-      return pendingSubmissions[0];
+      const preferredStatus = canActAsBrokerReviewer && !canActAsClientReviewer
+        ? "PENDING"
+        : canActAsClientReviewer && !canActAsBrokerReviewer
+          ? "PENDING_CLIENT_REVIEW"
+          : null;
+
+      if (preferredStatus) {
+        return (
+          openSubmissions.find(
+            (submission) => submission.status === preferredStatus,
+          ) ?? null
+        );
+      }
+
+      return openSubmissions[0];
     },
-    [],
+    [canActAsBrokerReviewer, canActAsClientReviewer],
   );
 
   const upsertMutatedMessage = useCallback((message: WorkspaceChatMessage) => {
@@ -2232,9 +2262,9 @@ export function WorkspaceChatDrawer({
         }
 
         const submissions = await fetchTaskSubmissions(targetTask.id);
-        const pendingSubmission = resolveLatestPendingSubmission(submissions);
+        const pendingSubmission = resolveLatestActionableSubmission(submissions);
         if (!pendingSubmission) {
-          toast.error("This task does not have a pending submission to review yet.");
+          toast.error("This task does not have a submission waiting for your review yet.");
           return;
         }
 
@@ -2247,7 +2277,11 @@ export function WorkspaceChatDrawer({
         setInputValue("");
         clearReplyTarget();
         closeMentionPopover();
-        toast.success("Task approved successfully!");
+        toast.success(
+          pendingSubmission.status === "PENDING"
+            ? "Broker review completed and sent to client."
+            : "Client approval completed. Task marked DONE.",
+        );
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : "Failed to approve task from command";
@@ -2311,7 +2345,7 @@ export function WorkspaceChatDrawer({
       projectId,
       replyingToMessageId,
       resolvedTaskCommandUnavailableMessage,
-      resolveLatestPendingSubmission,
+      resolveLatestActionableSubmission,
       resolveTaskForApproval,
       resolveTaskMilestoneId,
       sendMessagePayload,

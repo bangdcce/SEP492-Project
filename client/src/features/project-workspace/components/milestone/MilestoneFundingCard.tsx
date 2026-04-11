@@ -27,6 +27,7 @@ interface MilestoneFundingCardProps {
   currency?: string;
   billingSetupHref?: string;
   onFunded?: (result: MilestoneFundingResult) => void;
+  isChatOpen?: boolean;
 }
 
 const escrowBadgeStyles: Record<string, string> = {
@@ -93,6 +94,7 @@ export function MilestoneFundingCard({
   currency,
   billingSetupHref,
   onFunded,
+  isChatOpen = false,
 }: MilestoneFundingCardProps) {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[]>([]);
   const [loadingMethods, setLoadingMethods] = useState(false);
@@ -185,7 +187,13 @@ export function MilestoneFundingCard({
 
   return (
     <section className="overflow-hidden rounded-[1.9rem] border border-slate-200 bg-white shadow-sm">
-      <div className="grid gap-6 px-5 py-5 lg:grid-cols-[1.2fr_0.8fr] lg:px-6">
+      <div
+        className={`grid gap-6 px-5 py-5 lg:px-6 ${
+          isChatOpen
+            ? "xl:grid-cols-[minmax(0,1.15fr)_minmax(20rem,0.85fr)]"
+            : "lg:grid-cols-[1.2fr_0.8fr]"
+        }`}
+      >
         <div className="space-y-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="space-y-2">

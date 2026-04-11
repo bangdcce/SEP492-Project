@@ -32,7 +32,9 @@ export type TaskLink = {
 
 export type TaskSubmissionStatus =
   | "PENDING"
+  | "PENDING_CLIENT_REVIEW"
   | "APPROVED"
+  | "AUTO_APPROVED"
   | "REJECTED"
   | "REQUEST_CHANGES";
 
@@ -163,6 +165,16 @@ export type TaskSubmission = {
   reviewerId?: string | null;
   reviewer?: Assignee | null;
   reviewedAt?: string | null;
+  brokerReviewNote?: string | null;
+  brokerReviewerId?: string | null;
+  brokerReviewer?: Assignee | null;
+  brokerReviewedAt?: string | null;
+  clientReviewNote?: string | null;
+  clientReviewerId?: string | null;
+  clientReviewer?: Assignee | null;
+  clientReviewedAt?: string | null;
+  clientReviewDueAt?: string | null;
+  autoApprovedAt?: string | null;
 };
 
 export type Task = {
