@@ -814,6 +814,80 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       });
       scheduleWorkspaceRefresh();
     },
+    onHearingSupportInvited: (payload) => {
+      const supportRole = payload?.participantRole
+        ? String(payload.participantRole).replace(/_/g, " ").toLowerCase()
+        : "support participant";
+      notify({
+        type: "phase",
+        title: "Support Participant Invited",
+        body: `A ${supportRole} was invited to this hearing.`,
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
+    onHearingReminderSent: (payload) => {
+      if (payload?.userId && payload.userId !== currentUserId) {
+        return;
+      }
+      notify({
+        type: "warning",
+        title: "Hearing Reminder",
+        body: "A hearing reminder was just sent.",
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
+    onHearingPhaseDeadlinesSet: () => {
+      scheduleWorkspaceRefresh();
+    },
+    onHearingStatementDraftSaved: () => {
+      scheduleWorkspaceRefresh();
+    },
+    onHearingModeratorDisconnected: (payload) => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                currentSpeakerRole:
+                  payload?.newSpeakerRole || prev.hearing.currentSpeakerRole,
+              },
+            }
+          : prev,
+      );
+      notify({
+        type: "warning",
+        title: "Moderator Disconnected",
+        body:
+          payload?.message ||
+          "Moderator connection was lost. Speaking permissions are restricted.",
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
+    onHearingModeratorReconnected: (payload) => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                currentSpeakerRole:
+                  payload?.newSpeakerRole || prev.hearing.currentSpeakerRole,
+              },
+            }
+          : prev,
+      );
+      notify({
+        type: "start",
+        title: "Moderator Reconnected",
+        body: payload?.message || "Moderator is back. Session controls were restored.",
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
     onHearingExtended: (payload) => {
       if (payload?.newDurationMinutes) {
         setWorkspace((prev) =>

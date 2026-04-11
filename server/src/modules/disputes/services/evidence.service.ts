@@ -1256,7 +1256,7 @@ export class EvidenceService {
     // Load all non-flagged evidence
     const evidenceList = await this.evidenceRepo.find({
       where: { disputeId, isFlagged: false },
-      order: { createdAt: 'ASC' },
+      order: { uploadedAt: 'ASC' },
     });
 
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -1302,7 +1302,7 @@ export class EvidenceService {
         sha256: evidence.fileHash || '',
         uploadedBy: evidence.uploaderId,
         uploaderRole: evidence.uploaderRole,
-        uploadedAt: evidence.createdAt?.toISOString() || '',
+        uploadedAt: evidence.uploadedAt?.toISOString() || '',
         description: evidence.description || null,
         archivePath,
       });

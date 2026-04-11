@@ -7,6 +7,7 @@ import {
   processRescheduleRequest,
 } from "../../api";
 import { RescheduleRequestStatus, type RescheduleRequest } from "../../types";
+import { useCalendarRealtime } from "../../hooks/useCalendarRealtime";
 
 export const RescheduleNegotiator = () => {
   const [requests, setRequests] = useState<RescheduleRequest[]>([]);
@@ -61,6 +62,16 @@ export const RescheduleNegotiator = () => {
   useEffect(() => {
     setSelectedSlotIndex(null);
   }, [activeRequest?.id]);
+
+  const handleCalendarRealtimeRefresh = useCallback(() => {
+    void loadRequests();
+  }, [loadRequests]);
+
+  useCalendarRealtime({
+    onCalendarRescheduleRequested: handleCalendarRealtimeRefresh,
+    onCalendarRescheduleProcessed: handleCalendarRealtimeRefresh,
+    onCalendarInviteResponded: handleCalendarRealtimeRefresh,
+  });
 
   const formatSlot = (start: string, end: string) => {
     const startDate = new Date(start);
