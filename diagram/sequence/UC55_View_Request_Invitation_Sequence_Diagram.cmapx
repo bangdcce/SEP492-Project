@@ -1,0 +1,6 @@
+<map id="UC55_View_Request_Invitation_Sequence_Diagram_map" name="UC55_View_Request_Invitation_Sequence_Diagram_map">
+<area shape="rect" id="id1" href="User" title="User" alt="" coords="1725,395,1796,408"/>
+<area shape="rect" id="id2" href="Pending" title="Pending" alt="" coords="15,733,98,747"/>
+<area shape="rect" id="id3" href="User" title="User" alt="" coords="1655,473,1746,487"/>
+<area shape="rect" id="id4" href="No" title="No" alt="" coords="85,686,197,699"/>
+</map>

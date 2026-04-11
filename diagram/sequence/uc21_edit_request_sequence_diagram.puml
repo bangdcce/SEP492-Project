@@ -1,0 +1,189 @@
+@startuml UC21_Edit_Request_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-21 Edit Request Sequence Diagram
+
+actor Client
+
+boundary "RequestDetailPage" as DetailPage
+
+boundary "WizardPage" as WizardPage
+
+participant "wizardService" as WizardAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "RolesGuard" as RolesGuard
+
+participant "ProjectRequestsService" as Service
+
+database "Database" as DB
+
+Client -> DetailPage : 1. Open a draft request from "My Requests"
+
+activate Client
+
+activate DetailPage
+
+Client -> DetailPage : 2. Click "Edit Request"
+
+DetailPage --> WizardPage : 3. Navigate to the wizard with the selected request id
+
+activate WizardPage
+
+WizardPage -> WizardAPI : 4. Load the existing request detail
+
+activate WizardAPI
+
+WizardAPI -> ApiClient : 5. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 6. Send GET "/project-requests/{requestId}"
+
+activate Controller
+
+Controller -> JWTGuard : 7. Confirm the client is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 8. Return authenticated client identity
+
+Controller -> Service : 9. Load the stored editable request
+
+activate Service
+
+Service -> DB : 10. Query request and stored wizard answers
+
+activate DB
+
+DB --> Service : 11. Return saved request detail
+
+deactivate DB
+
+Service --> Controller : 12. Return request detail
+
+Controller --> ApiClient : 13. Return server response
+
+ApiClient --> WizardAPI : 14. Return request detail response
+
+WizardAPI --> WizardPage : 15. Pre-fill the wizard fields with stored data
+
+Client -> WizardPage : 16. Change title, description, timeline, budget, features, or files
+
+WizardPage -> WizardPage : 17. Rebuild the updated request payload
+
+Client -> WizardPage : 18. Submit the updated request
+
+WizardPage -> WizardAPI : 19. Call updateRequest(requestId, payload)
+
+WizardAPI -> ApiClient : 20. Forward HTTP request
+
+ApiClient -> Controller : 21. Send PATCH "/project-requests/{requestId}"
+
+Controller -> JWTGuard : 22. Confirm the client is signed in
+
+JWTGuard --> Controller : 23. Return authenticated client identity
+
+deactivate JWTGuard
+
+Controller -> RolesGuard : 24. Confirm the caller has role "CLIENT"
+
+activate RolesGuard
+
+RolesGuard --> Controller : 25. Role check passed
+
+deactivate RolesGuard
+
+Controller -> Service : 26. Update the target request
+
+Service -> DB : 27. Load stored request
+
+activate DB
+
+DB --> Service : 28. Return stored request
+
+deactivate DB
+
+Service -> Service : 29. Validate owner and editable status
+
+Service -> DB : 30. Save edited request fields and related answers
+
+activate DB
+
+DB --> Service : 31. Persist request updates
+
+deactivate DB
+
+Service -> DB : 32. Reload the updated request
+
+activate DB
+
+DB --> Service : 33. Return updated request detail
+
+deactivate DB
+
+Service --> Controller : 34. Return updated request detail
+
+deactivate Service
+
+Controller --> ApiClient : 35. Return server response
+
+deactivate Controller
+
+ApiClient --> WizardAPI : 36. Return update success response
+
+deactivate ApiClient
+
+WizardAPI --> WizardPage : 37. Return updated request detail
+
+deactivate WizardAPI
+
+WizardPage --> Client : 38. Show success message and continue the request flow
+
+deactivate WizardPage
+
+deactivate DetailPage
+
+deactivate Client
+
+@enduml

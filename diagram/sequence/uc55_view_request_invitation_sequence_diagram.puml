@@ -1,0 +1,143 @@
+@startuml UC55_View_Request_Invitation_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-55 View Request Invitation Sequence Diagram
+
+actor user
+
+boundary "MyInvitationsPage" as Page
+
+participant "discoveryApi" as DiscoveryAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "ProjectRequestsService" as Service
+
+database "Database" as DB
+
+user -> Page : 1. Open the "My Invitations" page
+
+activate user
+
+activate Page
+
+Page -> Page : 2. Show loading state and check KYC status banner state
+
+Page -> DiscoveryAPI : 3. Call getMyInvitations()
+
+activate DiscoveryAPI
+
+DiscoveryAPI -> ApiClient : 4. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 5. Send GET "/project-requests/invitations/my"
+
+activate Controller
+
+Controller -> JWTGuard : 6. Confirm the user is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 7. Return authenticated user identity and role
+
+deactivate JWTGuard
+
+Controller -> Service : 8. Load invitations for the current broker or freelancer
+
+activate Service
+
+alt [User role is Broker]
+
+    Service -> DB : 9. Query broker proposals with status "INVITED"
+
+    activate DB
+
+    DB --> Service : 10. Return broker invitations with request and client relations
+
+    deactivate DB
+
+else [User role is Freelancer]
+
+    Service -> DB : 11. Query freelancer proposals with status "INVITED"
+
+    activate DB
+
+    DB --> Service : 12. Return freelancer invitations with request and client relations
+
+    deactivate DB
+
+end
+
+Service --> Controller : 13. Return invitation list sorted by newest first
+
+deactivate Service
+
+Controller --> ApiClient : 14. Return server response
+
+deactivate Controller
+
+ApiClient --> DiscoveryAPI : 15. Return invitation list
+
+deactivate ApiClient
+
+DiscoveryAPI --> Page : 16. Return invitation data to the page
+
+deactivate DiscoveryAPI
+
+alt [No actionable invitations]
+
+    Page --> user : 17. Show empty state and the "Browse Marketplace" button
+
+else [Pending invitations exist]
+
+    Page -> Page : 18. Filter items to status "INVITED"
+
+    Page --> user : 19. Show invitation cards with request title, status, and action buttons
+
+end
+
+deactivate Page
+
+deactivate user
+
+@enduml

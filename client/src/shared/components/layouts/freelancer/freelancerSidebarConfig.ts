@@ -16,7 +16,6 @@ import {
   Scale,
   ShieldCheck,
   FileSignature,
-  FolderOpen,
   WalletCards,
   CreditCard,
 } from "lucide-react";
@@ -42,10 +41,10 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
   },
   {
     id: "find-work",
-    label: "Find Work",
+    label: "Marketplace",
     icon: Search,
-    path: "/freelancer/find-work",
-    description: "Discover new projects",
+    path: "/freelancer/marketplace",
+    description: "Browse phase-3 freelancer hiring requests",
     section: "workspace",
   },
   {
@@ -54,14 +53,6 @@ export const freelancerSidebarMenuItems: FreelancerSidebarMenuItem[] = [
     icon: Inbox,
     path: "/freelancer/invitations",
     description: "Review client invitations",
-    section: "workspace",
-  },
-  {
-    id: "invited-requests",
-    label: "Invited Requests",
-    icon: FolderOpen,
-    path: "/freelancer/requests",
-    description: "Return to request workflow before contract",
     section: "workspace",
   },
   {

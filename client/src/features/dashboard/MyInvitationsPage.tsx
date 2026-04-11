@@ -6,6 +6,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { useKYCStatus } from "@/shared/components/custom/KYCBlocker";
+import { ROUTES } from "@/constants";
 
 export const MyInvitationsPage = () => {
     const [invitations, setInvitations] = useState<any[]>([]);
@@ -34,6 +35,10 @@ export const MyInvitationsPage = () => {
         fetchInvitations();
         checkKycStatus().then(setKycStatus);
     }, []);
+
+    const actionableInvitations = invitations.filter(
+        (invitation) => String(invitation?.status || "").toUpperCase() === "INVITED",
+    );
 
     const handleRespond = async (invitation: any, status: 'ACCEPTED' | 'REJECTED') => {
         const invitationStatus = String(invitation?.status || "").toUpperCase();
@@ -95,23 +100,23 @@ export const MyInvitationsPage = () => {
                 </Card>
             )}
 
-            {invitations.length === 0 ? (
+            {actionableInvitations.length === 0 ? (
                 <Card>
                     <CardContent className="p-10 text-center space-y-4">
                         <div className="text-muted-foreground">You have no invitations yet.</div>
                         <Button
                             variant="outline"
                             onClick={() =>
-                                navigate(isBrokerRoute ? "/broker/marketplace" : "/freelancer/requests")
+                                navigate(isBrokerRoute ? ROUTES.BROKER_MARKETPLACE : ROUTES.FREELANCER_MARKETPLACE)
                             }
                         >
-                            {isBrokerRoute ? "Browse Marketplace" : "View Requests"}
+                            Browse Marketplace
                         </Button>
                     </CardContent>
                 </Card>
             ) : (
                 <div className="space-y-4">
-                    {invitations.map((invitation) => (
+                    {actionableInvitations.map((invitation) => (
                         <InvitationCard 
                             key={invitation.id} 
                             invitation={invitation} 

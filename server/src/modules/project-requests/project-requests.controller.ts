@@ -199,6 +199,14 @@ export class ProjectRequestsController {
     return this.projectRequestsService.getFreelancerRequestAccessList(user.id);
   }
 
+  @Get('freelancer/marketplace')
+  @Roles(UserRole.FREELANCER)
+  @ApiOperation({ summary: 'Get open phase-3 marketplace requests for freelancers' })
+  @ApiResponse({ status: 200, description: 'List of freelancer marketplace requests' })
+  async getFreelancerMarketplaceRequests() {
+    return this.projectRequestsService.getFreelancerMarketplaceRequests();
+  }
+
   @Get(':id/matches')
   @ApiOperation({ summary: 'Find matching brokers for a project request' })
   @ApiResponse({ status: 200 })

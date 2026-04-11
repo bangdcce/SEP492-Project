@@ -2,6 +2,7 @@
 import type { WizardQuestion } from "../services/wizardService";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Label } from "@/shared/components/ui/label";
+import { ScrollArea } from "@/shared/components/ui/scroll-area";
 import { getProductTypeLabel, normalizeProductTypeCode } from "@/shared/utils/productType";
 
 interface StepB4Props {
@@ -69,52 +70,56 @@ export function StepB4({ question, productType, selectedValues, onChange }: Step
   ].filter((section) => section.options.length > 0);
 
   return (
-    <div className="space-y-4">
-      <div className="text-center mb-8">
+    <div className="flex min-h-[26rem] flex-col gap-4">
+      <div className="mb-2 text-center">
         <h2 className="text-2xl font-bold text-primary">{question.label}</h2>
         {question.helpText && <p className="text-muted-foreground mt-2">{question.helpText}</p>}
       </div>
 
-      <div className="space-y-6">
-        {sections.map((section) => (
-          <div key={section.key} className="space-y-3">
-            <div>
-              <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
-                {section.title}
-              </h3>
-              {section.key === "recommended" && normalizedProductType ? (
-                <p className="mt-1 text-sm text-muted-foreground">
-                  These suggestions match the selected product type and will keep the later spec flow more consistent.
-                </p>
-              ) : null}
-            </div>
-
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-              {section.options.map((option) => (
-                <div
-                  key={option.id}
-                  className={`flex items-start space-x-3 rounded-md border p-4 transition-colors ${
-                    selectedValues.includes(option.value)
-                      ? "border-primary bg-primary/5"
-                      : "border-muted"
-                  }`}
-                  onClick={() => handleToggle(option.value)}
-                >
-                  <Checkbox
-                    id={String(option.id)}
-                    checked={selectedValues.includes(option.value)}
-                    onCheckedChange={() => handleToggle(option.value)}
-                  />
-                  <div className="grid w-full cursor-pointer gap-1.5 leading-none">
-                    <Label htmlFor={String(option.id)} className="cursor-pointer font-medium text-base">
-                      {option.label}
-                    </Label>
-                  </div>
+      <div className="min-h-0 flex-1 rounded-2xl border border-slate-200/80 bg-slate-50/40 p-2">
+        <ScrollArea className="h-[52vh] min-h-[18rem] max-h-[32rem] pr-3">
+          <div className="space-y-6 p-2 sm:p-3">
+            {sections.map((section) => (
+              <div key={section.key} className="space-y-3">
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+                    {section.title}
+                  </h3>
+                  {section.key === "recommended" && normalizedProductType ? (
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      These suggestions match the selected product type and will keep the later spec flow more consistent.
+                    </p>
+                  ) : null}
                 </div>
-              ))}
-            </div>
+
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {section.options.map((option) => (
+                    <div
+                      key={option.id}
+                      className={`flex items-start space-x-3 rounded-md border p-4 transition-colors ${
+                        selectedValues.includes(option.value)
+                          ? "border-primary bg-primary/5"
+                          : "border-muted bg-white"
+                      }`}
+                      onClick={() => handleToggle(option.value)}
+                    >
+                      <Checkbox
+                        id={String(option.id)}
+                        checked={selectedValues.includes(option.value)}
+                        onCheckedChange={() => handleToggle(option.value)}
+                      />
+                      <div className="grid w-full cursor-pointer gap-1.5 leading-none">
+                        <Label htmlFor={String(option.id)} className="cursor-pointer font-medium text-base">
+                          {option.label}
+                        </Label>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
+        </ScrollArea>
       </div>
     </div>
   );

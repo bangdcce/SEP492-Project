@@ -1,0 +1,163 @@
+@startuml UC32_Cancel_Subscription_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-32 Cancel Subscription Sequence Diagram
+
+actor user
+
+boundary "SubscriptionPage" as Page
+
+boundary "Cancel Subscription Dialog" as CancelDialog
+
+participant "subscriptionsApi" as SubscriptionAPI
+
+participant "apiClient" as ApiClient
+
+participant "SubscriptionsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "SubscriptionsService" as Service
+
+database "Database" as DB
+
+user -> Page : 1. Open the "Subscription" page while premium is active
+
+activate user
+
+activate Page
+
+user -> Page : 2. Click "Cancel Subscription"
+
+Page -> CancelDialog : 3. Open the cancellation dialog
+
+activate CancelDialog
+
+user -> CancelDialog : 4. Optionally enter a reason and click "Yes, Cancel"
+
+CancelDialog -> SubscriptionAPI : 5. Call cancelSubscription(reason)
+
+activate SubscriptionAPI
+
+SubscriptionAPI -> ApiClient : 6. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 7. Send POST "/subscriptions/cancel"
+
+activate Controller
+
+Controller -> JWTGuard : 8. Confirm the user is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 9. Return authenticated user identity
+
+deactivate JWTGuard
+
+Controller -> Service : 10. Cancel the user's current subscription
+
+activate Service
+
+Service -> DB : 11. Find the active subscription for the user
+
+activate DB
+
+DB --> Service : 12. Return active subscription
+
+deactivate DB
+
+Service -> DB : 13. Update cancelAtPeriodEnd, cancelledAt, cancelReason, and status
+
+activate DB
+
+DB --> Service : 14. Persist soft-cancel changes
+
+deactivate DB
+
+Service --> Controller : 15. Return cancelled subscription summary
+
+Controller --> ApiClient : 16. Return server response
+
+ApiClient --> SubscriptionAPI : 17. Return success response with the billing period end date
+
+SubscriptionAPI --> CancelDialog : 18. Return cancellation result
+
+CancelDialog --> Page : 19. Close the dialog and trigger a data refresh
+
+deactivate CancelDialog
+
+Page -> SubscriptionAPI : 20. Reload getMySubscription() to refresh the overview
+
+SubscriptionAPI -> ApiClient : 21. Forward HTTP request
+
+ApiClient -> Controller : 22. Send GET "/subscriptions/me"
+
+Controller -> Service : 23. Load the updated subscription snapshot
+
+Service -> DB : 24. Query the latest subscription state
+
+activate DB
+
+DB --> Service : 25. Return updated subscription data
+
+deactivate DB
+
+Service --> Controller : 26. Return updated subscription snapshot
+
+deactivate Service
+
+Controller --> ApiClient : 27. Return server response
+
+deactivate Controller
+
+ApiClient --> SubscriptionAPI : 28. Return refreshed subscription data
+
+deactivate ApiClient
+
+SubscriptionAPI --> Page : 29. Return refreshed premium status and end-date details
+
+deactivate SubscriptionAPI
+
+Page --> user : 30. Show success message and note that premium stays active until period end
+
+deactivate Page
+
+deactivate user
+
+@enduml

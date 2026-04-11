@@ -1,0 +1,219 @@
+@startuml UC23_Approve_Reject_Application_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-23 Approve/Reject Application Sequence Diagram
+
+actor Client
+
+boundary "RequestDetailPage" as Page
+
+participant "wizardService" as WizardAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "RolesGuard" as RolesGuard
+
+participant "ProjectRequestsService" as Service
+
+database "Database" as DB
+
+Client -> Page : 1. Open the request in phase 3 "Freelancer Recommendations"
+
+activate Client
+
+activate Page
+
+Page -> WizardAPI : 2. Load request detail and pending freelancer recommendations
+
+activate WizardAPI
+
+WizardAPI -> ApiClient : 3. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 4. Send GET "/project-requests/{requestId}"
+
+activate Controller
+
+Controller -> JWTGuard : 5. Confirm the client is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 6. Return authenticated client identity
+
+Controller -> Service : 7. Load request detail with freelancerSelectionSummary
+
+activate Service
+
+Service -> DB : 8. Query request and pending client-approval recommendations
+
+activate DB
+
+DB --> Service : 9. Return request detail
+
+deactivate DB
+
+Service --> Controller : 10. Return request detail
+
+Controller --> ApiClient : 11. Return server response
+
+ApiClient --> WizardAPI : 12. Return request detail response
+
+WizardAPI --> Page : 13. Render recommendation cards with "Approve" and "Reject"
+
+alt [Client clicks "Approve"]
+
+    Client -> Page : 14. Approve a freelancer recommendation
+
+    Page -> WizardAPI : 15. Call approveFreelancerInvite(requestId, proposalId)
+
+    WizardAPI -> ApiClient : 16. Forward HTTP request
+
+    ApiClient -> Controller : 17. Send POST "/project-requests/{requestId}/approve-freelancer-invite"
+
+    Controller -> JWTGuard : 18. Confirm the client is signed in
+
+    JWTGuard --> Controller : 19. Return authenticated client identity
+
+    Controller -> RolesGuard : 20. Confirm the caller has role "CLIENT"
+
+    activate RolesGuard
+
+    RolesGuard --> Controller : 21. Role check passed
+
+    Controller -> Service : 22. Approve the recommendation
+
+    Service -> DB : 23. Load request and target freelancer proposal
+
+    activate DB
+
+    DB --> Service : 24. Return request and proposal state
+
+deactivate DB
+
+    Service -> Service : 25. Validate request ownership and proposal status "PENDING_CLIENT_APPROVAL"
+
+    Service -> DB : 26. Save proposal status as "INVITED"
+
+    activate DB
+
+    DB --> Service : 27. Persist updated proposal
+
+deactivate DB
+
+    Service --> Controller : 28. Return approved recommendation
+
+    Controller --> ApiClient : 29. Return server response
+
+    ApiClient --> WizardAPI : 30. Return approve success response
+
+    WizardAPI --> Page : 31. Return updated recommendation
+
+    Page --> Client : 32. Show that the invitation is now waiting for freelancer response
+
+else [Client clicks "Reject"]
+
+    Client -> Page : 33. Reject a freelancer recommendation
+
+    Page -> WizardAPI : 34. Call rejectFreelancerInvite(requestId, proposalId)
+
+    WizardAPI -> ApiClient : 35. Forward HTTP request
+
+    ApiClient -> Controller : 36. Send POST "/project-requests/{requestId}/reject-freelancer-invite"
+
+    Controller -> JWTGuard : 37. Confirm the client is signed in
+
+    JWTGuard --> Controller : 38. Return authenticated client identity
+
+    deactivate JWTGuard
+
+    Controller -> RolesGuard : 39. Confirm the caller has role "CLIENT"
+
+    RolesGuard --> Controller : 40. Role check passed
+
+    deactivate RolesGuard
+
+    Controller -> Service : 41. Reject the recommendation
+
+    Service -> DB : 42. Load request and target freelancer proposal
+
+    activate DB
+
+    DB --> Service : 43. Return request and proposal state
+
+deactivate DB
+
+    Service -> Service : 44. Validate request ownership and proposal status "PENDING_CLIENT_APPROVAL"
+
+    Service -> DB : 45. Save proposal status as "REJECTED"
+
+    activate DB
+
+    DB --> Service : 46. Persist updated proposal
+
+deactivate DB
+
+    Service --> Controller : 47. Return rejected recommendation
+
+    deactivate Service
+
+    Controller --> ApiClient : 48. Return server response
+
+    deactivate Controller
+
+    ApiClient --> WizardAPI : 49. Return reject success response
+
+    deactivate ApiClient
+
+    WizardAPI --> Page : 50. Return updated recommendation
+
+    deactivate WizardAPI
+
+    Page --> Client : 51. Show that the recommendation has been rejected
+
+end
+
+deactivate Page
+
+deactivate Client
+
+@enduml

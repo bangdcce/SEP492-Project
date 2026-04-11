@@ -34,6 +34,7 @@ export const ROUTES = {
   FREELANCER_PROFILE: "/freelancer/profile",
   FREELANCER_ONBOARDING: "/freelancer/onboarding",
   FREELANCER_KYC_STATUS: "/freelancer/kyc-status",
+  FREELANCER_MARKETPLACE: "/freelancer/marketplace",
   FREELANCER_SUBSCRIPTION: "/freelancer/subscription",
   FREELANCER_SUBSCRIPTION_CHECKOUT: "/freelancer/subscription/checkout",
   FREELANCER_BILLING: "/freelancer/billing",

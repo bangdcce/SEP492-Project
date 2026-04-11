@@ -1,0 +1,167 @@
+@startuml UC22_View_Application_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-22 View Application Sequence Diagram
+
+actor user
+
+boundary "MyInvitationsPage" as ListPage
+
+boundary "InvitationDetailsPage" as DetailPage
+
+participant "discoveryApi" as DiscoveryAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "ProjectRequestsService" as Service
+
+database "Database" as DB
+
+user -> ListPage : 1. Open "My Invitations"
+
+activate user
+
+activate ListPage
+
+ListPage -> DiscoveryAPI : 2. Request the current invitation list
+
+activate DiscoveryAPI
+
+DiscoveryAPI -> ApiClient : 3. Forward HTTP request
+
+activate ApiClient
+
+ApiClient -> Controller : 4. Send GET "/project-requests/invitations/my"
+
+activate Controller
+
+Controller -> JWTGuard : 5. Confirm the user is signed in
+
+activate JWTGuard
+
+JWTGuard --> Controller : 6. Return authenticated user identity and role
+
+deactivate JWTGuard
+
+Controller -> Service : 7. Load invitations for the current role
+
+activate Service
+
+alt [Role = Broker]
+
+    Service -> DB : 8. Query broker invitations with status "INVITED"
+
+    activate DB
+
+    DB --> Service : 9. Return broker invitations ordered by newest first
+
+    deactivate DB
+
+else [Role = Freelancer]
+
+    Service -> DB : 10. Query freelancer invitations with status "INVITED"
+
+    activate DB
+
+    DB --> Service : 11. Return freelancer invitations ordered by newest first
+
+    deactivate DB
+
+end
+
+Service --> Controller : 12. Return invitation list
+
+Controller --> ApiClient : 13. Return server response
+
+ApiClient --> DiscoveryAPI : 14. Return invitation list response
+
+DiscoveryAPI --> ListPage : 15. Render invitation cards with request title and status
+
+user -> ListPage : 16. Click the invitation title to open the detail page
+
+ListPage --> DetailPage : 17. Navigate to "Invitation Details"
+
+activate DetailPage
+
+DetailPage -> DiscoveryAPI : 18. Request invitation data again to locate the selected invitation id
+
+DiscoveryAPI -> ApiClient : 19. Forward HTTP request
+
+ApiClient -> Controller : 20. Send GET "/project-requests/invitations/my"
+
+Controller -> Service : 21. Reload invitations for the current role
+
+Service -> DB : 22. Query current invitation list with linked request and client data
+
+activate DB
+
+DB --> Service : 23. Return actionable invitations
+
+deactivate DB
+
+Service --> Controller : 24. Return invitation list
+
+deactivate Service
+
+Controller --> ApiClient : 25. Return server response
+
+deactivate Controller
+
+ApiClient --> DiscoveryAPI : 26. Return invitation list response
+
+deactivate ApiClient
+
+DiscoveryAPI --> DetailPage : 27. Return invitation list payload
+
+deactivate DiscoveryAPI
+
+DetailPage -> DetailPage : 28. Find the selected invitation and render full request information
+
+DetailPage --> user : 29. Show the invitation/application detail with Accept and Deny actions
+
+deactivate DetailPage
+
+deactivate ListPage
+
+deactivate user
+
+@enduml

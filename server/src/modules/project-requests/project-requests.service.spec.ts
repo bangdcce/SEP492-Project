@@ -569,19 +569,9 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
   });
 
   describe('getInvitationsForUser', () => {
-    it('UC54-INV-01 returns broker invitations in descending order for invited, pending, and accepted proposals', async () => {
+    it('UC54-INV-01 returns only broker invitations that are still awaiting a response', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log');
       const brokerInvitations = [
-        {
-          id: 'broker-proposal-2',
-          brokerId: 'broker-1',
-          status: ProposalStatus.ACCEPTED,
-          request: makeRequest({
-            id: 'req-2',
-            title: 'Accepted invitation request',
-          }),
-          createdAt: new Date('2026-03-21T00:00:00.000Z'),
-        },
         {
           id: 'broker-proposal-1',
           brokerId: 'broker-1',
@@ -601,18 +591,14 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(brokerProposalRepo.find).toHaveBeenCalledWith({
         where: {
           brokerId: 'broker-1',
-          status: In([
-            ProposalStatus.INVITED,
-            ProposalStatus.PENDING,
-            ProposalStatus.ACCEPTED,
-          ]),
+          status: ProposalStatus.INVITED,
         },
         relations: ['request', 'request.client'],
         order: { createdAt: 'DESC' },
       });
       expect(result).toEqual(brokerInvitations);
       expect(consoleLogSpy).toHaveBeenCalledWith(
-        'Get My Invitations Successful: BROKER -> 2 invitation(s)',
+        'Get My Invitations Successful: BROKER -> 1 invitation(s)',
       );
     });
 
@@ -731,6 +717,65 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
     });
   });
 
+  describe('getFreelancerMarketplaceRequests', () => {
+    it('UC16-MKT-01 returns only open phase-3 freelancer marketplace requests and masks client contact', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log');
+      requestRepo.find.mockResolvedValue([
+        makeRequest({
+          id: 'req-open',
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+          client: {
+            id: 'client-1',
+            fullName: 'Client Owner',
+            email: 'client@example.com',
+            phoneNumber: '0123456789',
+          } as any,
+          proposals: [],
+        }),
+        makeRequest({
+          id: 'req-selected',
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+          proposals: [
+            {
+              id: 'proposal-accepted',
+              freelancerId: 'freelancer-1',
+              status: 'ACCEPTED',
+            },
+          ] as any,
+        }),
+        makeRequest({
+          id: 'req-no-broker',
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: null,
+        }),
+      ]);
+
+      const result = await service.getFreelancerMarketplaceRequests();
+
+      expect(requestRepo.find).toHaveBeenCalledWith({
+        where: { status: RequestStatus.SPEC_APPROVED },
+        relations: ['client', 'broker', 'proposals'],
+        order: { createdAt: 'DESC' },
+      });
+      expect(result).toHaveLength(1);
+      expect(result[0]).toEqual(
+        expect.objectContaining({
+          id: 'req-open',
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+        }),
+      );
+      expect(result[0].client?.email).toBe('********');
+      expect((result[0].client as any)?.phoneNumber).toBe('********');
+      expect(result[0].proposals).toEqual([]);
+      expect(consoleLogSpy).toHaveBeenCalledWith(
+        'Get Freelancer Marketplace Requests Successful: 1 request(s)',
+      );
+    });
+  });
+
   describe('findOne - client request access', () => {
     it('UC17-DET-01 returns request detail for the owning client without masking client contact data', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log');
@@ -810,11 +855,49 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith('Get Request Detail Successful: "req-1"');
     });
 
-    it('UC17-DET-07 rejects request detail when a freelancer has no invitation or assignment on the request', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error');
+    it('UC17-DET-07 returns a masked phase-3 marketplace preview for freelancers without an invitation', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log');
       requestRepo.findOne.mockResolvedValue(
         makeRequest({
           status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+          client: {
+            id: 'client-1',
+            fullName: 'Client Owner',
+            email: 'client@example.com',
+            phoneNumber: '0123456789',
+          } as any,
+          proposals: [],
+          specs: [
+            {
+              id: 'spec-1',
+              title: 'Locked client spec',
+              status: ProjectSpecStatus.CLIENT_APPROVED,
+              specPhase: SpecPhase.CLIENT_SPEC,
+            },
+          ] as any,
+        }),
+      );
+
+      const result = await service.findOne(
+        'req-1',
+        { id: 'freelancer-9', role: UserRole.FREELANCER } as UserEntity,
+      );
+
+      expect(result.id).toBe('req-1');
+      expect(result.client?.email).toBe('********');
+      expect((result.client as any)?.phoneNumber).toBe('********');
+      expect(result.viewerPermissions?.canViewSpecs).toBe(false);
+      expect(result.specSummary?.clientSpec).toBeNull();
+      expect(consoleLogSpy).toHaveBeenCalledWith('Get Request Detail Successful: "req-1"');
+    });
+
+    it('UC17-DET-08 rejects request detail when a freelancer has no invitation and the request is outside the freelancer marketplace phase', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error');
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          status: RequestStatus.CONTRACT_PENDING,
+          brokerId: 'broker-1',
           proposals: [],
         }),
       );
@@ -823,7 +906,7 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
         service.findOne('req-1', { id: 'freelancer-9', role: UserRole.FREELANCER } as UserEntity),
       ).rejects.toThrow(ForbiddenException);
       expect(consoleErrorSpy).toHaveBeenCalledWith(
-        'Get Request Detail Failed: Forbidden: You are not invited to this request',
+        'Get Request Detail Failed: Forbidden: You can only view freelancer marketplace requests or requests where you are invited',
       );
     });
   });

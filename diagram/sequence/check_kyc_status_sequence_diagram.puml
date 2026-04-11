@@ -1,0 +1,119 @@
+@startuml Check_KYC_Status_Sequence_Diagram
+
+skinparam monochrome true
+skinparam defaultFontColor Black
+skinparam shadowing false
+
+skinparam sequence {
+    ArrowColor Black
+    LifeLineBorderColor Black
+    LifeLineBackgroundColor White
+    ParticipantBorderColor Black
+    ParticipantBackgroundColor #DDDDDD
+    ParticipantFontColor Black
+    ActorBorderColor Black
+    ActorBackgroundColor White
+    ActorFontColor Black
+    GroupHeaderFontColor Black
+    GroupHeaderBackgroundColor White
+    GroupBodyBackgroundColor White
+    GroupBorderColor Black
+}
+
+title Check KYC Status Sequence Diagram
+
+actor User
+boundary "KYCStatusPage" as Page
+participant "apiClient" as API
+participant "KycController" as Controller
+participant "JwtAuthGuard" as JWTGuard
+participant "KycService" as Service
+participant "SupabaseStorage" as Storage
+database "Database" as DB
+
+User -> Page : 1. Open KYC Status page
+activate User
+activate Page
+
+Page -> Page : 2. Show loading indicator
+activate Page
+deactivate Page
+Page -> API : 3. Request KYC status
+activate API
+
+API -> Controller : 4. Forward request to the server
+activate Controller
+
+Controller -> JWTGuard : 5. Confirm the user is signed in
+activate JWTGuard
+JWTGuard --> Controller : 6. Return user identity
+deactivate JWTGuard
+
+Controller -> Service : 7. Request the latest KYC record
+activate Service
+
+Service -> DB : 8. Find the user's most recent KYC record
+activate DB
+DB --> Service : 9. Return KYC record (or none)
+deactivate DB
+
+alt [No KYC Record]
+    Service --> Controller : 10. Return NOT_STARTED status
+   
+
+    Controller --> API : 11. Return response
+    
+
+    API --> Page : 12. Return status data
+
+
+    Page --> User : 13. Show "Not verified" and a Start button
+
+else [KYC Record Exists]
+    Service -> Storage : 14. Get signed URL for document front image
+    activate Storage
+    Storage --> Service : 15. Return signed URL
+    deactivate Storage
+
+    Service -> Storage : 16. Get signed URL for document back image
+    activate Storage
+    Storage --> Service : 17. Return signed URL
+    deactivate Storage
+
+    Service -> Storage : 18. Get signed URL for selfie image
+    activate Storage
+    Storage --> Service : 19. Return signed URL
+    deactivate Storage
+
+    Service -> Service : 20. Remove sensitive fields from the response
+activate Service
+deactivate Service
+    Service -> Service : 21. Build the response payload
+activate Service
+deactivate Service
+    Service --> Controller : 22. Return KYC status data
+    deactivate Service
+
+    Controller --> API : 23. Return success response
+    deactivate Controller
+
+    API --> Page : 24. Return KYC status data
+    deactivate API
+
+    Page -> Page : 25. Update the screen
+activate Page
+deactivate Page
+    alt [Status: PENDING]
+        Page --> User : 26. Show "Verification in progress"
+    else [Status: APPROVED]
+        Page --> User : 27. Show "Identity verified"
+    else [Status: REJECTED]
+        Page --> User : 28. Show "Verification failed" and the reason
+deactivate Page
+deactivate User
+    end
+end
+
+
+
+@enduml

@@ -1,0 +1,155 @@
+@startuml UC63_View_Public_Request_Sequence_Diagram
+
+skinparam monochrome true
+
+skinparam defaultFontColor Black
+
+skinparam shadowing false
+
+skinparam sequence {
+
+    ArrowColor Black
+
+    LifeLineBorderColor Black
+
+    LifeLineBackgroundColor White
+
+    ParticipantBorderColor Black
+
+    ParticipantBackgroundColor #DDDDDD
+
+    ParticipantFontColor Black
+
+    ActorBorderColor Black
+
+    ActorBackgroundColor White
+
+    ActorFontColor Black
+
+    GroupHeaderFontColor Black
+
+    GroupHeaderBackgroundColor White
+
+    GroupBodyBackgroundColor White
+
+    GroupBorderColor Black
+
+}
+
+title UC-63 View Public Request Sequence Diagram
+
+actor user
+
+boundary "Marketplace Page" as Page
+
+participant "projectRequestsApi" as RequestsAPI
+
+participant "apiClient" as ApiClient
+
+participant "ProjectRequestsController" as Controller
+
+participant "JwtAuthGuard" as JWTGuard
+
+participant "ProjectRequestsService" as Service
+
+database "Database" as DB
+
+user -> Page : 1. Open the marketplace page
+
+activate user
+
+activate Page
+
+Page -> Page : 2. Show loading state and search/filter controls
+
+alt [User is Broker]
+
+    Page -> RequestsAPI : 3. Call getAll() from the "Broker Marketplace" page
+
+    activate RequestsAPI
+
+    RequestsAPI -> ApiClient : 4. Forward HTTP request
+
+    activate ApiClient
+
+    ApiClient -> Controller : 5. Send GET "/project-requests"
+
+    activate Controller
+
+    Controller -> JWTGuard : 6. Confirm the broker is signed in
+
+    activate JWTGuard
+
+    JWTGuard --> Controller : 7. Return authenticated broker identity and role
+
+    Controller -> Service : 8. Load marketplace-visible broker requests
+
+    activate Service
+
+    Service -> DB : 9. Query requests and proposal data for broker marketplace display
+
+    activate DB
+
+    DB --> Service : 10. Return project request list
+
+    deactivate DB
+
+    Service --> Controller : 11. Return broker marketplace data
+
+    Controller --> ApiClient : 12. Return server response
+
+    ApiClient --> RequestsAPI : 13. Return request list
+
+    RequestsAPI --> Page : 14. Return marketplace requests
+
+    Page --> user : 15. Show the "Broker Marketplace" table and search results
+
+else [User is Freelancer]
+
+    Page -> RequestsAPI : 16. Call getFreelancerMarketplace()
+
+    RequestsAPI -> ApiClient : 17. Forward HTTP request
+
+    ApiClient -> Controller : 18. Send GET "/project-requests/freelancer/marketplace"
+
+    Controller -> JWTGuard : 19. Confirm the freelancer is signed in
+
+    JWTGuard --> Controller : 20. Return authenticated freelancer identity and role
+
+    deactivate JWTGuard
+
+    Controller -> Service : 21. Load open phase-3 freelancer marketplace requests
+
+    Service -> DB : 22. Query SPEC_APPROVED requests that already have a broker and no accepted freelancer
+
+    activate DB
+
+    DB --> Service : 23. Return freelancer marketplace requests
+
+    deactivate DB
+
+    Service --> Controller : 24. Return masked phase-3 request list
+
+    deactivate Service
+
+    Controller --> ApiClient : 25. Return server response
+
+    deactivate Controller
+
+    ApiClient --> RequestsAPI : 26. Return request list
+
+    deactivate ApiClient
+
+    RequestsAPI --> Page : 27. Return freelancer marketplace requests
+
+    deactivate RequestsAPI
+
+    Page --> user : 28. Show the "Freelancer Marketplace" table and search results
+
+end
+
+deactivate Page
+
+deactivate user
+
+@enduml
