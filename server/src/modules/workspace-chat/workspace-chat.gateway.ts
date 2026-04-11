@@ -226,12 +226,6 @@ export class WorkspaceChatGateway
       this.logger.log(
         `sendProjectMessage received: projectId=${dto.projectId}, userId=${user.id}, socketId=${client.id}`,
       );
-      console.log('[WorkspaceChatGateway] sendProjectMessage payload', {
-        projectId: dto.projectId,
-        senderId: user.id,
-        taskId: dto.taskId ?? null,
-        attachmentCount: dto.attachments?.length ?? 0,
-      });
 
       const savedMessage = await this.workspaceChatService.saveMessage(
         dto.projectId,

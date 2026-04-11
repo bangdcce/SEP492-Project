@@ -1,10 +1,12 @@
+import { memo } from "react";
 import { Draggable } from "@hello-pangea/dnd";
 import { GripVertical, Clock, Flag, Layout } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Task, TaskAttachment } from "../../types";
-
-const TASK_ATTACHMENTS_BUCKET = "task-attachments";
-const IMAGE_EXTENSION_PATTERN = /\.(png|jpe?g|gif|webp)(?:$|[?#])/i;
+import type { Task } from "../../types";
+import {
+  isTaskImageAttachment,
+  resolveTaskAttachmentUrl,
+} from "../../utils/task-attachments";
 
 const getAssigneeVisuals = (task: Task) => {
   const name = task.assignee?.fullName || task.assignee?.email || "Unassigned";
@@ -38,44 +40,6 @@ const PRIORITY_STYLES: Record<string, { color: string; bg: string }> = {
   URGENT: { color: "text-red-600", bg: "bg-red-50" },
 };
 
-const isImageAttachment = (attachment: TaskAttachment) => {
-  const fileType = `${attachment.fileType || ""}`.toLowerCase();
-  const fileName = `${attachment.fileName || ""}`.toLowerCase();
-  const url = `${attachment.url || ""}`.toLowerCase();
-
-  return (
-    fileType.includes("image/") ||
-    fileType === "image" ||
-    IMAGE_EXTENSION_PATTERN.test(fileName) ||
-    IMAGE_EXTENSION_PATTERN.test(url)
-  );
-};
-
-const resolveAttachmentUrl = (rawUrl?: string | null) => {
-  const trimmed = `${rawUrl || ""}`.trim();
-  if (!trimmed) return null;
-
-  if (/^(https?:)?\/\//i.test(trimmed) || trimmed.startsWith("data:")) {
-    return trimmed;
-  }
-
-  const supabaseBaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim().replace(/\/+$/, "");
-  if (!supabaseBaseUrl) {
-    return trimmed;
-  }
-
-  const normalizedPath = trimmed.replace(/^\/+/, "");
-  if (normalizedPath.startsWith("storage/v1/object/public/")) {
-    return `${supabaseBaseUrl}/${normalizedPath}`;
-  }
-
-  if (normalizedPath.startsWith(`${TASK_ATTACHMENTS_BUCKET}/`)) {
-    return `${supabaseBaseUrl}/storage/v1/object/public/${normalizedPath}`;
-  }
-
-  return `${supabaseBaseUrl}/storage/v1/object/public/${TASK_ATTACHMENTS_BUCKET}/${normalizedPath}`;
-};
-
 type TaskCardProps = {
   task: Task;
   index: number;
@@ -83,9 +47,14 @@ type TaskCardProps = {
   isReadOnly?: boolean;
 };
 
-export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardProps) {
-  const coverAttachment = task.attachments?.find(isImageAttachment);
-  const coverImageUrl = resolveAttachmentUrl(coverAttachment?.url);
+function TaskCardInner({
+  task,
+  index,
+  onClick,
+  isReadOnly = false,
+}: TaskCardProps) {
+  const coverAttachment = task.attachments?.find(isTaskImageAttachment);
+  const coverImageUrl = resolveTaskAttachmentUrl(coverAttachment?.url);
 
   return (
     <Draggable draggableId={task.id} index={index} isDragDisabled={isReadOnly}>
@@ -110,11 +79,11 @@ export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardP
           )}
 
           {coverImageUrl ? (
-            <div className="w-full border-b border-gray-200">
+            <div className="relative w-full overflow-hidden border-b border-gray-200 bg-slate-100 aspect-[16/9]">
               <img
                 src={coverImageUrl}
                 alt={coverAttachment?.fileName || `${task.title} cover`}
-                className="pointer-events-none h-32 w-full rounded-t-md object-cover select-none"
+                className="pointer-events-none absolute inset-0 h-full w-full select-none object-cover"
                 loading="lazy"
                 decoding="async"
                 draggable={false}
@@ -208,3 +177,5 @@ export function TaskCard({ task, index, onClick, isReadOnly = false }: TaskCardP
     </Draggable>
   );
 }
+
+export const TaskCard = memo(TaskCardInner);
