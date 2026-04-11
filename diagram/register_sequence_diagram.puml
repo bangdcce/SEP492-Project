@@ -27,174 +27,236 @@ title User Registration Sequence Diagram
 
 actor "User" as Actor
 boundary "SignUpPage" as Page
+participant "AuthApi" as AuthApi
+participant "ApiClient" as ApiClient
+participant "CaptchaGuard" as CaptchaGuard
 participant "AuthController" as Controller
 participant "AuthService" as Service
-participant "CaptchaService" as Captcha
 participant "EmailVerificationService" as EmailVerify
-participant "EmailService" as EmailSvc
 participant "AuditLogsService" as AuditLogs
 database "Database" as DB
 
-Actor -> Page : 1. Access Sign Up Page
+Actor -> Page : 1. Access the sign up page
 activate Actor
 activate Page
 
-Page -> Page : 2. Render registration form
+Page -> Page : 2. Render the registration form
 activate Page
 deactivate Page
 
-Page --> Actor : 3. Display form (role, email, password, name, phone, legal consent)
+Page --> Actor : 3. Show role, email, password, name, phone, consent, and CAPTCHA fields
 
-Actor -> Page : 4. Select role (CLIENT/BROKER/FREELANCER)
-Page -> Page : 5. Conditionally show skill/domain fields
+Actor -> Page : 4. Select role (CLIENT, BROKER, FREELANCER, or STAFF)
+Page -> Page : 5. Update the form based on selected role
 activate Page
 deactivate Page
 
-alt [Role = BROKER or FREELANCER]
-    Page --> Actor : 6. Display domain & skill selection
+alt [Role = BROKER or FREELANCER or STAFF]
+    Page --> Actor : 6. Show domain and skill selection
     Actor -> Page : 7. Select domains and skills
+else [Role = CLIENT]
+    Page --> Actor : 6. Keep the basic registration form only
 end
 
-Actor -> Page : 8. Fill form and accept terms
+Actor -> Page : 8. Fill account information and accept legal consent
 Actor -> Page : 9. Complete CAPTCHA
 Actor -> Page : 10. Click "Sign Up"
 
-Page -> Page : 11. Validate email, password, and phone number\nConfirm required consents are checked
+Page -> Page : 11. Validate form data on the client side
 activate Page
 deactivate Page
 
-alt [Form Invalid]
+alt [Form invalid]
     Page --> Actor : 12. Show validation errors
-else [Form Valid]
-
+else [Form valid]
     Page -> Page : 13. Show loading indicator
     activate Page
     deactivate Page
 
-    Page -> Controller : 14. Send sign-up request
+    Page -> AuthApi : 14. Submit registration data
+    activate AuthApi
+    AuthApi -> ApiClient : 15. Forward registration request
+    activate ApiClient
+
+    ApiClient -> Controller : 16. Forward registration request to backend
     activate Controller
 
-    Controller -> Controller : 15. Collect request metadata (IP, device)
-    activate Controller
-    deactivate Controller
+    Controller -> CaptchaGuard : 17. Run CAPTCHA verification before registration handler
+    activate CaptchaGuard
 
-    Controller -> Controller : 16. Validate request data
-    activate Controller
-    deactivate Controller
+    alt [CAPTCHA failed]
+        CaptchaGuard --> Controller : 18. Reject registration request
+        deactivate CaptchaGuard
+        Controller --> ApiClient : 19. Return CAPTCHA error
+        deactivate Controller
+        ApiClient --> AuthApi : 20. Return CAPTCHA error
+        deactivate ApiClient
+        AuthApi --> Page : 21. Return CAPTCHA error
+        deactivate AuthApi
+        Page --> Actor : 22. Show CAPTCHA error
 
-    alt [Invalid Input]
-        Controller --> Page : 17. Return validation error
-        Page --> Actor : 18. Show error message
-    else [Input Valid]
+    else [CAPTCHA passed]
+        CaptchaGuard --> Controller : 18. Allow request to continue
+        deactivate CaptchaGuard
 
-        Controller -> Captcha : 19. Verify CAPTCHA
-        activate Captcha
-        Captcha --> Controller : 20. Return verification result
-        deactivate Captcha
+        Controller -> Controller : 19. Read request metadata such as IP and device
+        activate Controller
+        deactivate Controller
 
-        alt [CAPTCHA Failed]
-            Controller --> Page : 21. Return CAPTCHA error
-            Page --> Actor : 22. Show "Invalid CAPTCHA"
-        else [CAPTCHA Passed]
+        Controller -> Controller : 20. Validate request payload
+        activate Controller
+        deactivate Controller
 
-            Controller -> Service : 23. Create a new account
+        alt [Invalid input]
+            Controller --> ApiClient : 21. Return validation error
+            deactivate Controller
+            ApiClient --> AuthApi : 22. Return validation error
+            deactivate ApiClient
+            AuthApi --> Page : 23. Return validation error
+            deactivate AuthApi
+            Page --> Actor : 24. Show error message
+
+        else [Input valid]
+            Controller -> Service : 21. Create a new account with request metadata
             activate Service
 
-            Service -> DB : 24. Check whether the email is already used
+            Service -> DB : 22. Check whether the email is already used
             activate DB
-            DB --> Service : 25. Return existing user or null
+            DB --> Service : 23. Return existing user or none
             deactivate DB
 
-            alt [Email Already Exists]
-                Service --> Controller : 26. Throw ConflictException
-                Controller --> Page : 27. Return conflict error
+            alt [Email already exists]
+                Service --> Controller : 24. Throw conflict error
+                deactivate Service
+                Controller --> ApiClient : 25. Return conflict response
+                deactivate Controller
+                ApiClient --> AuthApi : 26. Return conflict response
+                deactivate ApiClient
+                AuthApi --> Page : 27. Return email error
+                deactivate AuthApi
                 Page --> Actor : 28. Show "Email already in use"
-            else [Email Available]
 
-                Service -> Service : 29. Confirm Terms and Privacy are accepted
+            else [Email available]
+                Service -> Service : 24. Confirm Terms of Service and Privacy Policy are accepted
                 activate Service
                 deactivate Service
 
-                alt [Legal Consent Not Accepted]
-                    Service --> Controller : 30. Throw ConflictException
-                    Controller --> Page : 31. Return consent error
-                    Page --> Actor : 32. Show "Must accept Terms and Privacy"
-                else [Legal Consent Accepted]
+                alt [Legal consent missing]
+                    Service --> Controller : 25. Throw consent error
+                    deactivate Service
+                    Controller --> ApiClient : 26. Return consent error
+                    deactivate Controller
+                    ApiClient --> AuthApi : 27. Return consent error
+                    deactivate ApiClient
+                    AuthApi --> Page : 28. Return consent error
+                    deactivate AuthApi
+                    Page --> Actor : 29. Show consent error
 
-                    Service -> Service : 33. Hash the password
+                else [Legal consent accepted]
+                    Service -> Service : 25. Hash the password
                     activate Service
-                    Service --> Service : 34. Generate password hash
                     deactivate Service
 
-                    Service -> DB : 35. Create the user account
+                    Service -> DB : 26. Create and save the user account
                     activate DB
-                    Service -> DB : 36. Save the user account
-                    DB --> Service : 37. Return created user
+                    DB --> Service : 27. Return saved user
                     deactivate DB
 
-                    alt [Role = BROKER or FREELANCER]
-                        Service -> DB : 38. Save selected skills
+                    alt [Role = STAFF]
+                        Service -> DB : 28. Create pending staff application
                         activate DB
-                        DB --> Service : 39. Return saved skills
+                        DB --> Service : 29. Return saved staff application
+                        deactivate DB
+
+                        Service -> AuditLogs : 30. Record staff application submission
+                        activate AuditLogs
+                        AuditLogs -> DB : 31. Save audit log entry
+                        activate DB
+                        DB --> AuditLogs : 32. Return audit log confirmation
+                        deactivate DB
+                        AuditLogs --> Service : 33. Return log confirmation
+                        deactivate AuditLogs
+                    end
+
+                    alt [Role = BROKER or FREELANCER or STAFF with selected domains]
+                        Service -> DB : 34. Save selected domains
+                        activate DB
+                        DB --> Service : 35. Return saved domains
                         deactivate DB
                     end
 
-                    Service -> DB : 40. Create a profile
+                    alt [Role = BROKER or FREELANCER or STAFF with selected skills]
+                        Service -> DB : 36. Save selected skills
+                        activate DB
+                        DB --> Service : 37. Return saved skills
+                        deactivate DB
+                    end
+
+                    Service -> EmailVerify : 38. Request email verification delivery
+                    activate EmailVerify
+
+                    EmailVerify -> DB : 39. Load user record
                     activate DB
-                    Service -> DB : 41. Save the profile
-                    DB --> Service : 42. Return created profile
+                    DB --> EmailVerify : 40. Return user record
                     deactivate DB
 
-                    Service -> DB : 43. Create a wallet
+                    EmailVerify -> EmailVerify : 41. Generate verification token and expiry
+                    activate EmailVerify
+                    deactivate EmailVerify
+
+                    EmailVerify -> DB : 42. Save verification token metadata
                     activate DB
-                    Service -> DB : 44. Save the wallet
-                    DB --> Service : 45. Return created wallet
+                    DB --> EmailVerify : 43. Verification token saved
                     deactivate DB
 
-                    Service -> EmailVerify : 46. Send verification email
+                    EmailVerify -> EmailVerify : 44. Send verification email
                     activate EmailVerify
-                    EmailVerify -> EmailVerify : 47. Generate verification token
-                    activate EmailVerify
-                    deactivate EmailVerify
-                    EmailVerify -> EmailSvc : 48. Send the email
-                    activate EmailSvc
-                    EmailSvc --> EmailVerify : 49. Return email sent confirmation
-                    deactivate EmailSvc
-                    EmailVerify --> Service : 50. Return verification sent
                     deactivate EmailVerify
 
-                    Service -> AuditLogs : 51. Record registration activity
+                    alt [Verification email sent successfully]
+                        EmailVerify --> Service : 45. Return verification sent
+                        deactivate EmailVerify
+                    else [Verification email sending fails]
+                        EmailVerify --> Service : 45. Throw email delivery error
+                        deactivate EmailVerify
+                        Service -> Service : 46. Ignore email failure and continue registration
+                        activate Service
+                        deactivate Service
+                    end
+
+                    Service -> AuditLogs : 47. Record registration activity
                     activate AuditLogs
-                    AuditLogs -> DB : 52. Save audit log entry
+                    AuditLogs -> DB : 48. Save audit log entry
                     activate DB
-                    DB --> AuditLogs : 53. Return audit log entry
+                    DB --> AuditLogs : 49. Return audit log confirmation
                     deactivate DB
-                    AuditLogs --> Service : 54. Return log confirmation
+                    AuditLogs --> Service : 50. Return log confirmation
                     deactivate AuditLogs
 
-                    Service -> Service : 55. Prepare response data
+                    Service -> Service : 51. Map saved user to public response
                     activate Service
-                    Service --> Service : 56. Build user summary
                     deactivate Service
 
-                    Service --> Controller : 57. Return registration response
+                    Service --> Controller : 52. Return registration response
                     deactivate Service
-
-                    Controller --> Page : 58. Return success with user data
+                    Controller --> ApiClient : 53. Return success response with public user data
                     deactivate Controller
+                    ApiClient --> AuthApi : 54. Return success response
+                    deactivate ApiClient
+                    AuthApi --> Page : 55. Return success response
+                    deactivate AuthApi
 
-                    Page -> Page : 59. Hide loading and show success message
+                    Page -> Page : 56. Hide loading and show success toast
                     activate Page
                     deactivate Page
 
-                    Page --> Actor : 60. Show success message\n"Check your email for verification"
+                    Page --> Actor : 57. Show message asking the user to verify email
 
-                    Page -> Page : 61. Redirect to email verification page
+                    Page -> Page : 58. Navigate to the email verification screen
                     activate Page
                     deactivate Page
 
-                    Page --> Actor : 62. Navigate to email verification
-
+                    Page --> Actor : 59. Open the email verification screen
                 end
             end
         end

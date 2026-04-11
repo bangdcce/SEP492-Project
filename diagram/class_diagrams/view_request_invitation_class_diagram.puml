@@ -1,0 +1,164 @@
+@startuml View_Request_Invitation_Class_Diagram
+title View Request Invitation - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class MyInvitationsPage {
+    - kycStatus: string | null
+    --
+    + MyInvitationsPage(): JSX.Element
+}
+
+class useMyInvitationsRealtime {
+    - invitations: MyInvitationItem[]
+    - isLoading: boolean
+    - error: string | null
+    --
+    + useMyInvitationsRealtime(options?: UseMyInvitationsRealtimeOptions): object
+    + refresh(refreshOptions?: { silent?: boolean }): Promise<void>
+}
+
+class InvitationCard {
+    --
+    + InvitationCard(props: InvitationCardProps): JSX.Element
+}
+
+class MyInvitationItem {
+    + id: string
+    + status?: string | null
+    + createdAt?: string
+    + coverLetter?: string | null
+    + request?: InvitationRequestPreview | null
+    --
+}
+
+class InvitationRequestPreview {
+    + id: string
+    + title: string
+    + status?: string | null
+    + description?: string | null
+    + budgetRange?: string | null
+    + intendedTimeline?: string | null
+    + requestedDeadline?: string | null
+    + client?: object | null
+    + broker?: object | null
+    --
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class RolesGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean>
+}
+
+class ProjectRequestsController {
+    - projectRequestsService: ProjectRequestsService
+    --
+    + getMyInvitations(user: UserEntity): Promise<any>
+    + getOne(id: string, user: UserEntity): Promise<any>
+}
+
+class ProjectRequestsService {
+    - brokerProposalRepo: Repository<BrokerProposalEntity>
+    - freelancerProposalRepo: Repository<ProjectRequestProposalEntity>
+    --
+    + getInvitationsForUser(userId: string, role: UserRole): Promise<any[]>
+    + getFreelancerRequestAccessList(userId: string): Promise<any>
+    ...
+}
+
+class BrokerProposalEntity {
+    + id: string
+    + requestId: string
+    + brokerId: string
+    + status: ProposalStatus
+    + coverLetter: string | null
+    + request: ProjectRequestEntity
+    --
+}
+
+class ProjectRequestProposalEntity {
+    + id: string
+    + requestId: string
+    + freelancerId: string
+    + status: string
+    + coverLetter: string | null
+    + request: ProjectRequestEntity
+    --
+}
+
+class ProjectRequestEntity {
+    + id: string
+    + title: string
+    + status: RequestStatus
+    + description: string | null
+    + budgetRange: string | null
+    + intendedTimeline: string | null
+    + requestedDeadline: string | null
+    + client: UserEntity
+    + broker: UserEntity | null
+    --
+}
+
+class UserEntity {
+    + id: string
+    + fullName: string
+    + role: UserRole
+    --
+}
+
+MyInvitationsPage ..> useMyInvitationsRealtime
+MyInvitationsPage ..> InvitationCard
+
+useMyInvitationsRealtime ..> ApiClient
+useMyInvitationsRealtime ..> MyInvitationItem
+
+InvitationCard ..> MyInvitationItem
+MyInvitationItem o-- InvitationRequestPreview
+
+ApiClient ..> ProjectRequestsController
+
+ProjectRequestsController ..> JwtAuthGuard
+ProjectRequestsController ..> RolesGuard
+ProjectRequestsController --> ProjectRequestsService
+ProjectRequestsController ..> UserEntity
+
+ProjectRequestsService ..> BrokerProposalEntity
+ProjectRequestsService ..> ProjectRequestProposalEntity
+ProjectRequestsService ..> ProjectRequestEntity
+ProjectRequestsService ..> UserEntity
+
+BrokerProposalEntity o-- ProjectRequestEntity
+ProjectRequestProposalEntity o-- ProjectRequestEntity
+ProjectRequestEntity o-- UserEntity
+
+@enduml

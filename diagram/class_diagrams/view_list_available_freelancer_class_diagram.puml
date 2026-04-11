@@ -1,0 +1,152 @@
+@startuml View_List_Available_Freelancer_Class_Diagram
+title View List Available Freelancer - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class ProjectRequestDetailsPage {
+    - request: ProjectRequest | null
+    - freelancerMatches: RequestMatchCandidate[]
+    - freelancerMatchesLoading: boolean
+    - selectedCandidate: RequestMatchCandidate | null
+    --
+    + ProjectRequestDetailsPage(): JSX.Element
+    + fetchFreelancerMatches(requestId: string, useAi?: boolean, topN?: number): Promise<void>
+    + handleOpenCandidateProfile(candidate: RequestMatchCandidate): void
+    + handleOpenFreelancerInvite(freelancerId: string, freelancerName: string): void
+}
+
+class RequestFreelancerMarketPanel {
+    - freelancerMatchesLoading: boolean
+    - freelancerMatches: RequestMatchCandidate[]
+    - recommendedFreelancers: FreelancerProposalItem[]
+    --
+    + RequestFreelancerMarketPanel(props: RequestFreelancerMarketPanelProps): JSX.Element
+}
+
+class wizardService {
+    --
+    + getFreelancerMatches(requestId: string, options?: { enableAi?: boolean; topN?: number }): Promise<any>
+    + getFreelancerMatchesQuick(requestId: string, options?: { topN?: number }): Promise<any>
+    + inviteFreelancer(requestId: string, freelancerId: string, message?: string): Promise<any>
+    ...
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class MatchingController {
+    - matchingService: MatchingService
+    - requestRepo: Repository<ProjectRequestEntity>
+    - freelancerProposalRepo: Repository<ProjectRequestProposalEntity>
+    --
+    + findMatches(requestId: string, role?: "BROKER" | "FREELANCER", enableAi?: string, topN?: string): Promise<any>
+}
+
+class MatchingService {
+    - hardFilter: HardFilterService
+    - classifier: ClassifierService
+    --
+    + findMatches(input: MatchingInput, options: MatchingOptions): Promise<ClassifiedResult[]>
+}
+
+class HardFilterService {
+    - userRepo: Repository<UserEntity>
+    --
+    + filter(input: HardFilterInput, options: { role: "BROKER" | "FREELANCER" }): Promise<HardFilterResult[]>
+}
+
+class ClassifierService {
+    --
+    + classify(candidates: AiRankedResult[], aiEnabled: boolean): ClassifiedResult[]
+}
+
+class ProjectRequestEntity {
+    + id: string
+    + description: string
+    + techPreferences: string | null
+    + budgetRange: string | null
+    + intendedTimeline: string | null
+    + answers: ProjectRequestAnswerEntity[]
+    --
+}
+
+class ProjectRequestProposalEntity {
+    + id: string
+    + requestId: string
+    + freelancerId: string
+    + status: string
+    --
+}
+
+class UserEntity {
+    + id: string
+    + fullName: string
+    + role: UserRole
+    + status: UserStatus
+    + isBanned: boolean
+    + currentTrustScore: number
+    + profile: ProfileEntity
+    + userSkills: UserSkillEntity[]
+    --
+}
+
+class ProfileEntity {
+    + bio: string | null
+    + companyName: string | null
+    + portfolioLinks: string[] | null
+    --
+}
+
+class UserSkillEntity {
+    + id: string
+    + userId: string
+    + skillId: string
+    + yearsOfExperience: number
+    + completedProjectsCount: number
+    --
+}
+
+ProjectRequestDetailsPage ..> RequestFreelancerMarketPanel
+ProjectRequestDetailsPage ..> wizardService : getFreelancerMatches*()
+
+wizardService ..> ApiClient
+ApiClient ..> MatchingController
+
+MatchingController --> MatchingService
+MatchingController ..> ProjectRequestEntity
+MatchingController ..> ProjectRequestProposalEntity
+
+MatchingService ..> HardFilterService
+MatchingService ..> ClassifierService
+MatchingService ..> ProjectRequestEntity
+
+HardFilterService ..> UserEntity
+HardFilterService ..> ProfileEntity
+HardFilterService ..> UserSkillEntity
+
+UserEntity o-- ProfileEntity
+UserEntity o-- UserSkillEntity
+
+@enduml

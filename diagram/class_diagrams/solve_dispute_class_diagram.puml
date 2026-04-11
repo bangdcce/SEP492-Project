@@ -1,0 +1,160 @@
+@startuml Solve_Dispute_Class_Diagram
+title Solve Dispute - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class StaffDisputeBoard {
+    - disputes: DisputeSummary[]
+    - dialogTarget: DisputeSummary | null
+    - dialogReason: string
+    - rowActionLoadingId: string | null
+    --
+    + StaffDisputeBoard(props: StaffDisputeBoardProps): JSX.Element
+    + handleAccept(dispute: DisputeSummary): Promise<void>
+    + handleEscalate(dispute: DisputeSummary): Promise<void>
+    + handleDialogSubmit(): Promise<void>
+}
+
+class acceptDispute {
+    --
+    + acceptDispute(disputeId: string): Promise<any>
+}
+
+class requestDisputeInfo {
+    --
+    + requestDisputeInfo(disputeId: string, reason: string): Promise<any>
+}
+
+class completeDisputePreview {
+    --
+    + completeDisputePreview(disputeId: string, note?: string): Promise<any>
+}
+
+class escalateDispute {
+    --
+    + escalateDispute(disputeId: string): Promise<any>
+}
+
+class rejectDispute {
+    --
+    + rejectDispute(disputeId: string, reason: string): Promise<any>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class DisputesController {
+    - disputesService: DisputesService
+    --
+    + acceptDispute(id: string, user: UserEntity): Promise<DisputeEntity>
+    + requestAdditionalInfo(id: string, dto: RequestDisputeInfoDto, user: UserEntity): Promise<DisputeEntity>
+    + completePreview(id: string, note: string | undefined, user: UserEntity): Promise<any>
+    + escalateDispute(id: string, user: UserEntity): Promise<any>
+    + rejectDispute(id: string, reason: string, user: UserEntity): Promise<DisputeEntity>
+}
+
+class DisputesService {
+    - disputeRepo: Repository<DisputeEntity>
+    - activityRepo: Repository<DisputeActivityEntity>
+    --
+    + acceptDispute(staffId: string, disputeId: string): Promise<DisputeEntity>
+    + requestAdditionalInfo(staffId: string, disputeId: string, reason: string, deadlineAt?: string): Promise<DisputeEntity>
+    + completePreviewWithScheduling(staffId: string, disputeId: string, note?: string): Promise<any>
+    + completePreview(staffId: string, disputeId: string, note?: string, options?: object): Promise<DisputeEntity>
+    + escalateToMediation(staffId: string, disputeId: string): Promise<DisputeEntity>
+    + rejectDispute(staffId: string, disputeId: string, reason: string): Promise<DisputeEntity>
+    ...
+}
+
+class RequestDisputeInfoDto {
+    + reason: string
+    + deadlineAt?: string
+    --
+}
+
+class DisputeSummary {
+    + id: string
+    + displayCode?: string
+    + displayTitle?: string
+    + status: DisputeStatus
+    + assignedStaffId?: string | null
+    + project?: object
+    ...
+}
+
+class DisputeEntity {
+    + id: string
+    + status: DisputeStatus
+    + assignedStaffId?: string | null
+    + triageActorId?: string | null
+    + triageReason?: string | null
+    + infoRequestReason?: string | null
+    + previewCompletedAt?: Date | null
+    + adminComment?: string | null
+    --
+}
+
+class DisputeActivityEntity {
+    + id: string
+    + disputeId: string
+    + actorId: string
+    + action: DisputeAction
+    + description: string
+    + metadata?: object
+    + timestamp: Date
+    --
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    --
+}
+
+StaffDisputeBoard ..> acceptDispute
+StaffDisputeBoard ..> requestDisputeInfo
+StaffDisputeBoard ..> completeDisputePreview
+StaffDisputeBoard ..> escalateDispute
+StaffDisputeBoard ..> rejectDispute
+StaffDisputeBoard ..> DisputeSummary
+
+acceptDispute ..> ApiClient
+requestDisputeInfo ..> ApiClient
+completeDisputePreview ..> ApiClient
+escalateDispute ..> ApiClient
+rejectDispute ..> ApiClient
+
+ApiClient ..> DisputesController
+DisputesController --> DisputesService
+DisputesController ..> RequestDisputeInfoDto
+DisputesController ..> UserEntity
+
+DisputesService ..> DisputeEntity
+DisputesService ..> DisputeActivityEntity
+DisputesService ..> UserEntity
+
+@enduml

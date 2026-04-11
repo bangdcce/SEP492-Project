@@ -1,0 +1,234 @@
+@startuml View_Dispute_Specific_Information_Class_Diagram
+title View Dispute Specific Information - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class StaffDisputeBoard {
+    - disputes: DisputeSummary[]
+    - quickViewDispute: DisputeSummary | null
+    --
+    + StaffDisputeBoard(props: StaffDisputeBoardProps): JSX.Element
+    + openDisputeDetail(dispute: DisputeSummary): void
+}
+
+class StaffCaseloadPage {
+    - disputeId?: string
+    - initialTab?: string
+    --
+    + StaffCaseloadPage(): JSX.Element
+}
+
+class DisputeDetailHub {
+    - dispute: DisputeSummary | null
+    - activities: DisputeActivity[]
+    - complexity: DisputeComplexity | null
+    - dossier: DisputeDossier | null
+    - loading: boolean
+    --
+    + DisputeDetailHub(props: DisputeDetailHubProps): JSX.Element
+    + fetchDetail(preferCache?: boolean): Promise<void>
+    + fetchActivities(preferCache?: boolean): Promise<void>
+    + fetchComplexity(preferCache?: boolean): Promise<void>
+    + fetchDossier(): Promise<void>
+}
+
+class getDisputeDetail {
+    --
+    + getDisputeDetail(disputeId: string, options?: CacheOptions): Promise<DisputeSummary>
+}
+
+class getDisputeActivities {
+    --
+    + getDisputeActivities(disputeId: string, includeInternal?: boolean, options?: CacheOptions): Promise<DisputeActivity[]>
+}
+
+class getDisputeComplexity {
+    --
+    + getDisputeComplexity(disputeId: string, options?: CacheOptions): Promise<{ data: DisputeComplexity }>
+}
+
+class getDisputeDossier {
+    --
+    + getDisputeDossier(disputeId: string): Promise<DisputeDossier>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class DisputesController {
+    - disputesService: DisputesService
+    --
+    + getDetailDisputes(id: string, user: UserEntity): Promise<any>
+    + getActivities(id: string, includeInternal: string, user: UserEntity): Promise<DisputeActivityEntity[]>
+    + getDisputeDossier(id: string, user: UserEntity): Promise<any>
+}
+
+class StaffAssignmentController {
+    - staffAssignmentService: StaffAssignmentService
+    --
+    + estimateComplexity(disputeId: string): Promise<any>
+}
+
+class DisputesService {
+    - disputeRepo: Repository<DisputeEntity>
+    - contractRepo: Repository<ContractEntity>
+    - activityRepo: Repository<DisputeActivityEntity>
+    --
+    + getDetail(disputeId: string, userId: string, userRole: UserRole): Promise<any>
+    + getActivities(userId: string, userRole: UserRole, disputeId: string, includeInternal?: boolean): Promise<DisputeActivityEntity[]>
+    + getDisputeDossier(disputeId: string, userId: string, userRole: UserRole): Promise<any>
+    + assertDisputeAccess(dispute: DisputeEntity, userId: string, userRole: UserRole): Promise<void>
+    ...
+}
+
+class StaffAssignmentService {
+    --
+    + estimateDisputeComplexity(disputeId: string): Promise<ComplexityEstimation>
+}
+
+class DisputeSummary {
+    + id: string
+    + displayCode?: string
+    + displayTitle?: string
+    + status: DisputeStatus
+    + caseStage?: string
+    + project?: object
+    + participants?: object[]
+    ...
+}
+
+class DisputeActivity {
+    + id: string
+    + action: string
+    + description?: string
+    + timestamp: string
+    + isInternal?: boolean
+    + actor?: object
+    --
+}
+
+class DisputeComplexity {
+    + level: string
+    + confidence: number
+    + factors: object[]
+    + timeEstimation: object
+    --
+}
+
+class DisputeDossier {
+    + dispute: object
+    + projectContext: object
+    + contracts: object[]
+    + timeline: object[]
+    + issues: object[]
+    + pendingActions: object[]
+    ...
+}
+
+class DisputeEntity {
+    + id: string
+    + projectId: string
+    + raisedById: string
+    + defendantId: string
+    + assignedStaffId?: string | null
+    + category: DisputeCategory
+    + status: DisputeStatus
+    --
+}
+
+class DisputeActivityEntity {
+    + id: string
+    + disputeId: string
+    + action: string
+    + description?: string
+    + timestamp: Date
+    + isInternal: boolean
+    --
+}
+
+class ProjectEntity {
+    + id: string
+    + title: string
+    + clientId: string
+    + brokerId?: string | null
+    + freelancerId?: string | null
+    --
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    --
+}
+
+class ContractEntity {
+    + id: string
+    + projectId: string
+    + title: string
+    + contractUrl: string
+    + status: ContractStatus
+    + createdAt: Date
+    --
+}
+
+StaffDisputeBoard ..> StaffCaseloadPage
+StaffCaseloadPage ..> DisputeDetailHub
+
+DisputeDetailHub ..> getDisputeDetail
+DisputeDetailHub ..> getDisputeActivities
+DisputeDetailHub ..> getDisputeComplexity
+DisputeDetailHub ..> getDisputeDossier
+
+getDisputeDetail ..> ApiClient
+getDisputeActivities ..> ApiClient
+getDisputeComplexity ..> ApiClient
+getDisputeDossier ..> ApiClient
+
+ApiClient ..> DisputesController
+ApiClient ..> StaffAssignmentController
+
+DisputesController --> DisputesService
+StaffAssignmentController --> StaffAssignmentService
+
+DisputesController ..> UserEntity
+DisputesService ..> DisputeSummary
+DisputesService ..> DisputeDossier
+DisputesService ..> DisputeEntity
+DisputesService ..> DisputeActivityEntity
+DisputesService ..> ProjectEntity
+DisputesService ..> UserEntity
+DisputesService ..> ContractEntity
+
+StaffAssignmentService ..> DisputeEntity
+StaffAssignmentService ..> DisputeComplexity
+
+DisputeDetailHub ..> DisputeSummary
+DisputeDetailHub ..> DisputeActivity
+DisputeDetailHub ..> DisputeComplexity
+DisputeDetailHub ..> DisputeDossier
+
+@enduml

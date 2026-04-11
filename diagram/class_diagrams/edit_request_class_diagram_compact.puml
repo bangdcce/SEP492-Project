@@ -18,16 +18,59 @@ skinparam classHeaderFontColor black
 class RequestDetailPage {
     - id: string | undefined
     - request: ProjectRequest | null
-    - isUpdatingStatus: boolean
+    - showDeleteConfirm: boolean
+    - isDeleting: boolean
     --
-    + handleStatusChange(newStatus: RequestStatus): Promise<void>
-    + handleRevertToDraft(): Promise<void>
+    + fetchData(requestId: string): Promise<void>
+    + handleDeleteRequest(): Promise<void>
+}
+
+class WizardPage {
+    - currentStep: number
+    - questions: WizardQuestion[]
+    - productType: string
+    - industry: string
+    - budget: string
+    - timeline: string
+    - features: string[]
+    - title: string
+    - description: string
+    - attachments: ProjectRequestAttachment[]
+    --
+    + buildPayload(mode: SubmitMode): CreateProjectRequestDto
+    + handleNext(): void
+    + handleBack(): void
+    + handleSubmit(mode: SubmitMode): Promise<void>
+}
+
+class CreateProjectRequestDto {
+    + title: string
+    + description: string
+    + budgetRange?: string
+    + requestedDeadline?: string
+    + intendedTimeline?: string
+    + techPreferences?: string
+    + status?: string
+    + wizardProgressStep?: number
+    + attachments?: ProjectRequestAttachmentDto[]
+    + answers: CreateProjectRequestAnswerDto[]
+    --
 }
 
 class CreateProjectRequestAnswerDto {
     + questionId: string
     + optionId?: string
     + valueText?: string
+    --
+}
+
+class ProjectRequestAttachmentDto {
+    + filename: string
+    + url?: string
+    + storagePath?: string
+    + mimetype?: string
+    + size?: number
+    + category?: "requirements" | "attachment"
     --
 }
 
@@ -38,9 +81,9 @@ class UpdateProjectRequestDto {
     + requestedDeadline?: string
     + intendedTimeline?: string
     + techPreferences?: string
-    + status?: string
+    + status?: RequestStatus
     + wizardProgressStep?: number
-    + attachments?: ProjectRequestAttachment[]
+    + attachments?: ProjectRequestAttachmentDto[]
     + answers?: CreateProjectRequestAnswerDto[]
     --
 }
@@ -54,11 +97,10 @@ class wizardService {
     + updateRequest(id: string, data: Partial<CreateProjectRequestDto>): Promise<any>
     + publishRequest(id: string): Promise<any>
     + getDrafts(): Promise<any>
-    + getMatches(requestId: string): Promise<any>
-    + getRequests(): Promise<any>
     + getRequestById(id: string): Promise<any>
-    + inviteBroker(requestId: string, brokerId: string): Promise<any>
     + deleteRequest(id: string): Promise<any>
+    + getBrokerMatchesQuick(requestId: string, options?: { topN?: number }): Promise<any>
+    ...
 }
 
 class ApiClient {
@@ -97,13 +139,13 @@ class ProjectRequestsController {
     + create(userId: string, createDto: CreateProjectRequestDto, req: RequestContext): Promise<ProjectRequestEntity>
     + getProjectRequests(user: UserEntity, status?: string): Promise<any>
     + findMyDrafts(userId: string): Promise<ProjectRequestEntity[]>
-    + getMyInvitations(user: UserEntity): Promise<any>
-    + getFreelancerRequestAccessList(user: UserEntity): Promise<any>
-    + findMatches(id: string): Promise<any>
     + getOne(id: string, user: UserEntity): Promise<any>
-    + assignBroker(id: string, brokerId: string, req: RequestContext): Promise<any>
     + update(id: string, updateDto: UpdateProjectRequestDto, user: UserEntity, req: RequestContext): Promise<ProjectRequestEntity>
     + publish(id: string, userId: string, req: RequestContext): Promise<any>
+    + delete(id: string, userId: string, req: RequestContext): Promise<any>
+    - assertFilesAllowed(files: MulterFile[] = [])
+    + seedTestData(@Body('clientId')
+    + getMyInvitations(@GetUser()
     ...
 }
 
@@ -115,10 +157,10 @@ class AuditLogsService {
     + logLogin(actorId: string, metadata: Record<string, unknown>, req?: RequestContext)
     + logRegistration(actorId: string, metadata: Record<string, unknown>, req?: RequestContext)
     + logLogout(actorId: string, req?: RequestContext)
+    + logSystemIncident(input: LogSystemIncidentInput)
     + log(payload: AuditLogPayload, repository?: Repository<AuditLogEntity>)
     + logOrThrow(payload: AuditLogPayload, repository?: Repository<AuditLogEntity>)
     + findAll(queryDto: GetAuditLogsDto)
-    + findOne(id: string)
     ...
 }
 
@@ -132,7 +174,6 @@ class Repository {
     + delete(criteria: any): Promise<any>
     + remove(entity: any): Promise<any>
 }
-
 
 class ProjectRequestEntity {
     + id: string
@@ -172,42 +213,45 @@ class ProjectRequestsService {
     - notificationsService: NotificationsService
     - contractsService: ContractsService
     - requestChatService: RequestChatService
-    ...
     --
     + create(clientId: string, dto: CreateProjectRequestDto, req: RequestContext): Promise<ProjectRequestEntity | null>
     + findAll(status?: RequestStatus): Promise<any[]>
-    + update(id: string, dto: UpdateProjectRequestDto, user?: UserEntity, req?: RequestContext): Promise<ProjectRequestEntity>
-    + publish(requestId: string, userId: string, req?: RequestContext): Promise<any>
-    + findAllByClient(clientId: string): Promise<any[]>
     + findDraftsByClient(clientId: string): Promise<ProjectRequestEntity[]>
     + findOne(id: string, user?: UserEntity): Promise<any>
-    + findMatches(id: string, userId?: string): Promise<any>
-    + inviteBroker(requestId: string, brokerId: string, message?: string, inviterId?: string): Promise<any>
-    + getInvitationsForUser(userId: string, role: UserRole): Promise<any>
+    + update(id: string, dto: UpdateProjectRequestDto, user?: UserEntity, req?: RequestContext): Promise<ProjectRequestEntity>
+    + publish(requestId: string, userId: string, req?: RequestContext): Promise<any>
+    - toUserHandle(user?: Pick<UserEntity, 'email'> | null): string | null
+    - getTodayDateInputValue(referenceDate: Date = new Date()
+    - normalizeIntendedTimeline(value?: string): string | undefined
+    - normalizeRequestedDeadline(value?: string | null): string | undefined
     ...
 }
 
-RequestDetailPage ..> wizardService
-RequestDetailPage ..> RequestStatus
+RequestDetailPage ..> WizardPage : opens editor
+RequestDetailPage ..> wizardService : getRequestById()
+
+CreateProjectRequestDto o-- CreateProjectRequestAnswerDto
+CreateProjectRequestDto o-- ProjectRequestAttachmentDto
+UpdateProjectRequestDto o-- CreateProjectRequestAnswerDto
+UpdateProjectRequestDto o-- ProjectRequestAttachmentDto
 
 wizardService ..> ApiClient
+wizardService ..> CreateProjectRequestDto
 wizardService ..> UpdateProjectRequestDto
 ApiClient ..> ProjectRequestsController
-
-UpdateProjectRequestDto o-- CreateProjectRequestAnswerDto
 
 ProjectRequestsController ..> JwtAuthGuard
 ProjectRequestsController ..> RolesGuard
 ProjectRequestsController --> ProjectRequestsService
+ProjectRequestsController ..> CreateProjectRequestDto
 ProjectRequestsController ..> UpdateProjectRequestDto
 
 ProjectRequestsService ..> Repository
 ProjectRequestsService ..> AuditLogsService
 ProjectRequestsService ..> ProjectRequestEntity
 ProjectRequestsService ..> ProjectRequestAnswerEntity
-ProjectRequestsService ..> RequestStatus
 ProjectRequestsService ..> UpdateProjectRequestDto
 
-ProjectRequestEntity --> RequestStatus
+ProjectRequestEntity o-- ProjectRequestAnswerEntity
 
 @enduml

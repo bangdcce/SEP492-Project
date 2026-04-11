@@ -1,0 +1,151 @@
+@startuml View_Subscription_Class_Diagram
+title View Subscription - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class SubscriptionPage {
+    - loading: boolean
+    - error: string | null
+    - subscription: MySubscriptionResponse | null
+    - successMessage: string | null
+    --
+    + SubscriptionPage(): JSX.Element
+    + fetchData(): Promise<void>
+}
+
+class MySubscriptionResponse {
+    + isPremium: boolean
+    + subscription: object | null
+    + perks: Record<string, number | boolean>
+    + usage: Record<string, object>
+    --
+}
+
+class getMySubscription {
+    --
+    + getMySubscription(): Promise<MySubscriptionResponse>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class SubscriptionsController {
+    - subscriptionsService: SubscriptionsService
+    - quotaService: QuotaService
+    --
+    + getPlans(req: any): Promise<any>
+    + getMySubscription(req: any): Promise<any>
+    + getPayPalConfig(req: any, dto: SubscriptionPayPalConfigQueryDto): Promise<any>
+    + createPayPalOrder(req: any, dto: CreatePayPalSubscriptionOrderDto): Promise<any>
+    + subscribe(req: any, dto: SubscribeDto): Promise<any>
+    + cancelSubscription(req: any, dto: CancelSubscriptionDto): Promise<any>
+}
+
+class SubscriptionsService {
+    - subscriptionRepo: Repository<UserSubscriptionEntity>
+    - planRepo: Repository<SubscriptionPlanEntity>
+    - userRepo: Repository<UserEntity>
+    --
+    + isPremium(userId: string): Promise<boolean>
+    + getPerks(userId: string): Promise<Record<string, number | boolean>>
+    + getActiveSubscription(userId: string): Promise<UserSubscriptionEntity | null>
+    + getMySubscription(userId: string): Promise<any>
+    + getPlansForRole(role: UserRole): Promise<SubscriptionPlanEntity[]>
+    ...
+}
+
+class QuotaService {
+    - usageRepo: Repository<QuotaUsageLogEntity>
+    - subscriptionsService: SubscriptionsService
+    --
+    + checkQuota(userId: string, action: QuotaAction, entityId?: string): Promise<void>
+    + incrementUsage(userId: string, action: QuotaAction, metadata?: Record<string, any>): Promise<void>
+    + countUsage(userId: string, action: QuotaAction, entityId?: string): Promise<number>
+    + getUsageSummary(userId: string, role: UserRole): Promise<Record<string, object>>
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + role: UserRole
+    + isVerified: boolean
+    --
+}
+
+class UserSubscriptionEntity {
+    + id: string
+    + userId: string
+    + planId: string
+    + status: SubscriptionStatus
+    + billingCycle: BillingCycle
+    + currentPeriodEnd: Date
+    + cancelAtPeriodEnd: boolean
+    + plan: SubscriptionPlanEntity
+    --
+}
+
+class SubscriptionPlanEntity {
+    + id: string
+    + name: string
+    + displayName: string
+    + role: UserRole
+    + perks: Record<string, number | boolean>
+    --
+}
+
+class QuotaUsageLogEntity {
+    + id: string
+    + userId: string
+    + action: QuotaAction
+    + date: string
+    + count: number
+    --
+}
+
+SubscriptionPage ..> getMySubscription
+SubscriptionPage ..> MySubscriptionResponse
+
+getMySubscription ..> ApiClient
+ApiClient ..> SubscriptionsController
+
+SubscriptionsController ..> JwtAuthGuard
+SubscriptionsController --> SubscriptionsService
+SubscriptionsController --> QuotaService
+
+SubscriptionsService ..> UserEntity
+SubscriptionsService ..> UserSubscriptionEntity
+SubscriptionsService ..> SubscriptionPlanEntity
+
+QuotaService ..> SubscriptionsService
+QuotaService ..> QuotaUsageLogEntity
+
+UserSubscriptionEntity o-- SubscriptionPlanEntity
+
+@enduml

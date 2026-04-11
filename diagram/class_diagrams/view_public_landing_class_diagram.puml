@@ -1,0 +1,32 @@
+@startuml View_Public_Landing_Class_Diagram
+title View Public Landing - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class LandingPage {
+    --
+    + LandingPage(): JSX.Element
+    + handleNavigateToSignIn(): void
+    + handleNavigateToSignUp(): void
+}
+
+class SiteFooter {
+    --
+    + SiteFooter(props: SiteFooterProps): JSX.Element
+}
+
+LandingPage ..> SiteFooter
+
+@enduml

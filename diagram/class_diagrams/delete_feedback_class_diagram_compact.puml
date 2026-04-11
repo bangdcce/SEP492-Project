@@ -1,0 +1,161 @@
+@startuml Delete_Feedback_Class_Diagram
+title Delete Feedback - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class AdminReviewModerationPage {
+    - selectedReview: AdminReview | null
+    - showDeleteModal: boolean
+    - isLoading: boolean
+    --
+    + AdminReviewModerationPage(): JSX.Element
+    + handleSoftDelete(reason: string, notes?: string): Promise<void>
+}
+
+class SoftDeleteConfirmModal {
+    - selectedReason: string
+    - notes: string
+    --
+    + SoftDeleteConfirmModal(props: SoftDeleteConfirmModalProps): JSX.Element
+    + handleConfirm(): void
+    + handleClose(): void
+}
+
+class softDeleteReview {
+    --
+    + softDeleteReview(reviewId: string, reason: string, notes?: string): Promise<{ message: string }>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + delete<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    - setupInterceptors()
+    - isRefreshEndpoint(url?: string): boolean
+    - isPublicAuthEndpoint(url?: string): boolean
+    - getAuthErrorCode(error: unknown): string | null
+    - shouldAttemptSessionReconcile(error: unknown): boolean
+    - reconcileSessionSingleFlight(): Promise<void>
+    - handleAuthFailure(suppressRedirect: boolean = false)
+    ...
+}
+
+class ReviewController {
+    - reviewService: ReviewService
+    --
+    + softDelete(adminId: string, id: string, dto: DeleteReviewDto): Promise<any>
+    - assertDevOnlyRoute()
+    + testGetAllReviews()
+    + testSoftDelete(@Param('id')
+    + testRestore(@Param('id')
+    + testDismissReport(@Param('id')
+    + findByTargetUser(@Query('targetUserId')
+    + getEditHistory(@Param('id')
+    + getFlaggedReviews()
+}
+
+class ReviewService {
+    - reviewRepo: Repository<ReviewEntity>
+    - auditLogRepo: Repository<AuditLogEntity>
+    - reportRepo: Repository<ReportEntity>
+    --
+    + softDelete(reviewId: string, adminId: string, reason: string): Promise<{ message: string }>
+    + softDeleteWithinTransaction(manager: EntityManager, reviewId: string, adminId: string, reason: string, prefetchedReview?: ReviewEntity): Promise<ReviewEntity>
+    + handleSoftDeleteCommitted(review: Pick<ReviewEntity, 'id' | 'targetUserId'>, adminId: string): Promise<void>
+    + create(reviewerId: string, dto: CreateReviewDto, reqInfo: RequestContext)
+}
+
+class DeleteReviewDto {
+    + reason: string
+    --
+}
+
+class AdminReview {
+    + id: string
+    + rating: number
+    + comment: string
+    + status: ReviewStatus
+    + reviewer: object
+    + project: object
+    + reportInfo?: object
+    --
+}
+
+class ReviewEntity {
+    + id: string
+    + targetUserId: string
+    + deletedAt?: Date | null
+    + deletedBy?: string | null
+    + deleteReason?: string | null
+    + comment: string
+    + rating: number
+    + projectId: string
+    + reviewerId: string
+    + weight: number
+    ...
+    --
+}
+
+class AuditLogEntity {
+    + id: string
+    + action: string
+    + entityType: string
+    + entityId: string
+    + actorId: string
+    + createdAt: Date
+    + requestId: string | null
+    + sessionId: string | null
+    + route: string | null
+    + httpMethod: string | null
+    ...
+    --
+}
+
+class ReportEntity {
+    + id: string
+    + reviewId: string
+    + status: ReportStatus
+    + createdAt: Date
+    + reporterId: string
+    + reason: ReportReason
+    + description: string
+    + resolvedBy: string
+    + adminNote: string
+    + resolvedAt: Date
+    ...
+    --
+}
+
+AdminReviewModerationPage ..> SoftDeleteConfirmModal
+AdminReviewModerationPage ..> softDeleteReview
+AdminReviewModerationPage ..> AdminReview
+
+SoftDeleteConfirmModal ..> AdminReview
+softDeleteReview ..> ApiClient
+ApiClient ..> ReviewController
+ReviewController --> ReviewService
+ReviewController ..> DeleteReviewDto
+
+ReviewService ..> ReviewEntity
+ReviewService ..> AuditLogEntity
+ReviewService ..> ReportEntity
+
+@enduml

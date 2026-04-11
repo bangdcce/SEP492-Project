@@ -971,6 +971,7 @@ export function SignUpPage({
                     id="password"
                     label="Password"
                     type={showPassword ? "text" : "password"}
+                    hasTrailingAction
                     autoComplete="new-password"
                     placeholder="At least 8 characters with lowercase, number & special char"
                     value={formData.password}
@@ -1006,6 +1007,7 @@ export function SignUpPage({
                   id="confirmPassword"
                   label="Confirm password"
                   type={showConfirmPassword ? "text" : "password"}
+                  hasTrailingAction
                   autoComplete="new-password"
                   placeholder="Re-enter your password"
                   value={formData.confirmPassword}

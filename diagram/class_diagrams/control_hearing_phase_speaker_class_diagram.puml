@@ -1,0 +1,143 @@
+@startuml Control_Hearing_Phase_Speaker_Class_Diagram
+title Control Hearing Phase & Speaker - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class HearingRoom {
+    - workspace: HearingWorkspaceSummary | null
+    - speakerUpdating: boolean
+    --
+    + HearingRoom(props: HearingRoomProps): JSX.Element
+    + onUpdateSpeakerControl(role: SpeakerRole): Promise<void>
+    + onTransitionPhase(phase: string): Promise<void>
+    + refreshWorkspace(silent?: boolean): Promise<void>
+}
+
+class ControlPane {
+    - currentSpeakerRole: SpeakerRole | null
+    - hearingStatus: string | null
+    - canModerate: boolean
+    --
+    + ControlPane(props: ControlPaneProps): JSX.Element
+}
+
+class PhaseControlPanel {
+    - phaseSequence: string[]
+    - currentPhase: string
+    - currentStep: number
+    - transitioning: boolean
+    --
+    + PhaseControlPanel(props: PhaseControlPanelProps): JSX.Element
+    + handleAdvance(): Promise<void>
+    + handleGoBack(): Promise<void>
+}
+
+class SpeakerControlPanel {
+    - currentSpeakerRole?: SpeakerRole | null
+    - hearingStatus?: string
+    - canModerate: boolean
+    - updating: boolean
+    --
+    + SpeakerControlPanel(props: SpeakerControlPanelProps): JSX.Element
+    + handleSelect(role: SpeakerRole): void
+}
+
+class transitionHearingPhase {
+    --
+    + transitionHearingPhase(hearingId: string, phase: string): Promise<any>
+}
+
+class updateSpeakerControl {
+    --
+    + updateSpeakerControl(hearingId: string, speakerRole: SpeakerRole): Promise<any>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class HearingController {
+    - hearingService: HearingService
+    --
+    + transitionHearingPhase(hearingId: string, dto: TransitionHearingPhaseDto, user: UserEntity): Promise<any>
+    + updateSpeakerControl(hearingId: string, dto: ModerateHearingDto, user: UserEntity): Promise<any>
+}
+
+class HearingService {
+    - hearingRepository: Repository<DisputeHearingEntity>
+    - disputeRepository: Repository<DisputeEntity>
+    --
+    + transitionHearingPhase(hearingId: string, phase: DisputePhase, actorId: string): Promise<any>
+    + updateSpeakerControl(hearingId: string, userId: string, newRole: SpeakerRole): Promise<any>
+    + ensureHearingAccess(hearingId: string, user: UserEntity): Promise<DisputeHearingEntity>
+    ...
+}
+
+class DisputeHearingEntity {
+    + id: string
+    + disputeId: string
+    + status: HearingStatus
+    + currentSpeakerRole?: SpeakerRole | null
+    + moderatorId?: string | null
+    + isChatRoomActive: boolean
+    --
+}
+
+class DisputeEntity {
+    + id: string
+    + status: DisputeStatus
+    + phase: DisputePhase
+    + assignedStaffId?: string | null
+    --
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    --
+}
+
+HearingRoom ..> ControlPane
+ControlPane ..> PhaseControlPanel
+ControlPane ..> SpeakerControlPanel
+
+HearingRoom ..> transitionHearingPhase
+HearingRoom ..> updateSpeakerControl
+
+PhaseControlPanel ..> transitionHearingPhase
+SpeakerControlPanel ..> updateSpeakerControl
+
+transitionHearingPhase ..> ApiClient
+updateSpeakerControl ..> ApiClient
+ApiClient ..> HearingController
+HearingController --> HearingService
+HearingController ..> UserEntity
+
+HearingService ..> UserEntity
+HearingService ..> DisputeHearingEntity
+HearingService ..> DisputeEntity
+
+@enduml

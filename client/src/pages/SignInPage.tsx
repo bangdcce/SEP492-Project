@@ -205,6 +205,7 @@ export function SignInPage({
             id="password"
             label="Password"
             type={showPassword ? "text" : "password"}
+            hasTrailingAction
             autoComplete="current-password"
             placeholder="Enter your password"
             value={formData.password}

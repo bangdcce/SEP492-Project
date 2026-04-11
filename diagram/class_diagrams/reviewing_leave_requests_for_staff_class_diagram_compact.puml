@@ -1,0 +1,193 @@
+@startuml Reviewing_Leave_Requests_For_Staff_Class_Diagram
+title Reviewing Leave Requests For Staff - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class AdminLeaveManagementPage {
+    - selectedMonth: string
+    - statusFilter: LeaveStatus
+    - requests: LeaveRequest[]
+    - selectedRequest: LeaveRequest | null
+    - dialogAction: ProcessAction
+    - processingId: string | null
+    --
+    + AdminLeaveManagementPage(): JSX.Element
+    + loadApprovals(options?: object): Promise<void>
+    + openProcessDialog(request: LeaveRequest, action: ProcessAction): void
+    + handleProcessRequest(): Promise<void>
+}
+
+class listLeaveRequests {
+    --
+    + listLeaveRequests(query: LeaveListQuery, options?: CacheOptions): Promise<LeaveRequest[]>
+}
+
+class processLeaveRequest {
+    --
+    + processLeaveRequest(id: string, input: ProcessLeaveRequestInput): Promise<LeaveActionResponse>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + patch<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    - setupInterceptors()
+    - isRefreshEndpoint(url?: string): boolean
+    - isPublicAuthEndpoint(url?: string): boolean
+    - getAuthErrorCode(error: unknown): string | null
+    - shouldAttemptSessionReconcile(error: unknown): boolean
+    - reconcileSessionSingleFlight(): Promise<void>
+    ...
+}
+
+class LeaveController {
+    - leaveService: LeaveService
+    --
+    + listLeaveRequests(query: ListLeaveRequestsQueryDto, user: UserEntity): Promise<any>
+    + processLeaveRequest(id: string, dto: ProcessLeaveRequestDto, user: UserEntity): Promise<any>
+    + createLeaveRequest(@Body()
+    + getLeaveBalance(@Query()
+    + listLeavePolicies(@Query()
+}
+
+class LeaveService {
+    - leaveRequestRepository: Repository<StaffLeaveRequestEntity>
+    - leavePolicyRepository: Repository<StaffLeavePolicyEntity>
+    --
+    + listLeaveRequests(query: ListLeaveRequestsQueryDto, requester: UserEntity): Promise<any>
+    + processLeaveRequest(id: string, dto: ProcessLeaveRequestDto, admin: UserEntity): Promise<any>
+    + applyLeaveToAvailability(request: StaffLeaveRequestEntity, timeZone: string): Promise<void>
+    + refreshLeavePerformanceForRequest(request: StaffLeaveRequestEntity, timeZone: string): Promise<void>
+    + createLeaveRequest(dto: CreateLeaveRequestDto, requester: UserEntity)
+    + cancelLeaveRequest(id: string, dto: CancelLeaveRequestDto, requester: UserEntity)
+    + updateLeavePolicy(staffId: string, dto: UpdateLeavePolicyDto, admin: UserEntity)
+    + listLeavePolicies(query: ListLeavePoliciesQueryDto, admin: UserEntity)
+    - resolveTargetStaffId(requester: UserEntity, staffId?: string): string
+    - ensureStaff(staffId: string): Promise<UserEntity>
+    ...
+}
+
+class ListLeaveRequestsQueryDto {
+    + staffId?: string
+    + status?: LeaveStatus
+    + month?: string
+    --
+}
+
+class ProcessLeaveRequestDto {
+    + action: "approve" | "reject"
+    + note?: string
+    --
+}
+
+class LeaveRequest {
+    + id: string
+    + staffId: string
+    + staff?: LeaveActorSummary | null
+    + type: LeaveType
+    + status: LeaveStatus
+    + startTime: string
+    + endTime: string
+    + durationMinutes: number
+    + reason?: string | null
+    + processedBy?: LeaveActorSummary | null
+    ...
+    --
+}
+
+class StaffLeaveRequestEntity {
+    + id: string
+    + staffId: string
+    + type: LeaveType
+    + status: LeaveStatus
+    + startTime: Date
+    + endTime: Date
+    + durationMinutes: number
+    + processedById?: string | null
+    + processedAt?: Date | null
+    + processedNote?: string | null
+    ...
+    --
+}
+
+class StaffLeavePolicyEntity {
+    + id: string
+    + staffId: string
+    + monthlyAllowanceMinutes: number
+    + createdAt: Date
+    + updatedAt: Date
+    + staff: UserEntity
+    --
+}
+
+class UserAvailabilityEntity {
+    + id: string
+    + userId: string
+    + linkedLeaveRequestId?: string | null
+    + startTime: Date
+    + endTime: Date
+    + type: AvailabilityType
+    + isRecurring: boolean
+    + dayOfWeek: number
+    + recurringStartTime: string
+    + recurringEndTime: string
+    ...
+    --
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    + passwordHash: string
+    + phoneNumber: string
+    + timeZone: string
+    + isVerified: boolean
+    + resetPasswordOtp: string
+    + resetPasswordOtpExpires: Date
+    ...
+    --
+    + badge(): BadgeType
+    + warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE'
+}
+
+AdminLeaveManagementPage ..> listLeaveRequests
+AdminLeaveManagementPage ..> processLeaveRequest
+AdminLeaveManagementPage ..> LeaveRequest
+
+listLeaveRequests ..> ApiClient
+processLeaveRequest ..> ApiClient
+ApiClient ..> LeaveController
+
+LeaveController --> LeaveService
+LeaveController ..> ListLeaveRequestsQueryDto
+LeaveController ..> ProcessLeaveRequestDto
+LeaveController ..> UserEntity
+
+LeaveService ..> StaffLeaveRequestEntity
+LeaveService ..> StaffLeavePolicyEntity
+LeaveService ..> UserAvailabilityEntity
+LeaveService ..> UserEntity
+LeaveService ..> LeaveRequest
+
+@enduml
