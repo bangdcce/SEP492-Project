@@ -58,8 +58,22 @@ export const StaffSidebar = ({ collapsed, onToggle }: StaffSidebarProps) => {
 
   useStaffDashboardRealtime({
     onDisputeCreated: handleRealtimeRefresh,
+    onDisputeStatusChanged: handleRealtimeRefresh,
+    onDisputeAssigned: handleRealtimeRefresh,
+    onDisputeReassigned: handleRealtimeRefresh,
+    onDisputeInfoRequested: handleRealtimeRefresh,
+    onDisputeInfoProvided: handleRealtimeRefresh,
+    onDisputeDefendantResponded: handleRealtimeRefresh,
+    onDisputeResolved: handleRealtimeRefresh,
+    onDisputeClosed: handleRealtimeRefresh,
     onHearingEnded: handleRealtimeRefresh,
     onVerdictIssued: handleRealtimeRefresh,
+    onAppealSubmitted: handleRealtimeRefresh,
+    onAppealResolved: handleRealtimeRefresh,
+    onCalendarEventCreated: handleRealtimeRefresh,
+    onCalendarEventUpdated: handleRealtimeRefresh,
+    onCalendarRescheduleRequested: handleRealtimeRefresh,
+    onCalendarRescheduleProcessed: handleRealtimeRefresh,
     onStaffOverloaded: handleRealtimeRefresh,
   });
 

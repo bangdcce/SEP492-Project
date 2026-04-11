@@ -25,6 +25,7 @@ import {
   setAvailability,
 } from "../../api";
 import { AvailabilityType, type CalendarEvent } from "../../types";
+import { useCalendarRealtime } from "../../hooks/useCalendarRealtime";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import {
@@ -403,6 +404,34 @@ export const StaffCalendarView = () => {
   useEffect(() => {
     fetchSchedule({ preferCache: true });
   }, [fetchSchedule]);
+
+  const handleCalendarRealtimeRefresh = useCallback(
+    (payload?: { userId?: string; userIds?: string[] }) => {
+      if (!staffId) return;
+
+      const isDirectUserUpdate = payload?.userId === staffId;
+      const isAudienceUpdate = Array.isArray(payload?.userIds)
+        ? payload.userIds.includes(staffId)
+        : false;
+
+      if (payload && !isDirectUserUpdate && !isAudienceUpdate) {
+        return;
+      }
+
+      void fetchSchedule({ preferCache: false });
+    },
+    [fetchSchedule, staffId],
+  );
+
+  useCalendarRealtime({
+    onCalendarEventCreated: handleCalendarRealtimeRefresh,
+    onCalendarEventUpdated: handleCalendarRealtimeRefresh,
+    onCalendarRescheduleRequested: handleCalendarRealtimeRefresh,
+    onCalendarRescheduleProcessed: handleCalendarRealtimeRefresh,
+    onCalendarInviteResponded: handleCalendarRealtimeRefresh,
+    onCalendarAvailabilityUpdated: handleCalendarRealtimeRefresh,
+    onCalendarAvailabilityDeleted: handleCalendarRealtimeRefresh,
+  });
 
   const hourLabels = useMemo(
     () =>

@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { format } from "date-fns";
 import { StaffCalendarView } from "../../calendar/components/grid/StaffCalendarView";
 import { RescheduleNegotiator } from "../../calendar/components/negotiation/RescheduleNegotiator";
 import { getEvents } from "../../calendar/api";
 import { EventStatus, EventType, type CalendarEvent } from "../../calendar/types";
+import { useCalendarRealtime } from "../../calendar/hooks/useCalendarRealtime";
 import { normalizeExternalMeetingLink } from "../../hearings/utils/externalMeetingLink";
+import { useStaffDashboardRealtime } from "../hooks/useStaffDashboardRealtime";
 
 export const StaffCalendarPage = () => {
   const [nextHearing, setNextHearing] = useState<CalendarEvent | null>(null);
@@ -13,35 +15,63 @@ export const StaffCalendarPage = () => {
     nextHearing?.externalMeetingLink,
   );
 
-  useEffect(() => {
-    const loadNextHearing = async () => {
-      try {
-        setLoadingNext(true);
-        const now = new Date();
-        const data = await getEvents({
-          type: EventType.DISPUTE_HEARING,
-          startDate: now.toISOString(),
-        });
-        const upcoming = (data.items || [])
-          .filter((event) =>
-            [EventStatus.SCHEDULED, EventStatus.PENDING_CONFIRMATION].includes(
-              event.status,
-            ),
-          )
-          .sort(
-            (a, b) =>
-              new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
-          )[0];
-        setNextHearing(upcoming || null);
-      } catch (error) {
-        console.error("Failed to load next hearing:", error);
-      } finally {
-        setLoadingNext(false);
-      }
-    };
-
-    loadNextHearing();
+  const loadNextHearing = useCallback(async () => {
+    try {
+      setLoadingNext(true);
+      const now = new Date();
+      const data = await getEvents({
+        type: EventType.DISPUTE_HEARING,
+        startDate: now.toISOString(),
+      });
+      const upcoming = (data.items || [])
+        .filter((event) =>
+          [EventStatus.SCHEDULED, EventStatus.PENDING_CONFIRMATION].includes(
+            event.status,
+          ),
+        )
+        .sort(
+          (a, b) =>
+            new Date(a.startTime).getTime() - new Date(b.startTime).getTime(),
+        )[0];
+      setNextHearing(upcoming || null);
+    } catch (error) {
+      console.error("Failed to load next hearing:", error);
+    } finally {
+      setLoadingNext(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void loadNextHearing();
+  }, [loadNextHearing]);
+
+  const handleCalendarRealtimeRefresh = useCallback(
+    (payload?: { type?: string }) => {
+      if (payload?.type && payload.type !== EventType.DISPUTE_HEARING) {
+        return;
+      }
+      void loadNextHearing();
+    },
+    [loadNextHearing],
+  );
+
+  useCalendarRealtime({
+    onCalendarEventCreated: handleCalendarRealtimeRefresh,
+    onCalendarEventUpdated: handleCalendarRealtimeRefresh,
+    onCalendarRescheduleRequested: handleCalendarRealtimeRefresh,
+    onCalendarRescheduleProcessed: handleCalendarRealtimeRefresh,
+    onCalendarInviteResponded: handleCalendarRealtimeRefresh,
+  });
+
+  useStaffDashboardRealtime({
+    onHearingScheduled: () => void loadNextHearing(),
+    onHearingRescheduled: () => void loadNextHearing(),
+    onHearingStarted: () => void loadNextHearing(),
+    onHearingEnded: () => void loadNextHearing(),
+    onHearingInviteResponded: () => void loadNextHearing(),
+    onHearingFollowUpScheduled: () => void loadNextHearing(),
+    onVerdictIssued: () => void loadNextHearing(),
+  });
 
   return (
     <div className="space-y-6">

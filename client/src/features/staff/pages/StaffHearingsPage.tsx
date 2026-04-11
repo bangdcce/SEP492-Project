@@ -93,6 +93,9 @@ export const StaffHearingsPage = ({
   }, [loadHearings]);
 
   useStaffDashboardRealtime({
+    onDisputeStatusChanged: loadHearings,
+    onDisputeAssigned: loadHearings,
+    onDisputeReassigned: loadHearings,
     onHearingEnded: loadHearings,
     onHearingScheduled: loadHearings,
     onHearingRescheduled: loadHearings,
@@ -101,7 +104,18 @@ export const StaffHearingsPage = ({
     onHearingResumed: loadHearings,
     onHearingInviteResponded: loadHearings,
     onHearingFollowUpScheduled: loadHearings,
+    onHearingSupportInvited: loadHearings,
+    onHearingReminderSent: loadHearings,
+    onHearingModeratorDisconnected: loadHearings,
+    onHearingModeratorReconnected: loadHearings,
     onVerdictIssued: loadHearings,
+    onAppealSubmitted: loadHearings,
+    onAppealResolved: loadHearings,
+    onCalendarEventCreated: loadHearings,
+    onCalendarEventUpdated: loadHearings,
+    onCalendarRescheduleRequested: loadHearings,
+    onCalendarRescheduleProcessed: loadHearings,
+    onCalendarInviteResponded: loadHearings,
   });
 
   const liveHearings = useMemo(

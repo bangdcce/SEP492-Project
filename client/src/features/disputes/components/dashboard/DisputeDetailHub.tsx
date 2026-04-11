@@ -528,6 +528,21 @@ export const DisputeDetailHub = ({
     onEvidenceUploaded: handleRealtimeRefresh,
     onVerdictIssued: handleRealtimeRefresh,
     onHearingEnded: handleRealtimeRefresh,
+    onSettlementOffered: handleRealtimeRefresh,
+    onSettlementAccepted: handleRealtimeRefresh,
+    onSettlementRejected: handleRealtimeRefresh,
+    onSettlementChatUnlocked: handleRealtimeRefresh,
+    onDisputeStatusChanged: handleRealtimeRefresh,
+    onDisputeAssigned: handleRealtimeRefresh,
+    onDisputeReassigned: handleRealtimeRefresh,
+    onDisputeInfoRequested: handleRealtimeRefresh,
+    onDisputeInfoProvided: handleRealtimeRefresh,
+    onDisputeDefendantResponded: handleRealtimeRefresh,
+    onDisputeResolved: handleRealtimeRefresh,
+    onDisputeClosed: handleRealtimeRefresh,
+    onAppealSubmitted: handleRealtimeRefresh,
+    onAppealResolved: handleRealtimeRefresh,
+    onAppealDeadlinePassed: handleRealtimeRefresh,
   });
 
   const headerStatusStyle = (status?: DisputeStatus) => {

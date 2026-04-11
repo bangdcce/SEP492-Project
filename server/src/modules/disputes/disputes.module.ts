@@ -51,6 +51,7 @@ import { DisputeEventListener } from './events/dispute-event.listener';
 import { DisputeNotificationListener } from './events/dispute-notification.listener';
 import { NotificationRealtimeListener } from './events/notification-realtime.listener';
 import { WorkflowRealtimeListener } from './events/workflow-realtime.listener';
+import { CalendarRealtimeListener } from './events/calendar-realtime.listener';
 import { DisputeSchemaReadinessFilter } from './filters/dispute-schema-readiness.filter';
 import { DisputeMediationTimeoutScheduler } from './services/dispute-mediation-timeout.scheduler';
 import { DisputeAppealDeadlineScheduler } from './services/dispute-appeal-deadline.scheduler';
@@ -111,6 +112,7 @@ import { DisputeAppealDeadlineScheduler } from './services/dispute-appeal-deadli
     DisputeNotificationListener,
     NotificationRealtimeListener,
     WorkflowRealtimeListener,
+    CalendarRealtimeListener,
     DisputeSchemaReadinessFilter,
     DisputeMediationTimeoutScheduler,
     DisputeAppealDeadlineScheduler,
