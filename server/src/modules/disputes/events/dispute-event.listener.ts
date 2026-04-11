@@ -102,7 +102,11 @@ export class DisputeEventListener {
       serverTimestamp: this.toIsoString(),
     };
 
-    this.gateway.emitHearingEvent(payload.previousHearingId, 'HEARING_FOLLOW_UP_SCHEDULED', eventPayload);
+    this.gateway.emitHearingEvent(
+      payload.previousHearingId,
+      'HEARING_FOLLOW_UP_SCHEDULED',
+      eventPayload,
+    );
     this.gateway.emitDisputeEvent(payload.disputeId, 'HEARING_FOLLOW_UP_SCHEDULED', eventPayload);
     this.gateway.emitStaffDashboardEvent('HEARING_FOLLOW_UP_SCHEDULED', eventPayload);
 
@@ -244,7 +248,10 @@ export class DisputeEventListener {
     }
 
     const triggerActorId =
-      payload.endedById || dispute.assignedStaffId || dispute.escalatedToAdminId || dispute.raisedById;
+      payload.endedById ||
+      dispute.assignedStaffId ||
+      dispute.escalatedToAdminId ||
+      dispute.raisedById;
 
     if (!triggerActorId) {
       return;
@@ -352,12 +359,13 @@ export class DisputeEventListener {
     });
 
     const recordedAt = new Date().toISOString();
+    const ledgerMetadata = (payload.metadata || {}) as Record<string, any>;
     const canonicalPayload = this.buildLedgerCanonicalPayload({
       disputeId,
       eventType,
       actorId: payload.actorId || null,
       reason: payload.reason || null,
-      payload: payload.metadata || {},
+      payload: ledgerMetadata,
       previousHash: latest?.hash || null,
       recordedAt,
     });
@@ -368,7 +376,7 @@ export class DisputeEventListener {
       eventType,
       actorId: payload.actorId || undefined,
       reason: payload.reason || undefined,
-      payload: payload.metadata || {},
+      payload: ledgerMetadata,
       previousHash: latest?.hash || undefined,
       canonicalPayload,
       hash,
@@ -578,7 +586,7 @@ export class DisputeEventListener {
     participantId?: string;
     participantUserId?: string;
     responderId?: string;
-    response?: 'accept' | 'decline' | 'tentative' | string;
+    response?: string;
     eventStatus?: string | null;
     manualRequired?: boolean;
     reason?: string | null;
@@ -588,7 +596,7 @@ export class DisputeEventListener {
       return;
     }
 
-    let hearingId = payload.hearingId || null;
+    const hearingId = payload.hearingId || null;
     let disputeId = payload.disputeId || null;
 
     if (hearingId && !disputeId) {
@@ -633,7 +641,9 @@ export class DisputeEventListener {
           response: payload.response || null,
           eventStatus: payload.eventStatus || null,
           manualRequired: Boolean(payload.manualRequired),
-          respondedAt: payload.respondedAt ? this.toIsoString(payload.respondedAt) : this.toIsoString(),
+          respondedAt: payload.respondedAt
+            ? this.toIsoString(payload.respondedAt)
+            : this.toIsoString(),
         },
       });
     }
@@ -1856,7 +1866,8 @@ export class DisputeEventListener {
       return;
     }
 
-    const disputeId = payload.disputeId || (await this.resolveDisputeIdFromHearing(payload.hearingId));
+    const disputeId =
+      payload.disputeId || (await this.resolveDisputeIdFromHearing(payload.hearingId));
     const eventPayload = {
       ...payload,
       disputeId,
@@ -1923,7 +1934,11 @@ export class DisputeEventListener {
       serverTimestamp: this.toIsoString(),
     };
 
-    this.gateway.emitHearingEvent(payload.hearingId, 'HEARING_MODERATOR_DISCONNECTED', eventPayload);
+    this.gateway.emitHearingEvent(
+      payload.hearingId,
+      'HEARING_MODERATOR_DISCONNECTED',
+      eventPayload,
+    );
 
     if (disputeId) {
       await this.emitDisputeRealtimeEvent({
