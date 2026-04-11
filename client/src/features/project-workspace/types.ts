@@ -279,3 +279,8 @@ export type TaskComment = {
     avatarUrl?: string;
   };
 };
+
+export type TaskCommentMutationResult = {
+  comment: TaskComment;
+  task?: Task | null;
+};

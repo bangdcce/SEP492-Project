@@ -1,4 +1,5 @@
 ﻿import {
+  memo,
   useCallback,
   useEffect,
   useMemo,
@@ -62,8 +63,6 @@ import {
   createTask,
   deleteWorkspaceChatMessage,
   editWorkspaceChatMessage,
-  fetchBoard,
-  fetchMilestones,
   fetchTaskSubmissions,
   fetchWorkspaceChatMessages,
   reviewSubmission,
@@ -91,6 +90,8 @@ interface WorkspaceChatDrawerProps {
   projectId?: string;
   currentUserId?: string;
   projectMembers?: WorkspaceChatMentionMember[];
+  workspaceTasks?: Task[];
+  availableMilestoneIds?: string[];
   canReviewTasks?: boolean;
   canUseTaskCommand?: boolean;
   taskCommandUnavailableMessage?: string | null;
@@ -802,6 +803,94 @@ const mergeUniqueMessages = (
   return sortMessagesAsc(Array.from(byId.values()));
 };
 
+const findSortedMessageInsertIndex = (
+  messages: WorkspaceChatMessage[],
+  createdAt: string,
+): number => {
+  const targetTime = new Date(createdAt).getTime();
+
+  for (let index = 0; index < messages.length; index += 1) {
+    const currentTime = new Date(messages[index].createdAt).getTime();
+    if (currentTime > targetTime) {
+      return index;
+    }
+  }
+
+  return messages.length;
+};
+
+const upsertSortedMessage = (
+  current: WorkspaceChatMessage[],
+  incoming: WorkspaceChatMessage,
+): WorkspaceChatMessage[] => {
+  const existingIndex = current.findIndex((message) => message.id === incoming.id);
+
+  if (existingIndex < 0) {
+    const nextMessages = current.slice();
+    nextMessages.splice(
+      findSortedMessageInsertIndex(nextMessages, incoming.createdAt),
+      0,
+      incoming,
+    );
+    return nextMessages;
+  }
+
+  const existingMessage = current[existingIndex];
+  if (existingMessage === incoming) {
+    return current;
+  }
+
+  if (existingMessage.createdAt === incoming.createdAt) {
+    const nextMessages = current.slice();
+    nextMessages[existingIndex] = incoming;
+    return nextMessages;
+  }
+
+  const nextMessages = current.slice();
+  nextMessages.splice(existingIndex, 1);
+  nextMessages.splice(
+    findSortedMessageInsertIndex(nextMessages, incoming.createdAt),
+    0,
+    incoming,
+  );
+  return nextMessages;
+};
+
+const messageMatchesSearch = (
+  message: WorkspaceChatMessage,
+  searchTerm: string,
+): boolean => {
+  const normalizedQuery = searchTerm.trim().toLowerCase();
+  if (!normalizedQuery || message.isDeleted) {
+    return false;
+  }
+
+  return message.content.toLowerCase().includes(normalizedQuery);
+};
+
+const upsertSearchResultsWithMessage = (
+  current: WorkspaceChatMessage[],
+  incoming: WorkspaceChatMessage,
+  searchTerm: string,
+): WorkspaceChatMessage[] => {
+  if (!searchTerm.trim()) {
+    return current;
+  }
+
+  const existingIndex = current.findIndex((message) => message.id === incoming.id);
+  const matchesSearch = messageMatchesSearch(incoming, searchTerm);
+
+  if (!matchesSearch) {
+    if (existingIndex < 0) {
+      return current;
+    }
+
+    return current.filter((message) => message.id !== incoming.id);
+  }
+
+  return upsertSortedMessage(current, incoming);
+};
+
 const formatMessageTime = (isoTimestamp: string): string => {
   return new Intl.DateTimeFormat(undefined, {
     hour: "2-digit",
@@ -911,12 +1000,394 @@ const waitForSocketConnection = (socket: Socket, timeoutMs: number): Promise<voi
   });
 };
 
+type WorkspaceChatMessageRowProps = {
+  message: WorkspaceChatMessage;
+  currentUserId: string | null;
+  projectMembers: WorkspaceChatMentionMember[];
+  normalizedSearchQuery: string;
+  editingValue?: string;
+  isEditing: boolean;
+  isBusy: boolean;
+  isHighlighted: boolean;
+  onEditingValueChange: (value: string) => void;
+  onReply: (messageId: string) => void;
+  onStartEdit: (message: WorkspaceChatMessage) => void;
+  onCancelEdit: () => void;
+  onSaveEdit: (messageId: string) => Promise<void> | void;
+  onDeleteMessage: (messageId: string) => Promise<void> | void;
+  onTogglePin: (message: WorkspaceChatMessage) => Promise<void> | void;
+  onScrollToMessage: (messageId: string) => void;
+  onJoinVideoCall: (url: string) => void;
+  registerMessageRef: (messageId: string, node: HTMLDivElement | null) => void;
+};
+
+const WorkspaceChatMessageRow = memo(function WorkspaceChatMessageRow({
+  message,
+  currentUserId,
+  projectMembers,
+  normalizedSearchQuery,
+  editingValue,
+  isEditing,
+  isBusy,
+  isHighlighted,
+  onEditingValueChange,
+  onReply,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onDeleteMessage,
+  onTogglePin,
+  onScrollToMessage,
+  onJoinVideoCall,
+  registerMessageRef,
+}: WorkspaceChatMessageRowProps) {
+  const systemMessage = isSystemMessage(message);
+  const riskFlags = getMessageRiskFlags(message);
+  const isRiskFlagged = !message.isDeleted && riskFlags.length > 0;
+  const isMe = Boolean(currentUserId) && message.senderId === currentUserId;
+  const replyPreview = !message.isDeleted ? message.replyTo : null;
+  const containsVideoCall = Boolean(extractWorkspaceVideoCall(message.content));
+
+  if (systemMessage) {
+    return (
+      <div
+        ref={(node) => {
+          registerMessageRef(message.id, node);
+        }}
+        className="flex min-w-0 max-w-full justify-center py-1"
+      >
+        <div
+          className={
+            containsVideoCall
+              ? "min-w-0 w-full max-w-[min(100%,22rem)]"
+              : "min-w-0 max-w-[85%] text-center"
+          }
+        >
+          <div
+            className={
+              containsVideoCall
+                ? "min-w-0 max-w-full"
+                : "min-w-0 max-w-full whitespace-pre-wrap break-words text-xs font-normal text-gray-400 [overflow-wrap:anywhere]"
+            }
+          >
+            {renderMessageContent(
+              message.content,
+              projectMembers,
+              false,
+              normalizedSearchQuery,
+              { onJoinCall: onJoinVideoCall },
+            )}
+          </div>
+          <div className="mt-1 flex items-center justify-center gap-1.5 text-[10px] text-gray-400">
+            <span>{formatMessageTime(message.createdAt)}</span>
+            {!message.isDeleted && (
+              <button
+                type="button"
+                onClick={() => onReply(message.id)}
+                className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:text-blue-600"
+              >
+                <Reply className="h-3 w-3" />
+                <span>Reply</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const senderLabel = isMe
+    ? "You"
+    : message.sender?.fullName ||
+      (message.senderId ? `User ${message.senderId.slice(0, 6)}` : "Unknown User");
+  const bubbleClassName = message.isDeleted
+    ? "rounded-2xl border border-rose-100 bg-white text-rose-700"
+    : isMe
+      ? isRiskFlagged
+        ? "rounded-2xl rounded-tr-md border border-rose-100 bg-rose-50 text-rose-900"
+        : "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
+      : isRiskFlagged
+        ? "rounded-2xl rounded-tl-md border border-rose-100 bg-rose-50 text-rose-900"
+        : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
+  const editingShellClassName = isMe
+    ? "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
+    : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
+  const warningClassName = isMe ? "justify-end text-right text-rose-700" : "text-rose-700";
+  const actionTriggerClassName = message.isDeleted
+    ? "text-rose-400 hover:text-rose-600"
+    : "text-gray-400 hover:text-blue-600";
+
+  return (
+    <div
+      ref={(node) => {
+        registerMessageRef(message.id, node);
+      }}
+      className={`group relative flex min-w-0 max-w-full ${
+        isMe ? "justify-end" : "justify-start"
+      } ${isHighlighted ? "rounded-2xl ring-2 ring-amber-300/80 ring-offset-2 ring-offset-slate-50" : ""}`}
+    >
+      <div
+        className={`flex min-w-0 max-w-[85%] flex-col ${isMe ? "items-end" : "items-start"}`}
+      >
+        <p
+          className={`mb-1 text-[11px] font-medium ${
+            isMe ? "text-right text-slate-500" : "text-slate-500"
+          }`}
+        >
+          {senderLabel}
+        </p>
+        <div
+          className={
+            isEditing
+              ? "min-w-0 max-w-full text-sm leading-relaxed"
+              : `relative min-w-0 max-w-full rounded-2xl px-5 py-3 pr-12 text-sm leading-relaxed ${bubbleClassName}`
+          }
+        >
+          {isEditing ? (
+            <div
+              className={`min-w-0 max-w-full space-y-3 rounded-2xl px-4 py-4 ${editingShellClassName}`}
+            >
+              <p
+                className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
+                  isMe ? "text-blue-100/90" : "text-slate-500"
+                }`}
+              >
+                Editing message
+              </p>
+              <textarea
+                value={editingValue ?? ""}
+                onChange={(event) => onEditingValueChange(event.target.value)}
+                rows={3}
+                autoFocus
+                disabled={isBusy}
+                className={`min-h-[104px] w-full resize-none rounded-2xl border px-4 py-3 text-sm leading-relaxed outline-none transition-colors ${
+                  isMe
+                    ? "border-white/20 bg-white/10 text-white placeholder:text-blue-100/80 focus:border-white/50 focus:bg-white/15"
+                    : "border-slate-300 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-500"
+                }`}
+              />
+              <div className="flex justify-end gap-2 pt-1">
+                <Button
+                  type="button"
+                  variant={isMe ? "secondary" : "outline"}
+                  size="sm"
+                  onClick={onCancelEdit}
+                  disabled={isBusy}
+                  className={isMe ? "bg-white/15 text-white hover:bg-white/20" : undefined}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={() => {
+                    void onSaveEdit(message.id);
+                  }}
+                  disabled={isBusy || !editingValue?.trim()}
+                  className={isMe ? "bg-white text-blue-700 hover:bg-blue-50" : undefined}
+                >
+                  {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  <span>{isBusy ? "Saving..." : "Save"}</span>
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <div
+                className={`absolute -top-3 right-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-md border border-gray-200 bg-white p-0.5 shadow-sm transition-opacity duration-150 ${
+                  message.isDeleted
+                    ? "opacity-100"
+                    : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+                }`}
+              >
+                {!message.isDeleted && (
+                  <button
+                    type="button"
+                    onClick={() => onReply(message.id)}
+                    disabled={isBusy}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Reply to message"
+                  >
+                    <Reply className="h-4 w-4" />
+                  </button>
+                )}
+                {isMe && !message.isDeleted && (
+                  <button
+                    type="button"
+                    onClick={() => onStartEdit(message)}
+                    disabled={isBusy}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Edit message"
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </button>
+                )}
+                {isMe && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void onDeleteMessage(message.id);
+                    }}
+                    disabled={isBusy || message.isDeleted}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Delete message"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="More message actions"
+                      className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${actionTriggerClassName}`}
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        console.log("Mark as evidence clicked", {
+                          messageId: message.id,
+                          projectId: message.projectId,
+                        });
+                        toast.info("Evidence flag action triggered");
+                      }}
+                      disabled={message.isDeleted}
+                    >
+                      <Flag className="h-4 w-4" />
+                      <span>Mark as evidence</span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        void onTogglePin(message);
+                      }}
+                      disabled={isBusy || message.isDeleted}
+                    >
+                      {message.isPinned ? (
+                        <PinOff className="h-4 w-4" />
+                      ) : (
+                        <Pin className="h-4 w-4" />
+                      )}
+                      <span>{message.isPinned ? "Unpin" : "Pin"}</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+
+              {message.isDeleted ? (
+                <p className="text-gray-500">{DELETED_MESSAGE_PLACEHOLDER}</p>
+              ) : (
+                <>
+                  {replyPreview && (
+                    <button
+                      type="button"
+                      onClick={() => onScrollToMessage(replyPreview.id)}
+                      className={`min-w-0 max-w-full w-full rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
+                        isMe
+                          ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
+                          : "border-gray-100 bg-white text-gray-600 hover:bg-gray-50"
+                      }`}
+                    >
+                      <p className="font-semibold">
+                        {replyPreview.sender?.fullName || "Unknown User"}
+                      </p>
+                      <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words opacity-90">
+                        {getReplyPreviewText(replyPreview)}
+                      </p>
+                    </button>
+                  )}
+                  {message.content ? (
+                    <div
+                      className={
+                        containsVideoCall
+                          ? "min-w-0 max-w-full"
+                          : "min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+                      }
+                    >
+                      {renderMessageContent(
+                        message.content,
+                        projectMembers,
+                        isMe,
+                        normalizedSearchQuery,
+                        { onJoinCall: onJoinVideoCall },
+                      )}
+                    </div>
+                  ) : null}
+                </>
+              )}
+
+              {!message.isDeleted && message.attachments.length > 0 && (
+                <div className="grid min-w-0 max-w-full gap-2">
+                  {message.attachments.map((attachment) =>
+                    isImageAttachment(attachment) ? (
+                      <a
+                        key={`${message.id}-${attachment.url}`}
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="block max-w-full overflow-hidden rounded-xl border border-gray-100 bg-white"
+                      >
+                        <img
+                          src={attachment.url}
+                          alt={attachment.name}
+                          className="max-h-56 w-full object-cover"
+                          loading="lazy"
+                        />
+                      </a>
+                    ) : (
+                      <a
+                        key={`${message.id}-${attachment.url}`}
+                        href={attachment.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`flex min-w-0 max-w-full items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
+                          isMe
+                            ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
+                            : "border-gray-100 bg-white text-gray-700 hover:bg-gray-50"
+                        }`}
+                      >
+                        <FileText className="h-4 w-4 shrink-0" />
+                        <span className="min-w-0 flex-1 truncate text-sm">{attachment.name}</span>
+                      </a>
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        {isRiskFlagged && (
+          <p
+            className={`mt-2 flex items-start gap-1 text-[11px] leading-relaxed ${warningClassName}`}
+          >
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+            <span>{POLICY_WARNING_MESSAGE}</span>
+          </p>
+        )}
+        <p
+          className={`${isRiskFlagged ? "mt-2" : "mt-1"} text-[10px] ${
+            isMe ? "text-right text-slate-400" : "text-slate-400"
+          }`}
+        >
+          {formatMessageTime(message.createdAt)}
+          {message.isEdited && !message.isDeleted ? ` · ${EDITED_MESSAGE_LABEL}` : ""}
+          {message.isPinned ? " · Pinned" : ""}
+        </p>
+      </div>
+    </div>
+  );
+});
+
 export function WorkspaceChatDrawer({
   isOpen = true,
   onClose,
   projectId,
   currentUserId,
   projectMembers = [],
+  workspaceTasks = [],
+  availableMilestoneIds = [],
   canReviewTasks = false,
   canUseTaskCommand = true,
   taskCommandUnavailableMessage = null,
@@ -945,7 +1416,6 @@ export function WorkspaceChatDrawer({
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState<WorkspaceChatMessage[]>([]);
   const [isSearchLoading, setIsSearchLoading] = useState(false);
-  const [searchRefreshNonce, setSearchRefreshNonce] = useState(0);
   const [replyingToMessageId, setReplyingToMessageId] = useState<string | null>(null);
   const [activeCallUrl, setActiveCallUrl] = useState<string | null>(null);
   const [isCallWindowMinimized, setIsCallWindowMinimized] = useState(false);
@@ -959,8 +1429,9 @@ export function WorkspaceChatDrawer({
   const joinInFlightRef = useRef<Promise<void> | null>(null);
   const lastSendAttemptAtRef = useRef(0);
   const isLoadingMoreRef = useRef(false);
+  const activeSearchQueryRef = useRef("");
 
-  const resolvedCurrentUserId = currentUserId ?? getStoredCurrentUserId();
+  const resolvedCurrentUserId = currentUserId ?? getStoredCurrentUserId() ?? null;
   const resolvedTaskCommandUnavailableMessage =
     taskCommandUnavailableMessage || TASK_COMMAND_FALLBACK_MESSAGE;
   const availableSlashCommands = useMemo(
@@ -1009,32 +1480,53 @@ export function WorkspaceChatDrawer({
     !shouldShowCommandPopover &&
     Boolean(mentionContext) &&
     projectMembers.length > 0;
-  const allKnownMessages = useMemo(
-    () => mergeUniqueMessages(messages, searchResults),
-    [messages, searchResults],
-  );
+  const workspaceTaskLookup = useMemo(() => {
+    const byId = new Map<string, Task>();
+    for (const task of workspaceTasks) {
+      byId.set(task.id, task);
+    }
+    return byId;
+  }, [workspaceTasks]);
+  const allKnownMessages = useMemo(() => {
+    const byId = new Map<string, WorkspaceChatMessage>();
+    for (const message of messages) {
+      byId.set(message.id, message);
+    }
+    for (const message of searchResults) {
+      byId.set(message.id, message);
+    }
+    return byId;
+  }, [messages, searchResults]);
   const replyingToMessage = useMemo(
     () =>
       replyingToMessageId
-        ? allKnownMessages.find((message) => message.id === replyingToMessageId) ?? null
+        ? allKnownMessages.get(replyingToMessageId) ?? null
         : null,
     [allKnownMessages, replyingToMessageId],
   );
   const normalizedSearchQuery = debouncedSearchQuery.trim();
   const isSearchActive = normalizedSearchQuery.length > 0;
   const visibleMessages = isSearchActive ? searchResults : messages;
+  useEffect(() => {
+    activeSearchQueryRef.current = normalizedSearchQuery;
+  }, [normalizedSearchQuery]);
   const latestPinnedMessage = useMemo(() => {
-    const pinnedMessages = messages.filter(
-      (message) => message.isPinned && !isSystemMessage(message) && !message.isDeleted,
-    );
-    if (pinnedMessages.length === 0) {
-      return null;
+    let latestMessage: WorkspaceChatMessage | null = null;
+
+    for (const message of messages) {
+      if (!message.isPinned || isSystemMessage(message) || message.isDeleted) {
+        continue;
+      }
+
+      if (
+        !latestMessage ||
+        new Date(message.updatedAt).getTime() > new Date(latestMessage.updatedAt).getTime()
+      ) {
+        latestMessage = message;
+      }
     }
 
-    return [...pinnedMessages].sort(
-      (first, second) =>
-        new Date(second.updatedAt).getTime() - new Date(first.updatedAt).getTime(),
-    )[0];
+    return latestMessage;
   }, [messages]);
   const canSendCurrentMessage =
     Boolean(projectId) &&
@@ -1200,71 +1692,26 @@ export function WorkspaceChatDrawer({
       return defaultMilestoneId;
     }
 
-    if (!projectId) {
-      return null;
-    }
-
-    const milestones = await fetchMilestones(projectId);
-    return milestones[0]?.id ?? null;
-  }, [defaultMilestoneId, projectId]);
-
-  const verifyPersistedTaskFromBoard = useCallback(
-    async (
-      milestoneId: string,
-      createdTask: Task | null | undefined,
-      fallbackTitle: string,
-    ): Promise<Task> => {
-      if (!projectId) {
-        throw new Error("Project context is required to verify the created task.");
-      }
-
-      const board = await fetchBoard(projectId);
-      const boardTasks = Object.values(board).flat();
-      const normalizedMilestoneId = String(milestoneId);
-
-      if (createdTask?.id) {
-        const persistedById = boardTasks.find((task) => task.id === createdTask.id);
-        if (persistedById) {
-          return persistedById;
-        }
-      }
-
-      const normalizedFallbackTitle = fallbackTitle.trim().toLowerCase();
-      const persistedByTitle = boardTasks.filter(
-        (task) =>
-          task.title.trim().toLowerCase() === normalizedFallbackTitle &&
-          String(task.milestoneId ?? "") === normalizedMilestoneId,
-      );
-
-      if (persistedByTitle.length === 1) {
-        return persistedByTitle[0];
-      }
-
-      throw new Error(
-        "Task command did not return a persisted task. Please try again or use Create Task.",
-      );
-    },
-    [projectId],
-  );
+    return availableMilestoneIds[0] ?? null;
+  }, [availableMilestoneIds, defaultMilestoneId]);
 
   const resolveTaskForApproval = useCallback(
     async (taskIdentifier: string): Promise<Task | null> => {
-      if (!projectId) {
+      if (!projectId || workspaceTaskLookup.size === 0) {
         return null;
       }
 
-      const board = await fetchBoard(projectId);
-      const allTasks = Object.values(board).flat();
       const normalizedIdentifier = taskIdentifier.trim().toLowerCase();
+      const availableTasks = Array.from(workspaceTaskLookup.values());
 
-      const exactIdMatch = allTasks.find(
+      const exactIdMatch = availableTasks.find(
         (task) => task.id.toLowerCase() === normalizedIdentifier,
       );
       if (exactIdMatch) {
         return exactIdMatch;
       }
 
-      const exactTitleMatches = allTasks.filter(
+      const exactTitleMatches = availableTasks.filter(
         (task) => task.title.trim().toLowerCase() === normalizedIdentifier,
       );
       if (exactTitleMatches.length > 1) {
@@ -1276,7 +1723,7 @@ export function WorkspaceChatDrawer({
         return exactTitleMatches[0];
       }
 
-      const partialTitleMatches = allTasks.filter((task) =>
+      const partialTitleMatches = availableTasks.filter((task) =>
         task.title.toLowerCase().includes(normalizedIdentifier),
       );
       if (partialTitleMatches.length > 1) {
@@ -1290,7 +1737,7 @@ export function WorkspaceChatDrawer({
 
       return null;
     },
-    [projectId],
+    [projectId, workspaceTaskLookup],
   );
 
   const resolveLatestPendingSubmission = useCallback(
@@ -1319,8 +1766,14 @@ export function WorkspaceChatDrawer({
   );
 
   const upsertMutatedMessage = useCallback((message: WorkspaceChatMessage) => {
-    setMessages((currentMessages) => mergeUniqueMessages(currentMessages, [message]));
-    setSearchRefreshNonce((currentValue) => currentValue + 1);
+    setMessages((currentMessages) => upsertSortedMessage(currentMessages, message));
+    setSearchResults((currentMessages) =>
+      upsertSearchResultsWithMessage(
+        currentMessages,
+        message,
+        activeSearchQueryRef.current,
+      ),
+    );
   }, []);
 
   const clearReplyTarget = useCallback(() => {
@@ -1363,6 +1816,13 @@ export function WorkspaceChatDrawer({
       );
     }, 1800);
   }, []);
+
+  const registerMessageRef = useCallback(
+    (messageId: string, node: HTMLDivElement | null) => {
+      messageRefs.current[messageId] = node;
+    },
+    [],
+  );
 
   const handleAttachmentPickerClick = useCallback(() => {
     fileInputRef.current?.click();
@@ -1447,6 +1907,10 @@ export function WorkspaceChatDrawer({
   const handleCancelEdit = useCallback(() => {
     setEditingMessageId(null);
     setEditingValue("");
+  }, []);
+
+  const handleEditingValueChange = useCallback((value: string) => {
+    setEditingValue(value);
   }, []);
 
   const handleSaveEdit = useCallback(
@@ -1724,17 +2188,17 @@ export function WorkspaceChatDrawer({
           milestoneId,
         });
 
-        const persistedTask = await verifyPersistedTaskFromBoard(
-          milestoneId,
-          createdTask,
-          taskTitle,
-        );
+        if (!createdTask?.id) {
+          throw new Error(
+            "Task command did not return a persisted task. Please try again or use Create Task.",
+          );
+        }
 
-        onTaskCreated?.(persistedTask);
+        onTaskCreated?.(createdTask);
         setInputValue("");
         clearReplyTarget();
         closeMentionPopover();
-        toast.success(`Task created: ${persistedTask.title}`);
+        toast.success(`Task created: ${createdTask.title}`);
       } catch (error) {
         const errorMessage = getTaskCommandErrorMessage(error);
         console.error("Failed to execute /task command", error);
@@ -1851,7 +2315,6 @@ export function WorkspaceChatDrawer({
       resolveTaskForApproval,
       resolveTaskMilestoneId,
       sendMessagePayload,
-      verifyPersistedTaskFromBoard,
       triggerSlashCommand,
     ]);
 
@@ -2191,7 +2654,7 @@ export function WorkspaceChatDrawer({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, normalizedSearchQuery, projectId, searchRefreshNonce]);
+  }, [isOpen, normalizedSearchQuery, projectId]);
 
   useEffect(() => {
     if (!isOpen || !projectId) {
@@ -2228,17 +2691,13 @@ export function WorkspaceChatDrawer({
     };
 
     const handleNewProjectMessage = (incoming: Partial<WorkspaceChatMessage>) => {
-      console.log("Received newProjectMessage", incoming);
       const normalizedMessage = normalizeWorkspaceMessage(incoming);
       if (!normalizedMessage || normalizedMessage.projectId !== projectId) {
         return;
       }
 
       const shouldAutoScroll = isNearBottom();
-      setMessages((currentMessages) =>
-        mergeUniqueMessages(currentMessages, [normalizedMessage]),
-      );
-      setSearchRefreshNonce((currentValue) => currentValue + 1);
+      upsertMutatedMessage(normalizedMessage);
 
       if (shouldAutoScroll) {
         window.requestAnimationFrame(() => {
@@ -2313,9 +2772,6 @@ export function WorkspaceChatDrawer({
 
     return () => {
       if (joinedProjectIdRef.current === projectId) {
-        socket.emit("leaveProjectChat", { projectId });
-      }
-      if (joinedProjectIdRef.current === projectId) {
         joinedProjectIdRef.current = null;
       }
       joinInFlightRef.current = null;
@@ -2326,7 +2782,14 @@ export function WorkspaceChatDrawer({
       socket.off("workspaceChatError", handleWorkspaceChatError);
       socket.off("exception", handleSocketException);
     };
-  }, [ensureProjectRoomJoin, isNearBottom, isOpen, projectId, scrollToBottom]);
+  }, [
+    ensureProjectRoomJoin,
+    isNearBottom,
+    isOpen,
+    projectId,
+    scrollToBottom,
+    upsertMutatedMessage,
+  ]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2370,6 +2833,52 @@ export function WorkspaceChatDrawer({
       ? "h-[min(88vh,760px)] w-[min(92vw,960px)]"
       : "h-[min(78vh,560px)] w-[min(92vw,420px)]";
   const activeCallWindowPositionClassName = isOpen ? "mb-24 sm:mb-0 sm:mr-96" : "";
+  const renderedMessages = useMemo(
+    () =>
+      visibleMessages.map((message) => (
+        <WorkspaceChatMessageRow
+          key={message.id}
+          message={message}
+          currentUserId={resolvedCurrentUserId}
+          projectMembers={projectMembers}
+          normalizedSearchQuery={normalizedSearchQuery}
+          editingValue={editingMessageId === message.id ? editingValue : undefined}
+          isEditing={editingMessageId === message.id}
+          isBusy={activeMessageActionId === message.id}
+          isHighlighted={highlightedMessageId === message.id}
+          onEditingValueChange={handleEditingValueChange}
+          onReply={handleReplyToMessage}
+          onStartEdit={handleStartEdit}
+          onCancelEdit={handleCancelEdit}
+          onSaveEdit={handleSaveEdit}
+          onDeleteMessage={handleDeleteMessage}
+          onTogglePin={handleTogglePin}
+          onScrollToMessage={scrollToMessage}
+          onJoinVideoCall={handleJoinVideoCall}
+          registerMessageRef={registerMessageRef}
+        />
+      )),
+    [
+      activeMessageActionId,
+      editingMessageId,
+      editingValue,
+      handleCancelEdit,
+      handleDeleteMessage,
+      handleEditingValueChange,
+      handleJoinVideoCall,
+      handleReplyToMessage,
+      handleSaveEdit,
+      handleStartEdit,
+      handleTogglePin,
+      highlightedMessageId,
+      normalizedSearchQuery,
+      projectMembers,
+      registerMessageRef,
+      resolvedCurrentUserId,
+      scrollToMessage,
+      visibleMessages,
+    ],
+  );
 
   return (
     <>
@@ -2478,355 +2987,7 @@ export function WorkspaceChatDrawer({
                 : "No messages yet. Start the conversation."}
             </p>
           ) : (
-            visibleMessages.map((message) => {
-              const systemMessage = isSystemMessage(message);
-              const riskFlags = getMessageRiskFlags(message);
-              const isRiskFlagged = !message.isDeleted && riskFlags.length > 0;
-              const isMe =
-                Boolean(resolvedCurrentUserId) &&
-                message.senderId === resolvedCurrentUserId;
-              const isEditing = editingMessageId === message.id;
-              const isBusy = activeMessageActionId === message.id;
-              const replyPreview = !message.isDeleted ? message.replyTo : null;
-              const containsVideoCall = Boolean(extractWorkspaceVideoCall(message.content));
-
-              if (systemMessage) {
-                return (
-                  <div
-                    key={message.id}
-                    ref={(node) => {
-                      messageRefs.current[message.id] = node;
-                    }}
-                    className="flex min-w-0 max-w-full justify-center py-1"
-                  >
-                    <div
-                      className={
-                        containsVideoCall
-                          ? "min-w-0 w-full max-w-[min(100%,22rem)]"
-                          : "min-w-0 max-w-[85%] text-center"
-                      }
-                    >
-                      <div
-                        className={
-                          containsVideoCall
-                            ? "min-w-0 max-w-full"
-                            : "min-w-0 max-w-full whitespace-pre-wrap break-words text-xs font-normal text-gray-400 [overflow-wrap:anywhere]"
-                        }
-                      >
-                        {renderMessageContent(
-                          message.content,
-                          projectMembers,
-                          false,
-                          normalizedSearchQuery,
-                          { onJoinCall: handleJoinVideoCall },
-                        )}
-                      </div>
-                      <div className="mt-1 flex items-center justify-center gap-1.5 text-[10px] text-gray-400">
-                        <span>{formatMessageTime(message.createdAt)}</span>
-                        {!message.isDeleted && (
-                          <button
-                            type="button"
-                            onClick={() => handleReplyToMessage(message.id)}
-                            className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium text-gray-400 transition-colors hover:text-blue-600"
-                          >
-                            <Reply className="h-3 w-3" />
-                            <span>Reply</span>
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                );
-              }
-
-              const senderLabel = isMe
-                ? "You"
-                : message.sender?.fullName ||
-                  (message.senderId ? `User ${message.senderId.slice(0, 6)}` : "Unknown User");
-              const bubbleClassName = message.isDeleted
-                ? "rounded-2xl border border-rose-100 bg-white text-rose-700"
-                : isMe
-                  ? isRiskFlagged
-                    ? "rounded-2xl rounded-tr-md border border-rose-100 bg-rose-50 text-rose-900"
-                    : "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
-                  : isRiskFlagged
-                    ? "rounded-2xl rounded-tl-md border border-rose-100 bg-rose-50 text-rose-900"
-                    : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
-              const editingShellClassName = isMe
-                ? "rounded-2xl rounded-tr-md border border-blue-100 bg-blue-50 text-blue-900"
-                : "rounded-2xl rounded-tl-md border border-gray-100 bg-white text-gray-900";
-              const warningClassName = isMe ? "justify-end text-right text-rose-700" : "text-rose-700";
-              const actionTriggerClassName = message.isDeleted
-                ? "text-rose-400 hover:text-rose-600"
-                : "text-gray-400 hover:text-blue-600";
-
-              return (
-                <div
-                  key={message.id}
-                  ref={(node) => {
-                    messageRefs.current[message.id] = node;
-                  }}
-                  className={`group relative flex min-w-0 max-w-full ${
-                    isMe ? "justify-end" : "justify-start"
-                  } ${highlightedMessageId === message.id ? "rounded-2xl ring-2 ring-amber-300/80 ring-offset-2 ring-offset-slate-50" : ""}`}
-                >
-                  <div
-                    className={`flex min-w-0 max-w-[85%] flex-col ${isMe ? "items-end" : "items-start"}`}
-                  >
-                    <p
-                      className={`mb-1 text-[11px] font-medium ${
-                        isMe ? "text-right text-slate-500" : "text-slate-500"
-                      }`}
-                    >
-                      {senderLabel}
-                    </p>
-                    <div
-                        className={
-                          isEditing
-                            ? "min-w-0 max-w-full text-sm leading-relaxed"
-                            : `relative min-w-0 max-w-full rounded-2xl px-5 py-3 pr-12 text-sm leading-relaxed ${
-                                message.isDeleted ? "" : ""
-                              } ${bubbleClassName}`
-                        }
-                      >
-                      {isEditing ? (
-                        <div
-                          className={`min-w-0 max-w-full space-y-3 rounded-2xl px-4 py-4 ${editingShellClassName}`}
-                        >
-                          <p
-                            className={`text-[11px] font-semibold uppercase tracking-[0.12em] ${
-                              isMe ? "text-blue-100/90" : "text-slate-500"
-                            }`}
-                          >
-                            Editing message
-                          </p>
-                          <textarea
-                            value={editingValue}
-                            onChange={(event) => setEditingValue(event.target.value)}
-                            rows={3}
-                            autoFocus
-                            disabled={isBusy}
-                            className={`min-h-[104px] w-full resize-none rounded-2xl border px-4 py-3 text-sm leading-relaxed outline-none transition-colors ${
-                              isMe
-                                ? "border-white/20 bg-white/10 text-white placeholder:text-blue-100/80 focus:border-white/50 focus:bg-white/15"
-                                : "border-slate-300 bg-white text-slate-800 placeholder:text-slate-400 focus:border-blue-500"
-                            }`}
-                          />
-                          <div className="flex justify-end gap-2 pt-1">
-                            <Button
-                              type="button"
-                              variant={isMe ? "secondary" : "outline"}
-                              size="sm"
-                              onClick={handleCancelEdit}
-                              disabled={isBusy}
-                              className={isMe ? "bg-white/15 text-white hover:bg-white/20" : undefined}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              type="button"
-                              size="sm"
-                              onClick={() => void handleSaveEdit(message.id)}
-                              disabled={isBusy || editingValue.trim().length === 0}
-                              className={
-                                isMe
-                                  ? "bg-white text-blue-700 hover:bg-blue-50"
-                                  : undefined
-                              }
-                            >
-                              {isBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                              <span>{isBusy ? "Saving..." : "Save"}</span>
-                            </Button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="space-y-3">
-                          <div
-                            className={`absolute -top-3 right-2 z-10 flex max-w-[calc(100%-1rem)] items-center gap-0.5 rounded-md border border-gray-200 bg-white p-0.5 shadow-sm transition-opacity duration-150 ${
-                              message.isDeleted
-                                ? "opacity-100"
-                                : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-                            }`}
-                          >
-                            {!message.isDeleted && (
-                              <button
-                                type="button"
-                                onClick={() => handleReplyToMessage(message.id)}
-                                disabled={isBusy}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="Reply to message"
-                              >
-                                <Reply className="h-4 w-4" />
-                              </button>
-                            )}
-                            {isMe && !message.isDeleted && (
-                              <button
-                                type="button"
-                                onClick={() => handleStartEdit(message)}
-                                disabled={isBusy}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="Edit message"
-                              >
-                                <Pencil className="h-4 w-4" />
-                              </button>
-                            )}
-                            {isMe && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  void handleDeleteMessage(message.id);
-                                }}
-                                disabled={isBusy || message.isDeleted}
-                                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-50 hover:text-rose-600 disabled:cursor-not-allowed disabled:opacity-50"
-                                aria-label="Delete message"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            )}
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <button
-                                  type="button"
-                                  aria-label="More message actions"
-                                  className={`inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors ${actionTriggerClassName}`}
-                                >
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-48">
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    console.log("Mark as evidence clicked", {
-                                      messageId: message.id,
-                                      projectId: message.projectId,
-                                    });
-                                    toast.info("Evidence flag action triggered");
-                                  }}
-                                  disabled={message.isDeleted}
-                                >
-                                    <Flag className="h-4 w-4" />
-                                    <span>Mark as evidence</span>
-                                  </DropdownMenuItem>
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    void handleTogglePin(message);
-                                  }}
-                                  disabled={isBusy || message.isDeleted}
-                                >
-                                  {message.isPinned ? (
-                                    <PinOff className="h-4 w-4" />
-                                  ) : (
-                                    <Pin className="h-4 w-4" />
-                                    )}
-                                    <span>{message.isPinned ? "Unpin" : "Pin"}</span>
-                                  </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-
-                          {message.isDeleted ? (
-                            <p className="text-gray-500">{DELETED_MESSAGE_PLACEHOLDER}</p>
-                          ) : (
-                            <>
-                              {replyPreview && (
-                                <button
-                                  type="button"
-                                  onClick={() => scrollToMessage(replyPreview.id)}
-                                    className={`min-w-0 max-w-full w-full rounded-xl border px-3 py-2 text-left text-xs transition-colors ${
-                                      isMe
-                                        ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
-                                        : "border-gray-100 bg-white text-gray-600 hover:bg-gray-50"
-                                    }`}
-                                >
-                                  <p className="font-semibold">
-                                    {replyPreview.sender?.fullName || "Unknown User"}
-                                  </p>
-                                  <p className="mt-1 line-clamp-2 whitespace-pre-wrap break-words opacity-90">
-                                    {getReplyPreviewText(replyPreview)}
-                                  </p>
-                                </button>
-                              )}
-                              {message.content ? (
-                                <div
-                                  className={
-                                    containsVideoCall
-                                      ? "min-w-0 max-w-full"
-                                      : "min-w-0 max-w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-                                  }
-                                >
-                                  {renderMessageContent(
-                                    message.content,
-                                    projectMembers,
-                                    isMe,
-                                    normalizedSearchQuery,
-                                    { onJoinCall: handleJoinVideoCall },
-                                  )}
-                                </div>
-                              ) : null}
-                            </>
-                          )}
-
-                          {!message.isDeleted && message.attachments.length > 0 && (
-                            <div className="grid min-w-0 max-w-full gap-2">
-                              {message.attachments.map((attachment) =>
-                                isImageAttachment(attachment) ? (
-                                  <a
-                                    key={`${message.id}-${attachment.url}`}
-                                    href={attachment.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="block max-w-full overflow-hidden rounded-xl border border-gray-100 bg-white"
-                                  >
-                                    <img
-                                      src={attachment.url}
-                                      alt={attachment.name}
-                                      className="max-h-56 w-full object-cover"
-                                      loading="lazy"
-                                    />
-                                  </a>
-                                ) : (
-                                  <a
-                                    key={`${message.id}-${attachment.url}`}
-                                    href={attachment.url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                      className={`flex min-w-0 max-w-full items-center gap-3 rounded-xl border px-3 py-2 transition-colors ${
-                                        isMe
-                                          ? "border-blue-100 bg-white/70 text-blue-900 hover:bg-white"
-                                          : "border-gray-100 bg-white text-gray-700 hover:bg-gray-50"
-                                      }`}
-                                  >
-                                    <FileText className="h-4 w-4 shrink-0" />
-                                    <span className="min-w-0 flex-1 truncate text-sm">{attachment.name}</span>
-                                  </a>
-                                ),
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    {isRiskFlagged && (
-                      <p
-                        className={`mt-2 flex items-start gap-1 text-[11px] leading-relaxed ${warningClassName}`}
-                      >
-                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        <span>{POLICY_WARNING_MESSAGE}</span>
-                      </p>
-                    )}
-                    <p
-                      className={`${isRiskFlagged ? "mt-2" : "mt-1"} text-[10px] ${
-                        isMe ? "text-right text-slate-400" : "text-slate-400"
-                      }`}
-                    >
-                      {formatMessageTime(message.createdAt)}
-                      {message.isEdited && !message.isDeleted ? ` · ${EDITED_MESSAGE_LABEL}` : ""}
-                      {message.isPinned ? " · Pinned" : ""}
-                    </p>
-                  </div>
-                </div>
-              );
-            })
+            renderedMessages
           )}
         </div>
 

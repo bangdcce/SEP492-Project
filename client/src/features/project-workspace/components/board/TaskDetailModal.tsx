@@ -136,6 +136,13 @@ const SUBMISSION_STATUS_CONFIG: Record<
   REQUEST_CHANGES: { label: "Request changes", color: "bg-purple-100 text-purple-700" },
 };
 
+const mergeTaskSnapshot = (currentTask: Task, incomingTask: Partial<Task>): Task => ({
+  ...currentTask,
+  ...incomingTask,
+  attachments: incomingTask.attachments ?? currentTask.attachments,
+  submissions: incomingTask.submissions ?? currentTask.submissions,
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 // SUB-COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
@@ -564,15 +571,23 @@ export function TaskDetailModal({
       (!isFreelancer && canTransitionTaskToDone)
   );
 
+  const applyTaskSnapshot = (incomingTask?: Partial<Task> | null) => {
+    if (!task || !incomingTask) {
+      return null;
+    }
+
+    const nextTask = mergeTaskSnapshot(task, incomingTask);
+    setTask(nextTask);
+    onUpdate?.(nextTask);
+    return nextTask;
+  };
+
   // HANDLERS
   const handleUpdate = async (patch: Partial<Task>) => {
     if (!task) return;
     try {
       const updated = await updateTask(task.id, patch);
-      const nextTask = { ...task, ...updated };
-      setTask(nextTask);
-      onUpdate?.(nextTask); // Notify parent
-      return nextTask;
+      return applyTaskSnapshot(updated);
     } catch (error) {
       console.error("Failed to update task:", error);
       toast.error(
@@ -617,16 +632,23 @@ export function TaskDetailModal({
       return;
     }
 
+    if (
+      task.status === "DONE" &&
+      newStatus !== "DONE" &&
+      latestApprovedSubmission
+    ) {
+      toast.warning(
+        "Task da duoc approve va hoan tat, khong the doi nguoc khoi DONE.",
+      );
+      return;
+    }
+
     try {
       const result = await updateTaskStatus(task.id, newStatus);
-      const updatedTask: Task = {
-        ...task,
+      applyTaskSnapshot({
         ...result.task,
         status: newStatus,
-        submissions: result.task.submissions ?? task.submissions,
-      };
-      setTask(updatedTask);
-      onUpdate?.(updatedTask);
+      });
     } catch (error) {
       console.error("Failed to update status:", error);
     }
@@ -640,8 +662,9 @@ export function TaskDetailModal({
     setIsSavingComment(true);
     try {
       const api = await import("../../api");
-      const newComment = await api.createComment(task.id, html);
-      setComments((prev) => [newComment, ...prev]);
+      const result = await api.createComment(task.id, html);
+      setComments((prev) => [result.comment, ...prev]);
+      applyTaskSnapshot(result.task ?? null);
       setCommentDraft("");
     } catch (error) {
       console.error("Failed to save comment:", error);
@@ -668,10 +691,13 @@ export function TaskDetailModal({
     setUpdatingCommentId(commentId);
     try {
       const api = await import("../../api");
-      const updatedComment = await api.updateComment(commentId, content);
+      const result = await api.updateComment(commentId, content);
       setComments((prev) =>
-        prev.map((comment) => (comment.id === commentId ? updatedComment : comment)),
+        prev.map((comment) =>
+          comment.id === commentId ? result.comment : comment,
+        ),
       );
+      applyTaskSnapshot(result.task ?? null);
       setEditingCommentId(null);
       toast.success("Comment updated.");
     } catch (error) {
@@ -847,19 +873,17 @@ export function TaskDetailModal({
     setIsSubmittingSubmission(true);
     setSubmissionError(null);
     try {
-      const created = await createTaskSubmission(task.id, {
+      const result = await createTaskSubmission(task.id, {
         content: html,
         attachments: [],
       });
-      const nextSubmissions = [created, ...submissionFeed];
-      const updatedTask: Task = {
-        ...task,
+      const nextSubmissions = result.task.submissions ?? [result.submission, ...submissionFeed];
+      setSubmissions(nextSubmissions);
+      applyTaskSnapshot({
+        ...result.task,
         status: "IN_REVIEW",
         submissions: nextSubmissions,
-      };
-      setSubmissions(nextSubmissions);
-      setTask(updatedTask);
-      onUpdate?.(updatedTask);
+      });
     } catch (error) {
       console.error("Failed to submit work:", error);
       setSubmissionError("Failed to submit work. Please try again.");
@@ -893,14 +917,12 @@ export function TaskDetailModal({
       const result = await reviewSubmission(task.id, submissionId, {
         status: "APPROVED",
       });
-      const updatedTask: Task = {
-        ...task,
+      const nextSubmissions = result.task.submissions ?? submissionFeed;
+      setSubmissions(nextSubmissions);
+      applyTaskSnapshot({
         ...result.task,
-        submissions: result.task.submissions ?? submissionFeed,
-      };
-      setSubmissions(updatedTask.submissions ?? []);
-      setTask(updatedTask);
-      onUpdate?.(updatedTask);
+        submissions: nextSubmissions,
+      });
       setApproveDialogSubmission(null);
     } catch (error) {
       console.error("Failed to approve submission:", error);
@@ -926,14 +948,12 @@ export function TaskDetailModal({
         status: "REQUEST_CHANGES",
         reviewNote: reviewNote.trim(),
       });
-      const updatedTask: Task = {
-        ...task,
+      const nextSubmissions = result.task.submissions ?? submissionFeed;
+      setSubmissions(nextSubmissions);
+      applyTaskSnapshot({
         ...result.task,
-        submissions: result.task.submissions ?? submissionFeed,
-      };
-      setSubmissions(updatedTask.submissions ?? []);
-      setTask(updatedTask);
-      onUpdate?.(updatedTask);
+        submissions: nextSubmissions,
+      });
       // Reset form
       setReviewNote("");
       setIsReviewNotePopoverOpen(false);

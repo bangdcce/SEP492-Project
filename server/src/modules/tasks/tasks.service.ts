@@ -130,6 +130,16 @@ export interface TaskCommentItem {
   } | null;
 }
 
+export interface TaskCommentMutationResult {
+  comment: TaskCommentItem;
+  task?: TaskEntity | null;
+}
+
+export interface TaskSubmissionCreateResult {
+  submission: TaskSubmissionEntity;
+  task: TaskEntity;
+}
+
 export interface ProjectTaskRealtimeEvent {
   action: 'CREATED' | 'UPDATED';
   projectId: string;
@@ -653,7 +663,11 @@ export class TasksService implements OnModuleInit {
     return linked;
   }
 
-  async createComment(taskId: string, actorId: string, content: string): Promise<TaskCommentItem> {
+  async createComment(
+    taskId: string,
+    actorId: string,
+    content: string,
+  ): Promise<TaskCommentMutationResult> {
     await this.ensureTaskExists(taskId);
 
     const sanitizedContent = this.sanitizeCommentContent(content);
@@ -677,17 +691,37 @@ export class TasksService implements OnModuleInit {
       throw new NotFoundException('Comment not found after creation');
     }
 
+    let attachmentsUpdated = false;
     try {
-      await this.createAttachmentsFromComment(taskId, actorId, sanitizedContent);
+      attachmentsUpdated = await this.createAttachmentsFromComment(taskId, actorId, sanitizedContent);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(`Failed to extract task attachments: ${message}`);
     }
 
-    return this.mapTaskComment(fullComment);
+    let updatedTask: TaskEntity | null = null;
+    if (attachmentsUpdated) {
+      updatedTask = await this.findTaskWithWorkspaceRelations(taskId);
+      if (updatedTask && !updatedTask.parentTaskId) {
+        this.emitTaskRealtimeEvent({
+          action: 'UPDATED',
+          projectId: updatedTask.projectId,
+          task: updatedTask,
+        });
+      }
+    }
+
+    return {
+      comment: this.mapTaskComment(fullComment),
+      task: updatedTask,
+    };
   }
 
-  async addComment(taskId: string, content: string, actorId: string): Promise<TaskCommentItem> {
+  async addComment(
+    taskId: string,
+    content: string,
+    actorId: string,
+  ): Promise<TaskCommentMutationResult> {
     return this.createComment(taskId, actorId, content);
   }
 
@@ -695,7 +729,7 @@ export class TasksService implements OnModuleInit {
     commentId: string,
     actorId: string,
     content: string,
-  ): Promise<TaskCommentItem> {
+  ): Promise<TaskCommentMutationResult> {
     const sanitizedContent = this.sanitizeCommentContent(content);
     if (!sanitizedContent) {
       throw new BadRequestException('Content is required');
@@ -718,8 +752,13 @@ export class TasksService implements OnModuleInit {
       await this.commentRepository.save(comment);
     }
 
+    let attachmentsUpdated = false;
     try {
-      await this.createAttachmentsFromComment(comment.taskId, actorId, sanitizedContent);
+      attachmentsUpdated = await this.createAttachmentsFromComment(
+        comment.taskId,
+        actorId,
+        sanitizedContent,
+      );
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
       this.logger.warn(`Failed to extract task attachments: ${message}`);
@@ -730,7 +769,22 @@ export class TasksService implements OnModuleInit {
       throw new NotFoundException('Comment not found after update');
     }
 
-    return this.mapTaskComment(fullComment);
+    let updatedTask: TaskEntity | null = null;
+    if (attachmentsUpdated) {
+      updatedTask = await this.findTaskWithWorkspaceRelations(comment.taskId);
+      if (updatedTask && !updatedTask.parentTaskId) {
+        this.emitTaskRealtimeEvent({
+          action: 'UPDATED',
+          projectId: updatedTask.projectId,
+          task: updatedTask,
+        });
+      }
+    }
+
+    return {
+      comment: this.mapTaskComment(fullComment),
+      task: updatedTask,
+    };
   }
 
   async deleteComment(
@@ -761,7 +815,7 @@ export class TasksService implements OnModuleInit {
     taskId: string,
     dto: CreateSubmissionDto,
     submitterId?: string,
-  ): Promise<TaskSubmissionEntity> {
+  ): Promise<TaskSubmissionCreateResult> {
     if (!submitterId) {
       throw new ForbiddenException('Authentication required');
     }
@@ -816,7 +870,24 @@ export class TasksService implements OnModuleInit {
       submittedAt: null,
     });
 
-    return saved;
+    const updatedTask = await this.findTaskWithWorkspaceRelations(taskId);
+    if (!updatedTask) {
+      throw new NotFoundException('Task not found after submission');
+    }
+
+    if (!updatedTask.parentTaskId) {
+      this.emitTaskRealtimeEvent({
+        action: 'UPDATED',
+        projectId: updatedTask.projectId,
+        task: updatedTask,
+        milestoneId: updatedTask.milestoneId,
+      });
+    }
+
+    return {
+      submission: saved,
+      task: updatedTask,
+    };
   }
 
   /**
@@ -1003,10 +1074,10 @@ export class TasksService implements OnModuleInit {
     taskId: string,
     uploaderId: string,
     html: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const urls = this.extractImageUrls(html);
     if (urls.length === 0) {
-      return;
+      return false;
     }
 
     const existing = await this.attachmentRepository.find({
@@ -1020,7 +1091,7 @@ export class TasksService implements OnModuleInit {
     const newUrls = urls.filter((url) => !existingUrls.has(url));
 
     if (newUrls.length === 0) {
-      return;
+      return false;
     }
 
     const attachments = newUrls.map((url) =>
@@ -1034,6 +1105,7 @@ export class TasksService implements OnModuleInit {
     );
 
     await this.attachmentRepository.save(attachments);
+    return true;
   }
 
   private async createHistory(
@@ -1222,18 +1294,23 @@ export class TasksService implements OnModuleInit {
 
     const previousStatus = task.status;
     const milestoneId = task.milestoneId;
+    const approvedSubmissionCount = await this.submissionRepository.count({
+      where: {
+        taskId: id,
+        status: TaskSubmissionStatus.APPROVED,
+      },
+    });
 
-    if (status === TaskStatus.DONE && previousStatus !== TaskStatus.DONE) {
-      const approvedSubmissionCount = await this.submissionRepository.count({
-        where: {
-          taskId: id,
-          status: TaskSubmissionStatus.APPROVED,
-        },
-      });
+    if (status === TaskStatus.DONE && previousStatus !== TaskStatus.DONE && approvedSubmissionCount === 0) {
+      throw new BadRequestException('Cannot move to DONE without an approved submission.');
+    }
 
-      if (approvedSubmissionCount === 0) {
-        throw new BadRequestException('Cannot move to DONE without an approved submission.');
-      }
+    if (
+      previousStatus === TaskStatus.DONE &&
+      status !== TaskStatus.DONE &&
+      approvedSubmissionCount > 0
+    ) {
+      throw new BadRequestException('Approved tasks cannot be moved out of DONE.');
     }
 
     // [HISTORY] Record status change
