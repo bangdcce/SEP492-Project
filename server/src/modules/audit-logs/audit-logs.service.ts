@@ -562,6 +562,14 @@ export class AuditLogsService {
     };
   }
 
+  async findAllForExport(queryDto: Omit<GetAuditLogsDto, 'page' | 'limit'>) {
+    const entities = await this.buildFilteredQuery(queryDto)
+      .orderBy('log.createdAt', 'DESC')
+      .getMany();
+
+    return entities.map((entity) => this.transformToResponseDto(entity));
+  }
+
   async findOne(id: string) {
     const entity = await this.buildFilteredQuery({}).andWhere('log.id = :id', { id }).getOne();
 
@@ -1298,7 +1306,20 @@ export class AuditLogsService {
   }
 
   private escapeCsv(value: unknown): string {
-    return `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const sanitizedValue = this.sanitizeCsvValue(value);
+    return `"${sanitizedValue.replace(/"/g, '""')}"`;
+  }
+
+  private sanitizeCsvValue(value: unknown): string {
+    const normalized = String(value ?? '');
+    const withoutBom = normalized.replace(/^\uFEFF/, '');
+
+    // Prevent spreadsheet formula injection in CSV exports.
+    if (/^[\t\r\n ]*[=+\-@]/.test(withoutBom)) {
+      return `'${normalized}`;
+    }
+
+    return normalized;
   }
 
   private startOfDay(date: Date) {
