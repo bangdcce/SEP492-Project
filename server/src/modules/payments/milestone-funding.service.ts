@@ -8,6 +8,7 @@ import {
   NotImplementedException,
   ServiceUnavailableException,
 } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { InjectRepository } from '@nestjs/typeorm';
 import Decimal from 'decimal.js';
 import { DataSource, EntityManager, Repository } from 'typeorm';
@@ -99,6 +100,7 @@ export class MilestoneFundingService {
     @InjectRepository(FundingIntentEntity)
     private readonly fundingIntentRepository: Repository<FundingIntentEntity>,
     private readonly dataSource: DataSource,
+    private readonly eventEmitter: EventEmitter2,
     private readonly walletService: WalletService,
     private readonly internalSandboxGateway: InternalSandboxGateway,
     private readonly payPalCheckoutService: PayPalCheckoutService,
@@ -111,7 +113,12 @@ export class MilestoneFundingService {
       throw new BadRequestException('Idempotency-Key header is required');
     }
 
-    return this.dataSource.transaction(async (manager) => {
+    let fundedProject: Pick<
+      ProjectEntity,
+      'id' | 'requestId' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'
+    > | null = null;
+
+    const result = await this.dataSource.transaction(async (manager) => {
       const milestone = await manager.getRepository(MilestoneEntity).findOne({
         where: { id: input.milestoneId },
       });
@@ -147,6 +154,7 @@ export class MilestoneFundingService {
       if (!project) {
         throw new NotFoundException(`Project ${escrow.projectId} not found`);
       }
+      fundedProject = project;
       if (project.clientId !== input.payerId) {
         throw new ForbiddenException('Only the project client can fund a milestone');
       }
@@ -263,6 +271,12 @@ export class MilestoneFundingService {
         gateway: fundingIntent.gateway,
       };
     });
+
+    if (fundedProject) {
+      this.emitProjectUpdated(fundedProject);
+    }
+
+    return result;
   }
 
   async completePayPalMilestoneFunding(
@@ -279,7 +293,12 @@ export class MilestoneFundingService {
     const orderDetails = this.extractCompletedPayPalOrder(capturedOrder, input.milestoneId);
     const normalizedKey = orderDetails.orderId.trim();
 
-    return this.dataSource.transaction(async (manager) => {
+    let fundedProject: Pick<
+      ProjectEntity,
+      'id' | 'requestId' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'
+    > | null = null;
+
+    const result = await this.dataSource.transaction(async (manager) => {
       const milestone = await manager.getRepository(MilestoneEntity).findOne({
         where: { id: input.milestoneId },
       });
@@ -321,6 +340,7 @@ export class MilestoneFundingService {
       if (!project) {
         throw new NotFoundException(`Project ${escrow.projectId} not found`);
       }
+      fundedProject = project;
       if (project.clientId !== input.payerId) {
         throw new ForbiddenException('Only the project client can fund a milestone');
       }
@@ -453,6 +473,12 @@ export class MilestoneFundingService {
         gateway: fundingIntent.gateway,
       };
     });
+
+    if (fundedProject) {
+      this.emitProjectUpdated(fundedProject);
+    }
+
+    return result;
   }
 
   async createPayPalMilestoneOrder(
@@ -609,7 +635,12 @@ export class MilestoneFundingService {
 
     const normalizedKey = sessionDetails.sessionId.trim();
 
-    return this.dataSource.transaction(async (manager) => {
+    let fundedProject: Pick<
+      ProjectEntity,
+      'id' | 'requestId' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'
+    > | null = null;
+
+    const result = await this.dataSource.transaction(async (manager) => {
       const milestone = await manager.getRepository(MilestoneEntity).findOne({
         where: { id: input.milestoneId },
       });
@@ -651,6 +682,7 @@ export class MilestoneFundingService {
       if (!project) {
         throw new NotFoundException(`Project ${escrow.projectId} not found`);
       }
+      fundedProject = project;
       if (project.clientId !== input.payerId) {
         throw new ForbiddenException('Only the project client can fund a milestone');
       }
@@ -765,6 +797,40 @@ export class MilestoneFundingService {
         nextAction: gatewayResult.nextAction,
         gateway: fundingIntent.gateway,
       };
+    });
+
+    if (fundedProject) {
+      this.emitProjectUpdated(fundedProject);
+    }
+
+    return result;
+  }
+
+  private emitProjectUpdated(
+    project: Pick<
+      ProjectEntity,
+      'id' | 'requestId' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'
+    >,
+  ): void {
+    const userIds = Array.from(
+      new Set(
+        [
+          project.clientId,
+          project.brokerId,
+          project.freelancerId,
+          project.staffId,
+        ].filter(Boolean),
+      ),
+    ) as string[];
+
+    userIds.forEach((userId) => {
+      this.eventEmitter.emit('project.updated', {
+        userId,
+        projectId: project.id,
+        requestId: project.requestId ?? null,
+        entityType: 'Project',
+        entityId: project.id,
+      });
     });
   }
 

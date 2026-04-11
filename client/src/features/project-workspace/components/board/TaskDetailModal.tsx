@@ -99,6 +99,10 @@ type TaskDetailModalProps = {
   task: Task | null;
   specFeatures?: SpecFeatureOption[];
   canReviewSubmissions?: boolean;
+  canActAsBrokerReviewer?: boolean;
+  canActAsClientReviewer?: boolean;
+  allowTaskMutations?: boolean;
+  taskMutationLockReason?: string | null;
   allowTaskStatusEditing?: boolean;
   onClose: () => void;
   onUpdate?: (updatedTask: Task) => void;
@@ -130,8 +134,13 @@ const SUBMISSION_STATUS_CONFIG: Record<
   TaskSubmissionStatus,
   { label: string; color: string }
 > = {
-  PENDING: { label: "Pending", color: "bg-amber-100 text-amber-700" },
+  PENDING: { label: "Waiting for broker review", color: "bg-amber-100 text-amber-700" },
+  PENDING_CLIENT_REVIEW: {
+    label: "Waiting for client review",
+    color: "bg-blue-100 text-blue-700",
+  },
   APPROVED: { label: "Approved", color: "bg-emerald-100 text-emerald-700" },
+  AUTO_APPROVED: { label: "Auto-approved", color: "bg-emerald-100 text-emerald-700" },
   REJECTED: { label: "Rejected", color: "bg-red-100 text-red-700" },
   REQUEST_CHANGES: { label: "Request changes", color: "bg-purple-100 text-purple-700" },
 };
@@ -161,12 +170,14 @@ function EditableText({
   className,
   placeholder = "Click to edit...",
   multiline = false,
+  disabled = false,
 }: {
   value: string;
   onSave: (val: string) => void;
   className?: string;
   placeholder?: string;
   multiline?: boolean;
+  disabled?: boolean;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [localValue, setLocalValue] = useState(value);
@@ -174,6 +185,12 @@ function EditableText({
   useEffect(() => {
     setLocalValue(value);
   }, [value]);
+
+  useEffect(() => {
+    if (disabled) {
+      setIsEditing(false);
+    }
+  }, [disabled]);
 
   const handleBlur = () => {
     setIsEditing(false);
@@ -222,9 +239,15 @@ function EditableText({
 
   return (
     <div
-      onClick={() => setIsEditing(true)}
+      onClick={() => {
+        if (!disabled) {
+          setIsEditing(true);
+        }
+      }}
       className={cn(
-        "cursor-text hover:bg-gray-100 rounded px-1 -ml-1 transition-colors min-h-[24px] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400",
+        disabled
+          ? "rounded px-1 -ml-1 min-h-[24px] text-gray-700"
+          : "cursor-text hover:bg-gray-100 rounded px-1 -ml-1 transition-colors min-h-[24px] empty:before:content-[attr(data-placeholder)] empty:before:text-gray-400",
         className
       )}
       data-placeholder={placeholder}
@@ -249,6 +272,10 @@ export function TaskDetailModal({
   task: initialTask,
   specFeatures = [],
   canReviewSubmissions = false,
+  canActAsBrokerReviewer,
+  canActAsClientReviewer,
+  allowTaskMutations = true,
+  taskMutationLockReason = null,
   allowTaskStatusEditing = false,
   onClose,
   onUpdate,
@@ -311,8 +338,19 @@ export function TaskDetailModal({
   const currentUser = getStoredJson<{ id: string; role?: string }>(STORAGE_KEYS.USER);
   const currentUserId = currentUser?.id ?? null;
   const currentUserRole = currentUser?.role?.toUpperCase();
-  const canReview = canReviewSubmissions || currentUserRole === "CLIENT";
+  const canBrokerReview =
+    canActAsBrokerReviewer ?? currentUserRole === "BROKER";
+  const canClientReview =
+    canActAsClientReviewer ?? currentUserRole === "CLIENT";
+  const canReview = Boolean(
+    canReviewSubmissions && (canBrokerReview || canClientReview),
+  );
   const isFreelancer = currentUserRole === "FREELANCER";
+  const isInteractionLocked = !allowTaskMutations;
+  const canManageSubtasks = allowTaskMutations && !isFreelancer;
+  const subtaskPermissionMessage = isFreelancer
+    ? "Freelancers cannot create or link subtasks."
+    : taskMutationLockReason || "Task changes are locked for this milestone.";
 
   useEffect(() => {
     setTask(initialTask);
@@ -323,6 +361,29 @@ export function TaskDetailModal({
     setUpdatingCommentId(null);
     setCommentPendingDelete(null);
     setDeletingCommentId(null);
+    setSubmissionError(null);
+    setSubmissions(initialTask?.submissions ?? []);
+
+    if (!initialTask?.id) {
+      setSubtasks([]);
+      return;
+    }
+
+    setIsLoadingSubtasks(true);
+    fetchSubtasks(initialTask.id)
+      .then(setSubtasks)
+      .catch((error) => {
+        console.error("Failed to load subtasks:", error);
+      })
+      .finally(() => setIsLoadingSubtasks(false));
+
+    setIsLoadingSubmissions(true);
+    fetchTaskSubmissions(initialTask.id)
+      .then(setSubmissions)
+      .catch((error) => {
+        console.error("Failed to load submissions:", error);
+      })
+      .finally(() => setIsLoadingSubmissions(false));
   }, [initialTask]);
 
   useEffect(() => {
@@ -365,8 +426,6 @@ export function TaskDetailModal({
     if (!task?.id) return;
 
     setTaskLinks([]);
-    setSubtasks([]);
-    setSubmissions(task.submissions ?? []);
     setExpandedSubmissions({});
     setIsLoadingLinks(true);
     fetchTaskLinks(task.id)
@@ -375,23 +434,7 @@ export function TaskDetailModal({
         console.error("Failed to load task links:", error);
       })
       .finally(() => setIsLoadingLinks(false));
-
-    setIsLoadingSubtasks(true);
-    fetchSubtasks(task.id)
-      .then(setSubtasks)
-      .catch((error) => {
-        console.error("Failed to load subtasks:", error);
-      })
-      .finally(() => setIsLoadingSubtasks(false));
-
-    setIsLoadingSubmissions(true);
-    fetchTaskSubmissions(task.id)
-      .then(setSubmissions)
-      .catch((error) => {
-        console.error("Failed to load submissions:", error);
-      })
-      .finally(() => setIsLoadingSubmissions(false));
-  }, [task?.id, task?.submissions]);
+  }, [task?.id]);
 
   // Combine and Sort for "All" Tab
   const timelineItems = useMemo(() => {
@@ -473,7 +516,9 @@ export function TaskDetailModal({
             </div>
           </div>
 
-          {isCommentOwner(comment) && editingCommentId !== comment.id ? (
+          {isCommentOwner(comment) &&
+          editingCommentId !== comment.id &&
+          !isInteractionLocked ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
@@ -549,6 +594,8 @@ export function TaskDetailModal({
     !!dueDate && dueDate.getTime() < Date.now() && task.status !== "DONE";
   const totalSubtasks = subtasks.length;
   const completedSubtasks = subtasks.filter((subtask) => subtask.status === "DONE").length;
+  const unfinishedSubtasks = subtasks.filter((subtask) => subtask.status !== "DONE");
+  const unfinishedSubtaskCount = unfinishedSubtasks.length;
   const subtaskProgress = totalSubtasks
     ? Math.round((completedSubtasks / totalSubtasks) * 100)
     : 0;
@@ -570,6 +617,34 @@ export function TaskDetailModal({
       task.status === "DONE" ||
       (!isFreelancer && canTransitionTaskToDone)
   );
+  const openReviewSubmission =
+    submissionFeed.find(
+      (submission) =>
+        submission.status === "PENDING" ||
+        submission.status === "PENDING_CLIENT_REVIEW"
+    ) ?? null;
+  const isBrokerApprovalBlockedBySubtasks = Boolean(
+    openReviewSubmission?.status === "PENDING" &&
+      unfinishedSubtaskCount > 0
+  );
+  const canSubmitNewVersion = Boolean(
+    isFreelancer &&
+      allowTaskMutations &&
+      !openReviewSubmission &&
+      task.status !== "DONE"
+  );
+  const ensureTaskMutationsAllowed = (fallbackMessage?: string) => {
+    if (!allowTaskMutations) {
+      toast.warning(
+        taskMutationLockReason ||
+          fallbackMessage ||
+          "Task changes are locked for this milestone."
+      );
+      return false;
+    }
+
+    return true;
+  };
 
   const applyTaskSnapshot = (incomingTask?: Partial<Task> | null) => {
     if (!task || !incomingTask) {
@@ -585,6 +660,7 @@ export function TaskDetailModal({
   // HANDLERS
   const handleUpdate = async (patch: Partial<Task>) => {
     if (!task) return;
+    if (!ensureTaskMutationsAllowed()) return null;
     try {
       const updated = await updateTask(task.id, patch);
       return applyTaskSnapshot(updated);
@@ -599,6 +675,7 @@ export function TaskDetailModal({
 
   const handleAddLabel = async () => {
     if (!task) return;
+    if (!ensureTaskMutationsAllowed()) return;
 
     const trimmedLabel = labelDraft.trim();
     if (!trimmedLabel) {
@@ -625,7 +702,10 @@ export function TaskDetailModal({
 
   const handleStatusChange = async (newStatus: KanbanColumnKey) => {
     if (!task) return;
-    if (!allowTaskStatusEditing) return;
+    if (!allowTaskStatusEditing) {
+      ensureTaskMutationsAllowed();
+      return;
+    }
 
     if (newStatus === "DONE" && !canTransitionTaskToDone) {
       toast.warning("Cannot move to DONE without an approved submission.");
@@ -656,6 +736,7 @@ export function TaskDetailModal({
 
   const handleSaveComment = async (content: string) => {
     if (!task) return;
+    if (!ensureTaskMutationsAllowed()) return;
     const html = content?.trim() ? content : commentDraft;
     if (!html.trim()) return;
 
@@ -679,6 +760,7 @@ export function TaskDetailModal({
     Boolean(currentUserId) && getCommentOwnerId(comment) === currentUserId;
 
   const handleStartEditingComment = (comment: TaskComment) => {
+    if (!ensureTaskMutationsAllowed()) return;
     setCommentPendingDelete(null);
     setEditingCommentId(comment.id);
   };
@@ -688,6 +770,7 @@ export function TaskDetailModal({
   };
 
   const handleUpdateComment = async (commentId: string, content: string) => {
+    if (!ensureTaskMutationsAllowed()) return;
     setUpdatingCommentId(commentId);
     try {
       const api = await import("../../api");
@@ -715,6 +798,7 @@ export function TaskDetailModal({
     if (!commentPendingDelete) {
       return;
     }
+    if (!ensureTaskMutationsAllowed()) return;
 
     const targetComment = commentPendingDelete;
     setDeletingCommentId(targetComment.id);
@@ -744,6 +828,7 @@ export function TaskDetailModal({
   const handleAddLink = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!task) return;
+    if (!ensureTaskMutationsAllowed()) return;
 
     const url = linkForm.url.trim();
     const title = linkForm.title.trim();
@@ -773,6 +858,7 @@ export function TaskDetailModal({
 
   const handleDeleteLink = async (linkId: string) => {
     if (!task) return;
+    if (!ensureTaskMutationsAllowed()) return;
     try {
       await deleteTaskLink(task.id, linkId);
       setTaskLinks((prev) => prev.filter((link) => link.id !== linkId));
@@ -784,6 +870,12 @@ export function TaskDetailModal({
   const handleCreateSubtask = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!task) return;
+    if (!canManageSubtasks) {
+      setSubtaskError(subtaskPermissionMessage);
+      toast.warning(subtaskPermissionMessage);
+      return;
+    }
+    if (!ensureTaskMutationsAllowed()) return;
 
     const title = newSubtaskTitle.trim();
     if (!title) {
@@ -803,7 +895,9 @@ export function TaskDetailModal({
       setIsCreateSubtaskOpen(false);
     } catch (error) {
       console.error("Failed to create subtask:", error);
-      setSubtaskError("Failed to create subtask. Please try again.");
+      setSubtaskError(
+        error instanceof Error ? error.message : "Failed to create subtask. Please try again."
+      );
     } finally {
       setIsCreatingSubtask(false);
     }
@@ -814,6 +908,12 @@ export function TaskDetailModal({
   ) => {
     event.preventDefault();
     if (!task) return;
+    if (!canManageSubtasks) {
+      setSubtaskError(subtaskPermissionMessage);
+      toast.warning(subtaskPermissionMessage);
+      return;
+    }
+    if (!ensureTaskMutationsAllowed()) return;
 
     const subtaskId = linkExistingSubtaskId.trim();
     if (!subtaskId) {
@@ -830,7 +930,11 @@ export function TaskDetailModal({
       setIsLinkExistingOpen(false);
     } catch (error) {
       console.error("Failed to link subtask:", error);
-      setSubtaskError("Failed to link subtask. Please check the ID and try again.");
+      setSubtaskError(
+        error instanceof Error
+          ? error.message
+          : "Failed to link subtask. Please check the ID and try again."
+      );
     } finally {
       setIsLinkingSubtask(false);
     }
@@ -841,6 +945,7 @@ export function TaskDetailModal({
     newStatus: KanbanColumnKey
   ) => {
     if (updatingSubtaskId || !task) return;
+    if (!ensureTaskMutationsAllowed()) return;
 
     const current = subtasks.find((subtask) => subtask.id === subtaskId);
     if (!current || current.status === newStatus) return;
@@ -864,6 +969,7 @@ export function TaskDetailModal({
 
   const handleSubmitSubmission = async (html: string) => {
     if (!task) return;
+    if (!ensureTaskMutationsAllowed()) return;
     const trimmed = html?.trim();
     if (!trimmed || trimmed === "<p></p>") {
       setSubmissionError("Submission content is required.");
@@ -903,6 +1009,15 @@ export function TaskDetailModal({
   // Review Handlers
   const handleApproveSubmission = (submission: TaskSubmission) => {
     if (!task || !canReview) return;
+    if (
+      submission.status === "PENDING" &&
+      unfinishedSubtaskCount > 0
+    ) {
+      const message = `Cannot approve submission yet: ${unfinishedSubtaskCount} subtasks are still not DONE.`;
+      setSubmissionError(message);
+      toast.warning(message);
+      return;
+    }
     setSubmissionError(null);
     setApproveDialogSubmission(submission);
   };
@@ -911,6 +1026,16 @@ export function TaskDetailModal({
     if (!task || !canReview || !approveDialogSubmission) return;
 
     const submissionId = approveDialogSubmission.id;
+    if (
+      approveDialogSubmission.status === "PENDING" &&
+      unfinishedSubtaskCount > 0
+    ) {
+      const message = `Cannot approve submission yet: ${unfinishedSubtaskCount} subtasks are still not DONE.`;
+      setSubmissionError(message);
+      toast.warning(message);
+      setApproveDialogSubmission(null);
+      return;
+    }
     setIsReviewing(true);
     setReviewingSubmissionId(submissionId);
     try {
@@ -926,7 +1051,10 @@ export function TaskDetailModal({
       setApproveDialogSubmission(null);
     } catch (error) {
       console.error("Failed to approve submission:", error);
-      setSubmissionError("Failed to approve submission. Please try again.");
+      const message =
+        error instanceof Error ? error.message : "Failed to approve submission.";
+      setSubmissionError(message);
+      toast.error(message);
     } finally {
       setIsReviewing(false);
       setReviewingSubmissionId(null);
@@ -959,7 +1087,10 @@ export function TaskDetailModal({
       setIsReviewNotePopoverOpen(false);
     } catch (error) {
       console.error("Failed to request changes:", error);
-      setSubmissionError("Failed to request changes. Please try again.");
+      const message =
+        error instanceof Error ? error.message : "Failed to request changes.";
+      setSubmissionError(message);
+      toast.error(message);
     } finally {
       setIsReviewing(false);
       setReviewingSubmissionId(null);
@@ -998,13 +1129,19 @@ export function TaskDetailModal({
             
             {/* LEFT COLUMN: MAIN CONTENT (8 cols) */}
             <div className="md:col-span-8 p-6 pr-4 border-r border-gray-200 space-y-8 md:max-h-[calc(100vh-12rem)] md:overflow-y-auto md:custom-scrollbar">
-              
+              {isInteractionLocked && taskMutationLockReason ? (
+                <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                  {taskMutationLockReason}
+                </div>
+              ) : null}
+
               {/* TITLE */}
               <div>
                 <EditableText
                   value={task.title}
                   onSave={(val) => handleUpdate({ title: val })}
                   className="text-2xl font-semibold text-gray-900 leading-tight"
+                  disabled={isInteractionLocked}
                 />
               </div>
               
@@ -1029,6 +1166,7 @@ export function TaskDetailModal({
                   multiline
                   placeholder="Add a description..."
                   className="text-gray-700 leading-relaxed text-sm min-h-[120px]"
+                  disabled={isInteractionLocked}
                 />
               </div>
 
@@ -1086,6 +1224,10 @@ export function TaskDetailModal({
                   <Popover
                     open={isLinkPopoverOpen}
                     onOpenChange={(open) => {
+                      if (open && !allowTaskMutations) {
+                        ensureTaskMutationsAllowed();
+                        return;
+                      }
                       setIsLinkPopoverOpen(open);
                       if (open) setLinkError(null);
                     }}
@@ -1093,6 +1235,7 @@ export function TaskDetailModal({
                     <PopoverTrigger asChild>
                       <button
                         type="button"
+                        disabled={isInteractionLocked}
                         className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
                         aria-label="Add web link"
                       >
@@ -1110,6 +1253,7 @@ export function TaskDetailModal({
                             onChange={(e) =>
                               setLinkForm((prev) => ({ ...prev, url: e.target.value }))
                             }
+                            disabled={isInteractionLocked}
                             placeholder="https://example.com"
                             className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
                           />
@@ -1124,6 +1268,7 @@ export function TaskDetailModal({
                             onChange={(e) =>
                               setLinkForm((prev) => ({ ...prev, title: e.target.value }))
                             }
+                            disabled={isInteractionLocked}
                             placeholder="Design spec"
                             className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
                           />
@@ -1139,7 +1284,7 @@ export function TaskDetailModal({
                           </button>
                           <button
                             type="submit"
-                            disabled={isSavingLink}
+                            disabled={isSavingLink || isInteractionLocked}
                             className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                           >
                             {isSavingLink ? "Saving..." : "Add Link"}
@@ -1181,6 +1326,7 @@ export function TaskDetailModal({
                         <button
                           type="button"
                           onClick={() => handleDeleteLink(link.id)}
+                          disabled={isInteractionLocked}
                           className="rounded p-1 text-gray-400 hover:text-red-500"
                           aria-label="Remove link"
                         >
@@ -1202,6 +1348,11 @@ export function TaskDetailModal({
                     <Popover
                       open={isCreateSubtaskOpen}
                       onOpenChange={(open) => {
+                        if (open && !canManageSubtasks) {
+                          setSubtaskError(subtaskPermissionMessage);
+                          toast.warning(subtaskPermissionMessage);
+                          return;
+                        }
                         setIsCreateSubtaskOpen(open);
                         if (open) setSubtaskError(null);
                       }}
@@ -1209,8 +1360,10 @@ export function TaskDetailModal({
                       <PopoverTrigger asChild>
                         <button
                           type="button"
+                          disabled={!canManageSubtasks}
                           className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
                           aria-label="Add subtask"
+                          title={!canManageSubtasks ? subtaskPermissionMessage : undefined}
                         >
                           <Plus className="w-3.5 h-3.5" />
                           Add
@@ -1224,6 +1377,7 @@ export function TaskDetailModal({
                               type="text"
                               value={newSubtaskTitle}
                               onChange={(e) => setNewSubtaskTitle(e.target.value)}
+                              disabled={!canManageSubtasks}
                               placeholder="Implement login flow"
                               className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
                             />
@@ -1237,6 +1391,7 @@ export function TaskDetailModal({
                               onChange={(e) =>
                                 setNewSubtaskPriority(e.target.value as TaskPriority)
                               }
+                              disabled={!canManageSubtasks}
                               className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
                             >
                               {Object.keys(PRIORITY_CONFIG).map((priority) => (
@@ -1259,7 +1414,7 @@ export function TaskDetailModal({
                             </button>
                             <button
                               type="submit"
-                              disabled={isCreatingSubtask}
+                              disabled={isCreatingSubtask || !canManageSubtasks}
                               className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                             >
                               {isCreatingSubtask ? "Saving..." : "Create"}
@@ -1271,6 +1426,11 @@ export function TaskDetailModal({
                     <Popover
                       open={isLinkExistingOpen}
                       onOpenChange={(open) => {
+                        if (open && !canManageSubtasks) {
+                          setSubtaskError(subtaskPermissionMessage);
+                          toast.warning(subtaskPermissionMessage);
+                          return;
+                        }
                         setIsLinkExistingOpen(open);
                         if (open) setSubtaskError(null);
                       }}
@@ -1278,8 +1438,10 @@ export function TaskDetailModal({
                       <PopoverTrigger asChild>
                         <button
                           type="button"
+                          disabled={!canManageSubtasks}
                           className="inline-flex items-center gap-1 rounded-md border border-gray-200 bg-white px-2 py-1 text-xs font-semibold text-gray-600 hover:bg-gray-50"
                           aria-label="Link existing subtask"
+                          title={!canManageSubtasks ? subtaskPermissionMessage : undefined}
                         >
                           <Link2 className="w-3.5 h-3.5" />
                           Link
@@ -1295,6 +1457,7 @@ export function TaskDetailModal({
                               type="text"
                               value={linkExistingSubtaskId}
                               onChange={(e) => setLinkExistingSubtaskId(e.target.value)}
+                              disabled={!canManageSubtasks}
                               placeholder="UUID of the existing task"
                               className="w-full rounded-md border border-gray-200 px-2 py-1.5 text-sm focus:border-blue-500 focus:ring-blue-500"
                             />
@@ -1312,7 +1475,7 @@ export function TaskDetailModal({
                             </button>
                             <button
                               type="submit"
-                              disabled={isLinkingSubtask}
+                              disabled={isLinkingSubtask || !canManageSubtasks}
                               className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                             >
                               {isLinkingSubtask ? "Linking..." : "Link"}
@@ -1333,6 +1496,32 @@ export function TaskDetailModal({
                   </div>
                   <Progress value={subtaskProgress} className="h-2 mt-2" />
                 </div>
+
+                {unfinishedSubtaskCount > 0 ? (
+                  <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800">
+                    <p className="font-medium text-amber-900">
+                      {unfinishedSubtaskCount} subtasks are still not DONE.
+                    </p>
+                    <p className="mt-1 text-xs">
+                      Broker approval stays blocked until every subtask is completed.
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {unfinishedSubtasks.slice(0, 4).map((subtask) => (
+                        <span
+                          key={subtask.id}
+                          className="rounded-full border border-amber-200 bg-white px-2 py-1 text-[11px] text-amber-900"
+                        >
+                          {subtask.title}
+                        </span>
+                      ))}
+                      {unfinishedSubtaskCount > 4 ? (
+                        <span className="rounded-full border border-amber-200 bg-white px-2 py-1 text-[11px] text-amber-900">
+                          +{unfinishedSubtaskCount - 4} more
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="space-y-2 mt-3">
                   {isLoadingSubtasks ? (
@@ -1400,7 +1589,7 @@ export function TaskDetailModal({
                                       e.target.value as KanbanColumnKey
                                     )
                                   }
-                                  disabled={updatingSubtaskId === subtask.id}
+                                  disabled={updatingSubtaskId === subtask.id || isInteractionLocked}
                                   className={cn(
                                     "appearance-none rounded-full px-2 py-0.5 pr-5 text-[10px] font-semibold ring-1 ring-inset ring-gray-200 focus:ring-2 focus:ring-blue-500 cursor-pointer",
                                     subtaskStatusOption?.color,
@@ -1440,13 +1629,46 @@ export function TaskDetailModal({
                         Rich text
                       </span>
                     </div>
-                    <RichTextEditor
-                      placeholder="Describe what you delivered, include links, images, or steps..."
-                      onSave={handleSubmitSubmission}
-                      onCancel={() => setSubmissionError(null)}
-                      isSaving={isSubmittingSubmission}
-                      saveLabel="Submit"
-                    />
+                    {canSubmitNewVersion ? (
+                      <RichTextEditor
+                        placeholder="Describe what you delivered, include links, images, or steps..."
+                        onSave={handleSubmitSubmission}
+                        onCancel={() => setSubmissionError(null)}
+                        isSaving={isSubmittingSubmission}
+                        saveLabel="Submit"
+                      />
+                    ) : openReviewSubmission ? (
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                        <p className="font-medium text-slate-900">
+                          {SUBMISSION_STATUS_CONFIG[openReviewSubmission.status]?.label}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-600">
+                          {openReviewSubmission.status === "PENDING"
+                            ? "A broker decision is required before another version can be submitted."
+                            : `Broker approved this submission. Waiting for client review${
+                                openReviewSubmission.clientReviewDueAt
+                                  ? ` until ${format(
+                                      normalizeToUTC(openReviewSubmission.clientReviewDueAt),
+                                      "MMM d, yyyy HH:mm"
+                                    )}`
+                                  : ""
+                              }.`}
+                        </p>
+                        {isBrokerApprovalBlockedBySubtasks ? (
+                          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                            Broker approval is blocked until {unfinishedSubtaskCount} unfinished subtasks are marked DONE.
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : isFreelancer ? (
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                        Submission is unavailable while this milestone is read-only.
+                      </div>
+                    ) : (
+                      <div className="rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                        Only the assigned freelancer can submit new versions.
+                      </div>
+                    )}
                     {submissionError && (
                       <p className="mt-2 text-xs text-red-600">{submissionError}</p>
                     )}
@@ -1479,6 +1701,14 @@ export function TaskDetailModal({
                           const submitterName =
                             submission.submitter?.fullName || "Unknown";
                           const isExpanded = !!expandedSubmissions[submission.id];
+                          const canBrokerReviewThis =
+                            canReview &&
+                            canBrokerReview &&
+                            submission.status === "PENDING";
+                          const canClientReviewThis =
+                            canReview &&
+                            canClientReview &&
+                            submission.status === "PENDING_CLIENT_REVIEW";
                           return (
                             <div
                               key={submission.id}
@@ -1560,32 +1790,86 @@ export function TaskDetailModal({
                                   />
                                 )}
 
-                                {/* Review Note Display (if reviewed) */}
-                                {submission.reviewNote && (
-                                  <div className="mt-3 rounded-md border border-purple-200 bg-purple-50 p-3">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      <span className="text-xs font-semibold text-purple-700">
-                                        Feedback from {submission.reviewer?.fullName || "Reviewer"}
-                                      </span>
-                                      {submission.reviewedAt && (
-                                        <span className="text-[10px] text-purple-500">
-                                          {formatDistanceToNow(normalizeToUTC(submission.reviewedAt), { addSuffix: true })}
-                                        </span>
-                                      )}
-                                    </div>
-                                    <p className="text-sm text-purple-900">{submission.reviewNote}</p>
+                                {submission.status === "PENDING" ? (
+                                  <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                                    Waiting for broker review.
                                   </div>
-                                )}
+                                ) : null}
 
-                                {/* REVIEWER-ONLY: Review Actions for PENDING submissions */}
-                                {submission.status === "PENDING" && canReview && (
+                                {submission.status === "PENDING_CLIENT_REVIEW" ? (
+                                  <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+                                    Broker approved this version. Waiting for client review
+                                    {submission.clientReviewDueAt
+                                      ? ` until ${format(
+                                          normalizeToUTC(submission.clientReviewDueAt),
+                                          "MMM d, yyyy HH:mm"
+                                        )}`
+                                      : ""}
+                                    .
+                                  </div>
+                                ) : null}
+
+                                {submission.status === "AUTO_APPROVED" ? (
+                                  <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-800">
+                                    Auto-approved after the client did not respond within 24 hours.
+                                  </div>
+                                ) : null}
+
+                                {submission.brokerReviewNote ? (
+                                  <div className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-3">
+                                    <div className="mb-1 flex items-center gap-2">
+                                      <span className="text-xs font-semibold text-blue-700">
+                                        Broker review
+                                      </span>
+                                      {submission.brokerReviewedAt ? (
+                                        <span className="text-[10px] text-blue-500">
+                                          {formatDistanceToNow(
+                                            normalizeToUTC(submission.brokerReviewedAt),
+                                            { addSuffix: true }
+                                          )}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="text-sm text-blue-900">
+                                      {submission.brokerReviewNote}
+                                    </p>
+                                  </div>
+                                ) : null}
+
+                                {submission.clientReviewNote ? (
+                                  <div className="mt-3 rounded-md border border-purple-200 bg-purple-50 p-3">
+                                    <div className="mb-1 flex items-center gap-2">
+                                      <span className="text-xs font-semibold text-purple-700">
+                                        Client review
+                                      </span>
+                                      {submission.clientReviewedAt ? (
+                                        <span className="text-[10px] text-purple-500">
+                                          {formatDistanceToNow(
+                                            normalizeToUTC(submission.clientReviewedAt),
+                                            { addSuffix: true }
+                                          )}
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="text-sm text-purple-900">
+                                      {submission.clientReviewNote}
+                                    </p>
+                                  </div>
+                                ) : null}
+
+                                {(canBrokerReviewThis || canClientReviewThis) && (
                                   <div className="mt-3 pt-3 border-t border-gray-200">
                                     <div className="flex items-center gap-2">
                                       {/* Approve Button */}
                                       <button
                                         type="button"
                                         onClick={() => handleApproveSubmission(submission)}
-                                        disabled={isReviewing && reviewingSubmissionId === submission.id}
+                                        disabled={
+                                          (isReviewing && reviewingSubmissionId === submission.id) ||
+                                          (canBrokerReviewThis &&
+                                            submission.status === "PENDING" &&
+                                            unfinishedSubtaskCount > 0)
+                                        }
                                         className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 transition-colors"
                                       >
                                         {isReviewing && reviewingSubmissionId === submission.id ? (
@@ -1593,7 +1877,9 @@ export function TaskDetailModal({
                                         ) : (
                                           <CheckCircle2 className="w-3.5 h-3.5" />
                                         )}
-                                        Approve
+                                        {canBrokerReviewThis
+                                          ? "Approve & Send to Client"
+                                          : "Approve & Mark Done"}
                                       </button>
 
                                       {/* Request Changes Button with Popover */}
@@ -1744,13 +2030,19 @@ export function TaskDetailModal({
                          You
                      </div>
                      <div className="flex-1">
-                         <RichTextEditor
-                            className="mb-4"
-                            onChange={setCommentDraft}
-                            onSave={handleSaveComment}
-                            onCancel={handleCancelComment}
-                            isSaving={isSavingComment}
-                         />
+                        {allowTaskMutations ? (
+                          <RichTextEditor
+                              className="mb-4"
+                              onChange={setCommentDraft}
+                              onSave={handleSaveComment}
+                              onCancel={handleCancelComment}
+                              isSaving={isSavingComment}
+                          />
+                        ) : (
+                          <div className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
+                            Comments are read-only while this milestone is locked.
+                          </div>
+                        )}
 
                          {/* Comment List */}
                          <div className="space-y-4">
@@ -1873,7 +2165,8 @@ export function TaskDetailModal({
                            <select
                               value={task.priority || "MEDIUM"}
                               onChange={(e) => handleUpdate({ priority: e.target.value as TaskPriority })}
-                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                              disabled={isInteractionLocked}
+                              className="absolute inset-0 w-full h-full opacity-0 cursor-pointer disabled:cursor-not-allowed"
                            >
                                {Object.keys(PRIORITY_CONFIG).map(p => (
                                    <option key={p} value={p}>{p}</option>
@@ -1896,6 +2189,7 @@ export function TaskDetailModal({
                          type="number" 
                          value={task.storyPoints || ""} 
                          onChange={(e) => handleUpdate({ storyPoints: parseInt(e.target.value) || 0 })}
+                         disabled={isInteractionLocked}
                          placeholder="-"
                          className="w-16 text-right text-sm border-gray-200 rounded p-1 focus:ring-blue-500 focus:border-blue-500"
                       />
@@ -1910,10 +2204,20 @@ export function TaskDetailModal({
                                    {label}
                                </span>
                            ))}
-                           <Popover open={isLabelPopoverOpen} onOpenChange={setIsLabelPopoverOpen}>
+                           <Popover
+                             open={isLabelPopoverOpen}
+                             onOpenChange={(open) => {
+                               if (open && !allowTaskMutations) {
+                                 ensureTaskMutationsAllowed();
+                                 return;
+                               }
+                               setIsLabelPopoverOpen(open);
+                             }}
+                           >
                                <PopoverTrigger asChild>
                                    <button
                                        type="button"
+                                       disabled={isInteractionLocked}
                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-gray-700 transition-colors"
                                    >
                                        <Plus className="w-3 h-3" />
@@ -1930,6 +2234,7 @@ export function TaskDetailModal({
                                    <Input
                                        value={labelDraft}
                                        onChange={(event) => setLabelDraft(event.target.value)}
+                                       disabled={isInteractionLocked}
                                        onKeyDown={(event) => {
                                            if (event.key === "Enter") {
                                                event.preventDefault();
@@ -1953,7 +2258,7 @@ export function TaskDetailModal({
                                        <button
                                            type="button"
                                            onClick={() => void handleAddLabel()}
-                                           disabled={!labelDraft.trim()}
+                                           disabled={!labelDraft.trim() || isInteractionLocked}
                                            className="rounded-md bg-slate-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                                        >
                                            Add label
@@ -1971,6 +2276,7 @@ export function TaskDetailModal({
                         value={task.startDate ?? null}
                         onChange={(value) => void handleUpdate({ startDate: value })}
                         placeholder="Set start date"
+                        disabled={isInteractionLocked}
                       />
                   </div>
 
@@ -1990,6 +2296,7 @@ export function TaskDetailModal({
                         onChange={(value) => void handleUpdate({ dueDate: value })}
                         placeholder="Set due date"
                         tone={isDueDateOverdue ? "danger" : "default"}
+                        disabled={isInteractionLocked}
                       />
                       {isDueDateOverdue && dueDate ? (
                         <p className="flex items-center gap-1 text-[11px] text-red-600">
@@ -2033,7 +2340,10 @@ export function TaskDetailModal({
                   <AlertDialogDescription className="text-sm leading-6 text-slate-600">
                     By approving this, you verify that the work submitted in{" "}
                     Version {approveDialogSubmission?.version ?? "-"} meets the
-                    required standards. The task will be marked as DONE.
+                    required standards.{" "}
+                    {approveDialogSubmission?.status === "PENDING"
+                      ? "The submission will move to client review and the task will remain IN_REVIEW."
+                      : "The task will be marked as DONE."}
                   </AlertDialogDescription>
                 </div>
               </div>
@@ -2088,7 +2398,9 @@ export function TaskDetailModal({
               ) : (
                 <>
                   <CheckCircle2 className="mr-2 h-4 w-4" />
-                  Confirm & Mark as Done
+                  {approveDialogSubmission?.status === "PENDING"
+                    ? "Confirm & Send to Client"
+                    : "Confirm & Mark as Done"}
                 </>
               )}
             </AlertDialogAction>
