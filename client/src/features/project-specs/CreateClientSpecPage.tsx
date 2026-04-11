@@ -54,14 +54,79 @@ const getFeatureLabel = (value?: string | null) => {
   return FEATURE_LABELS[normalizedValue] || toTitleLabel(value);
 };
 
+const BUDGET_CODE_RANGES: Record<string, { min?: number; max?: number }> = {
+  UNDER_1K: { min: 0, max: 1000 },
+  '1K_5K': { min: 1000, max: 5000 },
+  '5K_10K': { min: 5000, max: 10000 },
+  '10K_25K': { min: 10000, max: 25000 },
+  ABOVE_25K: { min: 25000 },
+};
+
+const isFinitePositiveNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0;
+
+const parseBudgetToken = (value: string): number | undefined => {
+  const normalized = value.replace(/[$,\s]/g, '').toUpperCase();
+  const match = normalized.match(/^(\d+(?:\.\d+)?)([KMB])?$/);
+  if (!match) {
+    return undefined;
+  }
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) {
+    return undefined;
+  }
+
+  const multiplier =
+    match[2] === 'K' ? 1000 : match[2] === 'M' ? 1000000 : match[2] === 'B' ? 1000000000 : 1;
+
+  return Math.round(amount * multiplier);
+};
+
 const parseBudgetRange = (value?: string | null): { min?: number; max?: number } | null => {
   const raw = String(value || '').trim();
   if (!raw) return null;
 
+  const normalizedCode = raw.replace(/[^A-Za-z0-9]+/g, '_').toUpperCase();
+  if (BUDGET_CODE_RANGES[normalizedCode]) {
+    return BUDGET_CODE_RANGES[normalizedCode];
+  }
+
+  const normalizedRaw = raw.toUpperCase();
+  if (BUDGET_CODE_RANGES[normalizedRaw]) {
+    return BUDGET_CODE_RANGES[normalizedRaw];
+  }
+
+  const compactMatches = raw.match(/\d[\d,.]*(?:\.\d+)?\s*[kKmMbB]?/g) || [];
+  const compactNumbers = compactMatches
+    .map((segment) => parseBudgetToken(segment))
+    .filter((number): number is number =>
+      typeof number === 'number' && Number.isFinite(number) && number >= 0,
+    );
+
+  if (compactNumbers.length > 0) {
+    if (raw.includes('+') || /above|over|more than/i.test(raw)) {
+      return { min: compactNumbers[0] };
+    }
+
+    if (/under|below|less than/i.test(raw)) {
+      return { min: 0, max: compactNumbers[0] };
+    }
+
+    if (compactNumbers.length === 1) {
+      return { min: compactNumbers[0], max: compactNumbers[0] };
+    }
+
+    return {
+      min: Math.min(...compactNumbers),
+      max: Math.max(...compactNumbers),
+    };
+  }
+
   const matches = raw.match(/\d[\d,.]*/g) || [];
   const numbers = matches
     .map((segment) => Number(segment.replace(/[^\d.]/g, '')))
-    .filter((number) => Number.isFinite(number) && number > 0);
+    .filter(isFinitePositiveNumber);
 
   if (numbers.length === 0) {
     return null;

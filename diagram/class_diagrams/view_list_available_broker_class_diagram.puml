@@ -1,0 +1,145 @@
+@startuml View_List_Available_Broker_Class_Diagram
+title View List Available Broker - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class DiscoveryPage {
+    - search: string
+    - role: UserRole | "ALL"
+    - data: { data: any[] } | null
+    - isLoading: boolean
+    - error: any
+    --
+    + DiscoveryPage(): JSX.Element
+}
+
+class UserCard {
+    --
+    + UserCard(user: any): JSX.Element
+}
+
+class UserSearchFilters {
+    + role?: UserRole
+    + search?: string
+    + skills?: string[]
+    + minRating?: number
+    + page?: number
+    + limit?: number
+    --
+}
+
+class discoveryApi {
+    --
+    + searchUsers(filters: UserSearchFilters): Promise<any>
+    + getPublicProfile(id: string): Promise<UserProfilePublic>
+    ...
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class JwtAuthGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean> | any
+}
+
+class RolesGuard {
+    --
+    + canActivate(context: any): boolean | Promise<boolean>
+}
+
+class UsersSearchController {
+    - searchService: UsersSearchService
+    --
+    + searchUsers(role?: UserRole, search?: string, skills?: string, minRating?: number, page?: number, limit?: number): Promise<any>
+    + getProfile(id: string): Promise<any>
+}
+
+class Repository {
+    --
+    + findOne(options: any): Promise<any>
+    + createQueryBuilder(alias: string): any
+}
+
+class UsersSearchService {
+    - userRepo: Repository<UserEntity>
+    - profileRepo: Repository<ProfileEntity>
+    - userSkillRepo: Repository<UserSkillEntity>
+    --
+    + searchUsers(filters: UserSearchFilters): Promise<any>
+    + getPublicProfile(userId: string): Promise<any>
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    + isVerified: boolean
+    + isBanned: boolean
+    + currentTrustScore: number
+    + profile: ProfileEntity
+    + userSkills: UserSkillEntity[]
+    --
+}
+
+class ProfileEntity {
+    + avatarUrl: string | null
+    + bio: string | null
+    --
+}
+
+class UserSkillEntity {
+    + id: string
+    + userId: string
+    + skillId: string
+    --
+}
+
+DiscoveryPage ..> discoveryApi : searchUsers()
+DiscoveryPage ..> UserCard
+DiscoveryPage ..> UserSearchFilters
+
+UserCard ..> UserEntity
+
+discoveryApi ..> ApiClient
+discoveryApi ..> UserSearchFilters
+ApiClient ..> UsersSearchController
+
+UsersSearchController ..> JwtAuthGuard
+UsersSearchController ..> RolesGuard
+UsersSearchController --> UsersSearchService
+UsersSearchController ..> UserSearchFilters
+
+UsersSearchService ..> Repository
+UsersSearchService ..> UserEntity
+UsersSearchService ..> ProfileEntity
+UsersSearchService ..> UserSkillEntity
+UsersSearchService ..> UserSearchFilters
+
+UserEntity o-- ProfileEntity
+UserEntity o-- UserSkillEntity
+
+@enduml

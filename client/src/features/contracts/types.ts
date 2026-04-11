@@ -163,3 +163,42 @@ export interface Contract {
   };
   signatures?: ContractSignature[];
 }
+
+export interface ContractSignatureVerificationItem {
+  signatureId: string;
+  userId: string;
+  signerName: string;
+  signerRole?: string | null;
+  provider?: string | null;
+  certificateSerial?: string | null;
+  signedAt: string;
+  verifiedAt?: string | null;
+  publicKeySource: "provider_payload" | "credential_store" | "missing";
+  checks: {
+    cryptographicVerificationPassed: boolean;
+    signatureHashMatches: boolean;
+    signedContentMatchesCurrent: boolean;
+    timestampTokenValid: boolean;
+  };
+  overallVerified: boolean;
+}
+
+export interface ContractSignatureVerificationReport {
+  contractId: string;
+  contractStatus: string;
+  legalSignatureStatus?: string | null;
+  provider?: string | null;
+  verifiedAt?: string | null;
+  generatedAt: string;
+  requiredSignerCount: number;
+  signaturesCount: number;
+  allRequiredSigned: boolean;
+  allSignaturesVerified: boolean;
+  contentHash: {
+    stored?: string | null;
+    computed: string;
+    storedMatchesComputed: boolean;
+  };
+  signatureReports: ContractSignatureVerificationItem[];
+  disclaimer?: string;
+}

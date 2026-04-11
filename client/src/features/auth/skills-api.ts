@@ -32,9 +32,11 @@ export const getSkillDomains = async (): Promise<SkillDomain[]> => {
 
 /**
  * Get list of skills for registration
- * @param role - Filter by role (FREELANCER or BROKER)
+ * @param role - Filter by role (FREELANCER, BROKER, or STAFF)
  */
-export const getSkills = async (role?: 'FREELANCER' | 'BROKER'): Promise<Skill[]> => {
+export const getSkills = async (
+  role?: 'FREELANCER' | 'BROKER' | 'STAFF'
+): Promise<Skill[]> => {
   const params = role ? { role } : {};
   const response = await apiClient.get<{ success: boolean; data: Skill[] }>(
     'public/skills/skills',

@@ -46,7 +46,17 @@ describe('RegisterDto', () => {
       }),
     );
 
-    expect(messages).toContain('Role must be CLIENT, BROKER, or FREELANCER');
+    expect(messages).toContain('Role must be CLIENT, BROKER, FREELANCER, or STAFF');
+  });
+
+  it('accepts staff as a self-registration role', async () => {
+    const messages = await getMessages(
+      createPayload({
+        role: UserRole.STAFF,
+      }),
+    );
+
+    expect(messages).toHaveLength(0);
   });
 
   it('rejects an invalid Vietnamese phone number', async () => {

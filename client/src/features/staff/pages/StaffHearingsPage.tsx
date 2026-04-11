@@ -15,7 +15,36 @@ import { normalizeExternalMeetingLink } from "@/features/hearings/utils/external
 import { resolveHearingLifecycle } from "@/features/hearings/utils/hearingLifecycle";
 import { useStaffDashboardRealtime } from "@/features/staff/hooks/useStaffDashboardRealtime";
 
-export const StaffHearingsPage = () => {
+interface StaffHearingsPageProps {
+  routeBase?: string;
+  title?: string;
+  description?: string;
+}
+
+const formatEnumLabel = (
+  value?: string | null,
+  fallback: string = "Not available",
+) => {
+  if (!value) return fallback;
+  return value
+    .toLowerCase()
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+const formatTierLabel = (value?: string | null) => {
+  if (!value) return null;
+  if (value.toUpperCase().startsWith("TIER_")) {
+    return `Tier ${value.slice(5)}`;
+  }
+  return formatEnumLabel(value);
+};
+
+export const StaffHearingsPage = ({
+  routeBase = "/staff",
+  title = "My Hearings",
+  description = "Track hearings you are moderating or participating in.",
+}: StaffHearingsPageProps) => {
   const [hearings, setHearings] = useState<DisputeHearingSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [schemaErrorMessage, setSchemaErrorMessage] = useState<string | null>(
@@ -64,10 +93,29 @@ export const StaffHearingsPage = () => {
   }, [loadHearings]);
 
   useStaffDashboardRealtime({
+    onDisputeStatusChanged: loadHearings,
+    onDisputeAssigned: loadHearings,
+    onDisputeReassigned: loadHearings,
     onHearingEnded: loadHearings,
     onHearingScheduled: loadHearings,
+    onHearingRescheduled: loadHearings,
+    onHearingStarted: loadHearings,
+    onHearingPaused: loadHearings,
+    onHearingResumed: loadHearings,
+    onHearingInviteResponded: loadHearings,
     onHearingFollowUpScheduled: loadHearings,
+    onHearingSupportInvited: loadHearings,
+    onHearingReminderSent: loadHearings,
+    onHearingModeratorDisconnected: loadHearings,
+    onHearingModeratorReconnected: loadHearings,
     onVerdictIssued: loadHearings,
+    onAppealSubmitted: loadHearings,
+    onAppealResolved: loadHearings,
+    onCalendarEventCreated: loadHearings,
+    onCalendarEventUpdated: loadHearings,
+    onCalendarRescheduleRequested: loadHearings,
+    onCalendarRescheduleProcessed: loadHearings,
+    onCalendarInviteResponded: loadHearings,
   });
 
   const liveHearings = useMemo(
@@ -110,21 +158,33 @@ export const StaffHearingsPage = () => {
   };
 
   const handleOpenDispute = (disputeId: string) => {
-    navigate(`/staff/caseload?disputeId=${disputeId}&tab=hearings`);
+    if (routeBase === "/staff") {
+      navigate(`/staff/caseload?disputeId=${disputeId}&tab=hearings`);
+      return;
+    }
+    navigate(`${routeBase}/disputes/${disputeId}?tab=hearings`);
   };
 
   const handleOpenRoom = (hearingId: string) => {
-    navigate(`/staff/hearings/${hearingId}`);
+    navigate(`${routeBase}/hearings/${hearingId}`);
   };
 
   const renderHearingCard = (hearing: DisputeHearingSummary) => {
-    const shortDisputeId = hearing.disputeId?.slice(0, 8) || "N/A";
     const externalMeetingHref = normalizeExternalMeetingLink(
       hearing.externalMeetingLink,
     );
     const isModerator = Boolean(
       currentUserId && hearing.moderatorId === currentUserId,
     );
+    const moderatorParticipant = hearing.participants?.find(
+      (participant) => participant.role === "MODERATOR",
+    );
+    const moderatorLabel = isModerator
+      ? "You"
+      : moderatorParticipant?.user?.fullName ||
+        moderatorParticipant?.user?.email ||
+        "Assigned moderator";
+    const tierLabel = formatTierLabel(hearing.tier);
 
     return (
       <div
@@ -135,7 +195,14 @@ export const StaffHearingsPage = () => {
           <div className="space-y-2">
             <div>
               <p className="text-sm font-semibold text-slate-900">
-                Dispute {shortDisputeId} - Hearing #{hearing.hearingNumber ?? "-"}
+                {hearing.hearingNumber
+                  ? `Hearing #${hearing.hearingNumber}`
+                  : "Dispute hearing"}
+              </p>
+              <p className="text-xs text-slate-500 mt-1">
+                {hearing.dispute?.status
+                  ? `Case status: ${formatEnumLabel(hearing.dispute.status)}`
+                  : "Case status: Not available"}
               </p>
               <p className="text-xs text-gray-500 mt-1 flex items-center gap-2">
                 <Clock className="w-3 h-3" />
@@ -151,7 +218,7 @@ export const StaffHearingsPage = () => {
 
             <div className="text-xs text-gray-500 flex flex-wrap gap-3">
               <span>
-                Moderator: {isModerator ? "You" : hearing.moderatorId?.slice(0, 8)}
+                Moderator: {moderatorLabel}
               </span>
               {hearing.isChatRoomActive ? (
                 <span className="text-emerald-600 font-medium">Live chat active</span>
@@ -162,17 +229,24 @@ export const StaffHearingsPage = () => {
           </div>
 
           <div className="flex flex-col items-end gap-2">
-            <span
-              className={`px-2 py-0.5 rounded-full text-xs border ${
-                hearing.status === "IN_PROGRESS"
-                  ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-                  : hearing.status === "PAUSED"
-                    ? "bg-amber-50 text-amber-700 border-amber-200"
-                  : "bg-blue-50 text-blue-700 border-blue-200"
-              }`}
-            >
-              {hearing.status.replace("_", " ")}
-            </span>
+            <div className="flex flex-wrap justify-end gap-2">
+              {tierLabel ? (
+                <span className="px-2 py-0.5 rounded-full text-xs border bg-slate-100 text-slate-700 border-slate-200">
+                  {tierLabel}
+                </span>
+              ) : null}
+              <span
+                className={`px-2 py-0.5 rounded-full text-xs border ${
+                  hearing.status === "IN_PROGRESS"
+                    ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                    : hearing.status === "PAUSED"
+                      ? "bg-amber-50 text-amber-700 border-amber-200"
+                    : "bg-blue-50 text-blue-700 border-blue-200"
+                }`}
+              >
+                {formatEnumLabel(hearing.status)}
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={() => handleOpenRoom(hearing.id)}
@@ -215,10 +289,8 @@ export const StaffHearingsPage = () => {
 
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-slate-900">My Hearings</h2>
-          <p className="text-gray-500">
-            Track hearings you are moderating or participating in.
-          </p>
+          <h2 className="text-2xl font-bold text-slate-900">{title}</h2>
+          <p className="text-gray-500">{description}</p>
         </div>
         <button
           onClick={loadHearings}

@@ -5,7 +5,7 @@
 
 // API Configuration
 export const API_CONFIG = {
-  BASE_URL: import.meta.env.VITE_API_URL || "http://localhost:3000",
+  BASE_URL: import.meta.env.VITE_API_URL || "https://localhost:3000",
   TIMEOUT: 30000,
 } as const;
 
@@ -79,13 +79,25 @@ export const ROUTES = {
   ADMIN_DASHBOARD: "/admin/dashboard",
   ADMIN_FINANCE: "/admin/finance",
   ADMIN_AUDIT_LOGS: "/admin/audit-logs",
+  ADMIN_DISPUTES: "/admin/disputes",
+  ADMIN_DISPUTE_DETAIL: "/admin/disputes/:disputeId",
   ADMIN_DISPUTE_APPEALS: "/admin/disputes/appeals",
+  ADMIN_CONTRACTS: "/admin/contracts",
+  ADMIN_CONTRACT_DETAIL: "/admin/contracts/:id",
+  ADMIN_HEARINGS: "/admin/hearings",
+  ADMIN_HEARING_ROOM: "/admin/hearings/:hearingId",
+  ADMIN_REPORTS: "/admin/reports",
   ADMIN_REVIEW_MODERATION: "/admin/reviews",
   ADMIN_LEAVE: "/admin/leave",
   ADMIN_PROFILE: "/admin/profile",
+  ADMIN_STAFF_APPLICATIONS: "/admin/staff-applications",
 
   // ========== STAFF ROUTES - prefix /staff ==========
+  STAFF_DASHBOARD: "/staff/dashboard",
   STAFF_PROFILE: "/staff/profile",
+  STAFF_APPLICATION_STATUS: "/staff/application-status",
+  STAFF_CONTRACTS: "/staff/contracts",
+  STAFF_CONTRACT_DETAIL: "/staff/contracts/:id",
   STAFF_WORKSPACE: "/projects/:projectId",
 
   // ========== LEGACY ALIASES (backward compatibility) ==========

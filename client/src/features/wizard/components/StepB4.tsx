@@ -1,9 +1,11 @@
-
 import type { WizardQuestion } from "../services/wizardService";
 import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Label } from "@/shared/components/ui/label";
 import { ScrollArea } from "@/shared/components/ui/scroll-area";
-import { getProductTypeLabel, normalizeProductTypeCode } from "@/shared/utils/productType";
+import {
+  getProductTypeLabel,
+  normalizeProductTypeCode,
+} from "@/shared/utils/productType";
 
 interface StepB4Props {
   question: WizardQuestion;
@@ -12,13 +14,26 @@ interface StepB4Props {
   onChange: (values: string[]) => void;
 }
 
-export function StepB4({ question, productType, selectedValues, onChange }: StepB4Props) {
-  const handleToggle = (optionValue: string) => {
-    if (selectedValues.includes(optionValue)) {
-      onChange(selectedValues.filter((v) => v !== optionValue));
-    } else {
+export function StepB4({
+  question,
+  productType,
+  selectedValues,
+  onChange,
+}: StepB4Props) {
+  const setSelection = (optionValue: string, checked: boolean) => {
+    if (checked) {
+      if (selectedValues.includes(optionValue)) {
+        return;
+      }
       onChange([...selectedValues, optionValue]);
+      return;
     }
+
+    onChange(selectedValues.filter((value) => value !== optionValue));
+  };
+
+  const handleToggle = (optionValue: string) => {
+    setSelection(optionValue, !selectedValues.includes(optionValue));
   };
 
   const normalizedProductType = normalizeProductTypeCode(productType);
@@ -73,7 +88,12 @@ export function StepB4({ question, productType, selectedValues, onChange }: Step
     <div className="flex min-h-[26rem] flex-col gap-4">
       <div className="mb-2 text-center">
         <h2 className="text-2xl font-bold text-primary">{question.label}</h2>
-        {question.helpText && <p className="text-muted-foreground mt-2">{question.helpText}</p>}
+        {question.helpText ? (
+          <p className="mt-2 text-muted-foreground">{question.helpText}</p>
+        ) : null}
+        <p className="mt-2 text-xs uppercase tracking-[0.16em] text-slate-500">
+          Select at least one feature to seed the phase-1 spec baseline
+        </p>
       </div>
 
       <div className="min-h-0 flex-1 rounded-2xl border border-slate-200/80 bg-slate-50/40 p-2">
@@ -87,34 +107,42 @@ export function StepB4({ question, productType, selectedValues, onChange }: Step
                   </h3>
                   {section.key === "recommended" && normalizedProductType ? (
                     <p className="mt-1 text-sm text-muted-foreground">
-                      These suggestions match the selected product type and will keep the later spec flow more consistent.
+                      These suggestions match the selected product type and will
+                      keep the later spec flow more consistent.
                     </p>
                   ) : null}
                 </div>
 
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {section.options.map((option) => (
-                    <div
-                      key={option.id}
-                      className={`flex items-start space-x-3 rounded-md border p-4 transition-colors ${
-                        selectedValues.includes(option.value)
-                          ? "border-primary bg-primary/5"
-                          : "border-muted bg-white"
-                      }`}
-                      onClick={() => handleToggle(option.value)}
-                    >
-                      <Checkbox
-                        id={String(option.id)}
-                        checked={selectedValues.includes(option.value)}
-                        onCheckedChange={() => handleToggle(option.value)}
-                      />
-                      <div className="grid w-full cursor-pointer gap-1.5 leading-none">
-                        <Label htmlFor={String(option.id)} className="cursor-pointer font-medium text-base">
-                          {option.label}
-                        </Label>
+                  {section.options.map((option) => {
+                    const isSelected = selectedValues.includes(option.value);
+
+                    return (
+                      <div
+                        key={option.id}
+                        className={`flex items-start space-x-3 rounded-md border p-4 transition-colors ${
+                          isSelected
+                            ? "border-primary bg-primary/5"
+                            : "border-muted bg-white"
+                        }`}
+                        onClick={() => handleToggle(option.value)}
+                      >
+                        <Checkbox
+                          id={String(option.id)}
+                          checked={isSelected}
+                          onCheckedChange={() => handleToggle(option.value)}
+                        />
+                        <div className="grid w-full cursor-pointer gap-1.5 leading-none">
+                          <Label
+                            htmlFor={String(option.id)}
+                            className="cursor-pointer font-medium text-base"
+                          >
+                            {option.label}
+                          </Label>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             ))}

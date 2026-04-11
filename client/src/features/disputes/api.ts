@@ -382,7 +382,11 @@ export const updateDisputePhase = async (
   disputeId: string,
   phase: DisputePhase,
 ) => {
-  return await apiClient.patch(`/disputes/${disputeId}/phase`, { phase });
+  void disputeId;
+  void phase;
+  throw new Error(
+    "Dispute phase control moved to hearing scope. Use transitionHearingPhase(hearingId, phase) instead.",
+  );
 };
 
 export const getDisputeActivities = async (
@@ -503,11 +507,57 @@ export const getDisputeEscalationPolicy = async (disputeId: string) => {
   return await apiClient.get(`/disputes/${disputeId}/escalation-policy`);
 };
 
+export interface DisputeAutoScheduleOption {
+  start: string;
+  end: string;
+  durationMinutes: number;
+  score: number;
+  scoreReasons: string[];
+}
+
+export interface DisputeAutoScheduleOptionsResult {
+  manualRequired: boolean;
+  reasonCode?: string;
+  reason?: string;
+  moderatorId?: string;
+  durationMinutes?: number;
+  slots?: DisputeAutoScheduleOption[];
+  participants?: Array<{
+    userId: string;
+    role: string;
+    isRequired: boolean;
+    relationToProject: string;
+  }>;
+  warnings?: string[];
+}
+
+export interface DisputeAutoScheduleResult {
+  manualRequired: boolean;
+  reasonCode?: string;
+  reason?: string;
+  hearingId?: string;
+  scheduledAt?: string;
+  selectedSlot?: DisputeAutoScheduleOption;
+  fallbackReason?: string;
+  responseDeadline?: string;
+  requiredParticipants?: Array<{
+    userId: string;
+    role: string;
+    isRequired: boolean;
+    relationToProject: string;
+  }>;
+  participantConfirmationSummary?: Record<string, unknown>;
+  timezoneContext?: {
+    timezoneByUserId: Record<string, string>;
+    normalizedTo: "UTC";
+  };
+}
+
 export const getDisputeAutoScheduleOptions = async (
   disputeId: string,
   limit: number = 5,
-) => {
-  return await apiClient.get(
+): Promise<DisputeAutoScheduleOptionsResult> => {
+  return await apiClient.get<DisputeAutoScheduleOptionsResult>(
     `/disputes/${disputeId}/auto-schedule/options?limit=${Math.max(1, Math.floor(limit))}`,
   );
 };
@@ -588,9 +638,17 @@ export const triggerDisputeAutoSchedule = async (
     lookaheadDays?: number;
     forceNearTermMinutes?: number;
     bypassReason?: string;
+    selectedSlotStart?: string;
   },
-) => {
-  return await apiClient.post(`/disputes/${disputeId}/auto-schedule`, tuning);
+): Promise<DisputeAutoScheduleResult> => {
+  return await apiClient.post<DisputeAutoScheduleResult>(
+    `/disputes/${disputeId}/auto-schedule`,
+    tuning,
+  );
+};
+
+export const autoAssignDisputeStaff = async (disputeId: string) => {
+  return await apiClient.post(`/staff/disputes/${disputeId}/assign`, {});
 };
 
 export const cancelDispute = async (disputeId: string, reason?: string) => {
@@ -780,6 +838,7 @@ export const sendDisputeMessage = async (
       | "ADMIN_ANNOUNCEMENT";
     replyToMessageId?: string;
     relatedEvidenceId?: string;
+    attachedEvidenceIds?: string[];
     hearingId?: string;
     metadata?: Record<string, any>;
   },
@@ -790,6 +849,7 @@ export const sendDisputeMessage = async (
     content: input.content,
     replyToMessageId: input.replyToMessageId,
     relatedEvidenceId: input.relatedEvidenceId,
+    attachedEvidenceIds: input.attachedEvidenceIds,
     hearingId: input.hearingId,
     metadata: input.metadata,
   });
@@ -855,5 +915,9 @@ export const resolveDispute = async (
     warningMessage?: string;
   },
 ) => {
-  return await apiClient.post(`/disputes/${disputeId}/resolve`, input);
+  void disputeId;
+  void input;
+  throw new Error(
+    "Initial verdict issuance moved to Hearing Room. Use issueHearingVerdict(hearingId, payload) instead.",
+  );
 };

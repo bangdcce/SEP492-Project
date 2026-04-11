@@ -1,0 +1,184 @@
+@startuml Issue_Hearing_Verdict_Class_Diagram
+title Issue Hearing Verdict - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class HearingRoom {
+    - verdict: VerdictSummary | null
+    --
+    + HearingRoom(props: HearingRoomProps): JSX.Element
+}
+
+class VerdictReadinessCard {
+    - readiness: VerdictReadiness | null
+    - loading: boolean
+    - errorMessage: string | null
+    --
+    + VerdictReadinessCard(props: VerdictReadinessCardProps): JSX.Element
+    + fetchReadiness(): Promise<void>
+}
+
+class InHearingVerdictPanel {
+    - result: string
+    - faultType: string
+    - faultyParty: string
+    - selectedPolicies: string[]
+    - summary: string
+    - findings: string
+    - submitting: boolean
+    --
+    + InHearingVerdictPanel(props: InHearingVerdictPanelProps): JSX.Element
+    + submitVerdict(): Promise<void>
+}
+
+class getHearingVerdictReadiness {
+    --
+    + getHearingVerdictReadiness(hearingId: string): Promise<VerdictReadiness>
+}
+
+class issueHearingVerdict {
+    --
+    + issueHearingVerdict(hearingId: string, input: HearingVerdictInput): Promise<any>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + get<T>(url: string, config?: AxiosRequestConfig): Promise<T>
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class DisputesController {
+    - hearingVerdictOrchestrator: HearingVerdictOrchestratorService
+    --
+    + getHearingVerdictReadiness(hearingId: string, user: UserEntity): Promise<any>
+    + issueHearingVerdict(hearingId: string, dto: IssueHearingVerdictDto, user: UserEntity): Promise<any>
+}
+
+class HearingVerdictOrchestratorService {
+    - disputeRepo: Repository<DisputeEntity>
+    - hearingRepo: Repository<DisputeHearingEntity>
+    - escrowRepo: Repository<EscrowEntity>
+    --
+    + getVerdictReadiness(hearingId: string, requesterId: string, requesterRole: UserRole): Promise<HearingVerdictReadinessSnapshot>
+    + issueHearingVerdict(hearingId: string, requesterId: string, requesterRole: UserRole, dto: IssueHearingVerdictDto): Promise<any>
+    + assertReadinessAccess(hearingId: string, requesterId: string, requesterRole: UserRole): Promise<any>
+}
+
+class VerdictReadinessService {
+    - disputeRepo: Repository<DisputeEntity>
+    - hearingRepo: Repository<DisputeHearingEntity>
+    - participantRepo: Repository<HearingParticipantEntity>
+    --
+    + evaluateHearingReadiness(hearingId: string): Promise<HearingVerdictReadinessSnapshot>
+    + evaluateDisputeGate(disputeId: string, manager?: EntityManager): Promise<VerdictReadinessSnapshot>
+}
+
+class VerdictService {
+    - evidenceRepo: Repository<DisputeEvidenceEntity>
+    --
+    + resolveVerdictAmounts(args: VerdictDistributionResolutionArgs): MoneyDistribution
+    + issueVerdict(dto: AdminVerdictDto, adjudicatorId: string, adjudicatorRole: UserRole): Promise<any>
+    + getVerdictByDisputeId(disputeId: string): Promise<DisputeVerdictEntity | null>
+    ...
+}
+
+class HearingService {
+    - hearingRepository: Repository<DisputeHearingEntity>
+    --
+    + endHearing(input: EndHearingDto, actorId: string): Promise<any>
+    ...
+}
+
+class DisputeHearingEntity {
+    + id: string
+    + disputeId: string
+    + status: HearingStatus
+    + moderatorId?: string | null
+    --
+}
+
+class DisputeVerdictEntity {
+    + id: string
+    + disputeId: string
+    + adjudicatorId: string
+    + result: DisputeResult
+    + amountToClient: number
+    + amountToFreelancer: number
+    + issuedAt: Date
+    --
+}
+
+class DisputeEntity {
+    + id: string
+    + milestoneId?: string | null
+    + phase: DisputePhase
+    + status: DisputeStatus
+    + raisedById: string
+    + defendantId: string
+    --
+}
+
+class EscrowEntity {
+    + id: string
+    + milestoneId: string
+    + fundedAmount: number
+    + totalAmount: number
+    + platformFee: number
+    --
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    --
+}
+
+HearingRoom ..> VerdictReadinessCard
+HearingRoom ..> InHearingVerdictPanel
+
+VerdictReadinessCard ..> getHearingVerdictReadiness
+InHearingVerdictPanel ..> issueHearingVerdict
+
+getHearingVerdictReadiness ..> ApiClient
+issueHearingVerdict ..> ApiClient
+ApiClient ..> DisputesController
+DisputesController --> HearingVerdictOrchestratorService
+DisputesController ..> UserEntity
+
+HearingVerdictOrchestratorService ..> VerdictReadinessService
+HearingVerdictOrchestratorService ..> VerdictService
+HearingVerdictOrchestratorService ..> HearingService
+HearingVerdictOrchestratorService ..> UserEntity
+HearingVerdictOrchestratorService ..> DisputeEntity
+HearingVerdictOrchestratorService ..> DisputeHearingEntity
+HearingVerdictOrchestratorService ..> EscrowEntity
+
+VerdictService ..> DisputeVerdictEntity
+VerdictService ..> DisputeEntity
+VerdictReadinessService ..> DisputeEntity
+VerdictReadinessService ..> DisputeHearingEntity
+HearingService ..> DisputeHearingEntity
+
+@enduml

@@ -19,9 +19,14 @@ export interface User {
   email: string;
   fullName: string;
   role: UserRole;
+  isVerified?: boolean;
+  isEmailVerified?: boolean;
   timeZone?: string;
   businessName?: string;
   profilePicture?: string;
+  staffApprovalStatus?: 'PENDING' | 'APPROVED' | 'REJECTED';
+  staffApplicationReviewedAt?: string | null;
+  staffRejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -67,8 +72,8 @@ export interface SignUpRequest {
   phoneNumber: string;
   role: UserRole;
   recaptchaToken?: string;
-  domainIds?: string[]; // UUID arrays thay vì slugs
-  skillIds?: string[]; // UUID arrays thay vì slugs
+  domainIds?: string[]; // UUID arrays instead of slugs
+  skillIds?: string[]; // UUID arrays instead of slugs
   acceptTerms: boolean;
   acceptPrivacy: boolean;
 }

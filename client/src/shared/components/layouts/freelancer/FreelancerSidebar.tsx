@@ -3,7 +3,7 @@
  * Sidebar navigation for freelancer dashboard
  */
 
-import React from "react";
+import React, { useMemo } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import {
@@ -17,27 +17,55 @@ interface FreelancerSidebarProps {
   isCollapsed?: boolean;
   onToggleCollapse?: () => void;
   className?: string;
+  pendingInvitationCount?: number;
 }
 
 export const FreelancerSidebar: React.FC<FreelancerSidebarProps> = ({
   isCollapsed = false,
   onToggleCollapse,
   className,
+  pendingInvitationCount,
 }) => {
   const location = useLocation();
-  const displayClassName = className === undefined ? "hidden lg:flex" : className;
+  const displayClassName =
+    className === undefined ? "hidden lg:flex" : className;
 
-  const groupedItems = freelancerSidebarMenuItems.reduce((acc, item) => {
-    const section = item.section || "main";
-    if (!acc[section]) acc[section] = [];
-    acc[section].push(item);
-    return acc;
-  }, {} as Record<string, FreelancerSidebarMenuItem[]>);
+  const invitationBadge =
+    pendingInvitationCount && pendingInvitationCount > 0
+      ? pendingInvitationCount > 99
+        ? "99+"
+        : String(pendingInvitationCount)
+      : undefined;
+
+  const sidebarItems = useMemo(
+    () =>
+      freelancerSidebarMenuItems.map((item) => {
+        if (item.id !== "invitations") {
+          return item;
+        }
+
+        return {
+          ...item,
+          badge: invitationBadge,
+        };
+      }),
+    [invitationBadge],
+  );
+
+  const groupedItems = sidebarItems.reduce(
+    (acc, item) => {
+      const section = item.section || "main";
+      if (!acc[section]) acc[section] = [];
+      acc[section].push(item);
+      return acc;
+    },
+    {} as Record<string, FreelancerSidebarMenuItem[]>,
+  );
 
   return (
     <aside
       className={`
-        ${displayClassName} h-full flex-shrink-0 bg-white/80 backdrop-blur-md border-r border-slate-200/60 shadow-sm
+        ${displayClassName} h-full shrink-0 bg-white/80 backdrop-blur-md border-r border-slate-200/60 shadow-sm
         transition-all duration-200 ease-in-out flex flex-col
         ${isCollapsed ? "w-20" : "w-64"}
       `}
@@ -103,7 +131,18 @@ export const FreelancerSidebar: React.FC<FreelancerSidebarProps> = ({
               <ul className="space-y-1">
                 {items.map((item) => {
                   const Icon = item.icon;
-                  const active = location.pathname === item.path;
+                  const activePatterns = item.activePatterns ?? [item.path];
+                  const activeExclusions = item.activeExclusions ?? [];
+                  const isExcluded = activeExclusions.some((prefix) =>
+                    location.pathname.startsWith(prefix),
+                  );
+                  const active =
+                    !isExcluded &&
+                    activePatterns.some(
+                      (pattern) =>
+                        location.pathname === pattern ||
+                        location.pathname.startsWith(`${pattern}/`),
+                    );
 
                   return (
                     <li key={item.id}>

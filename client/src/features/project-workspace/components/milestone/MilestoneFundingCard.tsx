@@ -23,6 +23,7 @@ interface MilestoneFundingCardProps {
   milestone: Milestone;
   progress: number;
   currentUserRole?: string;
+  projectStatus?: string | null;
   currency?: string;
   billingSetupHref?: string;
   onFunded?: (result: MilestoneFundingResult) => void;
@@ -88,6 +89,7 @@ export function MilestoneFundingCard({
   milestone,
   progress,
   currentUserRole,
+  projectStatus,
   currency,
   billingSetupHref,
   onFunded,
@@ -99,6 +101,27 @@ export function MilestoneFundingCard({
   const escrow = milestone.escrow ?? null;
   const normalizedRole = currentUserRole?.toUpperCase();
   const isClient = normalizedRole === "CLIENT";
+  const normalizedProjectStatus = String(projectStatus || "").toUpperCase();
+  const normalizedMilestoneStatus = String(milestone.status || "").toUpperCase();
+  const isProjectFundingLocked = [
+    "CANCELED",
+    "CANCELLED",
+    "PAID",
+    "COMPLETED",
+    "DISPUTED",
+  ].includes(normalizedProjectStatus);
+  const isMilestoneFundingLocked = ["LOCKED", "PAID", "COMPLETED"].includes(
+    normalizedMilestoneStatus,
+  );
+  const isFundingInteractionLocked = isProjectFundingLocked || isMilestoneFundingLocked;
+
+  const fundingLockReason = isProjectFundingLocked
+    ? normalizedProjectStatus === "CANCELED" || normalizedProjectStatus === "CANCELLED"
+      ? "project is cancelled"
+      : `project status is ${normalizedProjectStatus}`
+    : isMilestoneFundingLocked
+      ? `milestone status is ${normalizedMilestoneStatus}`
+      : null;
 
   const fundingMethods = useMemo(
     () => paymentMethods.filter((method) => method.type === "PAYPAL_ACCOUNT"),
@@ -115,7 +138,11 @@ export function MilestoneFundingCard({
     const loadMethods = async () => {
       setLocalError(null);
 
-      if (!isClient || escrow?.status !== "PENDING") {
+      if (
+        !isClient ||
+        escrow?.status !== "PENDING" ||
+        isFundingInteractionLocked
+      ) {
         return;
       }
 
@@ -141,9 +168,11 @@ export function MilestoneFundingCard({
     return () => {
       active = false;
     };
-  }, [escrow?.status, isClient, milestone.id]);
+  }, [escrow?.status, isClient, isFundingInteractionLocked, milestone.id]);
 
-  const fundingHeadline = getFundingHeadline(escrow?.status, progress);
+  const fundingHeadline = isFundingInteractionLocked
+    ? `Funding is locked because ${fundingLockReason}.`
+    : getFundingHeadline(escrow?.status, progress);
   const displayCurrency = escrow?.currency || currency || "USD";
 
   if (!escrow) {
@@ -233,7 +262,9 @@ export function MilestoneFundingCard({
               </p>
               <p className="mt-2 text-lg font-semibold">
                 {escrow.status === "PENDING"
-                  ? "Ready to lock escrow"
+                  ? isFundingInteractionLocked
+                    ? "Funding locked"
+                    : "Ready to lock escrow"
                   : escrow.status === "FUNDED"
                     ? "Funds secured"
                     : escrow.status === "RELEASED"
@@ -246,7 +277,7 @@ export function MilestoneFundingCard({
           </div>
 
           <div className="mt-5 space-y-4">
-            {escrow.status === "PENDING" && isClient ? (
+            {escrow.status === "PENDING" && isClient && !isFundingInteractionLocked ? (
               <>
                 {loadingMethods ? (
                   <div className="flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-slate-200">
@@ -300,6 +331,15 @@ export function MilestoneFundingCard({
                   </>
                 )}
               </>
+            ) : escrow.status === "PENDING" && isFundingInteractionLocked ? (
+              <div className="space-y-3 rounded-2xl border border-amber-300/20 bg-amber-400/10 px-4 py-4 text-sm text-amber-100">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                  <span>
+                    Funding is locked because {fundingLockReason}. This milestone can no longer accept a new escrow deposit.
+                  </span>
+                </div>
+              </div>
             ) : (
                   <div className="space-y-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-4 text-sm text-slate-200">
                     <div className="flex items-start gap-2">

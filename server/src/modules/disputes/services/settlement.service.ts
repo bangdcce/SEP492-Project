@@ -11,6 +11,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  ConflictException,
   Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -23,9 +24,22 @@ import {
   DisputeSettlementEntity,
   SettlementStatus,
 } from '../../../database/entities/dispute-settlement.entity';
-import { DisputeEntity, DisputeStatus } from '../../../database/entities/dispute.entity';
-import { EscrowEntity } from '../../../database/entities/escrow.entity';
-import { UserEntity } from '../../../database/entities/user.entity';
+import {
+  DisputeEntity,
+  DisputeResult,
+  DisputeStatus,
+  DisputeType,
+} from '../../../database/entities/dispute.entity';
+import { EscrowEntity, EscrowStatus } from '../../../database/entities/escrow.entity';
+import { UserEntity, UserRole, UserStatus } from '../../../database/entities/user.entity';
+import { WalletEntity, WalletStatus } from '../../../database/entities/wallet.entity';
+import {
+  TransactionEntity,
+  TransactionStatus,
+  TransactionType,
+} from '../../../database/entities/transaction.entity';
+import { MilestoneEntity, MilestoneStatus } from '../../../database/entities/milestone.entity';
+import { ProjectEntity, ProjectStatus } from '../../../database/entities/project.entity';
 
 // DTOs
 import { CreateSettlementOfferDto } from '../dto/settlement/create-settlement-offer.dto';
@@ -81,7 +95,69 @@ const SETTLEMENT_CONFIG = {
 // Note: DisputeStatus enum may not have all these statuses yet
 // Using string comparison for flexibility
 const SETTLEMENT_ALLOWED_STATUSES = ['OPEN', 'UNDER_REVIEW', 'IN_MEDIATION'];
-const SETTLEMENT_CLOSED_STATUSES = ['RESOLVED', 'CLOSED', 'CANCELLED', 'REJECTED'];
+const SETTLEMENT_CLOSED_STATUSES = ['RESOLVED', 'CLOSED', 'CANCELED', 'CANCELLED', 'REJECTED'];
+
+type SettlementWorkflowRealtimePayload = {
+  projectId: string;
+  requestId: string | null;
+  participantIds: string[];
+};
+
+type SettlementOfferedEventPayload = {
+  settlementId: string;
+  disputeId: string;
+  proposerId: string;
+  responderId: string;
+  amount: {
+    toFreelancer: number;
+    toClient: number;
+  };
+  expiresAt: Date;
+};
+
+type SettlementAcceptedEventPayload = {
+  settlementId: string;
+  disputeId: string;
+  proposerId: string;
+  responderId?: string;
+  amounts: {
+    freelancer: number;
+    client: number;
+    platformFee: number;
+  };
+  result: DisputeResult;
+  projectStatus: ProjectStatus;
+  milestoneStatus: MilestoneStatus;
+};
+
+type SettlementRejectedEventBundle = {
+  exhausted?: {
+    disputeId: string;
+    raiserAttempts: number;
+    defendantAttempts: number;
+  };
+  rejected: {
+    settlementId: string;
+    disputeId: string;
+    proposerId: string;
+    responderId?: string;
+    reason: string;
+    remainingAttempts: {
+      raiser: number;
+      defendant: number;
+    };
+    counterOfferPrompt: {
+      enabled: true;
+      message: string;
+      rejectionFeedback: string;
+    };
+  };
+  chatUnlocked: {
+    disputeId: string;
+    userId?: string;
+    reason: string;
+  };
+};
 
 // =============================================================================
 // SERVICE
@@ -235,11 +311,19 @@ export class SettlementService {
   async checkSettlementEligibility(
     disputeId: string,
     proposerId: string,
+    manager?: EntityManager,
+    preloadedDispute?: DisputeEntity,
   ): Promise<SettlementEligibilityResult> {
+    const disputeRepo = manager?.getRepository(DisputeEntity) ?? this.disputeRepository;
+    const settlementRepo =
+      manager?.getRepository(DisputeSettlementEntity) ?? this.settlementRepository;
+
     // Load dispute
-    const dispute = await this.disputeRepository.findOne({
-      where: { id: disputeId },
-    });
+    const dispute =
+      preloadedDispute ??
+      (await disputeRepo.findOne({
+        where: { id: disputeId },
+      }));
 
     if (!dispute) {
       return { eligible: false, reason: 'Dispute not found' };
@@ -265,7 +349,7 @@ export class SettlementService {
     }
 
     // Check for existing PENDING settlement
-    const pendingSettlement = await this.settlementRepository.findOne({
+    const pendingSettlement = await settlementRepo.findOne({
       where: { disputeId, status: SettlementStatus.PENDING },
     });
 
@@ -278,7 +362,7 @@ export class SettlementService {
     }
 
     // Per-user attempt check
-    const userAttempts = await this.settlementRepository.count({
+    const userAttempts = await settlementRepo.count({
       where: { disputeId, proposerId },
     });
 
@@ -344,6 +428,80 @@ export class SettlementService {
     }
 
     return { canCancel: true };
+  }
+
+  private resolveSettlementResult(
+    amountToFreelancer: Decimal,
+    amountToClient: Decimal,
+    fundedAmount: Decimal,
+  ): DisputeResult {
+    if (amountToClient.equals(fundedAmount) && amountToFreelancer.equals(0)) {
+      return DisputeResult.WIN_CLIENT;
+    }
+
+    if (amountToFreelancer.equals(fundedAmount) && amountToClient.equals(0)) {
+      return DisputeResult.WIN_FREELANCER;
+    }
+
+    return DisputeResult.SPLIT;
+  }
+
+  private resolveSettlementLifecycleStatus(result: DisputeResult): {
+    projectStatus: ProjectStatus;
+    milestoneStatus: MilestoneStatus;
+  } {
+    if (result === DisputeResult.WIN_CLIENT) {
+      return {
+        projectStatus: ProjectStatus.CANCELED,
+        milestoneStatus: MilestoneStatus.PENDING,
+      };
+    }
+
+    return {
+      projectStatus: ProjectStatus.COMPLETED,
+      milestoneStatus: MilestoneStatus.PAID,
+    };
+  }
+
+  private buildSettlementWorkflowRealtimePayload(
+    project: Pick<
+      ProjectEntity,
+      'id' | 'requestId' | 'clientId' | 'brokerId' | 'freelancerId' | 'staffId'
+    >,
+  ): SettlementWorkflowRealtimePayload {
+    return {
+      projectId: project.id,
+      requestId: project.requestId ?? null,
+      participantIds: Array.from(
+        new Set(
+          [project.clientId, project.brokerId, project.freelancerId, project.staffId].filter(
+            Boolean,
+          ),
+        ),
+      ) as string[],
+    };
+  }
+
+  private emitSettlementWorkflowUpdates(payload: SettlementWorkflowRealtimePayload): void {
+    payload.participantIds.forEach((userId) => {
+      this.eventEmitter.emit('project.updated', {
+        userId,
+        projectId: payload.projectId,
+        requestId: payload.requestId,
+        entityType: 'Project',
+        entityId: payload.projectId,
+      });
+
+      if (payload.requestId) {
+        this.eventEmitter.emit('request.updated', {
+          userId,
+          requestId: payload.requestId,
+          projectId: payload.projectId,
+          entityType: 'ProjectRequest',
+          entityId: payload.requestId,
+        });
+      }
+    });
   }
 
   // ===========================================================================
@@ -506,7 +664,9 @@ export class SettlementService {
     dto: CreateSettlementOfferDto,
     proposerId: string,
   ): Promise<DisputeSettlementEntity> {
-    return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+    let offeredEventPayload: SettlementOfferedEventPayload | null = null;
+
+    const settlement = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
       // 1. Load dispute with lock
       const dispute = await manager
         .getRepository(DisputeEntity)
@@ -526,7 +686,12 @@ export class SettlementService {
       }
 
       // 3. Check eligibility (within same transaction for consistency)
-      const eligibility = await this.checkSettlementEligibility(disputeId, proposerId);
+      const eligibility = await this.checkSettlementEligibility(
+        disputeId,
+        proposerId,
+        manager,
+        dispute,
+      );
       if (!eligibility.eligible) {
         throw new BadRequestException(eligibility.reason);
       }
@@ -588,8 +753,8 @@ export class SettlementService {
 
       this.logger.log(`Settlement offer created: ${savedSettlement.id} for dispute: ${disputeId}`);
 
-      // 9. Emit event (after transaction commits)
-      this.eventEmitter.emit('settlement.offered', {
+      // Prepare domain event payload for post-commit emission.
+      offeredEventPayload = {
         settlementId: savedSettlement.id,
         disputeId,
         proposerId,
@@ -599,10 +764,16 @@ export class SettlementService {
           toClient: dto.amountToClient,
         },
         expiresAt,
-      });
+      };
 
       return savedSettlement;
     });
+
+    if (offeredEventPayload) {
+      this.eventEmitter.emit('settlement.offered', offeredEventPayload);
+    }
+
+    return settlement;
   }
 
   /**
@@ -613,7 +784,11 @@ export class SettlementService {
     dto: RespondToSettlementDto,
     responderId: string,
   ): Promise<DisputeSettlementEntity> {
-    return await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
+    let workflowRealtimePayload: SettlementWorkflowRealtimePayload | null = null;
+    let acceptedEventPayload: SettlementAcceptedEventPayload | null = null;
+    let rejectedEventBundle: SettlementRejectedEventBundle | null = null;
+
+    const settlement = await this.dataSource.transaction('SERIALIZABLE', async (manager) => {
       // 1. Load settlement with lock
       const settlement = await manager
         .getRepository(DisputeSettlementEntity)
@@ -648,6 +823,10 @@ export class SettlementService {
         throw new NotFoundException('Dispute not found');
       }
 
+      if (SETTLEMENT_CLOSED_STATUSES.includes(String(dispute.status)) || dispute.acceptedSettlementId) {
+        throw new BadRequestException('Dispute is already closed for settlement negotiation');
+      }
+
       // Responder must be the other party
       const expectedResponderId = this.getResponderId(dispute, settlement.proposerId);
       if (responderId !== expectedResponderId) {
@@ -659,11 +838,50 @@ export class SettlementService {
       settlement.respondedAt = new Date();
 
       if (dto.accept) {
-        return await this.processAcceptSettlement(manager, settlement, dispute);
+        return await this.processAcceptSettlement(
+          manager,
+          settlement,
+          dispute,
+          {
+            onWorkflowCommitted: (payload) => {
+              workflowRealtimePayload = payload;
+            },
+            onAcceptedEventPrepared: (payload) => {
+              acceptedEventPayload = payload;
+            },
+          },
+        );
       } else {
-        return await this.processRejectSettlement(manager, settlement, dispute, dto.rejectedReason);
+        return await this.processRejectSettlement(
+          manager,
+          settlement,
+          dispute,
+          dto.rejectedReason,
+          (payload) => {
+            rejectedEventBundle = payload;
+          },
+        );
       }
     });
+
+    if (acceptedEventPayload) {
+      this.eventEmitter.emit('settlement.accepted', acceptedEventPayload);
+    }
+
+    if (rejectedEventBundle?.exhausted) {
+      this.eventEmitter.emit('settlement.exhausted', rejectedEventBundle.exhausted);
+    }
+
+    if (rejectedEventBundle) {
+      this.eventEmitter.emit('settlement.rejected', rejectedEventBundle.rejected);
+      this.eventEmitter.emit('settlement.chatUnlocked', rejectedEventBundle.chatUnlocked);
+    }
+
+    if (workflowRealtimePayload) {
+      this.emitSettlementWorkflowUpdates(workflowRealtimePayload);
+    }
+
+    return settlement;
   }
 
   /**
@@ -673,11 +891,18 @@ export class SettlementService {
     manager: EntityManager,
     settlement: DisputeSettlementEntity,
     dispute: DisputeEntity,
+    callbacks?: {
+      onWorkflowCommitted?: (payload: SettlementWorkflowRealtimePayload) => void;
+      onAcceptedEventPrepared?: (payload: SettlementAcceptedEventPayload) => void;
+    },
   ): Promise<DisputeSettlementEntity> {
     settlement.status = SettlementStatus.ACCEPTED;
 
+    const settlementOutcome = await this.executeSettlementTransfers(manager, settlement, dispute);
+
     // Update dispute
     dispute.status = DisputeStatus.RESOLVED;
+    dispute.result = settlementOutcome.result;
     dispute.acceptedSettlementId = settlement.id;
     dispute.resolvedAt = new Date();
 
@@ -686,14 +911,7 @@ export class SettlementService {
 
     this.logger.log(`Settlement accepted: ${settlement.id}, dispute resolved: ${dispute.id}`);
 
-    // TODO: Execute money transfer
-    // This will be implemented when Wallet/Transaction services are ready
-    // - Transfer amountToFreelancer - freelancerFee → Freelancer wallet
-    // - Transfer amountToClient - clientFee → Client wallet
-    // - Transfer totalPlatformFee → Platform wallet
-
-    // Emit event
-    this.eventEmitter.emit('settlement.accepted', {
+    const acceptedEventPayload: SettlementAcceptedEventPayload = {
       settlementId: settlement.id,
       disputeId: dispute.id,
       proposerId: settlement.proposerId,
@@ -703,9 +921,448 @@ export class SettlementService {
         client: settlement.amountToClient,
         platformFee: settlement.platformFee,
       },
-    });
+      result: settlementOutcome.result,
+      projectStatus: settlementOutcome.projectStatus,
+      milestoneStatus: settlementOutcome.milestoneStatus,
+    };
+
+    callbacks?.onAcceptedEventPrepared?.(acceptedEventPayload);
+
+    callbacks?.onWorkflowCommitted?.(settlementOutcome.workflowRealtimePayload);
 
     return settlement;
+  }
+
+  private determineSettlementRecipients(
+    disputeType: DisputeType | null | undefined,
+    project: ProjectEntity,
+  ): { clientSideRecipient: string; freelancerSideRecipient: string } {
+    switch (disputeType) {
+      case DisputeType.CLIENT_VS_FREELANCER:
+      case DisputeType.FREELANCER_VS_CLIENT:
+        return {
+          clientSideRecipient: project.clientId,
+          freelancerSideRecipient: project.freelancerId,
+        };
+      case DisputeType.CLIENT_VS_BROKER:
+      case DisputeType.BROKER_VS_CLIENT:
+        return {
+          clientSideRecipient: project.clientId,
+          freelancerSideRecipient: project.brokerId,
+        };
+      case DisputeType.FREELANCER_VS_BROKER:
+        return {
+          clientSideRecipient: project.freelancerId,
+          freelancerSideRecipient: project.brokerId,
+        };
+      case DisputeType.BROKER_VS_FREELANCER:
+        return {
+          clientSideRecipient: project.brokerId,
+          freelancerSideRecipient: project.freelancerId,
+        };
+      default:
+        return {
+          clientSideRecipient: project.clientId,
+          freelancerSideRecipient: project.freelancerId,
+        };
+    }
+  }
+
+  private async getOrCreateWallet(
+    manager: EntityManager,
+    userId: string,
+    currency: string,
+  ): Promise<WalletEntity> {
+    const walletRepo = manager.getRepository(WalletEntity);
+    const existing = await walletRepo
+      .createQueryBuilder('wallet')
+      .setLock('pessimistic_write')
+      .where('wallet.userId = :userId', { userId })
+      .getOne();
+
+    if (existing) {
+      if (existing.currency && existing.currency !== currency) {
+        throw new ConflictException(
+          `Wallet currency mismatch for user ${userId}. Expected ${existing.currency}, received ${currency}.`,
+        );
+      }
+      return existing;
+    }
+
+    const wallet = walletRepo.create({
+      userId,
+      currency,
+      status: WalletStatus.ACTIVE,
+    });
+
+    return walletRepo.save(wallet);
+  }
+
+  private async resolvePlatformWalletOwner(manager: EntityManager): Promise<UserEntity> {
+    const userRepo = manager.getRepository(UserEntity);
+    const platformOwner = await userRepo.findOne({
+      where: [
+        { role: UserRole.ADMIN, status: UserStatus.ACTIVE },
+        { role: UserRole.STAFF, status: UserStatus.ACTIVE },
+      ],
+      order: { createdAt: 'ASC' },
+    });
+
+    if (!platformOwner) {
+      throw new ConflictException(
+        'Cannot settle dispute because no active ADMIN/STAFF platform wallet owner is available',
+      );
+    }
+
+    return platformOwner;
+  }
+
+  private async creditWalletAndCreateTransaction(params: {
+    manager: EntityManager;
+    userId: string;
+    amount: Decimal;
+    currency: string;
+    type: TransactionType;
+    description: string;
+    settlementId: string;
+    disputeId: string;
+    sourceTransactionId: string;
+    metadata: Record<string, unknown>;
+    addToTotalEarned?: boolean;
+  }): Promise<{ wallet: WalletEntity; transaction: TransactionEntity } | null> {
+    const {
+      manager,
+      userId,
+      amount,
+      currency,
+      type,
+      description,
+      settlementId,
+      disputeId,
+      sourceTransactionId,
+      metadata,
+      addToTotalEarned = false,
+    } = params;
+
+    if (amount.lessThanOrEqualTo(0)) {
+      return null;
+    }
+
+    const wallet = await this.getOrCreateWallet(manager, userId, currency);
+    wallet.balance = new Decimal(wallet.balance || 0)
+      .plus(amount)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toNumber();
+
+    if (addToTotalEarned) {
+      wallet.totalEarned = new Decimal(wallet.totalEarned || 0)
+        .plus(amount)
+        .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+        .toNumber();
+    }
+
+    const walletRepo = manager.getRepository(WalletEntity);
+    await walletRepo.save(wallet);
+
+    const transactionRepo = manager.getRepository(TransactionEntity);
+    const transaction = await transactionRepo.save(
+      transactionRepo.create({
+        walletId: wallet.id,
+        amount: amount.toNumber(),
+        fee: 0,
+        netAmount: amount.toNumber(),
+        currency,
+        type,
+        status: TransactionStatus.COMPLETED,
+        referenceType: 'DisputeSettlement',
+        referenceId: settlementId,
+        description,
+        balanceAfter: wallet.balance,
+        initiatedBy: 'system',
+        relatedTransactionId: sourceTransactionId,
+        completedAt: new Date(),
+        metadata: {
+          ...metadata,
+          disputeId,
+          settlementId,
+        },
+      }),
+    );
+
+    return { wallet, transaction };
+  }
+
+  private async executeSettlementTransfers(
+    manager: EntityManager,
+    settlement: DisputeSettlementEntity,
+    dispute: DisputeEntity,
+  ): Promise<{
+    result: DisputeResult;
+    projectStatus: ProjectStatus;
+    milestoneStatus: MilestoneStatus;
+    workflowRealtimePayload: SettlementWorkflowRealtimePayload;
+  }> {
+    const escrow = await manager
+      .getRepository(EscrowEntity)
+      .createQueryBuilder('escrow')
+      .setLock('pessimistic_write')
+      .where('escrow.milestoneId = :milestoneId', { milestoneId: dispute.milestoneId })
+      .getOne();
+
+    if (!escrow) {
+      throw new NotFoundException('Escrow not found for this settlement');
+    }
+
+    if ([EscrowStatus.RELEASED, EscrowStatus.REFUNDED].includes(escrow.status)) {
+      throw new ConflictException(`Escrow is already finalized with status ${escrow.status}`);
+    }
+
+    const project = await manager.getRepository(ProjectEntity).findOne({
+      where: { id: dispute.projectId },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (!project) {
+      throw new NotFoundException('Project not found for this settlement');
+    }
+
+    const milestone = await manager.getRepository(MilestoneEntity).findOne({
+      where: { id: dispute.milestoneId },
+      lock: { mode: 'pessimistic_write' },
+    });
+
+    if (!milestone) {
+      throw new NotFoundException('Milestone not found for this settlement');
+    }
+
+    const currency = escrow.currency || project.currency || 'USD';
+    const fundedAmount = new Decimal(
+      escrow.fundedAmount || escrow.totalAmount || 0,
+    ).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+
+    const requestedTotal = new Decimal(settlement.amountToFreelancer)
+      .plus(settlement.amountToClient)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    if (!requestedTotal.equals(fundedAmount)) {
+      throw new ConflictException(
+        `Settlement amount mismatch. Escrow funded=${fundedAmount.toFixed(2)}, settlement total=${requestedTotal.toFixed(2)}.`,
+      );
+    }
+
+    const platformFee = new Decimal(settlement.platformFee || 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+    const freelancerGross = new Decimal(settlement.amountToFreelancer).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+    const clientGross = new Decimal(settlement.amountToClient).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+
+    if (platformFee.lessThan(0)) {
+      throw new BadRequestException('Settlement platform fee cannot be negative');
+    }
+
+    if (platformFee.greaterThan(freelancerGross)) {
+      throw new BadRequestException('Settlement platform fee exceeds freelancer allocation');
+    }
+
+    const freelancerNet = freelancerGross
+      .minus(platformFee)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    const clientNet = clientGross;
+    const settlementResult = this.resolveSettlementResult(
+      freelancerGross,
+      clientGross,
+      fundedAmount,
+    );
+
+    if (!freelancerNet.plus(clientNet).plus(platformFee).equals(fundedAmount)) {
+      throw new ConflictException(
+        'Settlement payout cannot be reconciled with escrow funded amount',
+      );
+    }
+
+    const { clientSideRecipient, freelancerSideRecipient } = this.determineSettlementRecipients(
+      dispute.disputeType,
+      project,
+    );
+
+    if (!freelancerSideRecipient) {
+      throw new ConflictException(
+        'Cannot settle dispute because freelancer-side recipient is missing',
+      );
+    }
+
+    const clientWallet = await this.getOrCreateWallet(manager, project.clientId, currency);
+    const heldBalance = new Decimal(clientWallet.heldBalance || 0).toDecimalPlaces(
+      2,
+      Decimal.ROUND_HALF_UP,
+    );
+
+    if (heldBalance.lessThan(fundedAmount)) {
+      throw new ConflictException(
+        `Client wallet held balance is insufficient. Held ${heldBalance.toFixed(2)}, needed ${fundedAmount.toFixed(2)}.`,
+      );
+    }
+
+    const sourceOutflow = fundedAmount.minus(clientNet).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
+    clientWallet.heldBalance = heldBalance.minus(fundedAmount).toNumber();
+    clientWallet.totalSpent = new Decimal(clientWallet.totalSpent || 0)
+      .plus(sourceOutflow)
+      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
+      .toNumber();
+
+    const walletRepo = manager.getRepository(WalletEntity);
+    await walletRepo.save(clientWallet);
+
+    const now = new Date();
+    const transactionRepo = manager.getRepository(TransactionEntity);
+    const sourceTransaction = await transactionRepo.save(
+      transactionRepo.create({
+        walletId: clientWallet.id,
+        amount: fundedAmount.toNumber(),
+        fee: 0,
+        netAmount: fundedAmount.toNumber(),
+        currency,
+        type: TransactionType.ESCROW_RELEASE,
+        status: TransactionStatus.COMPLETED,
+        referenceType: 'DisputeSettlement',
+        referenceId: settlement.id,
+        description: `Settlement payout debit for dispute ${dispute.id}`,
+        balanceAfter: clientWallet.balance,
+        initiatedBy: 'system',
+        completedAt: now,
+        metadata: {
+          disputeId: dispute.id,
+          settlementId: settlement.id,
+          stage: 'settlement_debit',
+          amountToFreelancer: settlement.amountToFreelancer,
+          amountToClient: settlement.amountToClient,
+          platformFee: settlement.platformFee,
+        },
+      }),
+    );
+
+    const transferIds: string[] = [sourceTransaction.id];
+
+    const clientCredit = await this.creditWalletAndCreateTransaction({
+      manager,
+      userId: clientSideRecipient,
+      amount: clientNet,
+      currency,
+      type:
+        clientSideRecipient === project.clientId
+          ? TransactionType.REFUND
+          : TransactionType.ESCROW_RELEASE,
+      description: `Settlement client-side payout for dispute ${dispute.id}`,
+      settlementId: settlement.id,
+      disputeId: dispute.id,
+      sourceTransactionId: sourceTransaction.id,
+      metadata: {
+        stage: 'settlement_credit',
+        role: 'CLIENT_SIDE',
+        sourceWalletId: clientWallet.id,
+      },
+      addToTotalEarned: clientSideRecipient !== project.clientId,
+    });
+
+    if (clientCredit) {
+      transferIds.push(clientCredit.transaction.id);
+    }
+
+    const freelancerCredit = await this.creditWalletAndCreateTransaction({
+      manager,
+      userId: freelancerSideRecipient,
+      amount: freelancerNet,
+      currency,
+      type: TransactionType.ESCROW_RELEASE,
+      description: `Settlement freelancer-side payout for dispute ${dispute.id}`,
+      settlementId: settlement.id,
+      disputeId: dispute.id,
+      sourceTransactionId: sourceTransaction.id,
+      metadata: {
+        stage: 'settlement_credit',
+        role: 'FREELANCER_SIDE',
+        sourceWalletId: clientWallet.id,
+      },
+      addToTotalEarned: true,
+    });
+
+    if (freelancerCredit) {
+      transferIds.push(freelancerCredit.transaction.id);
+    }
+
+    const platformOwner = await this.resolvePlatformWalletOwner(manager);
+    const platformCredit = await this.creditWalletAndCreateTransaction({
+      manager,
+      userId: platformOwner.id,
+      amount: platformFee,
+      currency,
+      type: TransactionType.FEE_DEDUCTION,
+      description: `Settlement platform fee for dispute ${dispute.id}`,
+      settlementId: settlement.id,
+      disputeId: dispute.id,
+      sourceTransactionId: sourceTransaction.id,
+      metadata: {
+        stage: 'settlement_platform_fee',
+        role: 'PLATFORM',
+        sourceWalletId: clientWallet.id,
+      },
+      addToTotalEarned: true,
+    });
+
+    if (platformCredit) {
+      transferIds.push(platformCredit.transaction.id);
+    }
+
+    escrow.disputeId = dispute.id;
+    escrow.clientWalletId = clientWallet.id;
+
+    if (freelancerCredit) {
+      if (freelancerSideRecipient === project.freelancerId) {
+        escrow.developerWalletId = freelancerCredit.wallet.id;
+      }
+      if (freelancerSideRecipient === project.brokerId) {
+        escrow.brokerWalletId = freelancerCredit.wallet.id;
+      }
+    }
+
+    const isFullRefund =
+      clientNet.equals(fundedAmount) && freelancerNet.equals(0) && platformFee.equals(0);
+    if (isFullRefund) {
+      escrow.status = EscrowStatus.REFUNDED;
+      escrow.refundedAt = now;
+      if (clientCredit) {
+        escrow.refundTransactionId = clientCredit.transaction.id;
+      }
+    } else {
+      escrow.status = EscrowStatus.RELEASED;
+      escrow.releasedAt = now;
+      escrow.releaseTransactionIds = transferIds;
+    }
+
+    escrow.releasedAmount = fundedAmount.minus(clientNet).toNumber();
+    escrow.platformFee = platformFee.toNumber();
+    await manager.save(EscrowEntity, escrow);
+
+    const { projectStatus, milestoneStatus } = this.resolveSettlementLifecycleStatus(
+      settlementResult,
+    );
+    project.status = projectStatus;
+    milestone.status = milestoneStatus;
+    await manager.save(ProjectEntity, project);
+    await manager.save(MilestoneEntity, milestone);
+
+    return {
+      result: settlementResult,
+      projectStatus,
+      milestoneStatus,
+      workflowRealtimePayload: this.buildSettlementWorkflowRealtimePayload(project),
+    };
   }
 
   /**
@@ -721,6 +1378,7 @@ export class SettlementService {
     settlement: DisputeSettlementEntity,
     dispute: DisputeEntity,
     rejectedReason?: string,
+    onRejectedEventsPrepared?: (payload: SettlementRejectedEventBundle) => void,
   ): Promise<DisputeSettlementEntity> {
     // EDGE CASE 2: Validate rejection reason quality
     const reasonValidation = this.validateRejectionReason(rejectedReason);
@@ -753,17 +1411,17 @@ export class SettlementService {
       this.logger.log(
         `Both parties exhausted settlement attempts for dispute: ${dispute.id}, escalating to hearing`,
       );
-
-      // Emit escalation event
-      this.eventEmitter.emit('settlement.exhausted', {
-        disputeId: dispute.id,
-        raiserAttempts,
-        defendantAttempts,
-      });
     }
 
-    // EDGE CASE: Emit rejection event with counter-offer prompt
-    this.eventEmitter.emit('settlement.rejected', {
+    const rejectedEventBundle: SettlementRejectedEventBundle = {
+      exhausted: shouldEscalate
+        ? {
+            disputeId: dispute.id,
+            raiserAttempts,
+            defendantAttempts,
+          }
+        : undefined,
+      rejected: {
       settlementId: settlement.id,
       disputeId: dispute.id,
       proposerId: settlement.proposerId,
@@ -780,14 +1438,15 @@ export class SettlementService {
           'Your settlement was rejected. Would you like to create a counter-offer based on their feedback?',
         rejectionFeedback: settlement.rejectedReason,
       },
-    });
+      },
+      chatUnlocked: {
+        disputeId: dispute.id,
+        userId: settlement.responderId,
+        reason: 'Settlement offer has been rejected, chat is now unlocked',
+      },
+    };
 
-    // EDGE CASE 1: Chat is now unlocked for responder (they responded)
-    this.eventEmitter.emit('settlement.chatUnlocked', {
-      disputeId: dispute.id,
-      userId: settlement.responderId,
-      reason: 'Settlement offer has been rejected, chat is now unlocked',
-    });
+    onRejectedEventsPrepared?.(rejectedEventBundle);
 
     return settlement;
   }

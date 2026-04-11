@@ -190,7 +190,21 @@ export class TasksController {
     @Body() dto: CreateSubmissionDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.tasksService.submitWork(id, dto, req.user?.id || 'SYSTEM');
+    const currentUser = req.user;
+
+    if (!currentUser?.id) {
+      throw new ForbiddenException('Authentication required');
+    }
+
+    const userRole = currentUser.role?.toUpperCase();
+    const isFreelancer =
+      userRole === 'FREELANCER' || userRole === UserRole.FREELANCER;
+
+    if (!isFreelancer) {
+      throw new ForbiddenException('Only freelancers can submit work for tasks.');
+    }
+
+    return this.tasksService.submitWork(id, dto, currentUser.id);
   }
 
   /**
@@ -276,7 +290,18 @@ export class TasksController {
       throw new BadRequestException('title, projectId and milestoneId are required');
     }
 
-    const reporterId = body.reporterId || req.user?.id;
+    const currentUser = req.user;
+
+    if (!currentUser?.id) {
+      throw new ForbiddenException('Authentication required');
+    }
+
+    const userRole = currentUser.role?.toUpperCase();
+    const isBroker = userRole === 'BROKER' || userRole === UserRole.BROKER;
+
+    if (!isBroker) {
+      throw new ForbiddenException('Only brokers can create tasks in project workspace.');
+    }
 
     this.logger.log(`Creating task: ${body.title} for project ${body.projectId}`);
 
@@ -291,7 +316,9 @@ export class TasksController {
       priority: body.priority,
       storyPoints: body.storyPoints,
       labels: body.labels,
-      reporterId,
+      reporterId: currentUser.id,
+      requesterId: currentUser.id,
+      requesterRole: currentUser.role,
     });
   }
 }

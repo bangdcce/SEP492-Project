@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, Check, CreditCard, ShieldCheck, Sparkles, TriangleAlert, X } from "lucide-react";
-import { createPaymentMethod, getPaymentMethods, updatePaymentMethod } from "@/features/payments/api";
+import { ArrowLeft, Check, CreditCard, Loader2, ShieldCheck, Sparkles, TriangleAlert, X } from "lucide-react";
+import { createPaymentMethod, getPaymentMethods } from "@/features/payments/api";
 import type { PaymentMethodView } from "@/features/payments/types";
 import { useCurrentUser } from "@/shared/hooks/useCurrentUser";
 import { Alert, AlertDescription, AlertTitle } from "@/shared/components/ui/alert";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/shared/components/ui/card";
-import { SubscriptionPayPalSetupDialog } from "./components/SubscriptionPayPalSetupDialog";
 import { PayPalSubscriptionCheckout } from "./components/PayPalSubscriptionCheckout";
 import { getMySubscription, getSubscriptionPlans } from "./api";
 import {
   BillingCycle,
   PERK_LABELS,
   formatPerkValue,
-  formatVND,
+  formatCurrency,
   getBillingCycleLabel,
+  getPlanDisplayAmount,
   getMonthlyEquivalent,
   type MySubscriptionResponse,
   type SubscriptionPlan,
@@ -45,11 +45,7 @@ export function SubscriptionCheckoutPage() {
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[]>([]);
   const [paymentMethodsLoaded, setPaymentMethodsLoaded] = useState(false);
   const [selectedCycle, setSelectedCycle] = useState(BillingCycle.MONTHLY);
-  const [payPalEmailInput, setPayPalEmailInput] = useState("");
-  const [payPalSetupError, setPayPalSetupError] = useState<string | null>(null);
   const [savingPayPalMethod, setSavingPayPalMethod] = useState(false);
-  const [showPayPalSetupModal, setShowPayPalSetupModal] = useState(false);
-  const [editingPayPalMethodId, setEditingPayPalMethodId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -120,77 +116,39 @@ export function SubscriptionCheckoutPage() {
   const currentSub = subscription?.subscription;
   const needsPayPalSetup = !isPremium && paymentMethodsLoaded && !activePayPalMethod;
 
-  useEffect(() => {
-    if (payPalEmailInput.trim() || !currentUser?.email) {
-      return;
-    }
-
-    setPayPalEmailInput(currentUser.email);
-  }, [currentUser?.email, payPalEmailInput]);
-
-  useEffect(() => {
-    if (!needsPayPalSetup) {
-      return;
-    }
-
-    setEditingPayPalMethodId(null);
-    setShowPayPalSetupModal(true);
-  }, [needsPayPalSetup]);
-
-  const handlePayPalSetupModalChange = (open: boolean) => {
-    setShowPayPalSetupModal(open);
-    if (!open) {
-      setPayPalSetupError(null);
-      setEditingPayPalMethodId(null);
-    }
-  };
-
-  const openPayPalSetupModal = (method?: PaymentMethodView | null) => {
-    setPayPalSetupError(null);
-    setEditingPayPalMethodId(method?.id ?? null);
-    setPayPalEmailInput(method?.paypalEmail || currentUser?.email || "");
-    setShowPayPalSetupModal(true);
-  };
-
-  const handleSavePayPalMethod = async () => {
-    const trimmedEmail = payPalEmailInput.trim();
-    if (!trimmedEmail) {
-      setPayPalSetupError("Enter the PayPal email you want to save first.");
-      return;
+  const ensurePayPalCheckoutMethod = useCallback(async () => {
+    if (activePayPalMethod) {
+      return activePayPalMethod;
     }
 
     try {
       setSavingPayPalMethod(true);
-      setPayPalSetupError(null);
       setError(null);
-      if (editingPayPalMethodId) {
-        await updatePaymentMethod(editingPayPalMethodId, {
-          type: "PAYPAL_ACCOUNT",
-          paypalEmail: trimmedEmail,
-          displayName: trimmedEmail,
-          isDefault: activePayPalMethod?.isDefault ?? true,
-        });
-        setSuccessMessage("PayPal buyer email updated. The next premium approval will use the new account.");
-      } else {
-        await createPaymentMethod({
-          type: "PAYPAL_ACCOUNT",
-          paypalEmail: trimmedEmail,
-          displayName: trimmedEmail,
-          isDefault: payPalMethods.length === 0,
-        });
-        setSuccessMessage("PayPal funding method saved. You can continue to premium checkout now.");
-      }
-
-      setPayPalEmailInput(trimmedEmail);
-      setShowPayPalSetupModal(false);
-      setEditingPayPalMethodId(null);
+      await createPaymentMethod({
+        type: "PAYPAL_ACCOUNT",
+        paypalEmail: currentUser?.email?.trim() || "paypal-checkout@interdev.local",
+        displayName: "PayPal checkout",
+        isDefault: payPalMethods.length === 0,
+      });
       await fetchData();
+      setSuccessMessage("PayPal checkout is ready. The buyer account will be stored after the first approval.");
+      return null;
     } catch (err: unknown) {
-      setPayPalSetupError(getErrorMessage(err, "Failed to save the PayPal method."));
+      throw new Error(getErrorMessage(err, "Failed to prepare PayPal checkout."));
     } finally {
       setSavingPayPalMethod(false);
     }
-  };
+  }, [activePayPalMethod, currentUser?.email, fetchData, payPalMethods.length]);
+
+  useEffect(() => {
+    if (!needsPayPalSetup || savingPayPalMethod) {
+      return;
+    }
+
+    void ensurePayPalCheckoutMethod().catch((err: unknown) => {
+      setError(getErrorMessage(err, "Failed to prepare PayPal checkout."));
+    });
+  }, [ensurePayPalCheckoutMethod, needsPayPalSetup, savingPayPalMethod]);
 
   if (loading) {
     return (
@@ -253,7 +211,7 @@ export function SubscriptionCheckoutPage() {
           </Button>
           <h1 className="text-3xl font-bold tracking-tight">Premium Checkout</h1>
           <p className="mt-2 text-muted-foreground">
-            Choose your billing cycle, then finish the PayPal approval to activate premium.
+            Choose your billing cycle, then finish the PayPal popup approval to activate premium.
           </p>
         </div>
         {activePayPalMethod ? (
@@ -297,21 +255,21 @@ export function SubscriptionCheckoutPage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5 text-primary" />
-                PayPal funding method
+                PayPal checkout
               </CardTitle>
               <CardDescription>
-                Subscription purchase uses a saved PayPal buyer account before the first premium capture.
+                Subscription purchase uses the same PayPal Vault lane as milestone funding.
               </CardDescription>
             </CardHeader>
             <CardContent>
               {activePayPalMethod ? (
                 <div className="flex flex-col gap-4 rounded-2xl border border-border bg-background p-4 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="font-medium">{activePayPalMethod.paypalEmail || activePayPalMethod.displayName}</p>
+                    <p className="font-medium">{activePayPalMethod.paypalEmail || "PayPal buyer will be confirmed in checkout"}</p>
                     <p className="text-sm text-muted-foreground">
                       {activePayPalMethod.fastCheckoutReady
                         ? "PayPal vault is ready for faster future approval."
-                        : "The first successful premium payment will verify and vault this buyer."}
+                        : "The first successful premium payment will verify and vault the buyer automatically."}
                     </p>
                   </div>
                   <div className="flex flex-col items-start gap-3 md:items-end">
@@ -319,20 +277,23 @@ export function SubscriptionCheckoutPage() {
                       <CreditCard className="h-4 w-4 text-primary" />
                       {activePayPalMethod.fastCheckoutReady ? "Fast checkout ready" : "First approval pending"}
                     </div>
-                    <Button variant="outline" size="sm" onClick={() => openPayPalSetupModal(activePayPalMethod)}>
-                      Change email
-                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      A PayPal popup will open when you choose a plan below.
+                    </p>
                   </div>
                 </div>
               ) : (
                 <div className="flex flex-col gap-4 rounded-2xl border border-dashed border-slate-300 bg-background p-5 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="font-medium text-foreground">PayPal setup required before purchase</p>
+                    <p className="font-medium text-foreground">Preparing PayPal checkout</p>
                     <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      Save a PayPal buyer account first, then the premium purchase cards will unlock below.
+                      The app is setting up the same PayPal Vault lane used by wallet funding. You will approve the buyer directly in the PayPal popup.
                     </p>
                   </div>
-                  <Button onClick={() => openPayPalSetupModal()}>Set up PayPal</Button>
+                  <Button onClick={() => void ensurePayPalCheckoutMethod()} disabled={savingPayPalMethod}>
+                    {savingPayPalMethod ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {savingPayPalMethod ? "Preparing..." : "Prepare PayPal"}
+                  </Button>
                 </div>
               )}
             </CardContent>
@@ -362,24 +323,22 @@ export function SubscriptionCheckoutPage() {
             <div className={`mx-auto grid gap-6 ${plans.length === 1 ? "max-w-3xl" : "md:grid-cols-2 lg:grid-cols-3"}`}>
               {plans.map((plan) => {
                 const monthlyEquiv = getMonthlyEquivalent(plan, selectedCycle);
-                const totalPrice =
-                  selectedCycle === BillingCycle.QUARTERLY
-                    ? plan.priceQuarterly
-                    : selectedCycle === BillingCycle.YEARLY
-                      ? plan.priceYearly
-                      : plan.priceMonthly;
+                const totalPrice = getPlanDisplayAmount(plan, selectedCycle);
 
                 return (
                   <Card key={plan.id} className="border-primary/20 shadow-lg">
                     <CardHeader className="pt-8 text-center">
                       <CardTitle className="text-2xl">{plan.displayName}</CardTitle>
                       <div className="mt-4 flex items-baseline justify-center gap-1">
-                        <span className="text-4xl font-extrabold tracking-tight">{formatVND(monthlyEquiv)}</span>
+                        <span className="text-4xl font-extrabold tracking-tight">
+                          {formatCurrency(monthlyEquiv, plan.displayCurrency)}
+                        </span>
                         <span className="text-sm text-muted-foreground">/mo</span>
                       </div>
                       {selectedCycle !== BillingCycle.MONTHLY ? (
                         <p className="text-xs text-muted-foreground">
-                          Billed {formatVND(totalPrice)} {getBillingCycleLabel(selectedCycle).toLowerCase()}
+                          Billed {formatCurrency(totalPrice, plan.displayCurrency)}{" "}
+                          {getBillingCycleLabel(selectedCycle).toLowerCase()}
                         </p>
                       ) : null}
                       <CardDescription className="mt-2">{plan.description}</CardDescription>
@@ -409,8 +368,13 @@ export function SubscriptionCheckoutPage() {
                           onError={setError}
                         />
                       ) : (
-                        <Button className="w-full" onClick={() => openPayPalSetupModal()}>
-                          Set up PayPal to continue
+                        <Button
+                          className="w-full"
+                          onClick={() => void ensurePayPalCheckoutMethod()}
+                          disabled={savingPayPalMethod}
+                        >
+                          {savingPayPalMethod ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                          {savingPayPalMethod ? "Preparing PayPal..." : "Prepare PayPal to continue"}
                         </Button>
                       )}
                     </CardFooter>
@@ -422,26 +386,6 @@ export function SubscriptionCheckoutPage() {
         </>
       )}
 
-      <SubscriptionPayPalSetupDialog
-        open={showPayPalSetupModal}
-        onOpenChange={handlePayPalSetupModalChange}
-        payPalEmail={payPalEmailInput}
-        onPayPalEmailChange={(value) => {
-          setPayPalSetupError(null);
-          setPayPalEmailInput(value);
-        }}
-        onSave={handleSavePayPalMethod}
-        saving={savingPayPalMethod}
-        error={payPalSetupError}
-        title={editingPayPalMethodId ? "Change PayPal buyer email" : undefined}
-        description={
-          editingPayPalMethodId
-            ? "Update the PayPal buyer account used for subscription approval. Changing the email resets any previous fast-checkout state for the old buyer."
-            : undefined
-        }
-        saveLabel={editingPayPalMethodId ? "Update PayPal" : undefined}
-        cancelLabel={editingPayPalMethodId ? "Cancel" : undefined}
-      />
     </div>
   );
 }

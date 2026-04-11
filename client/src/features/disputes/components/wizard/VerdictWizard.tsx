@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
-import { AlertTriangle, Loader2, Scale, Search } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, FlaskConical, Loader2, Scale, Search } from "lucide-react";
 import { MoneySplitSlider } from "../shared/MoneySplitSlider";
 import { DisputeResult } from "../../../staff/types/staff.types";
 import {
   getDisputeRuleCatalog,
-  resolveDispute,
   resolveDisputeAppeal,
   type DisputeRuleCatalogItem,
 } from "../../api";
@@ -30,6 +29,21 @@ const FAULTY_PARTIES = [
   { value: "none", label: "No fault" },
 ];
 
+const SAMPLE_APPEAL_VERDICT_COPY = {
+  evidenceBasis:
+    "Reviewed the Tier 1 hearing minutes, escrow ledger, milestone acceptance trail, dispute evidence uploads, and the filed appeal statement. The appeal record shows the original ruling understated unresolved delivery defects and the timing mismatch between milestone closure and acceptance evidence.",
+  factualFindings:
+    "The Tier 1 record confirms work was partially delivered, but the completion evidence remained inconsistent with the contractual acceptance checkpoints. Uploaded screenshots and the appeal narrative align with a pattern of incomplete handoff, unresolved revision comments, and no final acceptance event that would justify full release to the freelancer.",
+  legalAnalysis:
+    "Under the platform dispute standards, payout must track verified delivery, acceptance conditions, and proportional responsibility. The original verdict did not give enough weight to the unresolved acceptance gap and therefore requires modification on appeal. A split outcome better matches the proven work completed versus the verified deficiencies that remained outstanding.",
+  conclusion:
+    "The appeal is partially upheld. The Tier 1 verdict should be replaced with a split allocation that recognizes partial performance while preserving compensation for the unresolved delivery shortfall.",
+  adminComment:
+    "Appeal review completed. Tier 1 outcome adjusted after re-weighing hearing minutes, appeal reason, and acceptance evidence.",
+  overrideReason:
+    "The Tier 1 verdict is overridden because the appeal record establishes that the original analysis did not proportionally weigh the incomplete acceptance trail and unresolved delivery defects against the partial work that was actually provided.",
+};
+
 interface VerdictWizardProps {
   disputeId: string;
   disputedAmount?: number;
@@ -45,6 +59,31 @@ type VerdictGateErrorPayload = {
   checklist?: Record<string, boolean>;
   unmetChecklist?: string[];
   unmetChecklistDetails?: string[];
+};
+
+const normalizePolicyCatalog = (rules: unknown): DisputeRuleCatalogItem[] => {
+  if (!Array.isArray(rules)) return [];
+
+  return rules
+    .filter(
+      (item): item is Partial<DisputeRuleCatalogItem> =>
+        Boolean(item) && typeof item === "object",
+    )
+    .map((item) => ({
+      code: String(item.code ?? "").trim(),
+      title: String(item.title ?? "Untitled policy"),
+      category:
+        (item.category as DisputeRuleCatalogItem["category"] | undefined) ??
+        "HEARING_CONDUCT",
+      summary: String(item.summary ?? ""),
+      legalBasis: Array.isArray(item.legalBasis)
+        ? item.legalBasis.map((value) => String(value))
+        : [],
+      operationalGuidance: Array.isArray(item.operationalGuidance)
+        ? item.operationalGuidance.map((value) => String(value))
+        : [],
+    }))
+    .filter((item) => item.code.length > 0);
 };
 
 const VERDICT_GATE_LABELS: Record<string, string> = {
@@ -77,11 +116,26 @@ export const VerdictWizard = ({
   const [splitRatioClient, setSplitRatioClient] = useState<number>(50);
   const [submitting, setSubmitting] = useState(false);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [sampleFillPending, setSampleFillPending] = useState(false);
   const [verdictGateError, setVerdictGateError] =
     useState<VerdictGateErrorPayload | null>(null);
+  const sampleFillPendingRef = useRef(false);
 
-  const totalAmount = useMemo(() => disputedAmount ?? 0, [disputedAmount]);
+  const totalAmount = useMemo(() => {
+    const numericAmount = Number(disputedAmount);
+    return Number.isFinite(numericAmount) ? numericAmount : 0;
+  }, [disputedAmount]);
   const isAppealMode = mode === "appeal";
+  const appealContextText = useMemo(() => {
+    if (typeof appealContext === "string") return appealContext;
+    if (appealContext == null) return "";
+
+    try {
+      return JSON.stringify(appealContext);
+    } catch {
+      return String(appealContext);
+    }
+  }, [appealContext]);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,14 +149,25 @@ export const VerdictWizard = ({
           result: verdict || undefined,
         });
         if (!cancelled) {
-          setPolicyCatalog(rules);
-          setSelectedPolicies((previous) =>
-            previous.filter((code) => rules.some((rule) => rule.code === code)),
-          );
+          const normalizedRules = normalizePolicyCatalog(rules);
+          setPolicyCatalog(normalizedRules);
+          if (sampleFillPendingRef.current) {
+            setSelectedPolicies(normalizedRules.slice(0, 2).map((rule) => rule.code));
+            sampleFillPendingRef.current = false;
+            setSampleFillPending(false);
+          } else {
+            setSelectedPolicies((previous) =>
+              previous.filter((code) =>
+                normalizedRules.some((rule) => rule.code === code),
+              ),
+            );
+          }
         }
       } catch (error) {
         console.error("Failed to load dispute rule catalog:", error);
         if (!cancelled) {
+          sampleFillPendingRef.current = false;
+          setSampleFillPending(false);
           toast.error("Could not load dispute policy catalog.");
         }
       } finally {
@@ -127,7 +192,9 @@ export const VerdictWizard = ({
     return policyCatalog
       .filter((item) =>
         [item.code, item.title, item.summary].some((value) =>
-          value.toLowerCase().includes(query),
+          String(value ?? "")
+            .toLowerCase()
+            .includes(query),
         ),
       )
       .slice(0, 8);
@@ -150,6 +217,23 @@ export const VerdictWizard = ({
       setFaultyParty("none");
       setVerdict(DisputeResult.SPLIT);
     }
+  };
+
+  const fillAppealSample = () => {
+    sampleFillPendingRef.current = true;
+    setPolicySearch("");
+    setVerdict(DisputeResult.SPLIT);
+    setFaultType("QUALITY_MISMATCH");
+    setFaultyParty("defendant");
+    setSelectedPolicies([]);
+    setSampleFillPending(true);
+    setEvidenceBasis(SAMPLE_APPEAL_VERDICT_COPY.evidenceBasis);
+    setFactualFindings(SAMPLE_APPEAL_VERDICT_COPY.factualFindings);
+    setLegalAnalysis(SAMPLE_APPEAL_VERDICT_COPY.legalAnalysis);
+    setConclusion(SAMPLE_APPEAL_VERDICT_COPY.conclusion);
+    setAdminComment(SAMPLE_APPEAL_VERDICT_COPY.adminComment);
+    setOverrideReason(SAMPLE_APPEAL_VERDICT_COPY.overrideReason);
+    setSplitRatioClient(65);
   };
 
   const handleSubmit = async () => {
@@ -175,6 +259,15 @@ export const VerdictWizard = ({
     }
     if (!adminComment.trim()) {
       toast.error("Admin comment is required.");
+      return;
+    }
+    if (!isAppealMode) {
+      const payload = {
+        message:
+          "Initial verdicts must be issued from Hearing Room so minutes and hearing closure are recorded together.",
+      };
+      setVerdictGateError(payload);
+      toast.error("Issue the initial verdict from Hearing Room.");
       return;
     }
     if (isAppealMode && !existingVerdictId) {
@@ -209,23 +302,6 @@ export const VerdictWizard = ({
           overrideReason: overrideReason.trim(),
         });
         toast.success("Appeal verdict submitted.");
-      } else {
-        await resolveDispute(disputeId, {
-          verdict,
-          adminComment: adminComment.trim(),
-          faultType,
-          faultyParty,
-          reasoning: {
-            violatedPolicies: selectedPolicies,
-            factualFindings: factualFindings.trim(),
-            legalAnalysis: legalAnalysis.trim(),
-            conclusion: conclusion.trim(),
-            evidenceReferences: [evidenceBasis.trim()],
-          },
-          splitRatioClient:
-            verdict === DisputeResult.SPLIT ? splitRatioClient : undefined,
-        });
-        toast.success("Verdict submitted.");
       }
 
       if (onSubmitted) {
@@ -270,7 +346,7 @@ export const VerdictWizard = ({
           <p className="mt-1 text-sm text-gray-500">
             {isAppealMode
               ? "Issue the Tier 2 decision that upholds or overrides the original verdict."
-              : "Record the official dispute outcome and financial distribution."}
+              : "Initial verdict issuance has moved to Hearing Room so the hearing can close with minutes and findings in one step."}
           </p>
         </div>
         {isAppealMode ? (
@@ -281,22 +357,48 @@ export const VerdictWizard = ({
         ) : null}
       </div>
 
+      {!isAppealMode ? (
+        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          Use the Hearing Room verdict panel for initial verdicts. This wizard remains available
+          only for appeal review so the platform does not bypass hearing minutes and closure
+          requirements.
+        </div>
+      ) : null}
+
       {isAppealMode ? (
         <div className="mb-6 space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
-              Original Verdict ID
-            </p>
-            <p className="font-medium text-amber-950">
-              {existingVerdictId ?? "Missing original verdict reference"}
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
+                Original Verdict ID
+              </p>
+              <p className="font-medium text-amber-950">
+                {existingVerdictId ?? "Missing original verdict reference"}
+              </p>
+            </div>
+            <button
+              type="button"
+              data-testid="appeal-verdict-fill-sample"
+              onClick={fillAppealSample}
+              disabled={submitting || sampleFillPending}
+              className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-800 transition-colors hover:bg-amber-100"
+            >
+              {sampleFillPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <FlaskConical className="h-3.5 w-3.5" />
+              )}
+              {sampleFillPending ? "Loading sample..." : "Fill Sample"}
+            </button>
           </div>
-          {appealContext ? (
+          {appealContextText ? (
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider text-amber-700">
                 Appeal Context
               </p>
-              <p className="whitespace-pre-wrap text-amber-950">{appealContext}</p>
+              <div className="mt-2 max-h-40 overflow-y-auto rounded-lg border border-amber-200 bg-white/80 p-3 text-sm leading-6 text-amber-950 whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                {appealContextText}
+              </div>
             </div>
           ) : null}
         </div>

@@ -216,10 +216,7 @@ export class WalletService {
     },
     manager?: EntityManager,
   ): Promise<TransactionEntity | null> {
-    const feeAmount = new Decimal(params.feeAmount || 0).toDecimalPlaces(
-      2,
-      Decimal.ROUND_HALF_UP,
-    );
+    const feeAmount = new Decimal(params.feeAmount || 0).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
 
     if (feeAmount.lte(0)) {
       return null;
@@ -446,24 +443,24 @@ export class WalletService {
     }
 
     const escrowRepo = manager?.getRepository(EscrowEntity) ?? this.escrowRepository;
-    const shareColumn =
-      role === UserRole.BROKER ? 'escrow.brokerShare' : 'escrow.developerShare';
+    const shareColumn = role === UserRole.BROKER ? 'escrow.brokerShare' : 'escrow.developerShare';
     const projectRoleColumn =
       role === UserRole.BROKER ? 'project.brokerId' : 'project.freelancerId';
 
     const result = await escrowRepo
       .createQueryBuilder('escrow')
       .innerJoin(ProjectEntity, 'project', 'project.id = escrow.projectId')
-      .select(`COALESCE(SUM(${shareColumn}), 0)`, 'total')
+      .select(
+        `COALESCE(SUM(${shareColumn} * (COALESCE(escrow.fundedAmount, 0) / NULLIF(COALESCE(escrow.totalAmount, 0), 0))), 0)`,
+        'total',
+      )
       .where('escrow.status IN (:...statuses)', {
         statuses: [EscrowStatus.FUNDED, EscrowStatus.DISPUTED],
       })
       .andWhere(`${projectRoleColumn} = :userId`, { userId })
       .getRawOne<{ total: string | number | null }>();
 
-    return new Decimal(result?.total ?? 0)
-      .toDecimalPlaces(2, Decimal.ROUND_HALF_UP)
-      .toNumber();
+    return new Decimal(result?.total ?? 0).toDecimalPlaces(2, Decimal.ROUND_HALF_UP).toNumber();
   }
 
   private async resolvePlatformWalletOwner(manager?: EntityManager): Promise<UserEntity> {

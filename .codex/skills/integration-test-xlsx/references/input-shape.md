@@ -142,3 +142,13 @@ Notes:
 - If `statistics` is omitted, the generator computes totals from `testCases[].result`.
 - The strict bundled template currently supports up to `2` visible `FeatureN` sheets.
 - The generator still supports the old round-based layout when you explicitly pass the legacy template, but this reference file is for the strict no-round format.
+
+Controller/API mapping notes:
+
+- For endpoint-driven integration cases, `functions[].name` may be a route capability such as `POST /auth/login - Login`.
+- Keep the integration scope at the user-flow or endpoint level, not at internal helper-method level.
+- Put HTTP method, route, headers, auth token state, payload, and seed/reset steps in `procedure`.
+- Put role, pre-seeded records, DB constraints, and environment assumptions in `dependencies`.
+- Put HTTP status, response JSON contract, and DB mutation or rollback expectations in `expectedResults`.
+- Use `actualResults` to summarize the observed status/body plus persisted state or rollback outcome.
+- If a guard or middleware blocks the request before controller execution, still model it as a normal `testCases[]` row with the blocking behavior in `expectedResults` and `actualResults`.

@@ -1,4 +1,4 @@
-import {
+﻿import {
   BadRequestException,
   ForbiddenException,
   Injectable,
@@ -36,40 +36,39 @@ import { CreateProjectSpecDto } from './dto/create-project-spec.dto';
 import { CreateClientSpecDto } from './dto/create-client-spec.dto';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import type { RequestContext } from '../audit-logs/audit-logs.service';
-import { randomUUID } from 'crypto';
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import sanitizeHtml from 'sanitize-html';
 import { RequestChatService } from '../request-chat/request-chat.service';
 
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 // GOVERNANCE CONSTANTS (from spec_project_governance.md)
-// ─────────────────────────────────────────────────────────────────────────────
+// 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
 const GOVERNANCE_RULES = {
-  // Milestone 1 không được vượt quá 30% tổng ngân sách
+  // Milestone 1 khﾃｴng ﾄ柁ｰ盻｣c vﾆｰ盻｣t quﾃ｡ 30% t盻貧g ngﾃ｢n sﾃ｡ch
   MAX_FIRST_MILESTONE_PERCENT: 30,
-  // Milestone cuối phải tối thiểu 20% tổng ngân sách
+  // Milestone cu盻訴 ph蘯｣i t盻訴 thi盻ブ 20% t盻貧g ngﾃ｢n sﾃ｡ch
   MIN_LAST_MILESTONE_PERCENT: 20,
-  // Tolerance cho so sánh budget (0.01 USD)
+  // Tolerance cho so sﾃ｡nh budget (0.01 USD)
   BUDGET_TOLERANCE: 0.01,
 };
 
-// Từ ngữ cấm - gây tranh chấp (Keyword Warning System)
+// T盻ｫ ng盻ｯ c蘯･m - gﾃ｢y tranh ch蘯･p (Keyword Warning System)
 const BANNED_KEYWORDS = [
-  // Từ ngữ cảm tính
-  'đẹp',
-  'sang trọng',
-  'hiện đại',
-  'thân thiện',
+  // T盻ｫ ng盻ｯ c蘯｣m tﾃｭnh
+  'ﾄ黛ｺｹp',
+  'sang tr盻肱g',
+  'hi盻㌻ ﾄ黛ｺ｡i',
+  'thﾃ｢n thi盻㌻',
   'beautiful',
   'modern',
   'friendly',
   'elegant',
-  // Từ ngữ định tính
+  // T盻ｫ ng盻ｯ ﾄ黛ｻ杵h tﾃｭnh
   'nhanh',
-  'tốt',
-  'mạnh mẽ',
-  'cao cấp',
+  't盻奏',
+  'm蘯｡nh m蘯ｽ',
+  'cao c蘯･p',
   'fast',
   'good',
   'powerful',
@@ -78,6 +77,9 @@ const BANNED_KEYWORDS = [
   'easy',
   'simple',
 ];
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class ProjectSpecsService {
@@ -101,9 +103,9 @@ export class ProjectSpecsService {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  // ─────────────────────────────────────────────────────────────────────────────
+  // 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
   // GOVERNANCE VALIDATION METHODS
-  // ─────────────────────────────────────────────────────────────────────────────
+  // 笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏笏
 
   /**
    * Validate milestone budget distribution per Governance rules
@@ -122,7 +124,7 @@ export class ProjectSpecsService {
       new Decimal(0),
     );
 
-    // Rule 3: Tổng % phải chính xác bằng 100% (within tolerance)
+    // Rule 3: T盻貧g % ph蘯｣i chﾃｭnh xﾃ｡c b蘯ｱng 100% (within tolerance)
     const budgetDiff = totalMilestoneAmount.minus(budget).abs();
     if (budgetDiff.greaterThan(GOVERNANCE_RULES.BUDGET_TOLERANCE)) {
       throw new BadRequestException(
@@ -136,7 +138,7 @@ export class ProjectSpecsService {
     const firstMilestone = sorted[0];
     const lastMilestone = sorted[sorted.length - 1];
 
-    // Rule 1: Milestone 1 <= 30% tổng ngân sách
+    // Rule 1: Milestone 1 <= 30% t盻貧g ngﾃ｢n sﾃ｡ch
     const firstAmount = new Decimal(firstMilestone.amount);
     const firstPercent = firstAmount.dividedBy(budget).times(100);
     if (firstPercent.greaterThan(GOVERNANCE_RULES.MAX_FIRST_MILESTONE_PERCENT)) {
@@ -146,7 +148,7 @@ export class ProjectSpecsService {
       );
     }
 
-    // Rule 2: Milestone cuối >= 20% tổng ngân sách
+    // Rule 2: Milestone cu盻訴 >= 20% t盻貧g ngﾃ｢n sﾃ｡ch
     const lastAmount = new Decimal(lastMilestone.amount);
     const lastPercent = lastAmount.dividedBy(budget).times(100);
     if (lastPercent.lessThan(GOVERNANCE_RULES.MIN_LAST_MILESTONE_PERCENT)) {
@@ -224,7 +226,7 @@ export class ProjectSpecsService {
 
       if (startDateKey < todayKey) {
         throw new BadRequestException(
-          `Milestone ${index + 1} start date cannot be in the past.`,
+          `Milestone ${index + 1} start date must be today or later.`,
         );
       }
 
@@ -282,11 +284,10 @@ export class ProjectSpecsService {
     const approvedBaseline = this.resolveApprovedCommercialBaseline(request, parentSpec);
 
     const approvedBudget =
-      approvedBaseline?.agreedBudget ?? approvedBaseline?.estimatedBudget ?? parentSpec?.totalBudget ?? null;
-
-    if (!approvedBudget && !parentSpec) {
-      return;
-    }
+      approvedBaseline?.agreedBudget ??
+      approvedBaseline?.estimatedBudget ??
+      parentSpec?.totalBudget ??
+      null;
 
     const fullSpecBudget = new Decimal(totalBudget);
     const approvedClientBudget = new Decimal(approvedBudget ?? totalBudget);
@@ -337,7 +338,8 @@ export class ProjectSpecsService {
     parentSpec: ProjectSpecEntity | null,
   ): ClientFeature[] {
     const approvedBaseline = this.resolveApprovedCommercialBaseline(request, parentSpec);
-    const baselineFeatures = approvedBaseline?.agreedClientFeatures ?? approvedBaseline?.clientFeatures;
+    const baselineFeatures =
+      approvedBaseline?.agreedClientFeatures ?? approvedBaseline?.clientFeatures;
     if (
       baselineFeatures?.length &&
       baselineFeatures.every((feature) => Boolean((feature as ClientFeature).id))
@@ -364,9 +366,8 @@ export class ProjectSpecsService {
   ): string | null {
     const approvedBaseline = this.resolveApprovedCommercialBaseline(request, parentSpec);
     return (
-      this.safeNormalizeDateOnlyInput(
-        approvedBaseline?.agreedDeliveryDeadline ?? approvedBaseline?.estimatedTimeline ?? null,
-      ) ??
+      approvedBaseline?.agreedDeliveryDeadline ??
+      approvedBaseline?.estimatedTimeline ??
       this.assertRequestScopeBaselineReady(request).requestedDeadline
     );
   }
@@ -381,10 +382,11 @@ export class ProjectSpecsService {
     }
 
     const approvedFeatureIds = new Set(
-      approvedClientFeatures.map((feature) => feature.id).filter((value): value is string => Boolean(value)),
+      approvedClientFeatures
+        .map((feature) => feature.id)
+        .filter((value): value is string => Boolean(value)),
     );
     const coveredFeatureIds = new Set<string>();
-
     const collectCoverage = (source: string, ids?: string[] | null) => {
       const normalizedIds = Array.from(
         new Set(
@@ -424,10 +426,7 @@ export class ProjectSpecsService {
     }
   }
 
-  private assertSpecNotLockedForCommercialChanges(
-    spec: ProjectSpecEntity,
-    action: string,
-  ): void {
+  private assertSpecNotLockedForCommercialChanges(spec: ProjectSpecEntity, action: string): void {
     if (spec.specPhase !== SpecPhase.FULL_SPEC) {
       return;
     }
@@ -450,7 +449,7 @@ export class ProjectSpecsService {
     for (const keyword of BANNED_KEYWORDS) {
       if (lowerText.includes(keyword.toLowerCase())) {
         warnings.push(
-          `⚠️ Từ "${keyword}" có thể gây tranh chấp. Hãy mô tả cụ thể hơn (số liệu, màu sắc, style...).`,
+          `笞・・T盻ｫ "${keyword}" cﾃｳ th盻・gﾃ｢y tranh ch蘯･p. Hﾃ｣y mﾃｴ t蘯｣ c盻･ th盻・hﾆ｡n (s盻・li盻㎡, mﾃu s蘯ｯc, style...).`,
         );
       }
     }
@@ -463,6 +462,26 @@ export class ProjectSpecsService {
       allowedTags: [],
       allowedAttributes: {},
     }).trim();
+  }
+
+  private isUuid(value?: string | null): boolean {
+    return UUID_PATTERN.test(this.sanitizePlainText(value));
+  }
+
+  private deriveCommercialFeatureId(title: string, index: number): string {
+    const normalizedTitle = this.sanitizePlainText(title)
+      .toLowerCase()
+      .replace(/\s+/g, ' ');
+    const seed = `commercial-feature:${index + 1}:${normalizedTitle}`;
+    const hex = createHash('sha1').update(seed).digest('hex').slice(0, 32);
+    const chars = hex.split('');
+    chars[12] = '4';
+    const variantNibble = Number.parseInt(chars[16], 16);
+    chars[16] = ((Number.isNaN(variantNibble) ? 0 : variantNibble) & 0x3 | 0x8).toString(16);
+
+    return `${chars.slice(0, 8).join('')}-${chars.slice(8, 12).join('')}-${chars
+      .slice(12, 16)
+      .join('')}-${chars.slice(16, 20).join('')}-${chars.slice(20, 32).join('')}`;
   }
 
   private sanitizeStructuredJson(value: unknown): unknown {
@@ -571,9 +590,10 @@ export class ProjectSpecsService {
     const requestProductType = this.getRequestProductTypeSnapshot(request);
     const requestedComparable = this.normalizeProductTypeComparable(requestedValue);
     const allowedComparables = new Set(
-      [requestProductType.code, this.normalizeProductTypeComparable(requestProductType.label)].filter(
-        (value): value is string => Boolean(value),
-      ),
+      [
+        requestProductType.code,
+        this.normalizeProductTypeComparable(requestProductType.label),
+      ].filter((value): value is string => Boolean(value)),
     );
 
     if (allowedComparables.size === 0) {
@@ -674,14 +694,17 @@ export class ProjectSpecsService {
         stored?.projectGoalSummary ??
         ([this.sanitizePlainText(request.title), this.sanitizePlainText(request.description)]
           .filter(Boolean)
-          .join(': ') || null),
+          .join(': ') ||
+          null),
       requestedDeadline,
       requestTitle: this.sanitizePlainText(request.title),
       requestDescription: this.sanitizePlainText(request.description),
     };
   }
 
-  private assertRequestScopeBaselineReady(request: ProjectRequestEntity): ProjectRequestScopeBaseline {
+  private assertRequestScopeBaselineReady(
+    request: ProjectRequestEntity,
+  ): ProjectRequestScopeBaseline {
     const baseline = this.resolveRequestScopeBaseline(request);
     if (!baseline.requestedDeadline) {
       throw new BadRequestException(
@@ -710,9 +733,7 @@ export class ProjectSpecsService {
   ): void {
     const floor = this.resolveClientSpecDeadlineFloor(request);
     if (agreedDeliveryDeadline < floor) {
-      throw new BadRequestException(
-        `Agreed delivery deadline cannot be earlier than ${floor}.`,
-      );
+      throw new BadRequestException(`Agreed delivery deadline cannot be earlier than ${floor}.`);
     }
   }
 
@@ -744,9 +765,7 @@ export class ProjectSpecsService {
               spec.estimatedTimeline ??
               null,
             agreedClientFeatures:
-              approvedBaseline.agreedClientFeatures ??
-              approvedBaseline.clientFeatures ??
-              null,
+              approvedBaseline.agreedClientFeatures ?? approvedBaseline.clientFeatures ?? null,
           }
         : null,
     };
@@ -769,12 +788,18 @@ export class ProjectSpecsService {
     }
 
     const normalized = features
-      .map((feature) => ({
-        id: (feature as ClientFeature).id || null,
-        title: this.sanitizePlainText(feature.title),
-        description: this.sanitizePlainText(feature.description),
-        priority: feature.priority,
-      }))
+      .map((feature, index) => {
+        const title = this.sanitizePlainText(feature.title);
+        const description = this.sanitizePlainText(feature.description);
+        const existingId = this.sanitizePlainText(feature.id);
+
+        return {
+          id: this.isUuid(existingId) ? existingId : this.deriveCommercialFeatureId(title, index),
+          title,
+          description,
+          priority: feature.priority,
+        };
+      })
       .filter((feature) => feature.title.length > 0 && feature.description.length > 0);
 
     return normalized.length > 0 ? normalized : null;
@@ -796,7 +821,9 @@ export class ProjectSpecsService {
     return normalized.length > 0 ? normalized : null;
   }
 
-  private buildCommercialBaselineFromClientSpec(spec: ProjectSpecEntity): ProjectRequestCommercialBaseline {
+  private buildCommercialBaselineFromClientSpec(
+    spec: ProjectSpecEntity,
+  ): ProjectRequestCommercialBaseline {
     const agreedDeliveryDeadline =
       this.safeNormalizeDateOnlyInput(spec.estimatedTimeline ?? null) ?? null;
     const approvedClientFeatures = this.normalizeCommercialFeatures(spec.clientFeatures);
@@ -804,11 +831,16 @@ export class ProjectSpecsService {
     return {
       source: 'CLIENT_SPEC',
       budgetRange: spec.request?.budgetRange ?? null,
-      estimatedBudget: typeof spec.totalBudget === 'number' ? Number(spec.totalBudget) : Number(spec.totalBudget || 0),
+      estimatedBudget:
+        typeof spec.totalBudget === 'number'
+          ? Number(spec.totalBudget)
+          : Number(spec.totalBudget || 0),
       estimatedTimeline: agreedDeliveryDeadline,
       clientFeatures: approvedClientFeatures,
       agreedBudget:
-        typeof spec.totalBudget === 'number' ? Number(spec.totalBudget) : Number(spec.totalBudget || 0),
+        typeof spec.totalBudget === 'number'
+          ? Number(spec.totalBudget)
+          : Number(spec.totalBudget || 0),
       agreedDeliveryDeadline,
       agreedClientFeatures: approvedClientFeatures,
       sourceSpecId: spec.id,
@@ -890,7 +922,11 @@ export class ProjectSpecsService {
     ];
 
     return fields
-      .filter(({ field }) => JSON.stringify(previous?.[field] ?? null) !== JSON.stringify(currentSnapshot[field] ?? null))
+      .filter(
+        ({ field }) =>
+          JSON.stringify(previous?.[field] ?? null) !==
+          JSON.stringify(currentSnapshot[field] ?? null),
+      )
       .map(({ field, label }) => ({
         field,
         label,
@@ -1080,7 +1116,7 @@ export class ProjectSpecsService {
         );
       }
 
-      // Each criterion must be > 10 characters (chống spam)
+      // Each criterion must be > 10 characters (ch盻創g spam)
       for (const criterion of feature.acceptanceCriteria) {
         if (criterion.length < 10) {
           throw new BadRequestException(
@@ -1091,11 +1127,9 @@ export class ProjectSpecsService {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PHASE 1: CLIENT SPEC (c_spec)
-  // Broker creates a simplified spec → Client reviews → Client approves
-  // ═══════════════════════════════════════════════════════════════════════════
-
+  // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・  // PHASE 1: CLIENT SPEC (c_spec)
+  // Broker creates a simplified spec 竊・Client reviews 竊・Client approves
+  // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・
   /**
    * Broker creates a simplified client-readable spec
    */
@@ -1248,7 +1282,7 @@ export class ProjectSpecsService {
       relations: ['answers', 'answers.question', 'answers.option'],
     });
     if (!requestContext) {
-      throw new NotFoundException('Project request not found');
+      throw new NotFoundException('Request not found');
     }
 
     const sanitizedTitle = this.sanitizePlainText(dto.title);
@@ -1258,10 +1292,7 @@ export class ProjectSpecsService {
       'Agreed delivery deadline',
     );
     this.assertAgreedDeliveryDeadlineFloor(requestContext, sanitizedTimeline);
-    const normalizedBudget = this.normalizePositiveBudget(
-      dto.estimatedBudget,
-      'Estimated budget',
-    );
+    const normalizedBudget = this.normalizePositiveBudget(dto.estimatedBudget, 'Estimated budget');
     const lockedProductType = this.resolveLockedClientSpecProductType(
       requestContext,
       dto.projectCategory,
@@ -1315,7 +1346,7 @@ export class ProjectSpecsService {
   }
 
   /**
-   * Broker submits c_spec for client review: DRAFT → CLIENT_REVIEW
+   * Broker submits c_spec for client review: DRAFT 竊・CLIENT_REVIEW
    */
   async submitForClientReview(
     user: UserEntity,
@@ -1388,7 +1419,7 @@ export class ProjectSpecsService {
 
   /**
    * Client approves or rejects the c_spec
-   * CLIENT_REVIEW → CLIENT_APPROVED / REJECTED
+   * CLIENT_REVIEW 竊・CLIENT_APPROVED / REJECTED
    */
   async clientReviewSpec(
     user: UserEntity,
@@ -1480,11 +1511,9 @@ export class ProjectSpecsService {
     return spec;
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // PHASE 2: FULL SPEC (full_spec)
-  // After freelancer assigned → Broker creates detailed spec → 3-party sign
-  // ═══════════════════════════════════════════════════════════════════════════
-
+  // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・  // PHASE 2: FULL SPEC (full_spec)
+  // After freelancer assigned 竊・Broker creates detailed spec 竊・3-party sign
+  // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・
   /**
    * Create full technical spec linked to parent client spec
    */
@@ -1548,17 +1577,13 @@ export class ProjectSpecsService {
           'Cannot create full spec: Client spec must be approved first.',
         );
       }
-
-      const approvedBaseline = this.resolveApprovedCommercialBaseline(projectRequest, parentSpec);
       const requestScopeBaseline = this.assertRequestScopeBaselineReady(projectRequest);
+      const approvedBaseline = this.resolveApprovedCommercialBaseline(projectRequest, parentSpec);
       const approvedDeliveryDeadline = this.resolveApprovedDeliveryDeadline(
         projectRequest,
         parentSpec,
       );
-      const approvedClientFeatures = this.resolveApprovedClientFeatures(
-        projectRequest,
-        parentSpec,
-      );
+      const approvedClientFeatures = this.resolveApprovedClientFeatures(projectRequest, parentSpec);
 
       // Check no existing non-rejected full spec
       const existingFull = await queryRunner.manager.findOne(ProjectSpecEntity, {
@@ -1625,9 +1650,7 @@ export class ProjectSpecsService {
         changeSummary: this.sanitizePlainText(createSpecDto.changeSummary) || null,
         status: createSpecDto.status || ProjectSpecStatus.DRAFT,
         projectCategory:
-          requestScopeBaseline.productTypeLabel ??
-          parentSpec?.projectCategory ??
-          null,
+          requestScopeBaseline.productTypeLabel ?? parentSpec?.projectCategory ?? null,
         estimatedTimeline:
           approvedBaseline?.agreedDeliveryDeadline ??
           approvedBaseline?.estimatedTimeline ??
@@ -1654,10 +1677,14 @@ export class ProjectSpecsService {
           status: MilestoneStatus.PENDING,
           projectId: null,
           startDate: this.toPersistenceDate(
-            m.startDate ? this.normalizeDateOnlyInput(m.startDate, `Milestone ${index + 1} start date`) : null,
+            m.startDate
+              ? this.normalizeDateOnlyInput(m.startDate, `Milestone ${index + 1} start date`)
+              : null,
           ),
           dueDate: this.toPersistenceDate(
-            m.dueDate ? this.normalizeDateOnlyInput(m.dueDate, `Milestone ${index + 1} due date`) : null,
+            m.dueDate
+              ? this.normalizeDateOnlyInput(m.dueDate, `Milestone ${index + 1} due date`)
+              : null,
           ),
           sortOrder: m.sortOrder ?? index,
         }),
@@ -1758,7 +1785,11 @@ export class ProjectSpecsService {
       approvedDeadlineKey: approvedDeliveryDeadline,
     });
     this.validateMilestoneBudget(dto.milestones, dto.totalBudget);
-    this.validateFullSpecBudgetAgainstParent(dto.totalBudget, spec.request, spec.parentSpec ?? null);
+    this.validateFullSpecBudgetAgainstParent(
+      dto.totalBudget,
+      spec.request,
+      spec.parentSpec ?? null,
+    );
     this.validateFeatures(mappedFeatures);
     this.validateApprovedFeatureCoverage(mappedFeatures, dto.milestones, approvedClientFeatures);
 
@@ -1792,7 +1823,11 @@ export class ProjectSpecsService {
         managedSpec.richContentJson = (this.sanitizeStructuredJson(dto.richContentJson) ??
           null) as Record<string, unknown> | null;
       }
-      const approvedBaseline = this.resolveApprovedCommercialBaseline(spec.request, spec.parentSpec ?? null);
+      const approvedBaseline = this.resolveApprovedCommercialBaseline(
+        spec.request,
+
+        spec.parentSpec ?? null,
+      );
       managedSpec.estimatedTimeline =
         approvedBaseline?.agreedDeliveryDeadline ??
         approvedBaseline?.estimatedTimeline ??
@@ -1804,7 +1839,8 @@ export class ProjectSpecsService {
         this.resolveRequestScopeBaseline(spec.request).productTypeLabel ??
         managedSpec.projectCategory ??
         null;
-      managedSpec.changeSummary = this.sanitizePlainText(dto.changeSummary) || managedSpec.changeSummary || null;
+      managedSpec.changeSummary =
+        this.sanitizePlainText(dto.changeSummary) || managedSpec.changeSummary || null;
       // Preserve current status (DRAFT/REJECTED) until broker explicitly submits for final review.
 
       await queryRunner.manager.save(managedSpec);
@@ -1827,7 +1863,10 @@ export class ProjectSpecsService {
           status: MilestoneStatus.PENDING,
           startDate: this.toPersistenceDate(
             milestone.startDate
-              ? this.normalizeDateOnlyInput(milestone.startDate, `Milestone ${index + 1} start date`)
+              ? this.normalizeDateOnlyInput(
+                  milestone.startDate,
+                  `Milestone ${index + 1} start date`,
+                )
               : null,
           ),
           dueDate: this.toPersistenceDate(
@@ -1869,7 +1908,7 @@ export class ProjectSpecsService {
   }
 
   /**
-   * Submit full spec for 3-party final review: DRAFT → FINAL_REVIEW
+   * Submit full spec for 3-party final review: DRAFT 竊・FINAL_REVIEW
    */
   async submitForFinalReview(
     user: UserEntity,
@@ -1928,8 +1967,12 @@ export class ProjectSpecsService {
       deliverableType: milestone.deliverableType,
       retentionAmount: Number(milestone.retentionAmount || 0),
       acceptanceCriteria: milestone.acceptanceCriteria || [],
-      startDate: milestone.startDate ? new Date(milestone.startDate).toISOString().slice(0, 10) : undefined,
-      dueDate: milestone.dueDate ? new Date(milestone.dueDate).toISOString().slice(0, 10) : undefined,
+      startDate: milestone.startDate
+        ? new Date(milestone.startDate).toISOString().slice(0, 10)
+        : undefined,
+      dueDate: milestone.dueDate
+        ? new Date(milestone.dueDate).toISOString().slice(0, 10)
+        : undefined,
       sortOrder: milestone.sortOrder ?? undefined,
       approvedClientFeatureIds: milestone.approvedClientFeatureIds || undefined,
     }));
@@ -1937,9 +1980,17 @@ export class ProjectSpecsService {
       approvedDeadlineKey: approvedDeliveryDeadline,
     });
     this.validateMilestoneBudget(currentMilestones, Number(spec.totalBudget || 0));
-    this.validateFullSpecBudgetAgainstParent(Number(spec.totalBudget || 0), spec.request, spec.parentSpec ?? null);
+    this.validateFullSpecBudgetAgainstParent(
+      Number(spec.totalBudget || 0),
+      spec.request,
+      spec.parentSpec ?? null,
+    );
     this.validateFeatures(spec.features || []);
-    this.validateApprovedFeatureCoverage(spec.features || [], currentMilestones, approvedClientFeatures);
+    this.validateApprovedFeatureCoverage(
+      spec.features || [],
+      currentMilestones,
+      approvedClientFeatures,
+    );
 
     const nextSnapshot = this.buildSpecSubmissionSnapshot(spec);
     const nextDiff = this.buildSpecSubmissionDiff(spec.lastSubmittedSnapshot, nextSnapshot);
@@ -1980,14 +2031,18 @@ export class ProjectSpecsService {
       'Broker submitted the final spec for multi-party review.',
     );
 
-    this.emitSpecUpdated(spec, [spec.request.clientId, spec.request.brokerId, acceptedFreelancerId]);
+    this.emitSpecUpdated(spec, [
+      spec.request.clientId,
+      spec.request.brokerId,
+      acceptedFreelancerId,
+    ]);
 
     return spec;
   }
 
   /**
    * Sign the full spec (Client / Broker / Freelancer)
-   * When all 3 parties sign → status becomes ALL_SIGNED → ready for contract
+   * When all 3 parties sign 竊・status becomes ALL_SIGNED 竊・ready for contract
    * TODO: Track individual signatures; for now transitions directly
    */
   async signSpec(
@@ -1995,7 +2050,24 @@ export class ProjectSpecsService {
     specId: string,
     req: RequestContext,
   ): Promise<ProjectSpecEntity> {
-    const spec = await this.findOne(specId);
+    const normalizedInputSpecId = this.sanitizePlainText(specId);
+
+    if (!this.isUuid(normalizedInputSpecId)) {
+      throw new BadRequestException('Invalid full spec id for signing');
+    }
+
+    const spec = await this.findOne(normalizedInputSpecId);
+    const resolvedSpecId = this.sanitizePlainText(spec?.id);
+
+    if (!this.isUuid(resolvedSpecId)) {
+      throw new BadRequestException('Invalid full spec id for signing');
+    }
+
+    if (normalizedInputSpecId !== resolvedSpecId) {
+      this.logger.warn(
+        `signSpec received mismatched id input (input=${normalizedInputSpecId || 'EMPTY'}, resolved=${resolvedSpecId}).`,
+      );
+    }
 
     if (spec.specPhase !== SpecPhase.FULL_SPEC) {
       throw new BadRequestException('Only full specs can be signed');
@@ -2011,22 +2083,22 @@ export class ProjectSpecsService {
     }
 
     const existing = await this.projectSpecSignaturesRepository.findOne({
-      where: { specId, userId: user.id },
+      where: { specId: resolvedSpecId, userId: user.id },
     });
     if (existing) {
       const reconciled = await this.reconcileFullSpecSigningState(spec);
       if (reconciled.allRequiredSigned) {
         this.logger.warn(
-          `Recovered fully-signed spec ${specId} on duplicate sign attempt by ${user.id}; status is now ${spec.status}.`,
+          `Recovered fully-signed spec ${resolvedSpecId} on duplicate sign attempt by ${user.id}; status is now ${spec.status}.`,
         );
-        return this.findOne(specId);
+        return this.findOne(resolvedSpecId);
       }
       throw new BadRequestException('You have already signed this spec');
     }
 
     await this.projectSpecSignaturesRepository.save(
       this.projectSpecSignaturesRepository.create({
-        specId,
+        specId: resolvedSpecId,
         userId: user.id,
         signerRole: user.role,
       }),
@@ -2039,7 +2111,7 @@ export class ProjectSpecsService {
         actorId: user.id,
         action: 'SIGN_FULL_SPEC',
         entityType: 'ProjectSpec',
-        entityId: specId,
+        entityId: resolvedSpecId,
         newData: {
           signedBy: user.id,
           role: user.role,
@@ -2052,15 +2124,19 @@ export class ProjectSpecsService {
       });
     } catch (error) {
       this.logger.warn(
-        `Audit log failed after signing full spec ${specId} by ${user.id}: ${error instanceof Error ? error.message : String(error)}`,
+        `Audit log failed after signing full spec ${resolvedSpecId} by ${user.id}: ${error instanceof Error ? error.message : String(error)}`,
       );
     }
 
-    const pendingSignerIds = reconciled.requiredSignerIds.filter((signerId) => signerId !== user.id);
+    const pendingSignerIds = reconciled.requiredSignerIds.filter(
+      (signerId) => signerId !== user.id,
+    );
     await this.notificationsService.createMany(
       pendingSignerIds.map((signerId) => ({
         userId: signerId,
-        title: reconciled.allRequiredSigned ? 'Final Spec fully signed' : 'Final Spec signing updated',
+        title: reconciled.allRequiredSigned
+          ? 'Final Spec fully signed'
+          : 'Final Spec signing updated',
         body: reconciled.allRequiredSigned
           ? `All required parties signed "${spec.title}". Contract handoff can begin.`
           : `${user.role} signed "${spec.title}". ${reconciled.signatures.length}/${reconciled.requiredSignerIds.length} signatures are complete.`,
@@ -2078,7 +2154,7 @@ export class ProjectSpecsService {
 
     this.emitSpecUpdated(spec, reconciled.requiredSignerIds);
 
-    return this.findOne(specId);
+    return this.findOne(resolvedSpecId);
   }
 
   async requestFullSpecChanges(
@@ -2185,10 +2261,8 @@ export class ProjectSpecsService {
     }
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // LEGACY: createSpec → routes to createFullSpec for backward compat
-  // ═══════════════════════════════════════════════════════════════════════════
-
+  // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・  // LEGACY: createSpec 竊・routes to createFullSpec for backward compat
+  // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・
   async createSpec(
     user: UserEntity,
     createSpecDto: CreateProjectSpecDto,
@@ -2198,7 +2272,7 @@ export class ProjectSpecsService {
   }
 
   /**
-   * Staff audit flow (legacy): DRAFT → PENDING_APPROVAL
+   * Staff audit flow (legacy): DRAFT 竊・PENDING_APPROVAL
    */
   async submitForApproval(
     user: UserEntity,
@@ -2285,6 +2359,13 @@ export class ProjectSpecsService {
       return;
     }
 
+    const hasSignedThisSpec = (spec.signatures || []).some(
+      (signature) => signature.userId === user.id,
+    );
+    if (hasSignedThisSpec) {
+      return;
+    }
+
     const request = spec.request;
     if (!request) {
       throw new ForbiddenException('You are not authorized to view this spec');
@@ -2306,13 +2387,13 @@ export class ProjectSpecsService {
     throw new ForbiddenException('You are not authorized to view this spec');
   }
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // QUERY METHODS
-  // ═══════════════════════════════════════════════════════════════════════════
-
+  // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・  // QUERY METHODS
+  // 笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊絶武笊・
   async findOne(id: string): Promise<ProjectSpecEntity> {
+    const normalizedId = this.sanitizePlainText(id);
+
     const spec = await this.projectSpecsRepository.findOne({
-      where: { id },
+      where: { id: normalizedId },
       relations: [
         'milestones',
         'request',
@@ -2324,7 +2405,7 @@ export class ProjectSpecsService {
         'signatures',
       ],
     });
-    if (!spec) throw new NotFoundException(`Project Spec with ID ${id} not found`);
+    if (!spec) throw new NotFoundException(`Project Spec with ID ${normalizedId} not found`);
     return this.attachRequestContext(spec);
   }
 
@@ -2369,6 +2450,9 @@ export class ProjectSpecsService {
   }
 
   /**
+    
+   ,
+  
    * Get client spec for a request
    */
   async findClientSpec(requestId: string): Promise<ProjectSpecEntity | null> {
@@ -2379,7 +2463,10 @@ export class ProjectSpecsService {
     return this.attachRequestContext(spec);
   }
 
-  async findClientSpecForUser(user: UserEntity, requestId: string): Promise<ProjectSpecEntity | null> {
+  async findClientSpecForUser(
+    user: UserEntity,
+    requestId: string,
+  ): Promise<ProjectSpecEntity | null> {
     const spec = await this.findClientSpec(requestId);
     if (!spec) {
       return null;
@@ -2406,7 +2493,10 @@ export class ProjectSpecsService {
     return this.attachRequestContext(spec);
   }
 
-  async findFullSpecForUser(user: UserEntity, parentSpecId: string): Promise<ProjectSpecEntity | null> {
+  async findFullSpecForUser(
+    user: UserEntity,
+    parentSpecId: string,
+  ): Promise<ProjectSpecEntity | null> {
     const spec = await this.findFullSpec(parentSpecId);
     if (!spec) {
       return null;
@@ -2458,7 +2548,7 @@ export class ProjectSpecsService {
   }
 
   /**
-   * Legacy backward compat — single spec by request ID
+   * Legacy backward compat 窶・single spec by request ID
    */
   async findByRequestId(requestId: string): Promise<ProjectSpecEntity | null> {
     const specs = await this.projectSpecsRepository.find({

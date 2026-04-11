@@ -9,6 +9,7 @@ import {
   CalendarEventEntity,
   ContractEntity,
   DisputeEntity,
+  DisputePhase,
   DisputeStatus,
   DisputeHearingEntity,
   DisputeInternalMembershipEntity,
@@ -41,6 +42,7 @@ import { EvidenceService } from './evidence.service';
 import { HearingPresenceService } from './hearing-presence.service';
 import { HearingService } from './hearing.service';
 import { RescheduleHearingDto, ScheduleHearingDto } from '../dto/hearing.dto';
+import { recordEvidence } from '../../../../test/fe16-fe18/evidence-recorder';
 
 describe('HearingService', () => {
   let service: HearingService;
@@ -53,6 +55,7 @@ describe('HearingService', () => {
   let statementRepo: any;
   let calendarRepo: any;
   let eventParticipantRepo: any;
+  let evidenceService: { getEvidenceList: jest.Mock };
 
   const repoMock = () => ({
     find: jest.fn(),
@@ -67,6 +70,10 @@ describe('HearingService', () => {
   });
 
   beforeEach(async () => {
+    evidenceService = {
+      getEvidenceList: jest.fn(),
+    };
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         HearingService,
@@ -92,7 +99,7 @@ describe('HearingService', () => {
         { provide: EventEmitter2, useValue: { emit: jest.fn() } },
         { provide: EmailService, useValue: { sendMail: jest.fn() } },
         { provide: HearingPresenceService, useValue: {} },
-        { provide: EvidenceService, useValue: {} },
+        { provide: EvidenceService, useValue: evidenceService },
         { provide: CalendarService, useValue: { findAvailableSlots: jest.fn() } },
       ],
     }).compile();
@@ -270,6 +277,76 @@ describe('HearingService', () => {
     });
   });
 
+  describe('hearing workspace access', () => {
+    it('falls back to an empty evidence list for invited non-party participants', async () => {
+      const hearing = {
+        id: 'h-1',
+        disputeId: 'd-1',
+        moderatorId: 'staff-1',
+        isEvidenceIntakeOpen: false,
+        evidenceIntakeOpenedAt: null,
+        evidenceIntakeClosedAt: null,
+        evidenceIntakeOpenedBy: null,
+        evidenceIntakeReason: null,
+        dispute: {
+          id: 'd-1',
+          status: DisputeStatus.IN_PROGRESS,
+          phase: DisputePhase.PRESENTATION,
+        },
+      };
+
+      evidenceService.getEvidenceList.mockRejectedValue(
+        new ForbiddenException('You do not have access to this dispute'),
+      );
+
+      jest.spyOn(service as any, 'ensureHearingAccess').mockResolvedValue(hearing);
+      jest
+        .spyOn(service as any, 'loadConfirmationSummaryByHearingIds')
+        .mockResolvedValue(new Map());
+      jest.spyOn(service as any, 'buildHearingWorkspacePermissions').mockResolvedValue({
+        canSendMessage: false,
+        sendMessageBlockedReason: 'Chat room is not active',
+        canUploadEvidence: false,
+        canAttachEvidenceLink: false,
+        canManageEvidenceIntake: false,
+      });
+      jest.spyOn(service as any, 'getPresentationToCrossPhaseGateStatus').mockResolvedValue({
+        canTransition: true,
+      });
+      jest.spyOn(service as any, 'buildWorkspaceDossier').mockResolvedValue({
+        dispute: { id: 'd-1' },
+        project: { id: 'p-1' },
+        projectSpec: null,
+        milestone: null,
+        milestoneTimeline: [],
+        contracts: [],
+        issues: [],
+      });
+      jest.spyOn(service as any, 'getHearingStatements').mockResolvedValue([]);
+      jest.spyOn(service as any, 'getHearingQuestions').mockResolvedValue([]);
+      jest.spyOn(service as any, 'getHearingTimeline').mockResolvedValue([]);
+      jest.spyOn(service as any, 'getWorkspaceMessages').mockResolvedValue([]);
+      jest.spyOn(service as any, 'buildDocketForDispute').mockResolvedValue({ items: [] });
+      jest.spyOn(service as any, 'mapHearingSummary').mockReturnValue({
+        id: 'h-1',
+        disputeId: 'd-1',
+        status: HearingStatus.SCHEDULED,
+      });
+
+      const result = await service.getHearingWorkspace('h-1', {
+        id: 'broker-1',
+        role: UserRole.BROKER,
+      } as UserEntity);
+
+      expect(result.evidence).toEqual([]);
+      expect(evidenceService.getEvidenceList).toHaveBeenCalledWith(
+        'd-1',
+        'broker-1',
+        UserRole.BROKER,
+      );
+    });
+  });
+
   describe('early start readiness', () => {
     it('requires online + ACCEPTED RSVP for required participants', () => {
       const participants = [
@@ -302,6 +379,120 @@ describe('HearingService', () => {
 
       expect(pending).toBe(false);
       expect(declined).toBe(false);
+    });
+  });
+
+  describe('transitionHearingPhase deadline updates', () => {
+    it('updates draft statement deadlines with Date values instead of raw text SQL', async () => {
+      hearingRepo.findOne
+        .mockResolvedValueOnce({
+          id: 'hearing-1',
+          status: HearingStatus.IN_PROGRESS,
+          isChatRoomActive: true,
+          currentSpeakerRole: SpeakerRole.ALL,
+          disputeId: 'dispute-1',
+        })
+        .mockResolvedValueOnce({
+          id: 'hearing-1',
+          status: HearingStatus.IN_PROGRESS,
+          isChatRoomActive: true,
+          currentSpeakerRole: SpeakerRole.RAISER_ONLY,
+          disputeId: 'dispute-1',
+        });
+      disputeRepo.findOne.mockResolvedValue({
+        id: 'dispute-1',
+        phase: DisputePhase.PRESENTATION,
+      });
+      hearingRepo.update.mockResolvedValue({ affected: 1 });
+      disputeRepo.update.mockResolvedValue({ affected: 1 });
+      statementRepo.update.mockResolvedValue({ affected: 1 });
+
+      jest.spyOn(service as any, 'canControlSpeaker').mockResolvedValue({
+        canControl: true,
+      });
+
+      await service.transitionHearingPhase(
+        'hearing-1',
+        DisputePhase.CROSS_EXAMINATION,
+        'staff-1',
+      );
+
+      expect(statementRepo.update).toHaveBeenCalledTimes(3);
+      expect(statementRepo.update).toHaveBeenCalledWith(
+        {
+          hearingId: 'hearing-1',
+          type: HearingStatementType.REBUTTAL,
+          status: HearingStatementStatus.DRAFT,
+        },
+        expect.objectContaining({
+          deadline: expect.any(Date),
+        }),
+      );
+      expect(statementRepo.update).toHaveBeenCalledWith(
+        {
+          hearingId: 'hearing-1',
+          type: HearingStatementType.OBJECTION,
+          status: HearingStatementStatus.DRAFT,
+        },
+        expect.objectContaining({
+          deadline: expect.any(Date),
+        }),
+      );
+      expect(statementRepo.update).toHaveBeenCalledWith(
+        {
+          hearingId: 'hearing-1',
+          type: HearingStatementType.SURREBUTTAL,
+          status: HearingStatementStatus.DRAFT,
+        },
+        expect.objectContaining({
+          deadline: expect.any(Date),
+        }),
+      );
+    });
+  });
+
+  describe('endHearing after verdict lifecycle', () => {
+    it('skips actionable gate and force-ends pending questions when dispute is already resolved', async () => {
+      const resolvedHearing = {
+        id: 'hearing-resolved-1',
+        moderatorId: 'staff-1',
+        status: HearingStatus.IN_PROGRESS,
+        dispute: {
+          status: DisputeStatus.RESOLVED,
+        },
+        participants: [],
+      } as any;
+
+      hearingRepo.findOne.mockResolvedValueOnce(resolvedHearing);
+      userRepo.findOne.mockResolvedValueOnce({
+        id: 'staff-1',
+        role: UserRole.STAFF,
+      });
+
+      const finalizeSpy = jest
+        .spyOn(service as any, 'finalizeHearingEnd')
+        .mockResolvedValue({
+          hearing: resolvedHearing,
+          cancelledQuestions: [],
+          absentParticipants: [],
+        });
+
+      await service.endHearing(
+        {
+          hearingId: 'hearing-resolved-1',
+          summary: 'Closed after verdict announcement',
+          findings: 'Verdict was already issued for this dispute.',
+        } as any,
+        'staff-1',
+      );
+
+      expect(finalizeSpy).toHaveBeenCalledWith(
+        resolvedHearing,
+        expect.objectContaining({
+          forceEnd: true,
+          skipActionableCheck: true,
+        }),
+      );
     });
   });
 
@@ -525,6 +716,12 @@ describe('HearingService', () => {
 
       expect(result.map((item) => item.id)).toEqual(['h-active']);
       expect(result[0]).toEqual(expect.objectContaining({ lifecycle: 'ACTIVE' }));
+      recordEvidence({
+        id: 'FE17-HEA-01',
+        evidenceRef: 'hearing.service.spec.ts::active lifecycle filter',
+        actualResults:
+          'getHearingsForDispute(..., lifecycle=active) returned only h-active with lifecycle=ACTIVE and filtered out both the completed hearing and the tier-1 hearing frozen by appeal flow.',
+      });
     });
   });
 
@@ -533,7 +730,7 @@ describe('HearingService', () => {
       const dto = plainToInstance(ScheduleHearingDto, {
         disputeId: '7f4fb56b-f167-4b40-a4ee-2842f0d6a6d1',
         scheduledAt: '2026-03-20T10:00:00.000Z',
-        externalMeetingLink: 'https://meet.google.com/demo-hearing',
+        externalMeetingLink: 'not a valid meeting link',
       });
 
       const errors = await validate(dto);
@@ -639,6 +836,12 @@ describe('HearingService', () => {
           skipActionableCheck: true,
         }),
       );
+      recordEvidence({
+        id: 'FE17-HEA-02',
+        evidenceRef: 'hearing.service.spec.ts::autoCloseOverdueHearings',
+        actualResults:
+          'autoCloseOverdueHearings checked one overdue session, closed exactly h-overdue via finalizeHearingEnd, and left h-not-due untouched with failed=0.',
+      });
     });
   });
 

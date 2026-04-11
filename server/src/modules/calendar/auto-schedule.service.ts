@@ -99,12 +99,16 @@ export class AutoScheduleService {
 
   private async loadDisputeHearingRoleMap(
     event: Pick<CalendarEventEntity, 'referenceType' | 'referenceId'>,
+    manager?: EntityManager,
   ): Promise<Map<string, HearingParticipantRole>> {
     if (event.referenceType !== 'DisputeHearing' || !event.referenceId) {
       return new Map();
     }
 
-    const participants = await this.hearingParticipantRepository.find({
+    const hearingParticipantRepo =
+      manager?.getRepository(HearingParticipantEntity) ?? this.hearingParticipantRepository;
+
+    const participants = await hearingParticipantRepo.find({
       where: { hearingId: event.referenceId },
       select: ['userId', 'role'],
     });
@@ -120,9 +124,23 @@ export class AutoScheduleService {
   ) {
     let hasModeratorAccepted = false;
     let primaryPartyAcceptedCount = 0;
+    let requiredParticipants = 0;
+    let requiredAccepted = 0;
 
     for (const participant of participants) {
       const hearingRole = hearingRoleByUserId.get(participant.userId);
+      const isRequiredParticipant =
+        participant.role === ParticipantRole.MODERATOR ||
+        participant.role === ParticipantRole.REQUIRED;
+
+      if (isRequiredParticipant) {
+        requiredParticipants += 1;
+      }
+
+      if (isRequiredParticipant && participant.status === ParticipantStatus.ACCEPTED) {
+        requiredAccepted += 1;
+      }
+
       if (
         participant.role === ParticipantRole.MODERATOR &&
         participant.status === ParticipantStatus.ACCEPTED
@@ -139,10 +157,14 @@ export class AutoScheduleService {
       }
     }
 
+    const allRequiredAccepted =
+      requiredParticipants > 0 && requiredAccepted === requiredParticipants;
+
     return {
       hasModeratorAccepted,
       primaryPartyAcceptedCount,
-      confirmationSatisfied: hasModeratorAccepted && primaryPartyAcceptedCount > 0,
+      allRequiredAccepted,
+      confirmationSatisfied: allRequiredAccepted,
     };
   }
 
@@ -724,122 +746,183 @@ export class AutoScheduleService {
     event: CalendarEventEntity;
     participant: EventParticipantEntity;
     manualRequired: boolean;
+    rescheduleTriggered: boolean;
     reason?: string;
   }> {
-    const participant = await this.participantRepository.findOne({
-      where: { id: participantId },
-    });
-    if (!participant) {
-      throw new BadRequestException('Participant not found');
-    }
+    const invitationResult = await this.dataSource.transaction(async (manager) => {
+      const participantRepo = manager.getRepository(EventParticipantEntity);
+      const calendarRepo = manager.getRepository(CalendarEventEntity);
+      const rescheduleRepo = manager.getRepository(EventRescheduleRequestEntity);
 
-    const event = await this.calendarRepository.findOne({ where: { id: participant.eventId } });
-    if (!event) {
-      throw new BadRequestException('Calendar event not found');
-    }
+      const participant = await participantRepo
+        .createQueryBuilder('participant')
+        .setLock('pessimistic_write')
+        .where('participant.id = :id', { id: participantId })
+        .getOne();
+      if (!participant) {
+        throw new BadRequestException('Participant not found');
+      }
 
-    if ([EventStatus.CANCELLED, EventStatus.COMPLETED].includes(event.status)) {
-      throw new BadRequestException(`Event is ${event.status}, cannot respond`);
-    }
+      const event = await calendarRepo
+        .createQueryBuilder('event')
+        .setLock('pessimistic_write')
+        .where('event.id = :id', { id: participant.eventId })
+        .getOne();
+      if (!event) {
+        throw new BadRequestException('Calendar event not found');
+      }
 
-    participant.status =
-      response === 'accept'
-        ? ParticipantStatus.ACCEPTED
-        : response === 'decline'
-          ? ParticipantStatus.DECLINED
-          : ParticipantStatus.TENTATIVE;
-    participant.respondedAt = new Date();
-    participant.responseNote = responseNote;
-    await this.participantRepository.save(participant);
+      if ([EventStatus.CANCELLED, EventStatus.COMPLETED].includes(event.status)) {
+        throw new BadRequestException(`Event is ${event.status}, cannot respond`);
+      }
 
-    const hearingRoleByUserId = await this.loadDisputeHearingRoleMap(event);
-    const participantCaseRole = hearingRoleByUserId.get(participant.userId);
-    const isPrimarySideParticipant =
-      participantCaseRole === HearingParticipantRole.RAISER ||
-      participantCaseRole === HearingParticipantRole.DEFENDANT;
-    const shouldTriggerAutoRescheduleOnDecline =
-      response === 'decline' &&
-      (participant.role === ParticipantRole.MODERATOR || isPrimarySideParticipant);
+      participant.status =
+        response === 'accept'
+          ? ParticipantStatus.ACCEPTED
+          : response === 'decline'
+            ? ParticipantStatus.DECLINED
+            : ParticipantStatus.TENTATIVE;
+      participant.respondedAt = new Date();
+      participant.responseNote = responseNote;
+      const savedParticipant = await participantRepo.save(participant);
 
-    if (shouldTriggerAutoRescheduleOnDecline) {
-      const rule = await this.resolveRule(event.type);
-      const rescheduleLimit = Math.min(
-        AUTO_RESCHEDULE_LIMIT,
-        rule?.maxRescheduleCount ?? AUTO_RESCHEDULE_LIMIT,
-      );
+      const hearingRoleByUserId = await this.loadDisputeHearingRoleMap(event, manager);
+      const participantCaseRole = hearingRoleByUserId.get(savedParticipant.userId);
+      const isPrimarySideParticipant =
+        participantCaseRole === HearingParticipantRole.RAISER ||
+        participantCaseRole === HearingParticipantRole.DEFENDANT;
+      const shouldTriggerAutoRescheduleOnDecline =
+        response === 'decline' &&
+        (savedParticipant.role === ParticipantRole.MODERATOR || isPrimarySideParticipant);
 
-      if (event.rescheduleCount >= rescheduleLimit) {
-        await this.calendarRepository.update(event.id, {
-          status: EventStatus.RESCHEDULING,
-          metadata: {
+      if (shouldTriggerAutoRescheduleOnDecline) {
+        const rule = await this.resolveRule(event.type);
+        const rescheduleLimit = Math.min(
+          AUTO_RESCHEDULE_LIMIT,
+          rule?.maxRescheduleCount ?? AUTO_RESCHEDULE_LIMIT,
+        );
+
+        if (event.rescheduleCount >= rescheduleLimit) {
+          const metadata = {
             ...(event.metadata || {}),
             manualNegotiationRequired: true,
             rejectionLoop: true,
+          };
+
+          await calendarRepo.update(event.id, {
+            status: EventStatus.RESCHEDULING,
+            metadata,
+          });
+
+          event.status = EventStatus.RESCHEDULING;
+          event.metadata = metadata;
+
+          return {
+            event,
+            participant: savedParticipant,
+            manualRequired: true,
+            rescheduleTriggered: true,
+            reason: 'Auto reschedule limit reached',
+          };
+        }
+
+        const existingPendingRequest = await rescheduleRepo.findOne({
+          where: {
+            eventId: event.id,
+            useAutoSchedule: true,
+            status: RescheduleRequestStatus.PENDING,
           },
         });
+
+        await calendarRepo.update(event.id, {
+          status: EventStatus.RESCHEDULING,
+        });
+        event.status = EventStatus.RESCHEDULING;
+
+        if (existingPendingRequest) {
+          return {
+            event,
+            participant: savedParticipant,
+            manualRequired: false,
+            rescheduleTriggered: true,
+            reason: 'Auto reschedule is already in progress',
+          };
+        }
+
+        const rescheduleRequest = rescheduleRepo.create({
+          eventId: event.id,
+          requesterId: savedParticipant.userId,
+          reason: responseNote || 'Auto reschedule triggered by decline',
+          useAutoSchedule: true,
+          status: RescheduleRequestStatus.PENDING,
+        });
+        const savedRequest = await rescheduleRepo.save(rescheduleRequest);
+
         return {
           event,
-          participant,
-          manualRequired: true,
-          reason: 'Auto reschedule limit reached',
+          participant: savedParticipant,
+          manualRequired: false,
+          rescheduleTriggered: true,
+          rescheduleRequestId: savedRequest.id,
+          shouldProcessReschedule: true,
         };
       }
 
-      await this.calendarRepository.update(event.id, {
-        status: EventStatus.RESCHEDULING,
-        rescheduleCount: event.rescheduleCount + 1,
-        lastRescheduledAt: new Date(),
+      const requiredParticipants = await participantRepo.find({
+        where: {
+          eventId: event.id,
+        },
       });
 
-      const rescheduleRequest = this.rescheduleRepository.create({
-        eventId: event.id,
-        requesterId: participant.userId,
-        reason: responseNote || 'Auto reschedule triggered by decline',
-        useAutoSchedule: true,
-        status: RescheduleRequestStatus.PENDING,
-      });
-      const savedRequest = await this.rescheduleRepository.save(rescheduleRequest);
+      const isDisputeHearingEvent =
+        event.referenceType === 'DisputeHearing' || event.type === EventType.DISPUTE_HEARING;
+      const allRequiredAccepted = requiredParticipants
+        .filter(
+          (requiredParticipant) =>
+            requiredParticipant.role === ParticipantRole.REQUIRED ||
+            requiredParticipant.role === ParticipantRole.MODERATOR,
+        )
+        .every((requiredParticipant) => requiredParticipant.status === ParticipantStatus.ACCEPTED);
+      const confirmation = isDisputeHearingEvent
+        ? this.evaluateDisputeHearingConfirmation(requiredParticipants, hearingRoleByUserId)
+        : { confirmationSatisfied: allRequiredAccepted };
 
-      const rescheduleResult = await this.handleRescheduleRequest(
-        savedRequest.id,
-        event.organizerId,
-      );
+      if (confirmation.confirmationSatisfied) {
+        await calendarRepo.update(event.id, {
+          status: EventStatus.SCHEDULED,
+        });
+        event.status = EventStatus.SCHEDULED;
+      }
+
       return {
         event,
-        participant,
+        participant: savedParticipant,
+        manualRequired: false,
+        rescheduleTriggered: false,
+      };
+    });
+
+    if (invitationResult.rescheduleRequestId && invitationResult.shouldProcessReschedule) {
+      const rescheduleResult = await this.handleRescheduleRequest(
+        invitationResult.rescheduleRequestId,
+        invitationResult.event.organizerId,
+      );
+
+      return {
+        event: invitationResult.event,
+        participant: invitationResult.participant,
         manualRequired: rescheduleResult.manualRequired,
+        rescheduleTriggered: true,
         reason: rescheduleResult.reason,
       };
     }
 
-    const requiredParticipants = await this.participantRepository.find({
-      where: {
-        eventId: event.id,
-      },
-    });
-
-    const isDisputeHearingEvent =
-      event.referenceType === 'DisputeHearing' || event.type === EventType.DISPUTE_HEARING;
-    const allRequiredAccepted = requiredParticipants
-      .filter(
-        (participant) =>
-          participant.role === ParticipantRole.REQUIRED || participant.role === ParticipantRole.MODERATOR,
-      )
-      .every((participant) => participant.status === ParticipantStatus.ACCEPTED);
-    const confirmation = isDisputeHearingEvent
-      ? this.evaluateDisputeHearingConfirmation(requiredParticipants, hearingRoleByUserId)
-      : { confirmationSatisfied: allRequiredAccepted };
-
-    if (confirmation.confirmationSatisfied) {
-      await this.calendarRepository.update(event.id, {
-        status: EventStatus.SCHEDULED,
-      });
-    }
-
     return {
-      event,
-      participant,
-      manualRequired: false,
+      event: invitationResult.event,
+      participant: invitationResult.participant,
+      manualRequired: invitationResult.manualRequired,
+      rescheduleTriggered: invitationResult.rescheduleTriggered,
+      reason: invitationResult.reason,
     };
   }
 
@@ -969,6 +1052,9 @@ export class AutoScheduleService {
       .createQueryBuilder('participant')
       .innerJoinAndSelect('participant.event', 'event')
       .where('participant.userId IN (:...userIds)', { userIds: participantIds })
+      .andWhere('participant.status != :declinedStatus', {
+        declinedStatus: ParticipantStatus.DECLINED,
+      })
       .andWhere('event.startTime < :end AND event.endTime > :start', { start, end })
       .andWhere('event.status IN (:...statuses)', { statuses: ACTIVE_EVENT_STATUSES })
       .getMany();

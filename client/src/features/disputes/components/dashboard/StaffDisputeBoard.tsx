@@ -26,6 +26,7 @@ import {
   completeDisputePreview,
   escalateDispute,
   getDisputeComplexities,
+  getMyDisputes,
   getQueueDisputes,
   getCaseloadDisputes,
   invalidateDisputesCache,
@@ -52,10 +53,14 @@ import { getApiErrorDetails } from "@/shared/utils/apiError";
 
 interface StaffDisputeBoardProps {
   mode?: "queue" | "caseload";
+  titleOverride?: string;
+  detailHrefBuilder?: (disputeId: string) => string;
 }
 
 export const StaffDisputeBoard = ({
   mode = "queue",
+  titleOverride,
+  detailHrefBuilder,
 }: StaffDisputeBoardProps) => {
   const navigate = useNavigate();
   const currentUser = useMemo(() => {
@@ -77,6 +82,7 @@ export const StaffDisputeBoard = ({
     | "PENDING_REVIEW"
     | "APPEALS"
     | "RESOLVED"
+    | "RESOLVED_BY_ME"
     | "ALL";
   const [viewFilter, setViewFilter] = useState<ViewFilter>("ACTIVE");
   const [priorityFilter, setPriorityFilter] = useState<DisputePriority | "ALL">(
@@ -138,6 +144,13 @@ export const StaffDisputeBoard = ({
         return [DisputeStatus.APPEALED, DisputeStatus.REJECTION_APPEALED];
       case "RESOLVED":
         return [DisputeStatus.RESOLVED, DisputeStatus.REJECTED];
+      case "RESOLVED_BY_ME":
+        return [
+          DisputeStatus.RESOLVED,
+          DisputeStatus.REJECTED,
+          DisputeStatus.APPEALED,
+          DisputeStatus.REJECTION_APPEALED,
+        ];
       default:
         // Caseload "All" includes all statuses in assigned scope.
         return undefined;
@@ -177,12 +190,25 @@ export const StaffDisputeBoard = ({
         statuses: [DisputeStatus.RESOLVED, DisputeStatus.REJECTED],
       },
       {
+        value: "RESOLVED_BY_ME" as ViewFilter,
+        label: "Resolved by me",
+        statuses: [
+          DisputeStatus.RESOLVED,
+          DisputeStatus.REJECTED,
+          DisputeStatus.APPEALED,
+          DisputeStatus.REJECTION_APPEALED,
+        ],
+      },
+      {
         value: "ALL" as ViewFilter,
         label: "All",
         statuses: [],
       },
     ];
   }, [mode]);
+
+  const isResolvedHistoryView =
+    mode === "caseload" && viewFilter === "RESOLVED_BY_ME";
 
   /** Compute per-tab count from stats.byStatus */
   const getTabCount = useCallback(
@@ -202,12 +228,18 @@ export const StaffDisputeBoard = ({
 
   const activeFilterCount = useMemo(() => {
     let count = 0;
-    if (weekFilter !== "ANY") count++;
+    if (!isResolvedHistoryView && weekFilter !== "ANY") count++;
     if (categoryFilter !== "ALL") count++;
     if (priorityFilter !== "ALL") count++;
     if (complexityFilter !== "ALL") count++;
     return count;
-  }, [weekFilter, categoryFilter, priorityFilter, complexityFilter]);
+  }, [
+    weekFilter,
+    categoryFilter,
+    priorityFilter,
+    complexityFilter,
+    isResolvedHistoryView,
+  ]);
 
   const clearAdvancedFilters = useCallback(() => {
     setWeekFilter("ANY");
@@ -217,6 +249,10 @@ export const StaffDisputeBoard = ({
   }, []);
 
   const deadlineRange = useMemo(() => {
+    if (isResolvedHistoryView) {
+      return {};
+    }
+
     if (weekFilter === "OVERDUE") {
       return { overdueOnly: true };
     }
@@ -243,7 +279,7 @@ export const StaffDisputeBoard = ({
     }
 
     return {};
-  }, [weekFilter]);
+  }, [weekFilter, isResolvedHistoryView]);
 
   const queryFilters = useMemo(
     () => ({
@@ -258,7 +294,11 @@ export const StaffDisputeBoard = ({
       // Queue: don't filter by assignedStaffId  Eshow all unassigned disputes
       // Caseload: filter by current staff's assigned disputes
       assignedStaffId:
-        mode === "caseload" && isStaffUser ? currentUser?.id : undefined,
+        mode === "caseload" &&
+        isStaffUser &&
+        viewFilter !== "RESOLVED_BY_ME"
+          ? currentUser?.id
+          : undefined,
       ...deadlineRange,
     }),
     [
@@ -285,6 +325,12 @@ export const StaffDisputeBoard = ({
     setPage(1);
   }, [viewFilter, priorityFilter, categoryFilter, weekFilter, debouncedSearch]);
 
+  useEffect(() => {
+    if (isResolvedHistoryView && weekFilter !== "ANY") {
+      setWeekFilter("ANY");
+    }
+  }, [isResolvedHistoryView, weekFilter]);
+
   const fetchDisputes = useCallback(
     async (options?: { preferCache?: boolean }) => {
       try {
@@ -295,6 +341,21 @@ export const StaffDisputeBoard = ({
                 preferCache: options?.preferCache,
                 ttlMs: 30_000,
               })
+              : mode === "caseload" && viewFilter === "RESOLVED_BY_ME"
+                ? await getMyDisputes(
+                    {
+                      ...queryFilters,
+                      asInvolved: true,
+                      handledByStaffId: currentUser?.id,
+                      assignedStaffId: undefined,
+                      includeUnassignedForStaff: undefined,
+                      unassignedOnly: undefined,
+                    },
+                    {
+                      preferCache: options?.preferCache,
+                      ttlMs: 30_000,
+                    },
+                  )
             : await getCaseloadDisputes(queryFilters, {
                 preferCache: options?.preferCache,
                 ttlMs: 30_000,
@@ -313,7 +374,7 @@ export const StaffDisputeBoard = ({
         setLoading(false);
       }
     },
-    [mode, queryFilters],
+    [currentUser?.id, mode, queryFilters, viewFilter],
   );
 
   useEffect(() => {
@@ -326,8 +387,34 @@ export const StaffDisputeBoard = ({
 
   useStaffDashboardRealtime({
     onDisputeCreated: handleRealtimeRefresh,
+    onDisputeStatusChanged: handleRealtimeRefresh,
+    onDisputeAssigned: handleRealtimeRefresh,
+    onDisputeReassigned: handleRealtimeRefresh,
+    onDisputeInfoRequested: handleRealtimeRefresh,
+    onDisputeInfoProvided: handleRealtimeRefresh,
+    onDisputeDefendantResponded: handleRealtimeRefresh,
+    onDisputeResolved: handleRealtimeRefresh,
+    onDisputeClosed: handleRealtimeRefresh,
+    onHearingScheduled: handleRealtimeRefresh,
+    onHearingRescheduled: handleRealtimeRefresh,
+    onHearingStarted: handleRealtimeRefresh,
+    onHearingPaused: handleRealtimeRefresh,
+    onHearingResumed: handleRealtimeRefresh,
     onHearingEnded: handleRealtimeRefresh,
+    onHearingFollowUpScheduled: handleRealtimeRefresh,
+    onHearingInviteResponded: handleRealtimeRefresh,
+    onHearingSupportInvited: handleRealtimeRefresh,
+    onHearingReminderSent: handleRealtimeRefresh,
+    onHearingModeratorDisconnected: handleRealtimeRefresh,
+    onHearingModeratorReconnected: handleRealtimeRefresh,
     onVerdictIssued: handleRealtimeRefresh,
+    onAppealSubmitted: handleRealtimeRefresh,
+    onAppealResolved: handleRealtimeRefresh,
+    onCalendarEventCreated: handleRealtimeRefresh,
+    onCalendarEventUpdated: handleRealtimeRefresh,
+    onCalendarRescheduleRequested: handleRealtimeRefresh,
+    onCalendarRescheduleProcessed: handleRealtimeRefresh,
+    onCalendarInviteResponded: handleRealtimeRefresh,
   });
 
   useEffect(() => {
@@ -499,6 +586,17 @@ export const StaffDisputeBoard = ({
     setQuickViewDispute(dispute);
     setQuickViewOpen(true);
   }, []);
+  const openDisputeDetail = useCallback(
+    (dispute: DisputeSummary) => {
+      const href = detailHrefBuilder
+        ? detailHrefBuilder(dispute.id)
+        : `/staff/caseload?disputeId=${dispute.id}`;
+      navigate(href, {
+        state: { dispute },
+      });
+    },
+    [detailHrefBuilder, navigate],
+  );
 
   const currencyFormatter = useMemo(
     () =>
@@ -556,7 +654,12 @@ export const StaffDisputeBoard = ({
   const emptyState = !loading && visibleDisputes.length === 0;
 
   const boardTitle =
-    mode === "caseload" ? "My Caseload" : "Dispute Queue (Triage)";
+    titleOverride ??
+    (isResolvedHistoryView
+      ? "My Dispute Review History"
+      : mode === "caseload"
+        ? "My Caseload"
+        : "Dispute Queue (Triage)");
 
   const canModerate = true; // actions available in both queue and caseload modes
 
@@ -611,6 +714,89 @@ export const StaffDisputeBoard = ({
     };
   };
 
+  const formatDateLabel = (value?: string | null) => {
+    if (!value) return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleDateString();
+  };
+
+  const getStatusBadge = (dispute: DisputeSummary) => {
+    if (!isResolvedHistoryView) {
+      return {
+        cls: statusPill(dispute.status),
+        label: dispute.status.replaceAll("_", " "),
+      };
+    }
+
+    switch (dispute.status) {
+      case DisputeStatus.RESOLVED:
+        return {
+          cls: "bg-emerald-50 text-emerald-700 border-emerald-200",
+          label: "Handled - resolved",
+        };
+      case DisputeStatus.REJECTED:
+        return {
+          cls: "bg-rose-50 text-rose-700 border-rose-200",
+          label: "Handled - rejected",
+        };
+      case DisputeStatus.APPEALED:
+        return {
+          cls: "bg-amber-50 text-amber-700 border-amber-200",
+          label: "Appealed",
+        };
+      case DisputeStatus.REJECTION_APPEALED:
+        return {
+          cls: "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200",
+          label: "Rejection appealed",
+        };
+      default:
+        return {
+          cls: statusPill(dispute.status),
+          label: dispute.status.replaceAll("_", " "),
+        };
+    }
+  };
+
+  const formatTimelineBadge = (dispute: DisputeSummary) => {
+    if (!isResolvedHistoryView) {
+      return formatDeadline(dispute);
+    }
+
+    if (dispute.status === DisputeStatus.APPEALED) {
+      const appealedOn = formatDateLabel(dispute.appealedAt);
+      return {
+        label: appealedOn ? `Appealed ${appealedOn}` : "Appeal in progress",
+        cls: "bg-amber-50 text-amber-700 border-amber-200",
+        icon: AlertTriangle,
+      };
+    }
+
+    if (dispute.status === DisputeStatus.REJECTION_APPEALED) {
+      const appealedOn = formatDateLabel(dispute.rejectionAppealedAt);
+      return {
+        label: appealedOn
+          ? `Re-appealed ${appealedOn}`
+          : "Rejection appeal in progress",
+        cls: "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200",
+        icon: AlertTriangle,
+      };
+    }
+
+    const closedOn = formatDateLabel(dispute.resolvedAt ?? dispute.updatedAt);
+    return {
+      label: closedOn ? `Closed ${closedOn}` : "Closed case",
+      cls: "bg-emerald-50 text-emerald-700 border-emerald-200",
+      icon: CheckCircle,
+    };
+  };
+
+  const resolvedCount = stats?.byStatus?.[DisputeStatus.RESOLVED] ?? 0;
+  const rejectedCount = stats?.byStatus?.[DisputeStatus.REJECTED] ?? 0;
+  const appealedCount =
+    (stats?.byStatus?.[DisputeStatus.APPEALED] ?? 0) +
+    (stats?.byStatus?.[DisputeStatus.REJECTION_APPEALED] ?? 0);
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-full">
       {/* Toolbar */}
@@ -624,17 +810,42 @@ export const StaffDisputeBoard = ({
             <span className="px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
               {totalLabel}
             </span>
-            {(stats?.urgent ?? 0) > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded-full text-xs font-medium whitespace-nowrap">
-                <AlertTriangle className="w-3 h-3" />
-                {stats!.urgent} urgent
-              </span>
-            )}
-            {(stats?.overdue ?? 0) > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-xs font-medium whitespace-nowrap">
-                <Clock className="w-3 h-3" />
-                {stats!.overdue} overdue
-              </span>
+            {isResolvedHistoryView ? (
+              <>
+                {resolvedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-100 rounded-full text-xs font-medium whitespace-nowrap">
+                    <CheckCircle className="w-3 h-3" />
+                    {resolvedCount} resolved
+                  </span>
+                )}
+                {rejectedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-rose-50 text-rose-700 border border-rose-100 rounded-full text-xs font-medium whitespace-nowrap">
+                    <Ban className="w-3 h-3" />
+                    {rejectedCount} rejected
+                  </span>
+                )}
+                {appealedCount > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-700 border border-amber-100 rounded-full text-xs font-medium whitespace-nowrap">
+                    <AlertTriangle className="w-3 h-3" />
+                    {appealedCount} appealed
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                {(stats?.urgent ?? 0) > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-red-50 text-red-600 border border-red-100 rounded-full text-xs font-medium whitespace-nowrap">
+                    <AlertTriangle className="w-3 h-3" />
+                    {stats!.urgent} urgent
+                  </span>
+                )}
+                {(stats?.overdue ?? 0) > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-50 text-amber-600 border border-amber-100 rounded-full text-xs font-medium whitespace-nowrap">
+                    <Clock className="w-3 h-3" />
+                    {stats!.overdue} overdue
+                  </span>
+                )}
+              </>
             )}
           </div>
           <div className="relative shrink-0">
@@ -704,24 +915,26 @@ export const StaffDisputeBoard = ({
         {/* Row 3: Advanced filters (collapsible) */}
         {showAdvancedFilters && (
           <div className="px-4 pb-3 pt-2 border-t border-gray-100 flex flex-wrap items-center gap-3">
-            <select
-              value={weekFilter}
-              onChange={(event) =>
-                setWeekFilter(
-                  event.target.value as
-                    | "ANY"
-                    | "THIS_WEEK"
-                    | "NEXT_WEEK"
-                    | "OVERDUE",
-                )
-              }
-              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-600 bg-white"
-            >
-              <option value="ANY">Any deadline</option>
-              <option value="THIS_WEEK">This week</option>
-              <option value="NEXT_WEEK">Next week</option>
-              <option value="OVERDUE">Overdue</option>
-            </select>
+            {!isResolvedHistoryView && (
+              <select
+                value={weekFilter}
+                onChange={(event) =>
+                  setWeekFilter(
+                    event.target.value as
+                      | "ANY"
+                      | "THIS_WEEK"
+                      | "NEXT_WEEK"
+                      | "OVERDUE",
+                  )
+                }
+                className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm text-gray-600 bg-white"
+              >
+                <option value="ANY">Any deadline</option>
+                <option value="THIS_WEEK">This week</option>
+                <option value="NEXT_WEEK">Next week</option>
+                <option value="OVERDUE">Overdue</option>
+              </select>
+            )}
             <select
               value={categoryFilter}
               onChange={(event) =>
@@ -791,7 +1004,9 @@ export const StaffDisputeBoard = ({
               <th className="px-4 py-3">Dispute ID / Project</th>
               <th className="px-4 py-3">Raiser</th>
               <th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3">Deadline</th>
+              <th className="px-4 py-3">
+                {isResolvedHistoryView ? "History" : "Deadline"}
+              </th>
               <th className="px-4 py-3">Complexity (Est.)</th>
               <th className="px-4 py-3 text-right">Actions</th>
             </tr>
@@ -829,7 +1044,8 @@ export const StaffDisputeBoard = ({
                 dispute.createdAt &&
                 nowMs - new Date(dispute.createdAt).getTime() <
                   NEW_THRESHOLD_MS;
-              const deadline = formatDeadline(dispute);
+              const timelineBadge = formatTimelineBadge(dispute);
+              const statusBadge = getStatusBadge(dispute);
 
               return (
                 <tr
@@ -859,14 +1075,12 @@ export const StaffDisputeBoard = ({
                     <div className="text-xs text-gray-500 truncate max-w-[200px] ml-3.5">
                       {projectTitle}
                     </div>
-                     <span
-                       className={`inline-flex mt-1 ml-3.5 px-2 py-0.5 rounded text-xs font-medium border ${statusPill(
-                         dispute.status,
-                       )}`}
-                     >
-                       {dispute.status.replace("_", " ")}
-                     </span>
-                     {dispute.isAppealed ? (
+                    <span
+                      className={`inline-flex mt-1 ml-3.5 px-2 py-0.5 rounded text-xs font-medium border ${statusBadge.cls}`}
+                    >
+                      {statusBadge.label}
+                    </span>
+                    {dispute.isAppealed && !isResolvedHistoryView ? (
                        <div className="ml-3.5 mt-1 text-[11px] text-amber-700">
                          Appeal filed
                          {dispute.appealedAt
@@ -894,15 +1108,15 @@ export const StaffDisputeBoard = ({
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    {deadline ? (
+                    {timelineBadge ? (
                       <span
                         className={cn(
                           "inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border",
-                          deadline.cls,
+                          timelineBadge.cls,
                         )}
                       >
-                        <deadline.icon className="w-3 h-3" />
-                        {deadline.label}
+                        <timelineBadge.icon className="w-3 h-3" />
+                        {timelineBadge.label}
                       </span>
                     ) : (
                       <span className="text-xs text-gray-400">--</span>
@@ -936,9 +1150,7 @@ export const StaffDisputeBoard = ({
                             openQuickView(dispute);
                             return;
                           }
-                          navigate(`/staff/caseload?disputeId=${dispute.id}`, {
-                            state: { dispute },
-                          });
+                          openDisputeDetail(dispute);
                         }}
                       >
                         <Eye className="w-4 h-4" />

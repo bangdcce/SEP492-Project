@@ -7,6 +7,52 @@ export type AuditEventCategory =
   | "ERROR"
   | "AUTH"
   | "EXPORT";
+export type AuditOutcome = "SUCCESS" | "FAILURE";
+export type AuditIncidentSeverity = "HIGH" | "CRITICAL" | "SEVERE";
+export type AuditIncidentCategory =
+  | "HTTP_5XX"
+  | "SCHEDULER"
+  | "INTEGRATION"
+  | "WEBSOCKET"
+  | "STORAGE"
+  | "PAYMENT"
+  | "EMAIL";
+
+export interface AuditTargetContext {
+  type: string;
+  id: string;
+  label?: string;
+}
+
+export interface AuditIncidentContext {
+  scope: "SYSTEM";
+  severity: AuditIncidentSeverity;
+  category: AuditIncidentCategory;
+  component: string;
+  operation: string;
+  fingerprint: string;
+}
+
+export interface AuditEntryMetadata {
+  actorType?: string;
+  module?: string;
+  operation?: string;
+  outcome?: AuditOutcome;
+  summary?: string;
+  target?: AuditTargetContext;
+  context?: Record<string, unknown>;
+  incident?: AuditIncidentContext;
+  securityAnalysis?: {
+    flags: string[];
+    riskLevel: RiskLevel;
+    baseRiskLevel: RiskLevel;
+    timestamp: string;
+  };
+  userAgent?: string;
+  entityType?: string;
+  entityId?: string;
+  [key: string]: unknown;
+}
 
 export interface AuditLogEntry {
   id: string;
@@ -42,7 +88,7 @@ export interface AuditLogEntry {
   }>;
   beforeData?: Record<string, any> | null;
   afterData?: Record<string, any> | null;
-  metadata?: Record<string, any>;
+  metadata?: AuditEntryMetadata;
 }
 
 export interface AuditLogSummary {
@@ -72,6 +118,10 @@ export interface AuditLogFilters {
   source?: AuditSource | "ALL";
   eventCategory?: AuditEventCategory | "ALL";
   errorOnly?: boolean;
+  incidentOnly?: boolean;
+  component?: string;
+  fingerprint?: string;
+  openLogId?: string;
 }
 
 export interface AuditLogTimelineResponse {

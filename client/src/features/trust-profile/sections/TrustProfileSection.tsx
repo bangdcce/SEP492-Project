@@ -1,56 +1,54 @@
-/**
- * TrustProfileSection Component
- * Complete, reusable trust profile display with reviews
- *
- * Features:
- * - Grid layout: Trust Score Card (4 cols) + Reviews (8 cols)
- * - Sticky trust card on scroll
- * - Built-in "See all reviews" functionality
- * - Automatic stats calculation
- * - Full-page reviews view
- * - Current user's review prioritized at top
- * - Edit functionality for own reviews
- *
- * Usage:
- * <TrustProfileSection
- *   user={userData}
- *   reviews={reviewsData}
- *   currentUserId="logged-in-user-id"
- * />
- */
-
-import { useState, useMemo } from "react";
-import type { Review, User } from "../types";
-import { TrustScoreCard } from "../components/review/TrustScoreCard";
+import { useEffect, useMemo, useState } from "react";
+import type {
+  ProjectHistoryItem,
+  Review,
+  TrustProfileReviewCandidateProject,
+  TrustProfileReviewEligibility,
+  User,
+} from "../types";
+import { CreateReviewModal } from "../modals/CreateReviewModal";
 import { ReviewItem } from "../components/review/ReviewItem";
-import { StarRating } from "../components/ui/StarRating";
 import { ReviewsFullPage } from "../components/review/ReviewsFullPage";
+import { TrustScoreCard } from "../components/review/TrustScoreCard";
+import { StarRating } from "../components/ui/StarRating";
 
 interface TrustProfileSectionProps {
   user: User;
   reviews: Review[];
+  projectHistory: ProjectHistoryItem[];
   isLoading?: boolean;
-  /** Number of reviews to show initially (default: 3) */
   previewCount?: number;
-  /** Custom className for the container */
   className?: string;
-  /** Current logged-in user ID - used to prioritize own review and enable edit */
   currentUserId?: string;
-  /** Callback when review is updated (for refreshing data) */
+  reviewEligibility?: TrustProfileReviewEligibility;
   onReviewUpdated?: () => void;
 }
 
 export function TrustProfileSection({
   user,
   reviews,
+  projectHistory,
   previewCount = 3,
   className = "",
   currentUserId,
+  reviewEligibility,
   onReviewUpdated,
 }: TrustProfileSectionProps) {
   const [isFullPageOpen, setIsFullPageOpen] = useState(false);
+  const [isCreateReviewOpen, setIsCreateReviewOpen] = useState(false);
+  const [hasAutoPromptedReview, setHasAutoPromptedReview] = useState(false);
+  const [selectedPendingProjectId, setSelectedPendingProjectId] = useState<
+    string | null
+  >(null);
 
-  // Calculate stats from reviews
+  const formatCompletedDate = (value: string) => {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      return "Unknown date";
+    }
+    return parsed.toLocaleDateString();
+  };
+
   const stats = useMemo(() => {
     const totalReviews = reviews.length;
 
@@ -73,13 +71,13 @@ export function TrustProfileSection({
 
     const ratingDistribution = reviews.reduce(
       (acc, review) => {
-        const rating = review.rating as 1 | 2 | 3 | 4 | 5;
-        if (rating >= 1 && rating <= 5) {
-          acc[rating]++;
+        const value = review.rating as 1 | 2 | 3 | 4 | 5;
+        if (value >= 1 && value <= 5) {
+          acc[value] += 1;
         }
         return acc;
       },
-      { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } as Record<1 | 2 | 3 | 4 | 5, number>
+      { 5: 0, 4: 0, 3: 0, 2: 0, 1: 0 } as Record<1 | 2 | 3 | 4 | 5, number>,
     );
 
     return {
@@ -89,68 +87,284 @@ export function TrustProfileSection({
     };
   }, [reviews]);
 
-  // Find current user's review (if exists)
-  const currentUserReview = useMemo(() => {
-    if (!currentUserId) return null;
-    return reviews.find((r) => r.reviewer.id === currentUserId) || null;
-  }, [reviews, currentUserId]);
+  const currentUserReviews = useMemo(() => {
+    if (!currentUserId) {
+      return [];
+    }
+    return reviews.filter((review) => review.reviewer.id === currentUserId);
+  }, [currentUserId, reviews]);
 
-  // Sort reviews: current user's review first, then by date (newest first)
   const sortedReviews = useMemo(() => {
     return [...reviews].sort((a, b) => {
-      // Current user's review always first
       if (currentUserId) {
         if (a.reviewer.id === currentUserId) return -1;
         if (b.reviewer.id === currentUserId) return 1;
       }
-      // Then sort by date (newest first)
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
   }, [reviews, currentUserId]);
+
+  const sharedReviewableProjects = useMemo(() => {
+    const isReviewableStatus = (status?: string | null) => {
+      const normalized = String(status || "").toUpperCase();
+      return normalized === "COMPLETED" || normalized === "PAID";
+    };
+
+    const includesUser = (
+      project: ProjectHistoryItem,
+      participantId?: string | null,
+    ) => {
+      if (!participantId) {
+        return false;
+      }
+
+      return (
+        project.client?.id === participantId ||
+        project.broker?.id === participantId ||
+        project.freelancer?.id === participantId
+      );
+    };
+
+    return [...projectHistory]
+      .filter((project) => isReviewableStatus(project.status))
+      .filter((project) => includesUser(project, user.id))
+      .filter((project) => includesUser(project, currentUserId))
+      .sort(
+        (a, b) =>
+          new Date(b.completedAt || 0).getTime() -
+          new Date(a.completedAt || 0).getTime(),
+      );
+  }, [projectHistory, currentUserId, user.id]);
+
+  const computedPendingReviewProjects = useMemo(() => {
+    return sharedReviewableProjects.filter(
+      (project) =>
+        !currentUserReviews.some(
+          (review) => review.project.id === project.projectId,
+        ),
+    );
+  }, [currentUserReviews, sharedReviewableProjects]);
+
+  const pendingReviewProjects = useMemo<TrustProfileReviewCandidateProject[]>(() => {
+    if (reviewEligibility?.pendingProjects?.length) {
+      return [...reviewEligibility.pendingProjects].sort(
+        (a, b) =>
+          new Date(b.completedAt || 0).getTime() -
+          new Date(a.completedAt || 0).getTime(),
+      );
+    }
+
+    return [...computedPendingReviewProjects]
+      .map((project) => ({
+        projectId: project.projectId,
+        title: project.title,
+        status: project.status,
+        completedAt: project.completedAt,
+        targetRoleInProject: project.targetRoleInProject,
+        viewerRoleInProject: project.viewerRoleInProject ?? null,
+      }))
+      .sort(
+        (a, b) =>
+          new Date(b.completedAt || 0).getTime() -
+          new Date(a.completedAt || 0).getTime(),
+      );
+  }, [reviewEligibility?.pendingProjects, computedPendingReviewProjects]);
+
+  const selectedPendingReviewProject = useMemo(() => {
+    if (pendingReviewProjects.length === 0) {
+      return null;
+    }
+
+    return (
+      pendingReviewProjects.find(
+        (project) => project.projectId === selectedPendingProjectId,
+      ) || pendingReviewProjects[0]
+    );
+  }, [pendingReviewProjects, selectedPendingProjectId]);
+
+  const pendingReviewCount =
+    reviewEligibility?.pendingReviewCount ??
+    pendingReviewProjects.length;
+
+  const canCreateReview =
+    reviewEligibility?.canCreateReview ??
+    Boolean(
+      currentUserId &&
+      currentUserId !== user.id &&
+      pendingReviewProjects.length > 0,
+    );
+
+  useEffect(() => {
+    setHasAutoPromptedReview(false);
+    setSelectedPendingProjectId(null);
+  }, [user.id]);
+
+  useEffect(() => {
+    if (pendingReviewProjects.length === 0) {
+      setSelectedPendingProjectId(null);
+      return;
+    }
+
+    if (
+      !selectedPendingProjectId ||
+      !pendingReviewProjects.some(
+        (project) => project.projectId === selectedPendingProjectId,
+      )
+    ) {
+      setSelectedPendingProjectId(pendingReviewProjects[0].projectId);
+    }
+  }, [pendingReviewProjects, selectedPendingProjectId]);
+
+  useEffect(() => {
+    if (
+      !canCreateReview ||
+      !selectedPendingReviewProject ||
+      hasAutoPromptedReview
+    ) {
+      return;
+    }
+
+    setIsCreateReviewOpen(true);
+    setHasAutoPromptedReview(true);
+  }, [canCreateReview, selectedPendingReviewProject, hasAutoPromptedReview]);
 
   const previewReviews = sortedReviews.slice(0, previewCount);
 
   return (
     <>
-      <div className={`grid grid-cols-1 lg:grid-cols-12 gap-6 ${className}`}>
-        {/* Left Column: Trust Score Card (4/12 - Sticky) */}
+      <div className={`grid grid-cols-1 gap-6 lg:grid-cols-12 ${className}`}>
         <div className="lg:col-span-4">
           <div className="lg:sticky lg:top-4">
             <TrustScoreCard user={user} />
           </div>
         </div>
 
-        {/* Right Column: Reviews Section (8/12) */}
-        <div className="lg:col-span-8 space-y-4">
-          {/* Reviews Header Card */}
-          <div className="bg-white border border-gray-200 rounded-lg p-4 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div
+          className="space-y-4 lg:col-span-8"
+          data-testid="trust-profile-reviews-section"
+        >
+          <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h3 className="text-slate-900 text-xl">Reviews</h3>
-                <p className="text-sm text-gray-600 mt-1">
+                <h3 className="text-xl text-slate-900">Reviews</h3>
+                <p className="mt-1 text-sm text-gray-600">
                   {stats.totalReviews} total review
-                  {stats.totalReviews !== 1 ? "s" : ""}
+                  {stats.totalReviews === 1 ? "" : "s"}
                 </p>
               </div>
 
-              {/* Average Rating Display - Compact */}
-              {stats.totalReviews > 0 && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-teal-50 border border-teal-200 rounded-lg">
-                  <div className="text-2xl text-slate-900">
-                    {stats.averageScore.toFixed(1)}
+              <div className="flex flex-col items-start gap-3 sm:items-end">
+                {stats.totalReviews > 0 ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2">
+                    <div className="text-2xl text-slate-900">
+                      {stats.averageScore.toFixed(1)}
+                    </div>
+                    <StarRating rating={stats.averageScore} />
                   </div>
-                  <StarRating rating={stats.averageScore} />
-                </div>
-              )}
+                ) : null}
+
+                {canCreateReview ? (
+                  <button
+                    type="button"
+                    data-testid="open-create-review"
+                    onClick={() => setIsCreateReviewOpen(true)}
+                    className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-teal-700"
+                  >
+                    Leave Required Review
+                  </button>
+                ) : null}
+              </div>
             </div>
+
+            {canCreateReview && selectedPendingReviewProject ? (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+                <p>
+                  Trust data required: You still need to review this user on
+                  completed shared projects.
+                </p>
+                {pendingReviewCount > 1
+                  ? ` You still have ${pendingReviewCount} completed shared projects pending review.`
+                  : ""}
+
+                <div className="mt-3 space-y-2">
+                  {pendingReviewProjects.slice(0, 5).map((project) => {
+                    const isSelected =
+                      project.projectId === selectedPendingReviewProject.projectId;
+
+                    return (
+                      <div
+                        key={project.projectId}
+                        className={`flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 ${
+                          isSelected
+                            ? "border-amber-300 bg-white"
+                            : "border-amber-200 bg-amber-50/70"
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-xs font-semibold text-slate-900">
+                            {project.title}
+                          </p>
+                          <p className="text-[11px] text-slate-600">
+                            #{project.projectId.slice(0, 8)} · {formatCompletedDate(project.completedAt)} · You: {project.viewerRoleInProject || "UNKNOWN"} · Target: {project.targetRoleInProject}
+                          </p>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPendingProjectId(project.projectId);
+                            setIsCreateReviewOpen(true);
+                          }}
+                          className="rounded-md border border-amber-300 bg-white px-2.5 py-1 text-[11px] font-medium text-amber-800 transition-colors hover:bg-amber-100"
+                        >
+                          {isSelected ? "Reviewing" : "Review"}
+                        </button>
+                      </div>
+                    );
+                  })}
+
+                  {pendingReviewProjects.length > 5 ? (
+                    <p className="text-[11px] text-slate-600">
+                      +{pendingReviewProjects.length - 5} older project(s) pending review.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {!canCreateReview &&
+            reviewEligibility?.reason === "NO_SHARED_COMPLETED_PROJECT" ? (
+              <p className="mt-3 text-xs text-slate-500">
+                You can only review this profile after completing at least one
+                shared project.
+              </p>
+            ) : null}
+
+            {!canCreateReview &&
+            reviewEligibility?.reason ===
+              "ALREADY_REVIEWED_ALL_SHARED_PROJECTS" ? (
+              <p className="mt-3 text-xs text-slate-500">
+                You have already reviewed this user for every completed shared
+                project.
+              </p>
+            ) : null}
+
+            {canCreateReview && selectedPendingReviewProject ? (
+              <p className="mt-3 text-xs text-slate-500">
+                Review will be linked to project{" "}
+                <span className="font-medium">
+                  {selectedPendingReviewProject.title}
+                </span>
+                .
+              </p>
+            ) : null}
           </div>
 
-          {/* Reviews List */}
           {stats.totalReviews === 0 ? (
-            <div className="bg-white border border-gray-200 rounded-lg p-12 shadow-sm text-center">
-              <div className="text-gray-400 mb-2">
+            <div className="rounded-lg border border-gray-200 bg-white p-12 text-center shadow-sm">
+              <div className="mb-2 text-gray-400">
                 <svg
-                  className="w-16 h-16 mx-auto"
+                  className="mx-auto h-16 w-16"
                   fill="none"
                   viewBox="0 0 24 24"
                   stroke="currentColor"
@@ -163,21 +377,23 @@ export function TrustProfileSection({
                   />
                 </svg>
               </div>
-              <h4 className="text-slate-900 mb-1">No reviews yet</h4>
+              <h4 className="text-slate-900">No reviews yet</h4>
               <p className="text-sm text-gray-600">
-                This user hasn't received any reviews yet.
+                This user has not received any reviews yet.
               </p>
             </div>
           ) : (
             <>
-              {/* Show "Your Review" badge if current user has reviewed */}
-              {currentUserReview && (
-                <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 mb-4">
+              {!canCreateReview &&
+              currentUserReviews.length > 0 &&
+              sharedReviewableProjects.length > 0 ? (
+                <div className="mb-4 rounded-lg border border-teal-200 bg-teal-50 p-3">
                   <p className="text-sm text-teal-700">
-                    ✓ You have already reviewed this user
+                    You have already reviewed this user on every shared
+                    completed project.
                   </p>
                 </div>
-              )}
+              ) : null}
 
               <div className="space-y-4">
                 {previewReviews.map((review) => (
@@ -190,26 +406,21 @@ export function TrustProfileSection({
                 ))}
               </div>
 
-              {/* See All Reviews Button */}
-              {stats.totalReviews > previewCount && (
+              {stats.totalReviews > previewCount ? (
                 <button
+                  type="button"
                   onClick={() => setIsFullPageOpen(true)}
-                  className="
-                    w-full py-3 rounded-lg border-2 border-teal-500 
-                    text-teal-600 hover:bg-teal-50 transition-colors
-                    bg-white shadow-sm
-                  "
+                  className="w-full rounded-lg border-2 border-teal-500 bg-white py-3 text-teal-600 shadow-sm transition-colors hover:bg-teal-50"
                 >
                   See all {stats.totalReviews} reviews
                 </button>
-              )}
+              ) : null}
             </>
           )}
         </div>
       </div>
 
-      {/* Full Reviews Page Overlay */}
-      {isFullPageOpen && (
+      {isFullPageOpen ? (
         <ReviewsFullPage
           reviews={sortedReviews}
           stats={stats}
@@ -217,7 +428,23 @@ export function TrustProfileSection({
           currentUserId={currentUserId}
           onReviewUpdated={onReviewUpdated}
         />
-      )}
+      ) : null}
+
+      {canCreateReview && selectedPendingReviewProject ? (
+        <CreateReviewModal
+          isOpen={isCreateReviewOpen}
+          onClose={() => setIsCreateReviewOpen(false)}
+          projectId={selectedPendingReviewProject.projectId}
+          targetUser={{
+            id: user.id,
+            fullName: user.fullName,
+          }}
+          onSuccess={() => {
+            onReviewUpdated?.();
+            setIsCreateReviewOpen(false);
+          }}
+        />
+      ) : null}
     </>
   );
 }

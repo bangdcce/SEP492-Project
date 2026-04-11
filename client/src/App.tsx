@@ -73,6 +73,7 @@ const AuditLogsPage = lazy(() => import("@/pages/AuditLogsPage"));
 const AdminReviewModerationPage = lazy(
   () => import("@/pages/AdminReviewModerationPage"),
 );
+const AdminReportInboxPage = lazy(() => import("@/pages/AdminReportInboxPage"));
 const ProjectRequestsPage = lazy(() =>
   import("@/features/project-requests/ProjectRequestsPage").then((module) => ({
     default: module.ProjectRequestsPage,
@@ -108,12 +109,25 @@ const ContractListPage = lazy(
 const AdminKYCPage = lazy(() => import("@/pages/AdminKYCPage"));
 const AdminUsersPage = lazy(() => import("@/pages/AdminUsersPage"));
 const AdminWizardQuestionsPage = lazy(() => import("@/pages/AdminWizardQuestionsPage"));
+const AdminStaffApplicationsPage = lazy(
+  () => import("@/pages/AdminStaffApplicationsPage"),
+);
 const AdminLeaveManagementPage = lazy(
   () => import("@/pages/AdminLeaveManagementPage"),
 );
 const AdminAppealQueuePage = lazy(() =>
   import("@/features/disputes/pages/AdminAppealQueuePage").then((module) => ({
     default: module.AdminAppealQueuePage,
+  })),
+);
+const AdminDisputesPage = lazy(() =>
+  import("@/features/disputes/pages/AdminDisputesPage").then((module) => ({
+    default: module.AdminDisputesPage,
+  })),
+);
+const AdminDisputeDetailPage = lazy(() =>
+  import("@/features/disputes/pages/AdminDisputeDetailPage").then((module) => ({
+    default: module.AdminDisputeDetailPage,
   })),
 );
 
@@ -126,6 +140,16 @@ const ParticipantHearingsPage = lazy(() =>
 const ParticipantHearingRoomPage = lazy(() =>
   import("@/features/hearings/pages/ParticipantHearingRoomPage").then((module) => ({
     default: module.ParticipantHearingRoomPage,
+  })),
+);
+const AdminHearingsPage = lazy(() =>
+  import("@/features/hearings/pages/AdminHearingsPage").then((module) => ({
+    default: module.AdminHearingsPage,
+  })),
+);
+const AdminHearingRoomPage = lazy(() =>
+  import("@/features/hearings/pages/AdminHearingRoomPage").then((module) => ({
+    default: module.AdminHearingRoomPage,
   })),
 );
 
@@ -194,6 +218,9 @@ const StaffHearingRoomPage = lazy(() =>
   import("@/features/staff/pages/StaffHearingRoomPage").then((m) => ({
     default: m.StaffHearingRoomPage,
   })),
+);
+const StaffApplicationStatusPage = lazy(
+  () => import("@/pages/StaffApplicationStatusPage"),
 );
 
 // ========== LANDING PAGE ==========
@@ -791,11 +818,81 @@ function App() {
           }
         />
         <Route
+          path={ROUTES.ADMIN_DISPUTES}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminDisputesPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_DISPUTE_DETAIL}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout showFooter={false} contentMode="hearing-room">
+                <AdminDisputeDetailPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
           path={ROUTES.ADMIN_DISPUTE_APPEALS}
           element={
             <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminAppealQueuePage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_CONTRACTS}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <ContractListPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_CONTRACT_DETAIL}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <ContractPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_HEARINGS}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminHearingsPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_HEARING_ROOM}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout showFooter={false} contentMode="hearing-room">
+                <AdminHearingRoomPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_REPORTS}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminReportInboxPage />
               </AdminDashboardLayout>
             </RoleGuard>
           }
@@ -826,6 +923,16 @@ function App() {
             <RoleGuard allowedRoles={["ADMIN"]}>
               <AdminDashboardLayout>
                 <AdminUsersPage />
+              </AdminDashboardLayout>
+            </RoleGuard>
+          }
+        />
+        <Route
+          path={ROUTES.ADMIN_STAFF_APPLICATIONS}
+          element={
+            <RoleGuard allowedRoles={["ADMIN"]}>
+              <AdminDashboardLayout>
+                <AdminStaffApplicationsPage />
               </AdminDashboardLayout>
             </RoleGuard>
           }
@@ -1119,7 +1226,22 @@ function App() {
         />
 
         {/* ========== STAFF ROUTES - /staff/* ========== */}
-        <Route path="/staff" element={<StaffLayout />}>
+        <Route
+          path={ROUTES.STAFF_APPLICATION_STATUS}
+          element={
+            <RoleGuard allowedRoles={["STAFF"]} allowPendingStaff>
+              <StaffApplicationStatusPage />
+            </RoleGuard>
+          }
+        />
+        <Route
+          path="/staff"
+          element={
+            <RoleGuard allowedRoles={["STAFF", "ADMIN"]}>
+              <StaffLayout />
+            </RoleGuard>
+          }
+        >
           <Route path="dashboard" element={<StaffDashboardPage />} />
           <Route path="projects" element={<StaffProjectsPage />} />
           <Route path="queue" element={<StaffQueuePage />} />
@@ -1128,6 +1250,8 @@ function App() {
           <Route path="leave" element={<StaffLeavePage />} />
           <Route path="hearings" element={<StaffHearingsPage />} />
           <Route path="hearings/:hearingId" element={<StaffHearingRoomPage />} />
+          <Route path="contracts" element={<ContractListPage />} />
+          <Route path="contracts/:id" element={<ContractPage />} />
           <Route path="kyc" element={<AdminKYCPage />} />
           <Route path="profile" element={<ProfilePage />} />
           {/* Fallback */}

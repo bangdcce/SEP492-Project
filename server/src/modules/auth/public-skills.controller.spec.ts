@@ -151,6 +151,18 @@ describe('PublicSkillsController.getSkills', () => {
     });
   });
 
+  it('filters active skills for staff registration when role is STAFF', async () => {
+    skillRepo.find.mockResolvedValue([]);
+
+    await controller.getSkills('STAFF');
+
+    expect(skillRepo.find).toHaveBeenCalledWith({
+      where: { isActive: true, forStaff: true },
+      order: { sortOrder: 'ASC', name: 'ASC' },
+      select: ['id', 'name', 'slug', 'description', 'icon', 'category'],
+    });
+  });
+
   it('falls back to all active skills when role is unsupported', async () => {
     skillRepo.find.mockResolvedValue([]);
 

@@ -105,8 +105,36 @@ export const StaffDashboardPage = () => {
 
   useStaffDashboardRealtime({
     onDisputeCreated: () => void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onDisputeStatusChanged: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onDisputeAssigned: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onDisputeReassigned: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onDisputeInfoRequested: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onDisputeInfoProvided: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onDisputeDefendantResponded: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onDisputeResolved: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onDisputeClosed: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
     onHearingEnded: () => void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
     onVerdictIssued: () => void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onAppealSubmitted: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onAppealResolved: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onCalendarEventCreated: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onCalendarEventUpdated: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onCalendarRescheduleRequested: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
+    onCalendarRescheduleProcessed: () =>
+      void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
     onStaffOverloaded: () => void getStaffDashboardOverview(range).then(setOverview).catch(() => undefined),
   });
 

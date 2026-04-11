@@ -121,6 +121,36 @@ export interface AdminDashboardOverview {
     actionUrl: string;
     reason: string;
   }>;
+  systemIncidentHub: {
+    summary: {
+      activeCount: number;
+      severeCount: number;
+      criticalCount: number;
+      affectedComponents: number;
+      lastOccurredAt: string | null;
+    };
+    items: Array<{
+      fingerprint: string;
+      severity: "HIGH" | "CRITICAL" | "SEVERE";
+      category:
+        | "HTTP_5XX"
+        | "SCHEDULER"
+        | "INTEGRATION"
+        | "WEBSOCKET"
+        | "STORAGE"
+        | "PAYMENT"
+        | "EMAIL";
+      component: string;
+      operation: string;
+      message: string;
+      errorCode: string | null;
+      firstSeenAt: string;
+      lastSeenAt: string;
+      occurrences: number;
+      latestAuditLogId: string;
+      actionUrl: string;
+    }>;
+  };
   riskMethodology: {
     generatedAt: string;
     scoringWeights: {

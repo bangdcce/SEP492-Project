@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { BadRequestException, ConflictException } from '@nestjs/common';
+import { createHash, createSign, generateKeyPairSync } from 'crypto';
 import { DataSource, QueryRunner } from 'typeorm';
 import { ContractsService } from './contracts.service';
 import {
@@ -28,6 +29,8 @@ import { DigitalSignatureEntity } from '../../database/entities/digital-signatur
 import { EscrowEntity } from '../../database/entities/escrow.entity';
 import { ContractArchiveStorageService } from './contract-archive.storage';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SigningCredentialsService } from '../auth/signing-credentials.service';
+import { UserSigningCredentialEntity } from '../../database/entities/user-signing-credential.entity';
 
 describe('ContractsService', () => {
   let service: ContractsService;
@@ -40,7 +43,9 @@ describe('ContractsService', () => {
     createQueryBuilder: jest.fn(),
   };
   const mockProjectsRepo = {};
-  const mockProjectSpecsRepo = {};
+  const mockProjectSpecsRepo = {
+    findOne: jest.fn(),
+  };
   const mockProjectRequestsRepo = {};
   const mockProjectRequestProposalsRepo = { find: jest.fn() };
   const mockAuditLogsService = { log: jest.fn() };
@@ -55,6 +60,18 @@ describe('ContractsService', () => {
   };
   const mockEscrowReadRepository = {
     find: jest.fn().mockResolvedValue([]),
+  };
+  const mockSigningCredentialReadRepository = {
+    findOne: jest.fn().mockResolvedValue(null),
+  };
+  const mockSigningCredentialsService = {
+    signContentHash: jest.fn().mockResolvedValue({
+      signatureBase64: 'signed-payload',
+      signatureAlgorithm: 'RSA-SHA256',
+      keyFingerprint: 'mini-ca-fingerprint',
+      keyVersion: 1,
+      certificateSerial: 'INTERDEV-MCA-1-MINI',
+    }),
   };
 
   const mockManager = {
@@ -164,6 +181,9 @@ describe('ContractsService', () => {
         if (entity === EscrowEntity) {
           return mockEscrowReadRepository;
         }
+        if (entity === UserSigningCredentialEntity) {
+          return mockSigningCredentialReadRepository;
+        }
         return { find: jest.fn().mockResolvedValue([]) };
       }),
     };
@@ -182,6 +202,7 @@ describe('ContractsService', () => {
         { provide: AuditLogsService, useValue: mockAuditLogsService },
         { provide: NotificationsService, useValue: mockNotificationsService },
         { provide: ContractArchiveStorageService, useValue: mockContractArchiveStorage },
+        { provide: SigningCredentialsService, useValue: mockSigningCredentialsService },
         { provide: DataSource, useValue: mockDataSource },
         { provide: EventEmitter2, useValue: mockEventEmitter },
       ],
@@ -261,12 +282,14 @@ describe('ContractsService', () => {
         clientId: 'client-uuid',
       } as ProjectRequestEntity;
 
-      mockManager.findOne.mockImplementation(async (entity: unknown, options?: { where?: { id?: string } }) => {
-        if (entity === ProjectSpecEntity && options?.where?.id === spec.id) return spec;
-        if (entity === ProjectRequestEntity && options?.where?.id === request.id) return request;
-        if (entity === ContractEntity) return null;
-        return null;
-      });
+      mockManager.findOne.mockImplementation(
+        async (entity: unknown, options?: { where?: { id?: string } }) => {
+          if (entity === ProjectSpecEntity && options?.where?.id === spec.id) return spec;
+          if (entity === ProjectRequestEntity && options?.where?.id === request.id) return request;
+          if (entity === ContractEntity) return null;
+          return null;
+        },
+      );
       mockManager.find.mockImplementation(async (entity: unknown) => {
         if (entity === MilestoneEntity) {
           return spec.milestones;
@@ -377,10 +400,7 @@ describe('ContractsService', () => {
 
       mockContractsRepo.findOne.mockResolvedValue(contract);
 
-      const result = await service.findOneForUser(
-        { id: 'broker-uuid' } as UserEntity,
-        contract.id,
-      );
+      const result = await service.findOneForUser({ id: 'broker-uuid' } as UserEntity, contract.id);
 
       expect(result.contentHash).toBe((service as any).computeContentHash(contract));
       expect(result.contractUrl).toMatch(/\/contracts\/contract-uuid\/pdf$/);
@@ -501,16 +521,11 @@ describe('ContractsService', () => {
       });
 
       await expect(
-        service.signContract(
-          brokerUser,
-          contract.id,
-          'stale-hash',
-          {
-            headers: {},
-            ip: '127.0.0.1',
-            get: jest.fn().mockReturnValue('jest-agent'),
-          } as any,
-        ),
+        service.signContract(brokerUser, contract.id, 'stale-hash', '123456', {
+          headers: {},
+          ip: '127.0.0.1',
+          get: jest.fn().mockReturnValue('jest-agent'),
+        } as any),
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
@@ -563,6 +578,7 @@ describe('ContractsService', () => {
         brokerUser,
         contract.id,
         contract.contentHash,
+        '123456',
         {
           headers: {},
           ip: '127.0.0.1',
@@ -640,6 +656,7 @@ describe('ContractsService', () => {
         brokerUser,
         contract.id,
         contract.contentHash,
+        '123456',
         {
           headers: {},
           ip: '127.0.0.1',
@@ -697,6 +714,178 @@ describe('ContractsService', () => {
       const result = await service.generatePdfForUser(brokerUser, contract.id);
 
       expect(result).toEqual(dynamicBuffer);
+    });
+  });
+
+  describe('getSignatureVerificationReportForUser', () => {
+    it('returns a fully verified report for a valid Mini CA signature proof', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-verify-uuid',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
+        project,
+        termsContent: 'Frozen terms',
+        commercialContext: buildCommercialContext(project),
+        milestoneSnapshot: buildSnapshot(),
+      } as ContractEntity;
+
+      const contentHash = (service as any).computeContentHash(contract);
+      contract.contentHash = contentHash;
+
+      const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      });
+
+      const signedAt = new Date('2026-04-07T08:00:00.000Z');
+      const signerRole = 'BROKER';
+      const signer = createSign('RSA-SHA256');
+      signer.update(contentHash);
+      signer.end();
+      const signatureValue = signer.sign(privateKey, 'base64');
+      const auditHash = (service as any).buildServerSignatureHash({
+        contractId: contract.id,
+        userId: brokerUser.id,
+        contentHash,
+        signerRole,
+        signedAt,
+        ipAddress: '127.0.0.1',
+        userAgent: 'jest-agent',
+      });
+      const signatureHash = createHash('sha256')
+        .update(`${auditHash}:${signatureValue}`)
+        .digest('hex');
+      const timestampToken = (service as any).buildMiniCaTimestampToken({
+        contractId: contract.id,
+        userId: brokerUser.id,
+        contentHash,
+        signatureBase64: signatureValue,
+        signedAt,
+      });
+
+      contract.signatures = [
+        {
+          id: 'sig-1',
+          contractId: contract.id,
+          userId: brokerUser.id,
+          signerRole,
+          provider: 'INTERDEV_MINI_CA',
+          contentHash,
+          signatureHash,
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest-agent',
+          certificateSerial: 'INTERDEV-MCA-TEST',
+          signedAt,
+          verifiedAt: signedAt,
+          providerPayload: {
+            contentHash,
+            signatureValue,
+            keyFingerprint: 'fingerprint-test',
+            signerPublicKeyPem: publicKey,
+            timestampToken,
+          },
+          user: {
+            id: brokerUser.id,
+            fullName: 'Broker Tester',
+          },
+        },
+      ] as any;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+
+      const report = await service.getSignatureVerificationReportForUser(
+        brokerUser,
+        contract.id,
+      );
+
+      expect(report.allSignaturesVerified).toBe(true);
+      expect(report.signatureReports[0].checks.cryptographicVerificationPassed).toBe(true);
+      expect(report.signatureReports[0].checks.signatureHashMatches).toBe(true);
+      expect(report.signatureReports[0].checks.signedContentMatchesCurrent).toBe(true);
+      expect(report.signatureReports[0].checks.timestampTokenValid).toBe(true);
+      expect(report.signatureReports[0].overallVerified).toBe(true);
+    });
+
+    it('flags the report when signature hash is tampered', async () => {
+      const project = buildProject();
+      const contract = {
+        id: 'contract-verify-tampered',
+        projectId: project.id,
+        sourceSpecId: 'spec-uuid',
+        title: 'Website Revamp',
+        status: ContractStatus.SIGNED,
+        legalSignatureStatus: 'VERIFIED',
+        project,
+        termsContent: 'Frozen terms',
+        commercialContext: buildCommercialContext(project),
+        milestoneSnapshot: buildSnapshot(),
+      } as ContractEntity;
+
+      const contentHash = (service as any).computeContentHash(contract);
+      contract.contentHash = contentHash;
+
+      const { publicKey, privateKey } = generateKeyPairSync('rsa', {
+        modulusLength: 2048,
+        publicKeyEncoding: { type: 'spki', format: 'pem' },
+        privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
+      });
+
+      const signedAt = new Date('2026-04-07T08:05:00.000Z');
+      const signer = createSign('RSA-SHA256');
+      signer.update(contentHash);
+      signer.end();
+      const signatureValue = signer.sign(privateKey, 'base64');
+      const timestampToken = (service as any).buildMiniCaTimestampToken({
+        contractId: contract.id,
+        userId: brokerUser.id,
+        contentHash,
+        signatureBase64: signatureValue,
+        signedAt,
+      });
+
+      contract.signatures = [
+        {
+          id: 'sig-tampered',
+          contractId: contract.id,
+          userId: brokerUser.id,
+          signerRole: 'BROKER',
+          provider: 'INTERDEV_MINI_CA',
+          contentHash,
+          signatureHash: 'tampered-signature-hash',
+          ipAddress: '127.0.0.1',
+          userAgent: 'jest-agent',
+          certificateSerial: 'INTERDEV-MCA-TEST',
+          signedAt,
+          verifiedAt: signedAt,
+          providerPayload: {
+            contentHash,
+            signatureValue,
+            signerPublicKeyPem: publicKey,
+            timestampToken,
+          },
+          user: {
+            id: brokerUser.id,
+            fullName: 'Broker Tester',
+          },
+        },
+      ] as any;
+
+      jest.spyOn(service, 'findOneForUser').mockResolvedValue(contract as any);
+
+      const report = await service.getSignatureVerificationReportForUser(
+        brokerUser,
+        contract.id,
+      );
+
+      expect(report.allSignaturesVerified).toBe(false);
+      expect(report.signatureReports[0].checks.cryptographicVerificationPassed).toBe(true);
+      expect(report.signatureReports[0].checks.signatureHashMatches).toBe(false);
+      expect(report.signatureReports[0].overallVerified).toBe(false);
     });
   });
 
@@ -883,6 +1072,182 @@ describe('ContractsService', () => {
   });
 
   describe('draft guardrails', () => {
+    it('rejects draft updates that try to change the frozen project budget baseline', async () => {
+      const project = buildProject({ totalBudget: 1000 });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        status: ContractStatus.DRAFT,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Draft terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          milestoneSnapshot: [
+            {
+              title: 'Milestone 1',
+              amount: 300,
+              sortOrder: 1,
+              deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+              retentionAmount: 0,
+            },
+            {
+              title: 'Milestone 2',
+              amount: 800,
+              sortOrder: 2,
+              deliverableType: DeliverableType.SOURCE_CODE,
+              retentionAmount: 50,
+            },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('rejects draft updates when first milestone exceeds 30% of total budget', async () => {
+      const project = buildProject({ totalBudget: 1000 });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        status: ContractStatus.DRAFT,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Draft terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          milestoneSnapshot: [
+            {
+              title: 'Milestone 1',
+              amount: 400,
+              sortOrder: 1,
+              deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+              retentionAmount: 40,
+            },
+            {
+              title: 'Milestone 2',
+              amount: 600,
+              sortOrder: 2,
+              deliverableType: DeliverableType.SOURCE_CODE,
+              retentionAmount: 60,
+            },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects draft updates when retention exceeds 10% cap for a milestone', async () => {
+      const project = buildProject({ totalBudget: 1000 });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        status: ContractStatus.DRAFT,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Draft terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          milestoneSnapshot: [
+            {
+              title: 'Milestone 1',
+              amount: 300,
+              sortOrder: 1,
+              deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+              retentionAmount: 31,
+            },
+            {
+              title: 'Milestone 2',
+              amount: 700,
+              sortOrder: 2,
+              deliverableType: DeliverableType.SOURCE_CODE,
+              retentionAmount: 70,
+            },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('rejects draft updates when a milestone starts on or before the previous due date', async () => {
+      const project = buildProject({ totalBudget: 1000 });
+      const contract = {
+        id: 'contract-uuid',
+        projectId: project.id,
+        status: ContractStatus.DRAFT,
+        title: 'Website Revamp',
+        sourceSpecId: 'spec-uuid',
+        project,
+        milestoneSnapshot: buildSnapshot(),
+        commercialContext: buildCommercialContext(project),
+        termsContent: 'Draft terms',
+      } as ContractEntity;
+
+      mockManager.findOne.mockImplementation(async (entity: unknown) => {
+        if (entity === ContractEntity) return contract;
+        if (entity === ProjectEntity) return project;
+        return null;
+      });
+      mockManager.find.mockResolvedValue([]);
+
+      await expect(
+        service.updateDraft(brokerUser, contract.id, {
+          milestoneSnapshot: [
+            {
+              title: 'Milestone 1',
+              amount: 300,
+              sortOrder: 1,
+              deliverableType: DeliverableType.DESIGN_PROTOTYPE,
+              retentionAmount: 30,
+              startDate: '2026-03-01',
+              dueDate: '2026-03-10',
+            },
+            {
+              title: 'Milestone 2',
+              amount: 700,
+              sortOrder: 2,
+              deliverableType: DeliverableType.SOURCE_CODE,
+              retentionAmount: 70,
+              startDate: '2026-03-10',
+              dueDate: '2026-04-01',
+            },
+          ],
+        }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
     it('rejects sending a non-draft contract', async () => {
       const project = buildProject();
       const contract = {

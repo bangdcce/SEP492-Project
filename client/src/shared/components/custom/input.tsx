@@ -7,9 +7,17 @@ interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   error?: string;
   success?: boolean;
   helperText?: string;
+  hasTrailingAction?: boolean;
 }
 
-export function Input({ label, error, success, helperText, ...props }: InputProps) {
+export function Input({
+  label,
+  error,
+  success,
+  helperText,
+  hasTrailingAction,
+  ...props
+}: InputProps) {
   return (
     <div>
       {label && (
@@ -32,7 +40,13 @@ export function Input({ label, error, success, helperText, ...props }: InputProp
           style={{
             width: '100%',
             padding: '0.75rem 1rem',
-            paddingRight: success ? '3rem' : '1rem',
+            paddingRight: success
+              ? hasTrailingAction
+                ? '5rem'
+                : '3rem'
+              : hasTrailingAction
+                ? '3rem'
+                : '1rem',
             borderRadius: '8px',
             border: `2px solid ${error ? 'var(--auth-error)' : success ? 'var(--auth-success)' : 'var(--auth-border)'}`,
             fontSize: '1rem',
@@ -64,7 +78,7 @@ export function Input({ label, error, success, helperText, ...props }: InputProp
               animate={{ scale: 1, rotate: 0 }}
               exit={{ scale: 0, rotate: 180 }}
               transition={{ type: "spring", duration: 0.5 }}
-              className="absolute right-3 top-1/2 transform -translate-y-1/2"
+              className={`absolute top-1/2 transform -translate-y-1/2 ${hasTrailingAction ? 'right-11' : 'right-3'}`}
             >
               <Check className="w-5 h-5" style={{ color: 'var(--auth-success)' }} />
             </motion.div>

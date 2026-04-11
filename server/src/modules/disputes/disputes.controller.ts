@@ -30,6 +30,7 @@ import { AddNoteDto } from './dto/add-note.dto';
 import { DefendantResponseDto } from './dto/defendant-response.dto';
 import { AppealDto } from './dto/appeal.dto';
 import { AppealRejectionDto } from './dto/appeal-rejection.dto';
+import { AcceptVerdictDto } from './dto/accept-verdict.dto';
 import { ReviewRequestDto } from './dto/review-request.dto';
 import { RequestDisputeInfoDto } from './dto/request-info.dto';
 import { ResolveRejectionAppealDto } from './dto/resolve-rejection-appeal.dto';
@@ -57,6 +58,16 @@ export class DisputesController {
     private readonly disputesService: DisputesService,
     private readonly hearingVerdictOrchestrator: HearingVerdictOrchestratorService,
   ) {}
+
+  private isUserGuideBypassEnabled(): boolean {
+    const bypassEnabled = process.env.DISPUTE_USER_GUIDE_BYPASS === 'true';
+    if (!bypassEnabled) {
+      return false;
+    }
+
+    const environment = (process.env.APP_ENV ?? process.env.NODE_ENV ?? '').toLowerCase();
+    return environment !== 'production' && environment !== 'prod';
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post()
@@ -87,7 +98,9 @@ export class DisputesController {
   @Get()
   async getListDisputes(@GetUser() user: UserEntity, @Query() filters: DisputeFilterDto) {
     const effectiveFilters: DisputeFilterDto = { ...filters };
-    if (user.role === UserRole.STAFF) {
+    const userGuideBypassEnabled = this.isUserGuideBypassEnabled();
+
+    if (user.role === UserRole.STAFF && !userGuideBypassEnabled) {
       const queueStatuses = new Set<DisputeStatus>([
         DisputeStatus.OPEN,
         DisputeStatus.TRIAGE_PENDING,
@@ -159,7 +172,9 @@ export class DisputesController {
       includeUnassignedForStaff: true,
     };
 
-    if (user.role === UserRole.STAFF) {
+    const userGuideBypassEnabled = this.isUserGuideBypassEnabled();
+
+    if (user.role === UserRole.STAFF && !userGuideBypassEnabled) {
       if (effectiveFilters.assignedStaffId && effectiveFilters.assignedStaffId !== user.id) {
         throw new ForbiddenException('Staff can only view their own queue scope.');
       }
@@ -179,7 +194,9 @@ export class DisputesController {
       unassignedOnly: false,
     };
 
-    if (user.role === UserRole.STAFF) {
+    const userGuideBypassEnabled = this.isUserGuideBypassEnabled();
+
+    if (user.role === UserRole.STAFF && !userGuideBypassEnabled) {
       if (effectiveFilters.assignedStaffId && effectiveFilters.assignedStaffId !== user.id) {
         throw new ForbiddenException('Staff can only view their own caseload.');
       }
@@ -590,6 +607,16 @@ export class DisputesController {
     @GetUser() user: UserEntity,
   ) {
     return await this.disputesService.getVerdict(id, user.id, user.role);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/verdict/accept')
+  async acceptVerdict(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AcceptVerdictDto,
+    @GetUser() user: UserEntity,
+  ) {
+    return await this.disputesService.acceptVerdict(user.id, user.role, id, dto);
   }
 
   @UseGuards(JwtAuthGuard)

@@ -1,6 +1,6 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { StaffApplicationStatus } from '../../../database/entities/staff-application.entity';
 
-// Enum để Swagger hiểu được các giá trị badge hợp lệ
 export enum BadgeType {
   NEW = 'NEW',
   VERIFIED = 'VERIFIED',
@@ -9,93 +9,92 @@ export enum BadgeType {
   NORMAL = 'NORMAL',
 }
 
-// DTO cho stats object
 export class UserStatsDto {
-  @ApiProperty({ description: 'Số dự án đã hoàn thành', example: 5 })
+  @ApiProperty({ description: 'Number of completed projects', example: 5 })
   finished: number;
 
-  @ApiProperty({ description: 'Số lần thua tranh chấp', example: 0 })
+  @ApiProperty({ description: 'Number of lost disputes', example: 0 })
   disputes: number;
 
-  @ApiProperty({ description: 'Điểm uy tín (0-5)', example: 4.5 })
+  @ApiProperty({ description: 'Trust score (0-5)', example: 4.5 })
   score: number;
 }
 
 export class CertificationItemDto {
-  @ApiProperty({ description: 'Tên chứng chỉ', example: 'IBM Business Analyst' })
+  @ApiProperty({ description: 'Certification name', example: 'IBM Business Analyst' })
   name: string;
 
-  @ApiProperty({ description: 'Tổ chức cấp', example: 'IBM' })
+  @ApiProperty({ description: 'Issuing organization', example: 'IBM' })
   issuingOrganization: string;
 
-  @ApiProperty({ description: 'Tháng cấp chứng chỉ', example: 'Nov' })
+  @ApiProperty({ description: 'Issue month', example: 'Nov' })
   issueMonth: string;
 
-  @ApiProperty({ description: 'Năm cấp chứng chỉ', example: '2025' })
+  @ApiProperty({ description: 'Issue year', example: '2025' })
   issueYear: string;
 
   @ApiProperty({
-    description: 'Mã định danh chứng chỉ',
+    description: 'Credential identifier',
     example: 'R3N2OL4NM58R',
     required: false,
   })
   credentialId?: string;
 
   @ApiProperty({
-    description: 'Liên kết xác thực chứng chỉ',
+    description: 'Credential verification URL',
     example: 'https://www.credly.com/badges/example',
   })
   credentialUrl: string;
 
-  @ApiProperty({ description: 'Tháng hết hạn', example: 'Nov', required: false })
+  @ApiProperty({ description: 'Expiration month', example: 'Nov', required: false })
   expirationMonth?: string;
 
-  @ApiProperty({ description: 'Năm hết hạn', example: '2028', required: false })
+  @ApiProperty({ description: 'Expiration year', example: '2028', required: false })
   expirationYear?: string;
 }
 
 export class AuthResponseDto {
-  @ApiProperty({ description: 'ID người dùng', example: '550e8400-e29b-41d4-a716-446655440000' })
+  @ApiProperty({ description: 'User ID', example: '550e8400-e29b-41d4-a716-446655440000' })
   id: string;
 
-  @ApiProperty({ description: 'Email người dùng', example: 'user@example.com' })
+  @ApiProperty({ description: 'User email', example: 'user@example.com' })
   email: string;
 
-  @ApiProperty({ description: 'Họ tên đầy đủ', example: 'Nguyễn Văn A' })
+  @ApiProperty({ description: 'Full name', example: 'John Doe' })
   fullName: string;
 
-  @ApiProperty({ description: 'Số điện thoại', example: '0123456789', nullable: true })
+  @ApiProperty({ description: 'Phone number', example: '0123456789', nullable: true })
   phoneNumber: string | null;
 
   @ApiProperty({
-    description: 'Múi giờ IANA (ví dụ: Asia/Ho_Chi_Minh)',
+    description: 'IANA time zone (for example: Asia/Ho_Chi_Minh)',
     example: 'Asia/Ho_Chi_Minh',
   })
   timeZone: string;
 
   @ApiProperty({
-    description: 'URL ảnh đại diện',
+    description: 'Avatar URL',
     example: 'https://example.com/avatar.jpg',
     required: false,
   })
   avatarUrl?: string;
 
   @ApiProperty({
-    description: 'Giới thiệu bản thân',
+    description: 'Short bio',
     example: 'Software developer...',
     required: false,
   })
   bio?: string;
 
   @ApiProperty({
-    description: 'Tên công ty (cho freelancer)',
+    description: 'Company name (for freelancers)',
     example: 'ABC Company',
     required: false,
   })
   companyName?: string;
 
   @ApiProperty({
-    description: 'Kỹ năng (cho freelancer)',
+    description: 'Skills (for freelancers)',
     example: ['React', 'Node.js'],
     required: false,
   })
@@ -119,62 +118,82 @@ export class AuthResponseDto {
   portfolioLinks?: Array<{ title: string; url: string }>;
 
   @ApiProperty({
-    description: 'Danh sách chứng chỉ chuyên môn',
+    description: 'Professional certifications',
     type: [CertificationItemDto],
     required: false,
   })
   certifications?: CertificationItemDto[];
 
-  @ApiProperty({ description: 'Vai trò người dùng', example: 'CLIENT' })
+  @ApiProperty({ description: 'User role', example: 'CLIENT' })
   role: string;
 
-  @ApiProperty({ description: 'Trạng thái xác thực', example: false })
+  @ApiProperty({ description: 'Verification status', example: false })
   isVerified: boolean;
 
-  @ApiProperty({ description: 'Email đã được xác thực', example: true })
+  @ApiProperty({ description: 'Whether the email is verified', example: true })
   isEmailVerified: boolean;
 
-  @ApiProperty({ description: 'Điểm tin cậy hiện tại', example: 5.0 })
+  @ApiPropertyOptional({
+    description: 'Staff application approval status when the account role is STAFF',
+    enum: StaffApplicationStatus,
+  })
+  staffApprovalStatus?: StaffApplicationStatus;
+
+  @ApiPropertyOptional({
+    description: 'When the staff application was reviewed',
+    example: '2026-04-06T10:00:00.000Z',
+    nullable: true,
+  })
+  staffApplicationReviewedAt?: Date | null;
+
+  @ApiPropertyOptional({
+    description: 'Rejection reason for a staff application',
+    example: 'Not a fit for the current staff openings',
+    nullable: true,
+  })
+  staffRejectionReason?: string | null;
+
+  @ApiProperty({ description: 'Current trust score', example: 5.0 })
   currentTrustScore: number;
 
   @ApiProperty({
-    description: 'Huy hiệu người dùng (tự động tính toán)',
+    description: 'Calculated user badge',
     enum: BadgeType,
     example: 'VERIFIED',
   })
   badge: BadgeType;
 
   @ApiProperty({
-    description: 'Thống kê tổng hợp của người dùng',
+    description: 'Aggregated user statistics',
     type: UserStatsDto,
   })
   stats: UserStatsDto;
 
-  @ApiProperty({ description: 'Thời gian tạo tài khoản', example: '2025-12-18T10:00:00Z' })
+  @ApiProperty({ description: 'Account creation timestamp', example: '2025-12-18T10:00:00Z' })
   createdAt: Date;
 
-  @ApiProperty({ description: 'Thời gian cập nhật cuối', example: '2025-12-18T10:00:00Z' })
+  @ApiProperty({ description: 'Last update timestamp', example: '2025-12-18T10:00:00Z' })
   updatedAt: Date;
 }
 
 export class LoginResponseDto {
-  @ApiProperty({ description: 'Thông tin người dùng', type: AuthResponseDto })
+  @ApiProperty({ description: 'User information', type: AuthResponseDto })
   user: AuthResponseDto;
 
   @ApiProperty({
-    description: 'Access token để xác thực API calls',
+    description: 'Access token used to authorize API calls',
     example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
   })
   accessToken: string;
 
   @ApiProperty({
-    description: 'Refresh token để làm mới access token',
+    description: 'Refresh token used to renew the access token',
     example: 'abc123def456...',
   })
   refreshToken: string;
 }
 
 export class LogoutResponseDto {
-  @ApiProperty({ description: 'Thông báo kết quả', example: 'Đăng xuất thành công' })
+  @ApiProperty({ description: 'Result message', example: 'Logout successful' })
   message: string;
 }

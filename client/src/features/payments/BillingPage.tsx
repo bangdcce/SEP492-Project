@@ -375,24 +375,24 @@ const roleCopy = {
     heroBadge: "Client Billing",
     heroTitle: "Billing & Wallet",
     heroDescription:
-      "Track what is funded, held in escrow, released, or refunded.",
+      "Track what is funded, held in escrow, released, or refunded. Refundable dispute balance can also be withdrawn from here after it settles back into your wallet.",
     primaryCtaLabel: "Open projects",
     secondaryCtaLabel: "Contracts",
     summaryEyebrow: "PayPal funding",
     summaryEmptyTitle: "Ready for checkout",
     summaryModeBadge: "PayPal",
     summarySourceLabel: "Funding rail",
-    roleCardTitle: "PayPal checkout",
+    roleCardTitle: "Refund payout",
     roleCardDescription:
-      "Funding starts in the milestone workspace. Billing stays focused on escrow and wallet activity.",
-    roleCardEmptyTitle: "No saved checkout yet",
+      "Save the PayPal email that should receive refundable wallet balance after a verdict or release reversal.",
+    roleCardEmptyTitle: "No PayPal payout email saved yet",
     roleCardEmptyDescription:
-      "The first approved PayPal checkout will appear here as faster checkout.",
-    addMethodTitle: "PayPal setup",
+      "Add a PayPal email so refunded wallet balance has a withdrawal destination.",
+    addMethodTitle: "Save refund payout",
     addMethodDescription:
-      "PayPal checkout is managed from the milestone workspace.",
+      "Save the PayPal email that should receive refundable wallet balance once it becomes available.",
     transactionDescription:
-      "Funding, escrow holds, releases, refunds, and fees.",
+      "Funding, escrow holds, releases, refunds, fees, and any client cashouts.",
     emptyTransactionsTitle: "No transactions yet",
     emptyTransactionsDescription:
       "Once you fund a milestone, the deposit and escrow hold entries will appear here.",
@@ -798,12 +798,17 @@ export default function BillingPage() {
       setTransactionsTotal(transactionResult.total);
 
       if (isClient) {
-        const methods = await getPaymentMethods();
+        const [methods, payoutMethodsResult, payoutRequestsResult] = await Promise.all([
+          getPaymentMethods(),
+          getPayoutMethods(),
+          getPayoutRequests(1, 8),
+        ]);
         setPaymentMethods(methods);
-        setPayoutMethods([]);
-        setPayoutRequests([]);
-        setPayoutRequestsPage(1);
-        setPayoutRequestsTotal(0);
+        setPayoutMethods(payoutMethodsResult);
+        setWallet(payoutRequestsResult.wallet);
+        setPayoutRequests(payoutRequestsResult.items);
+        setPayoutRequestsPage(payoutRequestsResult.page);
+        setPayoutRequestsTotal(payoutRequestsResult.total);
       } else {
         setPaymentMethods([]);
 
@@ -868,34 +873,27 @@ export default function BillingPage() {
     [cashoutEligibleMethods, watchedCashoutMethodId],
   );
   const payoutMethodCount = cashoutEligibleMethods.length;
+  const hasAvailableCashoutBalance = (wallet?.availableBalance ?? 0) > 0;
 
   useEffect(() => {
-    if (isClient || editingPayoutMethod || cashoutEligibleMethods.length === 0) {
+    if (editingPayoutMethod || cashoutEligibleMethods.length === 0) {
       return;
     }
 
     if (!payoutMethodForm.getValues("isDefault")) {
       payoutMethodForm.setValue("isDefault", true, { shouldDirty: false });
     }
-  }, [cashoutEligibleMethods.length, editingPayoutMethod, isClient, payoutMethodForm]);
+  }, [cashoutEligibleMethods.length, editingPayoutMethod, payoutMethodForm]);
 
   useEffect(() => {
-    if (isClient) {
-      return;
-    }
-
     if ((!watchedCashoutMethodId || !selectedCashoutMethod) && cashoutEligibleMethods.length > 0) {
       cashoutRequestForm.setValue("payoutMethodId", cashoutEligibleMethods.find((method) => method.isDefault)?.id ?? cashoutEligibleMethods[0]?.id ?? "", {
         shouldDirty: false,
       });
     }
-  }, [cashoutEligibleMethods, cashoutRequestForm, isClient, selectedCashoutMethod, watchedCashoutMethodId]);
+  }, [cashoutEligibleMethods, cashoutRequestForm, selectedCashoutMethod, watchedCashoutMethodId]);
 
   useEffect(() => {
-    if (isClient) {
-      return;
-    }
-
     const amount = Number(watchedCashoutAmount);
     if (!selectedCashoutMethod || !amount || Number.isNaN(amount)) {
       setCashoutQuote(null);
@@ -931,7 +929,7 @@ export default function BillingPage() {
     return () => {
       window.clearTimeout(timer);
     };
-  }, [isClient, selectedCashoutMethod, wallet?.availableBalance, wallet?.currency, watchedCashoutAmount]);
+  }, [selectedCashoutMethod, wallet?.availableBalance, wallet?.currency, watchedCashoutAmount]);
 
   const stats = useMemo(() => {
     if (!wallet) {
@@ -940,6 +938,12 @@ export default function BillingPage() {
 
     if (isClient) {
       return [
+        {
+          id: "available",
+          label: "Available to withdraw",
+          value: formatCurrency(wallet.availableBalance, wallet.currency),
+          icon: WalletCards,
+        },
         {
           id: "held",
           label: "Held in escrow",
@@ -1365,7 +1369,7 @@ export default function BillingPage() {
         </section>
       ) : null}
 
-      <section className={`grid gap-4 md:grid-cols-2 ${isClient ? "xl:grid-cols-3" : "xl:grid-cols-4"}`}>
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {stats.map((stat) => {
           const Icon = stat.icon;
 
@@ -1498,8 +1502,27 @@ export default function BillingPage() {
             </CardContent>
           </Card>
         </section>
-      ) : (
-        <div className="space-y-6">
+      ) : null}
+
+      <div className="space-y-6">
+        {isClient ? (
+          <section>
+            <Card className="border-amber-200 bg-amber-50/70 shadow-sm">
+              <CardContent className="flex flex-col gap-3 p-5 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-1">
+                  <p className="text-sm font-semibold text-amber-950">Refund payout after verdict</p>
+                  <p className="text-sm leading-6 text-amber-900/80">
+                    Refunds from a dispute do not go straight back to PayPal. They settle into your wallet first, then become withdrawable after the appeal window closes or both parties explicitly accept the verdict.
+                  </p>
+                </div>
+                <Badge className="w-fit border-amber-200 bg-white text-amber-800 hover:bg-white">
+                  {formatCurrency(wallet.availableBalance, wallet.currency)} withdrawable
+                </Badge>
+              </CardContent>
+            </Card>
+          </section>
+        ) : null}
+
           <section className="grid gap-6 xl:grid-cols-[1.15fr_0.95fr]">
             <Card className="overflow-hidden border-slate-200 shadow-sm">
               <CardHeader className="border-b border-slate-100 bg-slate-50/70">
@@ -1622,7 +1645,7 @@ export default function BillingPage() {
                       <div className="space-y-1">
                         <p className="text-sm font-semibold text-slate-900">PayPal destination</p>
                         <p className="text-sm text-slate-500">
-                          Save the PayPal email that should receive released cashouts.
+                          Save the PayPal email that should receive available cashouts from your wallet.
                         </p>
                       </div>
 
@@ -1720,7 +1743,7 @@ export default function BillingPage() {
                       Request cashout
                     </CardTitle>
                     <CardDescription className="mt-1 text-sm text-slate-600">
-                      Move available funds to a saved PayPal payout email.
+                      Move available wallet funds to a saved PayPal payout email.
                     </CardDescription>
                   </div>
                   <Badge className="border-slate-200 bg-white text-slate-700 hover:bg-white">
@@ -1914,14 +1937,16 @@ export default function BillingPage() {
                     <div className="flex flex-wrap items-center gap-3">
                       <Button
                         type="submit"
-                        disabled={requestingCashout || cashoutEligibleMethods.length === 0}
+                        disabled={requestingCashout || cashoutEligibleMethods.length === 0 || !hasAvailableCashoutBalance}
                         className="bg-slate-900 px-5 hover:bg-slate-800"
                       >
                         {requestingCashout ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                         Request cashout
                       </Button>
                       <p className="text-sm text-slate-500">
-                        Cashouts are checked against wallet balance first. The quote and history below will show whether this runtime used PayPal Payouts or sandbox fallback.
+                        {hasAvailableCashoutBalance
+                          ? "Cashouts are checked against wallet balance first. The quote and history below will show whether this runtime used PayPal Payouts or sandbox fallback."
+                          : "Cashout stays disabled until the wallet has a positive available balance."}
                       </p>
                     </div>
                   </form>
@@ -2044,8 +2069,7 @@ export default function BillingPage() {
               </CardContent>
             </Card>
           </section>
-        </div>
-      )}
+      </div>
 
       <Card className="border-slate-200 shadow-sm">
         <CardHeader className="border-b border-slate-100 bg-slate-50/70">

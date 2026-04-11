@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
@@ -415,15 +415,50 @@ describe('PayoutRequestsService', () => {
     });
   });
 
-  it('forbids users outside broker/freelancer cashout lanes', async () => {
-    await expect(
-      service.createForUser(
-        { id: 'user-2', role: UserRole.CLIENT } as never,
-        {
-          payoutMethodId: 'method-1',
-          amount: 10,
-        } as CreatePayoutRequestDto,
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException);
+  it('allows clients to cash out verdict funds through the same wallet lane', async () => {
+    const wallet = makeWallet({ userId: 'user-2', balance: 25 });
+    walletService.getOrCreateWallet.mockResolvedValue(wallet);
+    payoutMethodRepo.findOne.mockResolvedValue({
+      id: 'method-1',
+      userId: 'user-2',
+      type: PayoutMethodType.PAYPAL_EMAIL,
+      paypalEmail: 'client@example.com',
+      bankName: null,
+      accountNumber: null,
+      accountHolderName: null,
+      isDefault: true,
+      isVerified: true,
+      createdAt: new Date('2026-03-13T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-13T00:00:00.000Z'),
+    });
+    feeConfigRepo.findOne.mockResolvedValue(null);
+    payoutRequestRepoInTransaction.save.mockImplementation((value) => ({
+      id: value.id || 'payout-client-1',
+      requestedAt: new Date('2026-03-14T00:00:00.000Z'),
+      updatedAt: new Date('2026-03-14T00:00:00.000Z'),
+      ...value,
+    }));
+    transactionRepo.save.mockImplementation((value) => ({
+      id: value.id || 'tx-client-1',
+      createdAt: new Date('2026-03-14T00:00:00.000Z'),
+      ...value,
+    }));
+    payoutGateway.payout.mockResolvedValue({
+      providerReference: 'sandbox:payout:payout-client-1',
+      nextAction: { type: 'SANDBOX_PAYOUT_COMPLETED' },
+      sandboxFallback: true,
+    });
+
+    const result = await service.createForUser(
+      { id: 'user-2', role: UserRole.CLIENT } as never,
+      {
+        payoutMethodId: 'method-1',
+        amount: 10,
+      } as CreatePayoutRequestDto,
+    );
+
+    expect(result.request.status).toBe(PayoutStatus.COMPLETED);
+    expect(result.wallet.availableBalance).toBe(15);
+    expect(result.wallet.totalWithdrawn).toBe(10);
   });
 });

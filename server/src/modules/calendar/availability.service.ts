@@ -277,6 +277,7 @@ export class AvailabilityService {
       userId: input.userId,
       entries: savedEntries.map((entry) => entry.id),
       conflictEventIds: conflictingEvents.map((event) => event.id),
+      rescheduleRequests,
     });
 
     return { entries: savedEntries, conflictingEvents, rescheduleRequests };

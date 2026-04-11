@@ -15,6 +15,7 @@ export interface SendDisputeMessagePayload {
   content?: string;
   replyToMessageId?: string;
   relatedEvidenceId?: string;
+  attachedEvidenceIds?: string[];
   hearingId?: string;
   metadata?: Record<string, unknown>;
 }

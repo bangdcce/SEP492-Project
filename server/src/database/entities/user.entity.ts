@@ -186,6 +186,12 @@ export class UserEntity {
   @OneToMany('UserFlagEntity', 'user')
   flags: any[];
 
+  @OneToOne('StaffApplicationEntity', 'user')
+  staffApplication: any;
+
+  @OneToMany('StaffApplicationEntity', 'reviewer')
+  reviewedStaffApplications: any[];
+
   @OneToMany('UserSkillEntity', 'user')
   userSkills: any[];
 

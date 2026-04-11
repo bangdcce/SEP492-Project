@@ -25,10 +25,12 @@ import {
   updateSpeakerControl,
   getDisputeVerdict,
   submitAppeal,
+  acceptDisputeVerdict,
 } from "@/features/hearings/api";
 import type {
   HearingParticipantRole,
   HearingStatementContentBlock,
+  HearingStatementSummary,
   HearingStatementType,
   HearingWorkspaceSummary,
   SpeakerRole,
@@ -47,6 +49,7 @@ import {
 import { sendDisputeMessageRealtime } from "@/features/disputes/realtime";
 import { STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
+import { getApiErrorDetails } from "@/shared/utils/apiError";
 import { UserRole } from "@/features/staff/types/staff.types";
 import {
   ResizableHandle,
@@ -83,6 +86,7 @@ import { RoleGuideBanner } from "./hearing-room/RoleGuideBanner";
 import { VerdictAnnouncement } from "./hearing-room/VerdictAnnouncement";
 import { PreviousVerdictBanner } from "./hearing-room/PreviousVerdictBanner";
 import { AppealDialog } from "./hearing-room/AppealDialog";
+import { AcceptVerdictDialog } from "./hearing-room/AcceptVerdictDialog";
 import { EvidenceUploadDialog } from "./hearing-room/EvidenceUploadDialog";
 import { InHearingVerdictPanel } from "./hearing-room/InHearingVerdictPanel";
 import { VerdictReadinessCard } from "./hearing-room/VerdictReadinessCard";
@@ -92,6 +96,48 @@ import { VerdictReadinessCard } from "./hearing-room/VerdictReadinessCard";
 interface HearingRoomProps {
   hearingId: string;
 }
+
+const REALTIME_WORKSPACE_REFRESH_DEBOUNCE_MS = 220;
+
+const mergeWorkspaceMessages = (
+  previousMessages: LocalMessage[],
+  incomingMessages: LocalMessage[],
+): LocalMessage[] => {
+  const mergedById = new Map<string, LocalMessage>();
+
+  incomingMessages.forEach((message) => {
+    mergedById.set(message.id, message);
+  });
+
+  // Keep local optimistic messages until a matching server message arrives.
+  previousMessages.forEach((message) => {
+    if (!message.id.startsWith("optimistic-")) {
+      return;
+    }
+
+    const matchedServerMessage = incomingMessages.some((incoming) => {
+      if (incoming.senderId !== message.senderId) {
+        return false;
+      }
+
+      const contentMatches =
+        (incoming.content || "").trim() === (message.content || "").trim();
+      if (!contentMatches) {
+        return false;
+      }
+
+      return Math.abs(toMs(incoming.createdAt) - toMs(message.createdAt)) <= 45_000;
+    });
+
+    if (!matchedServerMessage) {
+      mergedById.set(message.id, message);
+    }
+  });
+
+  return Array.from(mergedById.values()).sort(
+    (left, right) => toMs(left.createdAt) - toMs(right.createdAt),
+  );
+};
 
 /* ─── Component ─── */
 
@@ -137,6 +183,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   const [verdict, setVerdict] = useState<VerdictSummary | null>(null);
   const [appealDialogOpen, setAppealDialogOpen] = useState(false);
   const [appealLoading, setAppealLoading] = useState(false);
+  const [acceptVerdictDialogOpen, setAcceptVerdictDialogOpen] = useState(false);
+  const [acceptVerdictLoading, setAcceptVerdictLoading] = useState(false);
 
   /* ── layout ── */
   const [mobilePane, setMobilePane] = useState<MobilePane>("main");
@@ -150,6 +198,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
 
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const evidenceInputRef = useRef<HTMLInputElement | null>(null);
+  const refreshTimeoutRef = useRef<number | null>(null);
+  const refreshSequenceRef = useRef(0);
 
   const currentUser = useMemo(
     () => getStoredJson<{ id?: string; role?: UserRole }>(STORAGE_KEYS.USER),
@@ -167,26 +217,82 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
 
   const refreshWorkspace = useCallback(
     async (silent = false) => {
+      const sequence = ++refreshSequenceRef.current;
       try {
         if (!silent) setLoading(true);
         const data = await getHearingWorkspace(hearingId);
+
+        if (sequence !== refreshSequenceRef.current) {
+          return;
+        }
+
         setWorkspace(data);
-        setMessages(
-          (data.messages ?? []).map((m) => ({ ...m, status: "sent" as const })),
+        setMessages((previous) =>
+          mergeWorkspaceMessages(
+            previous,
+            (data.messages ?? []).map((message) => ({
+              ...message,
+              status: "sent" as const,
+            })),
+          ),
         );
-        setPreviewEvidenceId((prev) => prev ?? data.evidence?.[0]?.id ?? null);
+        setPreviewEvidenceId((previous) => {
+          if (!previous) {
+            return data.evidence?.[0]?.id ?? null;
+          }
+
+          const stillExists = (data.evidence ?? []).some(
+            (evidenceItem) => evidenceItem.id === previous,
+          );
+          return stillExists ? previous : (data.evidence?.[0]?.id ?? null);
+        });
       } catch {
-        toast.error("Could not load hearing workspace");
+        if (!silent) {
+          toast.error("Could not load hearing workspace");
+        }
       } finally {
-        if (!silent) setLoading(false);
+        if (!silent && sequence === refreshSequenceRef.current) {
+          setLoading(false);
+        }
       }
     },
     [hearingId],
   );
 
+  const scheduleWorkspaceRefresh = useCallback(
+    (options?: { immediate?: boolean; delayMs?: number }) => {
+      const immediate = options?.immediate ?? false;
+      const delayMs = options?.delayMs ?? REALTIME_WORKSPACE_REFRESH_DEBOUNCE_MS;
+
+      if (refreshTimeoutRef.current !== null) {
+        window.clearTimeout(refreshTimeoutRef.current);
+        refreshTimeoutRef.current = null;
+      }
+
+      if (immediate) {
+        void refreshWorkspace(true);
+        return;
+      }
+
+      refreshTimeoutRef.current = window.setTimeout(() => {
+        refreshTimeoutRef.current = null;
+        void refreshWorkspace(true);
+      }, delayMs);
+    },
+    [refreshWorkspace],
+  );
+
   useEffect(() => {
     void refreshWorkspace();
   }, [refreshWorkspace]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimeoutRef.current !== null) {
+        window.clearTimeout(refreshTimeoutRef.current);
+      }
+    };
+  }, []);
 
   /* ─── Derived data ─── */
 
@@ -237,7 +343,13 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
   /* ─── Permissions ─── */
 
   const canSendMessage = Boolean(hearing?.permissions?.canSendMessage);
-  const canUploadEvidence = Boolean(hearing?.permissions?.canUploadEvidence);
+  const isLiveEvidenceIntakeClosed =
+    hearing?.status === "IN_PROGRESS" && hearing?.isEvidenceIntakeOpen === false;
+  const uploadEvidenceBlockedReason = isLiveEvidenceIntakeClosed
+    ? "Live hearing evidence intake is closed. Ask moderator to open intake before uploading."
+    : hearing?.permissions?.uploadEvidenceBlockedReason;
+  const canUploadEvidence =
+    Boolean(hearing?.permissions?.canUploadEvidence) && !isLiveEvidenceIntakeClosed;
   const canAttachEvidence = Boolean(
     hearing?.permissions?.canAttachEvidenceLink,
   );
@@ -343,6 +455,13 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       : `${minutes}m remaining`;
   }, [verdict?.appealDeadline]);
 
+  const hasFinalVerdict = useMemo(() => {
+    if (!verdict) {
+      return false;
+    }
+    return !(hearing?.tier === "TIER_2" && verdict.tier === 1);
+  }, [hearing?.tier, verdict]);
+
   const handleAppealSubmit = useCallback(
     async (input: {
       reason: string;
@@ -360,6 +479,28 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         toast.error(err?.response?.data?.message || "Failed to submit appeal");
       } finally {
         setAppealLoading(false);
+      }
+    },
+    [fetchVerdict, hearing?.disputeId, refreshWorkspace],
+  );
+
+  const handleAcceptVerdictSubmit = useCallback(
+    async (input: {
+      disclaimerAccepted: boolean;
+      waiveAppealRights: boolean;
+      disclaimerVersion?: string;
+    }) => {
+      if (!hearing?.disputeId) return;
+      setAcceptVerdictLoading(true);
+      try {
+        await acceptDisputeVerdict(hearing.disputeId, input);
+        toast.success("Verdict accepted");
+        setAcceptVerdictDialogOpen(false);
+        await Promise.all([fetchVerdict(), refreshWorkspace(true)]);
+      } catch (err: any) {
+        toast.error(err?.response?.data?.message || "Failed to accept verdict");
+      } finally {
+        setAcceptVerdictLoading(false);
       }
     },
     [fetchVerdict, hearing?.disputeId, refreshWorkspace],
@@ -414,6 +555,39 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       a.sortAt === b.sortAt ? a.id.localeCompare(b.id) : a.sortAt - b.sortAt,
     );
   }, [messages, workspace?.questions, workspace?.statements, verdict]);
+
+  const upsertRealtimeStatement = useCallback(
+    (statement: HearingStatementSummary) => {
+      setWorkspace((prev) => {
+        if (!prev) return prev;
+
+        const currentStatements = prev.statements ?? [];
+        const existingIndex = currentStatements.findIndex(
+          (item) => item.id === statement.id,
+        );
+
+        const nextStatements =
+          existingIndex >= 0
+            ? currentStatements.map((item, index) =>
+                index === existingIndex ? { ...item, ...statement } : item,
+              )
+            : [...currentStatements, statement];
+
+        nextStatements.sort((a, b) => {
+          const orderA = a.orderIndex ?? Number.MAX_SAFE_INTEGER;
+          const orderB = b.orderIndex ?? Number.MAX_SAFE_INTEGER;
+          if (orderA !== orderB) return orderA - orderB;
+          return toMs(a.createdAt) - toMs(b.createdAt);
+        });
+
+        return {
+          ...prev,
+          statements: nextStatements,
+        };
+      });
+    },
+    [],
+  );
 
   /* auto-scroll timeline */
   useEffect(() => {
@@ -531,25 +705,81 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
             }
           : prev,
       );
+      scheduleWorkspaceRefresh();
     },
-    onHearingPaused: () => {
+    onHearingPaused: (payload) => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                status: "PAUSED",
+                pausedAt:
+                  payload?.pausedAt || prev.hearing.pausedAt || new Date().toISOString(),
+                pauseReason: payload?.reason || prev.hearing.pauseReason,
+              },
+            }
+          : prev,
+      );
       notify({ type: "warning", title: "Hearing Paused", browser: true });
-      void refreshWorkspace(true);
+      scheduleWorkspaceRefresh();
     },
-    onHearingResumed: () => {
+    onHearingResumed: (payload) => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                status: "IN_PROGRESS",
+                pausedAt: null,
+                pauseReason: null,
+                currentSpeakerRole:
+                  payload?.restoredSpeakerRole || prev.hearing.currentSpeakerRole,
+              },
+            }
+          : prev,
+      );
       notify({ type: "start", title: "Hearing Resumed", browser: true });
-      void refreshWorkspace(true);
+      scheduleWorkspaceRefresh();
     },
-    onHearingStarted: () => {
+    onHearingStarted: (payload) => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                status: "IN_PROGRESS",
+                startedAt:
+                  payload?.startedAt || prev.hearing.startedAt || new Date().toISOString(),
+              },
+            }
+          : prev,
+      );
       notify({
         type: "start",
         title: "Hearing Started",
         body: "The hearing session is now live",
         browser: true,
       });
-      void refreshWorkspace(true);
+      scheduleWorkspaceRefresh();
     },
     onHearingEnded: () => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                status: "COMPLETED",
+                endedAt: new Date().toISOString(),
+                currentSpeakerRole: "MUTED_ALL",
+              },
+            }
+          : prev,
+      );
       notify({
         type: "warning",
         title: "Hearing Ended",
@@ -557,7 +787,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         browser: true,
       });
       void fetchVerdict();
-      void refreshWorkspace(true);
+      scheduleWorkspaceRefresh();
     },
     onHearingTimeWarning: (payload) => {
       const body =
@@ -582,7 +812,81 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           : "A new hearing session has been scheduled for this dispute.",
         browser: true,
       });
-      void refreshWorkspace(true);
+      scheduleWorkspaceRefresh();
+    },
+    onHearingSupportInvited: (payload) => {
+      const supportRole = payload?.participantRole
+        ? String(payload.participantRole).replace(/_/g, " ").toLowerCase()
+        : "support participant";
+      notify({
+        type: "phase",
+        title: "Support Participant Invited",
+        body: `A ${supportRole} was invited to this hearing.`,
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
+    onHearingReminderSent: (payload) => {
+      if (payload?.userId && payload.userId !== currentUserId) {
+        return;
+      }
+      notify({
+        type: "warning",
+        title: "Hearing Reminder",
+        body: "A hearing reminder was just sent.",
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
+    onHearingPhaseDeadlinesSet: () => {
+      scheduleWorkspaceRefresh();
+    },
+    onHearingStatementDraftSaved: () => {
+      scheduleWorkspaceRefresh();
+    },
+    onHearingModeratorDisconnected: (payload) => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                currentSpeakerRole:
+                  payload?.newSpeakerRole || prev.hearing.currentSpeakerRole,
+              },
+            }
+          : prev,
+      );
+      notify({
+        type: "warning",
+        title: "Moderator Disconnected",
+        body:
+          payload?.message ||
+          "Moderator connection was lost. Speaking permissions are restricted.",
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
+    },
+    onHearingModeratorReconnected: (payload) => {
+      setWorkspace((prev) =>
+        prev
+          ? {
+              ...prev,
+              hearing: {
+                ...prev.hearing,
+                currentSpeakerRole:
+                  payload?.newSpeakerRole || prev.hearing.currentSpeakerRole,
+              },
+            }
+          : prev,
+      );
+      notify({
+        type: "start",
+        title: "Moderator Reconnected",
+        body: payload?.message || "Moderator is back. Session controls were restored.",
+        browser: true,
+      });
+      scheduleWorkspaceRefresh();
     },
     onHearingExtended: (payload) => {
       if (payload?.newDurationMinutes) {
@@ -598,7 +902,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
             : prev,
         );
       } else {
-        void refreshWorkspace(true);
+          scheduleWorkspaceRefresh();
       }
       notify({
         type: "phase",
@@ -609,7 +913,20 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         browser: true,
       });
     },
-    onStatementSubmitted: () => void refreshWorkspace(true),
+    onStatementSubmitted: (payload) => {
+      if (payload?.statement?.id) {
+        upsertRealtimeStatement(payload.statement as HearingStatementSummary);
+        notify({
+          type: "phase",
+          title: "Statement Submitted",
+          body: payload?.statementType
+            ? `${String(payload.statementType).replace(/_/g, " ")} added to the hearing record`
+            : "A new formal statement was added to the hearing record",
+          browser: true,
+        });
+      }
+      scheduleWorkspaceRefresh();
+    },
     onQuestionAsked: () => {
       notify({
         type: "question",
@@ -617,9 +934,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         body: "A formal question has been asked",
         browser: true,
       });
-      void refreshWorkspace(true);
+      scheduleWorkspaceRefresh();
     },
-    onQuestionAnswered: () => void refreshWorkspace(true),
+    onQuestionAnswered: () => scheduleWorkspaceRefresh(),
     onPhaseTransitioned: (payload) => {
       const phaseName = payload?.newPhase || payload?.phase;
       notify({
@@ -630,7 +947,10 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           : "Phase updated",
         browser: true,
       });
-      if (!phaseName) return void refreshWorkspace(true);
+      if (!phaseName) {
+        scheduleWorkspaceRefresh();
+        return;
+      }
       setWorkspace((prev) =>
         prev
           ? {
@@ -653,8 +973,9 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
             }
           : prev,
       );
+      scheduleWorkspaceRefresh();
     },
-    onQuestionCancelled: () => void refreshWorkspace(true),
+    onQuestionCancelled: () => scheduleWorkspaceRefresh(),
     onVerdictIssued: () => {
       notify({
         type: "warning",
@@ -663,11 +984,11 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         browser: true,
       });
       void fetchVerdict();
-      void refreshWorkspace(true);
+      scheduleWorkspaceRefresh();
     },
     onEvidenceUploaded: (payload) => {
       // Refresh evidence list for all participants in real-time
-      void refreshWorkspace(true);
+      scheduleWorkspaceRefresh();
       // Show toast for evidence from other users
       if (payload?.uploaderId && payload.uploaderId !== currentUserId) {
         const uploaderLabel =
@@ -788,7 +1109,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                 : m,
             ),
           );
-          await refreshWorkspace(true);
+          scheduleWorkspaceRefresh({ immediate: true });
         } catch {
           /* Remove optimistic message on failure */
           setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
@@ -804,7 +1125,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       currentUserId,
       canSendMessage,
       chatReason,
-      refreshWorkspace,
+      scheduleWorkspaceRefresh,
     ],
   );
 
@@ -815,19 +1136,30 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         return toast.error(
           hearing?.permissions?.attachEvidenceBlockedReason || "Attach blocked",
         );
+      const selected = evidenceById.get(evidenceId);
+      const attachmentPayload = {
+        hearingId: hearing.id,
+        type: "EVIDENCE_LINK" as const,
+        relatedEvidenceId: evidenceId,
+        attachedEvidenceIds: [evidenceId],
+        content: `Attached evidence: ${selected?.fileName || evidenceId} (#EVD-${evidenceId})`,
+      };
       try {
         setEvidenceAttaching(true);
-        const selected = evidenceById.get(evidenceId);
         await sendDisputeMessageRealtime({
           disputeId: hearing.disputeId,
-          hearingId: hearing.id,
-          type: "EVIDENCE_LINK",
-          relatedEvidenceId: evidenceId,
-          content: `Attached evidence: ${selected?.fileName || evidenceId} (#EVD-${evidenceId})`,
+          ...attachmentPayload,
         });
         setPreviewEvidenceId(evidenceId);
+        scheduleWorkspaceRefresh({ immediate: true });
       } catch {
-        toast.error("Could not attach evidence link");
+        try {
+          await sendDisputeMessage(hearing.disputeId, attachmentPayload);
+          setPreviewEvidenceId(evidenceId);
+          scheduleWorkspaceRefresh({ immediate: true });
+        } catch {
+          toast.error("Could not attach evidence link");
+        }
       } finally {
         setEvidenceAttaching(false);
       }
@@ -838,6 +1170,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       hearing?.permissions?.attachEvidenceBlockedReason,
       canAttachEvidence,
       evidenceById,
+      scheduleWorkspaceRefresh,
     ],
   );
 
@@ -847,7 +1180,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       if (!file || !hearing?.disputeId) return;
       if (!canUploadEvidence) {
         toast.error(
-          hearing?.permissions?.uploadEvidenceBlockedReason || "Upload blocked",
+          uploadEvidenceBlockedReason || "Upload blocked",
         );
         event.target.value = "";
         return;
@@ -868,8 +1201,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     },
     [
       hearing?.disputeId,
-      hearing?.permissions?.uploadEvidenceBlockedReason,
       canUploadEvidence,
+      uploadEvidenceBlockedReason,
     ],
   );
 
@@ -884,15 +1217,27 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           description,
         );
         const eid = extractEvidenceId(response);
-        await refreshWorkspace(true);
+        scheduleWorkspaceRefresh({ immediate: true });
         if (eid) {
           setPreviewEvidenceId(eid);
           if (canAttachEvidence) await attachEvidence(eid);
         }
         setEvidenceUploadDialogOpen(false);
         setPendingEvidenceFile(null);
-      } catch {
-        toast.error("Could not upload evidence");
+      } catch (error) {
+        const details = getApiErrorDetails(error, "Could not upload evidence");
+        const normalizedMessage = details.message.toLowerCase();
+        if (
+          details.code === "HEARING_EVIDENCE_WINDOW_CLOSED" ||
+          normalizedMessage.includes("evidence intake is closed")
+        ) {
+          setEvidenceUploadDialogOpen(false);
+          setPendingEvidenceFile(null);
+          scheduleWorkspaceRefresh({ immediate: true });
+        }
+        toast.error(
+          details.code ? `[${details.code}] ${details.message}` : details.message,
+        );
       } finally {
         setEvidenceUploading(false);
       }
@@ -902,7 +1247,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       hearing?.disputeId,
       canAttachEvidence,
       attachEvidence,
-      refreshWorkspace,
+      scheduleWorkspaceRefresh,
     ],
   );
 
@@ -915,14 +1260,14 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           targetUserId,
           question: question.trim(),
         });
-        await refreshWorkspace(true);
+        scheduleWorkspaceRefresh({ immediate: true });
       } catch {
         toast.error("Could not send question");
       } finally {
         setQuestionSubmitting(false);
       }
     },
-    [hearing, refreshWorkspace],
+    [hearing, scheduleWorkspaceRefresh],
   );
 
   const onAnswerQuestion = useCallback(
@@ -930,7 +1275,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       if (!hearing) return;
       try {
         await answerHearingQuestion(hearing.id, questionId, answer);
-        await refreshWorkspace(true);
+        scheduleWorkspaceRefresh({ immediate: true });
         toast.success("Answer submitted");
       } catch (error: unknown) {
         const msg =
@@ -940,7 +1285,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         throw error; // re-throw so QuestionItem keeps the answer text
       }
     },
-    [hearing, refreshWorkspace],
+    [hearing, scheduleWorkspaceRefresh],
   );
 
   const onHideMessage = useCallback(
@@ -988,13 +1333,13 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       if (!hearing || !canModerate) return;
       try {
         await cancelHearingQuestion(hearing.id, questionId);
-        await refreshWorkspace(true);
+        scheduleWorkspaceRefresh({ immediate: true });
         toast.success("Question skipped");
       } catch {
         toast.error("Could not skip question");
       }
     },
-    [hearing, canModerate, refreshWorkspace],
+    [hearing, canModerate, scheduleWorkspaceRefresh],
   );
 
   const onPauseSession = useCallback(
@@ -1003,7 +1348,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       try {
         setPauseUpdating(true);
         await pauseHearing(hearing.id, reason.trim());
-        await refreshWorkspace(true);
+        scheduleWorkspaceRefresh({ immediate: true });
       } catch {
         toast.error("Could not pause hearing");
       } finally {
@@ -1011,7 +1356,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         setPauseDialogOpen(false);
       }
     },
-    [hearing, canModerate, refreshWorkspace],
+    [hearing, canModerate, scheduleWorkspaceRefresh],
   );
 
   const onResumeSession = useCallback(async () => {
@@ -1019,13 +1364,13 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     try {
       setResumeUpdating(true);
       await resumeHearing(hearing.id);
-      await refreshWorkspace(true);
+      scheduleWorkspaceRefresh({ immediate: true });
     } catch {
       toast.error("Could not resume hearing");
     } finally {
       setResumeUpdating(false);
     }
-  }, [hearing, canModerate, refreshWorkspace]);
+  }, [hearing, canModerate, scheduleWorkspaceRefresh]);
 
   const onEndSession = useCallback(
     async (data: {
@@ -1033,6 +1378,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       findings: string;
       pendingActions?: string[];
       noShowNote?: string;
+      forceEnd?: boolean;
     }) => {
       if (
         !hearing ||
@@ -1040,12 +1386,25 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         !["IN_PROGRESS", "PAUSED"].includes(hearing.status)
       )
         return;
-      const summary = data.summary.trim();
-      const findings = data.findings.trim();
+
+      const summary =
+        data.summary.trim() ||
+        (hasFinalVerdict
+          ? "Hearing closed after verdict announcement."
+          : "");
+      const findings =
+        data.findings.trim() ||
+        (hasFinalVerdict
+          ? "Verdict has been announced and recorded for this dispute."
+          : "");
       if (!summary || !findings) {
         toast.error("Summary and findings are required to close hearing.");
         return;
       }
+
+      const shouldForceEnd = Boolean(data.forceEnd || hasFinalVerdict);
+      let endedSuccessfully = false;
+
       try {
         setEnding(true);
         await endHearing(hearing.id, {
@@ -1053,17 +1412,43 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           summary,
           findings,
           pendingActions: data.pendingActions,
+          forceEnd: shouldForceEnd,
           noShowNote: data.noShowNote,
         });
-        await refreshWorkspace(true);
-      } catch {
-        toast.error("Could not end hearing");
+        endedSuccessfully = true;
+        scheduleWorkspaceRefresh({ immediate: true });
+      } catch (error) {
+        const details = getApiErrorDetails(error, "Could not end hearing");
+        const normalizedMessage = details.message.toLowerCase();
+
+        if (
+          details.code === "NO_SHOW_NOTE_REQUIRED" ||
+          normalizedMessage.includes("no-show note")
+        ) {
+          toast.error(
+            "Required participant absence detected. Add a no-show note and try ending again.",
+          );
+          return;
+        }
+
+        if (normalizedMessage.includes("unanswered questions")) {
+          toast.error(
+            "There are pending questions. Enable force-close unanswered questions, then end the hearing again.",
+          );
+          return;
+        }
+
+        toast.error(
+          details.code ? `[${details.code}] ${details.message}` : details.message,
+        );
       } finally {
         setEnding(false);
-        setEndDialogOpen(false);
+        if (endedSuccessfully) {
+          setEndDialogOpen(false);
+        }
       }
     },
-    [hearing, canModerate, refreshWorkspace],
+    [hearing, canModerate, hasFinalVerdict, scheduleWorkspaceRefresh],
   );
 
   const onExtendSession = useCallback(
@@ -1076,7 +1461,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           additionalMinutes,
           reason,
         });
-        await refreshWorkspace(true);
+        scheduleWorkspaceRefresh({ immediate: true });
         toast.success(`Hearing extended by ${additionalMinutes} minutes`);
       } catch {
         toast.error("Could not extend hearing");
@@ -1085,7 +1470,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         setExtendDialogOpen(false);
       }
     },
-    [hearing, canModerate, refreshWorkspace],
+    [hearing, canModerate, scheduleWorkspaceRefresh],
   );
 
   const onDownloadPreviewEvidence = useCallback(async () => {
@@ -1114,14 +1499,14 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       try {
         setIntakeUpdating(true);
         await openHearingEvidenceIntake(hearing.id, reason);
-        await refreshWorkspace(true);
+        scheduleWorkspaceRefresh({ immediate: true });
       } catch {
         toast.error("Could not open intake");
       } finally {
         setIntakeUpdating(false);
       }
     },
-    [hearing, canManageIntake, refreshWorkspace],
+    [hearing, canManageIntake, scheduleWorkspaceRefresh],
   );
 
   const onCloseIntake = useCallback(async () => {
@@ -1129,13 +1514,13 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     try {
       setIntakeUpdating(true);
       await closeHearingEvidenceIntake(hearing.id);
-      await refreshWorkspace(true);
+      scheduleWorkspaceRefresh({ immediate: true });
     } catch {
       toast.error("Could not close intake");
     } finally {
       setIntakeUpdating(false);
     }
-  }, [hearing, canManageIntake, refreshWorkspace]);
+  }, [hearing, canManageIntake, scheduleWorkspaceRefresh]);
 
   const onUpdateSpeakerControl = useCallback(
     async (role: SpeakerRole) => {
@@ -1170,7 +1555,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       if (!hearing) return;
       try {
         await transitionHearingPhase(hearing.id, phase);
-        await refreshWorkspace(true);
+        scheduleWorkspaceRefresh({ immediate: true });
         toast.success(
           `Transitioned to ${phase.replace(/_/g, " ").toLowerCase()}`,
         );
@@ -1178,19 +1563,28 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         toast.error("Could not transition phase");
       }
     },
-    [hearing, refreshWorkspace],
+    [hearing, scheduleWorkspaceRefresh],
   );
 
   const onStartSession = useCallback(async () => {
     if (!hearing) return;
     try {
       await startHearing(hearing.id);
-      await refreshWorkspace(true);
+      scheduleWorkspaceRefresh({ immediate: true });
       toast.success("Hearing session started");
-    } catch {
-      toast.error("Could not start hearing");
+    } catch (error) {
+      const details = getApiErrorDetails(error, "Could not start hearing");
+      const normalized = details.message.toLowerCase();
+      const actionableMessage = normalized.includes("cannot start this early")
+        ? `${details.message} Ensure required participants accepted the invite and are online in the hearing room.`
+        : details.message;
+      toast.error(
+        details.code
+          ? `[${details.code}] ${actionableMessage}`
+          : actionableMessage,
+      );
     }
-  }, [hearing, refreshWorkspace]);
+  }, [hearing, scheduleWorkspaceRefresh]);
 
   const onSubmitStatement = useCallback(
     async (input: {
@@ -1199,6 +1593,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
       content: string;
       contentBlocks: HearingStatementContentBlock[];
       citedEvidenceIds?: string[];
+      replyToStatementId?: string;
       platformDeclarationAccepted?: boolean;
       changeSummary?: string;
       draftId?: string;
@@ -1206,12 +1601,12 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
     }) => {
       if (!hearing) return;
       await submitHearingStatement(hearing.id, input);
-      await refreshWorkspace(true);
+      scheduleWorkspaceRefresh({ immediate: true });
       toast.success(
         input.isDraft ? "Draft saved" : "Statement submitted to the record",
       );
     },
-    [hearing, refreshWorkspace],
+    [hearing, scheduleWorkspaceRefresh],
   );
 
   /* ─── Loading state ─── */
@@ -1288,6 +1683,8 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               appealDeadlinePassed={appealDeadlinePassed}
               onAppeal={() => setAppealDialogOpen(true)}
               appealLoading={appealLoading}
+              onAccept={() => setAcceptVerdictDialogOpen(true)}
+              acceptLoading={acceptVerdictLoading}
             />
           </div>
         )}
@@ -1304,7 +1701,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
                 disputeCategory={workspace?.dossier?.dispute?.category}
                 onVerdictIssued={() => {
                   void fetchVerdict();
-                  void refreshWorkspace(true);
+                  scheduleWorkspaceRefresh({ immediate: true });
                 }}
               />
             </div>
@@ -1346,10 +1743,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
               canSendMessage={canSendMessage}
               chatBlockedReason={chatReason}
               canUploadEvidence={canUploadEvidence}
-              uploadBlockedReason={
-                hearing?.permissions?.uploadEvidenceBlockedReason ??
-                "Upload blocked"
-              }
+              uploadBlockedReason={uploadEvidenceBlockedReason ?? "Upload blocked"}
               canAttachEvidence={canAttachEvidence}
               canAskQuestions={canAskQuestions}
               sending={sending}
@@ -1520,6 +1914,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         onOpenChange={setEndDialogOpen}
         onConfirm={onEndSession}
         loading={ending}
+        verdictAnnounced={hasFinalVerdict}
       />
       <ExtendHearingDialog
         open={extendDialogOpen}
@@ -1540,7 +1935,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           open={inviteSupportOpen}
           onOpenChange={setInviteSupportOpen}
           hearingId={hearing.id}
-          onInvited={() => void refreshWorkspace(true)}
+          onInvited={() => scheduleWorkspaceRefresh({ immediate: true })}
         />
       )}
       {hearing && (
@@ -1548,7 +1943,7 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
           open={rescheduleOpen}
           onOpenChange={setRescheduleOpen}
           hearingId={hearing.id}
-          onRescheduled={() => void refreshWorkspace(true)}
+          onRescheduled={() => scheduleWorkspaceRefresh({ immediate: true })}
         />
       )}
       <AppealDialog
@@ -1556,6 +1951,11 @@ export const HearingRoom = ({ hearingId }: HearingRoomProps) => {
         onOpenChange={setAppealDialogOpen}
         onSubmit={handleAppealSubmit}
         deadlineText={appealDeadlineText}
+      />
+      <AcceptVerdictDialog
+        open={acceptVerdictDialogOpen}
+        onOpenChange={setAcceptVerdictDialogOpen}
+        onSubmit={handleAcceptVerdictSubmit}
       />
       <EvidenceUploadDialog
         open={evidenceUploadDialogOpen}

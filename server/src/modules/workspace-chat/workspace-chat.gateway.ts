@@ -15,17 +15,11 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Server, Socket } from 'socket.io';
-import {
-  IsArray,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  IsUUID,
-  ValidateNested,
-} from 'class-validator';
+import { IsArray, IsNotEmpty, IsOptional, IsString, IsUUID, ValidateNested } from 'class-validator';
 import { UserEntity, UserRole } from 'src/database/entities';
 import { WorkspaceChatService } from './workspace-chat.service';
 import { WorkspaceChatRealtimeBridge } from './workspace-chat.realtime';
+import { AuditLogsService } from '../audit-logs/audit-logs.service';
 
 const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
   if (value === undefined) return fallback;
@@ -146,6 +140,7 @@ export class WorkspaceChatGateway
   constructor(
     private readonly jwtService: JwtService,
     private readonly workspaceChatService: WorkspaceChatService,
+    private readonly auditLogsService: AuditLogsService,
     @InjectRepository(UserEntity)
     private readonly userRepo: Repository<UserEntity>,
   ) {}
@@ -193,6 +188,27 @@ export class WorkspaceChatGateway
       return { joined: true, room };
     } catch (error) {
       this.logBackendCrashDetail(error);
+      await this.logSystemIncidentIfNeeded(error, 'join-project-chat', data.projectId, client);
+      const message = this.toErrorMessage(error);
+      client.emit('workspaceChatError', { message });
+      throw this.toWsException(error);
+    }
+  }
+
+  @UsePipes(wsValidationPipe())
+  @SubscribeMessage('leaveProjectChat')
+  async leaveProjectChat(
+    @MessageBody() data: JoinProjectChatDto,
+    @ConnectedSocket() client: Socket,
+  ): Promise<{ left: boolean; room: string }> {
+    try {
+      await this.resolveUser(client);
+      const room = this.projectRoom(data.projectId);
+      await client.leave(room);
+      return { left: true, room };
+    } catch (error) {
+      this.logBackendCrashDetail(error);
+      await this.logSystemIncidentIfNeeded(error, 'leave-project-chat', data.projectId, client);
       const message = this.toErrorMessage(error);
       client.emit('workspaceChatError', { message });
       throw this.toWsException(error);
@@ -210,12 +226,6 @@ export class WorkspaceChatGateway
       this.logger.log(
         `sendProjectMessage received: projectId=${dto.projectId}, userId=${user.id}, socketId=${client.id}`,
       );
-      console.log('[WorkspaceChatGateway] sendProjectMessage payload', {
-        projectId: dto.projectId,
-        senderId: user.id,
-        taskId: dto.taskId ?? null,
-        attachmentCount: dto.attachments?.length ?? 0,
-      });
 
       const savedMessage = await this.workspaceChatService.saveMessage(
         dto.projectId,
@@ -234,6 +244,7 @@ export class WorkspaceChatGateway
       };
     } catch (error) {
       this.logBackendCrashDetail(error);
+      await this.logSystemIncidentIfNeeded(error, 'send-project-message', dto.projectId, client);
       const message = this.toErrorMessage(error);
       client.emit('workspaceChatError', { message });
       throw this.toWsException(error);
@@ -392,5 +403,47 @@ export class WorkspaceChatGateway
   private logBackendCrashDetail(error: unknown): void {
     const maybeError = error as { message?: unknown; stack?: unknown };
     console.error('🔥 BACKEND CRASH DETAIL:', maybeError?.message ?? error, maybeError?.stack);
+  }
+
+  private async logSystemIncidentIfNeeded(
+    error: unknown,
+    operation: string,
+    projectId: string,
+    client: Socket,
+  ): Promise<void> {
+    if (!this.isSystemIncident(error)) {
+      return;
+    }
+
+    await this.auditLogsService.logSystemIncident({
+      actorId: (client.data.user as WsUser | undefined)?.id || null,
+      component: 'WorkspaceChatGateway',
+      operation,
+      summary: `Workspace chat operation ${operation} failed`,
+      severity: 'HIGH',
+      category: 'WEBSOCKET',
+      error,
+      target: {
+        type: 'Project',
+        id: projectId,
+        label: projectId,
+      },
+      context: {
+        socketId: client.id,
+        namespace: '/ws/workspace',
+      },
+    });
+  }
+
+  private isSystemIncident(error: unknown): boolean {
+    if (error instanceof WsException) {
+      return false;
+    }
+
+    if (error instanceof HttpException) {
+      return error.getStatus() >= 500;
+    }
+
+    return true;
   }
 }

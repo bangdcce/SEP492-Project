@@ -1,0 +1,150 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/28.0.6 Chrome/138.0.7204.100 Electron/37.2.3 Safari/537.36" compressed="false" version="28.0.6">
+  <diagram id="f9767f73bd25" name="report_dispute_class_diagram_compact">
+    <mxGraphModel dx="2456" dy="1622" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="0" pageScale="1" pageWidth="2451" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;DisputeDetailHub&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- disputeId?: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- requestDialogMode: &amp;quot;impact-review&amp;quot; |&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;quot;support-escalation&amp;quot; | &amp;quot;admin-oversight&amp;quot; |&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;quot;neutral-panel&amp;quot; | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- reviewReason: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- reviewImpactSummary: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- reviewDialogOpen: boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- reviewSubmitting: boolean&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ DisputeDetailHub(props: DisputeDetailHubProps):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;JSX.Element&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ handleReviewRequestSubmit(): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="282.3" y="-20" width="331.8" height="220" as="geometry" />
+        </mxCell>
+        <mxCell id="4" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;submitDisputeReviewRequest&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitDisputeReviewRequest(disputeId: string,&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;input: object): Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="101.40000000000003" y="300" width="319.4" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="5" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;submitDisputeEscalationRequest&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitDisputeEscalationRequest(disputeId: string,&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;input: object): Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="450.79999999999995" y="300" width="344.2" height="88" as="geometry" />
+        </mxCell>
+        <mxCell id="6" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;ApiClient&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- client: AxiosInstance&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- refreshPromise: Promise&amp;lt;void&amp;gt; | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- sessionReconcilePromise: Promise&amp;lt;void&amp;gt; | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- isRedirectingToLogin: boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- lastLoginTime: number&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ constructor()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ post&amp;lt;T&amp;gt;(url: string, data?: unknown, config?:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;AxiosRequestConfig): Promise&amp;lt;T&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ refreshAccessTokenSingleFlight(): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- setupInterceptors()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- isRefreshEndpoint(url?: string): boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- isPublicAuthEndpoint(url?: string): boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- getAuthErrorCode(error: unknown): string | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- shouldAttemptSessionReconcile(error: unknown):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- reconcileSessionSingleFlight(): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- handleAuthFailure(suppressRedirect: boolean =&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;false)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="278.17" y="488" width="331.8" height="332" as="geometry" />
+        </mxCell>
+        <mxCell id="7" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;DisputesController&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- disputesService: DisputesService&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitReviewRequest(id: string, dto:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;ReviewRequestDto, user: UserEntity): Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitEscalationRequest(id: string, dto:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;RequestEscalationDto, user: UserEntity):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ createDisputes(@GetUser()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getListDisputes(@GetUser()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getMyDisputes(@GetUser()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getDisputeStats()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getQueueCount(@GetUser()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getQueueDisputes(@GetUser()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getCaseloadDisputes(@GetUser()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getSchedulingWorklist(@GetUser()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="282.3" y="900" width="331.8" height="270" as="geometry" />
+        </mxCell>
+        <mxCell id="8" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;DisputesService&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- disputeRepo: Repository&amp;lt;DisputeEntity&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- noteRepo: Repository&amp;lt;DisputeNoteEntity&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitReviewRequest(userId: string, userRole:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;UserRole, disputeId: string, dto: ReviewRequestDto):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;DisputeNoteEntity&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitEscalationRequest(userId: string, userRole:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;UserRole, disputeId: string, dto:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;RequestEscalationDto): Promise&amp;lt;DisputeNoteEntity&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ assertDisputeAccess(dispute: DisputeEntity,&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;userId: string, userRole: UserRole): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getVerdict(disputeId: string, userId: string,&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;userRole: UserRole)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- buildVerdictAcceptanceKey(disputeId: string,&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;verdictId: string): string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getPublicRecord(disputeId: string)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- sanitizePublicText(value: string | null |&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;undefined): string | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- toPublicRoleAlias(role: UserRole | null |&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;undefined): string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- buildPublicCaseNumber(disputeId: string): string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- ensureLegacyFlowAllowed(disputeId: string):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="52.8" y="1256" width="350.4" height="394" as="geometry" />
+        </mxCell>
+        <mxCell id="9" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;ReviewRequestDto&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ reason: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ impactSummary?: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ evidenceIds?: string[]&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="438.4000000000001" y="1780" width="176.8" height="102" as="geometry" />
+        </mxCell>
+        <mxCell id="10" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;RequestEscalationDto&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ kind: DisputeEscalationRequestKind&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ reason: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ impactSummary?: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ evidenceIds?: string[]&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="-310" y="1256" width="251.2" height="116" as="geometry" />
+        </mxCell>
+        <mxCell id="11" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;DisputeEntity&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ projectId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ raisedById: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ defendantId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ assignedStaffId?: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ escalatedToAdminId?: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ status: DisputeStatus&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ milestoneId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ priority: DisputePriority&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ reason: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry y="1730" width="207.8" height="214" as="geometry" />
+        </mxCell>
+        <mxCell id="12" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;DisputeNoteEntity&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ disputeId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ authorId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ authorRole: UserRole&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ content: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ isInternal: boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ noteType: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ attachments: string[]&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ isPinned: boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ createdAt: Date&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="237.8" y="1724" width="170.6" height="214" as="geometry" />
+        </mxCell>
+        <mxCell id="13" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;UserEntity&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ role: UserRole&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ fullName: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ email: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ passwordHash: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ phoneNumber: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ timeZone: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ isVerified: boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ resetPasswordOtp: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ resetPasswordOtpExpires: Date&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ badge(): BadgeType&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ warningLevel(): &amp;#x27;NONE&amp;#x27; | &amp;#x27;LOW&amp;#x27; | &amp;#x27;MEDIUM&amp;#x27; | &amp;#x27;HIGH&amp;#x27;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;| &amp;#x27;CRITICAL&amp;#x27; | &amp;#x27;SEVERE&amp;#x27;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" parent="1" vertex="1">
+          <mxGeometry x="493.2" y="1319" width="350.4" height="261" as="geometry" />
+        </mxCell>
+        <mxCell id="14" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="3" target="4" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="361.55000000000007" y="212" />
+              <mxPoint x="261.1" y="288" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="15" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="3" target="5" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="522.45" y="212" />
+              <mxPoint x="622.9" y="288" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="16" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="4" target="6" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="261.1" y="400" />
+              <mxPoint x="363.6166666666667" y="476" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="17" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="5" target="6" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="622.9" y="400" />
+              <mxPoint x="524.5166666666667" y="476" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="18" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="6" target="7" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="448.2000000000001" y="888" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="19" value="association" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" target="8" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <mxPoint x="320" y="1170" as="sourcePoint" />
+            <Array as="points">
+              <mxPoint x="320" y="1200" />
+              <mxPoint x="228.00000000000006" y="1244" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="20" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="7" target="9" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="407.97500000000014" y="1170" />
+              <mxPoint x="448" y="1200" />
+              <mxPoint x="448" y="1440" />
+              <mxPoint x="448" y="1670" />
+              <mxPoint x="568.5" y="1712" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="21" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="7" target="10" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="190" y="1070" />
+              <mxPoint x="190" y="1200" />
+              <mxPoint x="-170" y="1200" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="22" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="7" target="13" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="570" y="1190" />
+              <mxPoint x="668.4000000000001" y="1244" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="23" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="8" target="9" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="271" y="1670" />
+              <mxPoint x="485.1000000000001" y="1712" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="24" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="8" target="10" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="40" y="1320" />
+              <mxPoint y="1320" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="25" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="8" target="11" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="103.9" y="1712" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="26" value="dependency" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" parent="1" source="8" target="12" edge="1">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="185" y="1670" />
+              <mxPoint x="323.1" y="1712" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

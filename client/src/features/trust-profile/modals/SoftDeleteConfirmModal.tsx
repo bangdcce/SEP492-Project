@@ -5,6 +5,7 @@
 
 import { useState, useEffect } from "react";
 import { X, AlertTriangle, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 import type { AdminReview } from "../types";
 
 interface SoftDeleteConfirmModalProps {
@@ -53,12 +54,12 @@ export function SoftDeleteConfirmModal({
 
   const handleConfirm = () => {
     if (!selectedReason) {
-      alert("Please select a reason for deletion");
+      toast.error("Please select a reason for deletion.");
       return;
     }
 
     if (selectedReason === "OTHER" && !notes.trim()) {
-      alert("Please provide details in the notes field");
+      toast.error("Please provide details in the notes field.");
       return;
     }
 
@@ -169,7 +170,7 @@ export function SoftDeleteConfirmModal({
                             >
                               {keyword}
                             </span>
-                          )
+                          ),
                         )}
                       </div>
                     )}

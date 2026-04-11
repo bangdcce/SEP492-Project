@@ -24,6 +24,17 @@ import { StaffAssignmentController } from 'src/modules/disputes/controllers/staf
 import { StaffAssignmentService } from 'src/modules/disputes/services/staff-assignment.service';
 
 import {
+  buildCommonAuthPreconditions,
+  buildMissingTargetPreconditions,
+  buildTargetExistencePreconditions,
+  flattenInvocationInputs,
+  summarizeInputDelta,
+  summarizeReturnValue,
+  toRoleLabel,
+  toWorkbookInputMap,
+} from './case-catalog-utils';
+import type { WorkbookCaseDescriptor } from './case-catalog.types';
+import {
   ALT_ISO,
   ALT_UUID,
   THIRD_UUID,
@@ -40,6 +51,7 @@ import {
 } from './test-helpers';
 import { JwtAuthGuard } from 'src/modules/auth/guards/jwt-auth.guard';
 import { RolesGuard } from 'src/modules/auth/guards/roles.guard';
+import { buildCaseLogMessageFromTitle } from './test-log-helpers';
 
 type DisputeControllerGroup =
   | 'disputes-controller'
@@ -59,6 +71,7 @@ type TaskRow = {
 type DisputeEndpoint = TaskRow & {
   controllerGroup: DisputeControllerGroup;
   controllerClass: any;
+  controllerName: string;
   route: RouteDescriptor;
   preferredRole: UserRole;
   disallowedRole: UserRole;
@@ -274,6 +287,7 @@ const allDisputeEndpoints: DisputeEndpoint[] = parseTaskFile()
       ...row,
       controllerGroup,
       controllerClass: route.controllerClass,
+      controllerName: route.controllerName,
       route,
       preferredRole,
       disallowedRole: disallowedRoleForRoute(route, preferredRole),
@@ -705,7 +719,10 @@ const buildValidationRouteRequest = (endpoint: DisputeEndpoint) => {
 };
 
 const buildServicePayload = (variant: 'base' | 'edge-1' | 'edge-2') => {
-  const pipe = jest.fn();
+  const pipe =
+    typeof (globalThis as { jest?: { fn?: () => (...args: any[]) => any } }).jest?.fn === 'function'
+      ? (globalThis as { jest: { fn: () => (...args: any[]) => any } }).jest.fn()
+      : (..._args: any[]) => undefined;
   return {
     success: true,
     id: variant === 'base' ? VALID_UUID : variant === 'edge-1' ? ALT_UUID : THIRD_UUID,
@@ -745,6 +762,228 @@ const buildServicePayload = (variant: 'base' | 'edge-1' | 'edge-2') => {
     correlationType: 'requestId',
     uploadedAt: VALID_ISO,
   };
+};
+
+const buildDisputeValidationMessage = (endpoint: DisputeEndpoint) => {
+  if (DTO_ONLY_ENDPOINTS.has(endpoint.code)) {
+    return 'BadRequestException: disputeId fails DTO validation';
+  }
+
+  if (INLINE_CONFLICT_ENDPOINTS.has(endpoint.code)) {
+    return 'ConflictException';
+  }
+
+  const routeValidation = buildValidationRouteRequest(endpoint);
+  if (routeValidation) {
+    return routeValidation.message;
+  }
+
+  return 'BadRequestException: Invalid request payload';
+};
+
+const buildDisputeUnexpectedMessage = (endpoint: DisputeEndpoint) => {
+  if (DTO_ONLY_ENDPOINTS.has(endpoint.code)) {
+    return 'BadRequestException: estimatedDurationMinutes fails DTO validation';
+  }
+  if (INLINE_CONFLICT_ENDPOINTS.has(endpoint.code)) {
+    return 'ConflictException';
+  }
+  return `Error: ${endpoint.name} service failed`;
+};
+
+const buildDisputeNotFoundMessage = (endpoint: DisputeEndpoint) => {
+  if (DTO_ONLY_ENDPOINTS.has(endpoint.code)) {
+    return 'BadRequestException: scheduledAt fails DTO validation';
+  }
+  if (INLINE_CONFLICT_ENDPOINTS.has(endpoint.code)) {
+    return 'ConflictException';
+  }
+  return `NotFoundException: ${endpoint.name} target not found`;
+};
+
+const buildSecurityTitles = (endpoint: DisputeEndpoint) => {
+  const unauthorized =
+    `${endpoint.code} UTC07 security declares JwtAuthGuard on ${endpoint.route.methodName}`;
+
+  if (endpoint.route.roles.length > 0) {
+    return {
+      unauthorized,
+      forbidden:
+        `${endpoint.code} UTC08 security restricts ${endpoint.route.methodName} to ${endpoint.route.roles.join(', ')} role metadata`,
+    };
+  }
+
+  return {
+    unauthorized,
+    forbidden:
+      `${endpoint.code} UTC08 security forbids ${toRoleLabel(endpoint.disallowedRole)} access to ${endpoint.route.methodName}`,
+  };
+};
+
+const buildDisputeCaseTitle = (
+  endpoint: DisputeEndpoint,
+  utcId: string,
+  kind: 'happy' | 'edge-1' | 'edge-2' | 'validation' | 'not-found' | 'unexpected',
+) => {
+  const happyInputs = flattenInvocationInputs(buildInvocation(endpoint, 'happy'));
+
+  if (kind === 'happy') {
+    return `${endpoint.code} ${utcId} happy path executes ${endpoint.route.methodName} with valid business inputs`;
+  }
+  if (kind === 'edge-1' || kind === 'edge-2') {
+    const edgeInputs = flattenInvocationInputs(buildInvocation(endpoint, kind));
+    const prefix = kind === 'edge-1' ? 'alternate input set' : 'secondary input set';
+    return `${endpoint.code} ${utcId} edge case accepts ${prefix} ${summarizeInputDelta(happyInputs, edgeInputs, 'for optional inputs')}`;
+  }
+  if (kind === 'validation') {
+    return `${endpoint.code} ${utcId} validation rejects ${buildDisputeValidationMessage(endpoint).replace(/^[A-Za-z]+Exception:\s*/i, '').replace(/^400 Bad Request\s*/i, 'invalid request input ').trim()}`;
+  }
+  if (kind === 'not-found') {
+    return `${endpoint.code} ${utcId} validation returns not found when the target record is missing`;
+  }
+  return `${endpoint.code} ${utcId} validation propagates ${endpoint.name.toLowerCase()} service failures`;
+};
+
+const buildDisputeSecurityCases = (endpoint: DisputeEndpoint): WorkbookCaseDescriptor[] => {
+  const titles = buildSecurityTitles(endpoint);
+  const unauthorized: WorkbookCaseDescriptor = {
+    utcId: 'UTC07',
+    testKey: `${endpoint.code} UTC07`,
+    title: titles.unauthorized,
+    type: 'A',
+    preconditions: [`Caller is not authenticated for ${endpoint.controllerName}.${endpoint.route.methodName}`],
+    inputs: {},
+    returns: [],
+    exceptions: ['401 Unauthorized'],
+    logs: [buildCaseLogMessageFromTitle(titles.unauthorized)],
+  };
+  const forbidden: WorkbookCaseDescriptor = {
+    utcId: 'UTC08',
+    testKey: `${endpoint.code} UTC08`,
+    title: titles.forbidden,
+    type: 'A',
+    preconditions: [
+      `Caller is authenticated as ${toRoleLabel(endpoint.disallowedRole)}`,
+      `Caller is not allowed to invoke ${endpoint.controllerName}.${endpoint.route.methodName}`,
+    ],
+    inputs: {},
+    returns: [],
+    exceptions:
+      endpoint.route.roles.length > 0
+        ? [`403 Forbidden: ${toRoleLabel(endpoint.disallowedRole)} cannot access ${endpoint.route.methodName}`]
+        : ['ForbiddenException: Access denied'],
+    logs: [buildCaseLogMessageFromTitle(titles.forbidden)],
+  };
+  return [unauthorized, forbidden];
+};
+
+export const buildDisputeCaseDefinitions = (
+  endpoint: DisputeEndpoint,
+): WorkbookCaseDescriptor[] => {
+  const happyInvocation = buildInvocation(endpoint, 'happy');
+  const edgeOneInvocation = buildInvocation(endpoint, 'edge-1');
+  const edgeTwoInvocation = buildInvocation(endpoint, 'edge-2');
+  const happyInputs = flattenInvocationInputs(happyInvocation);
+  const basePreconditions = [
+    ...buildCommonAuthPreconditions(
+      endpoint.preferredRole,
+      endpoint.controllerName,
+      endpoint.route.methodName,
+    ),
+    ...buildTargetExistencePreconditions(happyInputs),
+  ];
+
+  const cases: WorkbookCaseDescriptor[] = [
+    {
+      utcId: 'UTC01',
+      testKey: `${endpoint.code} UTC01`,
+      title: buildDisputeCaseTitle(endpoint, 'UTC01', 'happy'),
+      type: 'N',
+      preconditions: basePreconditions,
+      inputs: toWorkbookInputMap(happyInputs),
+      returns: [summarizeReturnValue(endpoint.name, buildServicePayload('base'))],
+      exceptions: [],
+      logs: [buildCaseLogMessageFromTitle(buildDisputeCaseTitle(endpoint, 'UTC01', 'happy'))],
+    },
+    {
+      utcId: 'UTC02',
+      testKey: `${endpoint.code} UTC02`,
+      title: buildDisputeCaseTitle(endpoint, 'UTC02', 'edge-1'),
+      type: 'B',
+      preconditions: basePreconditions,
+      inputs: toWorkbookInputMap(flattenInvocationInputs(edgeOneInvocation)),
+      returns: [summarizeReturnValue(endpoint.name, buildServicePayload('edge-1'))],
+      exceptions: [],
+      logs: [buildCaseLogMessageFromTitle(buildDisputeCaseTitle(endpoint, 'UTC02', 'edge-1'))],
+    },
+    {
+      utcId: 'UTC03',
+      testKey: `${endpoint.code} UTC03`,
+      title: buildDisputeCaseTitle(endpoint, 'UTC03', 'edge-2'),
+      type: 'B',
+      preconditions: basePreconditions,
+      inputs: toWorkbookInputMap(flattenInvocationInputs(edgeTwoInvocation)),
+      returns: [summarizeReturnValue(endpoint.name, buildServicePayload('edge-2'))],
+      exceptions: [],
+      logs: [buildCaseLogMessageFromTitle(buildDisputeCaseTitle(endpoint, 'UTC03', 'edge-2'))],
+    },
+    {
+      utcId: 'UTC04',
+      testKey: `${endpoint.code} UTC04`,
+      title: buildDisputeCaseTitle(endpoint, 'UTC04', 'validation'),
+      type: 'A',
+      preconditions: buildCommonAuthPreconditions(
+        endpoint.preferredRole,
+        endpoint.controllerName,
+        endpoint.route.methodName,
+      ),
+      inputs: toWorkbookInputMap(
+        flattenInvocationInputs(buildValidationRouteRequest(endpoint) ?? buildInvocation(endpoint, 'happy')),
+      ),
+      returns: [],
+      exceptions: [buildDisputeValidationMessage(endpoint)],
+      logs: [buildCaseLogMessageFromTitle(buildDisputeCaseTitle(endpoint, 'UTC04', 'validation'))],
+    },
+    {
+      utcId: 'UTC05',
+      testKey: `${endpoint.code} UTC05`,
+      title: buildDisputeCaseTitle(endpoint, 'UTC05', 'not-found'),
+      type: 'A',
+      preconditions: [
+        ...buildCommonAuthPreconditions(
+          endpoint.preferredRole,
+          endpoint.controllerName,
+          endpoint.route.methodName,
+        ),
+        ...buildMissingTargetPreconditions(happyInputs),
+      ],
+      inputs: toWorkbookInputMap(happyInputs),
+      returns: SWALLOWED_ERROR_ENDPOINTS.has(endpoint.code)
+        ? [`returns fallback payload after ${buildDisputeNotFoundMessage(endpoint)}`]
+        : [],
+      exceptions: SWALLOWED_ERROR_ENDPOINTS.has(endpoint.code)
+        ? []
+        : [buildDisputeNotFoundMessage(endpoint)],
+      logs: [buildCaseLogMessageFromTitle(buildDisputeCaseTitle(endpoint, 'UTC05', 'not-found'))],
+    },
+    {
+      utcId: 'UTC06',
+      testKey: `${endpoint.code} UTC06`,
+      title: buildDisputeCaseTitle(endpoint, 'UTC06', 'unexpected'),
+      type: 'A',
+      preconditions: basePreconditions,
+      inputs: toWorkbookInputMap(happyInputs),
+      returns: SWALLOWED_ERROR_ENDPOINTS.has(endpoint.code)
+        ? [`returns fallback payload after ${buildDisputeUnexpectedMessage(endpoint)}`]
+        : [],
+      exceptions: SWALLOWED_ERROR_ENDPOINTS.has(endpoint.code)
+        ? []
+        : [buildDisputeUnexpectedMessage(endpoint)],
+      logs: [buildCaseLogMessageFromTitle(buildDisputeCaseTitle(endpoint, 'UTC06', 'unexpected'))],
+    },
+  ];
+
+  return [...cases, ...buildDisputeSecurityCases(endpoint)];
 };
 
 const touchedMethodCache = new Map<string, Promise<MockHit[]>>();

@@ -113,7 +113,7 @@ export function KYCBlocker({ kycStatus, role, action }: KYCBlockerProps) {
  * Hook to check KYC status
  */
 export function useKYCStatus() {
-  const baseUrl = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+  const baseUrl = import.meta.env.VITE_API_URL || 'https://localhost:3000';
 
   const checkKycStatus = useCallback(async (): Promise<string> => {
     try {

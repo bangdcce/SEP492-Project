@@ -36,8 +36,12 @@ export function SignInPage({
     return emailRegex.test(email);
   };
 
-  const resolvePostLoginRoute = (role?: string) => {
-    const userRole = role?.toUpperCase();
+  const resolvePostLoginRoute = (user?: {
+    role?: string;
+    isVerified?: boolean;
+    staffApprovalStatus?: "PENDING" | "APPROVED" | "REJECTED" | null;
+  }) => {
+    const userRole = user?.role?.toUpperCase();
 
     if (userRole === "ADMIN") {
       return ROUTES.ADMIN_DASHBOARD;
@@ -52,7 +56,12 @@ export function SignInPage({
       return ROUTES.BROKER_DASHBOARD;
     }
     if (userRole === "STAFF") {
-      return "/staff/dashboard";
+      const isApproved =
+        user?.staffApprovalStatus === "APPROVED" ||
+        (!user?.staffApprovalStatus && user?.isVerified === true);
+      return isApproved
+        ? ROUTES.STAFF_DASHBOARD
+        : ROUTES.STAFF_APPLICATION_STATUS;
     }
     return ROUTES.CLIENT_DASHBOARD;
   };
@@ -111,7 +120,7 @@ export function SignInPage({
       if (onSignInSuccess) {
         onSignInSuccess();
       } else {
-        const targetRoute = resolvePostLoginRoute(loginData.user?.role);
+        const targetRoute = resolvePostLoginRoute(loginData.user);
 
         // Force a full navigation after cookie-based login so the app bootstraps
         // from a clean authenticated state and avoids race conditions with guards.
@@ -196,6 +205,7 @@ export function SignInPage({
             id="password"
             label="Password"
             type={showPassword ? "text" : "password"}
+            hasTrailingAction
             autoComplete="current-password"
             placeholder="Enter your password"
             value={formData.password}

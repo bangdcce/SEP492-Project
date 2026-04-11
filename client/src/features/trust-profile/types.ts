@@ -74,6 +74,31 @@ export interface TrustProfileResponse {
   user: User;
   reviews: Review[];
   projectHistory: ProjectHistoryItem[];
+  reviewEligibility?: TrustProfileReviewEligibility;
+}
+
+export type TrustProfileReviewEligibilityReason =
+  | "ELIGIBLE"
+  | "SELF_PROFILE"
+  | "VIEWER_NOT_AVAILABLE"
+  | "NO_SHARED_COMPLETED_PROJECT"
+  | "ALREADY_REVIEWED_ALL_SHARED_PROJECTS";
+
+export interface TrustProfileReviewCandidateProject {
+  projectId: string;
+  title: string;
+  status: string;
+  completedAt: string;
+  targetRoleInProject: string;
+  viewerRoleInProject: string | null;
+}
+
+export interface TrustProfileReviewEligibility {
+  canCreateReview: boolean;
+  reason: TrustProfileReviewEligibilityReason;
+  pendingReviewCount: number;
+  nextProject: TrustProfileReviewCandidateProject | null;
+  pendingProjects?: TrustProfileReviewCandidateProject[];
 }
 // Review Entity
 export interface Review {
@@ -146,6 +171,46 @@ export interface CreateReportPayload {
   description?: string;
 }
 
+export type ReviewReportStatus = "PENDING" | "RESOLVED" | "REJECTED";
+
+export interface ReviewReportActor {
+  id: string;
+  fullName?: string | null;
+  email?: string | null;
+  role?: string | null;
+}
+
+export interface ReviewReportReviewSummary {
+  id: string;
+  rating?: number;
+  comment?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  deletedAt?: string | null;
+  reviewer?: ReviewReportActor | null;
+}
+
+export interface AdminReviewReport {
+  id: string;
+  reason: ReportReason;
+  description?: string;
+  status: ReviewReportStatus;
+  adminNote?: string | null;
+  createdAt: string;
+  resolvedAt?: string | null;
+  reporter?: ReviewReportActor | null;
+  resolver?: ReviewReportActor | null;
+  review: ReviewReportReviewSummary;
+}
+
+export interface PaginatedAdminReviewReports {
+  data: AdminReviewReport[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
 // Review Status Types (for Admin moderation)
 export type ReviewStatus = "ACTIVE" | "FLAGGED" | "SOFT_DELETED";
 
@@ -183,6 +248,12 @@ export interface ModerationHistoryEntry {
 // Extended Review with Admin fields (for moderation pages)
 export interface AdminReview extends Review {
   status: ReviewStatus;
+  targetUser?: {
+    id: string;
+    fullName?: string;
+    role?: string;
+    email?: string;
+  };
   reportInfo?: ReportInfo;
   moderationHistory?: ModerationHistoryEntry[];
   openedBy?: {

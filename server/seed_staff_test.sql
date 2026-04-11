@@ -1,6 +1,6 @@
 -- ==================================================================================
 -- SCRIPT: seed_staff_test.sql
--- VER: 6.0 (Fixed password hash)
+-- VER: 6.1 (ASCII-safe dispute seed strings)
 -- PASSWORD: password123
 -- ==================================================================================
 
@@ -11,19 +11,19 @@ DECLARE
     v_client_id uuid := gen_random_uuid();
     v_freelancer_id uuid := gen_random_uuid();
     v_broker_id uuid := gen_random_uuid();
-    
+
     v_project_id uuid := gen_random_uuid();
     v_milestone_id uuid := gen_random_uuid();
     v_dispute_id uuid := gen_random_uuid();
-    
+
     v_kyc_staff_id uuid := gen_random_uuid();
     v_kyc_client_id uuid := gen_random_uuid();
     v_kyc_freelancer_id uuid := gen_random_uuid();
     v_kyc_broker_id uuid := gen_random_uuid();
-    
+
     -- CORRECT Password hash for "password123" (from demo_seed.sql)
     v_password_hash text := '$2b$10$wrpNPn/rQNaxJw6cLXiD9.KFcSCkTRwcXXsKmLBfibNUrj.w.XvAW';
-    
+
     -- Timestamps
     v_now timestamp := NOW();
     v_verified_at timestamp := NOW() - INTERVAL '1 month';
@@ -35,7 +35,7 @@ BEGIN
     -- 1. USERS
     -- ================================================================
     INSERT INTO "users" ("id", "email", "passwordHash", "fullName", "role", "phoneNumber", "isVerified", "currentTrustScore", "createdAt", "updatedAt")
-    VALUES 
+    VALUES
         (v_staff_id, 'staff.test.new@example.com', v_password_hash, 'Test Staff Member', 'STAFF', '0999888111', true, 5.00, v_now, v_now),
         (v_client_id, 'client.test.new@example.com', v_password_hash, 'Test Client Owner', 'CLIENT', '0999888222', true, 4.50, v_now, v_now),
         (v_freelancer_id, 'freelancer.test.new@example.com', v_password_hash, 'Test Freelancer Dev', 'FREELANCER', '0999888333', true, 4.80, v_now, v_now),
@@ -55,25 +55,51 @@ BEGIN
     -- 3. PROJECT
     -- ================================================================
     INSERT INTO "projects" ("id", "clientId", "freelancerId", "brokerId", "title", "description", "status", "totalBudget", "currency", "startDate", "endDate", "createdAt", "updatedAt")
-    VALUES (v_project_id, v_client_id, v_freelancer_id, v_broker_id, 'Dự án Test Tranh Chấp', 'Dự án test đầy đủ các stakeholder.', 'DISPUTED', 15000000, 'USD', v_start_date, v_end_date, v_now, v_now);
+    VALUES (
+        v_project_id,
+        v_client_id,
+        v_freelancer_id,
+        v_broker_id,
+        'Du an Test Tranh Chap',
+        'Du an test day du cho cac stakeholder.',
+        'DISPUTED',
+        15000000,
+        'USD',
+        v_start_date,
+        v_end_date,
+        v_now,
+        v_now
+    );
 
     -- ================================================================
     -- 4. MILESTONE (Required for Dispute)
     -- ================================================================
     INSERT INTO "milestones" ("id", "projectId", "title", "amount", "status", "dueDate", "createdAt")
-    VALUES (v_milestone_id, v_project_id, 'Milestone 1 - Thiết kế UI', 5000000, 'IN_PROGRESS', v_end_date, v_now);
+    VALUES (v_milestone_id, v_project_id, 'Milestone 1 - Thiet ke UI', 5000000, 'IN_PROGRESS', v_end_date, v_now);
 
     -- ================================================================
     -- 5. DISPUTE
     -- ================================================================
     INSERT INTO "disputes" ("id", "projectId", "milestoneId", "raisedById", "defendantId", "reason", "status", "assignedStaffId", "assignedAt", "createdAt", "updatedAt")
-    VALUES (v_dispute_id, v_project_id, v_milestone_id, v_client_id, v_freelancer_id, 'Freelancer không bàn giao đúng hạn milestone.', 'OPEN', v_staff_id, v_now, v_now, v_now);
+    VALUES (
+        v_dispute_id,
+        v_project_id,
+        v_milestone_id,
+        v_client_id,
+        v_freelancer_id,
+        'Freelancer khong ban giao dung han milestone.',
+        'OPEN',
+        v_staff_id,
+        v_now,
+        v_now,
+        v_now
+    );
 
     -- ================================================================
     -- 6. RESULT
     -- ================================================================
     RAISE NOTICE '================================================';
-    RAISE NOTICE 'SUCCESS! Version 6.0 - Correct password hash';
+    RAISE NOTICE 'SUCCESS! Version 6.1 - ASCII-safe dispute seed strings';
     RAISE NOTICE '================================================';
     RAISE NOTICE 'Password: password123';
     RAISE NOTICE '------------------------------------------------';

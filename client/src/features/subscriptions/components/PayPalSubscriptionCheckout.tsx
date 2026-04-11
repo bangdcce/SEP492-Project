@@ -9,7 +9,6 @@ import {
 import {
   BillingCycle,
   formatCurrency,
-  formatVND,
   type SubscribeResponse,
   type SubscriptionPayPalCheckoutConfig,
 } from "../types";
@@ -256,16 +255,11 @@ export function PayPalSubscriptionCheckout({
             PayPal checkout quote
           </div>
           <p className="mt-1 text-muted-foreground">
-            {planDisplayName} stays priced at {formatVND(quote.displayAmountVnd)} on the
-            platform. PayPal will capture{" "}
+            {planDisplayName} will capture{" "}
             <span className="font-semibold text-foreground">
               {formatCurrency(quote.chargeAmount, quote.chargeCurrency)}
             </span>{" "}
-            using the current settlement rate of{" "}
-            <span className="font-semibold text-foreground">
-              {quote.exchangeRateApplied.toLocaleString("en-US")} VND/{quote.chargeCurrency}
-            </span>
-            .
+            through PayPal for this billing cycle.
           </p>
         </div>
       ) : null}

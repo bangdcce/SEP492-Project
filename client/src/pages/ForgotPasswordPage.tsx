@@ -331,6 +331,7 @@ export function ForgotPasswordPage({
           id="newPassword"
           label="New password"
           type={showNewPassword ? "text" : "password"}
+          hasTrailingAction
           autoComplete="new-password"
           placeholder="At least 8 characters with lowercase, number & special character"
           value={newPassword}
@@ -366,6 +367,7 @@ export function ForgotPasswordPage({
           id="confirmPassword"
           label="Confirm password"
           type={showConfirmPassword ? "text" : "password"}
+          hasTrailingAction
           autoComplete="new-password"
           placeholder="Re-enter your password"
           value={confirmPassword}

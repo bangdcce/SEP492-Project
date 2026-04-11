@@ -1,9 +1,9 @@
-param(
+﻿param(
     [string]$TemplatePath = "C:\Users\ASUS\Downloads\Unit Testing Excel (1)\Unit Testing Excel\Report5_Unit Test Case_v1.2.xlsx",
     [string]$SourceCombinedPath = "C:\Users\ASUS\Desktop\InterDev\SEP492-Project\output\spreadsheet\Report5_Unit Test Case_v1.0_combined.xlsx",
     [string]$OutputWorkbookPath = "C:\Users\ASUS\Desktop\InterDev\SEP492-Project\output\spreadsheet\Report5_Unit Test Case_v1.2_combined.xlsx",
     [string]$JestResultsPath = "C:\Users\ASUS\Desktop\InterDev\SEP492-Project\tmp\spreadsheets\jest-auth-results.json",
-    [string]$ReportOwner = "Nguyễn Gia Bảo"
+    [string]$ReportOwner = ([string]::Concat('Nguy',[char]0x1EC5,'n Gia B',[char]0x1EA3,'o'))
 )
 
 $ErrorActionPreference = "Stop"
@@ -224,6 +224,34 @@ function Clear-RowValues {
     }
 }
 
+function Set-WorksheetColumnWidth {
+    param(
+        [xml]$SheetXml,
+        [System.Xml.XmlNamespaceManager]$NamespaceManager,
+        [int]$ColumnIndex,
+        [double]$Width
+    )
+
+    $colNode = $SheetXml.SelectSingleNode("//x:cols/x:col[@min<=$ColumnIndex and @max>=$ColumnIndex]", $NamespaceManager)
+    if ($null -eq $colNode) {
+        return
+    }
+
+    $colNode.SetAttribute("width", ([string]$Width))
+    $colNode.SetAttribute("customWidth", "1")
+}
+
+function Apply-UnitSheetColumnLayout {
+    param(
+        [xml]$SheetXml,
+        [System.Xml.XmlNamespaceManager]$NamespaceManager
+    )
+
+    # Make field/value text columns wider so long return/exception strings stay readable.
+    Set-WorksheetColumnWidth -SheetXml $SheetXml -NamespaceManager $NamespaceManager -ColumnIndex 2 -Width 15.5
+    Set-WorksheetColumnWidth -SheetXml $SheetXml -NamespaceManager $NamespaceManager -ColumnIndex 4 -Width 42.5
+}
+
 function Get-OrCreateCell {
     param(
         [xml]$SheetXml,
@@ -318,6 +346,26 @@ function Convert-ToExcelSerialDate {
 
     $baseDate = Get-Date "1899-12-30T00:00:00"
     return [math]::Floor(($Value - $baseDate).TotalDays)
+}
+
+function Update-UnitMarkerStyle {
+    param([string]$StylesPath)
+
+    if (-not (Test-Path -LiteralPath $StylesPath)) {
+        return
+    }
+
+    [xml]$stylesXml = Read-XmlFile $StylesPath
+    $ns = New-Object System.Xml.XmlNamespaceManager($stylesXml.NameTable)
+    $ns.AddNamespace("x", $stylesXml.DocumentElement.NamespaceURI)
+
+    # Style 148 is used for all testcase markers "O". Force it to Tahoma bold 11.
+    $markerStyle = $stylesXml.SelectSingleNode("/x:styleSheet/x:cellXfs/x:xf[149]", $ns)
+    if ($null -ne $markerStyle) {
+        $markerStyle.SetAttribute("fontId", "46")
+        $markerStyle.SetAttribute("applyFont", "1")
+        $stylesXml.Save($StylesPath)
+    }
 }
 
 function Update-TestReportSheetXml {
@@ -974,6 +1022,350 @@ function New-ConfirmSection {
     }
 }
 
+function Normalize-UnitFieldValueText {
+    param(
+        [string]$SheetName,
+        [string]$FieldName,
+        [string]$Text
+    )
+
+    $key = "$SheetName|$FieldName|$Text"
+    $globalMap = @{
+        '"not an array"' = '"skillIds = ""skill-reactjs"""'
+        '"empty array"' = '"skillIds = []"'
+        '"contains invalid skill id"' = '"skillIds = [""skill-reactjs"", ""skill-missing-999""]"'
+        '"[skill-1, skill-2]"' = '"skillIds = [""skill-reactjs"", ""skill-typescript""]"'
+        '"bad-email"' = '"baong.gmail.com"'
+        '"missing@gmail.com"' = '"missing.account01@gmail.com"'
+        '"wrong-password"' = '"WrongPass@123"'
+        '"valid-token"' = '"verify-email-token-abc123"'
+        '"invalid-token"' = '"verify-email-token-invalid-001"'
+        '"matched-user-token"' = '"verify-email-token-user01"'
+        '"refresh-token"' = '"rtk-active-session-001"'
+        '"legacy-refresh-token"' = '"rtk-legacy-session-001"'
+        '"valid-refresh-token"' = '"rtk-active-session-002"'
+        '"unknown-refresh-token"' = '"rtk-unknown-session-999"'
+        '"revoked-refresh-token"' = '"rtk-revoked-session-003"'
+        '"expired-refresh-token"' = '"rtk-expired-session-004"'
+        '"missing-user-refresh-token"' = '"rtk-orphan-session-005"'
+        '"missing-user"' = '"user-missing-001"'
+        '"missing kyc id"' = '"kycId=kyc-missing-001"'
+        '"missing KYC record"' = '"kycId=kyc-missing-001"'
+        '"missing request metadata"' = '"ip=null, userAgent=null, sessionId=sess-generated-001"'
+        '"invalid rejection state"' = '"status=APPROVED, rejectionReason empty"'
+        '"missing user record"' = '"userId=user-missing-001"'
+        '"valid DTO and all 3 files"' = '"fullName=Nguyen Gia Bao, documentNumber=079123456789, front=cccd_front.jpg, back=cccd_back.jpg, selfie=selfie.jpg"'
+        '"missing uploaded file arrays"' = '"front=cccd_front.jpg, back=null, selfie=null"'
+        '"underage date of birth"' = '"dateOfBirth=2010-05-20"'
+        '"expired document expiry date"' = '"documentExpiryDate=2020-01-01"'
+        '"unsupported document type"' = '"documentType=DRIVER_LICENSE"'
+        '"existing KYC submission"' = '"status=PENDING, kycId=kyc-001"'
+        '"no KYC submission yet"' = '"userId=user-no-kyc, no record"'
+        '"service raises not found"' = '"userId=user-missing-001"'
+        '"public URL containing cvs path"' = '"https://cdn.interdev.local/storage/v1/object/public/cvs/cvs/user-1/member-cv.pdf"'
+        '"missing or empty"' = '""'
+        '"error returned"' = '"Storage removal failed"'
+        '"profile missing"' = '"profileId=null"'
+        '"profile exists"' = '"profile-001 already exists"'
+        'profile missing' = 'profileId=null'
+        'profile relation missing' = 'profile relation = null'
+        'user not found' = 'userId=user-missing-001 not found'
+        'request metadata missing' = 'ip=null, userAgent=null'
+        'owner missing' = 'session.userId=user-missing-001'
+        'expired session found' = 'sessionId=sess-004 expiredAt=2026-03-01T08:00:00Z'
+        'stored OTP expired' = 'otp=482913 expiredAt=2026-03-01T08:00:00Z'
+        'account missing or inactive' = 'email=missing.account01@gmail.com, status=DELETED'
+        'account missing, banned, or has no OTP' = 'email=missing.account01@gmail.com, status=BANNED, otp=null'
+        'user missing, deleted, or has no password' = 'userId=user-missing-001, deleted=true, passwordHash=null'
+        'no email sent' = 'emailSend=false'
+        'Refresh token is missing' = 'refreshToken = null'
+        'refresh token missing' = 'refreshToken = null'
+        'updated user missing after persistence' = 'userId=user-verified-001 reload failed'
+        'not provided' = 'search omitted, role omitted'
+        '"1001 characters"' = '"bio = 1001 characters of text"'
+        '"status=PENDING, page=2, limit=10"' = '"status=PENDING, page=2, limit=10"'
+        '"status/page/limit omitted"' = '"status omitted, page omitted, limit omitted"'
+        '"invalid status filter"' = '"status=INVALID_STATUS"'
+    }
+
+    $exactMap = @{
+        'Register Account|email|"new.user@gmail.com"' = '"baong.client01@gmail.com"'
+        'Register Account|email|"freelancer@gmail.com"' = '"baong.freelancer01@gmail.com"'
+        'Register Account|email|"broker@gmail.com"' = '"baong.broker01@gmail.com"'
+        'Register Account|email|"invalid-email"' = '"baong.gmail.com"'
+        'Register Account|password|"securepass1"' = '"BaoNG@12345"'
+        'Register Account|password|"securepass"' = '"weakpass"'
+        'Register Account|fullName|"New User"' = '"Nguyen Van A"'
+        'Register Account|domainIds / skillIds|not provided' = 'domainIds omitted, skillIds omitted'
+        'Register Account|domainIds / skillIds|domainIds = 2, skillIds = 1' = 'domainIds = [2, 5], skillIds = [11]'
+        'Register Account|domainIds / skillIds|domainIds = [], skillIds = []' = 'domainIds = [], skillIds = []'
+    }
+
+    if ($exactMap.ContainsKey($key)) {
+        return $exactMap[$key]
+    }
+
+    if ($globalMap.ContainsKey($Text)) {
+        return $globalMap[$Text]
+    }
+
+    return $Text
+}
+
+function Normalize-UnitModelData {
+    param([object]$Model)
+
+    foreach ($field in $Model.fields) {
+        foreach ($value in $field.values) {
+            $value["text"] = Normalize-UnitFieldValueText -SheetName $Model.name -FieldName $field.name -Text $value.text
+        }
+    }
+
+    foreach ($section in $Model.confirmSections) {
+        if ($section.name -eq "Exception") {
+            foreach ($value in $section.values) {
+                if ($value.text -match '^Returns\s+') {
+                    $value["text"] = ($value.text -replace '^Returns\s+', 'Throws ')
+                }
+                $value["text"] = ($value.text `
+                    -replace '^Throws Validation/BadRequest\b', 'Throws BadRequestException' `
+                    -replace '^Throws BadRequest\b(?!Exception)', 'Throws BadRequestException' `
+                    -replace '^Throws Unauthorized\b(?!Exception)', 'Throws UnauthorizedException' `
+                    -replace '^Throws NotFound\b(?!Exception)', 'Throws NotFoundException' `
+                    -replace '^Throws Conflict\b(?!Exception)', 'Throws ConflictException')
+                $value["text"] = Normalize-UnitExceptionText -SheetName $Model.name -Text $value.text
+            }
+            Expand-UnitExceptionSection -Section $section
+        }
+    }
+
+    return $Model
+}
+
+function Expand-UnitExceptionSection {
+    param([object]$Section)
+
+    $expandedValues = New-Object 'System.Collections.Generic.List[object]'
+
+    foreach ($value in $Section.values) {
+        $text = [string]$value.text
+
+        if ($text -match '^(Throws [^:]+: )"(.+)"(?: / "(.+)")+$') {
+            $prefix = $matches[1]
+            $messageMatches = [regex]::Matches($text, '"([^"]+)"')
+
+            if ($messageMatches.Count -gt 1) {
+                foreach ($messageMatch in $messageMatches) {
+                    $expandedValues.Add([ordered]@{
+                        text = $prefix + '"' + $messageMatch.Groups[1].Value + '"'
+                        cases = $value.cases
+                    })
+                }
+                continue
+            }
+        }
+
+        $expandedValues.Add($value)
+    }
+
+    $Section["values"] = $expandedValues
+}
+
+function Normalize-UnitExceptionText {
+    param(
+        [string]$SheetName,
+        [string]$Text
+    )
+
+    $exactMap = @{
+        'Register Account|Throws ConflictException for duplicate email' = 'Throws ConflictException: "Email already in use"'
+        'Register Account|Throws ConflictException for missing legal consent' = 'Throws ConflictException: "You must accept the Terms of Service and Privacy Policy"'
+        'Verify Email|Throws BadRequestException: token is required' = 'Throws BadRequestException: "Verification token is required"'
+        'Verify Email|Throws BadRequestException: invalid token' = 'Throws BadRequestException: "Invalid or expired verification token"'
+        'Verify Email|Throws BadRequestException: deleted, verified, or expired token' = 'Throws BadRequestException: "This account has been deleted" / "Email already verified" / "Verification token has expired. Please request a new one."'
+        'Resend Verification|Throws NotFoundException: user not found' = 'Throws NotFoundException: "User not found"'
+        'Resend Verification|Throws BadRequestException: email already verified' = 'Throws BadRequestException: "Email already verified"'
+        'Resend Verification|Throws BadRequestException: resend requested too soon' = 'Throws BadRequestException: "Please wait before requesting a new verification email. Check your inbox or spam folder."'
+        'Login|Throws UnauthorizedException: invalid email or password' = 'Throws UnauthorizedException: "Invalid email or password"'
+        'Login|Throws UnauthorizedException: deleted, banned, or not verified' = 'Throws UnauthorizedException: "This account has been deleted" / "This account has been banned. Please contact support." / "Please verify your email before logging in. Check your inbox."'
+        'Refresh Token|Throws UnauthorizedException: refresh token missing' = 'Throws UnauthorizedException: "Refresh token is missing"'
+        'Refresh Token|Throws UnauthorizedException: invalid, revoked, or expired session' = 'Throws UnauthorizedException: "Refresh token is invalid" / "Session has been revoked" / "Session has expired"'
+        'Refresh Token|Throws UnauthorizedException: session owner not found' = 'Throws UnauthorizedException: "Session owner no longer exists"'
+        'Forgot Password|Throws BadRequestException: email does not exist' = 'Throws BadRequestException: "Email does not exist"'
+        'Verify OTP|Throws BadRequestException for invalid verify-otp payload' = 'Throws BadRequestException for invalid verify-otp payload'
+        'Reset Password|Throws UnauthorizedException: password confirmation mismatch' = 'Throws UnauthorizedException: "Password confirmation does not match"'
+        'Reset Password|Throws UnauthorizedException: invalid or expired OTP' = 'Throws UnauthorizedException: "Invalid or expired OTP code" / "OTP code has expired" / "Invalid OTP code"'
+        'Update Profile|Throws Error: user not found after update' = 'Throws Error: "User not found after update"'
+        'Delete Account|Throws UnauthorizedException: incorrect password' = 'Throws UnauthorizedException: "Incorrect password"'
+        'Delete Account|Throws BadRequestException: account deletion denied' = 'Throws BadRequestException: "Cannot delete account while having active projects or wallet balance"'
+        'Delete CV|Throws NotFoundException when no CV exists' = 'Throws NotFoundException: "No CV found"'
+        'Delete CV|Throws BadRequestException when profile cleanup fails' = 'Throws BadRequestException: "Failed to delete CV"'
+        'Get CV|Throws NotFoundException: CV file not found' = 'Throws NotFoundException: "CV file not found in storage"'
+        'Update Bio|Throws BadRequestException for empty bio' = 'Throws BadRequestException: "Bio cannot be empty"'
+        'Update Bio|Throws BadRequestException for bio length > 1000' = 'Throws BadRequestException: "Bio must not exceed 1000 characters"'
+        'Update Skills|Throws BadRequestException when skillIds is not an array' = 'Throws BadRequestException: "skillIds must be an array"'
+        'Update Skills|Throws BadRequestException when skill list is empty' = 'Throws BadRequestException: "At least one skill is required"'
+        'Update Skills|Throws BadRequestException when one or more skill ids are invalid' = 'Throws BadRequestException: "One or more invalid skill IDs"'
+        'Submit KYC|Throws BadRequestException for incomplete document submission' = 'Throws BadRequestException: "All documents are required: ID card front, back, and selfie"'
+        'Get My KYC|Throws NotFoundException when service cannot locate KYC record' = 'Throws NotFoundException: "KYC verification not found"'
+        'Get KYC By ID|Throws NotFoundException when KYC record does not exist' = 'Throws NotFoundException: "KYC verification not found"'
+        'Get KYC By ID With Watermark|Throws NotFoundException when watermarked KYC record does not exist' = 'Throws NotFoundException: "KYC verification not found"'
+        'Approve KYC|Throws BadRequestException when KYC is not pending' = 'Throws BadRequestException: "Only pending KYC can be approved"'
+        'Approve KYC|Throws NotFoundException when KYC record does not exist' = 'Throws NotFoundException: "KYC verification not found"'
+        'Reject KYC|Throws BadRequestException for invalid rejection request' = 'Throws BadRequestException: "Only pending KYC can be rejected" / "Rejection reason is required"'
+        'Reject KYC|Throws NotFoundException when KYC record cannot be found' = 'Throws NotFoundException: "KYC verification not found"'
+        'Get User Detail|Throws NotFoundException when user record does not exist' = 'Throws NotFoundException: "User not found"'
+        'Ban User|Throws BadRequestException when user is already banned' = 'Throws BadRequestException: "User is already banned"'
+        'Ban User|Throws NotFoundException when user record cannot be found' = 'Throws NotFoundException: "User not found"'
+        'Unban User|Throws BadRequestException when user is not banned' = 'Throws BadRequestException: "User is not banned"'
+        'Unban User|Throws NotFoundException when user record cannot be found' = 'Throws NotFoundException: "User not found"'
+    }
+
+    $key = "$SheetName|$Text"
+    if ($exactMap.ContainsKey($key)) {
+        return $exactMap[$key]
+    }
+
+    return $Text
+}
+
+function Merge-UnitReturnSection {
+    param([object]$Model)
+
+    $canonicalBySheet = @{
+        'Register Account' = @{
+            'Returns successful registration response' = 'Return {response object, AuthResponseDto object, account data}'
+            'Returns AuthResponseDto' = 'Return {response object, AuthResponseDto object, account data}'
+            'Returns client account data' = 'Return {response object, AuthResponseDto object, account data}'
+            'Returns freelancer account data' = 'Return {response object, AuthResponseDto object, account data}'
+            'Returns broker account data' = 'Return {response object, AuthResponseDto object, account data}'
+        }
+        'Verify Email' = @{
+            'Returns "Email verified successfully"' = 'Return {success message, verified email, success payload}'
+            'Returns verified email' = 'Return {success message, verified email, success payload}'
+            'Returns success payload' = 'Return {success message, verified email, success payload}'
+        }
+        'Resend Verification' = @{
+            'Returns "Verification email sent. Please check your inbox."' = 'Return {success message, verification-email payload}'
+            'Returns success payload' = 'Return {success message, verification-email payload}'
+        }
+        'Login' = @{
+            'Returns successful login response' = 'Return {login response, authenticated user data, token-free response body}'
+            'Returns authenticated user data' = 'Return {login response, authenticated user data, token-free response body}'
+            'Returns response body without tokens' = 'Return {login response, authenticated user data, token-free response body}'
+        }
+        'Logout' = @{
+            'Returns logout success response' = 'Return {logout success response, null data payload}'
+            'Returns null data payload' = 'Return {logout success response, null data payload}'
+        }
+        'Get Profile' = @{
+            'Returns successful profile response' = 'Return {profile response, authenticated account data}'
+            'Returns authenticated profile data' = 'Return {profile response, authenticated account data}'
+            'Returns persisted account data' = 'Return {profile response, authenticated account data}'
+        }
+        'Update Profile' = @{
+            'Returns successful update response' = 'Return {update response, merged user/profile data}'
+            'Returns updated profile data' = 'Return {update response, merged user/profile data}'
+            'Returns response body with merged user and profile fields' = 'Return {update response, merged user/profile data}'
+        }
+        'Get Session' = @{
+            'Returns session valid response' = 'Return {session-valid response, authenticated session data}'
+            'Returns authenticated session data' = 'Return {session-valid response, authenticated session data}'
+        }
+        'Refresh Token' = @{
+            'Returns token refreshed successfully' = 'Return {token-refresh response, empty data payload}'
+            'Returns empty data payload' = 'Return {token-refresh response, empty data payload}'
+        }
+        'Forgot Password' = @{
+            'Returns OTP sent response' = 'Return {OTP-sent response, masked email, expiresIn}'
+            'Returns masked email and expiresIn' = 'Return {OTP-sent response, masked email, expiresIn}'
+        }
+        'Verify OTP' = @{
+            'Returns OTP is valid response' = 'Return {verify-otp result payload, verification status}'
+            'Returns OTP is invalid response' = 'Return {verify-otp result payload, verification status}'
+            'Returns verify-otp result payload' = 'Return {verify-otp result payload, verification status}'
+        }
+        'Reset Password' = @{
+            'Returns password reset success response' = 'Return {password-reset success response, result payload}'
+            'Returns reset-password result payload' = 'Return {password-reset success response, result payload}'
+        }
+        'Check Obligations' = @{
+            'Returns obligation snapshot' = 'Return {obligation snapshot, hasObligations state}'
+            'Returns hasObligations true' = 'Return {obligation snapshot, hasObligations state}'
+            'Returns hasObligations false' = 'Return {obligation snapshot, hasObligations state}'
+        }
+        'Get Skills' = @{
+            'Returns skills array' = 'Return {skills array, empty-array case}'
+            'Returns empty skills array' = 'Return {skills array, empty-array case}'
+        }
+        'Update Skills' = @{
+            'Returns skills updated response with add/remove counts' = 'Return {skills-update response, add/remove summary}'
+            'Returns skills updated response with zero changes' = 'Return {skills-update response, add/remove summary}'
+        }
+        'Get Public Domains' = @{
+            'Returns success response' = 'Return {success response, domains data array}'
+            'Returns domains data array' = 'Return {success response, domains data array}'
+        }
+        'Get Public Skills' = @{
+            'Returns success response' = 'Return {success response, skills data array}'
+            'Returns skills data array' = 'Return {success response, skills data array}'
+        }
+        'Get Users' = @{
+            'Returns paginated users response' = 'Return {paginated users response, users array, pagination metadata}'
+            'Returns users array' = 'Return {paginated users response, users array, pagination metadata}'
+            'Returns total and totalPages' = 'Return {paginated users response, users array, pagination metadata}'
+            'Returns requested page' = 'Return {paginated users response, users array, pagination metadata}'
+            'Returns empty users array' = 'Return {paginated users response, users array, pagination metadata}'
+        }
+        'Get User Detail' = @{
+            'Returns detailed user payload with KYC data' = 'Return {detailed user payload, KYC state data}'
+            'Returns detailed user payload with NOT_STARTED KYC state' = 'Return {detailed user payload, KYC state data}'
+        }
+    }
+
+    $returnSection = $null
+    foreach ($section in $Model.confirmSections) {
+        if ($section.name -eq 'Return') {
+            $returnSection = $section
+            break
+        }
+    }
+
+    if ($null -eq $returnSection) {
+        return $Model
+    }
+
+    $sheetMap = $canonicalBySheet[$Model.name]
+    if ($null -eq $sheetMap) {
+        return $Model
+    }
+
+    $mergedValues = New-Object 'System.Collections.Generic.List[object]'
+    $indexByText = @{}
+    foreach ($value in $returnSection.values) {
+        $canonicalText = $value.text
+        if ($sheetMap.ContainsKey($canonicalText)) {
+            $canonicalText = $sheetMap[$canonicalText]
+        }
+
+        if (-not $indexByText.ContainsKey($canonicalText)) {
+            $mergedEntry = New-ValueEntry -Text $canonicalText -Cases @()
+            $indexByText[$canonicalText] = $mergedValues.Count
+            $mergedValues.Add($mergedEntry)
+        }
+
+        $mergedEntry = $mergedValues[$indexByText[$canonicalText]]
+        foreach ($case in $value.cases) {
+            if (-not $mergedEntry.cases.Contains($case)) {
+                $mergedEntry.cases.Add($case)
+            }
+        }
+    }
+
+    $returnSection.values = $mergedValues
+    return $Model
+}
+
 function Get-SupplementalSheetModels {
     $models = @{}
 
@@ -1581,6 +1973,8 @@ function Build-UnitSheetXml {
     $ns = New-Object System.Xml.XmlNamespaceManager($sheetXml.NameTable)
     $ns.AddNamespace("x", $sheetXml.DocumentElement.NamespaceURI)
 
+    Apply-UnitSheetColumnLayout -SheetXml $sheetXml -NamespaceManager $ns
+
     $sheetData = $sheetXml.SelectSingleNode("//x:sheetData", $ns)
     foreach ($row in @($sheetXml.SelectNodes("//x:sheetData/x:row", $ns))) {
         [void]$sheetData.RemoveChild($row)
@@ -1871,6 +2265,8 @@ Copy-FileSharedRead -SourcePath $SourceCombinedPath -DestinationPath $sourceCopy
 [System.IO.Compression.ZipFile]::ExtractToDirectory($templateCopyPath, $templateDir)
 [System.IO.Compression.ZipFile]::ExtractToDirectory($sourceCopyPath, $sourceDir)
 
+Update-UnitMarkerStyle -StylesPath (Join-Path $templateDir "xl\styles.xml")
+
 [xml]$templateWorkbookXml = Read-XmlFile (Join-Path $templateDir "xl\workbook.xml")
 [xml]$templateWorkbookRelsXml = Read-XmlFile (Join-Path $templateDir "xl\_rels\workbook.xml.rels")
 [xml]$contentTypesXml = Read-XmlFile (Join-Path $templateDir "[Content_Types].xml")
@@ -1927,6 +2323,8 @@ foreach ($sheetName in $unitSheetNames) {
     $sourceModels[$sheetName].confirmSections.Add(
         (Get-JestLogSection -Model $sourceModels[$sheetName] -AssertionLookup $jestAssertionLookup -Definitions $sheetLogDefinitions)
     )
+    $sourceModels[$sheetName] = Normalize-UnitModelData -Model $sourceModels[$sheetName]
+    $sourceModels[$sheetName] = Merge-UnitReturnSection -Model $sourceModels[$sheetName]
     $sourceModels[$sheetName].header = Get-SheetHeaderData `
         -Model $sourceModels[$sheetName] `
         -Definitions $sheetLogDefinitions `

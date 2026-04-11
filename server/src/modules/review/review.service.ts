@@ -18,7 +18,7 @@ import {
   UserRole,
 } from 'src/database/entities';
 import { EventEmitter2 } from '@nestjs/event-emitter';
-import { DataSource, In, QueryFailedError, Repository } from 'typeorm';
+import { DataSource, EntityManager, In, QueryFailedError, Repository } from 'typeorm';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { CreateReviewDto } from './dto/create-review.dto';
 import { UpdateReviewDto } from './dto/update-review.dto';
@@ -100,12 +100,12 @@ export class ReviewService {
 
     // Người được đánh giá cũng phải là thành viên dự án
     if (!validMembers.includes(targetUserId)) {
-      throw new BadRequestException('Người được đánh giá không phải thành viên dự án này.');
+      throw new BadRequestException('The reviewed user is not a member of this project.');
     }
 
     // Không được tự review chính mình
     if (reviewerId === targetUserId) {
-      throw new BadRequestException('Không thềEtự đánh giá bản thân.');
+      throw new BadRequestException('You cannot review yourself.');
     }
 
     // Kiểm tra xem đã review chưa (Mỗi người chềEreview 1 lần cho 1 dự án/đối tượng)
@@ -114,7 +114,7 @@ export class ReviewService {
     });
 
     if (existingReview) {
-      throw new BadRequestException('Bạn đã đánh giá người dùng này trong dự án này rồi.');
+      throw new BadRequestException('You have already reviewed this user in this project.');
     }
 
     // 3. Business Logic: Tính trọng sềE(Weight)
@@ -191,7 +191,7 @@ export class ReviewService {
     if (!review) throw new NotFoundException('Review not found');
 
     if (review.reviewerId !== reviewerId) {
-      throw new ForbiddenException('Bạn không có quyền sửa đánh giá này.');
+      throw new ForbiddenException('You do not have permission to edit this review.');
     }
 
     // 3. LOGIC QUAN TRỌNG: Kiểm tra thời hạn (Ví dụ: 3 ngày = 72h)
@@ -201,7 +201,7 @@ export class ReviewService {
     const diffHours = (now - createdTime) / ONE_HOUR;
 
     if (diffHours > 72) {
-      throw new BadRequestException('Đã quá thời hạn 3 ngày, bạn không thềEsửa đánh giá nữa.');
+      throw new BadRequestException('The 3-day edit window has expired for this review.');
     }
     // --- QUAN TRỌNG: SAO CHÉP DỮ LIềE CŨ ĐềEGHI LOG ---
     // Vì lát nữa ta sẽ sửa trực tiếp object 'review', nên phải clone ra một bản 'oldData' trước
@@ -250,7 +250,12 @@ export class ReviewService {
     // 5. TÍNH LẠI ĐIềE (Bắt buộc)
     // Vì rating thay đổi nên điểm uy tín của người kia cũng thay đổi theo
     this.emitReviewMutationCommittedEvent(
-      this.buildReviewMutationEvent(updatedReview.id, updatedReview.targetUserId, 'updated', reviewerId),
+      this.buildReviewMutationEvent(
+        updatedReview.id,
+        updatedReview.targetUserId,
+        'updated',
+        reviewerId,
+      ),
     );
 
     // 6. Ghi Audit Log
@@ -364,8 +369,10 @@ export class ReviewService {
   private rethrowDuplicateReviewError(error: unknown) {
     if (
       error instanceof QueryFailedError &&
-      typeof (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === 'string' &&
-      (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code === '23505'
+      typeof (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code ===
+        'string' &&
+      (error as QueryFailedError & { driverError?: { code?: string } }).driverError?.code ===
+        '23505'
     ) {
       throw this.createDuplicateReviewException();
     }
@@ -404,15 +411,111 @@ export class ReviewService {
       comment: review.comment ?? null,
       weight: review.weight ?? null,
       deletedAt:
-        review.deletedAt instanceof Date ? review.deletedAt.toISOString() : (review.deletedAt ?? null),
+        review.deletedAt instanceof Date
+          ? review.deletedAt.toISOString()
+          : (review.deletedAt ?? null),
       deletedBy: review.deletedBy ?? null,
       deleteReason: review.deleteReason ?? null,
       createdAt:
-        review.createdAt instanceof Date ? review.createdAt.toISOString() : (review.createdAt ?? null),
+        review.createdAt instanceof Date
+          ? review.createdAt.toISOString()
+          : (review.createdAt ?? null),
       updatedAt:
-        review.updatedAt instanceof Date ? review.updatedAt.toISOString() : (review.updatedAt ?? null),
+        review.updatedAt instanceof Date
+          ? review.updatedAt.toISOString()
+          : (review.updatedAt ?? null),
       ...('restoreReason' in review ? { restoreReason: review.restoreReason ?? null } : {}),
     };
+  }
+
+  private toBoundedPositiveInt(value: unknown, fallback: number, max: number): number {
+    const parsed =
+      typeof value === 'number'
+        ? Math.trunc(value)
+        : typeof value === 'string'
+          ? Number.parseInt(value, 10)
+          : Number.NaN;
+
+    if (!Number.isFinite(parsed) || parsed <= 0) {
+      return fallback;
+    }
+
+    return Math.min(parsed, max);
+  }
+
+  async softDeleteWithinTransaction(
+    manager: EntityManager,
+    reviewId: string,
+    adminId: string,
+    reason: string,
+    prefetchedReview?: ReviewEntity,
+  ): Promise<ReviewEntity> {
+    const reviewRepository = manager.getRepository(ReviewEntity);
+    const auditRepository = manager.getRepository(AuditLogEntity);
+
+    const review =
+      prefetchedReview ||
+      (await reviewRepository.findOne({
+        where: { id: reviewId },
+        withDeleted: true,
+        lock: { mode: 'pessimistic_write' },
+      }));
+
+    if (!review) {
+      throw new NotFoundException('Review not found');
+    }
+
+    if (review.deletedAt) {
+      throw new BadRequestException('Review is already deleted');
+    }
+
+    const oldData = { ...review };
+    review.deletedBy = adminId;
+    review.deleteReason = reason;
+
+    const persistedReview = await reviewRepository.softRemove(review);
+
+    await this.auditLogsService.logOrThrow(
+      {
+        action: 'DELETE_REVIEW',
+        entityType: 'Review',
+        entityId: reviewId,
+        actorId: adminId,
+        oldData: this.serializeReviewForAudit(oldData),
+        newData: this.serializeReviewForAudit(persistedReview),
+        source: 'SERVER',
+        eventCategory: 'DB_CHANGE',
+        eventName: 'review-soft-deleted',
+      },
+      auditRepository,
+    );
+
+    return persistedReview;
+  }
+
+  async handleSoftDeleteCommitted(
+    review: Pick<ReviewEntity, 'id' | 'targetUserId' | 'reviewerId'>,
+    adminId: string,
+  ): Promise<void> {
+    this.emitReviewMutationCommittedEvent(
+      this.buildReviewMutationEvent(review.id, review.targetUserId, 'soft_deleted', adminId),
+    );
+
+    await this.notifyModerationWatchers({
+      actorId: adminId,
+      reviewId: review.id,
+      title: 'Review moderated',
+      body: `A review was soft deleted by an administrator.`,
+    });
+
+    await this.notifyReviewOwner({
+      actorId: adminId,
+      ownerId: review.reviewerId,
+      reviewId: review.id,
+      title: 'Your review was removed',
+      body:
+        'An administrator removed one of your reviews after moderation. If you think this is incorrect, submit an appeal request from your account.',
+    });
   }
 
   private summarizeUser(user?: UserEntity | null) {
@@ -465,7 +568,15 @@ export class ReviewService {
   private async getPendingReportInfoMap(reviewIds: string[]) {
     const normalizedIds = Array.from(new Set(reviewIds.filter(Boolean)));
     if (normalizedIds.length === 0) {
-      return new Map<string, { reportCount: number; reasons: string[]; lastReportedAt: Date | null; reportedBy: Array<{ id?: string; fullName?: string }>; }>();
+      return new Map<
+        string,
+        {
+          reportCount: number;
+          reasons: string[];
+          lastReportedAt: Date | null;
+          reportedBy: Array<{ id?: string; fullName?: string }>;
+        }
+      >();
     }
 
     const reports = await this.reportRepo.find({
@@ -555,9 +666,7 @@ export class ReviewService {
     });
 
     const excluded = new Set(excludeUserIds.filter(Boolean));
-    return admins
-      .map((admin) => admin.id)
-      .filter((adminId) => adminId && !excluded.has(adminId));
+    return admins.map((admin) => admin.id).filter((adminId) => adminId && !excluded.has(adminId));
   }
 
   private async notifyModerationWatchers(params: {
@@ -580,6 +689,26 @@ export class ReviewService {
         relatedId: params.reviewId,
       })),
     );
+  }
+
+  private async notifyReviewOwner(params: {
+    actorId: string;
+    ownerId?: string | null;
+    reviewId: string;
+    title: string;
+    body: string;
+  }) {
+    if (!params.ownerId || params.ownerId === params.actorId) {
+      return;
+    }
+
+    await this.notificationsService.create({
+      userId: params.ownerId,
+      title: params.title,
+      body: params.body,
+      relatedType: 'Review',
+      relatedId: params.reviewId,
+    });
   }
 
   private async loadReviewForModeration(reviewId: string) {
@@ -711,51 +840,11 @@ export class ReviewService {
       throw new NotFoundException('Review not found');
     }
 
-    // Lưu data cũ cho audit log
-    const oldData = { ...review };
-
-    // Cập nhật soft delete fields
-    review.deletedBy = adminId;
-    review.deleteReason = reason;
-
-    // TypeORM softRemove sẽ tự động set deletedAt
-    const deletedReview = await this.dataSource.transaction(async (manager) => {
-      const reviewRepository = manager.getRepository(ReviewEntity);
-      const auditRepository = manager.getRepository(AuditLogEntity);
-      const persistedReview = await reviewRepository.softRemove(review);
-
-      await this.auditLogsService.logOrThrow(
-        {
-          action: 'DELETE_REVIEW',
-          entityType: 'Review',
-          entityId: reviewId,
-          actorId: adminId,
-          oldData: this.serializeReviewForAudit(oldData),
-          newData: this.serializeReviewForAudit(persistedReview),
-          source: 'SERVER',
-          eventCategory: 'DB_CHANGE',
-          eventName: 'review-soft-deleted',
-        },
-        auditRepository,
-      );
-
-      return persistedReview;
-    });
-
-    // QUAN TRỌNG: Tính lại Trust Score cho người được review
-    this.emitReviewMutationCommittedEvent(
-      this.buildReviewMutationEvent(deletedReview.id, deletedReview.targetUserId, 'soft_deleted', adminId),
+    const deletedReview = await this.dataSource.transaction((manager) =>
+      this.softDeleteWithinTransaction(manager, reviewId, adminId, reason, review),
     );
 
-    // Audit log
-    // Audit log persisted inside the transaction above.
-
-    await this.notifyModerationWatchers({
-      actorId: adminId,
-      reviewId,
-      title: 'Review moderated',
-      body: `A review was soft deleted by an administrator.`,
-    });
+    await this.handleSoftDeleteCommitted(deletedReview, adminId);
 
     return { message: 'Review deleted successfully' };
   }
@@ -815,7 +904,12 @@ export class ReviewService {
 
     // QUAN TRỌNG: Tính lại Trust Score cho người được review
     this.emitReviewMutationCommittedEvent(
-      this.buildReviewMutationEvent(restoredReview.id, restoredReview.targetUserId, 'restored', adminId),
+      this.buildReviewMutationEvent(
+        restoredReview.id,
+        restoredReview.targetUserId,
+        'restored',
+        adminId,
+      ),
     );
 
     // Audit log
@@ -826,6 +920,14 @@ export class ReviewService {
       reviewId,
       title: 'Review restored',
       body: `A review was restored by an administrator.`,
+    });
+
+    await this.notifyReviewOwner({
+      actorId: adminId,
+      ownerId: restoredReview.reviewerId,
+      reviewId,
+      title: 'Your review was restored',
+      body: 'An administrator restored your review after moderation.',
     });
 
     return { message: 'Review restored successfully', review: restoredReview };
@@ -909,10 +1011,15 @@ export class ReviewService {
     });
 
     const reportInfoMap = await this.getPendingReportInfoMap(reviewIds);
-    return reviews.map((review) => this.mapReviewForModeration(review, reportInfoMap.get(review.id)));
+    return reviews.map((review) =>
+      this.mapReviewForModeration(review, reportInfoMap.get(review.id)),
+    );
   }
 
   async getReviewsForModeration(filters?: { status?: string; page?: number; limit?: number }) {
+    const page = this.toBoundedPositiveInt(filters?.page, 1, 10_000);
+    const limit = this.toBoundedPositiveInt(filters?.limit, 50, 100);
+
     const queryBuilder = this.reviewRepo
       .createQueryBuilder('review')
       .leftJoinAndSelect('review.reviewer', 'reviewer')
@@ -942,14 +1049,13 @@ export class ReviewService {
     }
 
     queryBuilder.orderBy('review.createdAt', 'DESC');
-
-    if (filters?.page && filters?.limit) {
-      queryBuilder.skip((filters.page - 1) * filters.limit).take(filters.limit);
-    }
+    queryBuilder.skip((page - 1) * limit).take(limit);
 
     const reviews = await queryBuilder.getMany();
     const reportInfoMap = await this.getPendingReportInfoMap(reviews.map((review) => review.id));
-    return reviews.map((review) => this.mapReviewForModeration(review, reportInfoMap.get(review.id)));
+    return reviews.map((review) =>
+      this.mapReviewForModeration(review, reportInfoMap.get(review.id)),
+    );
   }
 
   async openModerationCase(reviewId: string, adminId: string, assignmentVersion: number) {

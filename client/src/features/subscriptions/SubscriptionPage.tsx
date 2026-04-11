@@ -6,6 +6,7 @@ import {
   Check,
   CreditCard,
   InfinityIcon,
+  Loader2,
   Sparkles,
   X,
   Zap,
@@ -13,8 +14,8 @@ import {
 import { cancelSubscription, getMySubscription } from "./api";
 import {
   formatCurrency,
+  getPlanDisplayAmount,
   formatPerkValue,
-  formatVND,
   getBillingCycleLabel,
   PERK_LABELS,
   QUOTA_ACTION_LABELS,
@@ -30,7 +31,6 @@ import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/shared/components/ui/dialog";
 import { Progress } from "@/shared/components/ui/progress";
-import { SubscriptionPayPalSetupDialog } from "./components/SubscriptionPayPalSetupDialog";
 import { resolveSubscriptionCheckoutRoute } from "./subscriptionRoutes";
 
 const getErrorMessage = (error: unknown, fallback: string) => {
@@ -64,10 +64,7 @@ export function SubscriptionPage() {
   const [subscription, setSubscription] = useState<MySubscriptionResponse | null>(null);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodView[]>([]);
   const [paymentMethodsLoaded, setPaymentMethodsLoaded] = useState(false);
-  const [payPalEmailInput, setPayPalEmailInput] = useState("");
-  const [payPalSetupError, setPayPalSetupError] = useState<string | null>(null);
   const [savingPayPalMethod, setSavingPayPalMethod] = useState(false);
-  const [showPayPalSetupModal, setShowPayPalSetupModal] = useState(false);
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
   const [cancelling, setCancelling] = useState(false);
@@ -123,14 +120,6 @@ export function SubscriptionPage() {
     void fetchData();
   }, [fetchData]);
 
-  useEffect(() => {
-    if (payPalEmailInput.trim() || !currentUser?.email) {
-      return;
-    }
-
-    setPayPalEmailInput(currentUser.email);
-  }, [currentUser?.email, payPalEmailInput]);
-
   const payPalMethods = useMemo(
     () => paymentMethods.filter((method) => method.type === "PAYPAL_ACCOUNT"),
     [paymentMethods],
@@ -143,7 +132,6 @@ export function SubscriptionPage() {
   const currentSub = subscription?.subscription;
   const usage = subscription?.usage || {};
   const perks = subscription?.perks || {};
-
   const resolveQuotaLimit = useCallback(
     (action: string, data: QuotaUsage) => {
       if (data.limit !== undefined && data.limit !== null && data.limit !== "") {
@@ -156,63 +144,48 @@ export function SubscriptionPage() {
     },
     [perks],
   );
+  const needsPayPalSetup = !isPremium && paymentMethodsLoaded && !activePayPalMethod;
+  const currentSubscriptionDisplayAmount =
+    currentSub?.payment?.capturedAmount && currentSub.payment?.currency
+      ? formatCurrency(currentSub.payment.capturedAmount, currentSub.payment.currency)
+      : currentSub?.plan
+        ? formatCurrency(
+            getPlanDisplayAmount(currentSub.plan, currentSub.billingCycle),
+            currentSub.plan.displayCurrency,
+          )
+        : null;
 
-  const handleUpgradeClick = async () => {
-    setError(null);
-
-    let nextPayPalMethod: PaymentMethodView | null = activePayPalMethod;
-    if (!paymentMethodsLoaded) {
-      const methods = await loadPaymentMethods(true);
-      if (!methods) {
-        return;
-      }
-
-      nextPayPalMethod =
-        methods.find((method) => method.type === "PAYPAL_ACCOUNT" && method.isDefault)
-        ?? methods.find((method) => method.type === "PAYPAL_ACCOUNT")
-        ?? null;
-    }
-
-    if (!nextPayPalMethod) {
-      setPayPalSetupError(null);
-      setShowPayPalSetupModal(true);
-      return;
-    }
-
-    navigate(subscriptionCheckoutRoute);
-  };
-
-  const handlePayPalSetupModalChange = (open: boolean) => {
-    setShowPayPalSetupModal(open);
-    if (!open) {
-      setPayPalSetupError(null);
-    }
-  };
-
-  const handleCreatePayPalMethod = async () => {
-    const trimmedEmail = payPalEmailInput.trim();
-    if (!trimmedEmail) {
-      setPayPalSetupError("Enter the PayPal email you want to save first.");
-      return;
+  const ensurePayPalCheckoutMethod = useCallback(async () => {
+    if (activePayPalMethod) {
+      return activePayPalMethod;
     }
 
     try {
       setSavingPayPalMethod(true);
-      setPayPalSetupError(null);
       setError(null);
       await createPaymentMethod({
         type: "PAYPAL_ACCOUNT",
-        paypalEmail: trimmedEmail,
-        displayName: trimmedEmail,
+        paypalEmail: currentUser?.email?.trim() || "paypal-checkout@interdev.local",
+        displayName: "PayPal checkout",
         isDefault: payPalMethods.length === 0,
       });
       await fetchData();
-      setShowPayPalSetupModal(false);
-      navigate(subscriptionCheckoutRoute);
     } catch (err: unknown) {
-      setPayPalSetupError(getErrorMessage(err, "Failed to save the PayPal method."));
+      throw new Error(getErrorMessage(err, "Failed to prepare PayPal checkout."));
     } finally {
       setSavingPayPalMethod(false);
+    }
+  }, [activePayPalMethod, currentUser?.email, fetchData, payPalMethods.length]);
+
+  const handleUpgradeClick = async () => {
+    try {
+      if (needsPayPalSetup || !activePayPalMethod) {
+        await ensurePayPalCheckoutMethod();
+      }
+
+      navigate(subscriptionCheckoutRoute);
+    } catch (err: unknown) {
+      setError(getErrorMessage(err, "Failed to prepare PayPal checkout."));
     }
   };
 
@@ -300,7 +273,7 @@ export function SubscriptionPage() {
                   <CardDescription className="mt-1">
                     {isPremium
                       ? "Your premium subscription is active."
-                      : "Upgrade to unlock higher limits and premium perks."}
+                      : "Upgrade to unlock higher limits and premium perks through PayPal checkout."}
                   </CardDescription>
                 </div>
                 <Badge variant={isPremium ? "default" : "secondary"}>
@@ -320,7 +293,7 @@ export function SubscriptionPage() {
                   </div>
                   <div>
                     <div className="text-xs font-semibold uppercase text-muted-foreground">Amount</div>
-                    <div className="mt-1 text-sm font-medium">{formatVND(currentSub.amountPaid)}</div>
+                    <div className="mt-1 text-sm font-medium">{currentSubscriptionDisplayAmount ?? "—"}</div>
                   </div>
                   <div className="sm:col-span-2">
                     <div className="text-xs font-semibold uppercase text-muted-foreground">Current Period Ends</div>
@@ -347,9 +320,17 @@ export function SubscriptionPage() {
                   Cancel Subscription
                 </Button>
               ) : (
-                <Button onClick={handleUpgradeClick}>
-                  <Zap className="mr-2 h-4 w-4" />
-                  {activePayPalMethod ? "Continue to Purchase" : "Set Up PayPal First"}
+                <Button onClick={() => void handleUpgradeClick()} disabled={savingPayPalMethod}>
+                  {savingPayPalMethod ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Zap className="mr-2 h-4 w-4" />
+                  )}
+                  {savingPayPalMethod
+                    ? "Preparing PayPal..."
+                    : activePayPalMethod
+                      ? "Continue to Purchase"
+                      : "Continue to PayPal"}
                 </Button>
               )}
             </CardFooter>
@@ -416,19 +397,6 @@ export function SubscriptionPage() {
           </CardContent>
         </Card>
       </div>
-
-      <SubscriptionPayPalSetupDialog
-        open={showPayPalSetupModal}
-        onOpenChange={handlePayPalSetupModalChange}
-        payPalEmail={payPalEmailInput}
-        onPayPalEmailChange={(value) => {
-          setPayPalSetupError(null);
-          setPayPalEmailInput(value);
-        }}
-        onSave={handleCreatePayPalMethod}
-        saving={savingPayPalMethod}
-        error={payPalSetupError}
-      />
 
       <Dialog open={showCancelModal} onOpenChange={setShowCancelModal}>
         <DialogContent className="sm:max-w-[425px]">

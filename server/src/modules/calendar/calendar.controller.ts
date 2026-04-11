@@ -65,10 +65,12 @@ import {
 } from './dto';
 import {
   buildHearingDocket,
+  normalizeDisputeProjectTitle,
   resolveDisputeAppealState,
   resolveDisputeDisplayTitle,
   resolveReasonExcerpt,
 } from '../disputes/dispute-docket';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 
 const DEFAULT_RESPONSE_DEADLINE_HOURS = 24;
 
@@ -146,6 +148,7 @@ export class CalendarController {
     private readonly calendarService: CalendarService,
     private readonly autoScheduleService: AutoScheduleService,
     private readonly availabilityService: AvailabilityService,
+    private readonly eventEmitter: EventEmitter2,
   ) {}
 
   // ===========================================================================
@@ -286,6 +289,20 @@ export class CalendarController {
       end: endTime,
     });
 
+    const createdEventAudienceIds = Array.from(new Set([user.id, ...participantIds]));
+    this.eventEmitter.emit('calendar.eventCreated', {
+      eventId: savedEvent.id,
+      organizerId: savedEvent.organizerId,
+      status: savedEvent.status,
+      type: savedEvent.type,
+      startTime: savedEvent.startTime,
+      endTime: savedEvent.endTime,
+      referenceType: savedEvent.referenceType,
+      referenceId: savedEvent.referenceId,
+      userIds: createdEventAudienceIds,
+      createdById: user.id,
+    });
+
     return {
       success: true,
       message: 'Event created',
@@ -420,6 +437,24 @@ export class CalendarController {
       end: rangeEnd,
     });
 
+    const updatedEventAudienceIds = await this.collectEventAudienceUserIds(
+      event.id,
+      event.organizerId,
+    );
+    this.eventEmitter.emit('calendar.eventUpdated', {
+      eventId: event.id,
+      organizerId: event.organizerId,
+      status: updated?.status || event.status,
+      type: updated?.type || event.type,
+      startTime,
+      endTime,
+      referenceType: updated?.referenceType || event.referenceType,
+      referenceId: updated?.referenceId || event.referenceId,
+      userIds: updatedEventAudienceIds,
+      updatedById: user.id,
+      updatedAt: new Date(),
+    });
+
     return {
       success: true,
       message: 'Event updated',
@@ -475,6 +510,18 @@ export class CalendarController {
       useAutoSchedule: dto.useAutoSchedule || false,
     });
     const saved = await this.rescheduleRepository.save(request);
+    const rescheduleAudienceIds = Array.from(new Set([event.organizerId, ...participantIds]));
+
+    this.eventEmitter.emit('calendar.rescheduleRequested', {
+      requestId: saved.id,
+      eventId,
+      requesterId: user.id,
+      status: saved.status,
+      useAutoSchedule: saved.useAutoSchedule,
+      proposedSlotsCount: proposedSlots?.length || 0,
+      userIds: rescheduleAudienceIds,
+      createdAt: saved.createdAt,
+    });
 
     if (!dto.useAutoSchedule) {
       return {
@@ -487,6 +534,18 @@ export class CalendarController {
     }
 
     const result = await this.autoScheduleService.handleRescheduleRequest(saved.id, user.id);
+
+    this.eventEmitter.emit('calendar.rescheduleProcessed', {
+      requestId: saved.id,
+      eventId,
+      processedById: user.id,
+      manualRequired: Boolean(result.manualRequired),
+      reason: result.reason || null,
+      newEventId: result.event?.id || null,
+      newEventStartTime: result.event?.startTime || null,
+      userIds: await this.collectEventAudienceUserIds(eventId, event.organizerId, participantIds),
+      processedAt: new Date(),
+    });
 
     return {
       success: true,
@@ -606,6 +665,8 @@ export class CalendarController {
       throw new BadRequestException('Reschedule request already processed');
     }
 
+    const requestAudienceIds = await this.collectEventAudienceUserIds(request.eventId);
+
     if (!['approve', 'reject'].includes(dto.action)) {
       throw new BadRequestException('Invalid reschedule action');
     }
@@ -616,6 +677,18 @@ export class CalendarController {
         processedById: user.id,
         processedAt: new Date(),
         processNote: dto.processNote,
+      });
+
+      this.eventEmitter.emit('calendar.rescheduleProcessed', {
+        requestId: request.id,
+        eventId: request.eventId,
+        processedById: user.id,
+        action: 'reject',
+        status: RescheduleRequestStatus.REJECTED,
+        manualRequired: true,
+        reason: dto.processNote || null,
+        userIds: requestAudienceIds,
+        processedAt: new Date(),
       });
 
       return {
@@ -633,6 +706,20 @@ export class CalendarController {
         dto.processNote,
       );
 
+      this.eventEmitter.emit('calendar.rescheduleProcessed', {
+        requestId: request.id,
+        eventId: request.eventId,
+        processedById: user.id,
+        action: 'approve',
+        status: result.manualRequired ? 'MANUAL_REQUIRED' : RescheduleRequestStatus.APPROVED,
+        manualRequired: Boolean(result.manualRequired),
+        reason: result.reason || null,
+        newEventId: result.event?.id || null,
+        newEventStartTime: result.event?.startTime || null,
+        userIds: requestAudienceIds,
+        processedAt: new Date(),
+      });
+
       return {
         success: true,
         message: result.manualRequired ? 'Manual reschedule required' : 'Reschedule approved',
@@ -641,6 +728,20 @@ export class CalendarController {
     }
 
     const result = await this.autoScheduleService.handleRescheduleRequest(request.id, user.id);
+
+    this.eventEmitter.emit('calendar.rescheduleProcessed', {
+      requestId: request.id,
+      eventId: request.eventId,
+      processedById: user.id,
+      action: 'approve',
+      status: result.manualRequired ? 'MANUAL_REQUIRED' : RescheduleRequestStatus.APPROVED,
+      manualRequired: Boolean(result.manualRequired),
+      reason: result.reason || null,
+      newEventId: result.event?.id || null,
+      newEventStartTime: result.event?.startTime || null,
+      userIds: requestAudienceIds,
+      processedAt: new Date(),
+    });
 
     return {
       success: true,
@@ -680,6 +781,56 @@ export class CalendarController {
       dto.response,
       dto.responseNote,
     );
+
+    const refreshedEvent = await this.calendarRepository.findOne({
+      where: { id: eventId },
+      select: ['id', 'status', 'referenceType', 'referenceId'],
+    });
+
+    let hearingId: string | null = null;
+    let disputeId: string | null = null;
+
+    if (refreshedEvent?.referenceType === 'DisputeHearing' && refreshedEvent.referenceId) {
+      hearingId = refreshedEvent.referenceId;
+      const hearing = await this.hearingRepository.findOne({
+        where: { id: hearingId },
+        select: ['id', 'disputeId'],
+      });
+      disputeId = hearing?.disputeId ?? null;
+    }
+
+    this.eventEmitter.emit('hearing.inviteResponded', {
+      eventId,
+      hearingId,
+      disputeId,
+      participantId: participant.id,
+      participantUserId: participant.userId,
+      responderId: user.id,
+      response: dto.response,
+      responseNote: dto.responseNote ?? null,
+      eventStatus: refreshedEvent?.status ?? null,
+      manualRequired: Boolean(result.manualRequired),
+      rescheduleTriggered: Boolean(result.rescheduleTriggered),
+      reason: result.reason ?? null,
+      respondedAt: new Date(),
+    });
+
+    this.eventEmitter.emit('calendar.inviteResponded', {
+      eventId,
+      hearingId,
+      disputeId,
+      participantId: participant.id,
+      participantUserId: participant.userId,
+      responderId: user.id,
+      response: dto.response,
+      responseNote: dto.responseNote ?? null,
+      eventStatus: refreshedEvent?.status ?? null,
+      manualRequired: Boolean(result.manualRequired),
+      rescheduleTriggered: Boolean(result.rescheduleTriggered),
+      reason: result.reason ?? null,
+      respondedAt: new Date(),
+      userIds: await this.collectEventAudienceUserIds(eventId),
+    });
 
     return {
       success: true,
@@ -1143,6 +1294,7 @@ export class CalendarController {
       const claimant = userById.get(dispute.raisedById);
       const defendant = userById.get(dispute.defendantId);
       const project = dispute.projectId ? projectById.get(dispute.projectId) : undefined;
+      const projectTitle = normalizeDisputeProjectTitle(project?.title) || project?.title;
       const docket = docketByDisputeId.get(dispute.id);
       const docketEntry = docket?.items.find((item) => item.hearingId === hearing.id);
       const appealState = resolveDisputeAppealState({
@@ -1169,10 +1321,10 @@ export class CalendarController {
         displayCode: this.buildDisputeDisplayCode(dispute.id),
         displayTitle: resolveDisputeDisplayTitle({
           disputeId: dispute.id,
-          projectTitle: project?.title,
+          projectTitle,
           reason: dispute.reason,
         }),
-        projectTitle: project?.title,
+        projectTitle,
         reasonExcerpt: resolveReasonExcerpt(dispute.reason),
         status: dispute.status,
         appealState,
@@ -1208,7 +1360,7 @@ export class CalendarController {
           displayCode: disputeSummary.displayCode,
           hearingNumber: hearing.hearingNumber,
           projectId: dispute.projectId,
-          projectTitle: project?.title,
+          projectTitle,
           claimantName: this.resolveDisplayName(claimant),
           defendantName: this.resolveDisplayName(defendant),
           counterpartyName,
@@ -1438,6 +1590,36 @@ export class CalendarController {
     const next = new Date(date);
     next.setDate(next.getDate() + days);
     return next;
+  }
+
+  private async collectEventAudienceUserIds(
+    eventId: string,
+    fallbackOrganizerId?: string | null,
+    fallbackParticipantIds: string[] = [],
+  ): Promise<string[]> {
+    const [event, participants] = await Promise.all([
+      this.calendarRepository.findOne({
+        where: { id: eventId },
+        select: ['id', 'organizerId'],
+      }),
+      this.participantRepository.find({
+        where: { eventId },
+        select: ['userId'],
+      }),
+    ]);
+
+    const audienceIds = new Set<string>();
+
+    [event?.organizerId, fallbackOrganizerId, ...fallbackParticipantIds]
+      .filter((value): value is string => Boolean(value))
+      .forEach((userId) => audienceIds.add(userId));
+
+    participants
+      .map((participant) => participant.userId)
+      .filter((value): value is string => Boolean(value))
+      .forEach((userId) => audienceIds.add(userId));
+
+    return Array.from(audienceIds);
   }
 
   private isDisputeCalendarScopeLockEnabled(): boolean {

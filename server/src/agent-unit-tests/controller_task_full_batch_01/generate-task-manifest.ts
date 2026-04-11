@@ -21,6 +21,7 @@ const endpoints = resolveTaskEndpoints().map((endpoint) => ({
   useCases: endpoint.useCases,
   group: endpoint.group,
   controllerName: endpoint.controllerName,
+  sourceFilePath: endpoint.sourceFilePath,
   methodName: endpoint.methodName,
   roles: endpoint.roles,
   preferredRole: endpoint.preferredRole,

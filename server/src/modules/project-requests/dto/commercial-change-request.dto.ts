@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMinSize,
+  IsBoolean,
   IsArray,
   IsIn,
   IsNotEmpty,
@@ -56,6 +57,10 @@ export class RespondCommercialChangeRequestDto {
   @IsString()
   @IsIn(['APPROVE', 'REJECT'])
   action: 'APPROVE' | 'REJECT';
+
+  @IsOptional()
+  @IsBoolean()
+  acknowledgeOutOfRangeBudgetWarning?: boolean;
 
   @IsOptional()
   @IsString()

@@ -1,0 +1,148 @@
+@startuml Export_Log_Class_Diagram
+title Export Log - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class AuditLogPage {
+    - exportOpen: boolean
+    - exporting: "csv" | "xlsx" | null
+    - filters: AuditLogFilters
+    --
+    + AuditLogPage(): JSX.Element
+    + handleExport(format: "csv" | "xlsx"): Promise<void>
+}
+
+class auditLogsApi {
+    --
+    + getAll(params?: GetAuditLogsParams): Promise<AuditLogsResponse>
+    + getById(id: string): Promise<AuditLogEntry>
+    + getTimeline(id: string): Promise<AuditLogTimelineResponse>
+    + export(format: "csv" | "xlsx", params?: GetAuditLogsParams): Promise<Blob>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + getResponse<T>(url: string, config?: AxiosRequestConfig): Promise<AxiosResponse<T>>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    ...
+}
+
+class AuditLogsController {
+    - auditLogsService: AuditLogsService
+    --
+    + findAll(query: GetAuditLogsDto): Promise<any>
+    + export(query: GetAuditLogsDto, req: Request, actorId: string, res: Response): Promise<void>
+    + ingestClientEvents(dto: CreateClientAuditEventsDto, req: Request, actorId: string): Promise<any>
+    + getTimeline(id: string): Promise<any>
+    + findOne(id: string): Promise<any>
+}
+
+class AuditLogsService {
+    - logger: Logger
+    - auditLogRepository: Repository<AuditLogEntity>
+    --
+    + findAll(queryDto: GetAuditLogsDto): Promise<any>
+    + findOne(id: string): Promise<AuditLogResponse>
+    + getTimeline(id: string): Promise<any>
+    + exportLogs(queryDto: GetAuditLogsDto): Promise<object>
+    + log(input: AuditLogPayload): Promise<AuditLogEntity | null>
+    ...
+}
+
+class buildXlsxWorkbook {
+    --
+    + buildXlsxWorkbook(sheets: XlsxSheetDefinition[]): Promise<Buffer>
+}
+
+class GetAuditLogsDto {
+    + page?: number
+    + limit?: number
+    + userId?: string
+    + requestId?: string
+    + sessionId?: string
+    + entityType?: string
+    + action?: string
+    + dateFrom?: string
+    + dateTo?: string
+    + riskLevel?: string
+    + format?: string
+    ...
+}
+
+class AuditLogFilters {
+    + searchAction?: string
+    + requestId?: string
+    + sessionId?: string
+    + dateFrom?: string
+    + dateTo?: string
+    + riskLevel?: RiskLevel | "ALL"
+    + source?: AuditSource | "ALL"
+    + eventCategory?: AuditEventCategory | "ALL"
+    + errorOnly?: boolean
+    + incidentOnly?: boolean
+    + component?: string
+    + fingerprint?: string
+    --
+}
+
+class AuditLogEntry {
+    + id: string
+    + timestamp: string
+    + source: AuditSource
+    + eventCategory: AuditEventCategory
+    + action: string
+    + entityType: string
+    + entityId: string
+    + riskLevel: RiskLevel
+    + requestId?: string | null
+    + sessionId?: string | null
+    ...
+}
+
+class AuditLogEntity {
+    + id: string
+    + actorId: string | null
+    + action: string
+    + entityType: string
+    + entityId: string
+    + requestId: string | null
+    + sessionId: string | null
+    + route: string | null
+    + metadata: Record<string, any> | null
+    + createdAt: Date
+    ...
+}
+
+AuditLogPage ..> AuditLogFilters
+AuditLogPage ..> auditLogsApi
+auditLogsApi ..> ApiClient
+auditLogsApi ..> GetAuditLogsDto
+ApiClient ..> AuditLogsController
+
+AuditLogsController --> AuditLogsService
+AuditLogsController ..> GetAuditLogsDto
+
+AuditLogsService ..> GetAuditLogsDto
+AuditLogsService ..> AuditLogEntry
+AuditLogsService ..> AuditLogEntity
+AuditLogsService ..> buildXlsxWorkbook
+
+@enduml

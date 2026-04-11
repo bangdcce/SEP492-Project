@@ -73,11 +73,11 @@ class KycService {
     - buildUserKycPayload(kyc: KycVerificationEntity)
     - getLatestApprovedKyc(userId: string)
     - expirePreviousApprovedKycs(userId: string, activeKycId: string)
+    - getFileFingerprint(buffer: Buffer): string
     + getAllKyc(status?: KycStatus, page = 1, limit = 20)
     + getKycById(id: string)
     + approveKyc(id: string, adminId: string)
     + rejectKyc(id: string, adminId: string, dto: RejectKycDto)
-    + hasVerifiedKyc(userId: string): Promise<boolean>
     ...
 }
 

@@ -4,12 +4,7 @@ import { ContractsService } from './contracts.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { GetUser } from '../auth/decorators/get-user.decorator';
 import { UserEntity } from '../../database/entities/user.entity';
-import {
-  CreateSignatureSessionDto,
-  InitializeContractDto,
-  SignContractDto,
-  UpdateContractDraftDto,
-} from './dto';
+import { InitializeContractDto, SignContractDto, UpdateContractDraftDto } from './dto';
 
 @Controller('contracts')
 @UseGuards(JwtAuthGuard)
@@ -24,6 +19,14 @@ export class ContractsController {
   @Get(':id')
   async getContract(@GetUser() user: UserEntity, @Param('id') id: string) {
     return this.contractsService.findOneForUser(user, id);
+  }
+
+  @Get(':id/signature-verification-report')
+  async getSignatureVerificationReport(
+    @GetUser() user: UserEntity,
+    @Param('id') id: string,
+  ) {
+    return this.contractsService.getSignatureVerificationReportForUser(user, id);
   }
 
   @Post('initialize')
@@ -46,7 +49,7 @@ export class ContractsController {
     @Param('contractId') contractId: string,
     @Body() dto: SignContractDto,
   ) {
-    return this.contractsService.signContract(user, contractId, dto.contentHash, req);
+    return this.contractsService.signContract(user, contractId, dto.contentHash, dto.pin, req);
   }
 
   @Patch(':id/draft')
@@ -63,15 +66,6 @@ export class ContractsController {
     return this.contractsService.sendDraft(user, id);
   }
 
-  @Post(':id/signature-sessions')
-  async createSignatureSession(
-    @GetUser() user: UserEntity,
-    @Param('id') id: string,
-    @Body() dto: CreateSignatureSessionDto,
-  ) {
-    return this.contractsService.createSignatureSession(user, id, dto);
-  }
-
   @Post(':id/discard')
   async discardDraft(@GetUser() user: UserEntity, @Param('id') id: string) {
     return this.contractsService.discardDraft(user, id);
@@ -83,11 +77,7 @@ export class ContractsController {
   }
 
   @Get(':id/pdf')
-  async downloadPdf(
-    @GetUser() user: UserEntity,
-    @Param('id') id: string,
-    @Res() res: Response,
-  ) {
+  async downloadPdf(@GetUser() user: UserEntity, @Param('id') id: string, @Res() res: Response) {
     const buffer = await this.contractsService.generatePdfForUser(user, id);
     res.set({
       'Content-Type': 'application/pdf',

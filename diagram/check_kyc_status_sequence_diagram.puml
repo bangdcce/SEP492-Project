@@ -36,7 +36,8 @@ activate User
 activate Page
 
 Page -> Page : 2. Show loading indicator
-
+activate Page
+deactivate Page
 Page -> API : 3. Request KYC status
 activate API
 
@@ -58,13 +59,13 @@ deactivate DB
 
 alt [No KYC Record]
     Service --> Controller : 10. Return NOT_STARTED status
-    deactivate Service
+   
 
     Controller --> API : 11. Return response
-    deactivate Controller
+    
 
     API --> Page : 12. Return status data
-    deactivate API
+
 
     Page --> User : 13. Show "Not verified" and a Start button
 
@@ -85,9 +86,11 @@ else [KYC Record Exists]
     deactivate Storage
 
     Service -> Service : 20. Remove sensitive fields from the response
-
+activate Service
+deactivate Service
     Service -> Service : 21. Build the response payload
-
+activate Service
+deactivate Service
     Service --> Controller : 22. Return KYC status data
     deactivate Service
 
@@ -98,17 +101,19 @@ else [KYC Record Exists]
     deactivate API
 
     Page -> Page : 25. Update the screen
-
+activate Page
+deactivate Page
     alt [Status: PENDING]
         Page --> User : 26. Show "Verification in progress"
     else [Status: APPROVED]
         Page --> User : 27. Show "Identity verified"
     else [Status: REJECTED]
         Page --> User : 28. Show "Verification failed" and the reason
+deactivate Page
+deactivate User
     end
 end
 
-deactivate Page
-deactivate User
+
 
 @enduml

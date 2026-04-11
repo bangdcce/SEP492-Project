@@ -13,16 +13,18 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { Spinner } from "@/shared/components/ui";
 import { ROUTES, STORAGE_KEYS } from "@/constants";
 import { getStoredJson } from "@/shared/utils/storage";
 import { toast } from "sonner";
 import { completeStripeMilestoneFunding } from "@/features/payments/api";
 import {
-  fetchBoard,
+  fetchBoardWorkspaceData,
   updateTaskStatus,
   createTask,
-  fetchMilestones,
+  createTaskSubmission,
+  reviewSubmission,
   createMilestone,
   approveMilestone,
   fetchProject,
@@ -48,14 +50,22 @@ import { CreateMilestoneModal } from "./components/milestone/CreateMilestoneModa
 import { CalendarView } from "./components/calendar/CalendarView";
 import { MilestoneApprovalCard } from "./components/milestone/MilestoneApprovalCard";
 import { MilestoneFundingCard } from "./components/milestone/MilestoneFundingCard";
+import { ProjectReviewActionsCard } from "./components/review/ProjectReviewActionsCard";
 import { ProjectOverview } from "./components/overview/ProjectOverview";
 import { WorkspaceChatDrawer } from "./components/chat/WorkspaceChatDrawer";
 import { calculateProgress, getLatestApprovedSubmission } from "./utils";
+import {
+  BOARD_COLUMNS,
+  buildBoardMeta,
+  createEmptyBoard,
+  moveTaskInBoard,
+  upsertTaskInBoard,
+} from "./board-state";
 import { CreateDisputeModal } from "@/features/disputes/components/wizard/CreateDisputeModal";
 import {
+  connectSocket,
   connectNamespacedSocket,
   disconnectNamespacedSocket,
-  getNamespacedSocket,
 } from "@/shared/realtime/socket";
 import { contractsApi } from "@/features/contracts/api";
 import type { Contract as ContractDetail } from "@/features/contracts/types";
@@ -67,12 +77,6 @@ import {
   resolveBillingRoute,
 } from "@/features/payments/roleRoutes";
 
-const initialBoard: KanbanBoard = {
-  TODO: [],
-  IN_PROGRESS: [],
-  IN_REVIEW: [],
-  DONE: [],
-};
 const WORKSPACE_CHAT_NAMESPACE = "/ws/workspace";
 type WorkspaceViewMode = "summary" | "board" | "calendar";
 
@@ -84,12 +88,6 @@ const parseWorkspaceViewMode = (value: string | null): WorkspaceViewMode => {
   return "summary";
 };
 const TASKS_REALTIME_NAMESPACE = "/ws/tasks";
-const BOARD_COLUMNS: KanbanColumnKey[] = [
-  "TODO",
-  "IN_PROGRESS",
-  "IN_REVIEW",
-  "DONE",
-];
 const TASK_CREATION_ALLOWED_MILESTONE_STATUSES = new Set<Milestone["status"]>([
   "PENDING",
   "IN_PROGRESS",
@@ -97,6 +95,18 @@ const TASK_CREATION_ALLOWED_MILESTONE_STATUSES = new Set<Milestone["status"]>([
 ]);
 const TASK_CREATION_LOCK_MESSAGE =
   "Tasks can only be added while the milestone is pending, in progress, or revisions required.";
+const WARRANTY_WINDOW_DAYS = 30;
+const DISPUTE_PRE_DELIVERY_MILESTONE_STATUSES = new Set<string>([
+  "IN_PROGRESS",
+  "SUBMITTED",
+  "REVISIONS_REQUIRED",
+  "PENDING_STAFF_REVIEW",
+  "PENDING_CLIENT_APPROVAL",
+]);
+const DISPUTE_POST_DELIVERY_MILESTONE_STATUSES = new Set<string>([
+  "COMPLETED",
+  "PAID",
+]);
 
 const normalizeMilestoneKey = (value?: string | null) =>
   value == null ? null : String(value);
@@ -118,6 +128,15 @@ const formatMilestoneRuntimeStatus = (status?: string | null) => {
   }
 };
 
+const parseWorkspaceDate = (value?: string | null): Date | null => {
+  if (!value) return null;
+  const normalizedValue = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? `${value}T00:00:00.000Z`
+    : value;
+  const parsed = new Date(normalizedValue);
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+};
+
 type ProjectWorkspaceMember = {
   id: string;
   name: string;
@@ -133,7 +152,7 @@ const getCurrentUser = (): { id: string; role?: string } | null => {
 
 export function ProjectWorkspace() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [board, setBoard] = useState<KanbanBoard>(initialBoard);
+  const [board, setBoard] = useState<KanbanBoard>(() => createEmptyBoard());
   const [project, setProject] = useState<WorkspaceProject | null>(null);
   const [contractDetail, setContractDetail] = useState<ContractDetail | null>(
     null,
@@ -180,10 +199,24 @@ export function ProjectWorkspace() {
   const [isMyTasksFilter, setIsMyTasksFilter] = useState(false);
 
   // Task Detail Modal state
-  const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [isTaskDetailOpen, setIsTaskDetailOpen] = useState(false);
+  const [isQuickActionRunning, setIsQuickActionRunning] = useState(false);
+  const [quickActionTitle, setQuickActionTitle] = useState<string | null>(null);
+  const [quickActionSteps, setQuickActionSteps] = useState<
+    Array<{
+      label: string;
+      status: "pending" | "running" | "done" | "error";
+      note?: string;
+    }>
+  >([]);
+  const boardViewportRef = useRef<HTMLDivElement | null>(null);
+  const [boardViewportHeight, setBoardViewportHeight] = useState<number | null>(
+    null,
+  );
 
   const { projectId } = useParams();
+  const location = useLocation();
 
   const viewMode = useMemo<WorkspaceViewMode>(
     () => parseWorkspaceViewMode(searchParams.get("view")),
@@ -283,7 +316,7 @@ export function ProjectWorkspace() {
       return;
     }
 
-    const socket = getNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
+    const socket = connectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
 
     const joinWorkspaceChatRoom = () => {
       socket.emit("joinProjectChat", { projectId });
@@ -309,42 +342,133 @@ export function ProjectWorkspace() {
     socket.on("connect", joinWorkspaceChatRoom);
     socket.on("newProjectMessage", handleNewProjectMessage);
 
-    if (!socket.connected) {
-      socket.connect();
-    } else {
+    if (socket.connected) {
       joinWorkspaceChatRoom();
     }
 
     return () => {
+      socket.emit("leaveProjectChat", { projectId });
       socket.off("connect", joinWorkspaceChatRoom);
       socket.off("newProjectMessage", handleNewProjectMessage);
-      disconnectNamespacedSocket(WORKSPACE_CHAT_NAMESPACE);
     };
   }, [currentUser?.id, projectId]);
+
+  useEffect(() => {
+    if (viewMode !== "board") {
+      return;
+    }
+
+    const viewportElement = boardViewportRef.current;
+    if (!viewportElement) {
+      return;
+    }
+
+    let animationFrameId: number | null = null;
+    const mainElement = viewportElement.closest("main");
+    const footerElement =
+      mainElement instanceof HTMLElement
+        ? mainElement.querySelector("footer")
+        : null;
+
+    const measureBoardViewport = () => {
+      const element = boardViewportRef.current;
+      if (!element) {
+        return;
+      }
+
+      const rect = element.getBoundingClientRect();
+      const footerHeight =
+        footerElement instanceof HTMLElement ? footerElement.offsetHeight : 0;
+      const bottomReserve = Math.max(208, footerHeight + 56);
+      const availableHeight = Math.floor(window.innerHeight - rect.top - bottomReserve);
+      const nextHeight = Math.max(332, Math.min(388, availableHeight));
+
+      setBoardViewportHeight((currentHeight) =>
+        currentHeight === nextHeight ? currentHeight : nextHeight,
+      );
+    };
+
+    const scheduleMeasurement = () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+
+      animationFrameId = window.requestAnimationFrame(() => {
+        animationFrameId = null;
+        measureBoardViewport();
+      });
+    };
+
+    scheduleMeasurement();
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            scheduleMeasurement();
+          })
+        : null;
+
+    resizeObserver?.observe(viewportElement);
+    if (mainElement instanceof HTMLElement) {
+      resizeObserver?.observe(mainElement);
+    }
+    if (footerElement instanceof HTMLElement) {
+      resizeObserver?.observe(footerElement);
+    }
+
+    window.addEventListener("resize", scheduleMeasurement);
+
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId);
+      }
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleMeasurement);
+    };
+  }, [
+    viewMode,
+    selectedMilestoneId,
+    loading,
+    error,
+    milestones.length,
+  ]);
 
   const isProjectDisputed = useMemo(() => {
     const status = project?.status?.toUpperCase();
     return status === "DISPUTED" || Boolean(project?.hasActiveDispute);
   }, [project]);
 
+  const isProjectCanceled = useMemo(() => {
+    const status = project?.status?.toUpperCase();
+    return status === "CANCELED" || status === "CANCELLED";
+  }, [project]);
+
+  const isProjectInteractionLocked = isProjectDisputed || isProjectCanceled;
+
   const currentRole = currentUser?.role?.toUpperCase();
   const billingRole = normalizeSupportedBillingRole(currentRole);
   const isBroker = currentRole === "BROKER";
   const isFreelancer = currentRole === "FREELANCER";
+  const isQuickRoleActionsEnabled =
+    import.meta.env.DEV ||
+    import.meta.env.VITE_ENABLE_TASK_AUTOFILL_TEST === "true";
   const isAssignedBroker = Boolean(
     isBroker && currentUser?.id && project?.brokerId === currentUser.id,
+  );
+  const isProjectFreelancer = Boolean(
+    isFreelancer && currentUser?.id && project?.freelancerId === currentUser.id,
   );
 
   // Clients, internal reviewers, and disputed projects are read-only for task mutations.
   const isReadOnly = useMemo(() => {
     return (
-      currentRole === "CLIENT" || currentRole === "STAFF" || isProjectDisputed
+      currentRole === "CLIENT" || currentRole === "STAFF" || isProjectInteractionLocked
     );
-  }, [currentRole, isProjectDisputed]);
+  }, [currentRole, isProjectInteractionLocked]);
 
   const canApproveMilestone = useMemo(() => {
-    return currentRole === "CLIENT" && !isProjectDisputed;
-  }, [currentRole, isProjectDisputed]);
+    return currentRole === "CLIENT" && !isProjectInteractionLocked;
+  }, [currentRole, isProjectInteractionLocked]);
 
   const hasBrokerReviewStep = Boolean(
     project?.brokerId && project?.brokerId !== project?.clientId,
@@ -373,9 +497,9 @@ export function ProjectWorkspace() {
 
   const canMutateMilestoneStructure = useMemo(() => {
     return (
-      isAssignedBroker && !isProjectDisputed && !isMilestoneStructureLocked
+      isAssignedBroker && !isProjectInteractionLocked && !isMilestoneStructureLocked
     );
-  }, [isAssignedBroker, isProjectDisputed, isMilestoneStructureLocked]);
+  }, [isAssignedBroker, isProjectInteractionLocked, isMilestoneStructureLocked]);
 
   const projectMembers = useMemo<ProjectWorkspaceMember[]>(() => {
     if (!project) return [];
@@ -440,17 +564,41 @@ export function ProjectWorkspace() {
         })),
     [projectMembers],
   );
+  const availableMilestoneIds = useMemo(
+    () => milestones.map((milestone) => milestone.id),
+    [milestones],
+  );
 
-  const canRaiseDisputeForMilestone = useCallback((status?: string) => {
-    if (!status) return false;
-    const normalized = status.toUpperCase();
-    return [
-      "IN_PROGRESS",
-      "SUBMITTED",
-      "REVISIONS_REQUIRED",
-      "PENDING_STAFF_REVIEW",
-      "PENDING_CLIENT_APPROVAL",
-    ].includes(normalized);
+  const canRaiseDisputeForMilestone = useCallback((milestone?: Milestone | null) => {
+    if (!milestone?.status) {
+      return false;
+    }
+
+    const normalizedStatus = milestone.status.toUpperCase();
+
+    if (DISPUTE_PRE_DELIVERY_MILESTONE_STATUSES.has(normalizedStatus)) {
+      return true;
+    }
+
+    if (!DISPUTE_POST_DELIVERY_MILESTONE_STATUSES.has(normalizedStatus)) {
+      return false;
+    }
+
+    if (normalizedStatus !== "PAID") {
+      return true;
+    }
+
+    const paidReferenceDate =
+      parseWorkspaceDate(milestone.escrow?.releasedAt) ||
+      parseWorkspaceDate(milestone.dueDate);
+    if (!paidReferenceDate) {
+      return true;
+    }
+
+    const warrantyDeadline = new Date(paidReferenceDate);
+    warrantyDeadline.setDate(warrantyDeadline.getDate() + WARRANTY_WINDOW_DAYS);
+
+    return Date.now() <= warrantyDeadline.getTime();
   }, []);
 
   const specFeatureOptions = useMemo<SpecFeatureOption[]>(() => {
@@ -524,21 +672,25 @@ export function ProjectWorkspace() {
     [project?.currency],
   );
 
-  useEffect(() => {
-    if (!projectId) {
-      setError("No project selected. Please choose a project from the list.");
-      setLoading(false);
-      return;
-    }
-    const loadBoard = async () => {
+  const reloadWorkspaceData = useCallback(
+    async (options?: { silent?: boolean }) => {
+      if (!projectId) {
+        setError("No project selected. Please choose a project from the list.");
+        setLoading(false);
+        return;
+      }
+
       try {
-        setLoading(true);
+        if (!options?.silent) {
+          setLoading(true);
+        }
         setError(null);
-        const [milestoneData, boardData, projectData] = await Promise.all([
-          fetchMilestones(projectId),
-          fetchBoard(projectId),
-          fetchProject(projectId),
-        ]);
+        const [{ milestones: milestoneData, tasks: boardData }, projectData] =
+          await Promise.all([
+            fetchBoardWorkspaceData(projectId),
+            fetchProject(projectId),
+          ]);
+
         let contractData: ContractDetail | null = null;
         const contracts = Array.isArray(projectData?.contracts)
           ? [...projectData.contracts]
@@ -567,26 +719,26 @@ export function ProjectWorkspace() {
             );
           }
         }
-        console.log("API Data:", { milestoneData, boardData, projectData });
+
         setMilestones(milestoneData || []);
         setProject(projectData);
         setContractDetail(contractData);
-        setBoard({
-          TODO: boardData?.TODO || [],
-          IN_PROGRESS: boardData?.IN_PROGRESS || [],
-          IN_REVIEW: boardData?.IN_REVIEW || [],
-          DONE: boardData?.DONE || [],
-        });
+        setBoard(boardData || createEmptyBoard());
       } catch (err: any) {
         setContractDetail(null);
         setError(err?.message || "Failed to load task board");
       } finally {
-        setLoading(false);
+        if (!options?.silent) {
+          setLoading(false);
+        }
       }
-    };
+    },
+    [projectId],
+  );
 
-    loadBoard();
-  }, [projectId]);
+  useEffect(() => {
+    void reloadWorkspaceData();
+  }, [reloadWorkspaceData]);
 
   useEffect(() => {
     if (loading) {
@@ -622,56 +774,6 @@ export function ProjectWorkspace() {
     ],
     [],
   );
-
-  const openCreateModal = () => {
-    if (!activeMilestone) {
-      const message = "Select a milestone before creating a task.";
-      setError(message);
-      toast.warning(message);
-      return;
-    }
-
-    if (!canCreateTasksForSelectedMilestone) {
-      setError(TASK_CREATION_LOCK_MESSAGE);
-      toast.warning(TASK_CREATION_LOCK_MESSAGE);
-      return;
-    }
-
-    setIsModalOpen(true);
-  };
-  const openCreateMilestoneModal = () => {
-    if (isMilestoneStructureLocked) {
-      const message =
-        "Milestone scope is locked by the contract. Amendment support is not available yet.";
-      setError(message);
-      toast.warning(message);
-      return;
-    }
-    if (!isAssignedBroker) {
-      const message =
-        "Only the assigned broker can add or edit milestone scope.";
-      setError(message);
-      toast.warning(message);
-      return;
-    }
-    if (isProjectDisputed) {
-      setError(
-        "Project is under dispute. Milestone changes are locked in read-only mode.",
-      );
-      return;
-    }
-
-    setNewMilestoneTitle("");
-    setNewMilestoneAmount("0");
-    setNewMilestoneDescription("");
-    setNewMilestoneStartDate("");
-    setNewMilestoneDueDate("");
-    setNewMilestoneDeliverableType(DeliverableType.SOURCE_CODE);
-    setNewMilestoneRetentionAmount("0");
-    setNewMilestoneAcceptanceCriteriaText("");
-    setIsMilestoneModalOpen(true);
-  };
-  const handleSelectMilestone = (id: string) => setSelectedMilestoneId(id);
 
   const handleCreateMilestone = async () => {
     if (!projectId) {
@@ -763,58 +865,96 @@ export function ProjectWorkspace() {
       .join(" ");
   };
 
-  const filteredBoard = useMemo(() => {
-    const selectedMilestoneKey = normalizeMilestoneKey(selectedMilestoneId);
-    if (!selectedMilestoneKey) return board;
-    const filterByMilestone = (tasks: Task[]) =>
-      tasks.filter(
-        (task) =>
-          normalizeMilestoneKey(task.milestoneId ?? null) === selectedMilestoneKey,
-      );
-    return {
-      TODO: filterByMilestone(board.TODO),
-      IN_PROGRESS: filterByMilestone(board.IN_PROGRESS),
-      IN_REVIEW: filterByMilestone(board.IN_REVIEW),
-      DONE: filterByMilestone(board.DONE),
-    };
-  }, [board, selectedMilestoneId]);
-
-  const tasksByMilestone = useMemo(() => {
-    const map: Record<string, Task[]> = {};
-    ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"].forEach((col) => {
-      board[col as KanbanColumnKey].forEach((t) => {
-        const milestoneKey = normalizeMilestoneKey(t.milestoneId ?? null);
-        if (!milestoneKey) return;
-        if (!map[milestoneKey]) map[milestoneKey] = [];
-        map[milestoneKey].push(t);
-      });
-    });
-    return map;
-  }, [board]);
+  const boardMeta = useMemo(() => buildBoardMeta(board), [board]);
   const selectedMilestoneKey = normalizeMilestoneKey(selectedMilestoneId);
-  const activeMilestone = selectedMilestoneKey
-    ? milestones.find((m) => normalizeMilestoneKey(m.id) === selectedMilestoneKey)
-    : null;
-  const activeTasks =
-    selectedMilestoneKey && tasksByMilestone[selectedMilestoneKey]
-      ? tasksByMilestone[selectedMilestoneKey]
-      : [];
+  const activeMilestone = useMemo(
+    () =>
+      selectedMilestoneKey
+        ? milestones.find((milestone) => milestone.id === selectedMilestoneKey) ?? null
+        : null,
+    [milestones, selectedMilestoneKey],
+  );
+  const activeTasks = useMemo(
+    () =>
+      selectedMilestoneKey
+        ? boardMeta.tasksByMilestone[selectedMilestoneKey] ?? []
+        : [],
+    [boardMeta.tasksByMilestone, selectedMilestoneKey],
+  );
   const activeProgress = calculateProgress(activeTasks);
+  const quickSubmitCandidateTask = useMemo(() => {
+    if (activeTasks.length === 0) {
+      return null;
+    }
+
+    const statusPriority: Record<KanbanColumnKey, number> = {
+      IN_PROGRESS: 0,
+      TODO: 1,
+      IN_REVIEW: 2,
+      DONE: 3,
+    };
+
+    const candidatePool = activeTasks.filter((task) => task.status !== "DONE");
+    if (candidatePool.length === 0) {
+      return null;
+    }
+
+    return [...candidatePool].sort((first, second) => {
+      const statusDelta =
+        (statusPriority[first.status] ?? 9) - (statusPriority[second.status] ?? 9);
+      if (statusDelta !== 0) {
+        return statusDelta;
+      }
+
+      const firstUpdated = first.dueDate
+        ? new Date(first.dueDate).getTime()
+        : Number.MAX_SAFE_INTEGER;
+      const secondUpdated = second.dueDate
+        ? new Date(second.dueDate).getTime()
+        : Number.MAX_SAFE_INTEGER;
+      return firstUpdated - secondUpdated;
+    })[0];
+  }, [activeTasks]);
+  const quickReviewCandidate = useMemo(() => {
+    for (const task of activeTasks) {
+      const pendingSubmission =
+        task.submissions
+          ?.slice()
+          .sort((first, second) => (second.version ?? 0) - (first.version ?? 0))
+          .find((submission) => submission.status === "PENDING") ?? null;
+
+      if (pendingSubmission) {
+        return { task, submission: pendingSubmission };
+      }
+    }
+
+    return null;
+  }, [activeTasks]);
   const activeMilestoneStatus = activeMilestone?.status?.toUpperCase() ?? null;
   const canCreateTasksForSelectedMilestone = useMemo(() => {
-    if (isReadOnly || !activeMilestone) {
+    if (isReadOnly || !activeMilestone || !isAssignedBroker) {
       return false;
     }
 
     return TASK_CREATION_ALLOWED_MILESTONE_STATUSES.has(activeMilestone.status);
-  }, [activeMilestone, isReadOnly]);
+  }, [activeMilestone, isAssignedBroker, isReadOnly]);
   const taskCommandUnavailableMessage = useMemo(() => {
-    if (isProjectDisputed) {
-      return "Task creation via chat is locked while the project is in dispute.";
+    if (isProjectInteractionLocked) {
+      return isProjectCanceled
+        ? "Task creation via chat is locked because this project is cancelled."
+        : "Task creation via chat is locked while the project is in dispute.";
     }
 
-    if (currentRole === "CLIENT" || currentRole === "STAFF") {
+    if (
+      currentRole === "CLIENT" ||
+      currentRole === "STAFF" ||
+      currentRole === "FREELANCER"
+    ) {
       return "You do not have permission to create tasks via chat in this workspace.";
+    }
+
+    if (currentRole === "BROKER" && !isAssignedBroker) {
+      return "Only the assigned broker can create tasks in this workspace.";
     }
 
     if (!activeMilestone) {
@@ -826,7 +966,81 @@ export function ProjectWorkspace() {
     }
 
     return TASK_CREATION_LOCK_MESSAGE;
-  }, [activeMilestone, currentRole, isProjectDisputed]);
+  }, [
+    activeMilestone,
+    currentRole,
+    isAssignedBroker,
+    isProjectCanceled,
+    isProjectInteractionLocked,
+  ]);
+
+  const openCreateModal = useCallback(() => {
+    if (!activeMilestone) {
+      const message = "Select a milestone before creating a task.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+
+    if (!isAssignedBroker) {
+      const message = "Only the assigned broker can create tasks for this project.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+
+    if (!canCreateTasksForSelectedMilestone) {
+      setError(TASK_CREATION_LOCK_MESSAGE);
+      toast.warning(TASK_CREATION_LOCK_MESSAGE);
+      return;
+    }
+
+    setIsModalOpen(true);
+  }, [activeMilestone, canCreateTasksForSelectedMilestone, isAssignedBroker]);
+
+  const openCreateMilestoneModal = useCallback(() => {
+    if (isMilestoneStructureLocked) {
+      const message =
+        "Milestone scope is locked by the contract. Amendment support is not available yet.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+    if (!isAssignedBroker) {
+      const message =
+        "Only the assigned broker can add or edit milestone scope.";
+      setError(message);
+      toast.warning(message);
+      return;
+    }
+    if (isProjectInteractionLocked) {
+      setError(
+        isProjectCanceled
+          ? "Project is cancelled. Milestone changes are now read-only."
+          : "Project is under dispute. Milestone changes are locked in read-only mode.",
+      );
+      return;
+    }
+
+    setNewMilestoneTitle("");
+    setNewMilestoneAmount("0");
+    setNewMilestoneDescription("");
+    setNewMilestoneStartDate("");
+    setNewMilestoneDueDate("");
+    setNewMilestoneDeliverableType(DeliverableType.SOURCE_CODE);
+    setNewMilestoneRetentionAmount("0");
+    setNewMilestoneAcceptanceCriteriaText("");
+    setIsMilestoneModalOpen(true);
+  }, [
+    isAssignedBroker,
+    isMilestoneStructureLocked,
+    isProjectCanceled,
+    isProjectInteractionLocked,
+  ]);
+
+  const handleSelectMilestone = useCallback((id: string) => {
+    setSelectedMilestoneId(id);
+  }, [setSelectedMilestoneId]);
 
   const contractHref =
     project?.contracts?.[0]?.id && currentUser?.role
@@ -863,14 +1077,7 @@ export function ProjectWorkspace() {
     return `${billingBaseRoute}?${billingParams.toString()}`;
   }, [activeMilestone?.title, currentRole, projectId, selectedMilestoneId, viewMode]);
 
-  // Get all tasks in a flat array for calendar view
-  const allTasks = useMemo(() => {
-    const tasks: Task[] = [];
-    ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"].forEach((col) => {
-      tasks.push(...board[col as KanbanColumnKey]);
-    });
-    return tasks;
-  }, [board]);
+  const allTasks = boardMeta.allTasks;
   const calendarTasks = useMemo(() => {
     const milestoneKey = normalizeMilestoneKey(selectedMilestoneId);
     if (!milestoneKey) {
@@ -881,144 +1088,77 @@ export function ProjectWorkspace() {
       (task) => normalizeMilestoneKey(task.milestoneId ?? null) === milestoneKey,
     );
   }, [allTasks, selectedMilestoneId]);
+  const uniqueAssignees = boardMeta.uniqueAssignees;
 
-  // Derive unique assignees for filter
-  const uniqueAssignees = useMemo(() => {
-    const map = new Map<
-      string,
-      { id: string; name: string; avatar?: string }
-    >();
-    allTasks.forEach((t) => {
-      if (t.assignee && t.assignee.id) {
-        map.set(t.assignee.id, {
-          id: t.assignee.id,
-          name: t.assignee.fullName || "Unknown",
-          avatar: t.assignee.avatarUrl,
-        });
-      }
-    });
-    return Array.from(map.values());
-  }, [allTasks]);
-
-  // Filter Logic: processedBoard applies Search & Text filters on top of Milestone filter
   const processedBoard = useMemo(() => {
-    let result = { ...filteredBoard }; // Start with milestone-filtered board
+    const normalizedMilestoneId = normalizeMilestoneKey(selectedMilestoneId);
+    const normalizedSearch = searchQuery.trim().toLowerCase();
+    const assigneeFilterId =
+      selectedAssigneeId || (isMyTasksFilter ? currentUser?.id ?? null : null);
 
-    // 1. Text Search
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      result = {
-        TODO: result.TODO.filter((t) => t.title.toLowerCase().includes(query)),
-        IN_PROGRESS: result.IN_PROGRESS.filter((t) =>
-          t.title.toLowerCase().includes(query),
-        ),
-        IN_REVIEW: result.IN_REVIEW.filter((t) =>
-          t.title.toLowerCase().includes(query),
-        ),
-        DONE: result.DONE.filter((t) => t.title.toLowerCase().includes(query)),
-      };
+    if (!normalizedMilestoneId && !normalizedSearch && !assigneeFilterId) {
+      return board;
     }
 
-    // 2. Assignee Filter
-    if (selectedAssigneeId) {
-      const filterByAssignee = (list: Task[]) =>
-        list.filter((t) => t.assignee?.id === selectedAssigneeId);
-      result = {
-        TODO: filterByAssignee(result.TODO),
-        IN_PROGRESS: filterByAssignee(result.IN_PROGRESS),
-        IN_REVIEW: filterByAssignee(result.IN_REVIEW),
-        DONE: filterByAssignee(result.DONE),
-      };
-    } else if (isMyTasksFilter && currentUser?.id) {
-      // "Only My Issues" filter
-      const filterByMe = (list: Task[]) =>
-        list.filter((t) => t.assignee?.id === currentUser.id);
-      result = {
-        TODO: filterByMe(result.TODO),
-        IN_PROGRESS: filterByMe(result.IN_PROGRESS),
-        IN_REVIEW: filterByMe(result.IN_REVIEW),
-        DONE: filterByMe(result.DONE),
-      };
-    }
+    const matchesTask = (task: Task) => {
+      if (
+        normalizedMilestoneId &&
+        normalizeMilestoneKey(task.milestoneId ?? null) !== normalizedMilestoneId
+      ) {
+        return false;
+      }
 
-    return result;
+      if (
+        normalizedSearch &&
+        !task.title.toLowerCase().includes(normalizedSearch)
+      ) {
+        return false;
+      }
+
+      if (assigneeFilterId && task.assignee?.id !== assigneeFilterId) {
+        return false;
+      }
+
+      return true;
+    };
+
+    return BOARD_COLUMNS.reduce<KanbanBoard>((nextBoard, columnKey) => {
+      const sourceTasks = board[columnKey];
+      const filteredTasks = sourceTasks.filter(matchesTask);
+      nextBoard[columnKey] =
+        filteredTasks.length === sourceTasks.length ? sourceTasks : filteredTasks;
+      return nextBoard;
+    }, createEmptyBoard());
   }, [
-    filteredBoard,
+    board,
     searchQuery,
     selectedAssigneeId,
     isMyTasksFilter,
-    currentUser,
+    currentUser?.id,
+    selectedMilestoneId,
   ]);
 
-  // Handle viewing task details (from Calendar or Kanban)
-  const handleViewTaskDetails = (taskId: string) => {
-    const task = allTasks.find((t) => t.id === taskId);
-    if (task) {
-      setSelectedTask(task);
+  const selectedTask = useMemo(
+    () => (selectedTaskId ? boardMeta.taskMap.get(selectedTaskId) ?? null : null),
+    [boardMeta.taskMap, selectedTaskId],
+  );
+
+  const handleViewTaskDetails = useCallback(
+    (taskId: string) => {
+      if (!boardMeta.taskMap.has(taskId)) {
+        return;
+      }
+
+      setSelectedTaskId(taskId);
       setIsTaskDetailOpen(true);
-    }
-  };
+    },
+    [boardMeta.taskMap],
+  );
 
-  // Handle closing task detail modal
-  const handleCloseTaskDetail = () => {
+  const handleCloseTaskDetail = useCallback(() => {
     setIsTaskDetailOpen(false);
-    setSelectedTask(null);
-  };
-
-  // Handle task update from modal
-  const handleTaskUpdate = (updatedTask: Task) => {
-    setSelectedTask((currentTask) => {
-      if (!currentTask || currentTask.id !== updatedTask.id) {
-        return updatedTask;
-      }
-
-      return {
-        ...currentTask,
-        ...updatedTask,
-        submissions: updatedTask.submissions ?? currentTask.submissions,
-      };
-    });
-
-    // Update board state
-    setBoard((prevBoard) => {
-      const newBoard = { ...prevBoard };
-
-      // Find and replace the task in the board columns
-      Object.keys(newBoard).forEach((key) => {
-        const colKey = key as KanbanColumnKey;
-        newBoard[colKey] = newBoard[colKey].map((t) =>
-          t.id === updatedTask.id
-            ? {
-                ...t,
-                ...updatedTask,
-                submissions: updatedTask.submissions ?? t.submissions,
-              }
-            : t,
-        );
-
-        // Handle status change if column doesn't match
-        if (updatedTask.status !== colKey) {
-          // If task is in this column but status changed, logic is complex
-          // For simplicity, we might reload board or carefully move it
-          // But existing drag-drop logic handles status changes well.
-          // If status changed via modal dropdown:
-          if (newBoard[colKey].find((t) => t.id === updatedTask.id)) {
-            // Remove from old column
-            newBoard[colKey] = newBoard[colKey].filter(
-              (t) => t.id !== updatedTask.id,
-            );
-          }
-        }
-      });
-
-      // If status changed, ensure it's in the new column
-      if (!newBoard[updatedTask.status].find((t) => t.id === updatedTask.id)) {
-        newBoard[updatedTask.status].push(updatedTask);
-      }
-
-      return newBoard;
-    });
-  };
+    setSelectedTaskId(null);
+  }, []);
 
   const upsertTaskIntoBoard = useCallback((incomingTask: Task) => {
     if (!incomingTask?.id) {
@@ -1030,54 +1170,15 @@ export function ProjectWorkspace() {
       status: incomingTask.status ?? "TODO",
     };
 
-    setBoard((prevBoard) => {
-      const existingColumn =
-        BOARD_COLUMNS.find((columnKey) =>
-          prevBoard[columnKey].some((task) => task.id === normalizedTask.id),
-        ) ?? null;
-      const previousIndex =
-        existingColumn !== null
-          ? prevBoard[existingColumn].findIndex(
-              (task) => task.id === normalizedTask.id,
-            )
-          : -1;
-
-      const cleanedBoard = BOARD_COLUMNS.reduce<KanbanBoard>(
-        (acc, columnKey) => {
-          acc[columnKey] = prevBoard[columnKey].filter(
-            (task) => task.id !== normalizedTask.id,
-          );
-          return acc;
-        },
-        { TODO: [], IN_PROGRESS: [], IN_REVIEW: [], DONE: [] },
-      );
-
-      if (
-        existingColumn === normalizedTask.status &&
-        previousIndex >= 0 &&
-        previousIndex <= cleanedBoard[normalizedTask.status].length
-      ) {
-        cleanedBoard[normalizedTask.status].splice(previousIndex, 0, normalizedTask);
-      } else {
-        cleanedBoard[normalizedTask.status] = [
-          normalizedTask,
-          ...cleanedBoard[normalizedTask.status],
-        ];
-      }
-
-      return cleanedBoard;
-    });
-
-    setSelectedTask((currentTask) =>
-      currentTask?.id === normalizedTask.id
-        ? {
-            ...currentTask,
-            ...normalizedTask,
-            submissions: normalizedTask.submissions ?? currentTask.submissions,
-          }
-        : currentTask,
-    );
+    setBoard((prevBoard) => upsertTaskInBoard(prevBoard, normalizedTask));
   }, []);
+
+  const handleTaskUpdate = useCallback(
+    (updatedTask: Task) => {
+      upsertTaskIntoBoard(updatedTask);
+    },
+    [upsertTaskIntoBoard],
+  );
 
   const handleTaskRealtimeEvent = useCallback(
     (event: ProjectTaskRealtimeEvent) => {
@@ -1093,18 +1194,32 @@ export function ProjectWorkspace() {
         typeof event.totalTasks === "number" &&
         typeof event.completedTasks === "number"
       ) {
-        setMilestones((prevMilestones) =>
-          prevMilestones.map((milestone) =>
-            milestone.id === event.milestoneId
-              ? {
-                  ...milestone,
-                  progress: event.milestoneProgress,
-                  totalTasks: event.totalTasks,
-                  completedTasks: event.completedTasks,
-                }
-              : milestone,
-          ),
-        );
+        setMilestones((prevMilestones) => {
+          const milestoneIndex = prevMilestones.findIndex(
+            (milestone) => milestone.id === event.milestoneId,
+          );
+          if (milestoneIndex < 0) {
+            return prevMilestones;
+          }
+
+          const milestone = prevMilestones[milestoneIndex];
+          if (
+            milestone.progress === event.milestoneProgress &&
+            milestone.totalTasks === event.totalTasks &&
+            milestone.completedTasks === event.completedTasks
+          ) {
+            return prevMilestones;
+          }
+
+          const nextMilestones = prevMilestones.slice();
+          nextMilestones[milestoneIndex] = {
+            ...milestone,
+            progress: event.milestoneProgress,
+            totalTasks: event.totalTasks,
+            completedTasks: event.completedTasks,
+          };
+          return nextMilestones;
+        });
       }
     },
     [upsertTaskIntoBoard],
@@ -1175,14 +1290,76 @@ export function ProjectWorkspace() {
     };
   }, [currentUser?.id, handleTaskRealtimeEvent, projectId]);
 
+  useEffect(() => {
+    if (!projectId || !currentUser?.id) {
+      return;
+    }
+
+    const socket = connectSocket();
+    const currentContractId = contractDetail?.id ?? null;
+
+    const handleProjectUpdated = (payload?: {
+      projectId?: string;
+      requestId?: string | null;
+    }) => {
+      if (payload?.projectId === projectId) {
+        void reloadWorkspaceData({ silent: true });
+      }
+    };
+
+    const handleContractUpdated = (payload?: {
+      contractId?: string;
+      projectId?: string;
+    }) => {
+      if (payload?.projectId === projectId) {
+        void reloadWorkspaceData({ silent: true });
+      }
+    };
+
+    const handleNotificationCreated = (payload?: {
+      notification?: {
+        relatedType?: string | null;
+        relatedId?: string | null;
+      };
+      relatedType?: string | null;
+      relatedId?: string | null;
+    }) => {
+      const notification = payload?.notification ?? payload;
+      const relatedType = String(notification?.relatedType || "").toUpperCase();
+      const relatedId = String(notification?.relatedId || "");
+
+      const isRelevant =
+        (relatedType === "PROJECT" && relatedId === projectId) ||
+        (relatedType === "CONTRACT" &&
+          Boolean(currentContractId) &&
+          relatedId === currentContractId);
+
+      if (isRelevant) {
+        void reloadWorkspaceData({ silent: true });
+      }
+    };
+
+    socket.on("PROJECT_UPDATED", handleProjectUpdated);
+    socket.on("CONTRACT_UPDATED", handleContractUpdated);
+    socket.on("NOTIFICATION_CREATED", handleNotificationCreated);
+
+    return () => {
+      socket.off("PROJECT_UPDATED", handleProjectUpdated);
+      socket.off("CONTRACT_UPDATED", handleContractUpdated);
+      socket.off("NOTIFICATION_CREATED", handleNotificationCreated);
+    };
+  }, [contractDetail?.id, currentUser?.id, projectId, reloadWorkspaceData]);
+
   // Handle milestone approval (Client/Broker only)
   const handleApproveMilestone = async (
     milestoneId: string,
     feedback?: string,
   ) => {
-    if (isProjectDisputed) {
+    if (isProjectInteractionLocked) {
       throw new Error(
-        "Project is under dispute. Milestone approval is locked.",
+        isProjectCanceled
+          ? "Project is cancelled. Milestone approval is locked."
+          : "Project is under dispute. Milestone approval is locked.",
       );
     }
     try {
@@ -1345,8 +1522,12 @@ export function ProjectWorkspace() {
   }, [handleFundingSuccess, requestedMilestoneId, searchParams, setSearchParams]);
 
   const handleRequestMilestoneReview = async (milestoneId: string) => {
-    if (isProjectDisputed) {
-      throw new Error("Project is under dispute. Milestone review is locked.");
+    if (isProjectInteractionLocked) {
+      throw new Error(
+        isProjectCanceled
+          ? "Project is cancelled. Milestone review is locked."
+          : "Project is under dispute. Milestone review is locked.",
+      );
     }
 
     try {
@@ -1378,8 +1559,12 @@ export function ProjectWorkspace() {
     milestoneId: string,
     payload: { recommendation: "ACCEPT" | "REJECT"; note: string },
   ) => {
-    if (isProjectDisputed) {
-      throw new Error("Project is under dispute. Milestone review is locked.");
+    if (isProjectInteractionLocked) {
+      throw new Error(
+        isProjectCanceled
+          ? "Project is cancelled. Milestone review is locked."
+          : "Project is under dispute. Milestone review is locked.",
+      );
     }
 
     try {
@@ -1432,18 +1617,22 @@ export function ProjectWorkspace() {
     setDisputeMilestone(null);
   };
 
-  const handleDragEnd = async (result: DropResult) => {
+  const handleDragEnd = useCallback(async (result: DropResult) => {
     if (isReadOnly) {
-      if (isProjectDisputed) {
+      if (isProjectInteractionLocked) {
         toast.warning(
-          "Task movement is locked while this project is in dispute.",
+          isProjectCanceled
+            ? "Task movement is locked because this project is cancelled."
+            : "Task movement is locked while this project is in dispute.",
         );
       }
       return;
     }
 
     const { destination, source, draggableId } = result;
-    if (!destination) return;
+    if (!destination) {
+      return;
+    }
 
     const fromColumn = source.droppableId as KanbanColumnKey;
     const toColumn = destination.droppableId as KanbanColumnKey;
@@ -1452,86 +1641,70 @@ export function ProjectWorkspace() {
       return;
     }
 
-    // Save previous state for rollback
-    const prevBoard: KanbanBoard = (
-      ["TODO", "IN_PROGRESS", "IN_REVIEW", "DONE"] as KanbanColumnKey[]
-    ).reduce(
-      (acc, key) => ({
-        ...acc,
-        [key]: board[key].map((t) => ({ ...t })),
-      }),
-      { ...initialBoard },
-    );
+    const movedTask = board[fromColumn][source.index];
+    if (!movedTask) {
+      return;
+    }
 
-    // Optimistic UI update - move the card immediately
-    const nextBoard: KanbanBoard = {
-      ...prevBoard,
-      [fromColumn]: [...prevBoard[fromColumn]],
-      [toColumn]: [...prevBoard[toColumn]],
-    };
-
-    const [movedTask] = nextBoard[fromColumn].splice(source.index, 1);
-    if (!movedTask) return;
-
-    if (
-      toColumn === "DONE" &&
-      isFreelancer
-    ) {
+    if (toColumn === "DONE" && isFreelancer) {
       toast.warning(
         "Freelancers cannot drag tasks directly to DONE. Submit work for review instead.",
       );
       return;
     }
 
-    if (
-      toColumn === "DONE" &&
-      !getLatestApprovedSubmission(movedTask)
-    ) {
+    if (toColumn === "DONE" && !getLatestApprovedSubmission(movedTask)) {
       toast.warning("Cannot move to DONE without an approved submission.");
       return;
     }
-    const updatedTask = { ...movedTask, status: toColumn };
-    nextBoard[toColumn].splice(destination.index, 0, updatedTask);
 
-    setBoard(nextBoard);
+    if (
+      fromColumn === "DONE" &&
+      toColumn !== "DONE" &&
+      getLatestApprovedSubmission(movedTask)
+    ) {
+      toast.warning(
+        "Task da duoc approve va hoan tat, khong the keo nguoc khoi DONE.",
+      );
+      return;
+    }
+
+    const prevBoard = board;
+    const movement = moveTaskInBoard(board, {
+      fromColumn,
+      toColumn,
+      sourceIndex: source.index,
+      destinationIndex: destination.index,
+      transformTask: (task) => ({ ...task, status: toColumn }),
+    });
+
+    if (!movement) {
+      return;
+    }
+
+    setBoard(movement.board);
 
     try {
-      // Call API and get updated milestone progress
-      const response = await updateTaskStatus(draggableId, toColumn);
+      await updateTaskStatus(draggableId, toColumn);
       setError(null);
-
-      // Real-time progress update
-      // If the task moved to/from DONE column, the backend recalculated progress
-      // Update the milestones state to reflect the new progress
-      if (response.milestoneId) {
-        setMilestones((prevMilestones) =>
-          prevMilestones.map((milestone) =>
-            milestone.id === response.milestoneId
-              ? {
-                  ...milestone,
-                  // Store progress info in milestone for display
-                  // (Milestone type doesn't have progress field, but UI uses tasksByMilestone)
-                }
-              : milestone,
-          ),
-        );
-
-        // Log for debugging
-        console.log(
-          `[Milestone] ${response.milestoneId} progress updated: ${response.milestoneProgress}% (${response.completedTasks}/${response.totalTasks})`,
-        );
-      }
     } catch (err: any) {
-      // Rollback on error
       setBoard(prevBoard);
       setError(err?.message || "Failed to update task status");
     }
-  };
+  }, [
+    board,
+    isFreelancer,
+    isProjectCanceled,
+    isProjectInteractionLocked,
+    isReadOnly,
+  ]);
 
-  const handleCreateTask = async () => {
-    if (isProjectDisputed) {
+  const handleCreateTask = useCallback(async () => {
+    if (isProjectInteractionLocked) {
       setError(
-        "Project is under dispute. Task creation is locked in read-only mode.",
+        isProjectCanceled
+          ? "Project is cancelled. Task creation is locked in read-only mode."
+          : "Project is under dispute. Task creation is locked in read-only mode.",
       );
       return;
     }
@@ -1546,6 +1719,12 @@ export function ProjectWorkspace() {
     }
     if (!selectedMilestoneId) {
       setError("Please create a milestone before adding tasks.");
+      return;
+    }
+    if (!isAssignedBroker) {
+      const message = "Only the assigned broker can create tasks for this project.";
+      setError(message);
+      toast.warning(message);
       return;
     }
     if (!canCreateTasksForSelectedMilestone) {
@@ -1578,10 +1757,7 @@ export function ProjectWorkspace() {
         );
       }
 
-      setBoard((prev) => ({
-        ...prev,
-        TODO: [created, ...prev.TODO],
-      }));
+      upsertTaskIntoBoard(created);
 
       // Reset form fields
       setIsModalOpen(false);
@@ -1597,10 +1773,24 @@ export function ProjectWorkspace() {
     } finally {
       setIsSubmitting(false);
     }
-  };
+  }, [
+    canCreateTasksForSelectedMilestone,
+    isAssignedBroker,
+    isProjectCanceled,
+    isProjectInteractionLocked,
+    newDescription,
+    newDueDate,
+    newSpecFeatureId,
+    newStartDate,
+    newTitle,
+    projectId,
+    selectedMilestoneId,
+    specFeatureOptions.length,
+    upsertTaskIntoBoard,
+  ]);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-8 pb-20">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">
@@ -1685,7 +1875,7 @@ export function ProjectWorkspace() {
               <MessageSquare className="h-4 w-4" />
               <span>Chat</span>
               {unreadCount > 0 && (
-                <span className="ml-1 inline-flex min-w-[1.25rem] items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-red-100">
+                <span className="ml-1 inline-flex min-w-5 items-center justify-center rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-red-100">
                   {unreadCount > 99 ? "99+" : unreadCount}
                 </span>
               )}
@@ -1716,6 +1906,12 @@ export function ProjectWorkspace() {
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           This project has active dispute cases. Workspace is read-only for task
           changes, but dispute workflows remain available.
+        </div>
+      )}
+
+      {isProjectCanceled && (
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          This project is cancelled. Task updates, milestone edits, and funding actions are locked.
         </div>
       )}
 
@@ -1861,17 +2057,40 @@ export function ProjectWorkspace() {
               milestone={activeMilestone}
               progress={activeProgress}
               currentUserRole={currentRole}
+              projectStatus={project?.status ?? null}
               currency={project?.currency ?? "USD"}
               billingSetupHref={workspaceBillingHref}
               onFunded={handleFundingSuccess}
             />
           )}
 
+          {project &&
+          activeMilestone &&
+          ["FUNDED", "RELEASED"].includes(
+            String(activeMilestone.escrow?.status || "").toUpperCase(),
+          ) &&
+          DISPUTE_POST_DELIVERY_MILESTONE_STATUSES.has(
+            String(activeMilestone.status || "").toUpperCase(),
+          ) ? (
+            <ProjectReviewActionsCard
+              project={project}
+              currentUserId={currentUser?.id}
+              currentUserRole={currentRole}
+              pathname={location.pathname}
+              milestoneTitle={activeMilestone.title}
+              canRaiseDispute={
+                !isProjectDisputed &&
+                canRaiseDisputeForMilestone(activeMilestone)
+              }
+              onRaiseDispute={() => handleRaiseDispute(activeMilestone.id)}
+            />
+          ) : null}
+
           {viewMode !== "summary" && (
             <MilestoneTabs
               milestones={milestones}
               selectedId={selectedMilestoneId || undefined}
-              tasksMap={tasksByMilestone}
+              tasksMap={boardMeta.tasksByMilestone}
               onSelect={handleSelectMilestone}
               onAdd={
                 canMutateMilestoneStructure
@@ -1888,8 +2107,10 @@ export function ProjectWorkspace() {
                 </div>
                 <div className="flex items-center gap-2 text-sm text-slate-700">
                   <span>{activeProgress}%</span>
-                  {canRaiseDisputeForMilestone(activeMilestone.status) && (
+                  {canRaiseDisputeForMilestone(activeMilestone) && (
                     <button
+                      type="button"
+                      data-testid={`raise-dispute-${activeMilestone.id}`}
                       onClick={() => handleRaiseDispute(activeMilestone.id)}
                       className="ml-2 rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-semibold text-red-700 hover:border-red-300 hover:bg-red-100"
                     >
@@ -2084,25 +2305,35 @@ export function ProjectWorkspace() {
                 </div>
               </div>
 
-              <div className="flex xl:grid xl:grid-cols-4 gap-4 overflow-x-auto xl:overflow-visible pb-4 h-full items-start">
-                {columns.map((col) => (
-                  <div
-                    key={col.key}
-                    className="min-w-[280px] xl:min-w-0 xl:w-auto flex-shrink-0"
-                  >
-                    <KanbanColumn
+              <div
+                ref={boardViewportRef}
+                className="min-h-0 overflow-hidden rounded-2xl border border-slate-200/80 bg-slate-50/70 p-2 shadow-sm"
+                style={
+                  boardViewportHeight
+                    ? { height: `${boardViewportHeight}px` }
+                    : { height: "23rem" }
+                }
+              >
+                <div className="flex h-full min-h-0 items-stretch gap-4 overflow-x-auto overflow-y-hidden pb-2 xl:grid xl:grid-cols-4 xl:overflow-x-visible">
+                  {columns.map((col) => (
+                    <div
                       key={col.key}
-                      columnId={col.key}
-                      title={col.title}
-                      description={col.description}
-                      tasks={processedBoard[col.key]}
-                      onAddTask={openCreateModal}
-                      onTaskClick={handleViewTaskDetails}
-                      isReadOnly={isReadOnly}
-                      canAddTask={canCreateTasksForSelectedMilestone}
-                    />
-                  </div>
-                ))}
+                      className="h-full min-h-0 min-w-[18rem] shrink-0 xl:min-w-0 xl:w-auto"
+                    >
+                      <KanbanColumn
+                        key={col.key}
+                        columnId={col.key}
+                        title={col.title}
+                        description={col.description}
+                        tasks={processedBoard[col.key]}
+                        onAddTask={openCreateModal}
+                        onTaskClick={handleViewTaskDetails}
+                        isReadOnly={isReadOnly}
+                        canAddTask={canCreateTasksForSelectedMilestone}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             </DragDropContext>
           ) : (
@@ -2190,6 +2421,8 @@ export function ProjectWorkspace() {
         projectId={projectId}
         currentUserId={currentUser?.id}
         projectMembers={chatMentionMembers}
+        workspaceTasks={allTasks}
+        availableMilestoneIds={availableMilestoneIds}
         canReviewTasks={canReviewTaskSubmissions}
         canUseTaskCommand={canCreateTasksForSelectedMilestone}
         taskCommandUnavailableMessage={taskCommandUnavailableMessage}

@@ -8,7 +8,7 @@ import {
 } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import type { Request } from 'express';
-import { createHash, randomUUID } from 'crypto';
+import { createHash, createHmac, createVerify, randomUUID } from 'crypto';
 import { existsSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -38,6 +38,7 @@ import {
 } from '../../database/entities/milestone.entity';
 import { EscrowEntity, EscrowStatus } from '../../database/entities/escrow.entity';
 import { DigitalSignatureEntity } from '../../database/entities/digital-signature.entity';
+import { UserSigningCredentialEntity } from '../../database/entities/user-signing-credential.entity';
 import { UserEntity, UserRole } from '../../database/entities/user.entity';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { normalizeContractPdfUrl } from '../../common/utils/contract-pdf-url.util';
@@ -47,13 +48,12 @@ import {
 } from '../../database/entities/project-request.entity';
 import { ProjectRequestProposalEntity } from '../../database/entities/project-request-proposal.entity';
 import {
-  CreateSignatureSessionDto,
-  SignatureProviderWebhookDto,
   UpdateContractDraftDto,
   UpdateContractDraftMilestoneDto,
 } from './dto';
 import { ContractArchiveStorageService } from './contract-archive.storage';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SigningCredentialsService } from '../auth/signing-credentials.service';
 
 type ContractPartyRole = 'CLIENT' | 'BROKER' | 'FREELANCER';
 
@@ -61,6 +61,9 @@ type ContractPartyRole = 'CLIENT' | 'BROKER' | 'FREELANCER';
 export class ContractsService {
   private readonly logger = new Logger(ContractsService.name);
   private static readonly MONEY_TOLERANCE = new Decimal(0.01);
+  private static readonly MAX_FIRST_MILESTONE_PERCENT = new Decimal(30);
+  private static readonly MIN_LAST_MILESTONE_PERCENT = new Decimal(20);
+  private static readonly MAX_RETENTION_PERCENT = new Decimal(10);
   private static readonly DEFAULT_CURRENCY = 'USD';
   private static readonly DEFAULT_ESCROW_SPLIT = {
     developerPercentage: 85,
@@ -82,6 +85,7 @@ export class ContractsService {
     private readonly projectRequestProposalsRepository: Repository<ProjectRequestProposalEntity>,
     private readonly auditLogsService: AuditLogsService,
     private readonly notificationsService: NotificationsService,
+    private readonly signingCredentialsService: SigningCredentialsService,
     private readonly dataSource: DataSource,
     private readonly eventEmitter: EventEmitter2,
     private readonly contractArchiveStorage: ContractArchiveStorageService,
@@ -98,9 +102,7 @@ export class ContractsService {
     });
   }
 
-  private sortSnapshot(
-    snapshot: ContractMilestoneSnapshotItem[],
-  ): ContractMilestoneSnapshotItem[] {
+  private sortSnapshot(snapshot: ContractMilestoneSnapshotItem[]): ContractMilestoneSnapshotItem[] {
     return [...snapshot].sort((a, b) => {
       const sortOrderDiff =
         (a.sortOrder ?? Number.MAX_SAFE_INTEGER) - (b.sortOrder ?? Number.MAX_SAFE_INTEGER);
@@ -146,9 +148,7 @@ export class ContractsService {
     return provider;
   }
 
-  private normalizeWebhookLegalStatus(
-    status: string,
-  ): ContractLegalSignatureStatus {
+  private normalizeWebhookLegalStatus(status: string): ContractLegalSignatureStatus {
     const normalized = `${status || ''}`.trim().toUpperCase();
     if (['VERIFIED', 'SUCCESS', 'COMPLETED', 'APPROVED'].includes(normalized)) {
       return ContractLegalSignatureStatus.VERIFIED;
@@ -191,18 +191,93 @@ export class ContractsService {
     contract.legalSignatureEvidence = null;
   }
 
+  private isLegacyAuditRecordedSignature(signature: DigitalSignatureEntity | null | undefined) {
+    if (!signature) {
+      return false;
+    }
+    const provider = `${signature.provider || ''}`.trim().toUpperCase();
+    const legalStatus = `${signature.legalStatus || ''}`.trim().toUpperCase();
+    return provider === 'INTERDEV_AUDIT' && legalStatus === 'AUDIT_RECORDED';
+  }
+
+  private buildLegacyAuditContractCertificateSerial(contractId: string, verifiedAt: Date): string {
+    const timestamp = verifiedAt.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14);
+    return `INTERDEV-AUDIT-${contractId.slice(0, 8).toUpperCase()}-${timestamp}`;
+  }
+
+  private async reconcileLegacyAuditVerificationIfEligible(
+    queryRunner: QueryRunner,
+    contract: ContractEntity,
+    signatures: DigitalSignatureEntity[],
+  ): Promise<boolean> {
+    if (contract.legalSignatureStatus === ContractLegalSignatureStatus.VERIFIED) {
+      return false;
+    }
+    if (contract.status !== ContractStatus.SIGNED) {
+      return false;
+    }
+
+    const requiredSignerIds = this.getRequiredContractSignerIds(contract);
+    if (requiredSignerIds.length === 0) {
+      return false;
+    }
+
+    const signaturesByUserId = new Map(signatures.map((signature) => [signature.userId, signature]));
+    const requiredSignatures = requiredSignerIds.map((userId) => signaturesByUserId.get(userId));
+
+    if (requiredSignatures.some((signature) => !signature)) {
+      return false;
+    }
+
+    const allRequiredAreLegacyAudit = requiredSignatures.every((signature) =>
+      this.isLegacyAuditRecordedSignature(signature),
+    );
+
+    if (!allRequiredAreLegacyAudit) {
+      return false;
+    }
+
+    const verifiedAtCandidates = requiredSignatures
+      .map((signature) => signature!.verifiedAt ?? signature!.signedAt ?? null)
+      .filter((value): value is Date => value instanceof Date);
+
+    const verifiedAt =
+      verifiedAtCandidates.length > 0
+        ? new Date(Math.max(...verifiedAtCandidates.map((value) => value.getTime())))
+        : new Date();
+
+    contract.provider = 'INTERDEV_AUDIT';
+    contract.legalSignatureStatus = ContractLegalSignatureStatus.VERIFIED;
+    contract.verifiedAt = verifiedAt;
+    contract.certificateSerial =
+      contract.certificateSerial ||
+      this.buildLegacyAuditContractCertificateSerial(contract.id, verifiedAt);
+    contract.legalSignatureEvidence = this.mergeLegalSignatureEvidence(contract.legalSignatureEvidence, {
+      verificationMode: 'LEGACY_INTERDEV_AUDIT',
+      provider: 'INTERDEV_AUDIT',
+      verifiedAt: verifiedAt.toISOString(),
+      reconciledAt: new Date().toISOString(),
+      reconciliationReason: 'all_required_signers_have_legacy_audit_records',
+    });
+
+    await queryRunner.manager.save(ContractEntity, contract);
+    return true;
+  }
+
   private emitContractUpdated(
     contract: Pick<ContractEntity, 'id' | 'projectId'> & { project?: ProjectEntity | null },
     extraUserIds: Array<string | null | undefined> = [],
   ) {
     const requestId = contract.project?.requestId ?? null;
     const userIds = Array.from(
-      new Set([
-        ...(contract.project
-          ? [contract.project.clientId, contract.project.brokerId, contract.project.freelancerId]
-          : []),
-        ...extraUserIds,
-      ].filter(Boolean)),
+      new Set(
+        [
+          ...(contract.project
+            ? [contract.project.clientId, contract.project.brokerId, contract.project.freelancerId]
+            : []),
+          ...extraUserIds,
+        ].filter(Boolean),
+      ),
     );
 
     userIds.forEach((userId) => {
@@ -217,13 +292,34 @@ export class ContractsService {
     });
   }
 
+  private emitRequestUpdated(
+    requestId: string,
+    userIds: Array<string | null | undefined>,
+    projectId?: string | null,
+  ) {
+    const uniqueUserIds = Array.from(new Set(userIds.filter(Boolean)));
+    uniqueUserIds.forEach((userId) => {
+      this.eventEmitter.emit('request.updated', {
+        userId,
+        requestId,
+        projectId: projectId ?? null,
+        entityType: 'ProjectRequest',
+        entityId: requestId,
+      });
+    });
+  }
+
   private async notifyContractParticipants(
     contract: ContractEntity,
     input: { title: string; body: string; userIds?: Array<string | null | undefined> },
   ) {
     const userIds =
       input.userIds && input.userIds.length > 0
-        ? Array.from(new Set(input.userIds.filter(Boolean)))
+        ? Array.from(
+            new Set(
+              input.userIds.filter((userId): userId is string => Boolean(userId)),
+            ),
+          )
         : this.getContractParticipantIds(contract);
 
     if (userIds.length === 0) {
@@ -450,7 +546,11 @@ export class ContractsService {
     const checked =
       kind === 'task' && this.isRecord(node.attrs) ? Boolean(node.attrs.checked) : false;
     const marker =
-      kind === 'ordered' ? `${orderedIndex}. ` : kind === 'task' ? `- [${checked ? 'x' : ' '}] ` : '- ';
+      kind === 'ordered'
+        ? `${orderedIndex}. `
+        : kind === 'task'
+          ? `- [${checked ? 'x' : ' '}] `
+          : '- ';
 
     const childNodes = Array.isArray(node.content) ? node.content : [];
     if (childNodes.length === 0) {
@@ -578,9 +678,7 @@ export class ContractsService {
       case 'horizontalRule':
         return ['---', ''];
       default: {
-        const fallbackInline = this.renderNarrativeInlineText(content)
-          .replace(/\n+/g, ' ')
-          .trim();
+        const fallbackInline = this.renderNarrativeInlineText(content).replace(/\n+/g, ' ').trim();
         if (fallbackInline) {
           return [fallbackInline, ''];
         }
@@ -697,7 +795,7 @@ export class ContractsService {
       techStack: spec?.techStack ?? null,
       ...frozenNarrative,
       features: Array.isArray(spec?.features)
-        ? spec!.features.map((feature) => ({
+        ? spec.features.map((feature) => ({
             title: feature.title,
             description: feature.description,
             complexity: feature.complexity,
@@ -766,9 +864,7 @@ export class ContractsService {
     const seenSortOrders = new Set<number>();
     for (const milestone of snapshot) {
       if (!Number.isInteger(milestone.sortOrder)) {
-        throw new ConflictException(
-          `Milestone "${milestone.title}" is missing a valid sortOrder.`,
-        );
+        throw new ConflictException(`Milestone "${milestone.title}" is missing a valid sortOrder.`);
       }
       if (seenSortOrders.has(milestone.sortOrder as number)) {
         throw new ConflictException(
@@ -784,6 +880,82 @@ export class ContractsService {
       (total, milestone) => total.plus(this.toMoneyDecimal(milestone.amount)),
       new Decimal(0),
     );
+  }
+
+  private validateSnapshotCommercialGuardrails(snapshot: ContractMilestoneSnapshotItem[]) {
+    if (!Array.isArray(snapshot) || snapshot.length === 0) {
+      return;
+    }
+
+    const sortedSnapshot = this.sortSnapshot(snapshot);
+    const totalBudget = this.sumSnapshotAmounts(sortedSnapshot);
+    if (totalBudget.lte(0)) {
+      throw new BadRequestException('Contract milestone snapshot total must be greater than 0.');
+    }
+
+    const firstAmount = this.toMoneyDecimal(sortedSnapshot[0].amount);
+    const firstPercent = firstAmount.div(totalBudget).times(100);
+    if (
+      firstPercent.greaterThan(
+        ContractsService.MAX_FIRST_MILESTONE_PERCENT.plus(ContractsService.MONEY_TOLERANCE),
+      )
+    ) {
+      throw new BadRequestException(
+        `First contract milestone cannot exceed ${ContractsService.MAX_FIRST_MILESTONE_PERCENT.toFixed(0)}% of total budget. Current: ${firstPercent.toFixed(2)}%.`,
+      );
+    }
+
+    const lastAmount = this.toMoneyDecimal(sortedSnapshot[sortedSnapshot.length - 1].amount);
+    const lastPercent = lastAmount.div(totalBudget).times(100);
+    if (
+      lastPercent
+        .plus(ContractsService.MONEY_TOLERANCE)
+        .lessThan(ContractsService.MIN_LAST_MILESTONE_PERCENT)
+    ) {
+      throw new BadRequestException(
+        `Final contract milestone must be at least ${ContractsService.MIN_LAST_MILESTONE_PERCENT.toFixed(0)}% of total budget. Current: ${lastPercent.toFixed(2)}%.`,
+      );
+    }
+
+    let previousDueAt: number | null = null;
+
+    sortedSnapshot.forEach((milestone, index) => {
+      const amount = this.toMoneyDecimal(milestone.amount);
+      const retentionAmount = this.toMoneyDecimal(milestone.retentionAmount ?? 0);
+      const retentionCap = amount.times(ContractsService.MAX_RETENTION_PERCENT).div(100);
+      const startAt = milestone.startDate ? new Date(milestone.startDate).getTime() : null;
+      const dueAt = milestone.dueDate ? new Date(milestone.dueDate).getTime() : null;
+
+      if (retentionAmount.greaterThan(retentionCap.plus(ContractsService.MONEY_TOLERANCE))) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} retention cannot exceed ${ContractsService.MAX_RETENTION_PERCENT.toFixed(0)}% of milestone amount.`,
+        );
+      }
+
+      if (startAt !== null && Number.isNaN(startAt)) {
+        throw new BadRequestException(`Milestone ${index + 1} has an invalid startDate.`);
+      }
+
+      if (dueAt !== null && Number.isNaN(dueAt)) {
+        throw new BadRequestException(`Milestone ${index + 1} has an invalid dueDate.`);
+      }
+
+      if (startAt !== null && dueAt !== null && dueAt < startAt) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} dueDate must be greater than or equal to startDate.`,
+        );
+      }
+
+      if (previousDueAt !== null && startAt !== null && startAt <= previousDueAt) {
+        throw new BadRequestException(
+          `Milestone ${index + 1} startDate must be after the previous milestone dueDate.`,
+        );
+      }
+
+      if (dueAt !== null) {
+        previousDueAt = dueAt;
+      }
+    });
   }
 
   private buildSnapshotFromSpecMilestones(
@@ -840,6 +1012,7 @@ export class ContractsService {
     }
 
     this.assertUniqueSnapshotSortOrders(snapshot);
+    this.validateSnapshotCommercialGuardrails(snapshot);
 
     const snapshotBudget = this.sumSnapshotAmounts(snapshot);
     const commercialBudget = this.toMoneyDecimal(commercialContext.totalBudget);
@@ -853,7 +1026,7 @@ export class ContractsService {
       const projectBudget = this.toMoneyDecimal(project.totalBudget);
       if (!snapshotBudget.minus(projectBudget).abs().lte(ContractsService.MONEY_TOLERANCE)) {
         throw new ConflictException(
-          'Contract snapshot budget does not match the linked project totalBudget.',
+          `Contract draft cannot change the frozen project budget. Snapshot: $${snapshotBudget.toFixed(2)}, Project baseline: $${projectBudget.toFixed(2)}.`,
         );
       }
     }
@@ -886,12 +1059,11 @@ export class ContractsService {
     }
 
     sortedMilestones.forEach((milestone, index) => {
-      const snapshotEntry =
-        milestone.sourceContractMilestoneKey
-          ? sortedSnapshot.find(
-              (entry) => entry.contractMilestoneKey === milestone.sourceContractMilestoneKey,
-            )
-          : undefined;
+      const snapshotEntry = milestone.sourceContractMilestoneKey
+        ? sortedSnapshot.find(
+            (entry) => entry.contractMilestoneKey === milestone.sourceContractMilestoneKey,
+          )
+        : undefined;
       const fallbackEntry =
         snapshotEntry ??
         (Number.isInteger(milestone.sortOrder)
@@ -911,11 +1083,15 @@ export class ContractsService {
       const snapshotRetention = this.toMoneyDecimal(fallbackEntry.retentionAmount ?? 0);
       const milestoneCriteria = JSON.stringify(milestone.acceptanceCriteria ?? []);
       const snapshotCriteria = JSON.stringify(fallbackEntry.acceptanceCriteria ?? []);
-      const milestoneStartDate = milestone.startDate ? new Date(milestone.startDate).toISOString() : null;
+      const milestoneStartDate = milestone.startDate
+        ? new Date(milestone.startDate).toISOString()
+        : null;
       const milestoneDueDate = milestone.dueDate ? new Date(milestone.dueDate).toISOString() : null;
 
       if (milestone.title !== fallbackEntry.title) {
-        throw new ConflictException('Existing project milestone title differs from contract snapshot.');
+        throw new ConflictException(
+          'Existing project milestone title differs from contract snapshot.',
+        );
       }
       if ((milestone.description ?? null) !== (fallbackEntry.description ?? null)) {
         throw new ConflictException(
@@ -1092,9 +1268,9 @@ export class ContractsService {
         terms += `- Due Date: ${new Date(milestone.dueDate).toLocaleDateString('en-US')}\n`;
       }
       if (Number(milestone.retentionAmount || 0) > 0) {
-        terms += `- Retention (Warranty): $${this.normalizeMoney(
-          milestone.retentionAmount,
-        ).toFixed(2)}\n`;
+        terms += `- Retention (Warranty): $${this.normalizeMoney(milestone.retentionAmount).toFixed(
+          2,
+        )}\n`;
       }
       if (milestone.acceptanceCriteria?.length) {
         terms += `- Acceptance Criteria:\n`;
@@ -1128,11 +1304,18 @@ export class ContractsService {
     contract: ContractEntity,
   ): Promise<ContractEntity & { documentHash?: string }> {
     let selectedSpec: ProjectSpecEntity | null = null;
-    if (contract.project?.request?.specs) {
+    if (contract.project?.request?.specs?.length) {
       selectedSpec = this.selectSpecForContract(
         contract.project.request.specs,
         contract.sourceSpecId ?? null,
       );
+    } else {
+      selectedSpec = await this.resolveSpecForRead(contract);
+      if (contract.project?.request) {
+        contract.project.request.specs = selectedSpec ? [selectedSpec] : [];
+      }
+    }
+    if (contract.project?.request) {
       contract.project.request.spec = selectedSpec;
     }
 
@@ -1175,8 +1358,12 @@ export class ContractsService {
         },
       });
 
-      const releasedEscrows = escrows.filter((item) => item.status === EscrowStatus.RELEASED).length;
-      const disputedEscrows = escrows.filter((item) => item.status === EscrowStatus.DISPUTED).length;
+      const releasedEscrows = escrows.filter(
+        (item) => item.status === EscrowStatus.RELEASED,
+      ).length;
+      const disputedEscrows = escrows.filter(
+        (item) => item.status === EscrowStatus.DISPUTED,
+      ).length;
       const fundedEscrows = escrows.filter((item) => item.status === EscrowStatus.FUNDED).length;
 
       (contract as any).runtimeEscrowSummary = {
@@ -1282,6 +1469,58 @@ export class ContractsService {
       .digest('hex');
   }
 
+  private buildMiniCaContractCertificateSerial(contractId: string, verifiedAt: Date): string {
+    const datePart = verifiedAt.toISOString().slice(0, 10).replace(/-/g, '');
+    const contractPart = contractId.replace(/-/g, '').slice(0, 12).toUpperCase();
+    return `INTERDEV-MCA-${datePart}-${contractPart}`;
+  }
+
+  private getMiniCaTimestampSecret(): string {
+    return (
+      process.env.MINI_CA_TIMESTAMP_SECRET?.trim() ||
+      process.env.JWT_SECRET?.trim() ||
+      'interdev-mini-ca-timestamp-dev-only-change-me'
+    );
+  }
+
+  private buildMiniCaTimestampToken(params: {
+    contractId: string;
+    userId: string;
+    contentHash: string;
+    signatureBase64: string;
+    signedAt: Date;
+  }): string {
+    return createHmac('sha256', this.getMiniCaTimestampSecret())
+      .update(
+        JSON.stringify({
+          contractId: params.contractId,
+          userId: params.userId,
+          contentHash: params.contentHash,
+          signatureBase64: params.signatureBase64,
+          signedAt: params.signedAt.toISOString(),
+        }),
+      )
+      .digest('hex');
+  }
+
+  private verifyMiniCaTimestampToken(params: {
+    contractId: string;
+    userId: string;
+    contentHash: string;
+    signatureBase64: string;
+    signedAt: Date;
+    token: string;
+  }): boolean {
+    const expectedToken = this.buildMiniCaTimestampToken({
+      contractId: params.contractId,
+      userId: params.userId,
+      contentHash: params.contentHash,
+      signatureBase64: params.signatureBase64,
+      signedAt: params.signedAt,
+    });
+    return expectedToken === params.token;
+  }
+
   private async loadContractForUpdate(
     queryRunner: QueryRunner,
     contractId: string,
@@ -1319,8 +1558,6 @@ export class ContractsService {
         'project.broker',
         'project.freelancer',
         'project.request',
-        'project.request.specs',
-        'project.request.specs.milestones',
         'signatures',
         'signatures.user',
       ],
@@ -1331,6 +1568,40 @@ export class ContractsService {
     }
 
     return contract;
+  }
+
+  private async resolveSpecForRead(contract: ContractEntity): Promise<ProjectSpecEntity | null> {
+    if (contract.sourceSpecId) {
+      const sourceSpec = await this.projectSpecsRepository.findOne({
+        where: { id: contract.sourceSpecId },
+        relations: ['milestones'],
+      });
+      if (sourceSpec) {
+        return sourceSpec;
+      }
+    }
+
+    const requestId = contract.project?.requestId ?? null;
+    if (!requestId) {
+      return null;
+    }
+
+    return this.projectSpecsRepository.findOne({
+      where: [
+        {
+          requestId,
+          status: ProjectSpecStatus.ALL_SIGNED,
+          specPhase: SpecPhase.FULL_SPEC,
+        },
+        {
+          requestId,
+          status: ProjectSpecStatus.APPROVED,
+          specPhase: SpecPhase.FULL_SPEC,
+        },
+      ],
+      relations: ['milestones'],
+      order: { createdAt: 'DESC' },
+    });
   }
 
   private async resolveSpecForLegacyActivation(
@@ -1387,12 +1658,7 @@ export class ContractsService {
     const snapshot = this.buildSnapshotFromSpecMilestones(spec);
     contract.commercialContext =
       contract.commercialContext ??
-      this.buildCommercialContextFromSpec(
-        spec,
-        project,
-        project.freelancerId ?? null,
-        snapshot,
-      );
+      this.buildCommercialContextFromSpec(spec, project, project.freelancerId ?? null, snapshot);
     contract.milestoneSnapshot = snapshot;
     this.ensureContractContentHash(contract);
     await queryRunner.manager.save(ContractEntity, contract);
@@ -1418,17 +1684,21 @@ export class ContractsService {
 
     const milestonesToUpdate: MilestoneEntity[] = [];
     for (const milestone of existingMilestones) {
-      const snapshotEntry =
-        milestone.sourceContractMilestoneKey
-          ? snapshot.find((entry) => entry.contractMilestoneKey === milestone.sourceContractMilestoneKey)
-          : undefined;
+      const snapshotEntry = milestone.sourceContractMilestoneKey
+        ? snapshot.find(
+            (entry) => entry.contractMilestoneKey === milestone.sourceContractMilestoneKey,
+          )
+        : undefined;
       const fallbackEntry =
         snapshotEntry ??
         (Number.isInteger(milestone.sortOrder)
-          ? snapshotBySortOrder.get(milestone.sortOrder as number)
+          ? snapshotBySortOrder.get(milestone.sortOrder)
           : undefined);
 
-      if (fallbackEntry && milestone.sourceContractMilestoneKey !== fallbackEntry.contractMilestoneKey) {
+      if (
+        fallbackEntry &&
+        milestone.sourceContractMilestoneKey !== fallbackEntry.contractMilestoneKey
+      ) {
         milestone.sourceContractMilestoneKey = fallbackEntry.contractMilestoneKey;
         milestonesToUpdate.push(milestone);
       }
@@ -1461,7 +1731,8 @@ export class ContractsService {
       escrow.developerPercentage = split.developerPercentage;
       escrow.brokerPercentage = split.brokerPercentage;
       escrow.platformPercentage = split.platformPercentage;
-      escrow.currency = commercialContext.currency || project.currency || ContractsService.DEFAULT_CURRENCY;
+      escrow.currency =
+        commercialContext.currency || project.currency || ContractsService.DEFAULT_CURRENCY;
       escrow.clientApproved = false;
       escrow.status = EscrowStatus.PENDING;
       return escrow;
@@ -1530,12 +1801,12 @@ export class ContractsService {
       order: { sortOrder: 'ASC', createdAt: 'ASC' },
     });
     const snapshot = this.sortSnapshot(contract.milestoneSnapshot || []);
-    const commercialContext = contract.commercialContext ?? this.buildCommercialContextFallback(contract);
+    const commercialContext =
+      contract.commercialContext ?? this.buildCommercialContextFallback(contract);
 
     this.validateSnapshotInvariants(snapshot, commercialContext, project);
 
     if (options?.requireAllSignatures) {
-      this.assertContractCanBeActivated(contract);
       const signatures = await queryRunner.manager.find(DigitalSignatureEntity, {
         where: { contractId },
       });
@@ -1548,6 +1819,9 @@ export class ContractsService {
           'Contract must have all required signatures before activation.',
         );
       }
+
+      await this.reconcileLegacyAuditVerificationIfEligible(queryRunner, contract, signatures);
+      this.assertContractCanBeActivated(contract);
     }
 
     if (contract.activatedAt) {
@@ -1574,7 +1848,12 @@ export class ContractsService {
           ? await queryRunner.manager.save(MilestoneEntity, milestonesToSave)
           : [];
       clonedMilestones = savedMilestones.length;
-      await this.createEscrowsFromSnapshot(queryRunner, project, savedMilestones, commercialContext);
+      await this.createEscrowsFromSnapshot(
+        queryRunner,
+        project,
+        savedMilestones,
+        commercialContext,
+      );
     } else {
       this.assertExistingMilestonesMatchSnapshot(existingMilestones, snapshot);
       await this.repairActivatedLegacyMilestones(queryRunner, contract, existingMilestones);
@@ -1627,7 +1906,9 @@ export class ContractsService {
     this.assertUserCanViewContract(user, contract);
     await this.hydrateContractReadModel(contract);
     (contract as any).requiredSignerCount = this.getRequiredContractSignerIds(contract).length;
-    (contract as any).signedCount = Array.isArray(contract.signatures) ? contract.signatures.length : 0;
+    (contract as any).signedCount = Array.isArray(contract.signatures)
+      ? contract.signatures.length
+      : 0;
     return contract;
   }
 
@@ -1826,7 +2107,9 @@ export class ContractsService {
         where: { contractId },
       });
       if (signatures.length > 0) {
-        throw new BadRequestException('Contract draft can no longer be edited after signing starts.');
+        throw new BadRequestException(
+          'Contract draft can no longer be edited after signing starts.',
+        );
       }
 
       const currentSnapshot = this.sortSnapshot(contract.milestoneSnapshot || []);
@@ -1843,13 +2126,15 @@ export class ContractsService {
         contract.title = nextTitle;
       }
 
-      const commercialContext = this.buildCommercialContextFromDraft(contract, project, nextSnapshot, {
-        currency: dto.currency,
-      });
-      this.validateSnapshotInvariants(nextSnapshot, commercialContext, {
-        ...project,
-        totalBudget: commercialContext.totalBudget,
-      } as ProjectEntity);
+      const commercialContext = this.buildCommercialContextFromDraft(
+        contract,
+        project,
+        nextSnapshot,
+        {
+          currency: dto.currency,
+        },
+      );
+      this.validateSnapshotInvariants(nextSnapshot, commercialContext, project);
 
       contract.commercialContext = commercialContext;
       contract.milestoneSnapshot = nextSnapshot;
@@ -1962,6 +2247,14 @@ export class ContractsService {
       project.status = ProjectStatus.CANCELED;
       await queryRunner.manager.save(ProjectEntity, project);
 
+      if (project.requestId) {
+        await queryRunner.manager.update(
+          ProjectRequestEntity,
+          { id: project.requestId },
+          { status: RequestStatus.CANCELED },
+        );
+      }
+
       if (contract.sourceSpecId) {
         const spec = await queryRunner.manager.findOne(ProjectSpecEntity, {
           where: { id: contract.sourceSpecId },
@@ -1976,6 +2269,13 @@ export class ContractsService {
 
       await queryRunner.commitTransaction();
       this.emitContractUpdated(contract);
+      if (project.requestId) {
+        this.emitRequestUpdated(
+          project.requestId,
+          [project.clientId, project.brokerId, project.freelancerId],
+          project.id,
+        );
+      }
       await this.notifyContractParticipants(contract, {
         title: 'Contract archived',
         body: `Contract "${contract.title}" was archived before signature completion.`,
@@ -2011,7 +2311,10 @@ export class ContractsService {
     return parsed.toLocaleString('en-US');
   }
 
-  private formatMoneyForDisplay(amount: Decimal.Value | null | undefined, currency?: string | null) {
+  private formatMoneyForDisplay(
+    amount: Decimal.Value | null | undefined,
+    currency?: string | null,
+  ) {
     return `${this.normalizeMoney(amount).toFixed(2)} ${this.normalizeCurrency(currency)}`;
   }
 
@@ -2151,7 +2454,7 @@ export class ContractsService {
     signatures: Array<DigitalSignatureEntity & { user?: UserEntity | null }>,
   ) {
     if (signatures.length === 0) {
-      return [['No signatures recorded yet.', '—', '—', 'No audit trail available yet.']];
+      return [['No signatures recorded yet.', '—', { text: 'Pending', color: '#b45309', bold: true }, '—']];
     }
 
     return signatures
@@ -2169,19 +2472,11 @@ export class ContractsService {
                 : null) ||
           signature.userId;
 
-        const auditDetails = [
-          `Signature hash: ${signature.signatureHash}`,
-          signature.ipAddress ? `IP: ${signature.ipAddress}` : null,
-          signature.userAgent ? `Agent: ${signature.userAgent}` : null,
-        ]
-          .filter(Boolean)
-          .join('\n');
-
         return [
           signerName,
           signature.signerRole || signature.userId,
-          this.formatDateTimeForDisplay(signature.signedAt),
-          auditDetails,
+          { text: '✓ Signed', color: '#047857', bold: true },
+          this.formatDateForDisplay(signature.signedAt),
         ];
       });
   }
@@ -2228,14 +2523,66 @@ export class ContractsService {
     >;
 
     const pdfmake = require('pdfmake');
-    pdfmake.addFonts({
-      Helvetica: {
-        normal: 'Helvetica',
-        bold: 'Helvetica-Bold',
-        italics: 'Helvetica-Oblique',
-        bolditalics: 'Helvetica-BoldOblique',
-      },
-    });
+    const robotoRegularPath = resolve(
+      process.cwd(),
+      'node_modules',
+      'pdfmake',
+      'fonts',
+      'Roboto',
+      'Roboto-Regular.ttf',
+    );
+    const robotoMediumPath = resolve(
+      process.cwd(),
+      'node_modules',
+      'pdfmake',
+      'fonts',
+      'Roboto',
+      'Roboto-Medium.ttf',
+    );
+    const robotoItalicPath = resolve(
+      process.cwd(),
+      'node_modules',
+      'pdfmake',
+      'fonts',
+      'Roboto',
+      'Roboto-Italic.ttf',
+    );
+    const robotoMediumItalicPath = resolve(
+      process.cwd(),
+      'node_modules',
+      'pdfmake',
+      'fonts',
+      'Roboto',
+      'Roboto-MediumItalic.ttf',
+    );
+    const hasRobotoFontFiles = [
+      robotoRegularPath,
+      robotoMediumPath,
+      robotoItalicPath,
+      robotoMediumItalicPath,
+    ].every((fontPath) => existsSync(fontPath));
+
+    pdfmake.addFonts(
+      hasRobotoFontFiles
+        ? {
+            InterDevSans: {
+              normal: robotoRegularPath,
+              bold: robotoMediumPath,
+              italics: robotoItalicPath,
+              bolditalics: robotoMediumItalicPath,
+            },
+          }
+        : {
+            Helvetica: {
+              normal: 'Helvetica',
+              bold: 'Helvetica-Bold',
+              italics: 'Helvetica-Oblique',
+              bolditalics: 'Helvetica-BoldOblique',
+            },
+          },
+    );
+
+    const pdfFontFamily = hasRobotoFontFiles ? 'InterDevSans' : 'Helvetica';
 
     const snapshotMilestones = Array.isArray(contract.milestoneSnapshot)
       ? this.sortSnapshot(contract.milestoneSnapshot)
@@ -2246,6 +2593,12 @@ export class ContractsService {
     const missingSignerIds = requiredSignerIds.filter((id) => !signedUserIds.has(id));
     const commercialContext =
       contract.commercialContext ?? this.buildCommercialContextFallback(contract);
+    const contentHash = contract.contentHash || this.computeContentHash(contract);
+    const documentHash =
+      (contract as any).documentHash || this.computeContractDocumentHash(contract);
+    const signatureHashMetadata = signatures
+      .map((signature, index) => `sig${index + 1}=${signature.signatureHash}`)
+      .join('|');
     const signatureRows = this.buildPdfSignatureTrail(contract, signatures);
     const termsBlocks = this.buildTermsPdfBlocks(contract.termsContent);
     const interDevLogo = this.getInterDevLogoDataUri();
@@ -2255,7 +2608,9 @@ export class ContractsService {
             `${index + 1}. ${milestone.title}`,
             String(milestone.deliverableType || DeliverableType.OTHER).replace(/_/g, ' '),
             [
-              milestone.startDate ? `Start: ${this.formatDateForDisplay(milestone.startDate)}` : null,
+              milestone.startDate
+                ? `Start: ${this.formatDateForDisplay(milestone.startDate)}`
+                : null,
               milestone.dueDate ? `Due: ${this.formatDateForDisplay(milestone.dueDate)}` : null,
             ]
               .filter(Boolean)
@@ -2273,15 +2628,16 @@ export class ContractsService {
             .map((signature) => ({
               text: [
                 {
-                  text: `${
-                    signature.user?.fullName ||
-                    signature.signerRole ||
-                    signature.userId
-                  }`,
+                  text: '✓ ',
+                  color: '#047857',
                   bold: true,
                 },
                 {
-                  text: ` · ${signature.signerRole || signature.userId} · ${this.formatDateTimeForDisplay(signature.signedAt)}`,
+                  text: `${signature.user?.fullName || signature.signerRole || signature.userId}`,
+                  bold: true,
+                },
+                {
+                  text: ` · ${signature.signerRole || signature.userId} · ${this.formatDateForDisplay(signature.signedAt)}`,
                 },
               ],
               margin: [0, 0, 0, 6],
@@ -2291,6 +2647,21 @@ export class ContractsService {
     const docDefinition: any = {
       pageSize: 'A4',
       pageMargins: [32, 32, 32, 36],
+      info: {
+        title: `InterDev Contract ${contract.id}`,
+        author: 'InterDev Platform',
+        subject: 'Frozen contract agreement artifact',
+        keywords: [
+          `contractId=${contract.id}`,
+          `contentHash=${contentHash}`,
+          `documentHash=${documentHash}`,
+          signatureHashMetadata || null,
+        ]
+          .filter(Boolean)
+          .join('; '),
+        creator: 'InterDev Contracts Service',
+        producer: 'InterDev PDF Generator',
+      },
       footer: (currentPage: number, pageCount: number) => ({
         margin: [32, 0, 32, 16],
         columns: [
@@ -2308,7 +2679,7 @@ export class ContractsService {
           },
         ],
       }),
-      defaultStyle: { font: 'Helvetica', fontSize: 10, color: '#0f172a' },
+      defaultStyle: { font: pdfFontFamily, fontSize: 10, color: '#0f172a' },
       content: [
         {
           columns: [
@@ -2357,7 +2728,10 @@ export class ContractsService {
                 {
                   stack: [
                     { text: contract.title || commercialContext.projectTitle, style: 'heroTitle' },
-                    { text: 'Frozen commercial agreement for activation and escrow setup.', style: 'heroSubtitle' },
+                    {
+                      text: 'Frozen commercial agreement for activation and escrow setup.',
+                      style: 'heroSubtitle',
+                    },
                     {
                       text: `Contract ${contract.id} · ${contract.status}`,
                       style: 'heroMeta',
@@ -2499,30 +2873,17 @@ export class ContractsService {
           margin: [0, 0, 0, 6],
         },
         ...termsBlocks,
-        { text: 'Audit Appendix', style: 'section' },
+        { text: 'Signature Audit Appendix', style: 'section' },
         {
-          columns: [
-            {
-              text: `Content hash (signable version)\n${
-                contract.contentHash || this.computeContentHash(contract)
-              }`,
-              style: 'hashBlock',
-            },
-            {
-              text: `Document hash (audit/export)\n${
-                (contract as any).documentHash || this.computeContractDocumentHash(contract)
-              }`,
-              style: 'hashBlock',
-            },
-          ],
-          columnGap: 10,
-          margin: [0, 0, 0, 10],
+          text: 'Signature hashes and document hashes are embedded in PDF metadata and retained in server-side legal signature evidence for verification workflows.',
+          style: 'bodyMuted',
+          margin: [0, 0, 0, 8],
         },
         {
           table: {
             headerRows: 1,
-            widths: [110, 72, 120, '*'],
-            body: [['Signer', 'Role', 'Signed At', 'Audit Details'], ...signatureRows],
+            widths: [160, 82, 64, '*'],
+            body: [['Signer', 'Role', 'Status', 'Signed Date'], ...signatureRows],
           },
           layout: 'lightHorizontalLines',
         },
@@ -2562,12 +2923,6 @@ export class ContractsService {
         },
         bodyCopy: { fontSize: 9.5, lineHeight: 1.3, margin: [0, 0, 0, 5] },
         bodyMuted: { fontSize: 8.75, color: '#475569', lineHeight: 1.3, margin: [0, 0, 0, 5] },
-        hashBlock: {
-          fontSize: 8,
-          color: '#0f172a',
-          fillColor: '#f8fafc',
-          margin: [0, 0, 0, 0],
-        },
         termsHeadingPrimary: { fontSize: 15, bold: true, margin: [0, 8, 0, 5] },
         termsHeadingSecondary: { fontSize: 12.5, bold: true, margin: [0, 6, 0, 4] },
         termsHeadingTertiary: { fontSize: 10.5, bold: true, margin: [0, 5, 0, 3] },
@@ -2616,10 +2971,187 @@ export class ContractsService {
     return this.buildPdfBufferForContract(contract);
   }
 
-  async signContract(user: UserEntity, contractId: string, contentHash: string, req: Request) {
+  async getSignatureVerificationReportForUser(user: UserEntity, contractId: string) {
+    const contract = (await this.findOneForUser(user, contractId)) as ContractEntity & {
+      documentHash?: string;
+    };
+    const signatures = ((contract.signatures || []) as Array<
+      DigitalSignatureEntity & { user?: UserEntity | null }
+    >)
+      .slice()
+      .sort((a, b) => new Date(a.signedAt).getTime() - new Date(b.signedAt).getTime());
+
+    const requiredSignerIds = this.getRequiredContractSignerIds(contract);
+    const signedUserIds = new Set(signatures.map((signature) => signature.userId));
+    const allRequiredSigned = requiredSignerIds.every((userId) => signedUserIds.has(userId));
+    const computedContentHash = this.computeContentHash(contract);
+    const storedContentHash = contract.contentHash ?? null;
+    const storedContentHashMatches =
+      storedContentHash === null || storedContentHash === computedContentHash;
+
+    const signingCredentialRepository = this.dataSource.getRepository(UserSigningCredentialEntity);
+
+    const signatureReports = await Promise.all(
+      signatures.map(async (signature) => {
+        const providerPayload = (signature.providerPayload || {}) as Record<string, unknown>;
+        const signatureValue =
+          typeof providerPayload.signatureValue === 'string'
+            ? providerPayload.signatureValue
+            : null;
+        const signedContentHash =
+          signature.contentHash ||
+          (typeof providerPayload.contentHash === 'string' ? providerPayload.contentHash : null);
+        const payloadPublicKeyPem =
+          typeof providerPayload.signerPublicKeyPem === 'string'
+            ? providerPayload.signerPublicKeyPem
+            : null;
+        const keyFingerprint =
+          typeof providerPayload.keyFingerprint === 'string'
+            ? providerPayload.keyFingerprint
+            : null;
+        const timestampToken =
+          typeof providerPayload.timestampToken === 'string'
+            ? providerPayload.timestampToken
+            : null;
+
+        let publicKeySource: 'provider_payload' | 'credential_store' | 'missing' = 'missing';
+        let resolvedPublicKeyPem = payloadPublicKeyPem;
+
+        if (resolvedPublicKeyPem) {
+          publicKeySource = 'provider_payload';
+        }
+
+        if (!resolvedPublicKeyPem) {
+          const signerCredential = await signingCredentialRepository.findOne({
+            where: { userId: signature.userId },
+          });
+          if (
+            signerCredential &&
+            (!keyFingerprint || signerCredential.keyFingerprint === keyFingerprint)
+          ) {
+            resolvedPublicKeyPem = signerCredential.publicKeyPem;
+            publicKeySource = 'credential_store';
+          }
+        }
+
+        const auditHash = this.buildServerSignatureHash({
+          contractId: signature.contractId,
+          userId: signature.userId,
+          contentHash: signedContentHash || '',
+          signerRole: (signature.signerRole || 'BROKER') as ContractPartyRole,
+          signedAt: signature.signedAt,
+          ipAddress: signature.ipAddress ?? null,
+          userAgent: signature.userAgent ?? null,
+        });
+
+        const recomputedSignatureHash = signatureValue
+          ? createHash('sha256')
+              .update(`${auditHash}:${signatureValue}`)
+              .digest('hex')
+          : null;
+        const signatureHashMatches = Boolean(
+          recomputedSignatureHash && recomputedSignatureHash === signature.signatureHash,
+        );
+
+        let cryptographicVerificationPassed = false;
+        if (signatureValue && resolvedPublicKeyPem && signedContentHash) {
+          try {
+            const verifier = createVerify('RSA-SHA256');
+            verifier.update(signedContentHash);
+            verifier.end();
+            cryptographicVerificationPassed = verifier.verify(
+              resolvedPublicKeyPem,
+              signatureValue,
+              'base64',
+            );
+          } catch {
+            cryptographicVerificationPassed = false;
+          }
+        }
+
+        const signedContentMatchesCurrent = Boolean(
+          signedContentHash && signedContentHash === computedContentHash,
+        );
+        const timestampTokenValid = Boolean(
+          timestampToken &&
+            signatureValue &&
+            signedContentHash &&
+            this.verifyMiniCaTimestampToken({
+              contractId: signature.contractId,
+              userId: signature.userId,
+              contentHash: signedContentHash,
+              signatureBase64: signatureValue,
+              signedAt: signature.signedAt,
+              token: timestampToken,
+            }),
+        );
+
+        const overallVerified =
+          cryptographicVerificationPassed &&
+          signatureHashMatches &&
+          signedContentMatchesCurrent &&
+          timestampTokenValid;
+
+        return {
+          signatureId: signature.id,
+          userId: signature.userId,
+          signerName: signature.user?.fullName || signature.userId,
+          signerRole: signature.signerRole || null,
+          provider: signature.provider || null,
+          certificateSerial: signature.certificateSerial || null,
+          signedAt: signature.signedAt,
+          verifiedAt: signature.verifiedAt || null,
+          publicKeySource,
+          checks: {
+            cryptographicVerificationPassed,
+            signatureHashMatches,
+            signedContentMatchesCurrent,
+            timestampTokenValid,
+          },
+          overallVerified,
+        };
+      }),
+    );
+
+    const allSignaturesVerified =
+      signatureReports.length > 0 && signatureReports.every((report) => report.overallVerified);
+
+    return {
+      contractId: contract.id,
+      contractStatus: contract.status,
+      legalSignatureStatus: contract.legalSignatureStatus,
+      provider: contract.provider || null,
+      verifiedAt: contract.verifiedAt || null,
+      generatedAt: new Date().toISOString(),
+      requiredSignerCount: requiredSignerIds.length,
+      signaturesCount: signatures.length,
+      allRequiredSigned,
+      allSignaturesVerified,
+      contentHash: {
+        stored: storedContentHash,
+        computed: computedContentHash,
+        storedMatchesComputed: storedContentHashMatches,
+      },
+      signatureReports,
+      disclaimer:
+        'InterDev Mini CA verification report is a platform-level technical proof and not a substitute for a qualified public trust CA certificate.',
+    };
+  }
+
+  async signContract(
+    user: UserEntity,
+    contractId: string,
+    contentHash: string,
+    pin: string,
+    req: Request,
+  ) {
     const normalizedContentHash = contentHash?.trim();
     if (!normalizedContentHash) {
       throw new BadRequestException('contentHash is required');
+    }
+    const normalizedPin = pin?.trim();
+    if (!normalizedPin) {
+      throw new BadRequestException('Mini CA signing PIN is required');
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
@@ -2642,7 +3174,11 @@ export class ContractsService {
       }
 
       if (!contract.commercialContext || !contract.milestoneSnapshot?.length) {
-        await this.hydrateSnapshotFromLegacySpec(queryRunner, contract, contract.project as ProjectEntity);
+        await this.hydrateSnapshotFromLegacySpec(
+          queryRunner,
+          contract,
+          contract.project as ProjectEntity,
+        );
       }
 
       const currentContentHash = this.ensureContractContentHash(contract);
@@ -2651,6 +3187,12 @@ export class ContractsService {
           'Contract content changed since you loaded it. Refresh and review the latest version before signing.',
         );
       }
+
+      const miniCaProof = await this.signingCredentialsService.signContentHash(
+        user.id,
+        normalizedPin,
+        currentContentHash,
+      );
 
       const requiredSignerIds = this.getRequiredContractSignerIds(contract);
       requiredSignerCount = requiredSignerIds.length;
@@ -2669,11 +3211,11 @@ export class ContractsService {
       ds.userId = user.id;
       ds.contentHash = currentContentHash;
       ds.signerRole = signerRole;
-      ds.provider = 'INTERDEV_AUDIT';
-      ds.legalStatus = 'AUDIT_RECORDED';
-      ds.ipAddress = this.normalizeClientIp(req);
+      ds.provider = 'INTERDEV_MINI_CA';
+      ds.legalStatus = ContractLegalSignatureStatus.VERIFIED;
+      ds.ipAddress = this.normalizeClientIp(req) || 'Unknown IP';
       ds.userAgent = req.get('user-agent') || null;
-      ds.signatureHash = this.buildServerSignatureHash({
+      const auditSignatureHash = this.buildServerSignatureHash({
         contractId,
         userId: user.id,
         contentHash: currentContentHash,
@@ -2682,10 +3224,30 @@ export class ContractsService {
         ipAddress: ds.ipAddress ?? null,
         userAgent: ds.userAgent,
       });
+      ds.signatureHash = createHash('sha256')
+        .update(`${auditSignatureHash}:${miniCaProof.signatureBase64}`)
+        .digest('hex');
+      ds.certificateSerial = miniCaProof.certificateSerial;
+      ds.verifiedAt = signedAt;
       ds.providerPayload = {
         contentHash: currentContentHash,
         recordedAt: signedAt.toISOString(),
-        auditOnly: true,
+        auditHash: auditSignatureHash,
+        signatureAlgorithm: miniCaProof.signatureAlgorithm,
+        signatureValue: miniCaProof.signatureBase64,
+        keyFingerprint: miniCaProof.keyFingerprint,
+        keyVersion: miniCaProof.keyVersion,
+        signerPublicKeyPem: miniCaProof.publicKeyPem,
+        certificateProfile: miniCaProof.certificateProfile,
+        timestampIssuedAt: signedAt.toISOString(),
+        timestampToken: this.buildMiniCaTimestampToken({
+          contractId,
+          userId: user.id,
+          contentHash: currentContentHash,
+          signatureBase64: miniCaProof.signatureBase64,
+          signedAt,
+        }),
+        miniCaVerified: true,
       };
       ds.signedAt = signedAt;
 
@@ -2708,6 +3270,24 @@ export class ContractsService {
 
       if (allRequiredSigned) {
         contract.status = ContractStatus.SIGNED;
+        contract.provider = 'INTERDEV_MINI_CA';
+        contract.legalSignatureStatus = ContractLegalSignatureStatus.VERIFIED;
+        contract.verifiedAt = new Date();
+        contract.certificateSerial = this.buildMiniCaContractCertificateSerial(
+          contract.id,
+          contract.verifiedAt,
+        );
+        contract.legalSignatureEvidence = this.mergeLegalSignatureEvidence(
+          contract.legalSignatureEvidence,
+          {
+            verificationMode: 'INTERDEV_MINI_CA',
+            provider: 'INTERDEV_MINI_CA',
+            verifiedAt: contract.verifiedAt.toISOString(),
+            certificateSerial: contract.certificateSerial,
+            contentHash: currentContentHash,
+            verifiedByUserId: user.id,
+          },
+        );
         await queryRunner.manager.save(ContractEntity, contract);
       }
 
@@ -2738,7 +3318,7 @@ export class ContractsService {
       await this.notifyContractParticipants(contractForEvents, {
         title: allRequiredSigned ? 'Contract fully signed' : 'Contract signing updated',
         body: allRequiredSigned
-          ? `All required parties signed "${contractForEvents.title}". Legal provider verification is now required before activation.`
+          ? `All required parties signed "${contractForEvents.title}". Mini CA verification is complete and the contract can now be activated.`
           : `${user.fullName || user.email} signed "${contractForEvents.title}". ${signaturesCount}/${requiredSignerCount} required signatures are complete.`,
       });
     }
@@ -2749,193 +3329,6 @@ export class ContractsService {
       requiredSignerCount,
       allRequiredSigned,
       archivePersisted,
-    };
-  }
-
-  async createSignatureSession(
-    user: UserEntity,
-    contractId: string,
-    dto: CreateSignatureSessionDto,
-  ) {
-    const provider = this.normalizeLegalSignatureProvider(dto.provider);
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    let contractForEvents: ContractEntity | null = null;
-    let providerSessionId: string | null = null;
-
-    try {
-      const contract = await this.loadContractForUpdate(queryRunner, contractId);
-      contractForEvents = contract;
-      this.assertUserIsContractParty(user, contract, 'sign');
-
-      if (contract.activatedAt) {
-        throw new BadRequestException('Cannot create a signature session for an activated contract.');
-      }
-
-      if (contract.status !== ContractStatus.SIGNED) {
-        throw new BadRequestException(
-          'All required parties must complete contract signing before creating a legal signature session.',
-        );
-      }
-
-      if (contract.legalSignatureStatus === ContractLegalSignatureStatus.VERIFIED) {
-        return {
-          contractId: contract.id,
-          provider: contract.provider ?? provider,
-          sessionId: (contract.legalSignatureEvidence?.sessionId as string | undefined) ?? null,
-          status: contract.legalSignatureStatus,
-          callbackPath: `/signature-providers/${contract.provider ?? provider}/webhooks`,
-          contentHash: contract.contentHash,
-          verifiedAt: contract.verifiedAt ?? null,
-          certificateSerial: contract.certificateSerial ?? null,
-        };
-      }
-
-      providerSessionId = `sigsess_${uuidv4()}`;
-      contract.provider = provider;
-      contract.legalSignatureStatus = ContractLegalSignatureStatus.SESSION_CREATED;
-      contract.verifiedAt = null;
-      contract.certificateSerial = null;
-      contract.legalSignatureEvidence = this.mergeLegalSignatureEvidence(
-        contract.legalSignatureEvidence,
-        {
-          sessionId: providerSessionId,
-          createdAt: new Date().toISOString(),
-          callbackPath: `/signature-providers/${provider}/webhooks`,
-          provider,
-          requestedByUserId: user.id,
-          contentHash: contract.contentHash,
-        },
-      );
-      await queryRunner.manager.save(ContractEntity, contract);
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-
-    if (contractForEvents) {
-      this.emitContractUpdated(contractForEvents, [user.id]);
-      await this.notifyContractParticipants(contractForEvents, {
-        title: 'Legal signature session created',
-        body: `A legal signature session was created for "${contractForEvents.title}" with provider ${provider}.`,
-      });
-    }
-
-    return {
-      contractId,
-      provider,
-      sessionId: providerSessionId,
-      status: ContractLegalSignatureStatus.SESSION_CREATED,
-      callbackPath: `/signature-providers/${provider}/webhooks`,
-      contentHash: contractForEvents?.contentHash ?? null,
-    };
-  }
-
-  async handleSignatureProviderWebhook(
-    providerCode: string,
-    dto: SignatureProviderWebhookDto,
-  ) {
-    const provider = this.normalizeLegalSignatureProvider(providerCode);
-    const nextLegalStatus = this.normalizeWebhookLegalStatus(dto.status);
-    const queryRunner = this.dataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
-
-    let contractForEvents: ContractEntity | null = null;
-
-    try {
-      const contract = await this.loadContractForUpdate(queryRunner, dto.contractId);
-      contractForEvents = contract;
-
-      if (
-        nextLegalStatus === ContractLegalSignatureStatus.VERIFIED &&
-        !contract.activatedAt &&
-        contract.status !== ContractStatus.SIGNED
-      ) {
-        throw new BadRequestException(
-          'Cannot mark legal signature as verified before all required contract signatures are complete.',
-        );
-      }
-
-      contract.provider = provider;
-      contract.legalSignatureStatus = nextLegalStatus;
-      contract.verifiedAt =
-        nextLegalStatus === ContractLegalSignatureStatus.VERIFIED
-          ? new Date(dto.verifiedAt ?? Date.now())
-          : null;
-      contract.certificateSerial = dto.certificateSerial?.trim() || null;
-      contract.legalSignatureEvidence = this.mergeLegalSignatureEvidence(
-        contract.legalSignatureEvidence,
-        {
-          provider,
-          providerSessionId: dto.providerSessionId ?? null,
-          providerStatus: dto.status,
-          webhookReceivedAt: new Date().toISOString(),
-          certificateSerial: contract.certificateSerial,
-          verifiedAt: contract.verifiedAt?.toISOString?.() ?? null,
-          evidence: dto.evidence ?? null,
-        },
-      );
-      await queryRunner.manager.save(ContractEntity, contract);
-
-      const signatures = await queryRunner.manager.find(DigitalSignatureEntity, {
-        where: { contractId: contract.id },
-      });
-      for (const signature of signatures) {
-        signature.provider = provider;
-        signature.providerSessionId = dto.providerSessionId?.trim() || signature.providerSessionId;
-        signature.legalStatus = nextLegalStatus;
-        signature.certificateSerial = contract.certificateSerial;
-        signature.verifiedAt = contract.verifiedAt;
-        signature.providerPayload = this.mergeLegalSignatureEvidence(signature.providerPayload, {
-          provider,
-          providerStatus: dto.status,
-          evidence: dto.evidence ?? null,
-        });
-      }
-      if (signatures.length > 0) {
-        await queryRunner.manager.save(DigitalSignatureEntity, signatures);
-      }
-
-      await queryRunner.commitTransaction();
-    } catch (error) {
-      await queryRunner.rollbackTransaction();
-      throw error;
-    } finally {
-      await queryRunner.release();
-    }
-
-    if (contractForEvents) {
-      this.emitContractUpdated(contractForEvents);
-      await this.notifyContractParticipants(contractForEvents, {
-        title:
-          nextLegalStatus === ContractLegalSignatureStatus.VERIFIED
-            ? 'Legal signature verified'
-            : nextLegalStatus === ContractLegalSignatureStatus.FAILED
-              ? 'Legal signature verification failed'
-              : 'Legal signature updated',
-        body:
-          nextLegalStatus === ContractLegalSignatureStatus.VERIFIED
-            ? `Provider ${provider} verified the legal signature for "${contractForEvents.title}".`
-            : nextLegalStatus === ContractLegalSignatureStatus.FAILED
-              ? `Provider ${provider} reported a failed legal verification for "${contractForEvents.title}".`
-              : `Provider ${provider} updated legal signature status for "${contractForEvents.title}".`,
-      });
-    }
-
-    return {
-      success: true,
-      contractId: dto.contractId,
-      provider,
-      legalSignatureStatus: nextLegalStatus,
-      verifiedAt: contractForEvents?.verifiedAt ?? null,
-      certificateSerial: contractForEvents?.certificateSerial ?? null,
     };
   }
 

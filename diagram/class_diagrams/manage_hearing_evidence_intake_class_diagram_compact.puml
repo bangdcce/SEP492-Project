@@ -1,0 +1,241 @@
+@startuml Manage_Hearing_Evidence_Intake_Class_Diagram
+title Manage Hearing Evidence Intake - Class Diagram
+skinparam backgroundColor white
+skinparam monochrome true
+skinparam defaultFontColor black
+skinparam ArrowColor black
+skinparam classBorderColor black
+skinparam classFontColor black
+skinparam classBackgroundColor white
+skinparam stereotypeFontColor black
+skinparam linetype polyline
+skinparam classAttributeIconSize 0
+hide circle
+
+skinparam classHeaderBackgroundColor white
+skinparam classHeaderFontColor black
+
+class HearingRoom {
+    - workspace: HearingWorkspaceSummary | null
+    - evidenceUploading: boolean
+    - intakeUpdating: boolean
+    - evidenceUploadDialogOpen: boolean
+    --
+    + HearingRoom(props: HearingRoomProps): JSX.Element
+    + onOpenIntake(reason: string): Promise<void>
+    + onCloseIntake(): Promise<void>
+    + onEvidenceUploadConfirm(description: string): Promise<void>
+    + refreshWorkspace(silent?: boolean): Promise<void>
+}
+
+class ControlPane {
+    - evidenceIntakeOpen: boolean
+    - canManageIntake: boolean
+    - canUploadEvidence: boolean
+    --
+    + ControlPane(props: ControlPaneProps): JSX.Element
+}
+
+class EvidenceIntakePanel {
+    - isOpen: boolean
+    - canManageIntake: boolean
+    - intakeUpdating: boolean
+    --
+    + EvidenceIntakePanel(props: EvidenceIntakePanelProps): JSX.Element
+    + handleOpen(): Promise<void>
+}
+
+class EvidenceGallery {
+    - previewEvidenceId: string | null
+    --
+    + EvidenceGallery(props: EvidenceGalleryProps): JSX.Element
+}
+
+class EvidenceUploadDialog {
+    - description: string
+    --
+    + EvidenceUploadDialog(props: EvidenceUploadDialogProps): JSX.Element
+    + handleSubmit(): void
+}
+
+class openHearingEvidenceIntake {
+    --
+    + openHearingEvidenceIntake(hearingId: string, reason: string): Promise<any>
+}
+
+class closeHearingEvidenceIntake {
+    --
+    + closeHearingEvidenceIntake(hearingId: string): Promise<any>
+}
+
+class uploadDisputeEvidence {
+    --
+    + uploadDisputeEvidence(disputeId: string, file: File, description?: string): Promise<any>
+}
+
+class ApiClient {
+    - client: AxiosInstance
+    - refreshPromise: Promise<void> | null
+    - sessionReconcilePromise: Promise<void> | null
+    - isRedirectingToLogin: boolean
+    - lastLoginTime: number
+    --
+    + constructor()
+    + post<T>(url: string, data?: unknown, config?: AxiosRequestConfig): Promise<T>
+    + refreshAccessTokenSingleFlight(): Promise<void>
+    - setupInterceptors()
+    - isRefreshEndpoint(url?: string): boolean
+    - isPublicAuthEndpoint(url?: string): boolean
+    - getAuthErrorCode(error: unknown): string | null
+    - shouldAttemptSessionReconcile(error: unknown): boolean
+    - reconcileSessionSingleFlight(): Promise<void>
+    - handleAuthFailure(suppressRedirect: boolean = false)
+    ...
+}
+
+class HearingController {
+    - hearingService: HearingService
+    --
+    + openEvidenceIntake(hearingId: string, dto: OpenEvidenceIntakeDto, user: UserEntity): Promise<any>
+    + closeEvidenceIntake(hearingId: string, user: UserEntity): Promise<any>
+    - parseLifecycleFilter(raw?: string): HearingLifecycleFilter
+    + scheduleHearing(@Body()
+    + validateSchedule(@Body()
+}
+
+class HearingService {
+    - hearingRepository: Repository<DisputeHearingEntity>
+    --
+    + openEvidenceIntake(hearingId: string, actorId: string, reason: string): Promise<any>
+    + closeEvidenceIntake(hearingId: string, actorId: string): Promise<any>
+    + canControlSpeaker(hearingId: string, actorId: string): Promise<SpeakerControlCheck>
+    + onModuleInit(): Promise<void>
+    - normalizeMeetingLink(value?: string | null): string | undefined
+    - buildDocketForDispute(disputeId: string, disputeStatus?: DisputeStatus | null)
+    + isHearingInviteDeclined(hearingId: string, userId: string): Promise<boolean>
+    - calculateResponseDeadline(scheduledAt: Date, isEmergency: boolean): Date
+    - getMinimumAttendanceMinutes(durationMinutes: number): number
+    - getParticipantOnlineMinutes(participant: HearingParticipantEntity, asOf: Date): number
+    ...
+}
+
+class EvidenceController {
+    - evidenceService: EvidenceService
+    --
+    + uploadEvidence(disputeId: string, file: any, description: string, user: UserEntity): Promise<UploadEvidenceResult>
+}
+
+class EvidenceService {
+    - evidenceRepo: Repository<DisputeEvidenceEntity>
+    - disputeRepo: Repository<DisputeEntity>
+    - hearingRepo: Repository<DisputeHearingEntity>
+    - supabase: SupabaseClient
+    --
+    + uploadEvidence(input: UploadEvidenceInput): Promise<UploadEvidenceResult>
+    + validateFileUpload(fileName: string, fileSize: number, mimeType: string): FileValidationResult
+    + checkDuplicateEvidence(disputeId: string, fileHash: string): Promise<DuplicateCheckResult>
+    - isDisputePartyMember(dispute: DisputeEntity, userId: string): Promise<boolean>
+    - normalizeMimeType(mimeType: string): string
+    - isProbablyText(buffer: Buffer): boolean
+    - isValidJson(buffer: Buffer): boolean
+    + validateGitEvidence(input: GitEvidenceInput): Promise<GitEvidenceValidationResult>
+    - sanitizeFileName(fileName: string): string | null
+    - validateExtensionMatchesMime(fileName: string, mimeType: string): boolean
+    ...
+}
+
+class DisputeHearingEntity {
+    + id: string
+    + disputeId: string
+    + status: HearingStatus
+    + isChatRoomActive: boolean
+    + isEvidenceIntakeOpen: boolean
+    + evidenceIntakeOpenedAt?: Date | null
+    + evidenceIntakeClosedAt?: Date | null
+    + evidenceIntakeReason?: string | null
+    + scheduledAt: Date
+    + startedAt: Date
+    ...
+    --
+}
+
+class DisputeEvidenceEntity {
+    + id: string
+    + disputeId: string
+    + uploaderId: string
+    + uploaderRole: string
+    + fileName: string
+    + fileSize: number
+    + mimeType: string
+    + description: string
+    + uploadedAt: Date
+    + storagePath: string
+    ...
+    --
+}
+
+class DisputeEntity {
+    + id: string
+    + status: DisputeStatus
+    + phase: DisputePhase
+    + projectId: string
+    + milestoneId: string
+    + raisedById: string
+    + defendantId: string
+    + priority: DisputePriority
+    + reason: string
+    + messages: string
+    ...
+    --
+}
+
+class UserEntity {
+    + id: string
+    + email: string
+    + fullName: string
+    + role: UserRole
+    + passwordHash: string
+    + phoneNumber: string
+    + timeZone: string
+    + isVerified: boolean
+    + resetPasswordOtp: string
+    + resetPasswordOtpExpires: Date
+    ...
+    --
+    + badge(): BadgeType
+    + warningLevel(): 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL' | 'SEVERE'
+}
+
+HearingRoom ..> ControlPane
+ControlPane ..> EvidenceIntakePanel
+ControlPane ..> EvidenceGallery
+HearingRoom ..> EvidenceUploadDialog
+
+HearingRoom ..> openHearingEvidenceIntake
+HearingRoom ..> closeHearingEvidenceIntake
+HearingRoom ..> uploadDisputeEvidence
+
+EvidenceIntakePanel ..> openHearingEvidenceIntake
+EvidenceIntakePanel ..> closeHearingEvidenceIntake
+EvidenceUploadDialog ..> uploadDisputeEvidence
+
+openHearingEvidenceIntake ..> ApiClient
+closeHearingEvidenceIntake ..> ApiClient
+uploadDisputeEvidence ..> ApiClient
+
+ApiClient ..> HearingController
+ApiClient ..> EvidenceController
+
+HearingController --> HearingService
+HearingController ..> UserEntity
+EvidenceController --> EvidenceService
+EvidenceController ..> UserEntity
+
+HearingService ..> UserEntity
+HearingService ..> DisputeHearingEntity
+
+EvidenceService ..> DisputeEntity
+EvidenceService ..> DisputeHearingEntity
+EvidenceService ..> DisputeEvidenceEntity
+
+@enduml

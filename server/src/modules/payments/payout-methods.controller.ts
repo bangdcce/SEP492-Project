@@ -26,11 +26,19 @@ export class PayoutMethodsController {
   constructor(private readonly payoutMethodsService: PayoutMethodsService) {}
 
   private assertCanManagePayoutMethods(user: UserEntity): void {
-    if (hasAnyUserRole(user?.role, [UserRole.BROKER, UserRole.FREELANCER])) {
+    if (
+      hasAnyUserRole(user?.role, [
+        UserRole.CLIENT,
+        UserRole.BROKER,
+        UserRole.FREELANCER,
+      ])
+    ) {
       return;
     }
 
-    throw new ForbiddenException('Only broker and freelancer accounts can manage payout methods');
+    throw new ForbiddenException(
+      'Only client, broker, and freelancer accounts can manage payout methods',
+    );
   }
 
   @Get()

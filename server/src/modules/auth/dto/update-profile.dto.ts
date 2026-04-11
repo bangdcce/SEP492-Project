@@ -12,6 +12,8 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
+import { AuthResponseDto } from './auth-response.dto';
+
 class PortfolioLinkDto {
   @IsString()
   title: string;
@@ -59,52 +61,52 @@ class CertificationDto {
 
 export class UpdateProfileDto {
   @ApiProperty({
-    description: 'Họ và tên đầy đủ của người dùng',
-    example: 'Nguyễn Văn A',
+    description: 'User full name',
+    example: 'John Doe',
     required: false,
   })
   @IsOptional()
-  @IsString({ message: 'Họ tên phải là chuỗi ký tự' })
-  @MinLength(2, { message: 'Họ tên phải có ít nhất 2 ký tự' })
-  @MaxLength(50, { message: 'Họ tên không được vượt quá 50 ký tự' })
+  @IsString({ message: 'Full name must be a string' })
+  @MinLength(2, { message: 'Full name must be at least 2 characters long' })
+  @MaxLength(50, { message: 'Full name must not exceed 50 characters' })
   @Matches(/^[a-zA-ZÀ-ỹ\s]+$/, {
-    message: 'Họ tên chỉ được chứa chữ cái và khoảng trắng',
+    message: 'Full name can only contain letters and spaces',
   })
   fullName?: string;
 
   @ApiProperty({
-    description: 'Số điện thoại',
+    description: 'Phone number',
     example: '0123456789',
     required: false,
   })
   @IsOptional()
-  @IsString({ message: 'Số điện thoại phải là chuỗi ký tự' })
+  @IsString({ message: 'Phone number must be a string' })
   @Matches(/^[0-9]{10,11}$/, {
-    message: 'Số điện thoại phải là 10-11 chữ số',
+    message: 'Phone number must contain 10 to 11 digits',
   })
   phoneNumber?: string;
 
   @ApiProperty({
-    description: 'URL ảnh đại diện',
+    description: 'Avatar URL',
     example: 'https://example.com/avatar.jpg',
     required: false,
   })
   @IsOptional()
-  @IsString({ message: 'Avatar URL phải là chuỗi ký tự' })
+  @IsString({ message: 'Avatar URL must be a string' })
   avatarUrl?: string;
 
   @ApiProperty({
-    description: 'Giới thiệu bản thân',
-    example: 'Tôi là một lập trình viên fullstack...',
+    description: 'Short bio',
+    example: 'I am a full-stack developer...',
     required: false,
   })
   @IsOptional()
-  @IsString({ message: 'Bio phải là chuỗi ký tự' })
-  @MaxLength(500, { message: 'Bio không được vượt quá 500 ký tự' })
+  @IsString({ message: 'Bio must be a string' })
+  @MaxLength(500, { message: 'Bio must not exceed 500 characters' })
   bio?: string;
 
   @ApiProperty({
-    description: 'Tên công ty (cho freelancer)',
+    description: 'Company name (for freelancers)',
     example: 'ABC Software Company',
     required: false,
   })
@@ -113,7 +115,7 @@ export class UpdateProfileDto {
   companyName?: string;
 
   @ApiProperty({
-    description: 'Danh sách kỹ năng (cho freelancer)',
+    description: 'Skill list (for freelancers)',
     example: ['React', 'Node.js', 'TypeScript'],
     required: false,
   })
@@ -123,7 +125,7 @@ export class UpdateProfileDto {
   skills?: string[];
 
   @ApiProperty({
-    description: 'Danh sách portfolio links (cho freelancer)',
+    description: 'Portfolio links',
     example: [{ title: 'E-commerce Website', url: 'https://github.com/...' }],
     required: false,
   })
@@ -143,7 +145,7 @@ export class UpdateProfileDto {
   linkedinUrl?: string;
 
   @ApiProperty({
-    description: 'CV URL (base64 hoặc cloud URL)',
+    description: 'CV URL (base64 or cloud URL)',
     example: 'data:application/pdf;base64,...',
     required: false,
   })
@@ -152,7 +154,7 @@ export class UpdateProfileDto {
   cvUrl?: string;
 
   @ApiProperty({
-    description: 'Danh sách chứng chỉ chuyên môn',
+    description: 'Professional certifications',
     example: [
       {
         name: 'IBM Business Analyst',
@@ -172,7 +174,7 @@ export class UpdateProfileDto {
   certifications?: CertificationDto[];
 
   @ApiProperty({
-    description: 'Múi giờ IANA (ví dụ: Asia/Ho_Chi_Minh)',
+    description: 'IANA time zone (for example: Asia/Ho_Chi_Minh)',
     example: 'Asia/Ho_Chi_Minh',
     required: false,
   })
@@ -181,12 +183,10 @@ export class UpdateProfileDto {
   timeZone?: string;
 }
 
-import { AuthResponseDto } from './auth-response.dto';
-
 export class UpdateProfileResponseDto {
-  @ApiProperty({ description: 'Thông báo kết quả' })
+  @ApiProperty({ description: 'Result message' })
   message: string;
 
-  @ApiProperty({ description: 'Dữ liệu người dùng sau khi cập nhật' })
+  @ApiProperty({ description: 'Updated user data' })
   data: AuthResponseDto;
 }

@@ -1,5 +1,4 @@
-@startuml Register_KYC_Sequence_Diagram
-
+@startuml
 skinparam monochrome true
 skinparam defaultFontColor Black
 skinparam shadowing false
@@ -39,42 +38,41 @@ Actor -> Page : 1. Open Identity Verification (KYC) page
 activate Actor
 activate Page
 
-Page -> Page : 2. Render multi-step form (Personal info, ID photos, Selfie)
+Page -> Page : 2. Render 3-step form (Personal info, ID photos, Selfie)
 activate Page
 deactivate Page
 
-Actor -> Page : 3. Enter personal info (name, date of birth, ID number, address)
+Actor -> Page : 3. Enter full name, date of birth, and ID number
 Actor -> Page : 4. Upload ID card front photo
 Actor -> Page : 5. Upload ID card back photo
 Actor -> Page : 6. Upload selfie photo
 
-Page -> Page : 7. Validate required fields and file rules (image type, size limit)
+Page -> Page : 7. Validate required fields and client-side file rules
 activate Page
 deactivate Page
 
 alt [Form invalid]
     Page --> Actor : 8. Show validation errors and ask user to fix
 else [Form valid]
-    Page -> Page : 9. Create multipart form data (text fields + 3 photos)
+    Page -> Page : 9. Create FormData (fullNameOnDocument, dateOfBirth, documentNumber, documentType, 3 photos)
     activate Page
     deactivate Page
 
-    Page -> Http : 10. POST /kyc (multipart/form-data, include session cookies)
+    Page -> Http : 10. Submit KYC verification request with form data and photos
     activate Http
 
     Http -> Controller : 11. Forward request to backend
     activate Controller
 
-    Controller -> Guard : 12. Check user is logged in (JWT cookie)
+    Controller -> Guard : 12. Check user is logged in
     activate Guard
 
     alt [Not logged in]
         Guard --> Controller : 13. Reject request (401 Unauthorized)
-        deactivate Guard
+     
         Controller --> Http : 14. Return error response
-        deactivate Controller
+     
         Http --> Page : 15. Show error message
-        deactivate Http
 
     else [Logged in]
         Guard --> Controller : 13. Allow request and provide userId
@@ -83,130 +81,208 @@ else [Form valid]
         Controller -> Service : 14. Submit KYC (userId + form fields + photos)
         activate Service
 
-        Service -> DB : 15. Check latest KYC submission for this user
+        Service -> DB : 15. Load user role
         activate DB
-        DB --> Service : 16. Latest KYC status (if any)
+        DB --> Service : 16. User record (or none)
         deactivate DB
 
-        alt [Existing KYC is PENDING]
-            Service --> Controller : 17. Reject: "You already have a pending verification"
-            deactivate Service
-            Controller --> Http : 18. Return 400 Bad Request
-            deactivate Controller
+        alt [User not found]
+            Service --> Controller : 17. Reject: "User not found"
+           
+            Controller --> Http : 18. Return 404 Not Found
+        
             Http --> Page : 19. Show error message
-            deactivate Http
+     
 
-        else [Existing KYC is APPROVED]
-            Service --> Controller : 17. Reject: "Your KYC is already verified"
-            deactivate Service
-            Controller --> Http : 18. Return 400 Bad Request
-            deactivate Controller
+        else [Staff account]
+            Service --> Controller : 17. Reject: "Staff accounts do not require self-KYC verification"
+           
+            Controller --> Http : 18. Return 403 Forbidden
+         
             Http --> Page : 19. Show error message
-            deactivate Http
+        else [Self-KYC allowed]
+            Service -> DB : 17. Load latest KYC submission for this user
+            activate DB
+            DB --> Service : 18. Latest KYC record (if any)
+            deactivate DB
 
-        else [No blocking KYC]
-            Service -> Service : 17. Ensure all required photos are present
+            alt [Latest KYC is PENDING]
+                Service --> Controller : 19. Reject: "You already have a pending KYC verification"
+   
+                Controller --> Http : 20. Return 400 Bad Request
+              
+                Http --> Page : 21. Show error message
 
-            alt [Missing any required photo]
-                Service --> Controller : 18. Reject: missing documents
-                deactivate Service
-                Controller --> Http : 19. Return 400 Bad Request
-                deactivate Controller
-                Http --> Page : 20. Show error message
-                deactivate Http
-
-            else [All photos provided]
-                Service -> Ai : 18. Verify documents and selfie (AI check)
-                activate Ai
-                Ai --> Service : 19. Return decision, confidence, extracted fields, issues
-                deactivate Ai
-
-                Service -> Service : 20. Compare user input with extracted fields
-                Service -> Service : 21. Decide result: APPROVED, REJECTED, or PENDING review
-
-                Service -> Storage : 22. Upload encrypted photos (front, back, selfie)
-                activate Storage
-                Storage --> Service : 23. Return stored file paths
-                deactivate Storage
-
-                Service -> Service : 24. Hash document number (privacy)
-
-                Service -> DB : 25. Save KYC submission (status, file paths, issues)
-                activate DB
-                DB --> Service : 26. Return saved KYC record
-                deactivate DB
-
-                alt [Auto-approved]
-                    Service -> DB : 27. Mark user as verified
-                    activate DB
-                    DB --> Service : 28. User verification updated
-                    deactivate DB
-                end
-
-                Service -> Storage : 29. Create short-lived signed URLs for response
-                activate Storage
-                Storage --> Service : 30. Signed URLs
-                deactivate Storage
-
-                Service --> Controller : 31. Return KYC result (status + signed URLs + summary)
+            else [No blocking KYC]
+                Service -> Service : 19. Ensure all required photos are present
+                activate Service
                 deactivate Service
 
-                Controller --> Http : 32. Return success response
-                deactivate Controller
+                alt [Missing required photo]
+                    Service --> Controller : 20. Reject: missing documents
+              
+                    Controller --> Http : 21. Return 400 Bad Request
+                 
+                    Http --> Page : 22. Show error message
+        
 
-                Http --> Page : 33. Receive response
-                deactivate Http
-
-                Page -> Page : 34. Show "submitted" message and switch to Processing state
-                activate Page
-                deactivate Page
-
-                loop Every 5 seconds while status = PENDING
-                    Page -> Http : 35. GET /kyc/me (include session cookies)
-                    activate Http
-                    Http -> Controller : 36. Forward request to backend
-                    activate Controller
-
-                    Controller -> Guard : 37. Check user is logged in
-                    activate Guard
-                    Guard --> Controller : 38. Allow request
-                    deactivate Guard
-
-                    Controller -> Service : 39. Get latest KYC status for user
+                else [All photos provided]
+                    Service -> Service : 20. Compare front/back file fingerprints
                     activate Service
-                    Service -> DB : 40. Load latest KYC record
-                    activate DB
-                    DB --> Service : 41. KYC record (status + metadata)
-                    deactivate DB
-
-                    Service -> Storage : 42. Refresh signed URLs (front/back/selfie)
-                    activate Storage
-                    Storage --> Service : 43. Signed URLs
-                    deactivate Storage
-
-                    Service --> Controller : 44. Return status (APPROVED / REJECTED / PENDING)
                     deactivate Service
-                    Controller --> Http : 45. Send response
-                    deactivate Controller
-                    Http --> Page : 46. Update UI based on status
-                    deactivate Http
-                end
 
-                alt [Status becomes APPROVED]
-                    Page --> Actor : 47. Show success screen (Verification approved)
-                else [Status becomes REJECTED]
-                    Page --> Actor : 47. Show failure screen and reason (if provided)
-                else [Still PENDING]
-                    Page -> Page : 47. Keep showing "Verification in progress"
-                    activate Page
-                    deactivate Page
+                    alt [Front and back are identical]
+                        Service --> Controller : 21. Reject: "ID card front and back images must be different"
+                    
+                        Controller --> Http : 22. Return 400 Bad Request
+                  
+                        Http --> Page : 23. Show error message
+
+                    else [Front and back are different]
+                        Service -> Service : 21. Hash document number
+                        activate Service
+                        deactivate Service
+
+                        Service -> DB : 22. Check whether another account already uses this identity document
+                        activate DB
+                        DB --> Service : 23. Existing owner (or none)
+                        deactivate DB
+
+                        alt [Document already used by another account]
+                            Service --> Controller : 24. Reject: "This identity document is already used by another account"
+                          
+                            Controller --> Http : 25. Return 400 Bad Request
+                           
+                            Http --> Page : 26. Show error message
+                        
+
+                        else [Document is unique]
+                            Service -> Ai : 24. Verify ID card photos and selfie with AI
+                            activate Ai
+                            Ai --> Service : 25. Return decision, confidence, extracted fields, and issues
+                            deactivate Ai
+
+                            Service -> Service : 26. Validate submitted data against extracted fields
+                            activate Service
+                            deactivate Service
+                            Service -> Service : 27. Decide KYC result: APPROVED, REJECTED, or PENDING review
+                            activate Service
+                            deactivate Service
+
+                            Service -> Storage : 28. Upload encrypted front photo
+                            activate Storage
+                            Storage --> Service : 29. Return stored path
+                            deactivate Storage
+
+                            Service -> Storage : 30. Upload encrypted back photo
+                            activate Storage
+                            Storage --> Service : 31. Return stored path
+                            deactivate Storage
+
+                            Service -> Storage : 32. Upload encrypted selfie photo
+                            activate Storage
+                            Storage --> Service : 33. Return stored path
+                            deactivate Storage
+
+                            Service -> DB : 34. Save KYC submission (status, hashed document number, file paths, issues)
+                            activate DB
+                            DB --> Service : 35. Return saved KYC record
+                            deactivate DB
+
+                            alt [Auto-approved]
+                                Service -> DB : 36. Expire previous approved KYC of the same user
+                                activate DB
+                                DB --> Service : 37. Previous approved KYC expired
+                                deactivate DB
+
+                                Service -> DB : 38. Mark user as verified
+                                activate DB
+                                DB --> Service : 39. User verification updated
+                                deactivate DB
+                            end
+
+                            Service -> Storage : 40. Generate signed URL for front image
+                            activate Storage
+                            Storage --> Service : 41. Return signed URL
+                            deactivate Storage
+
+                            Service -> Storage : 42. Generate signed URL for back image
+                            activate Storage
+                            Storage --> Service : 43. Return signed URL
+                            deactivate Storage
+
+                            Service -> Storage : 44. Generate signed URL for selfie image
+                            activate Storage
+                            Storage --> Service : 45. Return signed URL
+                            deactivate Storage
+
+                            Service --> Controller : 46. Return KYC result (status, signed URLs, AI summary, validation summary)
+                        
+                            Controller --> Http : 47. Return success response
+                          
+                            Http --> Page : 48. Receive success response
+
+                            Page -> Page : 49. Show success toast and set local state to Processing
+                            activate Page
+                            deactivate Page
+
+                            loop Every 5 seconds while local state = Processing
+                                Page -> Http : 50. Request the latest KYC status
+                                Http -> Controller : 51. Forward request to backend
+                             
+
+                                Controller -> Guard : 52. Check user is logged in
+                                activate Guard
+                                Guard --> Controller : 53. Allow request
+                                deactivate Guard
+
+                                Controller -> Service : 54. Get latest KYC status for this user
+                              
+                                Service -> DB : 55. Load latest KYC record
+                                activate DB
+                                DB --> Service : 56. Latest KYC record (status + metadata)
+                                deactivate DB
+
+                                Service -> Storage : 57. Generate fresh signed URL for front image
+                                activate Storage
+                                Storage --> Service : 58. Return signed URL
+                                deactivate Storage
+
+                                Service -> Storage : 59. Generate fresh signed URL for back image
+                                activate Storage
+                                Storage --> Service : 60. Return signed URL
+                                deactivate Storage
+
+                                Service -> Storage : 61. Generate fresh signed URL for selfie image
+                                activate Storage
+                                Storage --> Service : 62. Return signed URL
+                                deactivate Storage
+
+                                Service --> Controller : 63. Return current KYC status payload
+                                deactivate Service
+                                Controller --> Http : 64. Return success response
+                                deactivate Controller
+                                Http --> Page : 65. Update UI status
+                                deactivate Http
+                            end
+
+                            alt [Latest submission becomes APPROVED]
+                                Page --> Actor : 66. Show success screen (Verification approved)
+                            else [Latest submission becomes REJECTED]
+                                Page --> Actor : 67. Show failure screen and rejection reason
+deactivate Actor
+                            else [Latest submission remains PENDING]
+                                Page -> Page : 68. Keep showing "Verification in progress"
+                                activate Page
+                                deactivate Page
+deactivate Page
+
+                            end
+                        end
+                    end
                 end
             end
         end
     end
 end
-
-deactivate Page
-deactivate Actor
-
 @enduml

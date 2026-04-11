@@ -1,19 +1,30 @@
+import { memo, useMemo } from "react";
 import type { TaskAttachment } from "../../types";
+import {
+  isTaskImageAttachment,
+  resolveTaskAttachmentUrl,
+} from "../../utils/task-attachments";
 
 type AttachmentGalleryProps = {
   attachments: TaskAttachment[];
 };
 
-const AttachmentGallery = ({ attachments }: AttachmentGalleryProps) => {
-  if (!attachments || attachments.length === 0) {
+function AttachmentGalleryInner({ attachments }: AttachmentGalleryProps) {
+  const sorted = useMemo(
+    () =>
+      (attachments || [])
+        .filter(isTaskImageAttachment)
+        .sort((a, b) => {
+          const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const bTime = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+          return bTime - aTime;
+        }),
+    [attachments],
+  );
+
+  if (sorted.length === 0) {
     return null;
   }
-
-  const sorted = [...attachments].sort((a, b) => {
-    const aTime = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
-    const bTime = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
-    return bTime - aTime;
-  });
 
   return (
     <div>
@@ -25,12 +36,18 @@ const AttachmentGallery = ({ attachments }: AttachmentGalleryProps) => {
           <button
             key={attachment.id}
             type="button"
-            onClick={() => window.open(attachment.url, "_blank", "noopener,noreferrer")}
+            onClick={() =>
+              window.open(
+                resolveTaskAttachmentUrl(attachment.url) || attachment.url,
+                "_blank",
+                "noopener,noreferrer",
+              )
+            }
             className="group h-[90px] w-[120px] overflow-hidden rounded-md border border-gray-200 bg-white shadow-sm transition hover:border-gray-300 hover:shadow"
             title={attachment.fileName}
           >
             <img
-              src={attachment.url}
+              src={resolveTaskAttachmentUrl(attachment.url) || attachment.url}
               alt={attachment.fileName}
               className="h-full w-full object-cover transition group-hover:scale-[1.02]"
               loading="lazy"
@@ -40,6 +57,6 @@ const AttachmentGallery = ({ attachments }: AttachmentGalleryProps) => {
       </div>
     </div>
   );
-};
+}
 
-export default AttachmentGallery;
+export default memo(AttachmentGalleryInner);

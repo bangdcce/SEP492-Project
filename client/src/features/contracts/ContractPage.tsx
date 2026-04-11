@@ -32,6 +32,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/shared/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
 import { Badge } from "@/shared/components/ui/badge";
 import {
   Card,
@@ -48,7 +56,11 @@ import { useToast } from "@/shared/hooks/use-toast";
 import { connectSocket } from "@/shared/realtime/socket";
 import { getStoredJson } from "@/shared/utils/storage";
 import { contractsApi } from "./api";
-import type { Contract, ContractMilestoneSnapshotItem } from "./types";
+import type {
+  Contract,
+  ContractMilestoneSnapshotItem,
+  ContractSignatureVerificationReport,
+} from "./types";
 import {
   normalizeSupportedBillingRole,
   resolveBillingLabel,
@@ -189,8 +201,10 @@ const parseAgreementTerms = (termsContent: string): AgreementBlock[] => {
   return blocks;
 };
 
-const formatMoney = (amount: number | null | undefined, currency?: string | null) =>
-  `${Number(amount || 0).toFixed(2)} ${(currency || "USD").toUpperCase()}`;
+const formatMoney = (
+  amount: number | null | undefined,
+  currency?: string | null,
+) => `${Number(amount || 0).toFixed(2)} ${(currency || "USD").toUpperCase()}`;
 
 const formatDate = (value?: string | null) =>
   value ? new Date(value).toLocaleDateString() : "Not set";
@@ -215,7 +229,10 @@ const AgreementText = ({ termsContent }: { termsContent: string }) => {
 
         if (block.kind === "h1") {
           return (
-            <h3 key={key} className="text-xl font-semibold tracking-tight text-slate-950">
+            <h3
+              key={key}
+              className="text-xl font-semibold tracking-tight text-slate-950"
+            >
               {block.text}
             </h3>
           );
@@ -231,7 +248,10 @@ const AgreementText = ({ termsContent }: { termsContent: string }) => {
 
         if (block.kind === "h3") {
           return (
-            <h5 key={key} className="pt-1 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">
+            <h5
+              key={key}
+              className="pt-1 text-sm font-semibold uppercase tracking-[0.18em] text-slate-500"
+            >
               {block.text}
             </h5>
           );
@@ -252,7 +272,9 @@ const AgreementText = ({ termsContent }: { termsContent: string }) => {
               className={`flex gap-3 ${block.indent ? "pl-6" : ""}`}
             >
               <span className="mt-2 h-1.5 w-1.5 rounded-full bg-teal-600" />
-              <p className="flex-1 text-sm leading-7 text-slate-700">{block.text}</p>
+              <p className="flex-1 text-sm leading-7 text-slate-700">
+                {block.text}
+              </p>
             </div>
           );
         }
@@ -323,26 +345,30 @@ export default function ContractPage() {
   const [isSigning, setIsSigning] = useState(false);
   const [isDiscarding, setIsDiscarding] = useState(false);
   const [isActivating, setIsActivating] = useState(false);
-  const [isCreatingSignatureSession, setIsCreatingSignatureSession] =
-    useState(false);
   const [isCancelingProject, setIsCancelingProject] = useState(false);
   const [isCancelDialogOpen, setIsCancelDialogOpen] = useState(false);
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false);
+  const [isCheckingSignatureReport, setIsCheckingSignatureReport] =
+    useState(false);
   const [isPreparingPdfPreview, setIsPreparingPdfPreview] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
   const [showFullAgreement, setShowFullAgreement] = useState(false);
   const [showDiscardDialog, setShowDiscardDialog] = useState(false);
+  const [isSignDialogOpen, setIsSignDialogOpen] = useState(false);
+  const [signPin, setSignPin] = useState("");
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState<string | null>(null);
-  const [pdfPreviewContractId, setPdfPreviewContractId] = useState<string | null>(
-    null,
-  );
+  const [pdfPreviewContractId, setPdfPreviewContractId] = useState<
+    string | null
+  >(null);
+  const [signatureReport, setSignatureReport] =
+    useState<ContractSignatureVerificationReport | null>(null);
   const [error, setError] = useState("");
   const currentUser = getStoredJson<{ id?: string; role?: string }>(
     STORAGE_KEYS.USER,
   );
   const roleBasePath = getRoleBasePath(currentUser?.role);
 
-  const resetPdfPreview = () => {
+  const resetPdfPreview = useCallback(() => {
     setShowPdfPreview(false);
     setPdfPreviewContractId(null);
     setPdfPreviewUrl((current) => {
@@ -351,14 +377,18 @@ export default function ContractPage() {
       }
       return null;
     });
-  };
+  }, []);
 
-  const reloadContract = async (contractId: string) => {
-    const updated = await contractsApi.getContract(contractId);
-    resetPdfPreview();
-    setContract(updated);
-    return updated;
-  };
+  const reloadContract = useCallback(
+    async (contractId: string) => {
+      const updated = await contractsApi.getContract(contractId);
+      resetPdfPreview();
+      setSignatureReport(null);
+      setContract(updated);
+      return updated;
+    },
+    [resetPdfPreview],
+  );
 
   const createPdfObjectUrl = async (contractId: string) => {
     const pdfBuffer = await contractsApi.downloadPdf(contractId);
@@ -404,7 +434,7 @@ export default function ContractPage() {
         setError("Failed to load contract.");
       })
       .finally(() => setIsLoading(false));
-  }, [id]);
+  }, [id, resetPdfPreview]);
 
   useEffect(() => {
     if (!id) {
@@ -416,26 +446,41 @@ export default function ContractPage() {
       return;
     }
 
-    const handleContractUpdated = (payload?: {
+    const handleWorkflowUpdated = (payload?: {
       contractId?: string;
       projectId?: string;
+      notification?: {
+        relatedType?: string | null;
+        relatedId?: string | null;
+      };
+      relatedType?: string | null;
+      relatedId?: string | null;
     }) => {
+      const notification = payload?.notification ?? payload;
+      const relatedType = String(notification?.relatedType || "").toUpperCase();
+      const relatedId = String(notification?.relatedId || "");
+      const currentProjectId = contract?.projectId ?? null;
+
       if (
         payload?.contractId === id ||
-        (contract?.projectId && payload?.projectId === contract.projectId)
+        (currentProjectId !== null && payload?.projectId === currentProjectId) ||
+        (relatedType === "CONTRACT" && relatedId === id) ||
+        (relatedType === "PROJECT" && currentProjectId !== null && relatedId === currentProjectId)
       ) {
         void reloadContract(id);
       }
     };
 
-    socket.on("CONTRACT_UPDATED", handleContractUpdated);
-    socket.on("NOTIFICATION_CREATED", handleContractUpdated);
+    socket.on("CONTRACT_UPDATED", handleWorkflowUpdated);
+    socket.on("PROJECT_UPDATED", handleWorkflowUpdated);
+    socket.on("NOTIFICATION_CREATED", handleWorkflowUpdated);
 
     return () => {
-      socket.off("CONTRACT_UPDATED", handleContractUpdated);
-      socket.off("NOTIFICATION_CREATED", handleContractUpdated);
+      socket.off("CONTRACT_UPDATED", handleWorkflowUpdated);
+      socket.off("PROJECT_UPDATED", handleWorkflowUpdated);
+      socket.off("NOTIFICATION_CREATED", handleWorkflowUpdated);
     };
-  }, [contract?.projectId, id]);
+  }, [contract?.projectId, id, reloadContract]);
 
   useEffect(() => {
     return () => {
@@ -484,20 +529,23 @@ export default function ContractPage() {
     [requiredSignerIds, signedUserIds],
   );
 
-  const resolveSignerName = useCallback((userId: string) => {
-    const signature = sortedSignatures.find((item) => item.userId === userId);
-    if (signature?.user?.fullName) return signature.user.fullName;
-    if (userId === contract?.project?.clientId) {
-      return contract.project?.client?.fullName || "Client";
-    }
-    if (userId === contract?.project?.brokerId) {
-      return contract.project?.broker?.fullName || "Broker";
-    }
-    if (userId === contract?.project?.freelancerId) {
-      return contract.project?.freelancer?.fullName || "Freelancer";
-    }
-    return userId;
-  }, [contract, sortedSignatures]);
+  const resolveSignerName = useCallback(
+    (userId: string) => {
+      const signature = sortedSignatures.find((item) => item.userId === userId);
+      if (signature?.user?.fullName) return signature.user.fullName;
+      if (userId === contract?.project?.clientId) {
+        return contract.project?.client?.fullName || "Client";
+      }
+      if (userId === contract?.project?.brokerId) {
+        return contract.project?.broker?.fullName || "Broker";
+      }
+      if (userId === contract?.project?.freelancerId) {
+        return contract.project?.freelancer?.fullName || "Freelancer";
+      }
+      return userId;
+    },
+    [contract, sortedSignatures],
+  );
 
   const snapshotTotal = sortedSnapshot.reduce(
     (sum, milestone) => sum + Number(milestone.amount || 0),
@@ -519,72 +567,79 @@ export default function ContractPage() {
   const runtimeEscrowSummary = contract?.runtimeEscrowSummary ?? null;
   const cancelBlockedByReleasedOrDisputedEscrow = Boolean(
     runtimeEscrowSummary &&
-      !runtimeEscrowSummary.cancelShortcutAvailable &&
-      (runtimeEscrowSummary.releasedEscrows > 0 || runtimeEscrowSummary.disputedEscrows > 0),
+    !runtimeEscrowSummary.cancelShortcutAvailable &&
+    (runtimeEscrowSummary.releasedEscrows > 0 ||
+      runtimeEscrowSummary.disputedEscrows > 0),
   );
   const currentUserIsParty = Boolean(
     currentUser?.id && requiredSignerIds.includes(currentUser.id),
   );
   const hasCurrentUserSigned = Boolean(
     currentUser?.id &&
-      contract?.signatures?.some((signature) => signature.userId === currentUser.id),
+    contract?.signatures?.some(
+      (signature) => signature.userId === currentUser.id,
+    ),
   );
   const canDiscardBeforeSign = Boolean(
     contract &&
-      isBrokerOwner &&
-      sortedSignatures.length === 0 &&
-      !isActivated &&
-      (isDraft || isSent),
+    isBrokerOwner &&
+    sortedSignatures.length === 0 &&
+    !isActivated &&
+    (isDraft || isSent),
   );
   const canActivateContract = Boolean(
     contract &&
-      currentUserIsParty &&
-      isSigned &&
-      !isActivated &&
-      contract.legalSignatureStatus === "VERIFIED",
-  );
-  const canCreateSignatureSession = Boolean(
-    contract && currentUserIsParty && isSigned && !isActivated,
+    currentUserIsParty &&
+    isSigned &&
+    !isActivated &&
+    contract.legalSignatureStatus === "VERIFIED",
   );
   const canCancelProject = Boolean(
     contract &&
-      isActivated &&
-      isClientOwner &&
-      currentProjectStatus !== "CANCELED" &&
-      currentProjectStatus !== "PAID" &&
-      currentProjectStatus !== "DISPUTED" &&
-      (runtimeEscrowSummary?.cancelShortcutAvailable ?? true),
+    isActivated &&
+    isClientOwner &&
+    currentProjectStatus !== "CANCELED" &&
+    currentProjectStatus !== "PAID" &&
+    currentProjectStatus !== "DISPUTED" &&
+    (runtimeEscrowSummary?.cancelShortcutAvailable ?? true),
   );
   const canOpenWorkspace = Boolean(isActivated && contract?.projectId);
   const currentContractHref =
-    contract?.id && roleBasePath ? `${roleBasePath}/contracts/${contract.id}` : null;
-  const workspaceHref =
-    canOpenWorkspace && contract?.projectId ? `${roleBasePath}/workspace/${contract.projectId}` : null;
-  const billingRole = normalizeSupportedBillingRole(currentUser?.role);
-  const billingHref =
-    currentContractHref
-      ? `${resolveBillingRoute(currentUser?.role)}?${new URLSearchParams({
-          returnTo: currentContractHref,
-        }).toString()}`
+    contract?.id && roleBasePath
+      ? `${roleBasePath}/contracts/${contract.id}`
       : null;
+  const workspaceHref =
+    canOpenWorkspace && contract?.projectId
+      ? `${roleBasePath}/workspace/${contract.projectId}`
+      : null;
+  const billingRole = normalizeSupportedBillingRole(currentUser?.role);
+  const billingHref = currentContractHref
+    ? `${resolveBillingRoute(currentUser?.role)}?${new URLSearchParams({
+        returnTo: currentContractHref,
+      }).toString()}`
+    : null;
 
   const primaryCurrency =
-    contract?.commercialContext?.currency || contract?.project?.currency || "USD";
+    contract?.commercialContext?.currency ||
+    contract?.project?.currency ||
+    "USD";
   const scopeNarrativeRichContent =
     contract?.commercialContext?.scopeNarrativeRichContent || null;
   const scopeNarrativePlainText =
     contract?.commercialContext?.scopeNarrativePlainText?.trim() || "";
-  const hasFrozenScopeNarrative = narrativeHasContent(scopeNarrativeRichContent);
+  const hasFrozenScopeNarrative = narrativeHasContent(
+    scopeNarrativeRichContent,
+  );
 
   const signatureStatusCopy = useMemo(() => {
     if (isActivated) {
       return "Activated. Runtime milestones and escrows now follow this frozen agreement.";
     }
     if (isSigned && contract?.legalSignatureStatus === "VERIFIED") {
-      return "All required parties signed and the legal signature provider verified this contract. One contract party can now activate it.";
+      return "All required parties signed with Mini CA and the contract is verified. One contract party can now activate it.";
     }
     if (isSigned) {
-      return "All required parties have signed. Legal provider verification must complete before activation.";
+      return "All required parties signed, but verification evidence is not complete yet.";
     }
     if (isSent) {
       return missingSignerIds.length > 0
@@ -594,21 +649,29 @@ export default function ContractPage() {
     if (isDraft) {
       return "Legacy draft contract. New contracts now begin directly in SENT status.";
     }
-    return "Review the frozen agreement, its audit hashes, and the signature trail.";
-  }, [isActivated, isDraft, isSent, isSigned, missingSignerIds, resolveSignerName]);
+    return "Review the frozen agreement and signature trail.";
+  }, [
+    contract?.legalSignatureStatus,
+    isActivated,
+    isDraft,
+    isSent,
+    isSigned,
+    missingSignerIds,
+    resolveSignerName,
+  ]);
 
   const legalSignatureStatusCopy = useMemo(() => {
     switch (contract?.legalSignatureStatus) {
       case "VERIFIED":
-        return "Provider verification complete. This contract now has provider evidence and can be activated.";
+        return "Mini CA verification complete. This contract now has cryptographic evidence and can be activated.";
       case "SESSION_CREATED":
-        return "A provider session exists. Wait for provider verification webhook before activation.";
+        return "Legacy external session state. New contracts use internal Mini CA verification.";
       case "PENDING_PROVIDER":
-        return "Provider verification is pending.";
+        return "Legacy external verification pending state.";
       case "FAILED":
-        return "Provider verification failed. Start a new session or inspect provider evidence.";
+        return "Mini CA verification failed. Re-sign with the correct PIN to refresh verification evidence.";
       default:
-        return "Internal audit signatures are recorded, but legal provider verification has not started yet.";
+        return "Waiting for required party signatures. Mini CA verification is applied automatically when all parties finish signing.";
     }
   }, [contract?.legalSignatureStatus]);
 
@@ -626,13 +689,14 @@ export default function ContractPage() {
       },
       {
         label: "Sign",
-        description: "Client, broker, and freelancer sign the same frozen version.",
-        state:
-          isActivated || isSigned ? "done" : isSent ? "active" : "idle",
+        description:
+          "Client, broker, and freelancer sign the same frozen version.",
+        state: isActivated || isSigned ? "done" : isSent ? "active" : "idle",
       },
       {
         label: "Activate",
-        description: "Clone runtime milestones and create escrows from the signed contract.",
+        description:
+          "Clone runtime milestones and create escrows from the signed contract.",
         state: isActivated ? "done" : isSigned ? "active" : "idle",
       },
     ],
@@ -640,23 +704,24 @@ export default function ContractPage() {
   );
 
   const requiredPartyProgress = useMemo(
-    () => [
-      {
-        label: "Client",
-        id: contract?.project?.clientId || "",
-        name: contract?.project?.client?.fullName || "Client",
-      },
-      {
-        label: "Broker",
-        id: contract?.project?.brokerId || "",
-        name: contract?.project?.broker?.fullName || "Broker",
-      },
-      {
-        label: "Freelancer",
-        id: contract?.project?.freelancerId || "",
-        name: contract?.project?.freelancer?.fullName || "Freelancer",
-      },
-    ].filter((party) => Boolean(party.id)),
+    () =>
+      [
+        {
+          label: "Client",
+          id: contract?.project?.clientId || "",
+          name: contract?.project?.client?.fullName || "Client",
+        },
+        {
+          label: "Broker",
+          id: contract?.project?.brokerId || "",
+          name: contract?.project?.broker?.fullName || "Broker",
+        },
+        {
+          label: "Freelancer",
+          id: contract?.project?.freelancerId || "",
+          name: contract?.project?.freelancer?.fullName || "Freelancer",
+        },
+      ].filter((party) => Boolean(party.id)),
     [contract],
   );
 
@@ -694,7 +759,8 @@ export default function ContractPage() {
       const objectUrl =
         pdfPreviewUrl && pdfPreviewContractId === contract.id
           ? pdfPreviewUrl
-          : ((temporaryUrl = await createPdfObjectUrl(contract.id)), temporaryUrl);
+          : ((temporaryUrl = await createPdfObjectUrl(contract.id)),
+            temporaryUrl);
 
       const link = document.createElement("a");
       link.href = objectUrl;
@@ -716,6 +782,35 @@ export default function ContractPage() {
     }
   };
 
+  const handleRunSignatureVerification = async () => {
+    if (!contract) return;
+
+    try {
+      setIsCheckingSignatureReport(true);
+      setError("");
+      const report = await contractsApi.getSignatureVerificationReport(
+        contract.id,
+      );
+      setSignatureReport(report);
+      toast({
+        title: report.allSignaturesVerified
+          ? "Signature verification passed"
+          : "Signature verification found issues",
+        description: report.allSignaturesVerified
+          ? "All recorded signatures passed cryptographic and integrity checks."
+          : "At least one signature failed verification checks. Review the report details.",
+      });
+    } catch (err: any) {
+      console.error(err);
+      setError(
+        err?.response?.data?.message ||
+          "Failed to run signature verification report. Please try again.",
+      );
+    } finally {
+      setIsCheckingSignatureReport(false);
+    }
+  };
+
   const handleDiscardContract = async () => {
     if (!contract) return;
 
@@ -728,7 +823,8 @@ export default function ContractPage() {
       setShowDiscardDialog(false);
       toast({
         title: "Contract discarded",
-        description: "The frozen contract was archived and the source spec was unlocked.",
+        description:
+          "The frozen contract was archived and the source spec was unlocked.",
       });
     } catch (err: any) {
       console.error(err);
@@ -744,21 +840,34 @@ export default function ContractPage() {
   const handleSign = async () => {
     if (!contract || !isAgreementChecked || !contract.contentHash) return;
 
+    const normalizedPin = signPin.trim();
+    if (!/^\d{4,8}$/.test(normalizedPin)) {
+      setError("Signing PIN must be 4 to 8 numeric digits.");
+      return;
+    }
+
     try {
       setIsSigning(true);
       setError("");
-      await contractsApi.signContract(contract.id, contract.contentHash);
+      await contractsApi.signContract(
+        contract.id,
+        contract.contentHash,
+        normalizedPin,
+      );
       await reloadContract(contract.id);
       setIsAgreementChecked(false);
+      setSignPin("");
+      setIsSignDialogOpen(false);
       toast({
-        title: "Contract signed",
-        description: "Your audit signature has been recorded for this frozen contract.",
+        title: "Contract signed with Mini CA",
+        description:
+          "Your cryptographic signature has been recorded for this frozen contract.",
       });
     } catch (err: any) {
       console.error(err);
       setError(
         err?.response?.data?.message ||
-          "Failed to sign contract. Please refresh and try again.",
+          "Failed to sign contract with Mini CA. Please try again.",
       );
     } finally {
       setIsSigning(false);
@@ -792,31 +901,6 @@ export default function ContractPage() {
     }
   };
 
-  const handleCreateSignatureSession = async () => {
-    if (!contract) return;
-
-    try {
-      setIsCreatingSignatureSession(true);
-      setError("");
-      const session = await contractsApi.createSignatureSession(contract.id);
-      await reloadContract(contract.id);
-      toast({
-        title: "Legal signature session created",
-        description: session?.sessionId
-          ? `Provider session ${session.sessionId} is now waiting for verification.`
-          : "Provider verification session is now waiting for verification.",
-      });
-    } catch (err: any) {
-      console.error(err);
-      setError(
-        err?.response?.data?.message ||
-          "Failed to create legal signature session. Please try again.",
-      );
-    } finally {
-      setIsCreatingSignatureSession(false);
-    }
-  };
-
   const handleCancelProject = async () => {
     if (!contract) return;
 
@@ -826,15 +910,17 @@ export default function ContractPage() {
       const result = await contractsApi.cancelProject(contract.projectId);
       await reloadContract(contract.id);
       setIsCancelDialogOpen(false);
-      alert(
-        result.totalRefundedAmount > 0
-          ? result.refundModeSummary === "PAYPAL_CAPTURE_REFUND"
-            ? `Project cancelled. Refunded ${result.totalRefundedAmount} ${primaryCurrency} back to the funding PayPal account.`
-            : result.refundModeSummary === "MIXED"
-              ? `Project cancelled. Refunded ${result.totalRefundedAmount} ${primaryCurrency} across PayPal and internal wallet paths.`
-              : `Project cancelled. Refunded ${result.totalRefundedAmount} ${primaryCurrency} back to the internal wallet.`
-          : "Project cancelled.",
-      );
+      toast({
+        title: "Project cancelled",
+        description:
+          result.totalRefundedAmount > 0
+            ? result.refundModeSummary === "PAYPAL_CAPTURE_REFUND"
+              ? `Refunded ${result.totalRefundedAmount} ${primaryCurrency} back to the funding PayPal account.`
+              : result.refundModeSummary === "MIXED"
+                ? `Refunded ${result.totalRefundedAmount} ${primaryCurrency} across PayPal and internal wallet paths.`
+                : `Refunded ${result.totalRefundedAmount} ${primaryCurrency} back to the internal wallet.`
+            : "No refundable escrow remained.",
+      });
     } catch (err: any) {
       console.error(err);
       setError(
@@ -864,11 +950,11 @@ export default function ContractPage() {
 
   return (
     <div className="container mx-auto max-w-7xl space-y-6 py-8">
-      <Card className="overflow-hidden border-slate-200 bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.16),_transparent_48%),linear-gradient(135deg,_#f8fffe_0%,_#f8fafc_55%,_#ecfeff_100%)] shadow-sm">
+      <Card className="overflow-hidden border-slate-200 bg-[radial-gradient(circle_at_top_left,rgba(20,184,166,0.16),transparent_48%),linear-gradient(135deg,#f8fffe_0%,#f8fafc_55%,#ecfeff_100%)] shadow-sm">
         <CardContent className="space-y-6 p-6 md:p-8">
           <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
             <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <Badge
                   variant={isActivated ? "default" : "outline"}
                   className="px-3 py-1 text-xs uppercase tracking-[0.24em]"
@@ -884,8 +970,8 @@ export default function ContractPage() {
                   {contract.title}
                 </h1>
                 <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
-                  Review the frozen commercial agreement that now governs project
-                  activation, milestone cloning, and escrow creation.
+                  Review the frozen commercial agreement that now governs
+                  project activation, milestone cloning, and escrow creation.
                 </p>
               </div>
             </div>
@@ -948,7 +1034,9 @@ export default function ContractPage() {
                   className="border-rose-200 text-rose-700 hover:bg-rose-50"
                 >
                   <ArchiveX className="mr-2 h-4 w-4" />
-                  {isCancelingProject ? "Cancelling..." : "Cancel & Refund Project"}
+                  {isCancelingProject
+                    ? "Cancelling..."
+                    : "Cancel & Refund Project"}
                 </Button>
               )}
               {workspaceHref && (
@@ -962,7 +1050,9 @@ export default function ContractPage() {
             </div>
             {cancelBlockedByReleasedOrDisputedEscrow ? (
               <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-                Cancel Project is locked because at least one escrow has already been released or disputed. Use dispute or manual closure instead of the cancel shortcut.
+                Cancel Project is locked because at least one escrow has already
+                been released or disputed. Use dispute or manual closure instead
+                of the cancel shortcut.
               </div>
             ) : null}
           </div>
@@ -975,7 +1065,9 @@ export default function ContractPage() {
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {sortedSignatures.length}/{requiredSignerIds.length}
               </p>
-              <p className="mt-1 text-sm text-slate-600">{signatureStatusCopy}</p>
+              <p className="mt-1 text-sm text-slate-600">
+                {signatureStatusCopy}
+              </p>
             </div>
             <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -983,7 +1075,8 @@ export default function ContractPage() {
               </p>
               <p className="mt-2 text-2xl font-semibold text-slate-950">
                 {formatMoney(
-                  contract.commercialContext?.totalBudget ?? contract.project.totalBudget,
+                  contract.commercialContext?.totalBudget ??
+                    contract.project.totalBudget,
                   primaryCurrency,
                 )}
               </p>
@@ -1000,7 +1093,9 @@ export default function ContractPage() {
               <p className="mt-2 text-lg font-semibold text-slate-950">
                 {contract.project.title}
               </p>
-              <p className="mt-1 text-sm text-slate-600">Project ID: {contract.projectId}</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Project ID: {contract.projectId}
+              </p>
             </div>
             <div className="rounded-2xl border border-white/70 bg-white/80 p-4 shadow-sm backdrop-blur">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -1076,20 +1171,33 @@ export default function ContractPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Cancel and refund this project?</AlertDialogTitle>
             <AlertDialogDescription>
-              Any funded escrow that has not been released yet will be refunded to the client.
-              Unfinished milestones and tasks will be locked immediately after cancellation.
+              Any funded escrow that has not been released yet will be refunded
+              to the client. Unfinished milestones and tasks will be locked
+              immediately after cancellation.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <div className="space-y-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
-            <p className="font-medium text-rose-950">This shortcut only applies before payout release.</p>
+            <p className="font-medium text-rose-950">
+              This shortcut only applies before payout release.
+            </p>
             <ul className="space-y-1 text-rose-900">
-              <li>• Funded escrows that are still unreleased will be refunded.</li>
-              <li>• Unfinished milestones and tasks will move into a locked terminal state.</li>
-              <li>• Released or disputed milestones must be handled through dispute or manual closure.</li>
+              <li>
+                • Funded escrows that are still unreleased will be refunded.
+              </li>
+              <li>
+                • Unfinished milestones and tasks will move into a locked
+                terminal state.
+              </li>
+              <li>
+                • Released or disputed milestones must be handled through
+                dispute or manual closure.
+              </li>
             </ul>
           </div>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isCancelingProject}>Keep project</AlertDialogCancel>
+            <AlertDialogCancel disabled={isCancelingProject}>
+              Keep project
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();
@@ -1103,6 +1211,62 @@ export default function ContractPage() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={isSignDialogOpen}
+        onOpenChange={(open) => {
+          if (isSigning) {
+            return;
+          }
+          setIsSignDialogOpen(open);
+          if (!open) {
+            setSignPin("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Sign with Mini CA</DialogTitle>
+            <DialogDescription>
+              Enter your Mini CA PIN to unlock your private key and sign this
+              frozen contract hash.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <Label htmlFor="mini-ca-sign-pin">Signing PIN</Label>
+            <input
+              id="mini-ca-sign-pin"
+              type="password"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={8}
+              value={signPin}
+              onChange={(event) => {
+                setSignPin(event.target.value.replace(/\D/g, "").slice(0, 8));
+              }}
+              placeholder="4-8 digits"
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-teal-500 focus:outline-none"
+            />
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsSignDialogOpen(false)}
+              disabled={isSigning}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={handleSign}
+              disabled={isSigning || signPin.trim().length < 4}
+            >
+              {isSigning ? "Signing..." : "Confirm Signature"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {showPdfPreview && pdfPreviewUrl && (
         <Card className="border-slate-200 shadow-sm">
@@ -1121,7 +1285,7 @@ export default function ContractPage() {
               <iframe
                 title="Contract PDF Preview"
                 src={pdfPreviewUrl}
-                className="h-[760px] w-full bg-white"
+                className="h-190 w-full bg-white"
               />
             </div>
           </CardContent>
@@ -1182,7 +1346,8 @@ export default function ContractPage() {
                   </p>
                   <p className="mt-2 text-lg font-semibold text-slate-950">
                     {formatMoney(
-                      contract.commercialContext?.totalBudget ?? contract.project.totalBudget,
+                      contract.commercialContext?.totalBudget ??
+                        contract.project.totalBudget,
                       primaryCurrency,
                     )}
                   </p>
@@ -1200,7 +1365,9 @@ export default function ContractPage() {
                     Source spec
                   </p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {contract.commercialContext?.sourceSpecId || contract.sourceSpecId || "N/A"}
+                    {contract.commercialContext?.sourceSpecId ||
+                      contract.sourceSpecId ||
+                      "N/A"}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-slate-200 p-4">
@@ -1208,7 +1375,10 @@ export default function ContractPage() {
                     Spec frozen at
                   </p>
                   <p className="mt-2 text-sm font-semibold text-slate-950">
-                    {formatDateTime(contract.commercialContext?.sourceSpecUpdatedAt || undefined)}
+                    {formatDateTime(
+                      contract.commercialContext?.sourceSpecUpdatedAt ||
+                        undefined,
+                    )}
                   </p>
                 </div>
               </div>
@@ -1230,13 +1400,28 @@ export default function ContractPage() {
                       Escrow split:
                       <div className="mt-2 space-y-1">
                         <p>
-                          Developer {contract.commercialContext.escrowSplit.developerPercentage}%
+                          Developer{" "}
+                          {
+                            contract.commercialContext.escrowSplit
+                              .developerPercentage
+                          }
+                          %
                         </p>
                         <p>
-                          Broker {contract.commercialContext.escrowSplit.brokerPercentage}%
+                          Broker{" "}
+                          {
+                            contract.commercialContext.escrowSplit
+                              .brokerPercentage
+                          }
+                          %
                         </p>
                         <p>
-                          Platform {contract.commercialContext.escrowSplit.platformPercentage}%
+                          Platform{" "}
+                          {
+                            contract.commercialContext.escrowSplit
+                              .platformPercentage
+                          }
+                          %
                         </p>
                       </div>
                     </div>
@@ -1244,11 +1429,16 @@ export default function ContractPage() {
                 </div>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-                    <span className="font-medium text-slate-900">Tech stack:</span>{" "}
-                    {contract.commercialContext?.techStack || "As agreed in the signed spec"}
+                    <span className="font-medium text-slate-900">
+                      Tech stack:
+                    </span>{" "}
+                    {contract.commercialContext?.techStack ||
+                      "As agreed in the signed spec"}
                   </div>
                   <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-                    <span className="font-medium text-slate-900">Feature count:</span>{" "}
+                    <span className="font-medium text-slate-900">
+                      Feature count:
+                    </span>{" "}
                     {contract.commercialContext?.features?.length || 0}
                   </div>
                 </div>
@@ -1310,76 +1500,92 @@ export default function ContractPage() {
               </div>
 
               <div className="space-y-3">
-                {sortedSnapshot.map((milestone: ContractMilestoneSnapshotItem) => (
-                  <div
-                    key={milestone.contractMilestoneKey}
-                    className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
-                  >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge variant="outline" className="border-slate-300 text-slate-700">
-                            #{milestone.sortOrder ?? "—"}
-                          </Badge>
-                          <h3 className="text-lg font-semibold text-slate-950">
-                            {milestone.title}
-                          </h3>
-                        </div>
-                        <p className="text-sm leading-6 text-slate-600">
-                          {milestone.description || "No milestone description provided."}
-                        </p>
-                      </div>
-
-                      <div className="rounded-2xl bg-teal-50 px-4 py-3 text-right text-sm text-teal-900">
-                        <p className="text-xs uppercase tracking-[0.18em] text-teal-700">
-                          Amount
-                        </p>
-                        <p className="mt-1 text-lg font-semibold">
-                          {formatMoney(milestone.amount, primaryCurrency)}
-                        </p>
-                        {!!milestone.retentionAmount && (
-                          <p className="mt-1 text-xs text-teal-800">
-                            Retention {formatMoney(milestone.retentionAmount, primaryCurrency)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 md:grid-cols-3">
-                      <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-                        <span className="font-medium text-slate-900">Deliverable:</span>{" "}
-                        {milestone.deliverableType || "OTHER"}
-                      </div>
-                      <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-                        <span className="font-medium text-slate-900">Start:</span>{" "}
-                        {formatDate(milestone.startDate)}
-                      </div>
-                      <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-                        <span className="font-medium text-slate-900">Due:</span>{" "}
-                        {formatDate(milestone.dueDate)}
-                      </div>
-                    </div>
-
-                    {milestone.acceptanceCriteria &&
-                      milestone.acceptanceCriteria.length > 0 && (
-                        <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
-                          <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                            Acceptance criteria
-                          </p>
-                          <div className="mt-3 space-y-2">
-                            {milestone.acceptanceCriteria.map((criterion) => (
-                              <div key={criterion} className="flex gap-3">
-                                <span className="mt-2 h-1.5 w-1.5 rounded-full bg-teal-600" />
-                                <p className="text-sm leading-6 text-slate-700">
-                                  {criterion}
-                                </p>
-                              </div>
-                            ))}
+                {sortedSnapshot.map(
+                  (milestone: ContractMilestoneSnapshotItem) => (
+                    <div
+                      key={milestone.contractMilestoneKey}
+                      className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm"
+                    >
+                      <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className="border-slate-300 text-slate-700"
+                            >
+                              #{milestone.sortOrder ?? "—"}
+                            </Badge>
+                            <h3 className="text-lg font-semibold text-slate-950">
+                              {milestone.title}
+                            </h3>
                           </div>
+                          <p className="text-sm leading-6 text-slate-600">
+                            {milestone.description ||
+                              "No milestone description provided."}
+                          </p>
                         </div>
-                      )}
-                  </div>
-                ))}
+
+                        <div className="rounded-2xl bg-teal-50 px-4 py-3 text-right text-sm text-teal-900">
+                          <p className="text-xs uppercase tracking-[0.18em] text-teal-700">
+                            Amount
+                          </p>
+                          <p className="mt-1 text-lg font-semibold">
+                            {formatMoney(milestone.amount, primaryCurrency)}
+                          </p>
+                          {!!milestone.retentionAmount && (
+                            <p className="mt-1 text-xs text-teal-800">
+                              Retention{" "}
+                              {formatMoney(
+                                milestone.retentionAmount,
+                                primaryCurrency,
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-3 md:grid-cols-3">
+                        <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                          <span className="font-medium text-slate-900">
+                            Deliverable:
+                          </span>{" "}
+                          {milestone.deliverableType || "OTHER"}
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                          <span className="font-medium text-slate-900">
+                            Start:
+                          </span>{" "}
+                          {formatDate(milestone.startDate)}
+                        </div>
+                        <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                          <span className="font-medium text-slate-900">
+                            Due:
+                          </span>{" "}
+                          {formatDate(milestone.dueDate)}
+                        </div>
+                      </div>
+
+                      {milestone.acceptanceCriteria &&
+                        milestone.acceptanceCriteria.length > 0 && (
+                          <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+                            <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                              Acceptance criteria
+                            </p>
+                            <div className="mt-3 space-y-2">
+                              {milestone.acceptanceCriteria.map((criterion) => (
+                                <div key={criterion} className="flex gap-3">
+                                  <span className="mt-2 h-1.5 w-1.5 rounded-full bg-teal-600" />
+                                  <p className="text-sm leading-6 text-slate-700">
+                                    {criterion}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                    </div>
+                  ),
+                )}
               </div>
             </CardContent>
           </Card>
@@ -1391,8 +1597,8 @@ export default function ContractPage() {
                 Full Agreement Text
               </CardTitle>
               <CardDescription>
-                The canonical stored agreement text remains the signable payload,
-                but it is shown here in a readable presentation layer.
+                The canonical stored agreement text remains the signable
+                payload, but it is shown here in a readable presentation layer.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1403,10 +1609,13 @@ export default function ContractPage() {
               >
                 <div>
                   <p className="text-sm font-medium text-slate-900">
-                    {showFullAgreement ? "Hide full agreement text" : "Show full agreement text"}
+                    {showFullAgreement
+                      ? "Hide full agreement text"
+                      : "Show full agreement text"}
                   </p>
                   <p className="mt-1 text-sm text-slate-600">
-                    Review the exact legal text behind this frozen agreement version.
+                    Review the exact legal text behind this frozen agreement
+                    version.
                   </p>
                 </div>
                 <span className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
@@ -1457,8 +1666,12 @@ export default function ContractPage() {
                   <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
                     Required parties
                   </p>
-                  <Badge variant="outline" className="border-slate-300 text-slate-700">
-                    {sortedSignatures.length}/{requiredPartyProgress.length} signed
+                  <Badge
+                    variant="outline"
+                    className="border-slate-300 text-slate-700"
+                  >
+                    {sortedSignatures.length}/{requiredPartyProgress.length}{" "}
+                    signed
                   </Badge>
                 </div>
                 <div className="mt-4 space-y-3">
@@ -1497,7 +1710,7 @@ export default function ContractPage() {
                 <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
-                      Legal signature provider
+                      Legal signature verification
                     </p>
                     <p className="mt-2 text-lg font-semibold text-slate-950">
                       {contract.provider || "Not started"}
@@ -1521,32 +1734,18 @@ export default function ContractPage() {
                 </p>
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-                    <span className="font-medium text-slate-900">Verified at:</span>{" "}
+                    <span className="font-medium text-slate-900">
+                      Verified at:
+                    </span>{" "}
                     {formatDateTime(contract.verifiedAt)}
                   </div>
                   <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-                    <span className="font-medium text-slate-900">Certificate serial:</span>{" "}
+                    <span className="font-medium text-slate-900">
+                      Certificate serial:
+                    </span>{" "}
                     {contract.certificateSerial || "Not available"}
                   </div>
                 </div>
-                {canCreateSignatureSession && (
-                  <div className="mt-4 flex justify-end">
-                    <Button
-                      variant="outline"
-                      onClick={handleCreateSignatureSession}
-                      disabled={
-                        isCreatingSignatureSession ||
-                        contract.legalSignatureStatus === "VERIFIED"
-                      }
-                    >
-                      {isCreatingSignatureSession
-                        ? "Creating session..."
-                        : contract.legalSignatureStatus === "VERIFIED"
-                          ? "Provider Verified"
-                          : "Start Legal Signature Session"}
-                    </Button>
-                  </div>
-                )}
               </div>
 
               {sortedSignatures.length > 0 && (
@@ -1565,15 +1764,15 @@ export default function ContractPage() {
                             {signature.signerRole || "Signer"}
                           </p>
                         </div>
-                        <Badge variant="outline" className="border-emerald-200 text-emerald-700">
+                        <Badge
+                          variant="outline"
+                          className="border-emerald-200 text-emerald-700"
+                        >
                           Signed
                         </Badge>
                       </div>
                       <p className="mt-3 text-sm text-slate-600">
-                        {formatDateTime(signature.signedAt)}
-                      </p>
-                      <p className="mt-2 break-all font-mono text-[11px] text-slate-500">
-                        {signature.signatureHash}
+                        ✓ Signed on {formatDate(signature.signedAt)}
                       </p>
                     </div>
                   ))}
@@ -1581,7 +1780,8 @@ export default function ContractPage() {
               )}
               {sortedSignatures.length === 0 && (
                 <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/70 p-4 text-sm text-slate-600">
-                  No signatures recorded yet. Once parties sign, the audit trail will appear here in chronological order.
+                  No signatures recorded yet. Once parties sign, the audit trail
+                  will appear here in chronological order.
                 </div>
               )}
 
@@ -1601,10 +1801,11 @@ export default function ContractPage() {
                 <div className="space-y-4 rounded-3xl border border-blue-200 bg-blue-50/50 p-4">
                   <Alert className="border-white/70 bg-white/90">
                     <ShieldCheck className="h-4 w-4" />
-                    <AlertTitle>Electronic Signature Check</AlertTitle>
+                    <AlertTitle>Mini CA Signature Check</AlertTitle>
                     <AlertDescription className="text-xs leading-5">
-                      You are signing the current frozen contract version tied to
-                      the content hash shown in the integrity panel.
+                      You are signing the frozen contract hash with your Mini CA
+                      private key. The key is unlocked with your PIN for this
+                      action only.
                     </AlertDescription>
                   </Alert>
 
@@ -1633,7 +1834,11 @@ export default function ContractPage() {
 
                   <Button
                     className="w-full"
-                    onClick={handleSign}
+                    onClick={() => {
+                      setSignPin("");
+                      setError("");
+                      setIsSignDialogOpen(true);
+                    }}
                     disabled={
                       !isAgreementChecked ||
                       isSigning ||
@@ -1646,7 +1851,7 @@ export default function ContractPage() {
                       ? "Already Signed"
                       : isSigning
                         ? "Signing..."
-                        : "Sign Frozen Agreement"}
+                        : "Sign With Mini CA"}
                   </Button>
                 </div>
               )}
@@ -1657,28 +1862,35 @@ export default function ContractPage() {
                   <AlertTitle>Ready for Activation</AlertTitle>
                   <AlertDescription className="space-y-3">
                     <p>
-                      All required parties have signed. Activation will clone the
-                      frozen milestone schedule into the project and generate
-                      escrows from this contract.
+                      All required parties have signed. Activation will clone
+                      the frozen milestone schedule into the project and
+                      generate escrows from this contract.
                     </p>
-                    <Button size="sm" onClick={handleActivateContract} disabled={isActivating}>
+                    <Button
+                      size="sm"
+                      onClick={handleActivateContract}
+                      disabled={isActivating}
+                    >
                       {isActivating ? "Activating..." : "Activate Contract"}
                     </Button>
                   </AlertDescription>
                 </Alert>
               )}
 
-              {isSigned && !canActivateContract && contract.legalSignatureStatus !== "VERIFIED" && (
-                <Alert className="border-amber-200 bg-amber-50 text-amber-900">
-                  <Lock className="h-4 w-4 text-amber-700" />
-                  <AlertTitle>Activation blocked pending provider verification</AlertTitle>
-                  <AlertDescription>
-                    All parties signed the frozen contract, but activation stays
-                    locked until the legal signature provider marks the contract
-                    as verified.
-                  </AlertDescription>
-                </Alert>
-              )}
+              {isSigned &&
+                !canActivateContract &&
+                contract.legalSignatureStatus !== "VERIFIED" && (
+                  <Alert className="border-amber-200 bg-amber-50 text-amber-900">
+                    <Lock className="h-4 w-4 text-amber-700" />
+                    <AlertTitle>
+                      Activation blocked pending Mini CA verification evidence
+                    </AlertTitle>
+                    <AlertDescription>
+                      All parties signed the frozen contract, but activation
+                      stays locked until legalSignatureStatus becomes VERIFIED.
+                    </AlertDescription>
+                  </Alert>
+                )}
 
               {isActivated && (
                 <Alert className="border-emerald-200 bg-emerald-50 text-emerald-900">
@@ -1714,6 +1926,93 @@ export default function ContractPage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
+                      Signature verification report
+                    </p>
+                    <p className="mt-1 text-sm text-slate-700">
+                      Run independent checks for cryptographic validity and
+                      tamper evidence of recorded signatures.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRunSignatureVerification}
+                    disabled={isCheckingSignatureReport}
+                  >
+                    {isCheckingSignatureReport
+                      ? "Verifying..."
+                      : "Run verification"}
+                  </Button>
+                </div>
+
+                {signatureReport && (
+                  <div className="mt-4 space-y-3">
+                    <div className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
+                      <p className="font-medium text-slate-900">
+                        Overall result: {" "}
+                        {signatureReport.allSignaturesVerified
+                          ? "PASS"
+                          : "HAS ISSUES"}
+                      </p>
+                      <p className="mt-1 text-xs text-slate-600">
+                        {signatureReport.signaturesCount}/
+                        {signatureReport.requiredSignerCount} signatures recorded
+                        · report generated {" "}
+                        {formatDateTime(signatureReport.generatedAt)}
+                      </p>
+                      <p className="mt-2 text-xs text-slate-600">
+                        Stored hash matches computed hash: {" "}
+                        {signatureReport.contentHash.storedMatchesComputed
+                          ? "Yes"
+                          : "No"}
+                      </p>
+                    </div>
+
+                    <div className="space-y-2">
+                      {signatureReport.signatureReports.map((item) => (
+                        <div
+                          key={item.signatureId}
+                          className="rounded-xl border border-slate-200 bg-white p-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <p className="text-sm font-semibold text-slate-900">
+                              {item.signerName}
+                            </p>
+                            <Badge
+                              variant="outline"
+                              className={
+                                item.overallVerified
+                                  ? "border-emerald-200 text-emerald-700"
+                                  : "border-rose-200 text-rose-700"
+                              }
+                            >
+                              {item.overallVerified ? "Verified" : "Failed"}
+                            </Badge>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-600">
+                            {item.signerRole || "Signer"} · signed at {" "}
+                            {formatDateTime(item.signedAt)}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-600">
+                            Crypto: {item.checks.cryptographicVerificationPassed ? "OK" : "Fail"}
+                            {" · "}
+                            Hash: {item.checks.signatureHashMatches ? "OK" : "Fail"}
+                            {" · "}
+                            Content: {item.checks.signedContentMatchesCurrent ? "OK" : "Fail"}
+                            {" · "}
+                            Timestamp: {item.checks.timestampTokenValid ? "OK" : "Fail"}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {contract.contentHash && (
                 <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -1737,11 +2036,13 @@ export default function ContractPage() {
               )}
 
               <div className="rounded-2xl border border-slate-200 bg-white p-4 text-sm text-slate-700">
-                <p className="font-medium text-slate-900">Why both hashes exist</p>
+                <p className="font-medium text-slate-900">
+                  Why both hashes exist
+                </p>
                 <p className="mt-2 leading-6">
                   The content hash identifies the signable contract version. The
-                  document hash tracks the broader audit artifact used for export
-                  and PDF verification.
+                  document hash tracks the broader audit artifact used for
+                  export and PDF verification.
                 </p>
               </div>
             </CardContent>
@@ -1759,7 +2060,9 @@ export default function ContractPage() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDiscarding}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDiscarding}>
+              Cancel
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={(event) => {
                 event.preventDefault();

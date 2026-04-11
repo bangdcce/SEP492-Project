@@ -1,0 +1,201 @@
+<mxfile host="Electron" agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/29.6.6 Chrome/144.0.7559.236 Electron/40.8.4 Safari/537.36" compressed="false" version="29.6.6">
+  <diagram id="6706707b85b0" name="uc_40_drag_item_class_diagram_compact">
+    <mxGraphModel dx="2014" dy="1179" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="2710" pageHeight="1080" math="0" shadow="0">
+      <root>
+        <mxCell id="0" />
+        <mxCell id="1" parent="0" />
+        <mxCell id="3" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;ProjectWorkspace&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- board: KanbanBoard&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ handleDragEnd(result: DropResult): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="74" width="338" x="716.5" as="geometry" />
+        </mxCell>
+        <mxCell id="4" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;updateTaskStatus&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ updateTaskStatus(taskId: string, status:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;KanbanColumnKey): Promise&amp;lt;TaskStatusUpdateResult&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="88" width="331.8" x="364" y="174" as="geometry" />
+        </mxCell>
+        <mxCell id="5" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;getLatestApprovedSubmission&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getLatestApprovedSubmission(task?: Pick&amp;lt;Task,&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;quot;submissions&amp;quot;&amp;gt; | null): TaskSubmission | null&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="88" width="319.4" x="725.8" y="174" as="geometry" />
+        </mxCell>
+        <mxCell id="6" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;connectNamespacedSocket&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ connectNamespacedSocket(namespace: string): Socket&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="74" width="350.4" x="1075.2" y="181" as="geometry" />
+        </mxCell>
+        <mxCell id="7" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;ApiClient&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- client: AxiosInstance&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ patch&amp;lt;T&amp;gt;(url: string, body?: unknown): Promise&amp;lt;T&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- setupInterceptors()&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- isRefreshEndpoint(url?: string): boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- isPublicAuthEndpoint(url?: string): boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- refreshAccessTokenSingleFlight(): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- getAuthErrorCode(error: unknown): string | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- shouldAttemptSessionReconcile(error: unknown):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;boolean&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- reconcileSessionSingleFlight(): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- handleAuthFailure(suppressRedirect: boolean =&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;false)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ bootstrapSession(): Promise&amp;lt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="242" width="344.2" x="470.5859497070313" y="369" as="geometry" />
+        </mxCell>
+        <mxCell id="8" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TasksController&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ updateStatus(id: string, status: string, req:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;AuthenticatedRequest):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;TaskStatusUpdateResult&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getBoard(@Param(&amp;#x27;projectId&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskHistory(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskComments(@Param(&amp;#x27;taskId&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskLinks(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskSubmissions(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ addTaskLink(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ deleteTaskLink(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getSubtasks(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ createSubtask(@Param(&amp;#x27;id&amp;#x27;)&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="242" width="319.4" x="595.7718994140625" y="718" as="geometry" />
+        </mxCell>
+        <mxCell id="9" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TasksGateway&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ server: Server&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ joinProjectTasks(data: JoinProjectTasksDto,&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;client: Socket): Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ afterInit(server: Server): void&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ handleConnection(client: Socket): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ handleDisconnect(client: Socket): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- assertProjectAccess(projectId: string, userId:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;string): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- authenticate(client: Socket): Promise&amp;lt;WsUser&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- resolveUser(client: Socket): Promise&amp;lt;WsUser&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- extractToken(client: Socket): string | undefined&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- extractTokenFromCookie(cookieHeader: string |&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;string[] | undefined): string | undefined&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- toErrorMessage(error: unknown): string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="256" width="338" x="1117.3150390625" y="362" as="geometry" />
+        </mxCell>
+        <mxCell id="10" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TasksService&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ updateStatus(id: string, status: KanbanStatus,&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;actorId?: string): Promise&amp;lt;TaskStatusUpdateResult&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- getSupabaseClient(): SupabaseClient&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- buildAttachmentPath(fileName: string): string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ uploadFile(file: Express.Multer.File): Promise&amp;lt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getTaskHistory(taskId: string):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;TaskHistoryEntity[]&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- sanitizeCommentContent(content: string): string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- ensureTaskExists(taskId: string): Promise&amp;lt;void&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- mapTaskComment(comment: TaskCommentEntity):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;TaskCommentItem&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- findHydratedComment(commentId: string):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;TaskCommentEntity | null&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ getCommentsByTask(taskId: string):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;TaskCommentItem[]&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="284" width="338" x="697.8787597656251" y="1060" as="geometry" />
+        </mxCell>
+        <mxCell id="11" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TasksRealtimeBridge&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ emitProjectTaskChanged(event:&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;ProjectTaskRealtimeEvent): void&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ bindServer(server: Server): void&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;- projectRoom(projectId: string): string&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="117" width="276" x="1513.6" y="1493" as="geometry" />
+        </mxCell>
+        <mxCell id="12" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;Repository&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ findOne(options: any): Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ count(options: any): Promise&amp;lt;number&amp;gt;&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ update(criteria: any, partialEntity: any):&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;Promise&amp;lt;any&amp;gt;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="117" width="300.8" y="1493" as="geometry" />
+        </mxCell>
+        <mxCell id="13" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskStatusUpdateResult&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ task: Task&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ milestoneId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ milestoneProgress: number&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ totalTasks: number&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ completedTasks: number&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="130" width="195.4" x="330.8" y="1486" as="geometry" />
+        </mxCell>
+        <mxCell id="14" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskSubmission&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ taskId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ status: TaskSubmissionStatus&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ version: number&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="116" width="214" x="850" y="312" as="geometry" />
+        </mxCell>
+        <mxCell id="15" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskSubmissionEntity&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ taskId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ status: TaskSubmissionStatus&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ version: number&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ content: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ attachments: string[]&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ submitterId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ reviewNote: string | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ reviewerId: string | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ reviewedAt: Date | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="214" width="214" x="556.2" y="1444" as="geometry" />
+        </mxCell>
+        <mxCell id="16" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskHistoryEntity&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ taskId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ fieldChanged: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ oldValue: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ newValue: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ actorId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ createdAt: Date&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ task: TaskEntity&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ actor: UserEntity&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="186" width="164.4" x="800.2" y="1458" as="geometry" />
+        </mxCell>
+        <mxCell id="17" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskEntity&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ milestoneId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ projectId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ status: TaskStatus&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ parentTaskId: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ title: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ description: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ assignedTo: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ dueDate: Date&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ sortOrder: number&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="214" width="164.4" x="994.6000000000001" y="1444" as="geometry" />
+        </mxCell>
+        <mxCell id="18" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;MilestoneEntity&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ id: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ status: MilestoneStatus&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ projectId: string | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ title: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ description: string&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ amount: number&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ deliverableType: DeliverableType&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ retentionAmount: number&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ acceptanceCriteria: string[]&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;+ approvedClientFeatureIds: string[] | null&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;...&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;&amp;nbsp;&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="214" width="294.6" x="1189.0000000000002" y="1444" as="geometry" />
+        </mxCell>
+        <mxCell id="19" parent="1" style="shape=rectangle;rounded=0;html=1;whiteSpace=wrap;overflow=fill;align=left;verticalAlign=top;fillColor=#ffffff;strokeColor=#000000;fontColor=#000000;spacing=0;" value="&lt;table style=&#39;width:100%;height:100%;border-collapse:collapse;&#39;&gt;&lt;tr&gt;&lt;td style=&#39;text-align:center;font-weight:bold;padding:6px 4px;&#39;&gt;TaskStatus&lt;/td&gt;&lt;/tr&gt;&lt;tr&gt;&lt;td style=&#39;border-top:1px solid #000000;vertical-align:top;padding:4px 4px 6px 4px;&#39;&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;TODO&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;IN_PROGRESS&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;IN_REVIEW&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;REVISIONS_REQUIRED&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;BLOCKED&lt;/div&gt;&lt;div style=&#39;line-height:1.25;padding-left:2px;&#39;&gt;DONE&lt;/div&gt;&lt;/td&gt;&lt;/tr&gt;&lt;/table&gt;" vertex="1">
+          <mxGeometry height="122" width="140" x="1006.8000000000002" y="1758" as="geometry" />
+        </mxCell>
+        <mxCell id="20" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="4" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="776.1666666666666" y="86" />
+              <mxPoint x="529.9" y="162" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="21" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="5" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="885.5" y="88" />
+              <mxPoint x="885.4999999999999" y="162" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="22" edge="1" parent="1" source="3" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="6" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="994.8333333333334" y="86" />
+              <mxPoint x="1250.4" y="162" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="23" edge="1" parent="1" source="4" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="7" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="529.9" y="274" />
+              <mxPoint x="642.6859497070313" y="350" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="24" edge="1" parent="1" source="7" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="8" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="642.6859497070313" y="630" />
+              <mxPoint x="755.4718994140626" y="706" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="25" edge="1" parent="1" source="8" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="10" value="association">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="755.4718994140626" y="972" />
+              <mxPoint x="866.8787597656251" y="1048" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="26" edge="1" parent="1" source="6" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="9" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1250.4" y="274" />
+              <mxPoint x="1286.3150390625" y="350" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="27" edge="1" parent="1" source="9" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="11" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1286.3150390625" y="630" />
+              <mxPoint x="1323.4325195312501" y="668" />
+              <mxPoint x="1323.4325195312501" y="1010" />
+              <mxPoint x="1323.4325195312501" y="1010" />
+              <mxPoint x="1323.4325195312501" y="1394" />
+              <mxPoint x="1718.1000000000001" y="1432" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="28" edge="1" parent="1" source="10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="12" value="association">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="726.3073311941965" y="1356" />
+              <mxPoint x="150.4" y="1432" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="29" edge="1" parent="1" source="10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="13" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="773.1644740513394" y="1358" />
+              <mxPoint x="428.5" y="1432" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="30" edge="1" parent="1" source="10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="15" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="820.0216169084823" y="1360" />
+              <mxPoint x="663.2" y="1432" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="31" edge="1" parent="1" source="10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="16" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="866.8787597656252" y="1362" />
+              <mxPoint x="882.4000000000001" y="1432" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="32" edge="1" parent="1" source="10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="17" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="913.7359026227681" y="1360" />
+              <mxPoint x="1076.8000000000002" y="1432" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="33" edge="1" parent="1" source="10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="18" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="960.593045479911" y="1358" />
+              <mxPoint x="1336.3000000000002" y="1432" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="34" edge="1" parent="1" source="10" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="11" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1007.4501883370539" y="1356" />
+              <mxPoint x="1585.1000000000001" y="1432" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="35" edge="1" parent="1" source="17" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;endArrow=none;noEdgeStyle=1;orthogonal=1;" target="19" value="association">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="1076.8000000000002" y="1670" />
+              <mxPoint x="1076.8000000000002" y="1746" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+        <mxCell id="36" edge="1" parent="1" source="5" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;strokeColor=#000000;fontColor=#000000;dashed=1;dashPattern=8 8;endArrow=classic;endFill=1;noEdgeStyle=1;orthogonal=1;" target="14" value="dependency">
+          <mxGeometry relative="1" as="geometry">
+            <Array as="points">
+              <mxPoint x="885.5" y="274" />
+              <mxPoint x="957" y="300" />
+            </Array>
+          </mxGeometry>
+        </mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>
