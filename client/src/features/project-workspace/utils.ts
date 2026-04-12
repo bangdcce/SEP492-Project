@@ -42,10 +42,20 @@ const sortSubmissionsDescending = (
   }
 
   const leftTime = new Date(
-    left.reviewedAt || left.createdAt || 0
+    left.clientReviewedAt ||
+      left.autoApprovedAt ||
+      left.reviewedAt ||
+      left.brokerReviewedAt ||
+      left.createdAt ||
+      0
   ).getTime();
   const rightTime = new Date(
-    right.reviewedAt || right.createdAt || 0
+    right.clientReviewedAt ||
+      right.autoApprovedAt ||
+      right.reviewedAt ||
+      right.brokerReviewedAt ||
+      right.createdAt ||
+      0
   ).getTime();
 
   return rightTime - leftTime;
@@ -55,7 +65,11 @@ export const getLatestApprovedSubmission = (
   task?: Pick<Task, "submissions"> | null
 ): TaskSubmission | null => {
   const approvedSubmissions =
-    task?.submissions?.filter((submission) => submission.status === "APPROVED") ||
+    task?.submissions?.filter(
+      (submission) =>
+        submission.status === "APPROVED" ||
+        submission.status === "AUTO_APPROVED"
+    ) ||
     [];
 
   if (approvedSubmissions.length === 0) {

@@ -1,6 +1,7 @@
 ﻿import {
   BadRequestException,
   ForbiddenException,
+  InternalServerErrorException,
   Injectable,
   Logger,
   NotFoundException,
@@ -1060,6 +1061,45 @@ export class ProjectSpecsService {
     return Array.from(signerIds);
   }
 
+  private resolveProjectSpecSignatureSpecIdPropertyName(): string {
+    const signatureColumns = (
+      this.projectSpecSignaturesRepository as unknown as {
+        metadata?: { columns?: Array<{ databaseName?: string; propertyName?: string }> };
+      }
+    ).metadata?.columns;
+
+    if (!Array.isArray(signatureColumns) || signatureColumns.length === 0) {
+      return 'specId';
+    }
+
+    const byDatabaseName = signatureColumns.find((column) => column.databaseName === 'specId');
+    if (byDatabaseName?.propertyName) {
+      return byDatabaseName.propertyName;
+    }
+
+    const byKnownProperty = signatureColumns.find(
+      (column) => column.propertyName === 'specId' || column.propertyName === 'projectSpecId',
+    );
+    if (byKnownProperty?.propertyName) {
+      return byKnownProperty.propertyName;
+    }
+
+    throw new InternalServerErrorException(
+      'Project spec signature mapping is misconfigured: missing spec id foreign key metadata.',
+    );
+  }
+
+  private buildProjectSpecSignatureWhere(
+    specId: string,
+    extra: Record<string, unknown> = {},
+  ): Record<string, unknown> {
+    const specIdPropertyName = this.resolveProjectSpecSignatureSpecIdPropertyName();
+    return {
+      [specIdPropertyName]: specId,
+      ...extra,
+    };
+  }
+
   private async reconcileFullSpecSigningState(spec: ProjectSpecEntity): Promise<{
     requiredSignerIds: string[];
     signatures: ProjectSpecSignatureEntity[];
@@ -1068,7 +1108,7 @@ export class ProjectSpecsService {
   }> {
     const requiredSignerIds = await this.getRequiredSignerIds(spec);
     const signatures = await this.projectSpecSignaturesRepository.find({
-      where: { specId: spec.id },
+      where: this.buildProjectSpecSignatureWhere(spec.id) as any,
     });
     const signedUserIds = new Set(signatures.map((signature) => signature.userId));
     const allRequiredSigned = requiredSignerIds.every((id) => signedUserIds.has(id));
@@ -2083,7 +2123,9 @@ export class ProjectSpecsService {
     }
 
     const existing = await this.projectSpecSignaturesRepository.findOne({
-      where: { specId: resolvedSpecId, userId: user.id },
+      where: this.buildProjectSpecSignatureWhere(resolvedSpecId, {
+        userId: user.id,
+      }) as any,
     });
     if (existing) {
       const reconciled = await this.reconcileFullSpecSigningState(spec);
@@ -2096,13 +2138,23 @@ export class ProjectSpecsService {
       throw new BadRequestException('You have already signed this spec');
     }
 
-    await this.projectSpecSignaturesRepository.save(
-      this.projectSpecSignaturesRepository.create({
-        specId: resolvedSpecId,
-        userId: user.id,
-        signerRole: user.role,
-      }),
+    const signaturePayload = this.buildProjectSpecSignatureWhere(resolvedSpecId, {
+      userId: user.id,
+      signerRole: user.role,
+    });
+    const signatureEntity = this.projectSpecSignaturesRepository.create(
+      signaturePayload as unknown as ProjectSpecSignatureEntity,
     );
+    const signatureSpecIdKey = this.resolveProjectSpecSignatureSpecIdPropertyName();
+    const signatureSpecIdValue = (signatureEntity as unknown as Record<string, unknown>)[
+      signatureSpecIdKey
+    ];
+    if (!signatureSpecIdValue) {
+      throw new InternalServerErrorException(
+        'Project spec signature payload is missing the required spec id foreign key.',
+      );
+    }
+    await this.projectSpecSignaturesRepository.save(signatureEntity);
 
     const reconciled = await this.reconcileFullSpecSigningState(spec);
 
@@ -2209,7 +2261,10 @@ export class ProjectSpecsService {
       );
       await queryRunner.manager.save(managedSpec);
 
-      await queryRunner.manager.delete(ProjectSpecSignatureEntity, { specId });
+      await queryRunner.manager.delete(
+        ProjectSpecSignatureEntity,
+        this.buildProjectSpecSignatureWhere(specId) as any,
+      );
 
       await queryRunner.commitTransaction();
 

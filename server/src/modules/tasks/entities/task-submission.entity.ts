@@ -11,7 +11,9 @@ import { UserEntity } from '../../../database/entities/user.entity';
 
 export enum TaskSubmissionStatus {
   PENDING = 'PENDING',
+  PENDING_CLIENT_REVIEW = 'PENDING_CLIENT_REVIEW',
   APPROVED = 'APPROVED',
+  AUTO_APPROVED = 'AUTO_APPROVED',
   REJECTED = 'REJECTED',
   REQUEST_CHANGES = 'REQUEST_CHANGES',
 }
@@ -52,12 +54,44 @@ export class TaskSubmissionEntity {
   @Column({ type: 'timestamptz', nullable: true })
   reviewedAt: Date | null;
 
+  @Column({ type: 'text', nullable: true })
+  brokerReviewNote: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  brokerReviewerId: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  brokerReviewedAt: Date | null;
+
+  @Column({ type: 'text', nullable: true })
+  clientReviewNote: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  clientReviewerId: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  clientReviewedAt: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  clientReviewDueAt: Date | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  autoApprovedAt: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
 
   @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'reviewerId' })
   reviewer: UserEntity;
+
+  @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'brokerReviewerId' })
+  brokerReviewer: UserEntity;
+
+  @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
+  @JoinColumn({ name: 'clientReviewerId' })
+  clientReviewer: UserEntity;
 
   @ManyToOne('UserEntity', { onDelete: 'SET NULL', nullable: true })
   @JoinColumn({ name: 'submitterId' })

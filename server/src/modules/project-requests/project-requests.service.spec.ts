@@ -2126,6 +2126,37 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
     });
 
+    it('UC30-INV-05B rejects freelancer recommendation when another active freelancer pipeline exists', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({
+          status: RequestStatus.SPEC_APPROVED,
+          brokerId: 'broker-1',
+          specs: [approvedClientSpec as any],
+        }),
+      );
+      freelancerProposalRepo.findOne
+        .mockResolvedValueOnce(null)
+        .mockResolvedValueOnce({
+          id: 'fp-active-1',
+          requestId: 'req-1',
+          freelancerId: 'freelancer-2',
+          status: 'INVITED',
+        });
+
+      await expect(
+        service.inviteFreelancer('req-1', 'freelancer-1', 'Strong frontend portfolio.', {
+          id: 'broker-1',
+          role: UserRole.BROKER,
+        } as UserEntity),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(freelancerProposalRepo.create).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Invite Freelancer Failed: This request already has an active freelancer recommendation/invitation. Resolve it before inviting another freelancer.',
+      );
+    });
+
     it('EP-203-SVC-01 approves a freelancer recommendation and makes it visible to the freelancer', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
       const request = makeRequest({
@@ -2172,6 +2203,67 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(consoleLogSpy).toHaveBeenCalledWith(
         'Approve Freelancer Invite Successful: "recommendation-approve-1"',
       );
+    });
+
+    it('EP-203-SVC-01B auto-rejects other active freelancer proposals after approval', async () => {
+      const request = makeRequest({
+        status: RequestStatus.SPEC_APPROVED,
+        brokerId: 'broker-1',
+      });
+      const approvedProposal = {
+        id: 'recommendation-approve-1',
+        requestId: 'req-1',
+        freelancerId: 'freelancer-1',
+        brokerId: 'broker-1',
+        status: 'PENDING_CLIENT_APPROVAL',
+      };
+      const competingPendingReviewProposal = {
+        id: 'recommendation-approve-2',
+        requestId: 'req-1',
+        freelancerId: 'freelancer-2',
+        brokerId: 'broker-1',
+        status: 'PENDING_CLIENT_APPROVAL',
+      };
+      const competingInvitedProposal = {
+        id: 'recommendation-approve-3',
+        requestId: 'req-1',
+        freelancerId: 'freelancer-3',
+        brokerId: 'broker-1',
+        status: 'INVITED',
+      };
+
+      requestRepo.findOne.mockResolvedValue(request);
+      freelancerProposalRepo.findOne
+        .mockResolvedValueOnce(approvedProposal)
+        .mockResolvedValueOnce(null);
+      freelancerProposalRepo.find.mockResolvedValue([
+        approvedProposal,
+        competingPendingReviewProposal,
+        competingInvitedProposal,
+      ]);
+      freelancerProposalRepo.save.mockImplementation(async (value) => value);
+
+      await service.approveFreelancerInvite('req-1', 'recommendation-approve-1', 'client-1');
+
+      expect(freelancerProposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'recommendation-approve-1',
+          status: 'INVITED',
+        }),
+      );
+      expect(freelancerProposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'recommendation-approve-2',
+          status: 'REJECTED',
+        }),
+      );
+      expect(freelancerProposalRepo.save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'recommendation-approve-3',
+          status: 'REJECTED',
+        }),
+      );
+      expect(freelancerProposalRepo.save).toHaveBeenCalledTimes(3);
     });
 
     it('EP-203-SVC-02 rejects freelancer recommendation approval from a non-owner client', async () => {
@@ -2227,6 +2319,36 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       expect(freelancerProposalRepo.save).not.toHaveBeenCalled();
       expect(consoleErrorSpy).toHaveBeenCalledWith(
         'Approve Freelancer Invite Failed: Freelancer proposal not found.',
+      );
+    });
+
+    it('EP-203-SVC-05 rejects approval when another freelancer is already accepted', async () => {
+      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+      requestRepo.findOne.mockResolvedValue(
+        makeRequest({ status: RequestStatus.SPEC_APPROVED, brokerId: 'broker-1' }),
+      );
+      freelancerProposalRepo.findOne
+        .mockResolvedValueOnce({
+          id: 'recommendation-approve-1',
+          requestId: 'req-1',
+          freelancerId: 'freelancer-1',
+          brokerId: 'broker-1',
+          status: 'PENDING_CLIENT_APPROVAL',
+        })
+        .mockResolvedValueOnce({
+          id: 'accepted-other-freelancer',
+          requestId: 'req-1',
+          freelancerId: 'freelancer-2',
+          status: 'ACCEPTED',
+        });
+
+      await expect(
+        service.approveFreelancerInvite('req-1', 'recommendation-approve-1', 'client-1'),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(freelancerProposalRepo.save).not.toHaveBeenCalled();
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'Approve Freelancer Invite Failed: A freelancer has already been accepted for this request.',
       );
     });
 
@@ -2665,11 +2787,12 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
     it('EP-210-SVC-06 allows an invited freelancer to accept after client approval', async () => {
       const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
       const execute = jest.fn().mockResolvedValue(undefined);
+      const andWhere = jest.fn().mockReturnThis();
       freelancerProposalRepo.createQueryBuilder.mockReturnValue({
         update: jest.fn().mockReturnThis(),
         set: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
-        andWhere: jest.fn().mockReturnThis(),
+        andWhere,
         execute,
       });
 
@@ -2704,6 +2827,9 @@ describe('ProjectRequestsService - merged marketplace flow', () => {
       );
 
       expect(execute).toHaveBeenCalled();
+      expect(andWhere).toHaveBeenCalledWith('status IN (:...statuses)', {
+        statuses: expect.arrayContaining(['INVITED', 'PENDING', 'PENDING_CLIENT_APPROVAL']),
+      });
       expect(result).toEqual(
         expect.objectContaining({
           id: 'invite-freelancer-1',

@@ -244,6 +244,40 @@ export const updateBio = async (bio: string): Promise<{ message: string }> => {
 };
 
 /**
+ * Get user domains (with full details)
+ */
+export const getUserDomains = async (): Promise<{
+  domains: {
+    id: string;
+    domainId: string;
+    domainName: string;
+    domainSlug: string;
+    domainDescription: string | null;
+    domainIcon: string | null;
+    createdAt: string;
+  }[];
+}> => {
+  return await apiClient.get("/profile/domains");
+};
+
+/**
+ * Update user domains
+ */
+export const updateUserDomains = async (
+  domainIds: string[],
+): Promise<{ message: string }> => {
+  return await apiClient.put<{ message: string }>("/profile/domains", {
+    domainIds,
+  });
+};
+
+export const deleteCustomUserDomain = async (
+  domainId: string,
+): Promise<{ message: string }> => {
+  return await apiClient.delete<{ message: string }>(`/profile/domains/${domainId}/custom`);
+};
+
+/**
  * Get user skills (with full details)
  */
 export const getUserSkills = async (): Promise<{
@@ -274,6 +308,12 @@ export const updateUserSkills = async (
   return await apiClient.put<{ message: string }>("/profile/skills", {
     skillIds,
   });
+};
+
+export const deleteCustomUserSkill = async (
+  skillId: string,
+): Promise<{ message: string }> => {
+  return await apiClient.delete<{ message: string }>(`/profile/skills/${skillId}/custom`);
 };
 
 export const getSigningCredentialStatus = async (): Promise<{

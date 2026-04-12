@@ -35,6 +35,7 @@ import { UserEntity, UserRole, UserStatus } from '../../database/entities/user.e
 import { ProjectRequestEntity, RequestStatus } from '../../database/entities/project-request.entity';
 import { AuditLogsService, RequestContext } from '../audit-logs/audit-logs.service';
 import { MilestoneLockPolicyService } from './milestone-lock-policy.service';
+import { MilestoneInteractionPolicyService } from './milestone-interaction-policy.service';
 import { EscrowReleaseService } from '../payments/escrow-release.service';
 import { EscrowRefundMode, EscrowRefundResult, WalletSnapshot } from '../payments/payments.types';
 import { WorkspaceChatService } from '../workspace-chat/workspace-chat.service';
@@ -194,6 +195,7 @@ export class ProjectsService {
     private readonly dataSource: DataSource,
     private readonly auditLogsService: AuditLogsService,
     private readonly milestoneLockPolicyService: MilestoneLockPolicyService,
+    private readonly milestoneInteractionPolicyService: MilestoneInteractionPolicyService,
     private readonly escrowReleaseService: EscrowReleaseService,
     private readonly notificationsService: NotificationsService,
     private readonly eventEmitter: EventEmitter2,
@@ -557,7 +559,7 @@ export class ProjectsService {
     completedTasks: number;
   }> {
     const totalTasks = await this.taskRepository.count({
-      where: { milestoneId, parentTaskId: IsNull() },
+      where: { milestoneId },
     });
 
     if (totalTasks === 0) {
@@ -565,7 +567,7 @@ export class ProjectsService {
     }
 
     const completedTasks = await this.taskRepository.count({
-      where: { milestoneId, status: TaskStatus.DONE, parentTaskId: IsNull() },
+      where: { milestoneId, status: TaskStatus.DONE },
     });
 
     return {
@@ -810,10 +812,14 @@ export class ProjectsService {
     }
 
     if (progress < 100) {
-      throw new BadRequestException('All milestone tasks must be DONE before requesting review');
+      throw new BadRequestException(
+        `All milestone tasks and subtasks must be DONE before requesting review (${totalTasks - Math.min(completedTasks, totalTasks)} remaining).`,
+      );
     }
 
-    await this.assertMilestoneEscrowIsFundedBeforeReview(milestone.id);
+    await this.milestoneInteractionPolicyService.assertMilestoneUnlockedForWorkspace(
+      milestone.id,
+    );
 
     milestone.status = this.requiresBrokerMilestoneReview(project)
       ? MilestoneStatus.PENDING_STAFF_REVIEW
@@ -1275,7 +1281,7 @@ export class ProjectsService {
 
       if (doneTasks < totalTasks) {
         throw new BadRequestException(
-          `Cannot approve milestone: ${doneTasks}/${totalTasks} tasks completed. All tasks must be done before approval.`,
+          `Cannot approve milestone: ${doneTasks}/${totalTasks} tasks and subtasks completed. All tasks and subtasks must be DONE before approval.`,
         );
       }
 

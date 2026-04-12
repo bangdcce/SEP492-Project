@@ -6,6 +6,8 @@ import { DataSource } from 'typeorm';
 
 import {
   AuditLogEntity,
+  MilestoneEntity,
+  MilestoneStatus,
   ProjectEntity,
   ProjectStatus,
   ReportEntity,
@@ -39,6 +41,7 @@ describe('ReviewService', () => {
 
   const reviewRepo = repoMock();
   const projectRepo = repoMock();
+  const milestoneRepo = repoMock();
   const auditLogRepo = repoMock();
   const reportRepo = repoMock();
   const userRepo = repoMock();
@@ -117,6 +120,7 @@ describe('ReviewService', () => {
     Object.values({
       reviewRepo,
       projectRepo,
+      milestoneRepo,
       auditLogRepo,
       reportRepo,
       userRepo,
@@ -167,6 +171,7 @@ describe('ReviewService', () => {
         ReviewService,
         { provide: getRepositoryToken(ReviewEntity), useValue: reviewRepo },
         { provide: getRepositoryToken(ProjectEntity), useValue: projectRepo },
+        { provide: getRepositoryToken(MilestoneEntity), useValue: milestoneRepo },
         { provide: getRepositoryToken(AuditLogEntity), useValue: auditLogRepo },
         { provide: getRepositoryToken(ReportEntity), useValue: reportRepo },
         { provide: getRepositoryToken(UserEntity), useValue: userRepo },
@@ -226,6 +231,10 @@ describe('ReviewService', () => {
       brokerId: null,
       totalBudget: 20000000,
     });
+    milestoneRepo.find.mockResolvedValue([
+      { id: 'milestone-1', sortOrder: 1, status: MilestoneStatus.PAID },
+      { id: 'milestone-2', sortOrder: 2, status: MilestoneStatus.PAID },
+    ]);
     reviewRepo.findOne.mockResolvedValue(null);
     reviewRepo.create.mockImplementation((payload) => payload);
     transactionReviewRepo.save.mockResolvedValue({
@@ -306,6 +315,7 @@ describe('ReviewService', () => {
 
     expect(dataSource.transaction).not.toHaveBeenCalled();
     expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
+    expect(milestoneRepo.find).not.toHaveBeenCalled();
     recordEvidence({
       id: 'FE16-REV-02',
       evidenceRef: 'review.service.spec.ts::rejects ineligible project',
@@ -323,6 +333,10 @@ describe('ReviewService', () => {
       brokerId: null,
       totalBudget: 5000000,
     });
+    milestoneRepo.find.mockResolvedValue([
+      { id: 'milestone-1', sortOrder: 1, status: MilestoneStatus.PAID },
+      { id: 'milestone-2', sortOrder: 2, status: MilestoneStatus.PAID },
+    ]);
     reviewRepo.findOne.mockResolvedValue(null);
     reviewRepo.create.mockImplementation((payload) => payload);
     transactionReviewRepo.save.mockResolvedValue({
@@ -362,6 +376,38 @@ describe('ReviewService', () => {
       actualResults:
         'ReviewService.create surfaced the injected audit failure after the transactional save path and did not emit REVIEW_EVENTS.MUTATED, proving the success path was not committed.',
     });
+  });
+
+  it('rejects review creation when the final milestone is not paid', async () => {
+    projectRepo.findOne.mockResolvedValue({
+      id: 'project-1',
+      status: ProjectStatus.COMPLETED,
+      clientId: 'reviewer-1',
+      freelancerId: 'target-1',
+      brokerId: null,
+      totalBudget: 20000000,
+    });
+    milestoneRepo.find.mockResolvedValue([
+      { id: 'milestone-1', sortOrder: 1, status: MilestoneStatus.PAID },
+      { id: 'milestone-2', sortOrder: 2, status: MilestoneStatus.COMPLETED },
+    ]);
+
+    await expect(
+      service.create(
+        'reviewer-1',
+        {
+          projectId: 'project-1',
+          targetUserId: 'target-1',
+          rating: 5,
+          comment: 'Great work',
+        },
+        {},
+      ),
+    ).rejects.toThrow('final milestone is accepted and paid');
+
+    expect(reviewRepo.findOne).not.toHaveBeenCalled();
+    expect(dataSource.transaction).not.toHaveBeenCalled();
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
   });
 
   it('updates a review and emits a post-commit trust score event', async () => {

@@ -15,6 +15,10 @@ import {
 } from 'class-validator';
 
 export class CreateClientFeatureDto {
+  @IsOptional()
+  @IsString()
+  id?: string;
+
   @IsString()
   @IsNotEmpty()
   title: string;
