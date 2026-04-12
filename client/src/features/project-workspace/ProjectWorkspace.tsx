@@ -38,6 +38,7 @@ import type {
   Milestone,
   ProjectTaskRealtimeEvent,
   Task,
+  TaskPriority,
 } from "./types";
 import { KanbanColumn } from "./components/board/KanbanColumn";
 import {
@@ -98,6 +99,23 @@ const TASK_CREATION_LOCK_MESSAGE =
   "Tasks can only be added while the milestone is pending, in progress, or revisions required.";
 const TASK_MUTATION_LOCK_MESSAGE =
   "Task changes are locked because this milestone is in review, completed, paid, or locked.";
+const WORKSPACE_TASK_STATUS_FILTER_OPTIONS: Array<{ value: KanbanColumnKey | "ALL"; label: string }> = [
+  { value: "ALL", label: "All statuses" },
+  { value: "TODO", label: "To do" },
+  { value: "IN_PROGRESS", label: "In progress" },
+  { value: "IN_REVIEW", label: "In review" },
+  { value: "DONE", label: "Done" },
+];
+const WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS: Array<{
+  value: TaskPriority | "ALL";
+  label: string;
+}> = [
+  { value: "ALL", label: "All priorities" },
+  { value: "LOW", label: "Low" },
+  { value: "MEDIUM", label: "Medium" },
+  { value: "HIGH", label: "High" },
+  { value: "URGENT", label: "Urgent" },
+];
 const WARRANTY_WINDOW_DAYS = 30;
 const DISPUTE_PRE_DELIVERY_MILESTONE_STATUSES = new Set<string>([
   "IN_PROGRESS",
@@ -113,6 +131,31 @@ const DISPUTE_POST_DELIVERY_MILESTONE_STATUSES = new Set<string>([
 
 const normalizeMilestoneKey = (value?: string | null) =>
   value == null ? null : String(value);
+
+const normalizeTaskDate = (value?: string | null): Date | null => {
+  if (!value) {
+    return null;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+};
+
+const isTaskOverdue = (task: Task): boolean => {
+  if (task.status === "DONE") {
+    return false;
+  }
+
+  const dueDate = normalizeTaskDate(task.dueDate ?? task.startDate ?? null);
+  if (!dueDate) {
+    return false;
+  }
+
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  dueDate.setHours(0, 0, 0, 0);
+  return dueDate.getTime() < now.getTime();
+};
 
 const formatMilestoneRuntimeStatus = (status?: string | null) => {
   switch (status?.toUpperCase()) {
@@ -200,6 +243,15 @@ export function ProjectWorkspace() {
     null,
   );
   const [isMyTasksFilter, setIsMyTasksFilter] = useState(false);
+  const [selectedStatusFilter, setSelectedStatusFilter] = useState<
+    KanbanColumnKey | "ALL"
+  >("ALL");
+  const [selectedPriorityFilter, setSelectedPriorityFilter] = useState<
+    TaskPriority | "ALL"
+  >("ALL");
+  const [isOverdueOnlyFilter, setIsOverdueOnlyFilter] = useState(false);
+  const [showSubtasksInWorkspaceViews, setShowSubtasksInWorkspaceViews] =
+    useState(true);
 
   // Task Detail Modal state
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
@@ -1110,6 +1162,50 @@ export function ProjectWorkspace() {
     taskCommandUnavailableMessage,
   ]);
 
+  const handleCreateTaskFromCalendarDate = useCallback(
+    (start: Date, end: Date) => {
+      if (!activeMilestone) {
+        const message = "Select a milestone before creating a task.";
+        setError(message);
+        toast.warning(message);
+        return;
+      }
+
+      if (!isAssignedBroker) {
+        const message = "Only the assigned broker can create tasks for this project.";
+        setError(message);
+        toast.warning(message);
+        return;
+      }
+
+      if (!canCreateTasksForSelectedMilestone) {
+        const message = taskCommandUnavailableMessage || TASK_CREATION_LOCK_MESSAGE;
+        setError(message);
+        toast.warning(message);
+        return;
+      }
+
+      const normalizedStart = new Date(start);
+      normalizedStart.setHours(0, 0, 0, 0);
+      const normalizedEnd = new Date(end);
+      normalizedEnd.setHours(0, 0, 0, 0);
+      const dueSource =
+        normalizedEnd.getTime() > normalizedStart.getTime()
+          ? new Date(normalizedEnd.getTime() - 24 * 60 * 60 * 1000)
+          : normalizedStart;
+
+      setNewStartDate(normalizedStart.toISOString().slice(0, 10));
+      setNewDueDate(dueSource.toISOString().slice(0, 10));
+      setIsModalOpen(true);
+    },
+    [
+      activeMilestone,
+      canCreateTasksForSelectedMilestone,
+      isAssignedBroker,
+      taskCommandUnavailableMessage,
+    ],
+  );
+
   const openCreateMilestoneModal = useCallback(() => {
     if (isMilestoneStructureLocked) {
       const message =
@@ -1190,29 +1286,15 @@ export function ProjectWorkspace() {
   }, [activeMilestone?.title, currentRole, projectId, selectedMilestoneId, viewMode]);
 
   const allTasks = boardMeta.allTasks;
-  const calendarTasks = useMemo(() => {
-    const milestoneKey = normalizeMilestoneKey(selectedMilestoneId);
-    if (!milestoneKey) {
-      return allTasks;
-    }
+  const activeAssigneeFilterId = useMemo(
+    () => selectedAssigneeId || (isMyTasksFilter ? currentUser?.id ?? null : null),
+    [currentUser?.id, isMyTasksFilter, selectedAssigneeId],
+  );
+  const taskMatchesWorkspaceFilters = useCallback(
+    (task: Task) => {
+      const normalizedMilestoneId = normalizeMilestoneKey(selectedMilestoneId);
+      const normalizedSearch = searchQuery.trim().toLowerCase();
 
-    return allTasks.filter(
-      (task) => normalizeMilestoneKey(task.milestoneId ?? null) === milestoneKey,
-    );
-  }, [allTasks, selectedMilestoneId]);
-  const uniqueAssignees = boardMeta.uniqueAssignees;
-
-  const processedBoard = useMemo(() => {
-    const normalizedMilestoneId = normalizeMilestoneKey(selectedMilestoneId);
-    const normalizedSearch = searchQuery.trim().toLowerCase();
-    const assigneeFilterId =
-      selectedAssigneeId || (isMyTasksFilter ? currentUser?.id ?? null : null);
-
-    if (!normalizedMilestoneId && !normalizedSearch && !assigneeFilterId) {
-      return board;
-    }
-
-    const matchesTask = (task: Task) => {
       if (
         normalizedMilestoneId &&
         normalizeMilestoneKey(task.milestoneId ?? null) !== normalizedMilestoneId
@@ -1227,28 +1309,109 @@ export function ProjectWorkspace() {
         return false;
       }
 
-      if (assigneeFilterId && task.assignee?.id !== assigneeFilterId) {
+      if (activeAssigneeFilterId && task.assignee?.id !== activeAssigneeFilterId) {
+        return false;
+      }
+
+      if (selectedStatusFilter !== "ALL" && task.status !== selectedStatusFilter) {
+        return false;
+      }
+
+      if (
+        selectedPriorityFilter !== "ALL" &&
+        task.priority !== selectedPriorityFilter
+      ) {
+        return false;
+      }
+
+      if (isOverdueOnlyFilter && !isTaskOverdue(task)) {
+        return false;
+      }
+
+      if (!showSubtasksInWorkspaceViews && task.parentTaskId) {
         return false;
       }
 
       return true;
-    };
+    },
+    [
+      activeAssigneeFilterId,
+      isOverdueOnlyFilter,
+      searchQuery,
+      selectedMilestoneId,
+      selectedPriorityFilter,
+      selectedStatusFilter,
+      showSubtasksInWorkspaceViews,
+    ],
+  );
+  const filteredWorkspaceTasks = useMemo(
+    () => allTasks.filter(taskMatchesWorkspaceFilters),
+    [allTasks, taskMatchesWorkspaceFilters],
+  );
+  const calendarTasks = useMemo(() => {
+    return filteredWorkspaceTasks;
+  }, [filteredWorkspaceTasks]);
+  const uniqueAssignees = boardMeta.uniqueAssignees;
+
+  const processedBoard = useMemo(() => {
+    if (
+      !searchQuery.trim() &&
+      !activeAssigneeFilterId &&
+      selectedStatusFilter === "ALL" &&
+      selectedPriorityFilter === "ALL" &&
+      !isOverdueOnlyFilter &&
+      showSubtasksInWorkspaceViews &&
+      !selectedMilestoneId
+    ) {
+      return board;
+    }
 
     return BOARD_COLUMNS.reduce<KanbanBoard>((nextBoard, columnKey) => {
       const sourceTasks = board[columnKey];
-      const filteredTasks = sourceTasks.filter(matchesTask);
+      const filteredTasks = sourceTasks.filter(taskMatchesWorkspaceFilters);
       nextBoard[columnKey] =
         filteredTasks.length === sourceTasks.length ? sourceTasks : filteredTasks;
       return nextBoard;
     }, createEmptyBoard());
   }, [
     board,
+    activeAssigneeFilterId,
+    isOverdueOnlyFilter,
     searchQuery,
-    selectedAssigneeId,
-    isMyTasksFilter,
-    currentUser?.id,
     selectedMilestoneId,
+    selectedPriorityFilter,
+    selectedStatusFilter,
+    showSubtasksInWorkspaceViews,
+    taskMatchesWorkspaceFilters,
   ]);
+  const hasActiveWorkspaceTaskFilters = useMemo(
+    () =>
+      Boolean(
+        searchQuery.trim() ||
+          activeAssigneeFilterId ||
+          selectedStatusFilter !== "ALL" ||
+          selectedPriorityFilter !== "ALL" ||
+          isOverdueOnlyFilter ||
+          !showSubtasksInWorkspaceViews,
+      ),
+    [
+      activeAssigneeFilterId,
+      isOverdueOnlyFilter,
+      searchQuery,
+      selectedPriorityFilter,
+      selectedStatusFilter,
+      showSubtasksInWorkspaceViews,
+    ],
+  );
+  const clearWorkspaceTaskFilters = useCallback(() => {
+    setSearchQuery("");
+    setSelectedAssigneeId(null);
+    setIsMyTasksFilter(false);
+    setSelectedStatusFilter("ALL");
+    setSelectedPriorityFilter("ALL");
+    setIsOverdueOnlyFilter(false);
+    setShowSubtasksInWorkspaceViews(true);
+  }, []);
 
   const selectedTask = useMemo(
     () => (selectedTaskId ? boardMeta.taskMap.get(selectedTaskId) ?? null : null),
@@ -2435,14 +2598,68 @@ export function ProjectWorkspace() {
                     })}
                   </div>
 
+                  <select
+                    value={selectedStatusFilter}
+                    onChange={(event) =>
+                      setSelectedStatusFilter(
+                        event.target.value as KanbanColumnKey | "ALL",
+                      )
+                    }
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by status"
+                  >
+                    {WORKSPACE_TASK_STATUS_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={selectedPriorityFilter}
+                    onChange={(event) =>
+                      setSelectedPriorityFilter(
+                        event.target.value as TaskPriority | "ALL",
+                      )
+                    }
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by priority"
+                  >
+                    {WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={() => setIsOverdueOnlyFilter((current) => !current)}
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      isOverdueOnlyFilter
+                        ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Overdue only
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      setShowSubtasksInWorkspaceViews((current) => !current)
+                    }
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      showSubtasksInWorkspaceViews
+                        ? "bg-teal-50 text-teal-700 ring-1 ring-teal-200"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {showSubtasksInWorkspaceViews ? "Subtasks on" : "Subtasks off"}
+                  </button>
+
                   {/* Clear All Button (Only show if filters active) */}
-                  {(searchQuery || selectedAssigneeId || isMyTasksFilter) && (
+                  {hasActiveWorkspaceTaskFilters && (
                     <button
-                      onClick={() => {
-                        setSearchQuery("");
-                        setSelectedAssigneeId(null);
-                        setIsMyTasksFilter(false);
-                      }}
+                      onClick={clearWorkspaceTaskFilters}
                       className="px-3 py-1.5 text-xs font-medium text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors"
                     >
                       Clear filters
@@ -2483,13 +2700,95 @@ export function ProjectWorkspace() {
               </div>
             </DragDropContext>
           ) : (
-            <CalendarView
-              tasks={calendarTasks}
-              selectedMilestoneLabel={activeMilestone?.title ?? null}
-              canRescheduleTasks={!isReadOnly && !selectedMilestoneTaskMutationReason}
-              onViewTaskDetails={handleViewTaskDetails}
-              onTaskUpdated={upsertTaskIntoBoard}
-            />
+            <div className="space-y-3">
+              <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex flex-wrap items-center gap-2">
+                  <select
+                    value={selectedStatusFilter}
+                    onChange={(event) =>
+                      setSelectedStatusFilter(
+                        event.target.value as KanbanColumnKey | "ALL",
+                      )
+                    }
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by status"
+                  >
+                    {WORKSPACE_TASK_STATUS_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <select
+                    value={selectedPriorityFilter}
+                    onChange={(event) =>
+                      setSelectedPriorityFilter(
+                        event.target.value as TaskPriority | "ALL",
+                      )
+                    }
+                    className="rounded-md border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-600"
+                    title="Filter by priority"
+                  >
+                    {WORKSPACE_TASK_PRIORITY_FILTER_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={() => setIsOverdueOnlyFilter((current) => !current)}
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      isOverdueOnlyFilter
+                        ? "bg-red-50 text-red-700 ring-1 ring-red-200"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    Overdue only
+                  </button>
+
+                  <button
+                    onClick={() =>
+                      setShowSubtasksInWorkspaceViews((current) => !current)
+                    }
+                    className={`rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                      showSubtasksInWorkspaceViews
+                        ? "bg-teal-50 text-teal-700 ring-1 ring-teal-200"
+                        : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                  >
+                    {showSubtasksInWorkspaceViews ? "Subtasks on" : "Subtasks off"}
+                  </button>
+                </div>
+
+                {hasActiveWorkspaceTaskFilters ? (
+                  <button
+                    onClick={clearWorkspaceTaskFilters}
+                    className="rounded-md px-3 py-1.5 text-xs font-medium text-slate-500 transition-colors hover:bg-red-50 hover:text-red-600"
+                  >
+                    Clear filters
+                  </button>
+                ) : null}
+              </div>
+
+              <CalendarView
+                {...({
+                  tasks: calendarTasks,
+                  selectedMilestoneLabel: activeMilestone?.title ?? null,
+                  canRescheduleTasks:
+                    !isReadOnly && !selectedMilestoneTaskMutationReason,
+                  canCreateTasks: canCreateTasksForSelectedMilestone,
+                  calendarInteractionMessage: canCreateTasksForSelectedMilestone
+                    ? null
+                    : selectedMilestoneTaskMutationReason ||
+                      taskCommandUnavailableMessage,
+                  onViewTaskDetails: handleViewTaskDetails,
+                  onTaskUpdated: upsertTaskIntoBoard,
+                  onCreateTaskFromDate: handleCreateTaskFromCalendarDate,
+                } as any)}
+              />
+            </div>
           )}
         </>
       )}
